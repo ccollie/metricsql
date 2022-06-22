@@ -1,0 +1,21 @@
+[package]
+name = "metrix"
+version = "0.1.0"
+edition = "2021"
+keywords = ["parse", "query", "time-series", "metrics", "promql"]
+categories = ["metrrics"]
+include = [
+    "**/*.rs",
+    "Cargo.toml",
+]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+enquote = "1.1"
+regex= "1.5.6"
+phf = { version = "0.10", features = ["macros"] }
+
+[lib]
+name = "metrix"
+path = "src/lib.rs"
