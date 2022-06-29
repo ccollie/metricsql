@@ -2,22 +2,21 @@ use std::fmt;
 use std::fmt::Display;
 use std::string::{String, ToString};
 use enquote::{escape, enquote};
-use metrix::error::Error;
 use crate::lexer::*;
 use crate::parser::{duration_value, escape_ident};
-use metricsql::::expression_kind::ExpressionKind;
-use metricsql::::label_filter::{LabelFilter, LabelFilterExpr};
 use crate::error::Error;
 use crate::types::{BinaryOp, Group};
 use crate::types::expression_kind::ExpressionKind;
 use crate::types::label_filter::{LabelFilter, LabelFilterExpr};
+
+pub type Span = logos::Span;
 
 pub trait Visitor<T> {
     fn visit_expr(&mut self, visitor: fn(e: &Expression) -> ());
 }
 
 /// Expression Trait. Useful for cases where match is not ergonomic
-trait ExpressionImpl {
+trait ExpressionNode {
     fn kind(&self) -> ExpressionKind;
 }
 
@@ -71,6 +70,25 @@ impl Expression {
             _ => false,
         }
     }
+
+    pub fn cast(node: impl ExpressionNode) -> Option<Self> {
+        let result = match node.kind() {
+            ExpressionKind::Binop => Self::BinaryOperator(BinaryOpExpr(node)),
+            ExpressionKind::Number => Self::Number(NumberExpr(node)),
+            ExpressionKind::Parens => Self::Parens(ParensExpr(node)),
+            ExpressionKind::Function => Self::Function(FuncExpr(node)),
+            ExpressionKind::Group => Self::Group(Group(node)),
+            ExpressionKind::Aggregate => Self::Aggregation(AggrFuncExpr(node)),
+            ExpressionKind::With => Self::With(WithExpr(node)),
+            ExpressionKind::Metric => Self::MetricExpression(MetricExpr(node)),
+            ExpressionKind::String => Self::String(StringExpr(node)),
+            ExpressionKind::Duration => Self::Duration(DurationExpr(node)),
+            ExpressionKind::Rollup => Self::Rollup(RollupExpr(node)),
+            _ => return None,
+        };
+
+        Some(result)
+    }
 }
 
 impl Display for Expression {
@@ -103,6 +121,7 @@ pub struct StringExpr {
 
     // Composite string has non-empty tokens.
     // They must be converted into S by expand_with_expr.
+    // todo: SmallVec
     pub tokens: Option<Vec<String>>
 }
 
@@ -124,7 +143,7 @@ impl StringExpr {
     }
 }
 
-impl ExpressionImpl for StringExpr {
+impl ExpressionNode for StringExpr {
     fn kind(&self) -> ExpressionKind {
         ExpressionKind::String
     }
@@ -155,7 +174,7 @@ impl NumberExpr {
     }
 }
 
-impl ExpressionImpl for NumberExpr {
+impl ExpressionNode for NumberExpr {
     fn kind(&self) -> ExpressionKind {
         ExpressionKind::Number
     }
@@ -505,7 +524,7 @@ impl Display for BinaryOpExpr {
     }
 }
 
-impl ExpressionImpl for BinaryOpExpr {
+impl ExpressionNode for BinaryOpExpr {
     fn kind(&self) -> ExpressionKind {
         ExpressionKind::Binop
     }
@@ -546,7 +565,7 @@ impl Display for FuncExpr {
     }
 }
 
-impl ExpressionImpl for FuncExpr {
+impl ExpressionNode for FuncExpr {
     fn kind(&self) -> ExpressionKind {
         ExpressionKind::Function
     }
@@ -649,7 +668,7 @@ impl Display for RollupExpr {
             write!(f, "]")?;
         }
         if let Some(offset) = &self.offset {
-            write!(f, " offset {:?}", offset)?;
+            write!(f, " offset {}", offset)?;
         }
         if let Some(at) = &self.at {
             let parens_needed = match at {
@@ -669,7 +688,7 @@ impl Display for RollupExpr {
     }
 }
 
-impl ExpressionImpl for RollupExpr {
+impl ExpressionNode for RollupExpr {
     fn kind(&self) -> ExpressionKind {
         ExpressionKind::Rollup
     }
@@ -705,7 +724,7 @@ impl Display for DurationExpr {
     }
 }
 
-impl ExpressionImpl for RollupExpr {
+impl ExpressionNode for RollupExpr {
     fn kind(&self) -> ExpressionKind {
         ExpressionKind::Duration
     }
@@ -714,7 +733,7 @@ impl ExpressionImpl for RollupExpr {
 // withExpr represents `with (...)` extension from MetricsQL.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WithExpr {
-    pub was: Vec<WithArgExpr>,
+    pub was: Vec<WithArgExpr>, // todo: SmallVec
     pub expr: BExpression
 }
 
@@ -742,7 +761,7 @@ impl Display for WithExpr {
     }
 }
 
-impl ExpressionImpl for WithExpr {
+impl ExpressionNode for WithExpr {
     fn kind(&self) -> ExpressionKind {
         ExpressionKind::With
     }
@@ -750,10 +769,20 @@ impl ExpressionImpl for WithExpr {
 // withArgExpr represents a single entry from WITH expression.
 //
 #[derive(Default, Debug, Clone, PartialEq)]
-pub struct WithArgExpr {
+pub(crate) struct WithArgExpr {
     pub name: String,
     pub args: Vec<String>,
     pub expr: BExpression
+}
+
+impl WithArgExpr {
+    pub fn new<S: Into<String>>(name: S, expr: Expression) -> Self {
+        WithArgExpr {
+            name: name.into(),
+            args: vec![],
+            expr: Box::new(expr)
+        }
+    }
 }
 
 impl Display for WithArgExpr {
@@ -814,7 +843,7 @@ impl AggregateModifier {
     }
 
     /// Creates a new AggregateModifier with the Left op
-    pub fn byy() -> Self {
+    pub fn by() -> Self {
         AggregateModifier::new(AggregateModifierOp::By)
     }
 
@@ -896,19 +925,19 @@ impl Display for AggrFuncExpr {
         write!(f, "{}", escape_ident(&self.name))?;
         let args_len = self.args.len();
         if args_len > 0 {
-            write_expression_list(self.args, f);
+            write_expression_list(&self.args, f);
         }
         if let Some(modifier) = &self.modifier {
             write!(f, "{}", modifier)?;
         }
         if self.limit > 0 {
-            write!(f, " limit {}", self.limit)?;
+            write!(f, " limit {}", self.limit.as_str())?;
         }
         Ok(())
     }
 }
 
-impl ExpressionImpl for AggrFuncExpr {
+impl ExpressionNode for AggrFuncExpr {
     fn kind(&self) -> ExpressionKind {
         ExpressionKind::Aggregate
     }
@@ -967,12 +996,12 @@ impl MetricExpr {
 
 impl Display for MetricExpr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut lfs = &self.label_filters;
+        let mut lfs: &[LabelFilter] = &self.label_filters;
         if lfs.len() > 0 {
             let lf = &lfs[0];
             if lf.label == "__name__" && !lf.is_negative && !lf.is_regexExp {
                 write!(f, "{}", escape_ident(&lf.label))?;
-                lfs = lfs[1..];
+                lfs = &lfs[1..];
             }
         }
         if lfs.len() > 0 {
@@ -991,7 +1020,7 @@ impl Display for MetricExpr {
     }
 }
 
-impl ExpressionImpl for MetricExpr {
+impl ExpressionNode for MetricExpr {
     fn kind(&self) -> ExpressionKind {
         ExpressionKind::Metric
     }
@@ -1020,7 +1049,7 @@ impl Display for ParensExpr {
     }
 }
 
-impl ExpressionImpl for ParensExpr {
+impl ExpressionNode for ParensExpr {
     fn kind(&self) -> ExpressionKind {
         ExpressionKind::Parens
     }
@@ -1039,7 +1068,7 @@ fn write_labels(labels: &Vec<String>, f: &mut fmt::Formatter) {
     }
 }
 
-fn write_expression_list(args: &Vec<Expression>, f: &mut fmt::Formatter) {
+fn write_expression_list(args: &[Expression], f: &mut fmt::Formatter) {
     write!(f, "(")?;
     for (i, arg) in args.iter().enumerate() {
         if (i + 1) < args.len() {
@@ -1050,7 +1079,7 @@ fn write_expression_list(args: &Vec<Expression>, f: &mut fmt::Formatter) {
     write!(f, ")")?;
 }
 
-fn expr_list_to_str(args: Vec<Expression>) -> &String {
+fn expr_list_to_str(args: &[Expression]) -> &String {
     let mut s = String::new();
     for (i, arg) in args.iter().enumerate() {
         if (i + 1) < args.len() {

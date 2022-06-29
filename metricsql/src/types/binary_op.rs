@@ -100,13 +100,21 @@ impl BinaryOp {
         return self == Pow;
     }
 
-    pub fn is_logical_set_op(self) -> bool {
-        use BinaryOp::*;
-        return self == And || self == Or || self == Unless;
+    pub fn is_logical_op(self) -> bool {
+        return self.kind() == BinaryOpKind::Logical;
     }
 
     pub fn is_comparison(&self) -> bool {
         self.kind == BinaryOpKind::Comparison
+    }
+
+    #[inline]
+    pub fn is_binary_op_logical_set(self) -> bool {
+        use BinaryOp::*;
+        match self {
+            And | Or | Unless => true,
+            _ => false
+        }
     }
 }
 
@@ -151,60 +159,4 @@ impl fmt::Display for BinaryOp {
 
 pub fn is_binary_op(op: &str) -> bool {
     BINARY_OPS_MAP.contains_key(op.to_lowercase().as_str())
-}
-
-pub fn binary_op_priority(op: &str) -> i8 {
-    let opp = BinaryOp::try_from(op);
-    return if opp.is_ok() {
-        op.precedence()
-    } else {
-        -1
-    };
-}
-
-pub fn scan_binary_op_prefix(s: &str) -> usize {
-    let mut n = 0;
-    for op in BINARY_OPS_MAP.keys() {
-        let op_len = op.len();
-        if s.len() < op_len {
-            continue;
-        }
-        let ss = &s[0..op_len].to_lowercase();
-        if ss == *k && op_len > n {
-            n = op_len;
-        }
-        n += 1;
-    }
-    return n;
-}
-
-pub fn is_binary_op_cmp(op: &str) -> bool {
-    op == "==" || op == "!=" || op == "<" || op == ">" || op == "<=" || op == ">="
-}
-
-pub fn is_right_associative_binary_op(op: &str) -> bool {
-    // See https://prometheus.io/docs/prometheus/latest/querying/operators/#binary-operator-precedence
-    return op == "^"
-}
-
-pub fn is_binary_op_group_modifier(s: &str) -> bool {
-    let lower = s.to_ascii_lowercase().as_str();
-    // See https://prometheus.io/docs/prometheus/latest/querying/operators/#vector-matching
-    return lower == "on" || lower == "ignoring";
-}
-
-pub fn is_binary_op_join_modifier(s: &str) -> bool {
-    let lower = s.to_ascii_lowercase().as_str();
-    // See https://prometheus.io/docs/prometheus/latest/querying/operators/#vector-matching
-    return lower == "group_left" || lower == "group_right";
-}
-
-pub fn is_binary_op_logical_set(s: &str) -> bool {
-    let lower = s.to_ascii_lowercase().as_str();
-    return lower == "and" || lower == "or" || lower == "unless";
-}
-
-pub fn is_binary_op_bool_modifier(s: &str) -> bool {
-    let lower = s.to_ascii_lowercase().as_str();
-    return lower == "bool";
 }

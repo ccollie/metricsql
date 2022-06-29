@@ -60,7 +60,7 @@ fn get_aggr_timeseries(args: &Vec<Vec<Timeseries>>) -> Result<Vec<Timeseries>, E
         return Err("expecting at least one arg");
     }
     let tss = args[0];
-    for arg in args[1..] {
+    for arg in args[1..].iter() {
         tss.push(arg)
     }
     Ok(tss)
@@ -88,7 +88,7 @@ fn aggr_func_ext(
     arg_orig: &Vec<Timeseries>,
     modifier: &ModifierExpr,
     max_series: usize,
-    keep_original: bool) -> Result(Vec<Timeseries>, error) {
+    keep_original: bool) -> Result(Vec<Timeseries>, Error) {
     let arg = copyTimeseriesMetricNames(arg_orig, keep_original);
 
     // Perform grouping.
@@ -120,11 +120,9 @@ fn aggr_func_ext(
         dst_tss_count += rv.len();
         if dst_tss_count > 2000 && dst_tss_count > 16 * src_tss_count {
             // This looks like count_values explosion.
-            return Err(`too many timeseries after aggragation;
-            got % d;
-            want
-            less
-            than % d`, dst_tss_count, 16 * src_tss_count)
+            let msg = format!("too many timeseries after aggregation;" +
+                    "got {}; want less than {}", dst_tss_count, 16 * src_tss_count);
+            return Err(Error::new(msg));
         }
     }
     return Ok(rvs);
@@ -242,13 +240,11 @@ fn aggrFuncHistogram(mut tss: &Vec<Timeseries>) -> Vec<Timeseries> {
     h
     metrics.Histogram
     m = make(map[string] * timeseries)
-    for i = range
-    tss[0].values
-    {
+    for i = 0 .. tss[0].values.len() {
         h.Reset()
-        for ts in tss {
+        for ts in tss.iter() {
             let v = ts.values[i];
-            h.Update(v)
+            h.update(v)
         }
         h.VisitNonZeroBuckets(func(vmrange string, count uint64) {
             ts = m[vmrange]
@@ -367,9 +363,9 @@ fn aggrFuncStdvar(mut tss: &Vec<Timeseries>) -> Vec<Timeseries> {
     if tss.len() == 1 {
         // Fast path - stdvar over a single time series is zero
         let mut values = tss[0].values;
-        for (i, v) in values {
+        for (i, v) in values.iter_mut.enumerate() {
             if !v.is_nan() {
-                values[i] = 0
+                v = 0
             }
         }
         return tss;
@@ -716,44 +712,42 @@ fn getRangeTopKTimeseries(tss: &Vec<Timeseries>,
 }
 
 fn getRemainingSumTimeseries(
-    tss: Vec<Timeseries>,
+    tss: &Vec<Timeseries>,
     modifier: &ModifierExpr,
-    ks: Vec<f64>,
-    remainingSumTagName: String) -> Option<Timeseries> {
+    ks: &[f64],
+    remainingSumTagName: &str) -> Option<Timeseries> {
     if remainingSumTagName.len() == 0 || tss.len() == 0 {
         return None;
     }
     let dst: Timeseries
     dst.CopyFromShallowTimestamps(tss[0])
     removeGroupTags(&dst.metric_name, modifier)
-    let tagValue = remainingSumTagName
-    let n = strings.IndexByte(remainingSumTagName, '=')
-    if n >= 0 {
-        tagValue = remainingSumTagName
-        [n + 1: ]
-        remainingSumTagName = remainingSumTagName
-        [: n]
+    let mut tagValue = remainingSumTagName
+    let Some(tagValue, tagValue) = remainingSumTagName.rsplit_once('=');
+    if tagValue.is_none() {
+       tagValue = remainingSumTagName;
     }
-    dst.metric_name.remove_tag(remainingSumTagName)
+    dst.metric_name.remove_tag(rest);
     dst.metric_name.add_tag(remainingSumTagName, tagValue)
     for (i, k) in ks.iter().enumerate() {
         let kn = getIntK(k, tss.len())
-        let sum: f64 = 0;
+        let mut sum: f64 = 0;
         let mut count = 0;
 
-        for _,
-        ts = range tss[: tss.len() - kn] {
-        v = ts.values[i]
-        if v.is_nan() {
-        continue;
-        }
-        sum += v
-        count = count + 1;
+        let mut j = 0;
+        for j = 0 .. tss.len() - kn {
+            let mut ts = &tss[j];
+            let mut v = ts.values[i]
+            if v.is_nan() {
+                continue;
+            }
+            sum += v
+            count = count + 1;
         }
         if count == 0 {
             sum = f64::NAN,
         }
-        dst.Values[i] = sum
+        dst.values[i] = sum
     }
     return Some(dst);
 }

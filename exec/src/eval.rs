@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::Error;
 use regex::Regex;
+use lib::error::Error;
 use metricsql::types::{AggrFuncExpr, BinaryOp, BinaryOpExpr, DurationExpr, Expression, FuncExpr, MetricExpr, RollupExpr};
 use super::binary_op::*;
 
@@ -9,7 +9,7 @@ use super::binary_op::*;
 // big time ranges.
 const MinTimeseriesPointsForTimeRounding: usize = 50;
 
-let mut disableCache = false;
+// let mut disableCache = false;
 
 use crate::timeseries::Timeseries;
 use crate::transform::TransformFuncArg;
@@ -234,9 +234,10 @@ pub fn eval_expr_internal(qt: &Querytracer, ec: &EvalConfig, e: &MetricExpr) -> 
 
 pub fn eval_transform_func(qt: &Querytracer, ec: &EvalConfig, fe: &FuncExpr) -> Result<Vec<Timeseries>, Error> {
     let args = eval_exprs(qt, ec, &fe.args)?;
-    let tf = get_transform_func(fe.name);
-    if tf == nil {
-        return nil;, fmt.Errorf(`unknown func % q`, fe.Name)
+    let tf = get_transform_func(&fe.name);
+    if tf.is_none() {
+        let msg = format!("unknown func {}", fe.name);
+        return Err(Error::from(msg));
     }
     let tfa = TransformFuncArg {
         ec,
@@ -254,11 +255,12 @@ pub fn eval_aggr_func(qt: &Querytracer, ec: &EvalConfig, ae: &AggrFuncExpr) -> R
     let callbacks = getIncrementalAggrFuncCallbacks(ae.Name);
     if callbacks.is_some() {
         let (fe, nrf) = try_get_arg_rollup_func_with_metric_expr(ae);
-        if fe.is_some() {
+        if fe.is_some() && nrf.is_some() {
+            let func = nrf.unwrap();
             // There is an optimized path for calculating metricsql.AggrFuncExpr over: RollupFunc over metricsql.MetricExpr.
             // The optimized path saves RAM for aggregates over big number of time series.
             let (args, re) = evalRollupFuncArgs(qt, ec, fe.unwrap())?;
-            let rf = nrf(args);
+            let rf = func(args);
             let iafc = newIncrementalAggrFuncContext(ae, callbacks);
             return evalRollupFunc(qt, ec, fe.Name, rf, ae, re, iafc);
         }
@@ -280,7 +282,7 @@ pub fn eval_aggr_func(qt: &Querytracer, ec: &EvalConfig, ae: &AggrFuncExpr) -> R
 }
 
 fn eval_binary_op(qt: &Querytracer, ec: &EvalConfig, be: &BinaryOpExpr) -> Result<Vec<Timeseries>, Error> {
-    let bf = get_binary_op_func(be.op);
+    let bf = get_binary_op_func(be.op)?;
 
     let tss_left: Vec<Timeseries> = vec![];
     let tss_right: Vec<Timeseries> = vec![];
@@ -290,9 +292,9 @@ fn eval_binary_op(qt: &Querytracer, ec: &EvalConfig, be: &BinaryOpExpr) -> Resul
         // lower number of time series for `and` and `if` operator.
         // This should produce more specific label filters for the left side of the query.
         // This, in turn, should reduce the time to select series for the left side of the query.
-        (tss_right, tss_left) = eval_binary_op_args(qt, ec, be.right, be.left, be)?
+        (tss_right, tss_left) = eval_binary_op_args(qt, ec, &be.right, &be.left, be)?
     } else {
-        (tss_left, tss_right) = eval_binary_op_args(qt, ec, be.left, be.right, be)?
+        (tss_left, tss_right) = eval_binary_op_args(qt, ec, &be.left, &be.right, be)?
     }
 
     let bfa = BinaryOpFuncArg {
@@ -302,7 +304,7 @@ fn eval_binary_op(qt: &Querytracer, ec: &EvalConfig, be: &BinaryOpExpr) -> Resul
     };
 
     match bf(bfa) {
-        Err(err) => Err(format!("cannot evaluate {}: {}", be, err)),
+        Err(err) => Err(Error::new(format!("cannot evaluate {}: {}", be, err))),
         OK(v) => v
     }
 }
@@ -419,7 +421,7 @@ fn join_regexp_values(a: &Vec<String>) -> String {
 }
 
 
-fn try_get_arg_rollup_func_with_metric_expr(ae: &AggrFuncExpr) -> (Option<Metricsql::FuncExpr>, Option<NewRollupFunc>) {
+fn try_get_arg_rollup_func_with_metric_expr(ae: &AggrFuncExpr) -> (Option<FuncExpr>, Option<NewRollupFunc>) {
     if ae.args.len() != 1 {
         return (None, None)
     }
@@ -448,9 +450,10 @@ fn try_get_arg_rollup_func_with_metric_expr(ae: &AggrFuncExpr) -> (Option<Metric
                 return (None, None);
             }
             // e = metricExpr[d]
-            let fe = MetricSql::FuncExpr {
+            let fe = FuncExpr {
                 name: "default_rollup",
                 args: Vec![re],
+                keep_metric_names: false
             };
             let nrf = getRollupFunc(fe.Name);
             return (Some(fe), Some(nrf));

@@ -22,7 +22,7 @@ impl TimeseriesMap {
             values.push(nan);
         }
 
-        let origin: timeseries
+        let origin: Timeseries;
         origin.metric_name.copy_from(mn_src);
         if !keepMetricNames && !rollupFuncsKeepMetricName[funcName] {
             origin.metric_name.reset_metric_group()
@@ -33,6 +33,7 @@ impl TimeseriesMap {
 
         TimeseriesMap {
             origin,
+            h: (),
             m
         }
     }
@@ -42,19 +43,11 @@ impl TimeseriesMap {
         if ts.is_some() {
             return *ts
         }
-        ts = &timeseries{}
-        ts.CopyFromShallowTimestamps(self.origin);
+        let ts = Timeseries::with_shared_timestamps(self.origin, vec![1]);
         ts.metric_name.remove_tag(label_name);
-        ts.metric_name.AddTag(label_name, label_value);
+        ts.metric_name.add_tag(label_name, label_value);
         tsm.m.insert(label_value, ts);
         return ts
     }
-}
-
-fn AppendTimeseriesTo(dst: &[Timeseries]) []*timeseries {
-for _, ts := range tsm.m {
-dst = append(dst, ts)
-}
-return dst
 }
 

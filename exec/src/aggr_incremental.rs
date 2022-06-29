@@ -143,9 +143,9 @@ impl IncrementalAggrFuncContext {
             }
         }
         let mut tss: Vec<Timeseries> = Vec::with_capacity(m_global.len());
-        let finalizeAggrfn = iafc.callbacks.finalizeAggrFunc;
+        let finalize_aggrfn = iafc.callbacks.finalizeAggrFunc;
         for iac in m_global {
-            finalizeAggrfn(iac);
+            finalize_aggrfn(iac);
             tss.push(inc.ts);
         }
         return tss;

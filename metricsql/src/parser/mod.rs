@@ -1,4 +1,3 @@
-mod lexer;
 mod aggr;
 mod optimizer;
 mod rollup;

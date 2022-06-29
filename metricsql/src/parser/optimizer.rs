@@ -4,11 +4,10 @@ use std::collections::HashSet;
 use std::fmt;
 use std::iter::FromIterator;
 use std::cmp::Ordering;
-use crate::{AggregateModifierOp, AggrFuncExpr, BExpression, BinaryOpExpr, Expression, GroupModifierOp};
 use crate::parser::aggr::is_aggr_func;
 use crate::parser::rollup::is_rollup_func;
 use crate::parser::transform::is_transform_func;
-use crate::types::{AggregateModifierOp, AggrFuncExpr, BinaryOpExpr, Expression, GroupModifierOp};
+use crate::types::*;
 
 
 // Optimize optimizes e in order to improve its performance.
@@ -164,7 +163,7 @@ pub fn get_common_label_filters(e: &Expression) -> Vec<LabelFilter> {
 }
 
 pub fn trim_filters_by_aggr_modifier(
-    lfs: &Vec<LabelFilter>,
+    lfs: &[LabelFilter],
     afe: &AggrFuncExpr,
 ) -> Vec<LabelFilter> {
     let mut modifier = &afe.modifier;
@@ -188,14 +187,14 @@ pub fn trim_filters_by_aggr_modifier(
 // - It returns only filters specified in on()
 // - It drops filters specified inside ignoring()
 pub fn trim_filters_by_group_modifier(
-    lfs: &Vec<LabelFilter>,
+    lfs: &[LabelFilter],
     be: &BinaryOpExpr,
 ) -> Vec<LabelFilter> {
     let modifier = &be.group_modifier;
     if modifier.is_none() {
-        return lfs.clone();
+        return lfs.iter_into().collect();
     }
-    return match be.groupModifier.op {
+    return match be.group_modifier.op {
         GroupModifierOp::On => {
             filter_label_filters_on(lfs, modifier.args)
         },
@@ -223,7 +222,7 @@ fn get_label_filters_without_metric_name(lfs: &Vec<LabelFilter>) -> Vec<LabelFil
 // then the returned expression will contain `foo{x="y"} + sum(bar)`.
 // The `{x="y"}` cannot be pushed down to `sum(bar)`, since this
 // may change binary operation results.
-pub fn pushdown_binary_op_filters(e: &Expression, common_filters: &Vec<LabelFilter>) -> Expression {
+pub fn pushdown_binary_op_filters(e: &Expression, common_filters: &[LabelFilter]) -> Expression {
     if common_filters.len() == 0 {
         // Fast path - nothing to push down.
         return *e;
@@ -274,7 +273,7 @@ pub fn pushdown_binary_op_filters_in_place(mut e: &Expression, common_filters: &
     }
 }
 
-fn intersect_label_filters(lfsa: &Vec<LabelFilter>, lfsb: &Vec<LabelFilter>) -> Vec<LabelFilter> {
+fn intersect_label_filters(lfsa: &Vec<LabelFilter>, lfsb: &[LabelFilter]) -> Vec<LabelFilter> {
     let mut a = HashSet::new();
     if lfsA.len() == 0 || lfsB.len() == 0 {
         return vec![];
@@ -283,7 +282,7 @@ fn intersect_label_filters(lfsa: &Vec<LabelFilter>, lfsb: &Vec<LabelFilter>) -> 
     return lfsb.iter().filter(|x| set.contains(x.as_str())).collect();
 }
 
-fn union_label_filters(a: &Vec<LabelFilter>, b: &Vec<LabelFilter>) -> Vec<LabelFilter> {
+fn union_label_filters(a: &Vec<LabelFilter>, b: &[abelFilter]) -> Vec<LabelFilter> {
     if a.len() == 0 {
         return Vec::from(b);
     }
@@ -292,7 +291,7 @@ fn union_label_filters(a: &Vec<LabelFilter>, b: &Vec<LabelFilter>) -> Vec<LabelF
     }
     let mut result: Vec<LabelFilter> = a.clone();
     let mut m = HashSet::from_iter(a.iter().map(|x| *x.as_str()));
-    for label in b {
+    for label in b.iter() {
         let mut k = label.as_str();
         if !m.contains(&k) {
             m.insert(k);
@@ -320,7 +319,7 @@ fn sort_label_filters(lfs: &mut Vec<LabelFilter>) {
 
 fn filter_label_filters_on(
     lfs: &Vec<LabelFilter>,
-    args: &Vec<String>
+    args: &[String]
 ) -> Vec<LabelFilter> {
     if args.len() == 0 {
         return vec![];
@@ -387,13 +386,13 @@ fn get_aggr_arg_idx_for_optimization(func: &str, args: &Vec<Expression>) -> usiz
     }
 }
 
-fn get_rollup_arg_idx_for_optimization(funcName: &str, args: &Vex<Expression>) -> usize {
+fn get_rollup_arg_idx_for_optimization(func_name: &str, args: &Vec<Expression>) -> usize {
     // This must be kept in sync with GetRollupArgIdx()
-    let func_name = funcName.to_lowercase().as_str();
-    return match func_name {
+    let lower = func_name.to_lowercase().as_str();
+    return match lower {
         "absent_over_time" => -1,
         "quantile_over_time" | "aggr_over_time" | "hoeffding_bound_lower" | "hoeffding_bound_upper" => 1,
-        "quantiles_over_time" => args.len() as i32 - 1,
+        "quantiles_over_time" => args.len()  - 1,
         _ => 0,
     }
 }
