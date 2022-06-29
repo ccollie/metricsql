@@ -1,3 +1,4 @@
+use regex::Error;
 use super::MetricName;
 
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
@@ -48,13 +49,15 @@ pub(super) fn assert_identical_timestamps(tss: &Vec<Timeseries>, step: i64) -> R
     if ts_golden.values.len() != ts_golden.timestamps.len() {
         let err = format!("BUG: len(ts_golden.Values) must match len(ts_golden.Timestamps); got {} vs {}", 
                       ts_golden.values.len(), ts_golden.timestamps.len());
-        return Err(err);
+        return Err(Error::new(msg));
     }
     if  ts_golden.timestamps.len() > 0 {
         let mut prev_timestamp = ts_golden.timestamps[0];
-        for timestamp in ts_golden.timestamps[1..] {
+        for timestamp in ts_golden.timestamps[1..].iter() {
             if timestamp- prev_timestamp != step {
-                logger.Panicf("BUG: invalid step between timestamps; got {}; want {}; ts_golden.Timestamps=%d", timestamp- prev_timestamp, step, ts_golden.timestamps)
+                let msg = format!("BUG: invalid step between timestamps; got {}; want {}; ts_golden.timestamps={}",
+                                  timestamp - prev_timestamp, step, ts_golden.timestamps);
+                return Err(Error::new(msg));
             }
             prev_timestamp = timestamp
         }
@@ -66,7 +69,7 @@ pub(super) fn assert_identical_timestamps(tss: &Vec<Timeseries>, step: i64) -> R
         if  ts.timestamps.len() != ts_golden.timestamps.len() {
             let msg = format!("BUG: unexpected len(ts.Timestamps); got {}; want {}; ts.timestamps={}", 
                           ts.timestamps.len(), ts_golden.timestamps.len(), ts.timestamps);
-            return Err(msg)
+            return Err(Error::new(msg));
         }
         if ts.timestamps.len() == 0 {
             continue
@@ -79,7 +82,7 @@ pub(super) fn assert_identical_timestamps(tss: &Vec<Timeseries>, step: i64) -> R
             if ts.timestamps[i] != ts_golden.timestamps[i] {
                 let msg = format!("BUG: timestamps mismatch at position {}; got {}; want {}; ts.timestamps={}, ts_golden.timestamps={}",
                               i, ts.timestamps[i], ts_golden.timestamps[i], ts.timestamps, ts_golden.timestamps);
-                return Err(msg);
+                return Err(Error::new(msg));
             }
         }
     }

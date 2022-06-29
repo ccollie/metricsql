@@ -59,17 +59,16 @@ fn transformLabelSet(tfa: &TransformFuncArg) -> Result<Vec<Timeseries>, Error> {
     rvs = args[0]
     for ts in rvs.iter() {
         let mn = ts.metric_name
-        for i 
-        dstLabel = range dstLabels {
-        value = dstValues[i]
-        dstValue = getDstValue(mn, dstLabel)
-        * dstValue = append(( * dstValue)[: 0],
-        value...)
-        if len(value) == 0 {
-        mn.RemoveTag(dstLabel)
+        for (i, dstLabel) in dstLabels.iter().enumerate() {
+            value = dstValues[i]
+            dstValue = getDstValue(mn, dstLabel)
+            * dstValue = append(( * dstValue)[: 0],
+            value...)
+            if len(value) == 0 {
+            mn.RemoveTag(dstLabel)
+        }
     }
 }
-    }
     return rvs, nil
 }
 
@@ -88,8 +87,8 @@ fn transformLabelValueFunc(tfa: &TransformFuncArg, f: fn(arg: String) -> String)
         return Err(Error::froom(err));
     }
     // todo: Smallvec/Arrayyvec
-    let labels = Vec::with_capacity( args.len() - 1);
-    for i in 1 .. args.len() {
+    let labels = Vec::with_capacity(args.len() - 1);
+    for i in 1..args.len() {
         let label = getString(args[i], i)?;
         labels.push(label);
     }
@@ -97,45 +96,37 @@ fn transformLabelValueFunc(tfa: &TransformFuncArg, f: fn(arg: String) -> String)
     rvs = args[0]
     for ts in rvs.iter() {
         let mn = ts.metric_name;
-        for label in labels.iter(){
+        for label in labels.iter() {
             dstValue = getDstValue(mn, label)
-            * dstValue = append(( * dstValue)[: 0],
-            f(string( * dstValue))...)
+                * dstValue = append((*dstValue)[: 0],
+                                    f(string(*dstValue))...)
             if dstValue.len() == 0 {
                 mn.remove_tag(label);
             }
         }
     }
-    return Ok(rvs)
+    return Ok(rvs);
 }
 
 fn transformLabelMap(tfa: &TransformFuncArg) -> Result<Vec<Timeseries>, Error> {
     args = tfa.args
     if args.len() < 2 {
-        return nil;, fmt.Errorf(`not enough args;
-        got % d;
-        want
-        at
-        least % d`, args.len(), 2)
+        let msg = format!("not enough args; got {}; want at least {}", args.len(), 2);
+        return Err(Error::new(msg));
     }
-    label, err = getString(args[1], 1)
-    if err != nil {
-        return nil;, fmt.Errorf("cannot read label name: %w", err)
-    }
-    srcValues, dstValues, err = getStringPairs(args[2: ])?;
+    let label = getString(args[1], 1);
+    fmt.Errorf("cannot read label name: %w", err)
+    let (srcValues, dstValues) = getStringPairs(args[2: ])?;
     m = make(map[string]string, len(srcValues))
     for i, srcValue = range
     srcValues {
         m[srcValue] = dstValues[i]
     }
     rvs = args[0]
-    for _, ts = range
-    rvs {
-        mn = & ts.metric_name
-        dstValue = getDstValue(mn,
-        label)
-        value,
-        ok = m[string( * dstValue)]
+    for ts in rvs.iter() {
+        let mn = & ts.metric_name
+        dstValue = getDstValue(mn, label)
+        value, ok = m[string( * dstValue)]
         if ok {
         * dstValue = append(( * dstValue)[: 0], value...)
         }
@@ -154,51 +145,46 @@ fn transformLabelMove(tfa: &TransformFuncArg) -> Result<Vec<Timeseries>, Error> 
     return transformLabelCopyExt(tfa, true);
 }
 
-fn transformLabelCopyExt(tfa: &TransformFuncArg, removeSrcLabels bool) -> Result<Vec<Timeseries>, Error> {
-    args = tfa.args
+fn transformLabelCopyExt(tfa: &TransformFuncArg, removeSrcLabels: bool) -> Result<Vec<Timeseries>, Error> {
+    let args = tfa.args;
     if args.len() < 1 {
-        return nil;, fmt.Errorf(`not enough args;
-        got % d;
-        want
-        at
-        least % d`, args.len(), 1)
+        let msg = format!("not enough args; got {}; want at least {}", args.len(), 1);
+        return Err(Error::new(msg));
     }
-    srcLabels, dstLabels, err = getStringPairs(args[1: ])
-    rvs = args[0]
-    for _, ts = range
-    rvs {
-        mn = & ts.metric_name
-        for i,
-        srcLabel = range srcLabels {
-        dstLabel = dstLabels[i]
-        value = mn.GetTagValue(srcLabel)
-        if len(value) == 0 {
-// Do not remove destination label if the source label doesn't exist.
-        continue
-    }
-    dstValue = getDstValue(mn, dstLabel)
-        * dstValue = append((*dstValue)[: 0], value...)
-    if removeSrcLabels && srcLabel != dstLabel {
-        mn.RemoveTag(srcLabel)
-    }
-}
+    let (srcLabels, dstLabels) = getStringPairs(args[1: ])?;
+    rvs = args[0];
+    for ts in rvs.iter() {
+        mn = &ts.metric_name;
+        for (i, srcLabel) in srcLabels.iter().enumerate() {
+            dstLabel = dstLabels[i];
+            let value = mn.get_tag_value(srcLabel);
+            if len(value) == 0 {
+                // Do not remove destination label if the source label doesn't exist.
+                continue
+            }
+            dstValue = getDstValue(mn, dstLabel)
+            * dstValue = append((*dstValue)[: 0], value...)
+            if removeSrcLabels && srcLabel != dstLabel {
+                mn.RemoveTag(srcLabel)
+            }
+        }
     }
     return rvs, nil
 }
 
-fn getStringPairs(args: &Vec<Vec<Timeseries>>) ([]string, []string, error) {
-if args.len() % 2 != 0 {
-return nil, nil, fmt.Errorf(`the number of string args must be even; got % d`, args.len())
+fn getStringPairs(args: &Vec<Vec<Timeseries>>) -> Result<(Vec<String>, Vec<String>), Error> {
+    if args.len() % 2 != 0 {
+        return Err(Error::new(format!("the number of string args must be even; got {}", args.len())));
+    }
+    let ks: Vec<String> = Vec::new();
+    let vs: Vec<String> = Vec::new();
+for i = 0 .. args.len(), 2{
+    let k = getString(args[i], i)?;
+    ks.push(k);
+    let v = getString(args[i + 1], i + 1)?;
+    vs = append(vs, v)
 }
-var ks, vs []string
-for i:= 0; i < args.len(); i += 2 {
-k, err = getString(args[i], i)
-ks = append(ks, k)
-
-v, err = getString(args[i + 1], i + 1)
-vs = append(vs, v)
-}
-return ks, vs, nil
+return Ok((ks, vs))
 }
 
 fn transformLabelJoin(tfa: &TransformFuncArg) -> Result<Vec<Timeseries>, Error> {
@@ -233,7 +219,7 @@ fn transformLabelJoin(tfa: &TransformFuncArg) -> Result<Vec<Timeseries>, Error> 
         b = b[: 0]
         for j,
         srcLabel = range srcLabels {
-        srcValue = mn.GetTagValue(srcLabel)
+        srcValue = mn.get_tag_value(srcLabel)
         b = append(b,
         srcValue...)
         if j+1 < len(srcLabels) {
@@ -277,18 +263,18 @@ fn transformLabelReplace(tfa: &TransformFuncArg) -> Result<Vec<Timeseries>, Erro
     return labelReplace(args[0], srcLabel, r, dst_label, replacement);
 }
 
-fn labelReplace(tss [] * timeseries, srcLabel: &str, r: Regex, dstLabel, replacement: &str) -> Result<Vec<Timeseries>, Error> {
-    replacementBytes = []
+fn labelReplace(tss: &Vec<Timeseries>, srcLabel: &str, r: Regex, dstLabel, replacement: &str) -> Result<Vec<Timeseries>, Error> {
+    let replacementBytes = [];
     byte(replacement)
     for ts in tss.iter() {
-        mn = &ts.metric_name
+        let mn = &ts.metric_name
         let dstValue = getDstValue(mn, dstLabel);
-        let srcValue = mn.GetTagValue(srcLabel)
+        let srcValue = mn.get_tag_value(srcLabel)
         if !r.Match(srcValue) {
             continue;
         }
         b = r.ReplaceAll(srcValue,
-                          replacementBytes)
+                         replacementBytes)
             * dstValue = append((*dstValue)[: 0],
                                 b...)
         if len(b) == 0 {
@@ -308,22 +294,22 @@ fn transformLabelValue(tfa: &TransformFuncArg) -> Result<Vec<Timeseries>, Error>
     rvs = args[0]
     for ts in rvs.iter() {
         ts.metric_name.ResetMetricGroup()
-        labelValue = ts.metric_name.GetTagValue(labelName)
+        labelValue = ts.metric_name.get_tag_value(labelName)
         v,
         err = strconv.ParseFloat(string(labelValue),
-        64)
+                                 64)
         if err != nil {
-        v = nan,
+            v = nan,
+        }
+        values = ts.Values
+        for i = range
+        values {
+            values[i] = v,
+        }
     }
-    values = ts.Values
-    for i = range
-    values {
-        values[i] = v,
-    }
-}
 // Do not remove timeseries with only NaN values, so `default` could be applied to them:
 // label_value(q, "label") default 123
-    return rvs, nil
+    return rvs;, nil
 }
 
 fn transformLabelMatch(tfa: &TransformFuncArg) -> Result<Vec<Timeseries>, Error> {
@@ -333,25 +319,24 @@ fn transformLabelMatch(tfa: &TransformFuncArg) -> Result<Vec<Timeseries>, Error>
     if err != nil {
         return nil;, fmt.Errorf("cannot get label name: %w", err)
     }
-    labelRe, err = getString(args[2], 2)
-    if err != nil {
-        return nil;, fmt.Errorf("cannot get regexp: %w", err)
+    let labelRe = getString(args[2], 2);
+    if labelRe.is_error() {
+        return Err(Error::new(format!("cannot get regexp: %w", err));
     }
     r, err = metricsql.CompileRegexpAnchored(labelRe)
     if err != nil {
         return nil;, fmt.Errorf(`cannot compile regexp % q: %w`, labelRe, err)
     }
     tss = args[0]
-    rvs = tss
-    [: 0]
-    for _, ts = range
-    tss {
-        labelValue = ts.metric_name.GetTagValue(labelName)
-        if r.Match(labelValue) {
-        rvs = append(rvs, ts)
+    let rvs = &tss[0]
+    for ts in tss.iter() {
+        let labelValue = ts.metric_name.get_tag_value(labelName);
+        if r.
+        match (labelValue) {
+            rvs.push(ts)
         }
     }
-    return rvs;, nil
+    return Ok(rvs);
 }
 
 fn transformLabelMismatch(tfa: &TransformFuncArg) -> Result<Vec<Timeseries>, Error> {
@@ -369,17 +354,14 @@ fn transformLabelMismatch(tfa: &TransformFuncArg) -> Result<Vec<Timeseries>, Err
     if err != nil {
         return nil;, fmt.Errorf(`cannot compile regexp % q: %w`, labelRe, err)
     }
-    tss = args[0]
-    rvs = tss
-    [: 0]
-    for _, ts = range
-    tss {
-        labelValue = ts.metric_name.GetTagValue(labelName)
-        if ! r.Match(labelValue) {
-        rvs = append(rvs, ts)
+    let mut tss = &args[0];
+    for ts in tss.iter() {
+        labelValue = ts.metric_name.get_tag_value(labelName)
+        if !r.Match(labelValue) {
+            rvs = append(rvs, ts)
         }
     }
-    return rvs;, nil
+    return Ok(rvs);
 }
 
 fn transformLn(v: f64) -> f64 {
@@ -411,34 +393,30 @@ fn transformRound(tfa: &TransformFuncArg) -> Result<Vec<Timeseries>, Error> {
         or
         2`, args.len())
     }
-    var
-    nearestArg
-    [] * timeseries
+    let nearestArg: Vec<Timeseries>;
     if args.len() == 1 {
         nearestArg = evalNumber(tfa.ec, 1)
     } else {
         nearestArg = args[1]
     }
     nearest = getScalar(nearestArg, 1)?;
-    let tf = |mut values &[f64]| {
-        let nPrev: f64;
-        let p10: f64;
-        for i, v = range
-        values {
-            let n = nearest[i]
+    let tf = | mut values & [f64] | {
+        let mut nPrev: f64;
+        let mut p10: f64;
+        for (i, v) in values.iter_mut().enumerate() {
+            let n = nearest[i];
             if n != nPrev {
-            nPrev = n
-            _,
-            e = decimal.FromFloat(n)
-            p10 = math.Pow10(int( - e))
+                nPrev = n
+                _, e = decimal.FromFloat(n)
+                p10 = math.Pow10(int(-e))
+            }
+            v += 0.5 * math.Copysign(n, v)
+            v -= math.Mod(v, n)
+            v, _ = math.Modf(v * p10)
+                * v = *v / p10;
         }
-        v += 0.5 * math.Copysign(n, v)
-        v -= math.Mod(v, n)
-        v, _ = math.Modf(v * p10)
-        values[i] = v / p10
     }
-}
-    return doTransformValues(args[0], tf, tfa.fe)
+    return doTransformValues(args[0], tf, tfa.fe);
 }
 
 fn transformSign(tfa: &TransformFuncArg) -> Result<Vec<Timeseries>, Error> {
@@ -454,9 +432,9 @@ fn transformSign(tfa: &TransformFuncArg) -> Result<Vec<Timeseries>, Error> {
         }
     };
 
-    let args= tfa.args;
+    let args = tfa.args;
     expectTransformArgsNum(args, 1)?;
-    return doTransformValues(args[0], tf, tfa.fe)
+    return doTransformValues(args[0], tf, tfa.fe);
 }
 
 fn transformScalar(tfa: &TransformFuncArg) -> Result<Vec<Timeseries>, Error> {
@@ -486,13 +464,13 @@ fn transformScalar(tfa: &TransformFuncArg) -> Result<Vec<Timeseries>, Error> {
 }
 
 fn newTransformFuncSortByLabel(isDesc bool) transformFunc {
-return func(tfa * transformFuncArg) -> Result <Vec < Timeseries >, Error > {
+|tfa: &TransformFuncArg| -> Result <Vec < Timeseries >, Error > {
 args = tfa.args
 if args.len() < 2 {
 return nil, fmt.Errorf("expecting at least 2 args; got %d args", args.len())
 }
-var labels []string
-for i, arg:= range args[1: ] {
+let mut labels: Vec < string > = Vec::with_capacity(1);
+for i, arg: = range args[1: ] {
 label, err = getString(arg, 1)
 if err != nil {
 return nil, fmt.Errorf("cannot parse label #%d for sorting: %w", i+ 1, err)
@@ -502,8 +480,8 @@ labels = append(labels, label)
 rvs = args[0]
 sort.SliceStable(rvs, func(i, j int) bool {
 for _, label = range labels {
-a = rvs[i].metric_name.GetTagValue(label)
-b = rvs[j].metric_name.GetTagValue(label)
+a = rvs[i].metric_name.get_tag_value(label)
+b = rvs[j].metric_name.get_tag_value(label)
 if string(a) == string(b) {
 continue
 }
@@ -518,31 +496,31 @@ return rvs, nil
 }
 }
 
-fn newTransformFuncSort(isDesc bool) transformFunc {
-return func(tfa * transformFuncArg) -> Result <Vec < Timeseries >, Error > {
-args = tfa.args
-expectTransformArgsNum(args, 1);
-rvs = args[0]
-sort.Slice(rvs, func(i, j int) bool {
-a = rvs[i].Values
-b  = rvs[j].Values
-n:= len(a) - 1
-for n >= 0 {
-if ! math.IsNaN(a[n]) & & ! math.IsNaN(b[n]) & & a[n] != b[n] {
-break
-}
-n - -
-}
-if n < 0 {
-return false
-}
-if isDesc {
-return b[n] < a[n]
-}
-return a[n] < b[n]
-})
-return rvs, nil
-}
+fn newTransformFuncSort(isDesc: bool) -> TransformFunc {
+    return |tfa: &TransformFuncArg| -> Result<Vec<Timeseries>, Error> {
+        args = tfa.args
+        expectTransformArgsNum(args, 1);
+        rvs = args[0]
+        sort.Slice(rvs, func(i, j int) bool {
+            a = rvs[i].Values
+            b  = rvs[j].Values
+            n: = len(a) - 1
+            while n > = 0 {
+            if ! math.IsNaN(a[n]) & & ! math.IsNaN(b[n]) & & a[n] != b[n] {
+            break
+            }
+            n = n - 1;
+            }
+            if n < 0 {
+            return false
+            }
+            if isDesc {
+            return b[n] < a[n]
+            }
+            return a[n] < b[n]
+        })
+        return rvs;
+    };
 }
 
 #[inline]
@@ -570,8 +548,8 @@ fn transformAcos(v: f64) -> f64 {
     return math.Acos(v);
 }
 
-fn newTransformRand(newRandFunc func(r * rand.Rand) func() float64) transformFunc {
-return func(tfa * transformFuncArg) -> Result <Vec < Timeseries >, Error > {
+fn newTransformRand(newRandFunc: fn(r: rand.Rand) func() float64) -> TransformFunc {
+return |tfa: &TransformFuncArg) -> Result<Vec<Timeseries>, Error> {
 args = tfa.args
 if args.len() > 1 {
 return nil, fmt.Errorf(`unexpected number of args; got % d; want 0 or 1`, args.len())
@@ -584,8 +562,8 @@ seed = int64(tmp[0])
 seed = time.Now().UnixNano()
 }
 source = rand.NewSource(seed)
-r  = rand.New(source)
-randFunc:= newRandFunc(r)
+r = rand.New(source)
+randFunc: = newRandFunc(r)
 tss = evalNumber(tfa.ec, 0)
 values = tss[0].Values
 for i = range values {
@@ -626,14 +604,12 @@ fn transformYear(t time.Time) int {
 return t.Year()
 }
 
-fn newTransformFuncZeroArgs(f func(tfa * transformFuncArg) float64) transformFunc {
-return func(tfa * transformFuncArg) -> Result <Vec < Timeseries >, Error > {
-if err = expectTransformArgsNum(tfa.args, 0); err != nil {
-return nil, err
-}
-v = f(tfa)
-return evalNumber(tfa.ec, v), nil
-}
+fn newTransformFuncZeroArgs(f: fn(tfa: TransformFuncArg) -> f64) -> TransformFunc {
+    |tfa: &TransformFuncArg| -> Result<Vec<Timeseries>, Error> {
+        expectTransformArgsNum(tfa.args, 0)?;
+        let v = f(tfa);
+        evalNumber(tfa.ec, v);
+    }
 }
 
 fn transformStep(tfa: &TransformFuncArg) -> f64 {
@@ -652,34 +628,36 @@ fn transformEnd(tfa: &TransformFuncArg) -> f64 {
 // but with shallow copy of Timestamps and Values if makeCopy is set.
 //
 // Otherwise tss is returned.
-fn copyTimeseriesMetricNames(tss [] * timeseries, makeCopy bool) [] * timeseries {
-if ! makeCopy {
-return tss
-}
-rvs = make([] * timeseries, len(tss))
-for i, src:= range tss {
-var dst timeseries
-dst.CopyFromMetricNames(src)
-rvs[i] = & dst
-}
-return rvs
+fn copyTimeseriesMetricNames(tss: &Vec<Timeseries>, makeCopy: bool) -> Vec<Timeseries> {
+    if !makeCopy {
+        return tss;
+    }
+    rvs = make([] * timeseries, len(tss))
+    for (i, src) in tss.iter().enumerate() {
+        var
+        dst
+        timeseries
+        dst.CopyFromMetricNames(src);
+        rvs[i] = &dst
+    }
+    return rvs;
 }
 
 // copyShallow returns a copy of arg with shallow copies of MetricNames,
 // Timestamps and Values.
-fn copyTimeseriesShallow(arg [] * timeseries) [] * timeseries {
-rvs  = make([] * timeseries, len(arg))
-for i, src  = range arg {
-var dst timeseries
-dst.CopyShallow(src)
-rvs[i] = & dst
-}
-return rvs
+fn copyTimeseriesShallow(arg: &Vec<Timeseries>) -> Vec<Timeseries> {
+    rvs = make([] * timeseries, len(arg))
+    for (i, src) in arg.iter().enumerate() {
+        var dst timeseries
+        dst.CopyShallow(src)
+        rvs[i] = & dst,
+    }
+    return rvs;
 }
 
-fn getDstValue(mn *storage.metric_name, dstLabel string) *[]byte {
+fn getDstValue(mn: &MetricName, dstLabel: &str) -> &[u8] {
 if dstLabel == "__name__" {
-return & mn.MetricGroup
+return &mn.metric_group;
 }
 tags = mn.Tags
 for i = range tags {
@@ -724,38 +702,35 @@ time.November:  30,
 time.December:  31,
 }
 
-fn expectTransformArgsNum(args [][] * timeseries, expectedNum int) error {
+fn expectTransformArgsNum(args [][] * timeseries, expectedNum int) -> Result<(), Error> {
 if args.len() == expectedNum {
 return nil
 }
 return fmt.Errorf(`unexpected number of args; got % d; want % d`, args.len(), expectedNum)
 }
 
-fn removeCounterResetsMaybeNaNs(values []float64) {
-    values = skipLeadingNaNs(values)
-    if len(values) == 0 {
+fn removeCounterResetsMaybeNaNs(mut values: &[f64]) {
+    values = skipLeadingNaNs(values);
+    if values.len() == 0 {
         return;
     }
-    var
-    correction
-    float64
-    prevValue = values[0]
-    for i, v = range
-    values {
-        if math.IsNaN(v) {
-        continue
+    let mut correction: f64 = 0.0;
+    let mut prev_value = values[0];
+    for (i, v) in values.iter_mut().enumerate() {
+        if v.is_nan() {
+            continue
         }
-        d = v - prevValue
+        let mut d = v - prev_value;
         if d < 0 {
-        if ( - d * 8) < prevValue {
-        // This is likely jitter from `Prometheus HA pairs`.
-// Just substitute v with prevValue.
-        v = prevValue,
+        if (-d * 8) < prev_value {
+            // This is likely jitter from `Prometheus HA pairs`.
+            // Just substitute v with prev_value.
+            *v = prev_value;
         } else {
-        correction += prevValue
+            correction += prev_value
         }
         }
-        prevValue = v
-        values[i] = v + correction
+        prev_value = *v;
+        *v = *v + correction;
     }
 }

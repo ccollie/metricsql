@@ -1,4 +1,5 @@
 use std::collections::btree_map::BTreeMap;
+use std::cmp::Ordering;
 
 const NAME_LABEL: &str = "__name__";
 
@@ -6,7 +7,7 @@ const NAME_LABEL: &str = "__name__";
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Tag {
     key: String,
-    value: String
+    value: String,
 }
 
 impl PartialOrd for Tag {
@@ -21,13 +22,13 @@ impl PartialOrd for Tag {
 
 // MetricName represents a metric name.
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct MetricName  {
+pub struct MetricName {
     metric_group: String,
     // Tags are optional. They must be sorted by tag Key for canonical view.
     // Use sortTags method.
     tags: Vec<Tag>,
     _items: BtreeMap,
-    sorted: bool
+    sorted: bool,
 }
 
 impl MetricName {
@@ -36,7 +37,7 @@ impl MetricName {
             metric_group: name,
             tags: vec![],
             _items: BTreeMap::new(),
-            sorted: true
+            sorted: true,
         }
     }
 
@@ -58,7 +59,7 @@ impl MetricName {
     pub fn add_tag<K: Into<String>, V: Into<String>>(mut self, key: K, value: V) {
         if key == NAME_LABEL {
             self.metric_group = value;
-            return
+            return;
         }
         self._items.insert(key, value);
     }
@@ -67,7 +68,7 @@ impl MetricName {
     pub fn remove_tag<K: Into<String>>(mut self, key: K) {
         if key == NAME_LABEL {
             self.reset_metric_group();
-            return
+            return;
         }
         self._items.remove(key);
     }
@@ -79,13 +80,13 @@ impl MetricName {
     // GetTagValue returns tag value for the given tagKey.
     pub fn get_tag_value(&self, key: &str) -> Option<String> {
         if key == NAME_LABEL {
-            return Some(self.metric_group)
+            return Some(self.metric_group);
         }
         return self._items.get_key_value(key);
     }
 
     // RemoveTagsOn removes all the tags not included to on_tags.
-    pub fn remove_tags_on<I: Iterator<Item = Into<String>>>(mut self, on_tags: I) {
+    pub fn remove_tags_on<I: Iterator<Item=Into<String>>>(mut self, on_tags: I) {
         if !hasTag(on_tags, NAME_LABEL) {
             self.reset_metric_group()
         }
@@ -99,7 +100,7 @@ impl MetricName {
     }
 
     // RemoveTagsIgnoring removes all the tags included in ignoring_tags.
-    pub fn remove_tags_ignoring<I: Iterator<Item = Into<String>>>(mut self, ignoring_tags: I) {
+    pub fn remove_tags_ignoring<I: Iterator<Item=Into<String>>>(mut self, ignoring_tags: I) {
         for tag in ignoring_tags {
             if tag == NAME_LABEL {
                 self.metric_group = "";
@@ -114,7 +115,7 @@ impl MetricName {
         for tag_name in add_tags {
             if tag_name == NAME_LABEL {
                 mn.metric_group = tag_name;
-                continue
+                continue;
             }
 
             let tag_value = src.get_tag_value(tag_name);
@@ -136,12 +137,12 @@ impl MetricName {
         dst.push("{{");
         for (k, v) in self._items {
             dst.push(format!("{}={}", k, enquore("\"", v).as_bytes()));
-            if i+1 < len(tags) {
+            if i + 1 < len(tags) {
                 dst.push(", ")
             };
         }
         dst.push('}');
-        return dst
+        return dst;
     }
 
     pub fn iter(&self) -> Iter<'_, K, V> {
@@ -166,28 +167,59 @@ impl Display for MetricName {
     }
 }
 
+impl PartialOrd for MetricName {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        if self.metric_group != other.metric_group {
+            return Some(self.metric_group.cmp(other.metric_group));
+        }
+        // Metric names for a and b match. Compare tags.
+        // Tags must be already sorted by the caller, so just compare them.
+        let ats = self._items;
+        let bts = other._items;
+        let b_iter = other._items.iter();
+        for at in ats.iter() {
+            let bt = b_iter.next();
+            if bt.is_none() {
+                // a contains more tags than b and all the previous tags were identical,
+                // so a is considered bigger than b.
+                return Ordering::Greater;
+            }
+            let bv = bt.unwrap();
+            if at.key != bv.key {
+                return Some(at.key.cmp(bt.key));
+            }
+            if at.value != bv.value {
+                return Some(at.value.cmp(bv.value));
+            }
+        }
+        return Some(ats.len().comp(bts.len()));
+    }
+}
+
 // Marshal appends marshaled mn to dst and returns the result.
 //
 // mn.sortTags must be called before calling this function
-// in order to sort and de-duplcate tags.
+// in order to sort and de-duplicate tags.
 pub fn Marshal(mut dst: Vec<u8>) -> Vec<u8> {
     // Calculate the required size and pre-allocate space in dst
     let dst_len = dst.len();
     let mut required_size = mn.metric_group.len() + 1;
-    for tag = self.tags {
+    for tag = self.tags
+    {
         required_size += len(tag.Key) + len(tag.Value) + 2
     }
-    dst = bytesutil.ResizeWithCopyMayOverallocate(dst, required_size)[:dstLen]
+    dst = bytesutil.ResizeWithCopyMayOverallocate(dst, required_size)
+    [: dstLen]
 
     // Marshal MetricGroup
     dst = marshalTagValue(dst, mn.MetricGroup);
 
     // Marshal tags.
-    tags := mn.Tags
+    tags: = mn.Tags
     for t in tags {
         dst = t.Marshal(dst)
     }
-    return dst
+    return dst;
 }
 
 // The maximum length of label name.

@@ -1,5 +1,6 @@
 use crate::BinaryOp;
 use crate::BinaryOpKind::Logical;
+use crate::types::BinaryOp;
 
 // Eq returns true of left == right.
 pub fn eq(left: f64, right: f64) -> bool {
@@ -110,9 +111,9 @@ pub fn eval_binary_op(left: f64, right: f64, op: BinaryOp, is_bool: bool) -> f64
     fn fixup_comparison(cf: fn(left: f64, right: f64) -> bool) -> f64 {
         let val = cf(left, right);
         if val == 1 {
-            return 1 as f64
+            return 1.0
         }
-        return 0 as f64;
+        return 0.0;
     }
 
     match op {
@@ -123,7 +124,7 @@ pub fn eval_binary_op(left: f64, right: f64, op: BinaryOp, is_bool: bool) -> f64
         Mod => mod_(left, right),
         Pow => pow(left, right),
         Atan2 => atan2(left, right),
-        Eq => fixup_comparison(eq),
+        Eql => fixup_comparison(eq),
         Neq => fixup_comparison(neq),
         Gt => fixup_comparison(gt),
         Lt => fixup_comparison(lt),
@@ -131,7 +132,7 @@ pub fn eval_binary_op(left: f64, right: f64, op: BinaryOp, is_bool: bool) -> f64
         Lte =>fixup_comparison(lte),
         Default => default(left, right),
         If => if_(left, right),
-        Ifnot => ifnot(left, right),
+        IfNot => ifnot(left, right),
         _ => panic!("unexpected non-comparison op: {:?}", op),
     }
 }

@@ -5,6 +5,7 @@ use regex::{Error, Regex};
 use metrix::error::{Error, Result};
 use crate::StringExpr;
 use enquote::enquote;
+use crate::lexer::escape_ident;
 use crate::parser::escape_ident;
 use crate::types::StringExpr;
 
@@ -41,7 +42,7 @@ impl LabelFilterOp {
 impl TryFrom<&str> for LabelFilterOp {
     type Error = Error;
 
-    fn try_from(op: &str) -> Result<Self> {
+    fn try_from(op: &str) -> Result<Self, Error> {
         match op {
             "=" => Ok(LabelFilterOp::Equal),
             "!=" => Ok(LabelFilterOp::NotEqual),
@@ -183,22 +184,20 @@ impl fmt::Display for LabelFilter {
 pub struct LabelFilterExpr {
     pub label: string,
     pub value: StringExpr,
-    pub is_regexp: bool,
-    pub is_negative: bool
+    pub op: LabelFilterOp
 }
 
 impl LabelFilterExpr {
-    pub fn new<K: Into<String>>(label: K, value: &StringExpr, is_regexp: bool, is_negative: bool) -> LabelFilterExpr {
+    pub fn new<K: Into<String>>(label: K, value: StringExpr, op: LabelFilterOp) -> LabelFilterExpr {
         LabelFilterExpr {
-            label,
+            label: label.into(),
             value,
-            is_regexp,
-            is_negative
+            op
         }
     }
 
     pub fn to_label_filter(&self) -> LabelFilter {
-        if self.value == nil || self.value.tokens.len() > 0 {
+        if self.value.s.len() > 0 || self.value.tokens.len() > 0 {
             panic(format!("BUG: value must be already expanded; got {}", self.value))
         }
         // // Verify regexp.
@@ -208,32 +207,15 @@ impl LabelFilterExpr {
         LabelFilter {
             label: self.label.to_string(),
             value: self.value.to_string(),
-            is_regexp: self.is_regexp,
-            is_negative: self.is_negative
+            op: self.op.clone(),
+            re: None
         }
     }
 }
 
 impl fmt::Display for LabelFilterExpr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut dst: &String = String::new( escape_ident(lf.Label) );
-        let  mut op: String;
-
-        if lf.isNegative {
-            if self.is_regexp {
-                op = "!~".parse().unwrap()
-            } else {
-                op = String::from("!=")
-            }
-        } else {
-            if self.is_regexp {
-                op = "=~".parse().unwrap()
-            } else {
-                op = "=".parse().unwrap()
-            }
-        }
-        dst.push_str(op);
-        dst.push_str( enquote( '\"', &self.value) );
+        write!(f, "{}{}{}", escape_ident(self.label), self.op, enquote( '\"', &self.value.s))?;
         Ok(())
     }
 }

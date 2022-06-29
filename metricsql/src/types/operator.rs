@@ -41,6 +41,28 @@ impl OperatorKind {
             Atan2 => "atan2"
         }
     }
+
+    // See https://prometheus.io/docs/prometheus/latest/querying/operators/#binary-operator-precedence
+    pub fn is_right_associative(&self) -> bool {
+        self == OperatorKind::Power
+    }
+
+    pub fn is_comparison(&self) -> bool {
+        use OperatorKind::*;
+        match self {
+            Equal | NotEqual | LessThan | LessThanEqual | GreaterThan | GreaterThanEqual => true,
+            _ => false
+        }
+    }
+
+    pub fn is_logical_op(self) -> bool {
+        use OperatorKind::*;
+        match self {
+            Add | Or | Unless => true,
+            _ => false
+        }
+    }
+
 }
 
 impl fmt::Display for OperatorKind {

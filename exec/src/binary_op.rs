@@ -1,4 +1,9 @@
+use std::collections::HashMap;
 use phf::phf_map;
+use lib::error::Error;
+use metricsql::types::{BinaryOp, BinaryOpExpr, GroupModifierOp, JoinModifier, JoinModifierOp};
+use crate::exec::remove_empty_series;
+use crate::timeseries::Timeseries;
 
 struct BinaryOpFuncArg {
     be: BinaryOpExpr,
@@ -104,12 +109,12 @@ fn new_binary_op_func<F>(bf: fn(left: f64, right: f64, is_bool: bool) -> f64) ->
             }
         }
         if left.len() == 0 || right.len() == 0 {
-            return (None, None)
+            return Ok(vec![])
         }
-        let (left, right, dst) = adjust_binary_op_tags(bfa.be, left, right)?;
+        let (left, right, dst) = adjust_binary_op_tags(&bfa.be, &left, &right)?;
         if left.len() != right.len() || left.len() != dst.len() {
-            let err = format!("BUG: left.len() must match right.len() and dst.len(); got %d vs %d vs %d", left.len(), right.len(), dst.len());
-            return Err(err);
+            let err = format!("BUG: left.len() must match right.len() and dst.len(); got {} vs {} vs {}", left.len(), right.len(), dst.len());
+            return Err(Error::from(err));
         }
         let is_bool = bfa.be.bool_modifier;
         for (i, tsLeft) in left.iter().enumerate() {
@@ -119,7 +124,7 @@ fn new_binary_op_func<F>(bf: fn(left: f64, right: f64, is_bool: bool) -> f64) ->
             if len(left_values) != right_values.len() || left_values.len() != dst_values.len() {
                 let err = format!("BUG: len(left_values) must match len(right_values) and len(dst_values); got {} vs {} vs {}",
                                   left_values.len(), right_values.len(), dst_values.len());
-                return Err(err);
+                return Err(Error::from(err));
             }
             for (j, a) in left_values.iter().enumerate() {
                 b = right_values[j];
@@ -139,17 +144,17 @@ fn adjust_binary_op_tags(
 
     if be.group_modifier.is_none() && be.join_modifier.is_none() {
         if is_scalar(left) &&
-            be.op != BinaryOOp::Default &&
+            be.op != BinaryOp::Default &&
             be.op != BinaryOp::If &&
             be.op != BinaryOp::IfNot {
             // Fast path: `scalar op vector`
             let mut rvs_left: Vec<Timeseeries> = Vec::with_capacity(right.len());
             let ts_left = left[0];
-            for (i, tsRight) in right {
+            for (i, tsRight) in right.iter().enumerate() {
                 reset_metric_group_if_required(be, tsRight);
                 rvs_left[i] = ts_left
             };
-            return Ok(rvs_left, right, right)
+            return Ok((rvs_left, right, right))
         }
         if is_scalar(right) {
             // Fast path: `vector op scalar`
@@ -159,7 +164,7 @@ fn adjust_binary_op_tags(
                 reset_metric_group_if_required(be, tsLeft);
                 rvs_right.push(ts_right);
             }
-            return (left, rvsRight, left)
+            return Ok((left, rvsRight, left))
         }
     }
 
@@ -167,22 +172,22 @@ fn adjust_binary_op_tags(
     let mut rvs_right: Vec<Timeseries>;
 
     // Slow path: `vector op vector` or `a op {on|ignoring} {group_left|group_right} b`
-    let (mLeft, mRight) = create_timeseries_map_by_tag_set(be, left, right);
-    let join_op: Option<JoinModifierOOp> = if be.join_modifier.is_none() {
+    let (m_left, m_right) = create_timeseries_map_by_tag_set(be, &left, &right);
+    let join_op: Option<JoinModifierOp> = if be.join_modifier.is_none() {
         Some(be.join_modifier.op)
     } else {
         None;
     };
     let group_op: GroupModifierOp = if be.group_modifier.is_none() {
-        GroupModifierOp::Ignoring;
+        GroupModifierOp::Ignoring
     } else {
-        be.group_moodifier.op;
+        be.group_moodifier.op
     };
 
 
     let group_tags = be.group_modifier.args;
-    for (k, tssLeft) in mLeft.iter().enumerate() {
-        let tss_right = mRight[k];
+    for (k, tssLeft) in m_left.iter().enumerate() {
+        let tss_right = m_right[k];
         if tss_right.len() == 0 {
             continue
         }
@@ -217,10 +222,10 @@ fn adjust_binary_op_tags(
     if Some(joinOp) == JoinModifier::GroupRight {
         dst = rvsRight
     }
-    return (rvsLeft, rvsRight, dst)
+    return Ok((rvsLeft, rvsRight, dst))
 }
 
-fn ensure_single_timeseries(side: &str, be: BinaryOpExpr, mut tss: &[Timeseries]) -> Result<(), Error> {
+fn ensure_single_timeseries(side: &str, be: &BinaryOpExpr, mut tss: &[Timeseries]) -> Result<(), Error> {
     if tss.len() == 0 {
         logger.Panicf("BUG: tss must contain at least one value")
     }
@@ -230,7 +235,7 @@ fn ensure_single_timeseries(side: &str, be: BinaryOpExpr, mut tss: &[Timeseries]
                               side, be.op, be.group_modifier,
                               tss[0].metric_name,
                               tss[tss.len()-1].metric_name);
-            return Err(msg);
+            return Err(Error::new(msg));
         }
         tss = tss[0..tss.len()-1];
     }
@@ -240,8 +245,8 @@ fn ensure_single_timeseries(side: &str, be: BinaryOpExpr, mut tss: &[Timeseries]
 fn group_join(
     single_timeseries_side: &str,
     be: &BinaryOpExpr,
-    rvs_left: &Vec<Timeseries>,
-    rvs_right: &Vec<Timeseries>,
+    rvs_left: &mut Vec<Timeseries>,
+    rvs_right: &mut Vec<Timeseries>,
     tss_left: &Vec<Timeseries>,
     tss_right: &Vec<Timeseries>) -> Result<(Vec<Timeseries>, Vec<Timeseries>), Error> {
     let join_tags = be.join_modifier.args;
@@ -257,14 +262,14 @@ fn group_join(
         if tss_right.len() == 1 {
         // Easy case - right part contains only a single matching time series.
             tsLeft.metric_name.set_tags(join_tags, &tss_right[0].metric_name);
-            rvs_left.push(tsLeft);
+            rvs_left.push(*tsLeft);
             rvs_right.push(tss_right[0]);
             continue
         }
 
         // Hard case - right part contains multiple matching time series.
         // Verify it doesn't result in duplicate MetricName values after adding missing tags.
-        for k in m {
+        for k in m.iter_mut() {
             delete(m, k)
         }
         let bb = bbPool.Get();
@@ -295,7 +300,7 @@ fn group_join(
             pair.right = &tmp
         }
         bbPool.Put(bb);
-        for pair in m {
+        for pair in m.iter() {
             rvs_left.push(pair.left);
             rvs_right.push(pair.right);
         }
@@ -310,9 +315,8 @@ fn merge_non_overlapping_timeseries(mut dst: &Vec<Timeseries>, src: &Vec<Timeser
     let mut dst_values = &dst.values;
 
     let mut overlaps = 0;
-    _ = dst_values[len(src_values)-1];
 
-    for (i, v) in src_values {
+    for (i, v) in src_values.iter().enumerate() {
         if v.is_nan() {
             continue;
         }
@@ -344,11 +348,11 @@ fn merge_non_overlapping_timeseries(mut dst: &Vec<Timeseries>, src: &Vec<Timeser
 }
 
 fn binary_op_and(bfa: &BinaryOpFuncArg) -> Result<Vector<Timeseries>, Error> {
-    let (m_left, m_right) = create_timeseries_map_by_tag_set(bfa.be, bfa.left, bfa.right);
+    let (m_left, m_right) = create_timeseries_map_by_tag_set(bfa.be, &bfa.left, &bfa.right);
     let rvs: Vec<Timeseries>;
 
     for (k, tssRight) in m_right.iter().enumerate() {
-        let tss_left = m_left.get(k);
+        let mut tss_left = m_left.get(k);
         if tss_left.isNone() {
             continue;
         }
@@ -369,7 +373,7 @@ fn binary_op_and(bfa: &BinaryOpFuncArg) -> Result<Vector<Timeseries>, Error> {
                 }
             }
         }
-        tss_left = removeEmptySeries(tss_left);
+        tss_left = remove_empty_series(tss_left);
         rvs.push(tss_left);
     }
     return rvs
@@ -387,12 +391,12 @@ fn reset_metric_group_if_required(be: &BinaryOpExpr, ts: &Timeseries) {
     ts.metric_name.reset_metric_group()
 }
 
-fn binary_op_or(bfa: &BinaryOpFuncArg) -> Result<Vector<Timeseries>, Error> {
+fn binary_op_or(bfa: &BinaryOpFuncArg) -> Result<Vec<Timeseries>, Error> {
     let (m_left, m_right) = create_timeseries_map_by_tag_set(bfa.be, bfa.left, bfa.right);
-    let rvs: Vec<Timeseries>;
+    let mut rvs: Vec<Timeseries>;
 
     for (k, tssRight) in m_right {
-        let tss_left = m_left.get(k);
+        let mut tss_left = m_left.get(&*k);
         if tss_left.is_none() {
             rvs.push(tss_left);
             continue;
@@ -415,19 +419,19 @@ fn binary_op_or(bfa: &BinaryOpFuncArg) -> Result<Vector<Timeseries>, Error> {
                 }
             }
         }
-        tss_left = removeEmptySeries(tss_left);
+        tss_left = remove_empty_series(tss_left);
         rvs.push(tss_left);
     }
     return rvs
 }
 
 
-fn binary_op_unless(bfa: &BinaryOpFuncArg) -> Result<Vector<Timeseries>, Error> {
+fn binary_op_unless(bfa: &BinaryOpFuncArg) -> Result<Vec<Timeseries>, Error> {
     let (m_left, m_right) = create_timeseries_map_by_tag_set(bfa.be, bfa.left, bfa.right);
     let rvs: Vec<Timeseries>;
 
-    for (k, tssLeft) in m_left {
-        tssRight = m_right[k];
+    for (k, mut tssLeft) in m_left {
+        tssRight = m_right.get(&*k);
         if m_right.contains(k) {
             rvs.push(tssLeft);
             continue
@@ -445,7 +449,7 @@ fn binary_op_unless(bfa: &BinaryOpFuncArg) -> Result<Vector<Timeseries>, Error> 
                 }
             }
         }
-        tssLeft = removeEmptySeries(tssLeft);
+        tssLeft = remove_empty_series(tssLeft);
         rvs.push(tssLeft);
     }
     return rvs
@@ -453,8 +457,8 @@ fn binary_op_unless(bfa: &BinaryOpFuncArg) -> Result<Vector<Timeseries>, Error> 
 
 fn create_timeseries_map_by_tag_set(
     be: BinaryOpExpr,
-    left: Vec<Timeseries>,
-    right: Vec<Timeseries>) -> (TimeseriesHashMap, TimeseriesHashMap) {
+    left: &Vec<Timeseries>,
+    right: &Vec<Timeseries>) -> (TimeseriesHashMap, TimeseriesHashMap) {
     let group_tags = be.group_modifier.args;
     let group_op: GroupModifierOp = if be.group_modifier.is_some() { be.group_modifier.op } else { GroupModifierOp::Ignoring };
 
@@ -465,7 +469,7 @@ fn create_timeseries_map_by_tag_set(
         for ts in arg {
             mn.CopyFrom(&ts.metric_name);
             mn.reset_metric_group();
-            match (group_op) {
+            match group_op {
                 GroupModifierOp::On => {
                     mn.RemoveTagsOn(group_tags)
                 },
@@ -480,12 +484,12 @@ fn create_timeseries_map_by_tag_set(
         bbPool.Put(bb);
         return m
     }
-    let m_left = get_tags_map(left);
-    let m_right = get_tags_map(right);
+    let m_left = get_tags_map(&left);
+    let m_right = get_tags_map(&right);
     return (m_left, m_right)
 }
 
-fn is_scalar(arg: Vec<Timeseries>) -> bool {
+fn is_scalar(arg: &[Timeseries]) -> bool {
     if arg.len() != 1 {
         return false
     }

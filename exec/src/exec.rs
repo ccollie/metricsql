@@ -1,11 +1,13 @@
+use std::collections::HashSet;
+use lib::error::Error;
 use metricsql::types::{BinaryOp, Expression};
 use crate::eval::EvalConfig;
 use crate::timeseries::Timeseries;
 
 // exec executes q for the given ec.
-fn exec(qt: Querytracer, ec: &EvalConfig, q: &str, isFirstPointOnly: bool) -> Result<Vec<Result>, Error> {
+fn exec(qt: Querytracer, ec: &EvalConfig, q: &str, is_first_point_only: bool) -> Result<Vec<Result>, Error> {
     if querystats.Enabled() {
-        startTime := time.Now();
+        startTime = time.Now();
         defer querystats.RegisterQuery(q, ec.End-ec.Start, startTime)
     }
 
@@ -18,7 +20,7 @@ fn exec(qt: Querytracer, ec: &EvalConfig, q: &str, isFirstPointOnly: bool) -> Re
     if rv.is_error() {
         return  rv
     }
-    if isFirstPointOnly {
+    if is_first_point_only {
         // Remove all the points except the first one from every time series.
         for ts in rv.iter() {
             ts.values = ts.values[:1]
@@ -26,16 +28,16 @@ fn exec(qt: Querytracer, ec: &EvalConfig, q: &str, isFirstPointOnly: bool) -> Re
         }
         qt.Printf("leave only the first point in every series")
     }
-    let maySort = maySortResults(e, rv);
-    let result = timeseriesToResult(rv, maySort)?;
-    if maySort {
+    let may_sort = may_sort_results(e, rv);
+    let mut result = timeseriesToResult(rv, may_sort)?;
+    if may_sort {
         qt.Printf("sort series by metric name and labels")
     } else {
         qt.Printf("do not sort series by metric name and labels")
     }
     if let n = ec.roundDigits && n < 100 {
-        for i = range result {
-            values = result[i].values
+        for r in result.iter() {
+            let mut values = r.values;
             for (j, v) in values.iter().enumerate() {
                 values[j] = decimal.roundToDecimalDigits(v, n)
             }
@@ -45,41 +47,42 @@ fn exec(qt: Querytracer, ec: &EvalConfig, q: &str, isFirstPointOnly: bool) -> Re
     return result
 }
 
-fn maySortResults(e: &Expression, tss: Vec<Timeseries>) -> bool {
+fn may_sort_results(e: &Expression, tss: Vec<Timeseries>) -> bool {
     match e {
-        Expression::FuncExpr(fe) => {
+        Expression::Function(fe) => {
             let lower = fe.name.to_lower().as_string();
             match lower {
                 "sort" | "sort_desc" | "sort_by_label" | "sort_by_label_desc" => false,
                 _ => true
             }
         },
-        Expression::AggrFuncExpr(ae) => {
+        Expression::Aggregation(ae) => {
             let lower = fe.name.to_lower().as_string();
             match lower {
                 "topk" | "bottomk" | "outliersk" |
                 "topk_max" | "topk_min" | "topk_avg" |
                 "topk_median" | "topk_last" | "bottomk_max" |
-                "bottomk_min" | "bottomk_avg" | "bottomk_median" | "bottomk_last" => false
+                "bottomk_min" | "bottomk_avg" | "bottomk_median" | "bottomk_last" => false,
                 _ => true
             }
-        }
+        },
+        _ => true
     }
     return true
 }
 
-pub(crate) fn timeseriesToResult(tss: Vec<Timeseries>, maySort: bool) -> Result<Vec<Result>, Error> {
-    tss = removeEmptySeries(tss);
+pub(crate) fn timeseriesToResult(mut tss: &Vec<Timeseries>, maySort: bool) -> Result<Vec<Result>, Error> {
+    tss = remove_empty_series(tss);
     let result: Vec<Result> = Vec:with_capacity(tss.len());
     let m:  HashSet<String> = HashSet::with_capacity(tss.len());
     let mut bb = bbPool.Get();
     for ts in tss.iter() {
         let key = marshalMetricNameSorted(bb, &ts.metric_name).as_string();
         if Some(m.contains(key)) {
-            return Err(Error::new(format!("duplicate output timeseries: {}", ts.metric_name)));
+            return Err(Error::from(format!("duplicate output timeseries: {}", ts.metric_name)));
         }
-        m.insert(key];
-        rs := &result[i]
+        m.insert(key);
+        let mut rs = &result[i];
         rs.metric_name.copyFrom(&ts.MetricName)
         rs.values = ts.values;
         rs.timestamps = append(rs.Timestamps[:0], ts.Timestamps...)
@@ -95,33 +98,7 @@ pub(crate) fn timeseriesToResult(tss: Vec<Timeseries>, maySort: bool) -> Result<
     return result
 }
 
-
-fn metric_name_less(a: &MetricName, b: &MetricName) -> bool {
-    if a.metric_group != b.metric_group {
-        return a.metric_group < b.metric_group
-    }
-    // Metric names for a and b match. Compare tags.
-    // Tags must be already sorted by the caller, so just compare them.
-    let ats = a.tags;
-    let bts = b.tags;
-    for at in ats {
-        if i >= bts.len() {
-            // a contains more tags than b and all the previous tags were identical,
-            // so a is considered bigger than b.
-            return false
-        }
-        let bt = &bts[i];
-        if at.key != bt.key {
-            return at.Key < bt.Key
-        }
-        if at.value != bt.value {
-            return at.value < bt.value
-        }
-    }
-    return ats.len() < bts.len();
-}
-
-pub(super) fn remove_empty_series(tss: &Vec<Timeseries>) -> Vec<Timeseries> {
+pub(super) fn remove_empty_series(tss: &[Timeseries]) -> Vec<Timeseries> {
     let mut rvs = Vec::with_capacity(tss.len());
     for ts in tss.iter() {
         let mut all_nans = true;
@@ -165,7 +142,7 @@ fn adjust_cmp_ops(e: &Expression) -> Expression {
 
 fn is_number_expr(e: &Expression) -> bool {
     match e {
-        Expression::Number() => true,
+        Expression::Number(..) => true,
         _ => false
     }
 }
