@@ -1,4 +1,5 @@
 use phf::phf_ordered_set;
+use crate::types::FuncExpr;
 
 static ROLLUP_FUNCTIONS: phf::OrderedSet<&'static str> = phf_ordered_set! {
   "absent_over_time",
@@ -85,7 +86,7 @@ pub fn is_rollup_func(func: &str) -> bool {
 // GetRollupArgIdx returns the argument index for the given fe, which accepts the rollup argument.
 //
 // -1 is returned if fe isn't a rollup function.
-pub fn get_rollup_arg_idx(fe: &FunctionExpr) -> i32 {
+pub fn get_rollup_arg_idx(fe: &FuncExpr) -> i32 {
   let lower = fe.name.to_lowercase().as_str();
   if !ROLLUP_FUNCTIONS.contains(lower) {
     return -1;

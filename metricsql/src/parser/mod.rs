@@ -8,6 +8,3 @@ mod expand_with;
 mod utils;
 
 pub use parser::*;
-pub use binary_op::*;
-pub use expr::*;
-pub(crate) use lexer::*;

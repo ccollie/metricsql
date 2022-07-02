@@ -23,8 +23,8 @@ impl Span {
         Span { start, end }
     }
 
-    pub fn from_node(node: &crate::parser::Node) -> Self {
-        let span = node.as_span();
+    pub fn from_lexer(node: &crate::lexer::Lexer) -> Self {
+        let span = node.span();
         Span {
             start: span.start(),
             end: span.end()

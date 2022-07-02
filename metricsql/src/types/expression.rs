@@ -1,11 +1,9 @@
 use std::fmt;
 use std::fmt::Display;
 use std::string::{String, ToString};
-use enquote::{escape, enquote};
-use crate::lexer::*;
-use crate::parser::{duration_value, escape_ident};
-use crate::error::Error;
-use crate::types::{BinaryOp, Group};
+use crate::lexer::{duration_value, escape_ident};
+use crate::error::{Error, Result};
+use crate::types::{BinaryOp, Group, LabelFilterOp};
 use crate::types::expression_kind::ExpressionKind;
 use crate::types::label_filter::{LabelFilter, LabelFilterExpr};
 
@@ -16,14 +14,14 @@ pub trait Visitor<T> {
 }
 
 /// Expression Trait. Useful for cases where match is not ergonomic
-trait ExpressionNode {
+pub trait ExpressionNode {
     fn kind(&self) -> ExpressionKind;
 }
 
 /// A root expression node.
 ///
 /// These are all valid root expression types.
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Debug)]
 pub enum Expression {
     Duration(DurationExpr),
 
@@ -62,10 +60,7 @@ impl Expression {
         match self {
             Expression::Duration(_) | Expression::Number(_) => true,
             Expression::Function(f) => {
-                let lower = f.name.to_lowercase().as_str();
-                // time() returns scalar in PromQL
-                // - see https://prometheus.io/docs/prometheus/latest/querying/functions/#time
-                lower == "time"
+                *f.is_scalar
             },
             _ => false,
         }
@@ -84,7 +79,6 @@ impl Expression {
             ExpressionKind::String => Self::String(StringExpr(node)),
             ExpressionKind::Duration => Self::Duration(DurationExpr(node)),
             ExpressionKind::Rollup => Self::Rollup(RollupExpr(node)),
-            _ => return None,
         };
 
         Some(result)
@@ -170,7 +164,7 @@ impl NumberExpr {
 
     #[inline]
     pub fn value(&self) -> f64 {
-        self.n
+        *self.n
     }
 }
 
@@ -221,7 +215,7 @@ impl Display for GroupModifierOp {
 impl TryFrom<&str> for GroupModifierOp {
     type Error = Error;
 
-    fn try_from(op: &str) -> Result<Self, E> {
+    fn try_from(op: &str) -> Result<Self> {
         use GroupModifierOp::*;
 
         match op.to_lowercase().as_str() {
@@ -240,9 +234,6 @@ pub struct GroupModifier {
     /// A list of labels to which the operator is applied
     pub labels: Vec<String>,
 
-    /// An optional grouping clause for many-to-one and one-to-many vector matches
-    pub group: Option<GroupModifierGroup>,
-
     pub span: Option<Span>
 }
 
@@ -251,7 +242,6 @@ impl GroupModifier {
         GroupModifier {
             op,
             labels: vec![],
-            group: None,
             span: None
         }
     }
@@ -279,7 +269,8 @@ impl GroupModifier {
     }
 
     /// Replaces this GroupModifier's labels with the given set
-    pub fn set_labels<I: Iterator<Item:Into<String>>>(mut self, labels: I) -> Self {
+    pub fn set_labels<I>(mut self, labels: I) -> Self
+    where I: Iterator<Item:Into<String>>{
         self.labels = labels.iter().map(|l| (*l).to_string()).collect();
         self
     }
@@ -287,18 +278,6 @@ impl GroupModifier {
     /// Clears this GroupModifier's set of labels
     pub fn clear_labels(mut self) -> Self {
         self.labels.clear();
-        self
-    }
-
-    /// Sets or replaces this GroupModifier's group clause
-    pub fn group(mut self, group: GroupModifierGroup) -> Self {
-        self.group = Some(group);
-        self
-    }
-
-    /// Clears this GroupModifier's group clause
-    pub fn clear_group(mut self) -> Self {
-        self.group = None;
         self
     }
 
@@ -343,7 +322,7 @@ impl Display for JoinModifierOp {
 impl TryFrom<&str> for JoinModifierOp {
     type Error = Error;
 
-    fn try_from(op: &str) -> Result<Self, Error> {
+    fn try_from(op: &str) -> Result<Self> {
         use JoinModifierOp::*;
 
         match op.to_lowercase().as_str() {
@@ -447,7 +426,9 @@ pub struct BinaryOpExpr {
     pub left: BExpression,
 
     // Right contains right arg for the `left op right` expression.
-    pub right: BExpression
+    pub right: BExpression,
+
+    pub span: Option<Span>
 }
 
 impl BinaryOpExpr {
@@ -458,7 +439,8 @@ impl BinaryOpExpr {
             right: Box::new(rhs),
             join_modifier: None,
             group_modifier: None,
-            bool_modifier: false
+            bool_modifier: false,
+            span: None
         }
     }
 
@@ -483,17 +465,22 @@ impl BinaryOpExpr {
         return self;
     }
 
-    pub fn swap_operands(mut self) {
+    pub(crate) fn swap_operands(mut self) {
         let temp: BExpression = self.left;
         self.left = self.right;
         self.right = temp;
+    }
+
+    pub fn span<S: Into<Span>>(mut self, span: S) -> Self {
+        self.span = Some(span.into());
+        self
     }
 }
 
 impl Display for BinaryOpExpr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // Op is the operation itself, i.e. `+`, `-`, `*`, etc.
-        match *self.left {
+        match &self.left {
             Expression::BinaryOperator(be) => {
                 write!(f, "({})", *self.left)?;
             },
@@ -512,7 +499,7 @@ impl Display for BinaryOpExpr {
             write!(f, " {}", *self.join_modifier)?;
         }
         write!(f, " ")?;
-        match *self.right {
+        match &self.right {
             Expression::BinaryOperator(be) => {
                 write!(f, "({})", *self.right)?;
             },
@@ -541,16 +528,32 @@ pub struct FuncExpr {
     pub args: Vec<Expression>,
 
     // If KeepMetricNames is set to true, then the function should keep metric names.
-    pub keep_metric_names: bool
+    pub keep_metric_names: bool,
+
+    pub is_scalar: bool,
+
+    pub span: Option<Span>
 }
 
 impl FuncExpr {
     pub fn new<S: Into<String>>(name: S, args: Vec<Expression>) -> Self {
+
+        // time() returns scalar in PromQL - see https://prometheus.io/docs/prometheus/latest/querying/functions/#time
+        let lower = name.to_lowercase().as_string();
+        let is_scalar = lower == "time";
+
         FuncExpr {
             name: name.into(),
             args,
-            keep_metric_names: false
+            keep_metric_names: false,
+            span: None,
+            is_scalar
         }
+    }
+
+    pub fn span<S: Into<Span>>(mut self, span: S) -> Self {
+        self.span = Some(span.into());
+        self
     }
 }
 
@@ -600,7 +603,9 @@ pub struct RollupExpr {
     //
     // For example, `foo @ end()` or `bar[5m] @ 12345`
     // See https://prometheus.io/docs/prometheus/latest/querying/basics/#modifier
-    pub at: Option<BExpression>
+    pub at: Option<BExpression>,
+
+    pub span: Option<Span>
 }
 
 impl RollupExpr {
@@ -611,7 +616,8 @@ impl RollupExpr {
             offset: None,
             step: None,
             inherit_step: false,
-            at: None
+            at: None,
+            span: None
         }
     }
 
@@ -697,18 +703,20 @@ impl ExpressionNode for RollupExpr {
 // DurationExpr contains the duration
 #[derive(Default, Debug, Clone, PartialEq)]
 pub struct DurationExpr {
-    pub s: String
+    pub s: String,
+    pub span: Option<Span>
 }
 
 impl DurationExpr {
     pub fn new<S : Into<String>>(s: S) -> DurationExpr {
         DurationExpr {
-            s: s.into()
+            s: s.into(),
+            span: None
         }
     }
 
     // Duration returns the duration from de in milliseconds.
-    pub fn duration(&self, step: i64) -> Result<i64, Error> {
+    pub fn duration(&self, step: i64) -> Result<i64> {
         let d = match duration_value(&self.s, step) {
             Ok(d) => d,
             Err(e) => return Err(Error::new(format!("BUG: cannot parse duration {}: {}", self.s, e)))
@@ -734,14 +742,16 @@ impl ExpressionNode for RollupExpr {
 #[derive(Debug, Clone, PartialEq)]
 pub struct WithExpr {
     pub was: Vec<WithArgExpr>, // todo: SmallVec
-    pub expr: BExpression
+    pub expr: BExpression,
+    pub span: Option<Span>
 }
 
 impl WithExpr {
     pub fn new(expr: Expression, was: Vec<WithArgExpr>) -> Self {
         WithExpr {
             expr: Box::new(expr),
-            was
+            was,
+            span: None,
         }
     }
 }
@@ -815,7 +825,7 @@ impl Display for AggregateModifierOp {
 impl TryFrom<&str> for AggregateModifierOp {
     type Error = Error;
 
-    fn try_from(op: &str) -> Result<Self, Error> {
+    fn try_from(op: &str) -> Result<Self> {
         use AggregateModifierOp::*;
 
         match op.to_lowercase().as_str() {
@@ -832,6 +842,7 @@ pub struct AggregateModifier {
     pub op: AggregateModifierOp,
     // Args contains modifier args from parens.
     pub args: Vec<String>,
+    pub span: Option<Span>
 }
 
 impl AggregateModifier {
@@ -839,6 +850,7 @@ impl AggregateModifier {
         AggregateModifier {
             op,
             args: Vec::new(),
+            span: None
         }
     }
 
@@ -896,16 +908,22 @@ pub struct AggrFuncExpr {
     // This is MetricsQL extension.
     //
     // Example: `sum(...) by (...) limit 10` would return maximum 10 time series.
-    pub limit: i32
+    pub limit: usize,
+
+    pub keep_metric_names: bool,
+
+    pub span: Option<Span>
 }
 
 impl AggrFuncExpr {
     pub fn new(name: &str) -> AggrFuncExpr {
         AggrFuncExpr {
             name: name.to_string(),
-            args: Vec![],
+            args: vec![],
             modifier: None,
-            limit: 0
+            limit: 0,
+            keep_metric_names: false,
+            span: None
         }
     }
 
@@ -916,7 +934,24 @@ impl AggrFuncExpr {
 
     pub fn with_args(mut self, args: &[Expression]) -> Self {
         self.args = args.to_vec();
+        self.set_keep_metric_names();
         self
+    }
+
+    fn set_keep_metric_names(&mut self) {
+        // Extract: RollupFunc(...) from aggrFunc(rollupFunc(...)).
+        // This case is possible when optimized aggrfn calculations are used
+        // such as `sum(rate(...))`
+        if self.args.len() != 1 {
+            self.keep_metric_names = false;
+            return;
+        }
+        match &self.args[0] {
+            Expression::Function(fe) => {
+                self.keep_metric_names = *fe.keep_metric_names;
+            }
+            _ => self.keep_metric_names = false
+        }
     }
 }
 
@@ -951,14 +986,18 @@ pub struct MetricExpr {
     pub label_filters: Vec<LabelFilter>,
 
     // label_filters must be expanded to LabelFilters by expand_with_expr.
-    pub label_filter_exprs: Vec<LabelFilterExpr>
+    pub(crate) label_filter_exprs: Vec<LabelFilterExpr>,
+
+    pub span: Option<Span>
 }
 
 impl MetricExpr {
-    pub fn new(label_filter_exprs: &Vec<LabelFilterExpr>) -> MetricExpr {
+    pub fn new<S: Into<String>>(name: S) -> MetricExpr {
+        let name_filter = LabelFilter::new(LabelFilterOp::Equal,  "__name__", name).unwrap();
         MetricExpr {
-            label_filters: Vec::new(),
-            label_filter_exprs: *label_filter_exprs
+            label_filters: vec![name_filter],
+            label_filter_exprs: vec![],
+            span: None
         }
     }
 
@@ -1029,12 +1068,13 @@ impl ExpressionNode for MetricExpr {
 /// Expression(s) explicitly grouped in parens
 #[derive(Default, Debug, Clone)]
 pub struct ParensExpr {
-    pub expressions: Vec<Expression>
+    pub expressions: Vec<Expression>,
+    pub span: Option<Span>
 }
 
 impl ParensExpr {
     pub fn new(expressions: Vec<Expression>) -> Self {
-        ParensExpr { expressions }
+        ParensExpr { expressions, span: None }
     }
 
     pub fn len(&self) -> usize {
@@ -1055,8 +1095,8 @@ impl ExpressionNode for ParensExpr {
     }
 }
 
-fn write_labels(labels: &Vec<String>, f: &mut fmt::Formatter) {
-    if !labels.is_empty() {
+fn write_labels(labels: &[String], f: &mut fmt::Formatter) {
+    if labels.len() > 0 {
         write!(f, "(")?;
         for (i, label) in labels.iter().enumerate() {
             if i > 0 {

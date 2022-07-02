@@ -1,5 +1,4 @@
-use crate::error::Error;
-use crate::lib::Error;
+use crate::error::{Error, Result};
 
 // positive_duration_value returns positive duration in milliseconds for the given s
 // and the given step.
@@ -7,7 +6,7 @@ use crate::lib::Error;
 // Duration in s may be combined, i.e. 2h5m or 2h-5m.
 //
 // Error is returned if the duration in s is negative.
-pub fn positive_duration_value(s: &str, step: i64) -> Result<i64, Error> {
+pub fn positive_duration_value(s: &str, step: i64) -> Result<i64> {
     let d = duration_value(s, step)?;
     if d < 0 {
         return Err(Error::from(format!("duration cannot be negative; got {}", s)))
@@ -21,9 +20,9 @@ pub fn positive_duration_value(s: &str, step: i64) -> Result<i64, Error> {
 // Duration in s may be combined, i.e. 2h5m, -2h5m or 2h-5m.
 //
 // The returned duration value can be negative.
-pub fn duration_value(s: &str, &step: i64) -> Result<i64, Error> {
+pub fn duration_value(s: &str, &step: i64) -> Result<i64> {
 
-    fn scan_value(s: &str, step: &i64) -> Result<i64, Error> {
+    fn scan_value(s: &str, step: &i64) -> Result<i64> {
         let mut is_minus = false;
         let mut cursor: &str = s;
         let mut d = 0.0;
@@ -35,11 +34,8 @@ pub fn duration_value(s: &str, &step: i64) -> Result<i64, Error> {
             }
             let ds = &s[0..n];
             cursor = &cursor[n..];
-            let mut d_local = match parse_single_duration(ds, step) {
-                Ok(d) => d,
-                Err(err) => return Err(err)
-            };
-            if is_minus && d_local > 0 as f64 {
+            let mut d_local = parse_single_duration(ds, step)?;
+            if &is_minus && &(d_local > 0.0) {
                 d_local = -d_local
             }
             d += d_local;
@@ -51,7 +47,7 @@ pub fn duration_value(s: &str, &step: i64) -> Result<i64, Error> {
             let msg = format!("duration {} is too large", s);
             return Err(Error::new(msg))
         }
-        return OK(d)
+        return Ok(d)
     }
 
     if s.len() == 0 {
@@ -68,7 +64,7 @@ pub fn duration_value(s: &str, &step: i64) -> Result<i64, Error> {
 }
 
 
-pub fn parse_single_duration(s: &str, &step: &i64) -> Result<f64, Error> {
+pub fn parse_single_duration(s: &str, &step: &i64) -> Result<f64> {
     let mut num_part = &s[0 .. s.len() - 1];
     if num_part.ends_with("m") {
         // Duration in ms

@@ -1,4 +1,3 @@
-use phf::phf_map;
 use phf::phf_ordered_set;
 
 static AGGR_FUNCTIONS: phf::OrderedSet<&'static str> = phf_ordered_set! {
@@ -42,9 +41,4 @@ static AGGR_FUNCTIONS: phf::OrderedSet<&'static str> = phf_ordered_set! {
 pub fn is_aggr_func(func: &str) -> bool {
   let lower = func.to_lowercase().as_str();
   AGGR_FUNCTIONS.contains(lower)
-}
-
-pub fn is_aggr_func_modifier(s: &str) -> bool {
-    let lower = s.to_lowercase().as_str();
-    return lower == "by" || lower == "without";
 }

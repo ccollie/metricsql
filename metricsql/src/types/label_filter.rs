@@ -1,12 +1,9 @@
 use std::cmp::Ordering;
 use std::fmt;
-use regex::{Error, Regex};
-
-use metrix::error::{Error, Result};
-use crate::StringExpr;
 use enquote::enquote;
-use crate::lexer::escape_ident;
-use crate::parser::escape_ident;
+use regex::Regex;
+use crate::error::{Error, Result};
+use crate::lexer::{escape_ident, quote};
 use crate::types::StringExpr;
 
 const NAME_LABEL: &str = "__name__";
@@ -42,7 +39,7 @@ impl LabelFilterOp {
 impl TryFrom<&str> for LabelFilterOp {
     type Error = Error;
 
-    fn try_from(op: &str) -> Result<Self, Error> {
+    fn try_from(op: &str) -> Result<Self> {
         match op {
             "=" => Ok(LabelFilterOp::Equal),
             "!=" => Ok(LabelFilterOp::NotEqual),
@@ -79,7 +76,7 @@ pub struct LabelFilter {
 }
 
 impl LabelFilter {
-    pub fn new<N, V>(match_op: LabelFilterOp, label: N, value: V) -> Result<Self, Error>
+    pub fn new<N, V>(match_op: LabelFilterOp, label: N, value: V) -> Result<Self>
         where
             N: Into<LabelName>,
             V: Into<LabelValue>,
@@ -98,25 +95,25 @@ impl LabelFilter {
 
         Ok(Self {
             label,
-            op,
+            op: match_op,
             value,
             re,
         })
     }
 
-    pub fn equal<S: Into<String>>(key: S, value: S) -> Result<LabelFilter, Error> {
+    pub fn equal<S: Into<String>>(key: S, value: S) -> Result<LabelFilter> {
         LabelFilter::new(LabelFilterOp::Equal, key, value)
     }
 
-    pub fn not_equal<S: Into<String>>(key: S, value: S) -> Result<LabelFilter, Error> {
+    pub fn not_equal<S: Into<String>>(key: S, value: S) -> Result<LabelFilter> {
         LabelFilter::new(LabelFilterOp::NotEqual, key, value)
     }
 
-    pub fn regex_equal<S: Into<String>>(key: S, value: S) -> Result<LabelFilter, Error> {
+    pub fn regex_equal<S: Into<String>>(key: S, value: S) -> Result<LabelFilter> {
         LabelFilter::new(LabelFilterOp::RegexEqual, key, value)
     }
 
-    pub fn regex_notequal<S: Into<String>>(key: S, value: S) -> Result<LabelFilter, Error> {
+    pub fn regex_notequal<S: Into<String>>(key: S, value: S) -> Result<LabelFilter> {
         LabelFilter::new(LabelFilterOp::RegexNotEqual, key, value)
     }
 
@@ -170,9 +167,9 @@ impl PartialOrd for LabelFilter {
 
 impl fmt::Display for LabelFilter {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", escaped_ident(&self.label) )?;
+        write!(f, "{}", escape_ident(&self.label) )?;
         write!(f, "{}", self.op)?;
-        write!( enquote( '\"', &self.value) )?;
+        write!(f, "{}", quote( &self.value) )?;
         Ok(())
     }
 }
@@ -181,8 +178,8 @@ impl fmt::Display for LabelFilter {
 //
 // This type isn't exported.
 #[derive(Default, Debug, Clone, PartialEq)]
-pub struct LabelFilterExpr {
-    pub label: string,
+pub(crate) struct LabelFilterExpr {
+    pub label: String,
     pub value: StringExpr,
     pub op: LabelFilterOp
 }
@@ -198,11 +195,11 @@ impl LabelFilterExpr {
 
     pub fn to_label_filter(&self) -> LabelFilter {
         if self.value.s.len() > 0 || self.value.tokens.len() > 0 {
-            panic(format!("BUG: value must be already expanded; got {}", self.value))
+            panic!("BUG: value must be already expanded; got {}", self.value)
         }
         // // Verify regexp.
         // if _, err := CompileRegexpAnchored(lfe.Value.S); err != nil {
-        // return nil, fmt.Errorf("invalid regexp in %s=%q: %s", lf.Label, lf.Value, err)
+        //   return Err(Error::new("invalid regexp in {}={}: {}", lf.label, lf.value, err)
         // }
         LabelFilter {
             label: self.label.to_string(),
@@ -215,7 +212,7 @@ impl LabelFilterExpr {
 
 impl fmt::Display for LabelFilterExpr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}{}{}", escape_ident(self.label), self.op, enquote( '\"', &self.value.s))?;
+        write!(f, "{}{}{}", escape_ident(&self.label), self.op, enquote( '\"', &self.value.s))?;
         Ok(())
     }
 }
