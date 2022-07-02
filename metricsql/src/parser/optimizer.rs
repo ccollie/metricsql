@@ -1,9 +1,8 @@
-use phf::phf_map;
 use phf::phf_ordered_set;
 use std::collections::HashSet;
-use std::fmt;
 use std::iter::FromIterator;
 use std::cmp::Ordering;
+use std::vec::Vec;
 use crate::parser::aggr::is_aggr_func;
 use crate::parser::rollup::is_rollup_func;
 use crate::parser::transform::is_transform_func;
@@ -18,10 +17,10 @@ use crate::types::*;
 //   according to https://utcc.utoronto.ca/~cks/space/blog/sysadmin/PrometheusLabelNonOptimization
 pub fn optimize(expr: &Expression) -> Expression {
     if !can_optimize(expr) {
-        return e;
+        return expr;
     }
-    let copy = e.clone();
-    optimize_in_place(eCopy);
+    let copy = expr.clone();
+    optimize_in_place(&copy);
     return copy;
 }
 
@@ -99,7 +98,7 @@ pub fn get_common_label_filters(e: &Expression) -> Vec<LabelFilter> {
 
             let lfs_left = get_common_label_filters(&e.left);
             let lfs_right = get_common_label_filters(&e.right);
-            let mut lfs: Vec<LabelFilter> = Vec![];
+            let mut lfs: Vec<LabelFilter> = vec![];
             match e.op {
                 Add => {
                     // {fCommon, f1} or {fCommon, f2} -> {fCommon}
@@ -123,17 +122,17 @@ pub fn get_common_label_filters(e: &Expression) -> Vec<LabelFilter> {
                 _ => {
                     if e.join_modified.is_some() {
                         return match e.join_modifier.op {
-                            JoinOp::Left => {
+                            JoinModifierOp::Left => {
                                 // {f1} * group_left() {f2} -> {f1, f2}
                                 // {f1} * on() group_left() {f2} -> {f1}
                                 // {f1} * on(f1) group_left() {f2} -> {f1}
                                 // {f1} * on(f2) group_left() {f2} -> {f1, f2}
                                 // {f1} * on(f1, f2) group_left() {f2} -> {f1, f2}
                                 // {f1} * on(f3) group_left() {f2} -> {f1}
-                                let lfsRight = trim_filters_by_group_modifier(&lfs_right, e);
-                                union_label_filters(&lfs_left, &lfsRight)
+                                let right = trim_filters_by_group_modifier(&lfs_right, e);
+                                union_label_filters(&lfs_left, &right)
                             },
-                            JoinOp::Right => {
+                            JoinModifierOp::Right => {
                                 // {f1} * group_right() {f2} -> {f1, f2}
                                 // {f1} * on() group_right() {f2} -> {f2}
                                 // {f1} * on(f1) group_right() {f2} -> {f1, f2}
@@ -170,7 +169,7 @@ pub fn trim_filters_by_aggr_modifier(
     if modifier.is_none() {
         return lfs.clone();
     }
-    let op = group_modifier.op;
+    let op = modifier.op;
     match op {
         AggregateModifierOp::By => filter_label_filters_on(lfs, modifier.args),
         AggregateModifierOp::Without => filter_label_filters_ignoring(lfs, modifier.args),
@@ -209,12 +208,12 @@ pub fn trim_filters_by_group_modifier(
 
 
 
-fn get_label_filters_without_metric_name(lfs: &Vec<LabelFilter>) -> Vec<LabelFilter> {
-    return lfs.iter().filter([f] *lf.label !=  "__name__").collect();
+fn get_label_filters_without_metric_name(lfs: &[LabelFilter]) -> Vec<&LabelFilter> {
+    return lfs.iter().filter(|x| *x.label !=  "__name__").collect::<Vec<_>>();
 }
 
 
-// PushdownBinaryOpFilters pushes down the given common_filters to e if possible.
+// pushdown_binary_op_filters pushes down the given common_filters to e if possible.
 //
 // e must be a part of binary operation - either left or right.
 //
@@ -225,7 +224,8 @@ fn get_label_filters_without_metric_name(lfs: &Vec<LabelFilter>) -> Vec<LabelFil
 pub fn pushdown_binary_op_filters(e: &Expression, common_filters: &[LabelFilter]) -> Expression {
     if common_filters.len() == 0 {
         // Fast path - nothing to push down.
-        return *e;
+        // fixme
+        return Expression::cast(e).unwrap();
     }
     let copy = e.clone();
     pushdown_binary_op_filters_in_place(&copy, common_filters);
@@ -233,10 +233,10 @@ pub fn pushdown_binary_op_filters(e: &Expression, common_filters: &[LabelFilter]
 }
 
 
-pub fn pushdown_binary_op_filters_in_place(mut e: &Expression, common_filters: &Vec<LabelFilter>) {
+pub fn pushdown_binary_op_filters_in_place(mut e: &Expression, common_filters: &[LabelFilter]) {
     use Expression::*;
 
-    if lfs.len() == 0 {
+    if common_filters.len() == 0 {
         return;
     }
     match e {
@@ -244,24 +244,24 @@ pub fn pushdown_binary_op_filters_in_place(mut e: &Expression, common_filters: &
             me.label_filters = union_label_filters(&me.label_filters, common_filters);
             sort_label_filters(e.label_filters);
         }
-        Function(f) => {
-            let arg = get_func_arg_for_optimization(e.name, e.args);
+        Function(fe) => {
+            let arg = get_func_arg_for_optimization(&fe.name, &fe.args);
             if arg.is_some() {
-                pushdown_binary_op_filters_in_place(arg.unwrap(), lfs);
+                pushdown_binary_op_filters_in_place(arg.unwrap(), common_filters);
             }
         },
         BinaryOperator(bo) => {
-            let lfs = trim_filters_by_group_modifier(lfs, bo);
+            let lfs = trim_filters_by_group_modifier(common_filters, bo);
             if lfs.len() > 0 {
                 pushdown_binary_op_filters_in_place(&bo.left, common_filters);
                 pushdown_binary_op_filters_in_place(&bo.right, common_filters);
             }
         },
         Aggregation(aggr) => {
-            let lfs = trim_filters_by_aggr_modifier(lfs, aggr);
+            let lfs = trim_filters_by_aggr_modifier(common_filters, aggr);
             if lfs.len() > 0 {
                 let arg = get_func_arg_for_optimization(e.name, e.args);
-                if Some(arg_) = arg {
+                if let Some(arg_) = arg {
                     pushdown_binary_op_filters_in_place(arg_, &lfs);
                 }
             }
@@ -273,16 +273,15 @@ pub fn pushdown_binary_op_filters_in_place(mut e: &Expression, common_filters: &
     }
 }
 
-fn intersect_label_filters(lfsa: &Vec<LabelFilter>, lfsb: &[LabelFilter]) -> Vec<LabelFilter> {
-    let mut a = HashSet::new();
-    if lfsA.len() == 0 || lfsB.len() == 0 {
+fn intersect_label_filters<'a>(first: &[LabelFilter], second: &[LabelFilter]) -> Vec<&'a LabelFilter> {
+    if first.len() == 0 || second.len() == 0 {
         return vec![];
     }
-    let set = HashSet::from_iter(lfsa.iter().map(|x| *x.as_str()));
-    return lfsb.iter().filter(|x| set.contains(x.as_str())).collect();
+    let set = HashSet::from_iter(first.iter().map(|x| *x.as_str()));
+    return second.iter().filter(|x| set.contains(x.as_str())).collect::<Vec<_>>();
 }
 
-fn union_label_filters(a: &Vec<LabelFilter>, b: &[abelFilter]) -> Vec<LabelFilter> {
+fn union_label_filters(a: &[LabelFilter], b: &[LabelFilter]) -> Vec<LabelFilter> {
     if a.len() == 0 {
         return Vec::from(b);
     }
@@ -305,7 +304,7 @@ fn union_label_filters(a: &Vec<LabelFilter>, b: &[abelFilter]) -> Vec<LabelFilte
 fn sort_label_filters(lfs: &mut Vec<LabelFilter>) {
     return lfs.sort_by(|a, b| {
         // Make sure the first label filter is __name__ (if any)
-        if a.isMetricNameFilter && !b.isMetricNameFilter {
+        if a.is_metric_name_filter() && !b.is_metric_name_filter() {
             return Ordering::Less;
         }
         let mut order = a.label.cmp(&b.label);
@@ -318,7 +317,7 @@ fn sort_label_filters(lfs: &mut Vec<LabelFilter>) {
 
 
 fn filter_label_filters_on(
-    lfs: &Vec<LabelFilter>,
+    lfs: &[LabelFilter],
     args: &[String]
 ) -> Vec<LabelFilter> {
     if args.len() == 0 {
@@ -329,17 +328,17 @@ fn filter_label_filters_on(
 }
 
 fn filter_label_filters_ignoring(
-    lfs: &Vec<LabelFilter>,
-    args: &Vec<String>
+    lfs: &[LabelFilter],
+    args: &[String]
 ) -> Vec<LabelFilter> {
     if args.len() == 0 {
         return vec![];
     }
-    let set = HashSet::from_iter(   args);
-    return lfs.filter(|a| !set.contains(a.label) ).collect();
+    let set = HashSet::from_iter(args);
+    return lfs.filter(|a| !set.contains(a.label) ).collect::<Vec<_>>();
 }
 
-fn get_func_arg_for_optimization(func_name: &str, args: &Vec<Expression>) -> Option<&Expression> {
+fn get_func_arg_for_optimization(func_name: &str, args: &[Expression]) -> Option<&Expression> {
     let idx = get_func_arg_idx_for_optimization(func_name, args);
     if idx < 0 || idx >= args.len() {
         return None;
@@ -347,7 +346,7 @@ fn get_func_arg_for_optimization(func_name: &str, args: &Vec<Expression>) -> Opt
     args.get(idx)
 }
 
-fn get_func_arg_idx_for_optimization(func_name: &str, args: &Vec<Expression>) -> usize {
+fn get_func_arg_idx_for_optimization(func_name: &str, args: &[Expression]) -> usize {
     let lower = func_name.to_lowercase().as_str();
     if is_rollup_func(lower) {
         return get_rollup_arg_idx_for_optimization(func_name, args);
@@ -361,7 +360,7 @@ fn get_func_arg_idx_for_optimization(func_name: &str, args: &Vec<Expression>) ->
     return -1;
 }
 
-fn get_aggr_arg_idx_for_optimization(func: &str, args: &Vec<Expression>) -> usize {
+fn get_aggr_arg_idx_for_optimization(func: &str, args: &[Expression]) -> usize {
     let func_name = func.to_lowercase().as_str();
     return match func_name {
         "bottomk" |
@@ -386,7 +385,7 @@ fn get_aggr_arg_idx_for_optimization(func: &str, args: &Vec<Expression>) -> usiz
     }
 }
 
-fn get_rollup_arg_idx_for_optimization(func_name: &str, args: &Vec<Expression>) -> usize {
+fn get_rollup_arg_idx_for_optimization(func_name: &str, args: &[Expression]) -> usize {
     // This must be kept in sync with GetRollupArgIdx()
     let lower = func_name.to_lowercase().as_str();
     return match lower {
@@ -397,7 +396,7 @@ fn get_rollup_arg_idx_for_optimization(func_name: &str, args: &Vec<Expression>) 
     }
 }
 
-fn get_transform_arg_idx_for_optimization(func: &str, args: &Vec<Expression>) -> usize {
+fn get_transform_arg_idx_for_optimization(func: &str, args: &[Expression]) -> usize {
     let func_name = func.to_lowercase().as_str();
     if is_label_manipulation_func(func_name) {
         return -1;

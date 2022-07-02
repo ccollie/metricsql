@@ -3,8 +3,8 @@
 use std::collections::HashSet;
 use std::fmt;
 use std::iter::FromIterator;
+use crate::types::LabelFilter;
 
-use super::expression::Expression;
 use super::misc::{PromDuration, Span, Subquery};
 use super::return_value::{LabelSetOp, ReturnKind, ReturnValue};
 
@@ -12,7 +12,7 @@ use super::return_value::{LabelSetOp, ReturnKind, ReturnValue};
 #[derive(Debug, PartialEq, Eq, Clone, Default)]
 pub struct Selector {
     pub metric: Option<String>,
-    pub labels: Vec<Label>,
+    pub labels: Vec<LabelFilter>,
     pub range: Option<PromDuration>,
     pub offset: Option<PromDuration>,
     pub subquery: Option<Subquery>,
@@ -45,13 +45,13 @@ impl Selector {
     }
 
     /// Adds a label to this Selector
-    pub fn label(mut self, label: Label) -> Self {
+    pub fn label(mut self, label: LabelFilter) -> Self {
         self.labels.push(label);
         self
     }
 
     /// Replaces this Selector's labels with the given set
-    pub fn labels(mut self, labels: Vec<Label>) -> Self {
+    pub fn labels(mut self, labels: Vec<LabelFilter>) -> Self {
         self.labels = labels;
         self
     }
@@ -98,10 +98,6 @@ impl Selector {
     pub fn span<S: Into<Span>>(mut self, span: S) -> Self {
         self.span = Some(span.into());
         self
-    }
-
-    pub fn wrap(self) -> Expression {
-        Expression::Selector(self)
     }
 
     pub fn return_value(&self) -> ReturnValue {

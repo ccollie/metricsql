@@ -1,7 +1,9 @@
-use crate::error::Error;
+use std::str;
+use enquote::{enquote, unquote};
+use crate::error::{Error, Result};
 use crate::lexer::scan_duration;
 
-pub fn scan_string(s: &str) -> Result<&str, Error> {
+pub fn scan_string(s: &str) -> Result<&str> {
     if s.len() < 2 {
         return Err(Error::new(format!("cannot find end of string in {}", s)));
     }
@@ -11,13 +13,13 @@ pub fn scan_string(s: &str) -> Result<&str, Error> {
     let mut skip_delimiter = false;
 
     for (i, ch) in cursor.char_indices() {
-        if ch == '\\' && !skip_delimiter {
-            skip_delimiter = true;
-        } else if ch == quote && !skip_delimiter {
-            let token = &s[0 .. i+1];
-            return Ok(token);
-        } else {
-            skip_delimiter = false;
+        if !skip_delimiter {
+            if ch == '\\' {
+                skip_delimiter = true;
+            } else if ch == quote {
+                let token = &s[0 .. i+1];
+                return Ok(token);
+            }
         }
     }
 
@@ -73,27 +75,28 @@ pub fn is_ident_prefix(s: &str) -> bool {
         // Assume this is an escape char for the next char.
         return true;
     }
-    return is_first_ident_char(ch);
+    return is_first_ident_char(&ch);
 }
 
-fn is_first_ident_char(ch: char) -> bool {
-    if ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' {
-        return true;
+#[inline]
+fn is_first_ident_char(ch: &char) -> bool {
+    match ch {
+        'A'..='Z' | 'a'..='z' => {
+            true
+        },
+        '_' | ':' => true,
+        _ => false
     }
-    return ch == '_' || ch == ':';
 }
 
-fn is_ident_char(ch: char) -> bool {
-    if is_first_ident_char(ch) {
-        return true;
+fn is_ident_char(ch: &char) -> bool {
+    match ch {
+        'A'..='Z' | 'a'..='z' | '0' ..='9' => {
+            true
+        },
+        '_' | ':' | '.' => true,
+        _ => false
     }
-    return is_decimal_char(ch) || ch == '.';
-}
-
-pub fn append_escaped_ident(dst: &str, s: &str) -> &str {
-    let escaped = escape_ident(s);
-    dst.push_str(escaped);
-    return dst
 }
 
 pub fn escape_ident(s: &str) -> &str {
@@ -114,4 +117,12 @@ pub fn escape_ident(s: &str) -> &str {
         }
     }
     return dst.as_str()
+}
+
+pub fn unescape_ident(str: &str) -> String {
+    unquote(str).unwrap()
+}
+
+pub fn quote(str: &str) -> String {
+    enquote('\"', str)
 }

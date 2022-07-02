@@ -1,29 +1,10 @@
-#![cfg_attr(not(feature = "std"), no_std)]
-
-extern crate alloc;
-extern crate logos;
-
-use alloc::collections::VecDeque;
-use core::num::dec2flt::float::RawFloat;
-use logos::Logos;
+use std::collections::VecDeque;
+use logos::{Logos, Span};
 use regex::internal::Input;
-use crate::error::Error;
-use crate::lexer::parse_float;
-use crate::types::BinaryOp as Operator;
-use super::duration::duration_value;
+use crate::error::{Error, Result};
 
 static DurationRegex: &str = r"(-?)(?=\d)(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)([DW]))?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?";
 
-// Note: callbacks can return `Option` or `Result`
-fn number(lex: &mut Lexer) -> Option<f64> {
-    let slice = lex.slice();
-    return parse_float(slice);
-}
-
-fn lex_operator(lex: &mut Lexer) -> Result<Operator, Error> {
-    let slice = lex.slice();
-    Operator::try_from(slice)
-}
 
 #[derive(Logos, Debug, PartialEq)]
 enum RawToken<'a> {
@@ -81,17 +62,17 @@ enum RawToken<'a> {
     #[token("without", ignore(ascii_case))]
     Without,
 
-    #[regex(DurationRegex)]
+    #[regex(r"(-?)(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)([DW]))?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?", priority = 20)]
     Duration,
 
-    #[regex(r"[_a-zA-Z][_a-zA-Z0-9]*", |lex| lex.slice())]
-    Ident(&'a str),
+    #[regex(r"[_a-zA-Z][_a-zA-Z0-9]*")]
+    Ident,
 
-    #[regex("[-|+]?[i|I][n|N][f|F]", number)]
-    #[token("[-|+]?[n|N][a|A][n|N]", number)]
+    #[regex("[-|+]?[i|I][n|N][f|F]")]
+    #[token("[-|+]?[n|N][a|A][n|N]")]
     #[regex("0x[0-9a-fA-F]+")]
     #[regex(r"(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?")]
-    Number(f64),
+    Number,
 
     #[regex(r"(?:0|[1-9][0-9]*)\.[^0-9]")]
     ErrorNumJunkAfterDecimalPoint,
@@ -138,17 +119,50 @@ enum RawToken<'a> {
     #[token("=")]
     Equal,
 
+    #[token("==")]
+    OpEqual,
+
+    #[token("!=")]
+    OpNotEqual,
+
+    #[token("<")]
+    OpLessThan,
+
+    #[token("<=")]
+    OpLessThanOrEqual,
+
+    #[token(">")]
+    OpGreaterThan,
+
+    #[token(">=")]
+    OpGreaterThanOrEqual,
+
+    #[token("+")]
+    OpPlus,
+
+    #[token("-")]
+    OpMinus,
+
+    #[token("/")]
+    OpDiv,
+
+    #[token("*")]
+    OpMul,
+
+    #[token("^")]
+    OpPow,
+
+    #[token("%")]
+    OpMod,
+
     #[token("=~")]
     RegexEqual,
 
     #[token("!~")]
     RegexNotEqual,
 
-    #[regex(r"[!\$:~\+\-&\|\^=<>\*/%]+", lex_operator)]
-    Op(Operator),
-
-    #[regex("'(?s:[^'\\\\]|\\\\.)*'", |lex| lex.slice())]
-    #[regex("\"(?s:[^\"\\\\]|\\\\.)*\"", |lex| lex.slice())]
+    #[regex("'(?s:[^'\\\\]|\\\\.)*'")]
+    #[regex("\"(?s:[^\"\\\\]|\\\\.)*\"")]
     QuotedString,
 
     #[regex("\"(?s:[^\"\\\\]|\\\\.)*")]
@@ -163,7 +177,7 @@ enum RawToken<'a> {
     #[regex(r"[ \t\n\r]+", logos::skip)]
     Whitespace,
 
-    #[regex(r"#[^\r\n]*(\r\n|\n)?", logos::skip)]
+    #[regex(r"[^\r\n]*(\r\n|\n)?", logos::skip)]
     SingleLineHashComment,
 
     #[error]
@@ -279,11 +293,11 @@ token_enum! {
 }
 
 impl TokenKind {
-    pub fn is_trivia(self) -> bool {
+    pub fn is_trivia(&self) -> bool {
         matches!(self, Self::Whitespace | Self::SingleLineHashComment)
     }
 
-    pub fn is_error(self) -> bool {
+    pub fn is_error(&self) -> bool {
         use TokenKind::*;
 
         match self {
@@ -299,7 +313,7 @@ impl TokenKind {
         }
     }
     
-    pub fn is_operator(self) -> bool {
+    pub fn is_operator(&self) -> bool {
         use TokenKind::*;
         
         match self {
@@ -326,7 +340,7 @@ impl TokenKind {
     }
 
     #[inline]
-    pub fn is_comparison_op(self) -> bool {
+    pub fn is_comparison_op(&self) -> bool {
         use TokenKind::*;
         
         match self {
@@ -341,7 +355,7 @@ impl TokenKind {
     }
 
     #[inline]
-    pub fn is_rollup_start(self) -> bool {
+    pub fn is_rollup_start(&self) -> bool {
         use TokenKind::*;
 
         match self {
@@ -351,7 +365,7 @@ impl TokenKind {
     }
 
     #[inline]
-    pub fn is_group_modifier(self) -> bool {
+    pub fn is_group_modifier(&self) -> bool {
         use TokenKind::*;
         match self {
             On | Ignoring => true,
@@ -360,7 +374,7 @@ impl TokenKind {
     }
 
     #[inline]
-    pub fn is_join_modifier(self) -> bool {
+    pub fn is_join_modifier(&self) -> bool {
         use TokenKind::*;
         match self {
             GroupLeft | GroupRight => true,
@@ -368,7 +382,7 @@ impl TokenKind {
         }
     }
 
-    pub fn is_aggregate_modifier(self) -> bool {
+    pub fn is_aggregate_modifier(&self) -> bool {
         use TokenKind::*;
         match self {
             By | Without => true,
@@ -406,7 +420,7 @@ impl<'a> Lexer<'a> {
         Self {
             inner: RawToken::lexer(content),
             done: false,
-            peeked: VecDeque::new(),
+            peeked: std::collections::VecDeque::new(),
             current: None,
             #[cfg(debug_assertions)]
             len: 0,
@@ -449,7 +463,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    pub fn span(&self) -> Logos::Span {
+    pub fn span(&self) -> <dyn Logos>::Span {
         self.inner.span()
     }
 
@@ -457,7 +471,7 @@ impl<'a> Lexer<'a> {
        self.current
     }
 
-    fn to_token(&self, raw: RawToken, len: u32) -> Token {
+    fn to_token(&self, raw: &RawToken, len: u32) -> Token {
         let kind = match raw {
             RawToken::And => TokenKind::OpAnd,
             RawToken::OpAtan2 => TokenKind::OpAtan2,
@@ -474,13 +488,13 @@ impl<'a> Lexer<'a> {
             RawToken::Limit => TokenKind::Limit,
             RawToken::Offset => TokenKind::Offset,
             RawToken::On => TokenKind::On,
-            RawToken::Or => TokenKind::Or,
+            RawToken::Or => TokenKind::OpOr,
             RawToken::Unless => TokenKind::Unless,
             RawToken::With => TokenKind::With,
             RawToken::Without => TokenKind::Without,
             RawToken::Duration => TokenKind::Duration,
-            RawToken::Ident(..) => TokenKind::Ident,
-            RawToken::Number(n) => TokenKind::Number,
+            RawToken::Ident => TokenKind::Ident,
+            RawToken::Number => TokenKind::Number,
             RawToken::RegexEqual => TokenKind::OpRegexEqual,
             RawToken::RegexNotEqual => TokenKind::OpRegexNotEqual,
             RawToken::At => TokenKind::At,
@@ -494,20 +508,18 @@ impl<'a> Lexer<'a> {
             RawToken::LeftParen => TokenKind::LeftParen,
             RawToken::RightParen => TokenKind::RightParen,
             RawToken::SemiColon => TokenKind::SemiColon,
-            RawToken::Op(Operator::Mul) => TokenKind::OpMul,
-            RawToken::Op(Operator::Div) => TokenKind::OpDiv,
-            RawToken::Op(Operator::Mod) => TokenKind::OpMod,
-            RawToken::Op(Operator::Add) => TokenKind::OpPlus,
-            RawToken::Op(Operator::Sub) => TokenKind::OpMinus,
-            RawToken::Op(Operator::Lt) => TokenKind::OpLessThan,
-            RawToken::Op(Operator::Gt) => TokenKind::OpGreaterThan,
-            RawToken::Op(Operator::Lte) => TokenKind::OpLessThanOrEqual,
-            RawToken::Op(Operator::Gte) => TokenKind::OpGreaterThanOrEqual,
-            RawToken::Op(Operator::Eql) => TokenKind::OpEqual,
-            RawToken::Op(Operator::Neq) => TokenKind::OpNotEqual,
-            RawToken::Op(Operator::Pow) => TokenKind::OpPow,
-            RawToken::Op(Operator::And) => TokenKind::OpAnd,
-            RawToken::Op(Operator::Or) => TokenKind::OpOr,
+            RawToken::OpMul => TokenKind::OpMul,
+            RawToken::OpDiv => TokenKind::OpDiv,
+            RawToken::OpMod => TokenKind::OpMod,
+            RawToken::OpPlus => TokenKind::OpPlus,
+            RawToken::OpMinus => TokenKind::OpMinus,
+            RawToken::OpLessThan => TokenKind::OpLessThan,
+            RawToken::OpGreaterThan => TokenKind::OpGreaterThan,
+            RawToken::OpLessThanOrEqual => TokenKind::OpLessThanOrEqual,
+            RawToken::OpGreaterThanOrEqual => TokenKind::OpGreaterThanOrEqual,
+            RawToken::OpEqual => TokenKind::OpEqual,
+            RawToken::OpNotEqual => TokenKind::OpNotEqual,
+            RawToken::OpPow => TokenKind::OpPow,
             RawToken::QuotedString => TokenKind::QuotedString,
             RawToken::Whitespace => TokenKind::Whitespace,
             RawToken::SingleLineHashComment => TokenKind::SingleLineHashComment,
@@ -525,7 +537,7 @@ impl<'a> Lexer<'a> {
             RawToken::Error => TokenKind::ErrorInvalidToken,
         };
 
-        Token { kind, len, token: &raw, text: self.slice() }
+        Token { kind, len, token: *raw, text: self.slice() }
     }
 
     #[inline]
@@ -738,11 +750,6 @@ mod tests {
         Ident=>"bar123",
       ]
     );
-    }
-
-    #[test]
-    fn c_comment() {
-        test_tokens!("// hi", [SingelLineSlashComment]);
     }
 
     #[test]

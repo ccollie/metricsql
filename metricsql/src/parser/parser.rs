@@ -1,12 +1,11 @@
 use std::collections::{HashMap, HashSet};
-use std::fmt;
-use std::iter::FromIterator;
-use crate::error::Error;
+use crate::error::{Error, Result};
 use crate::{eval_binary_op, types};
-use crate::lexer::{Lexer, parse_float, scan_duration, Token, TokenKind};
-use crate::parser::aggr::{is_aggr_func, is_aggr_func_modifier};
+use crate::lexer::{Lexer, parse_float, quote, Token, TokenKind, unescape_ident};
+use crate::parser::aggr::{is_aggr_func};
 use crate::parser::expand_with::expand_with_expr;
 use crate::types::*;
+use once_cell::sync::OnceCell;
 
 // parser parses MetricsQL expression.
 //
@@ -19,11 +18,11 @@ pub struct Parser<'a> {
     lex: Lexer<'a>
 }
 
-pub fn parse(input: &str) -> Result<Expression, Error> {
+pub fn parse(input: &str) -> Result<Expression> {
     let mut parser = Parser::new(input);
     let tok = parser.next();
     if tok.is_none() {
-        let msg = format!("cannot parse the first token {}", e);
+        let msg = format!("cannot parse the first token {}", input);
         return Err(Error::new(msg));
     }
     let expr = parser.parse_expression()?;
@@ -31,7 +30,7 @@ pub fn parse(input: &str) -> Result<Expression, Error> {
         let msg = format!("unparsed data {}", parser.lex.token);
         return Err(msg.into());
     }
-    let was = get_default_with_arg_exprs(&expr)?;
+    let was = get_default_with_arg_exprs()?;
     match expand_with_expr(was, &expr) {
         Ok(expr) => {
             remove_parens_expr(expr);
@@ -40,7 +39,7 @@ pub fn parse(input: &str) -> Result<Expression, Error> {
                 Expression::Parens(pe) => {
                     simplify_parens_expr(pe)
                 },
-                _ => res
+                _ => expr
             };
             let simple = simplify_constants(&res);
             Ok(simple)
@@ -52,17 +51,39 @@ pub fn parse(input: &str) -> Result<Expression, Error> {
     }
 }
 
+static DEFAULT_EXPRS: [&str; 5] = [
+    // ru - resource utilization
+    "ru(freev, maxv) = clamp_min(maxv - clamp_min(freev, 0), 0) / clamp_min(maxv, 0) * 100",
 
-fn get_default_with_arg_exprs(arg_exprs: &[Expression]) -> Vec<WithArgExpr> {
-    let mut args = Vec::new(); // todo: SmallVex
-    for arg_expr in arg_exprs {
-        args.push(arg_expr.clone());
-    }
-    Expr::Default(args)
+    // ttf - time to fuckup
+    "ttf(freev) = smooth_exponential(
+        clamp_max(clamp_max(-freev, 0) / clamp_max(deriv_fast(freev), 0), 365*24*3600),
+        clamp_max(step()/300, 1)
+    )",
+    "median_over_time(m) = quantile_over_time(0.5, m)",
+    "range_median(q) = range_quantile(0.5, q)",
+    "alias(q, name) = label_set(q, \"__name__\", name)",
+];
+
+fn get_default_with_arg_exprs() -> &'static [WithArgExpr; 5] {
+    static INSTANCE: OnceCell<[WithArgExpr; 5]> = OnceCell::new();
+    INSTANCE.get_or_init(|| {
+        let was: [WithArgExpr; 5] = DEFAULT_EXPRS.map(|expr| must_parse_with_arg_expr(expr).unwrap() );
+
+        match check_duplicate_with_arg_names(&was) {
+            Err(err) => {
+                panic!("BUG: {}", err)
+            }
+            _ => ()
+        }
+
+        was
+    })
 }
 
 
-impl Parser {
+
+impl<'a> Parser<'a> {
     pub fn new<S: Into<String>>(input: S) -> Self {
         Parser {
             lex: Lexer::new(input)
@@ -78,7 +99,7 @@ impl Parser {
         self.lex.isEOF()
     }
 
-    pub fn parse_expression(&mut self) -> Result<Expression, Error> {
+    pub fn parse_expression(&mut self) -> Result<Expression> {
         let mut expr = parse_expression(&self.lex)?;
         if !self.is_eof() {
             return Err(Error::new(None));
@@ -86,22 +107,22 @@ impl Parser {
         Ok(expr)
     }
 
-    pub fn parse_with_expr(&mut self) -> Result<WithExpr, Error> {
+    pub fn parse_with_expr(&mut self) -> Result<WithExpr> {
         let expr = parse_with_expr(&self.lex)?;
         Ok(expr)
     }
 
-    pub fn parse_label_filter(&mut self) -> Result<types::LabelFilter, Error> {
+    pub fn parse_label_filter(&mut self) -> Result<LabelFilter> {
         let filter = parse_label_filter_expr(&self.lex)?;
         Ok(filter.to_label_filter())
     }
 
-    pub fn parse_duration(&self) -> Result<DurationExpr, Error> {
+    pub fn parse_duration(&self) -> Result<DurationExpr> {
         parse_duration(&self.lex)
     }
 }
 
-fn parse_func_expr(mut lex: &Lexer) -> Result<FuncExpr, Error> {
+fn parse_func_expr(mut lex: &Lexer) -> Result<FuncExpr> {
     let mut tok = lex.next().unwrap();
     if tok.kind != TokenKind::Ident {
         let msg = format!("funcExpr: unexpected token {}; want function name", tok.text);
@@ -122,12 +143,13 @@ fn parse_func_expr(mut lex: &Lexer) -> Result<FuncExpr, Error> {
         keep_metric_names = true;
         lex.next()?;
     }
-    let fe = FuncExpr{ name, args, keep_metric_names };
+    let mut fe = FuncExpr::new(name, args);
+    fe.keep_metric_names = keep_metric_names;
 
-    Ok(Expression(fe))
+    Ok(fe)
 }
 
-fn parse_arg_list(mut lex: &Lexer) -> Result<Vec<Expression>, Error> {
+fn parse_arg_list(mut lex: &Lexer) -> Result<Vec<Expression>> {
     let mut tok = consume(lex, "argList", TokenKind::LeftParen, "(")?;
     let mut args = Vec::new();
 
@@ -144,24 +166,25 @@ fn parse_arg_list(mut lex: &Lexer) -> Result<Vec<Expression>, Error> {
     Ok(args)
 }
 
-fn parse_aggr_func_expr(mut lex: &Lexer) -> Result<AggrFuncExpr, Error> {
+fn parse_aggr_func_expr(mut lex: &Lexer) -> Result<AggrFuncExpr> {
     let mut tok = lex.token().unwrap();
     if !is_aggr_func(tok.text) {
         let msg = format!("AggrFuncExpr: unexpected token {}; want aggregate func", tok.text);
         return Err(Error::new(msg));
     }
 
-    fn handle_prefix(ae: &mut AggrFuncExpr) -> Result<(), Error> {
+    fn handle_prefix(mut lex: &Lexer, ae: &mut AggrFuncExpr) -> Result<()> {
+        let tok = lex.token().unwrap();
         if !tok.kind.is_aggregate_modifier() {
-            let msg = formaet!("AggrFuncExpr: unexpected token {}; want aggregate func modifier", tok.text);
+            let msg = format!("AggrFuncExpr: unexpected token {}; want aggregate func modifier", tok.text);
             return Err(Error::new(msg));
         }
         ae.modifier = Some(parse_aggregate_modifier(lex)?);
 
-        handle_args(ae)
+        handle_args(lex, ae)
     }
 
-    fn handle_args(ae: &mut AggrFuncExpr) -> Result<(), Error> {
+    fn handle_args(mut lex: &Lexer, ae: &mut AggrFuncExpr) -> Result<()> {
         ae.args = parse_arg_list(lex)?;
         let tok = lex.token().unwrap();
         // Verify whether func suffix exists.
@@ -169,33 +192,42 @@ fn parse_aggr_func_expr(mut lex: &Lexer) -> Result<AggrFuncExpr, Error> {
             ae.modifier = Some(parse_aggregate_modifier(lex)?);
         }
 
-        parse_limit(ae)
+        parse_limit(lex, ae)
     }
 
-    fn parse_limit(ae: &mut AggrFuncExpr) -> Result<(), Error> {
-        lex.Next()?;
+    fn parse_limit(mut lex: &Lexer, ae: &mut AggrFuncExpr) -> Result<()> {
+        lex.next()?;
         let tok = lex.token().unwrap();
-        let limit = strconv.Atoi(tok.text);
-        if limit.is_ok() {
-            let msg = format!("cannot parse limit {}: %s", tok.text);
-            return Err(Error::new(msg));
+        let mut limit: usize = 0;
+        match tok.text.parse() {
+            Ok(f) => {
+                if limit < 0 {
+                    let msg = format!("limit must be positive, found {}", tok.text);
+                    return Err(Error::new(msg));
+                }
+                limit = f;
+            },
+            Err(e) => {
+                let msg = format!("cannot parse limit {}: {}", tok.text, e);
+                return Err(Error::new(msg));
+            }
         }
-        lex.Next()?;
+        lex.next()?;
         ae.limit = limit;
         Ok(())
     }
 
-    let name = strings.ToLower(unescape_ident(tok.text);
+    let name = unescape_ident(tok.text).to_lowercase().as_str();
     let mut ae: AggrFuncExpr = AggrFuncExpr::new(name);
 
     tok = lex.next().unwrap();
 
     match tok.kind {
         TokenKind::Ident => {
-            handle_prefix(&mut ae)?;
+            handle_prefix(&lex, &mut ae)?;
         },
         TokenKind::LeftParen => {
-            handle_args(&mut ae)?;
+            handle_args(&lex, &mut ae)?;
         },
         _ => {
             let msg = format!("AggrFuncExpr: unexpected token {}; want '('", tok.text);
@@ -206,8 +238,7 @@ fn parse_aggr_func_expr(mut lex: &Lexer) -> Result<AggrFuncExpr, Error> {
     Ok(ae)
 }
 
-
-fn parse_expression(mut lex: &Lexer) -> Result<impl ExpressionNode, Error> {
+fn parse_expression(mut lex: &Lexer) -> Result<impl ExpressionNode> {
     let mut e = parse_single_expr(lex)?;
     let mut bool = false;
 
@@ -229,16 +260,12 @@ fn parse_expression(mut lex: &Lexer) -> Result<impl ExpressionNode, Error> {
             bool = true;
             tok = lex.next().unwrap();
         }
-        let right = parse_single_expr(&lex)?;
 
-        let mut be = BinaryOpExpr::new(binop, e, right);
-
-        if group.is_some() {
-            be.group_modifier = group;
-        }
+        let mut group_modifier: Option<GroupModifier> = None;
+        let mut join_modifier: Option<JoinModifier> = None;
 
         if tok.kind.is_group_modifier() {
-            be.group_modifier = Some(parse_group_modifier(&mut lex)?);
+            group_modifier = Some(parse_group_modifier(&mut lex)?);
             tok = lex.next().unwrap();
             if tok.kind.is_join_modifier() {
                 if binop.is_binary_op_logical_set() {
@@ -246,21 +273,28 @@ fn parse_expression(mut lex: &Lexer) -> Result<impl ExpressionNode, Error> {
                     return Err(Error::new(msg));
                 }
                 let join = parse_join_modifier(lex)?;
-                be.join_modifier = Some(join);
+                join_modifier = Some(join);
             }
         }
+
+        let right = parse_single_expr(lex)?;
+
+        let mut be = BinaryOpExpr::new(binop, e, right);
+        be.group_modifier = group_modifier;
+        be.join_modifier = join_modifier;
+
         return Ok(be.balance());
     }
 
     return Ok(e);
 }
 
-pub fn parse_single_expr(mut lex: &Lexer) -> Result<impl ExpressionNode, Error> {
+pub fn parse_single_expr(mut lex: &Lexer) -> Result<impl ExpressionNode> {
     let mut tok = lex.token().unwrap();
     if tok.kind == TokenKind::With {
         let next_token = lex.peek();
         match next_token {
-            Some(next) => {
+            Some(..) => {
                 if tok.kind == TokenKind::LeftParen {
                     return parse_with_expr(lex);
                 }
@@ -283,7 +317,7 @@ pub fn parse_single_expr(mut lex: &Lexer) -> Result<impl ExpressionNode, Error> 
     return parse_rollup_expr(lex, e);
 }
 
-fn parse_single_expr_without_rollup_suffix(mut lex: &Lexer) -> Result<impl ExpressionNode, Error> {
+fn parse_single_expr_without_rollup_suffix(mut lex: &Lexer) -> Result<impl ExpressionNode> {
     let mut token = lex.next().unwrap();
 
     match token.kind {
@@ -311,7 +345,8 @@ fn parse_single_expr_without_rollup_suffix(mut lex: &Lexer) -> Result<impl Expre
             // Unary minus. Substitute `-expr` with `0 - expr`
             lex.next()?;
             let e = parse_single_expr(lex)?;
-            let be = BinaryOpExpr::new(BinaryOp::Sub, NumberExpr::new(0.0), e);
+            let lhs = Expression::cast(NumberExpr::new(0.0)).unwrap();
+            let be = BinaryOpExpr::new(BinaryOp::Sub, lhs, e);
             Ok(be)
         },
         _ => {
@@ -321,7 +356,7 @@ fn parse_single_expr_without_rollup_suffix(mut lex: &Lexer) -> Result<impl Expre
     }
 }
 
-fn parse_group_modifier(mut lex: &Lexer) -> Result<GroupModifier, Error> {
+fn parse_group_modifier(mut lex: &Lexer) -> Result<GroupModifier> {
     let mut token = lex.token().unwrap();
     let op = match token.kind {
         TokenKind::Ignoring => {
@@ -344,7 +379,7 @@ fn parse_group_modifier(mut lex: &Lexer) -> Result<GroupModifier, Error> {
     return Ok(res);
 }
 
-fn parse_join_modifier(mut lex: &Lexer) -> Result<JoinModifier, Error> {
+fn parse_join_modifier(mut lex: &Lexer) -> Result<JoinModifier> {
     let mut token = lex.token().unwrap();
 
     let op = match token.kind {
@@ -361,18 +396,17 @@ fn parse_join_modifier(mut lex: &Lexer) -> Result<JoinModifier, Error> {
     };
     token = lex.next().unwrap();
 
-    let res = JoinModifier::new(op);
+    let mut res = JoinModifier::new(op);
     if token.kind != TokenKind::LeftParen {
         // join modifier may miss ident list.
         Ok(res)
     } else {
-        let args = parse_ident_list(lex)?;
-        res.set_labels(&args);
+        res.labels = parse_ident_list(lex)?;
         Ok(res)
     }
 }
 
-fn parse_aggregate_modifier(mut lex: &Lexer) -> Result<AggregateModifier, Error> {
+fn parse_aggregate_modifier(mut lex: &Lexer) -> Result<AggregateModifier> {
     let mut token = lex.token().unwrap();
 
     let op = match token.kind {
@@ -395,7 +429,7 @@ fn parse_aggregate_modifier(mut lex: &Lexer) -> Result<AggregateModifier, Error>
     Ok(res)
 }
 
-fn parse_ident_expr(mut lex: &Lexer) -> Result<impl ExpressionNode, Error> {
+fn parse_ident_expr(mut lex: &Lexer) -> Result<impl ExpressionNode> {
     use TokenKind::*;
 
     // Look into the next-next token in order to determine how to parse
@@ -435,16 +469,17 @@ fn parse_ident_expr(mut lex: &Lexer) -> Result<impl ExpressionNode, Error> {
     }
  }
 
-fn parse_metric_expr(mut lex: &Lexer) -> Result<MetricExpr, Error> {
+fn parse_metric_expr(mut lex: &Lexer) -> Result<MetricExpr> {
     let mut me = MetricExpr {
         label_filters: vec![],
-        label_filter_exprs: vec![]
+        label_filter_exprs: vec![],
+        span: lex.span()
     };
     let mut tok = lex.token().unwrap();
     if tok.kind == TokenKind::Ident {
-        let tokens = Vec![quote(unescapeIdent(lex.token))];
-        let value = StringExpr { s: "".as_str(), tokens };
-        let lfe = types::LabelFilterExpr { label: "__name__", value, op: types::LabelFilterOp::Equal };
+        let tokens = vec![quote(&unescape_ident(tok.text))];
+        let value = StringExpr { s: "".as_str(), tokens: Some(tokens) };
+        let lfe = LabelFilterExpr { label: "__name__", value, op: types::LabelFilterOp::Equal };
         me.label_filter_exprs.push(lfe);
 
         tok = lex.next().unwrap();
@@ -456,9 +491,11 @@ fn parse_metric_expr(mut lex: &Lexer) -> Result<MetricExpr, Error> {
     Ok(me)
 }
 
-fn parse_rollup_expr(mut lex: &Lexer, e: Expression) -> Result<impl ExpressionNode, Error> {
+fn parse_rollup_expr(mut lex: &Lexer, e: Expression) -> Result<impl ExpressionNode> {
     let mut re = RollupExpr::new(e);
     let mut tok = lex.token().unwrap();
+    re.span = Some(tok.span());
+
     if tok.kind == TokenKind::LeftBrace {
         let (window, step, inherit_step) = parse_window_and_step(&mut lex);
         re.window = window;
@@ -486,13 +523,14 @@ fn parse_rollup_expr(mut lex: &Lexer, e: Expression) -> Result<impl ExpressionNo
         }
         re.set_at( parse_at_expr(lex)? );
     }
+
     Ok(re)
 }
 
-fn parse_parens_expr(mut lex: &Lexer) -> Result<ParensExpr, Error> {
+fn parse_parens_expr(mut lex: &Lexer) -> Result<ParensExpr> {
     let mut tok = consume(lex, "parensExpr", TokenKind::LeftParen, "(")?;
 
-    let mut exprs: Vec<Expression> = Vec![];
+    let mut exprs: Vec<Expression> = vec![];
     while !lex.is_eof() && tok.kind != TokenKind::RightParen {
         let expr = parse_expression(lex)?;
         exprs.push(expr);
@@ -501,7 +539,7 @@ fn parse_parens_expr(mut lex: &Lexer) -> Result<ParensExpr, Error> {
             TokenKind::Comma => continue,
             TokenKind::RightParen => break,
             _ => {
-                return Err(Error::new(forma!("parensExpr: unexpected token {}; want ',' or ')'", lex.token)));
+                return Err(Error::new(format!("parensExpr: unexpected token {}; want ',' or ')'", lex.token)));
             }
         }
     }
@@ -510,7 +548,7 @@ fn parse_parens_expr(mut lex: &Lexer) -> Result<ParensExpr, Error> {
 }
 
 
-fn parse_with_expr(mut lex: &Lexer) -> Result<WithExpr, Error> {
+fn parse_with_expr(mut lex: &Lexer) -> Result<WithExpr> {
     let mut token = consume(lex, "withExpr", TokenKind::With, "with")?;
     token = consume(lex, "withExpr", TokenKind::LeftParen, "(")?;
 
@@ -542,8 +580,8 @@ fn parse_with_expr(mut lex: &Lexer) -> Result<WithExpr, Error> {
     Ok( WithExpr::new(expr, was) )
 }
 
-fn parse_with_arg_expr(mut lex: &Lexer) -> Result<WithArgExpr, Error> {
-    let args: Vec<String> = Vec![];
+fn parse_with_arg_expr(mut lex: &Lexer) -> Result<WithArgExpr> {
+    let args: Vec<String> = vec![];
 
     let mut tok = lex.token().unwrap();
     if tok.kind != TokenKind::Ident {
@@ -578,7 +616,7 @@ fn parse_with_arg_expr(mut lex: &Lexer) -> Result<WithArgExpr, Error> {
         return Err(Error::from(msg));
     }
     tok = lex.next().unwrap();
-    let expr: Expression = match parse_expression(kex) {
+    let expr: Expression = match parse_expression(lex) {
         Ok(e) => e,
         Err(e) => {
             let msg = format!("withArgExpr: cannot parse expression for {}: {}", name, e);
@@ -588,7 +626,7 @@ fn parse_with_arg_expr(mut lex: &Lexer) -> Result<WithArgExpr, Error> {
     return Ok( WithArgExpr { name, expr: Box::new(expr), args } );
 }
 
-fn parse_at_expr(mut lex: &Lexer) -> Result<impl ExpressionNode, Error> {
+fn parse_at_expr(mut lex: &Lexer) -> Result<impl ExpressionNode> {
     if lex.token() != '@' {
         let msg = format!("atExpr: unexpected token {}; want '@'", lex.token);
         return Err(Error::from(msg));
@@ -597,18 +635,18 @@ fn parse_at_expr(mut lex: &Lexer) -> Result<impl ExpressionNode, Error> {
     match parse_single_expr_without_rollup_suffix(lex) {
         Ok(e) => Ok(e),
         Err(e) => {
-            let msg = format!("cannot parse "@" expression: {}", lex.token);
+            let msg = format!("cannot parse '@' expression: {}", lex.token);
             Err(Error::new(msg))
         }
     }
 }
 
-fn parse_offset(mut lex: &Lexer) -> Result<DurationExpr, Error> {
+fn parse_offset(mut lex: &Lexer) -> Result<DurationExpr> {
     let tok = consume(lex, "offset", TokenKind::Offset, "offset")?;
     return parse_duration(lex);
 }
 
-fn parse_window_and_step(mut lex: &mut Lexer) -> Result<(Option<DurationExpr>, Option<DurationExpr>, bool), Error> {
+fn parse_window_and_step(mut lex: &mut Lexer) -> Result<(Option<DurationExpr>, Option<DurationExpr>, bool)> {
     let mut tok = consume(lex, "window", TokenKind::LeftBracket, "[")?;
 
     let mut window: Option<DurationExpr> = None;
@@ -641,7 +679,7 @@ fn parse_window_and_step(mut lex: &mut Lexer) -> Result<(Option<DurationExpr>, O
     Ok((window, step, inherit_step))
 }
 
-fn parse_duration(mut lex: &Lexer) -> Result<DurationExpr, Error> {
+fn parse_duration(mut lex: &Lexer) -> Result<DurationExpr> {
     let tok = lex.token().expect("Expecting a duration expression");
     match tok.kind {
         TokenKind::Duration => {
@@ -657,7 +695,7 @@ fn parse_duration(mut lex: &Lexer) -> Result<DurationExpr, Error> {
     }
 }
 
-pub fn parse_positive_duration(mut lex: &Lexer) -> Result<DurationExpr, Error> {
+pub fn parse_positive_duration(mut lex: &Lexer) -> Result<DurationExpr> {
     // Verify the duration in seconds without explicit suffix.
     let duration = parse_duration(lex)?;
     let val = duration.duration(1);
@@ -669,7 +707,7 @@ pub fn parse_positive_duration(mut lex: &Lexer) -> Result<DurationExpr, Error> {
 }
 
 
-fn consume(mut lex: &Lexer, func_name: &str, expected: TokenKind, token_text: &str) -> Result<Token, Error> {
+fn consume<'a>(mut lex: &Lexer, func_name: &str, expected: TokenKind, token_text: &str) -> Result<Token<'a>> {
     let tok = lex.token().unwrap(); // todo: use expect
     if tok.kind != expected {
         let msg = format!("{}: unexpected token {}; want '{}'", func_name, tok.text, token_text);
@@ -679,7 +717,7 @@ fn consume(mut lex: &Lexer, func_name: &str, expected: TokenKind, token_text: &s
     Ok(next)
 }
 
-fn parse_ident_list(mut lex: &Lexer) -> Result<Vec<String>, Error> {
+fn parse_ident_list(mut lex: &Lexer) -> Result<Vec<String>> {
     let mut tok = consume(lex, "identlist", TokenKind::LeftParen, "(")?;
     let mut idents = Vec::new();
     while !lex.is_eof() && tok.kind != TokenKind::RightParen {
@@ -709,7 +747,7 @@ fn parse_ident_list(mut lex: &Lexer) -> Result<Vec<String>, Error> {
     return Ok(idents);
 }
 
-fn parse_string_expr(mut lex: &Lexer) -> Result<StringExpr, Error> {
+fn parse_string_expr(mut lex: &Lexer) -> Result<StringExpr> {
     let mut se = StringExpr::new("");
 
     let mut token= lex.token().unwrap();
@@ -725,7 +763,7 @@ fn parse_string_expr(mut lex: &Lexer) -> Result<StringExpr, Error> {
             }
         }
 
-        tok = lex.peek().unwrap();
+        let mut tok = lex.peek().unwrap();
         if tok.kind != TokenKind::OpPlus {
             return Ok(se);
         }
@@ -753,9 +791,9 @@ fn parse_string_expr(mut lex: &Lexer) -> Result<StringExpr, Error> {
     return Ok(se);
 }
 
-fn parse_label_filters(mut lex: &Lexer) -> Result<Vec<types::LabelFilterExpr>, Error> {
+fn parse_label_filters(mut lex: &Lexer) -> Result<Vec<LabelFilterExpr>> {
     let mut tok = consume(lex, "label_filters", TokenKind::LeftBrace, "{")?;
-    let mut lfes: Vec<types::LabelFilterExpr> = Vec![];
+    let mut lfes: Vec<LabelFilterExpr> = vec![];
 
     while !lex.is_eof() && tok.kind != TokenKind::RightBrace {
 
@@ -778,7 +816,7 @@ fn parse_label_filters(mut lex: &Lexer) -> Result<Vec<types::LabelFilterExpr>, E
     Ok(lfes)
 }
 
-fn parse_label_filter_expr(mut lex: &Lexer) -> Result<LabelFilterExpr, Error> {
+fn parse_label_filter_expr(mut lex: &Lexer) -> Result<LabelFilterExpr> {
     use TokenKind::*;
     use types::*;
 
@@ -900,9 +938,9 @@ fn simplify_constants(mut expr: &Expression) -> impl ExpressionNode {
                 return parens.expressions[0].clone();
             }
             // Treat parensExpr as a function with empty name, i.e. union()
-            FuncExpr::new("", fe.expressions)
+            FuncExpr::new("", parens.expressions)
         }
-        _ => e
+        _ => expr
     }
 }
 
@@ -917,26 +955,14 @@ fn is_rollup_start_token(token: &Token) -> bool {
     return token.kind.is_rollup_start();
 }
 
-fn prepare_with_arg_exprs(ss: &[String]) -> Vec<WithArgExpr> {
-    // todo: SmallVec
-    let mut was = Vec::with_capacity(ss.len());
-    for s in ss {
-        let parsed = must_parse_with_arg_expr(s)?;
-        was.push(parsed);
-    }
-
-    check_duplicate_with_arg_names(&was)?;
-    return was
-}
-
-fn must_parse_with_arg_expr(s: &str) -> Result<WithArgExpr, Error> {
+fn must_parse_with_arg_expr(s: &str) -> Result<WithArgExpr> {
     let mut p = Parser::new(s);
     let tok = p.next()?;
     if tok.is_none() {
         let msg = format!("BUG: cannot find firs token in {}", s);
         return Err(Error::new(msg));
     }
-    let expr = parse_with_arg_expr(lex)?;
+    let expr = parse_with_arg_expr(&mut p.lex)?;
     if !p.is_eof() {
         let msg = format!("BUG: cannot parse {}: unparsed data", s);
         return Err(Error::new(msg));
@@ -944,16 +970,16 @@ fn must_parse_with_arg_expr(s: &str) -> Result<WithArgExpr, Error> {
     return Ok(expr);
 }
 
-fn check_duplicate_with_arg_names(was: &Vec<WithArgExpr>) -> Result<(), Error> {
+fn check_duplicate_with_arg_names(was: &[WithArgExpr]) -> Result<()> {
     let mut m = HashMap::with_capacity(was.len());
 
     for wa in &was {
-        if m.contains_key(&x.name) {
+        if m.contains_key(&wa.name) {
             return Err(
                 Error::new(format!("duplicate 'with' arg name for: {};", wa))
             );
         }
-        m.insert(x.name.clone(), true);
+        m.insert(wa.name.clone(), true);
     }
     Ok(())
 }
@@ -966,6 +992,6 @@ fn string_compare(a: &str, b: &str, op: BinaryOp) -> bool {
         BinaryOp::Gt => a > b,
         BinaryOp::Lte => a <= b,
         BinaryOp::Gte => a >= b,
-        _ => panic!(format!("unexpected operator {}", op))
+        _ => panic!("unexpected operator {} in string comparison", op)
     }
 }

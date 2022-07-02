@@ -338,11 +338,6 @@ impl Operator {
         self
     }
 
-    /// Wraps this Operator in an Expression
-    pub fn wrap(self) -> Expression {
-        Expression::Operator(self)
-    }
-
     pub fn return_value(&self) -> ReturnValue {
         // note: largely based on the description from:
         // https://www.robustperception.io/using-group_left-to-calculate-label-proportions

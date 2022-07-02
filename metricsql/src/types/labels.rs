@@ -1,4 +1,5 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::fmt;
 
 use regex::Regex;
 
@@ -16,7 +17,7 @@ pub type Labels = HashMap<LabelName, LabelValue>;
 
 pub trait LabelsTrait {
     fn with<I>(&self, names: &I) -> Self
-    where I: Iterator<Item = Into<String>>;
+    where I: Iterator<Item =dyn Into<String>>;
     fn without(&self, names: &HashSet<LabelName>) -> Self;
     fn name(&self) -> Option<&LabelName>;
     fn set_name(&mut self, name: LabelName);
@@ -26,7 +27,7 @@ pub trait LabelsTrait {
 
 impl LabelsTrait for Labels {
     fn with<I>(&self, names: &HashSet<LabelName>) -> Self
-        where I: Iterator<Into<String>>
+        where I: Iterator
     {
         let mut labels = self.clone();
         labels.retain(|name, _| name != NAME_LABEL && names.contains(name));

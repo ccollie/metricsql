@@ -1,7 +1,6 @@
 use std::fmt;
 use phf::phf_map;
-use metrix::error::Error;
-use crate::error::Error;
+use crate::error::{Error, Result};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum BinaryOp {
@@ -95,12 +94,12 @@ impl BinaryOp {
     }
 
     // See https://prometheus.io/docs/prometheus/latest/querying/operators/#binary-operator-precedence
-    pub fn is_right_associative(self) -> bool {
+    pub fn is_right_associative(&self) -> bool {
         use BinaryOp::*;
         return self == Pow;
     }
 
-    pub fn is_logical_op(self) -> bool {
+    pub fn is_logical_op(&self) -> bool {
         return self.kind() == BinaryOpKind::Logical;
     }
 
@@ -109,7 +108,7 @@ impl BinaryOp {
     }
 
     #[inline]
-    pub fn is_binary_op_logical_set(self) -> bool {
+    pub fn is_binary_op_logical_set(&self) -> bool {
         use BinaryOp::*;
         match self {
             And | Or | Unless => true,
@@ -121,7 +120,7 @@ impl BinaryOp {
 impl TryFrom<&str> for BinaryOp {
     type Error = Error;
 
-    fn try_from(op: &str) -> Result<Self, E> {
+    fn try_from(op: &str) -> Result<Self> {
         match BINARY_OPS_MAP.get(op.to_lowercase().as_str()) {
             Some(op) => Ok(*op),
             None => Err(Error::new(format!("Unknown, binary op {}", op)))
