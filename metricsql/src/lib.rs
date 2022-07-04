@@ -11,11 +11,15 @@ extern crate rowan;
 extern crate num_derive;
 extern crate num_traits;
 
+pub mod ast;
+pub(crate) mod lexer;
+mod syntax;
 mod parser;
 mod binaryop;
-mod lexer;
 pub mod error;
 pub mod types;
 
 pub use parser::{parse, parse_single_expr};
+
 pub use binaryop::*;
+pub(crate) use rowan::*;

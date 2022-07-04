@@ -100,7 +100,7 @@ static TRANSFORM_FUNCTIONS: phf::OrderedSet<&'static str> = phf_ordered_set! {
   "year",
 };
 
-pub fn is_transform_func(func: &str) -> bool {
+pub(crate) fn is_transform_func(func: &str) -> bool {
   let lower = func.to_lowercase().as_str();
   TRANSFORM_FUNCTIONS.contains(lower)
 }

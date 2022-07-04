@@ -99,9 +99,6 @@ impl Display for Expression {
             Expression::Aggregation(a) => write!(f, "{}", a)?,
             Expression::Rollup(re) => write!(f, "{}", re)?,
             Expression::With(w) => write!(f, "{}", w)?,
-            _ => {
-                panic!("missing display implementation");
-            }
         }
         Ok(())
     }
@@ -482,10 +479,10 @@ impl Display for BinaryOpExpr {
         // Op is the operation itself, i.e. `+`, `-`, `*`, etc.
         match &self.left {
             Expression::BinaryOperator(be) => {
-                write!(f, "({})", *self.left)?;
+                write!(f, "({})", *be)?;
             },
             _ => {
-                write!(f, "{}", *self.left)?;
+                write!(f, "{}", *be.left)?;
             }
         }
         write!(f, " {}", self.op)?;

@@ -27,7 +27,7 @@ impl fmt::Display for ExpressionKind {
             String => write!(f, "string")?,
             Duration => write!(f, "duration")?,
             With => write!(f, "with")?,
-            Parens => write!(f, "aggregate")?,
+            Parens => write!(f, "parens")?,
             Rollup => write!(f, "rollup")?,
         }
         Ok(())

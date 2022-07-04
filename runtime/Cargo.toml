@@ -1,5 +1,5 @@
 [package]
-name = "exec"
+name = "runtime"
 version = "0.1.0"
 edition = "2021"
 include = [
@@ -13,6 +13,9 @@ include = [
 phf = { version = "0.10", features = ["macros"] }
 enquote = "1.1"
 regex= "1.5.6"
+arrayvec="0.7.2"
+fastrand = "1.7.0"
+once_cell = "1.12.0"
 lib={ path = "../lib" }
 metrics={ path = "../metrics" }
 metricsql={ path = "../metricsql" }

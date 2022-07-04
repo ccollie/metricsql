@@ -42,6 +42,7 @@ fn expand_binary(e: &BinaryOpExpr, was: &[WithArgExpr]) -> Expression {
             }
         }
     }
+
     let mut be = BinaryOpExpr::new(e.op, left, right);
     be.bool_modifier = e.bool_modifier;
 
@@ -49,6 +50,7 @@ fn expand_binary(e: &BinaryOpExpr, was: &[WithArgExpr]) -> Expression {
         be.group_modifier = e.group_modifier.clone();
         be.group_modifier.args = expand_modifier_args(was, e.group_modifier.args);
     }
+
     if e.join_modifier.is_some() {
         be.join_modifier = e.join_modifier.clone();
         be.join_modifier.args = expand_modifier_args(was, e.join_modifier.args);
@@ -198,7 +200,9 @@ fn expand_metric_expr(mut e: &MetricExpr, was: &[WithArgExpr]) -> Result<Express
     }
 
     // eslint-disable-next-line max-len
-    me.label_filters = remove_duplicate_label_filters(&label_filters);
+    remove_duplicate_label_filters(&label_filters);
+    me.label_filters = label_filters;
+
     if re.is_none() {
         return me;
     }
@@ -210,11 +214,11 @@ fn expand_metric_expr(mut e: &MetricExpr, was: &[WithArgExpr]) -> Result<Express
 
 fn expand_metric_labels(mut e: &MetricExpr, was: &[WithArgExpr]) -> Result<MetricExpr> {
 
-    let me: MetricExpr = MetricExpr::default();
+    let mut me: MetricExpr = MetricExpr::default();
     // Populate me.LabelFilters
     for lfe in e.label_filter_exprs.iter() {
         if !lfe.value.is_some() {
-            // Expand lfe.Label into []LabelFilter.
+            // Expand lfe.Label into Vec<LabelFilter>.
             let wa = get_with_arg_expr(was, &lfe.label)?;
             if !wa.is_some() {
                 let msg = format!("missing {} value inside MetricExpr", lfe.label);
@@ -233,8 +237,8 @@ fn expand_metric_labels(mut e: &MetricExpr, was: &[WithArgExpr]) -> Result<Metri
                 let msg = format!("BUG: wme.labelFilterExprs must be empty; got {:?}", wme.label_filter_exprs);
                 return Err(Error::from(msg)); // todo: different error type?
             }
-            for lfe in wme.labelFilterExprs {
-                me.labelFilterExprs.push(lfe.clone());
+            for lfe in wme.label_filter_exprs {
+                me.label_filter_exprs.push(lfe.clone());
             }
             continue;
         }
@@ -247,9 +251,9 @@ fn expand_metric_labels(mut e: &MetricExpr, was: &[WithArgExpr]) -> Result<Metri
             op: lfe.op.clone()
         };
         let lf = lfe_new.toLabelFilter();
-        me.labelFilters.push(lf);
+        me.label_filters.push(lf);
     }
-    me.labelFilters = remove_duplicate_label_filters(me.labelFilters);
+    remove_duplicate_label_filters(&me.label_filters);
 
     Ok(me)
 }
@@ -287,8 +291,8 @@ fn expand_modifier_args(mut was: &[WithArgExpr], args: &[String]) -> Result<Vec<
                     let msg = format!("cannot use {:?} instead of {:?} in {}", me, arg, wa.args);
                     return Err(Error::new(msg)); // todo: different error type?
                 }
-                let dst_arg = me.labelFilters[0].value;
-                dst_args.push(dst_arg);
+                let dst_arg = &me.label_filters[0].value;
+                dst_args.push_str(dst_arg);
             },
             Expression::Parens(pe) => {
                 for arg in pe.args {
@@ -333,13 +337,13 @@ fn expand_with_expr_ext(was: &[WithArgExpr], wa: &WithArgExpr, args: Option<&[Ex
     }
     // todo: SmallVec
     let mut was_new: Vec<WithArgExpr> = Vec::with_capacity(was.len() + args.len());
-    for waTmp in was.iter() {
+    for waTmp in was.iter_into() {
         if waTmp == wa {
             break
         }
         was_new.push(*waTmp);
     }
-    for (i, arg) in args.unwrap().iter().enumerate() {
+    for (i, arg) in args.unwrap().iter_into().enumerate() {
         was_new.push( WithArgExpr::new(&wa.args[i], *arg));
     }
     return expand_with_expr(&was_new, &wa.expr).unwrap();
@@ -383,7 +387,7 @@ fn extract_string_value(token: &str) -> Result<String> {
     }
 }
 
-fn get_with_arg_expr(was: &[WithArgExpr], name: &str) -> Option<WithArgExpr> {
+fn get_with_arg_expr(was: &[WithArgExpr], name: &str) -> Option<&WithArgExpr> {
     // Scan wes backwards, since certain expressions may override
     // previously defined expressions
     for i in was.iter().rev() {
@@ -394,17 +398,15 @@ fn get_with_arg_expr(was: &[WithArgExpr], name: &str) -> Option<WithArgExpr> {
     return None;
 }
 
-fn remove_duplicate_label_filters(lfs: &[LabelFilter]) -> Vec<LabelFilter> {
+fn remove_duplicate_label_filters(mut lfs: &Vec<LabelFilter>) {
     // Type inference lets us omit an explicit type signature (which
     // would be `HashSet<String>` in this example).
     let mut set = HashSet::new();
-    let mut lfs_new = Vec::new();
-    for lf in lfs {
+    lfs.retain(|lf| {
         if set.has(lf.name) {
-            continue;
+            return false
         }
         set.add(lf.name);
-        lfs_new.push(lf);
-    }
-    return lfs_new;
+        true
+    })
 }

@@ -1,4 +1,7 @@
+use std::collections::HashMap;
 use phf::phf_map;
+use metricsql::types::AggrFuncExpr;
+use crate::timeseries::Timeseries;
 
 // callbacks for optimized incremental calculations for aggregate functions
 // over rollups over metricsql.MetricExpr.
@@ -56,13 +59,13 @@ finalizeAggrFunc: finalizeAggrGeomean,
 
 pub(crate) struct IncrementalAggrContext {
     ts: &Timeseries,
-    values: Vec<f64>,
+    values: &[f64],
 }
 
 impl IncrementalAggrContext {}
 
 pub(crate) struct IncrementalAggrFuncContext {
-    ae: AggrFuncExpr,
+    pub(crate) ae: AggrFuncExpr,
     mLock: sync.Mutex,
     m: HashMap<usize, HashMap<String, IncrementalAggrContext>>,
 
@@ -82,20 +85,20 @@ impl IncrementalAggrFuncContext {
 }
 
 impl IncrementalAggrFuncContext {
-    fn updateTimeseries(mut self, tsOrig: &Timeseries, workerID: u64) {
+    fn update_timeseries(&mut self, ts_orig: &Timeseries, worker_id: u64) {
         self.mLock.Lock();
-        let mut m = iafc.m.get(workerID);
+        let mut m = iafc.m.get(worker_id);
         if m.is_none() {
             let h: HashMap<String, IncrementalAggrContext> = HashMap::new();
-            self.m.set(workerID, h);
+            self.m.set(worker_id, h);
             m = Some(h);
         }
         self.mLock.Unlock();
 
-        let ts = tsOrig;
+        let ts = ts_orig;
         let keep_original = iafc.callbacks.keepOriginal;
         if keep_original {
-            let dst: Timeseries = tsOrig.copy();
+            let dst: Timeseries = ts_orig.copy();
             ts = &dst
         }
         removeGroupTags(&ts.metricName, &iafc.ae.modifier);
@@ -109,7 +112,7 @@ impl IncrementalAggrFuncContext {
             }
             let tsAggr = Timeseries::with_shared_timestamps(ts.timestamps, Vec::with_capacity(ts.values.len()));
             if keep_original {
-                ts = tsOrig
+                ts = ts_orig
             }
             tsAggr.metric_name = String::from(&ts.metric_name);
             iac = &IncrementalAggrContext {
@@ -122,11 +125,11 @@ impl IncrementalAggrFuncContext {
         iafc.callbacks.updateAggrFunc(iac, ts.Values)
     }
 
-    fn finalizeTimeseries(mut self) -> Vec<Timeseries> {
-        // There is no need in iafc.mLock.Lock here, since finalizeTimeseries must be called
+    fn finalize_timeseries(&mut self) -> Vec<Timeseries> {
+        // There is no need in iafc.mLock.Lock here, since finalize_timeseries must be called
         // without concurrent goroutines touching iafc.
         let mut m_global: HashMap<String, IncrementalAggrFuncContext> = HashMap::new();
-        let mergeAggrFunc = iafc.callbacks.mergeAggrFunc;
+        let merge_aggr_func = iafc.callbacks.mergeAggrFunc;
         for m in iafc.m {
             for (k, iac) in m {
                 let iac_global = m_global[k];
@@ -139,7 +142,7 @@ impl IncrementalAggrFuncContext {
                     m_global[k] = iac;
                     continue;
                 }
-                mergeAggrFunc(iac_global, iac)
+                merge_aggr_func(iac_global, iac)
             }
         }
         let mut tss: Vec<Timeseries> = Vec::with_capacity(m_global.len());
@@ -152,7 +155,7 @@ impl IncrementalAggrFuncContext {
     }
 }
 
-fn newIncrementalAggrFuncContext(
+fn new_incremental_aggr_func_context(
     ae: &AggrFuncExpr,
     callbacks: &IncrementalAggrFuncCallbacks) -> IncrementalAggrFuncContext {
     return IncrementalAggrFuncContext::new(ae, callbacks);
@@ -167,32 +170,32 @@ pub(crate) struct IncrementalAggrFuncCallbacks {
     keepOriginal: bool,
 }
 
-fn getIncrementalAggrFuncCallbacks(name: &str) -> Option<IncrementalAggrFuncCallbacks> {
+fn get_incremental_aggr_func_callbacks(name: &str) -> Option<IncrementalAggrFuncCallbacks> {
     let lower = name.to_lowercase().as_str();
     return IncrementalAggrFuncCallbacksMap.get(lower);
 }
 
 
-fn finalizeAggrCommon(mut iac: &IncrementalAggrContext) {
+fn finalize_aggr_common(mut iac: &IncrementalAggrContext) {
     let counts = iac.values;
     let mut dst_values = iac.ts.Values;
-    for (i, v) in counts {
+    for (i, v) in counts.iter().enumerate() {
         if v == 0 {
             dst_values[i] = f64::NAN
         }
     }
 }
 
-fn updateAggrSum(mut iac: &IncrementalAggrContext, values: Vec<f64>) {
-    let mut dst_values = iac.ts.values;
+fn update_aggr_sum(mut iac: &IncrementalAggrContext, values: &[f64]) {
+    let mut dst_values = &iac.ts.values;
     let mut dst_counts = iac.values;
 
-    for (i, v) in values {
+    for (i, v) in values.iter().enumerate() {
         if v.is_nan() {
             continue;
         }
         if dst_counts[i] == 0 {
-            dst_values[i] = v;
+            dst_values[i] = *v;
             dst_counts[i] = 1;
             continue;
         }
@@ -200,13 +203,13 @@ fn updateAggrSum(mut iac: &IncrementalAggrContext, values: Vec<f64>) {
     }
 }
 
-fn mergeAggrSum(mut dst: &IncrementalAggrContext, src: &IncrementalAggrContext) {
+fn merge_aggr_sum(mut dst: &IncrementalAggrContext, src: &IncrementalAggrContext) {
     let src_values = src.ts.values;
     let src_counts = src.values;
     let mut dst_values = dst.ts.values;
     let mut dst_counts = dst.values;
 
-    for (i, v) in src_values {
+    for (i, v) in src_values.iter().enumerate() {
         if src_counts[i] == 0 {
             continue;
         }
@@ -219,11 +222,11 @@ fn mergeAggrSum(mut dst: &IncrementalAggrContext, src: &IncrementalAggrContext) 
     }
 }
 
-fn updateAggrMin(mut iac: &IncrementalAggrContext, values: Vec<f64>) {
+fn update_aggr_min(mut iac: &IncrementalAggrContext, values: &[f64]) {
     let dst_values = iac.ts.values;
     let dst_counts = iac.values;
 
-    for (i, v) in values {
+    for (i, v) in values.iter().enumerate() {
         if v.is_nan() {
             continue;
         }
@@ -238,13 +241,13 @@ fn updateAggrMin(mut iac: &IncrementalAggrContext, values: Vec<f64>) {
     }
 }
 
-fn mergeAggrMin(mut dst: &IncrementalAggrContext, src: &IncrementalAggrContext) {
+fn merge_aggr_min(mut dst: &IncrementalAggrContext, src: &IncrementalAggrContext) {
     let src_values = src.ts.values;
     let src_counts = src.values;
     let dst_values = &dst.ts.values;
     let dst_counts = &dst.values;
 
-    for (i, v) in src_values {
+    for (i, v) in src_values.iter().enumerate() {
         if src_counts[i] == 0 {
             continue;
         }
@@ -259,11 +262,11 @@ fn mergeAggrMin(mut dst: &IncrementalAggrContext, src: &IncrementalAggrContext) 
     }
 }
 
-fn updateAggrMax(iac: IncrementalAggrContext, values: Vec<f64>) {
+fn update_aggr_max(mut iac: &IncrementalAggrContext, values: &[f64]) {
     let mut dst_values = iac.ts.values;
     let mut dst_counts = iac.values;
 
-    for (i, v) in values {
+    for (i, v) in values.iter().enumerate() {
         if v.is_nan() {
             continue;
         }
@@ -278,13 +281,13 @@ fn updateAggrMax(iac: IncrementalAggrContext, values: Vec<f64>) {
     }
 }
 
-fn mergeAggrMax(mut dst: &IncrementalAggrContext, src: IncrementalAggrContext) {
+fn merge_aggr_max(mut dst: &IncrementalAggrContext, src: &IncrementalAggrContext) {
     let src_values = src.ts.values;
     let src_counts = src.values;
     let mut dst_values = dst.ts.values;
     let mut dst_counts = dst.values;
 
-    for (i, v) in src_values {
+    for (i, v) in src_values.iter().enumerate() {
         if src_counts[i] == 0 {
             continue;
         }
@@ -299,13 +302,13 @@ fn mergeAggrMax(mut dst: &IncrementalAggrContext, src: IncrementalAggrContext) {
     }
 }
 
-fn updateAggrAvg(mut iac: &IncrementalAggrContext, values: Vec<f64>) {
+fn update_aggr_avg(mut iac: &IncrementalAggrContext, values: &[f64]) {
 // Do not use `Rapid calculation methods` at https://en.wikipedia.org/wiki/Standard_deviation,
 // since it is slower and has no obvious benefits in increased precision.
     let dst_values = iac.ts.values;
     let dst_counts = iac.values;
 
-    for (i, v) in values {
+    for (i, v) in values.iter().enumerate() {
         if v.is_nan() {
             continue;
         }
@@ -319,13 +322,13 @@ fn updateAggrAvg(mut iac: &IncrementalAggrContext, values: Vec<f64>) {
     }
 }
 
-fn mergeAggrAvg(mut dst: &IncrementalAggrContext, src: IncrementalAggrContext) {
+fn merge_aggr_avg(mut dst: &IncrementalAggrContext, src: &IncrementalAggrContext) {
     let src_values = src.ts.values;
     let src_counts = src.values;
     let mut dst_values = dst.ts.values;
     let mut dst_counts = dst.values;
 
-    for (i, v) in src_values {
+    for (i, v) in src_values.iter().enumerate() {
         if src_counts[i] == 0 {
             continue;
         }
@@ -339,23 +342,23 @@ fn mergeAggrAvg(mut dst: &IncrementalAggrContext, src: IncrementalAggrContext) {
     }
 }
 
-fn finalizeAggrAvg(iac: IncrementalAggrContext) {
-    let dstValues = iac.ts.Values;
+fn finalize_aggr_avg(mut iac: &IncrementalAggrContext) {
+    let mut dst_values = iac.ts.values;
     let counts = iac.values;
 
-    for (i, v) in counts {
+    for (i, v) in counts.iter().enumerate() {
         if v == 0 {
-            dstValues[i] = f64::NAN;
+            dst_values[i] = f64::NAN;
             continue;
         }
-        dstValues[i] /= v
+        dst_values[i] /= v
     }
 }
 
-fn updateAggrCount(iac: IncrementalAggrContext, values: Vec<f64>) {
+fn update_aggr_count(mut iac: &IncrementalAggrContext, values: &[f64]) {
     let mut dst_values = iac.ts.values;
 
-    for (i, v) in values {
+    for (i, v) in values.iter().enumerate() {
         if v.is_nan() {
             continue;
         }
@@ -363,14 +366,14 @@ fn updateAggrCount(iac: IncrementalAggrContext, values: Vec<f64>) {
     }
 }
 
-fn mergeAggrCount(mut dst: &IncrementalAggrContext, src: IncrementalAggrContext) {
+fn merge_aggr_count(mut dst: &IncrementalAggrContext, src: IncrementalAggrContext) {
     let mut dst_values = dst.ts.values;
     for (i, v) in src.ts.values {
         dst_values[i] += v;
     }
 }
 
-fn finalizeAggrCount(iac: IncrementalAggrContext) {
+fn finalize_aggr_count(iac: IncrementalAggrContext) {
     let mut dst_values = iac.ts.values;
     for (i, v) in dst_values {
         if v == 0 {
@@ -379,9 +382,9 @@ fn finalizeAggrCount(iac: IncrementalAggrContext) {
     }
 }
 
-fn finalizeAggrGroup(iac: IncrementalAggrContext) {
+fn finalize_aggr_group(mut iac: &IncrementalAggrContext) {
     let mut dst_values = iac.ts.values;
-    for (i, v) in dst_values {
+    for v in dst_values.iter_mut() {
         if v == 0 {
             dst_values[i] = f64::NAN;
         } else {
@@ -390,10 +393,10 @@ fn finalizeAggrGroup(iac: IncrementalAggrContext) {
     }
 }
 
-fn updateAggrSum2(iac: IncrementalAggrContext, values: Vec<f64>) {
+fn update_aggr_sum2(mut iac: &IncrementalAggrContext, values: &[f64]) {
     let mut dst_values = iac.ts.values;
     let mut dst_counts = iac.values;
-    for (i, v) in values {
+    for (i, v) in values.iter().enumerate() {
         if v.is_nan() {
             continue;
         }
@@ -406,7 +409,7 @@ fn updateAggrSum2(iac: IncrementalAggrContext, values: Vec<f64>) {
     }
 }
 
-fn mergeAggrSum2(mut dst: &IncrementalAggrContext, src: IncrementalAggrContext) {
+fn merge_aggr_sum2(mut dst: &IncrementalAggrContext, src: &IncrementalAggrContext) {
     let src_values = src.ts.values;
     let src_counts = src.values;
     let mut dst_values = dst.ts.values;
@@ -425,7 +428,7 @@ fn mergeAggrSum2(mut dst: &IncrementalAggrContext, src: IncrementalAggrContext) 
     }
 }
 
-fn updateAggrGeomean(iac: IncrementalAggrContext, values: Vec<f64>) {
+fn updateAggrGeomean(mut iac: &IncrementalAggrContext, values: &[f64]) {
     let mut dst_values = iac.ts.Values;
     let mut dst_counts = iac.values;
 
@@ -476,9 +479,9 @@ fn finalizeAggrGeomean(iac: IncrementalAggrContext) {
     }
 }
 
-fn updateAggrAny(iac: IncrementalAggrContext, values: Vec<f64>) {
-    let dst_counts = iac.values;
-    if dst_counts[0] > 0 {
+fn update_aggr_any(iac: &mut IncrementalAggrContext, values: &[f64]) {
+    let mut dst_counts = iac.values;
+    if dst_counts[0] > 0 as f64 {
         return;
     }
     for i in 0..values.len() {
@@ -487,8 +490,8 @@ fn updateAggrAny(iac: IncrementalAggrContext, values: Vec<f64>) {
     iac.ts.values = values;
 }
 
-fn mergeAggrAny(mut dst: &IncrementalAggrContext, src: &IncrementalAggrContext) {
-    let src_values = src.ts.values;
+fn merge_aggr_any(mut dst: &IncrementalAggrContext, src: &IncrementalAggrContext) {
+    let src_values = &src.ts.values;
     let src_counts = src.values;
     let mut dst_counts = dst.values;
     if dst_counts[0] > 0 {

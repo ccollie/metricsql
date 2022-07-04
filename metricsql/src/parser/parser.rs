@@ -479,7 +479,7 @@ fn parse_metric_expr(mut lex: &Lexer) -> Result<MetricExpr> {
     if tok.kind == TokenKind::Ident {
         let tokens = vec![quote(&unescape_ident(tok.text))];
         let value = StringExpr { s: "".as_str(), tokens: Some(tokens) };
-        let lfe = LabelFilterExpr { label: "__name__", value, op: types::LabelFilterOp::Equal };
+        let lfe = LabelFilterExpr { label: "__name__".as_str(), value, op: LabelFilterOp::Equal };
         me.label_filter_exprs.push(lfe);
 
         tok = lex.next().unwrap();
@@ -635,7 +635,7 @@ fn parse_at_expr(mut lex: &Lexer) -> Result<impl ExpressionNode> {
     match parse_single_expr_without_rollup_suffix(lex) {
         Ok(e) => Ok(e),
         Err(e) => {
-            let msg = format!("cannot parse '@' expression: {}", lex.token);
+            let msg = format!("cannot parse '@' expression: {}: {}", lex.token e);
             Err(Error::new(msg))
         }
     }
@@ -737,7 +737,7 @@ fn parse_ident_list(mut lex: &Lexer) -> Result<Vec<String>> {
                 break;
             },
             _ => {
-                let msg = format!("identList: unexpected token {}; want ',' or ')'", lex.token);
+                let msg = format!("identList: unexpected token {}; want ',' or ')'", tok.text);
                 return Err(Error::new(msg));
             }
         }
@@ -952,7 +952,7 @@ fn simplify_constants_inplace(mut args: &[Expression]) {
 
 #[inline]
 fn is_rollup_start_token(token: &Token) -> bool {
-    return token.kind.is_rollup_start();
+    token.kind.is_rollup_start()
 }
 
 fn must_parse_with_arg_expr(s: &str) -> Result<WithArgExpr> {

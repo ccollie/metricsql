@@ -1,5 +1,4 @@
-use regex::Error;
-use super::MetricName;
+use lib::error::Error;
 
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub struct Timeseries {
@@ -18,6 +17,16 @@ impl Timeseries {
             deny_reuse: true
         }
     }
+
+    pub fn copy_shallow(src: &Timeseries) -> Self {
+        let mut ts = Timeseries {
+            timestamps: RC::clone(src.timestamps),
+            metric_name: src.metric_name.clone(),
+            values: src.values.clone(),
+            deny_reuse: true
+        };
+        ts
+    }
     
     pub fn with_shared_timestamps(timestamps: RC<Vec<i64>>, values: Vec<f64>) -> Self {
         Timeseries {
@@ -28,8 +37,10 @@ impl Timeseries {
         }
     }
 
-    pub fn reset(&self) {
-
+    pub fn reset(&mut self) {
+        self.values.clear();
+        self.timestamps.clear();
+        self.metric_name.reset();
     }
 
     pub fn copy_from_shallow_timestamps(mut self, src: &Timeseries) {
@@ -38,6 +49,10 @@ impl Timeseries {
         self.values = ts.values.clone();
         self.timestamps = RC::clone(&src.timestamps);
         self.deny_reuse = true;
+    }
+
+    pub fn len(&self) -> usize {
+        self.values.len()
     }
 }
 
@@ -64,7 +79,11 @@ pub(super) fn assert_identical_timestamps(tss: &Vec<Timeseries>, step: i64) -> R
     }
     for ts in tss {
         if ts.values.len() != ts_golden.values.len() {
-            logger.Panicf("BUG: unexpected len(ts.Values); got %d; want %d; ts.values={}", len(ts.Values), len(ts_golden.Values), ts.Values)
+            let msg = format!("BUG: unexpected len(ts.Values); got {}; want {}; ts.values={}",
+                          ts.values.len(),
+                          ts_golden.values.len(),
+                          ts.values.len());
+            return Err(Error::new(msg));
         }
         if  ts.timestamps.len() != ts_golden.timestamps.len() {
             let msg = format!("BUG: unexpected len(ts.Timestamps); got {}; want {}; ts.timestamps={}", 

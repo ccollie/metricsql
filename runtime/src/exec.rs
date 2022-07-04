@@ -1,19 +1,21 @@
 use std::collections::HashSet;
-use lib::error::Error;
+use lib::error::{Error, Result};
+use metricsql::{parse, optimize, visit_all};
 use metricsql::types::{BinaryOp, Expression};
 use crate::eval::EvalConfig;
+use crate::parser_cache::{get_cache, get_parse_cache, ParseCacheValue};
 use crate::timeseries::Timeseries;
 
-// exec executes q for the given ec.
-fn exec(qt: Querytracer, ec: &EvalConfig, q: &str, is_first_point_only: bool) -> Result<Vec<Result>, Error> {
-    if querystats.Enabled() {
+// runtime executes q for the given ec.
+pub fn exec(qt: Querytracer, ec: &EvalConfig, q: &str, is_first_point_only: bool) -> Result<Vec<QueryResult>> {
+    if querystats.enabled() {
         startTime = time.Now();
         defer querystats.RegisterQuery(q, ec.End-ec.Start, startTime)
     }
 
     ec.validate()?;
 
-    let e = parsePromQLWithCache(q)?;
+    let e = parse_promql_with_cache(q)?;
     let qid = activeQueriesV.Add(ec, q);
     let rv = evalExpr(qt, ec, e);
     activeQueriesV.Remove(qid);
@@ -23,17 +25,17 @@ fn exec(qt: Querytracer, ec: &EvalConfig, q: &str, is_first_point_only: bool) ->
     if is_first_point_only {
         // Remove all the points except the first one from every time series.
         for ts in rv.iter() {
-            ts.values = ts.values[:1]
-            ts.timestamps = ts.timestamps[:1]
+            ts.values = ts.values[0..1];
+            ts.timestamps = ts.timestamps[0..1];
         }
         qt.Printf("leave only the first point in every series")
     }
     let may_sort = may_sort_results(e, rv);
-    let mut result = timeseriesToResult(rv, may_sort)?;
+    let mut result = timeseries_to_result(rv, may_sort)?;
     if may_sort {
-        qt.Printf("sort series by metric name and labels")
+        qt.printf("sort series by metric name and labels")
     } else {
-        qt.Printf("do not sort series by metric name and labels")
+        qt.printf("do not sort series by metric name and labels")
     }
     if let n = ec.roundDigits && n < 100 {
         for r in result.iter() {
@@ -44,10 +46,10 @@ fn exec(qt: Querytracer, ec: &EvalConfig, q: &str, is_first_point_only: bool) ->
         }
         qt.Printf("round series values to %d decimal digits after the point", n)
     }
-    return result
+    Ok(result)
 }
 
-fn may_sort_results(e: &Expression, tss: Vec<Timeseries>) -> bool {
+fn may_sort_results(e: &Expression, tss: &[Timeseries]) -> bool {
     match e {
         Expression::Function(fe) => {
             let lower = fe.name.to_lower().as_string();
@@ -57,7 +59,7 @@ fn may_sort_results(e: &Expression, tss: Vec<Timeseries>) -> bool {
             }
         },
         Expression::Aggregation(ae) => {
-            let lower = fe.name.to_lower().as_string();
+            let lower = ae.name.to_lower().as_string();
             match lower {
                 "topk" | "bottomk" | "outliersk" |
                 "topk_max" | "topk_min" | "topk_avg" |
@@ -71,9 +73,9 @@ fn may_sort_results(e: &Expression, tss: Vec<Timeseries>) -> bool {
     return true
 }
 
-pub(crate) fn timeseriesToResult(mut tss: &Vec<Timeseries>, maySort: bool) -> Result<Vec<Result>, Error> {
-    tss = remove_empty_series(tss);
-    let result: Vec<Result> = Vec:with_capacity(tss.len());
+pub(crate) fn timeseries_to_result(mut tss: &Vec<Timeseries>, may_sort: bool) -> Result<Vec<QueryResult>> {
+    let tss = remove_empty_series(tss);
+    let result: Vec<QueryResult> = Vec::with_capacity(tss.len());
     let m:  HashSet<String> = HashSet::with_capacity(tss.len());
     let mut bb = bbPool.Get();
     for ts in tss.iter() {
@@ -83,42 +85,30 @@ pub(crate) fn timeseriesToResult(mut tss: &Vec<Timeseries>, maySort: bool) -> Re
         }
         m.insert(key);
         let mut rs = &result[i];
-        rs.metric_name.copyFrom(&ts.MetricName)
+        rs.metric_name.copyFrom(&ts.MetricName);
         rs.values = ts.values;
-        rs.timestamps = append(rs.Timestamps[:0], ts.Timestamps...)
+        rs.timestamps = append(rs.timestamps[:0], ts.timestamps...)
     }
     bbPool.Put(bb);
 
-    if maySort {
-        sort.Slice(result, func(i, j int) bool {
-            return metricNameLess(&result[i].MetricName, &result[j].MetricName)
+    if may_sort {
+        result.sort_by(|a, b| {
+            a.metric_name.cmp(b.metric_name)
         })
     }
 
     return result
 }
 
-pub(super) fn remove_empty_series(tss: &[Timeseries]) -> Vec<Timeseries> {
-    let mut rvs = Vec::with_capacity(tss.len());
-    for ts in tss.iter() {
-        let mut all_nans = true;
-        for v in ts.values.iter() {
-            if !v.is_nan() {
-                all_nans = true;
-                break;
-            }
-        }
-        if all_nans {
-            // Skip timeseries with all NaNs.
-            continue
-        }
-        rvs.push(ts)
-    }
-    return rvs
+pub(super) fn remove_empty_series(mut tss: &Vec<Timeseries>) {
+    tss.retain(|ts| {
+        !ts.values.all(|v| v.is_nan())
+    });
 }
 
-fn adjust_cmp_ops(e: &Expression) -> Expression {
-    visit_all(e, |expr: &Expression|
+// todo: put in optimize phase
+fn adjust_cmp_ops(mut e: &Expression) {
+    visit_all(e, |mut expr: &Expression|
         {
             match expr {
                 Expression::BinaryOpExpr(be) => {
@@ -137,7 +127,6 @@ fn adjust_cmp_ops(e: &Expression) -> Expression {
                 _ => {}
             }
         });
-    return e
 }
 
 fn is_number_expr(e: &Expression) -> bool {
@@ -170,22 +159,39 @@ fn get_reverse_cmp(op: BinaryOp) -> BinaryOp {
     }
 }
 
-fn escapeDots(s: &str) -> string {
-    dotsCount = strings.Count(s, ".")
-    if dotsCount <= 0 {
-        return s
-    }
-    let result = String::with_capacity(s.len() + 2 * dotsCount);
-    let len = s.len_utf8();
-    for ch in s.chars().enumerate() {
-        if ch == '.' && (i == 0 || s[i-1] != '\\') && (i+1 == len || i+1 < len && s[i+1] != '*' && s[i+1] != '+' && s[i+1] != '{') {
-            // Escape a dot if the following conditions are met:
-            // - if it isn't escaped already, i.e. if there is no `\` char before the dot.
-            // - if there is no regexp modifiers such as '+', '*' or '{' after the dot.
-            result = append(result, '\\', '.')
-        } else {
-            result = append(result, s[i])
+pub fn parse_promql_with_cache(q: &str) -> Result<&Expression> {
+    let mut cache = get_parse_cache();
+    let mut pcv: ParseCacheValue;
+    let mut expression: &Expression;
+
+    match cache().get(q) {
+        Some(v) => {
+            pcv = v;
+        },
+        None(..) => {
+            let mut e = parse(&q);
+            match e {
+                Ok(mut expr) => {
+                    expression = optimize(expr);
+                    adjust_cmp_ops(&expression);
+                    pcv = ParseCacheValue {
+                        expr: Some(Expression),
+                        err: None
+                    }
+                },
+                Err(err) => {
+                    pcv = ParseCacheValue {
+                        expr: None,
+                        err: Some(err)
+                    };
+                }
+            }
+            cache.put(q, pcv);
         }
     }
-    return string(result)
+    if pcv.err.is_some() {
+        Err(pcv.err.unwrap())
+    } else {
+        Ok(&pcv.expr.unwrap())
+    }
 }
