@@ -4,6 +4,7 @@ use enquote::enquote;
 use regex::Regex;
 use crate::error::{Error, Result};
 use crate::lexer::{escape_ident, quote};
+use crate::parser::compile_regexp_anchored;
 use crate::types::StringExpr;
 
 const NAME_LABEL: &str = "__name__";
@@ -88,7 +89,7 @@ impl LabelFilter {
 
         let re = match match_op {
             LabelFilterOp::RegexEqual | LabelFilterOp::RegexNotEqual => {
-                Some(Regex::new(&format!("^(?:{})$", value)).map_err(|e| format!("{}", e))?)
+                compile_regexp_anchored(value.as_str()).map_err(|e| format!("{}", e)?)
             }
             _ => None,
         };

@@ -1,6 +1,6 @@
 use phf::phf_map;
 
-static aggrFuncs: phf::Map<&'static str, AggrFunc> = phf_map! {{
+static AGGR_FUNCS: phf::Map<&'static str, AggrFunc> = phf_map! {{
 // See https://prometheus.io/docs/prometheus/latest/querying/operators/#aggregation-operators
 "sum":          new_aggr_func(aggrFuncSum),
 "min":          new_aggr_func(aggrFuncMin),
@@ -94,7 +94,7 @@ fn aggr_func_ext(
     // Perform grouping.
     let m: HashMap<&str, Vec<Timeseries>> = HashMap::new();
     bb = bbPool.Get();
-    for (i, ts) in arg {
+    for (i, ts) in arg.iter().enumerate() {
         removeGroupTags(&ts.metric_name, modifier);
         bb.B = marshalMetricNameSorted(bb.B[: 0], ts.metric_name);
         if keep_original {

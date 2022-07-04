@@ -1,3 +1,4 @@
+use crate::parse;
 use crate::types::Expression;
 
 pub fn visit_all(e: &Expression, visitor: &fn(&Expression) -> ()) {
@@ -22,4 +23,10 @@ pub fn visit_all(e: &Expression, visitor: &fn(&Expression) -> ()) {
         _ => {}
     }
     visitor(e);
+}
+// ExpandWithExprs expands WITH expressions inside q and returns the resulting
+// PromQL without WITH expressions.
+pub fn expand_with_exprs(q: &str) -> Result<String, Error> {
+    let e = parse(q)?;
+    Ok( format!("{}", e) )
 }

@@ -74,7 +74,7 @@ pub fn get_common_label_filters(e: &Expression) -> Vec<LabelFilter> {
     use Expression::*;
 
     match e {
-        MetricExpression(m) => get_label_filters_without_metric_name(m),
+        MetricExpression(m) => get_label_filters_without_metric_name(&m.label_filters),
         Rollup(r) => get_common_label_filters(&r.expr),
         Function(f) => {
             let arg = get_func_arg_for_optimization(&f.name, &f.args);
@@ -162,7 +162,7 @@ pub fn get_common_label_filters(e: &Expression) -> Vec<LabelFilter> {
 }
 
 pub fn trim_filters_by_aggr_modifier(
-    lfs: &[LabelFilter],
+    lfs: &Vec<LabelFilter>,
     afe: &AggrFuncExpr,
 ) -> Vec<LabelFilter> {
     let mut modifier = &afe.modifier;
@@ -186,7 +186,7 @@ pub fn trim_filters_by_aggr_modifier(
 // - It returns only filters specified in on()
 // - It drops filters specified inside ignoring()
 pub fn trim_filters_by_group_modifier(
-    lfs: &[LabelFilter],
+    lfs: &Vec<LabelFilter>,
     be: &BinaryOpExpr,
 ) -> Vec<LabelFilter> {
     let modifier = &be.group_modifier;
@@ -221,7 +221,7 @@ fn get_label_filters_without_metric_name(lfs: &[LabelFilter]) -> Vec<&LabelFilte
 // then the returned expression will contain `foo{x="y"} + sum(bar)`.
 // The `{x="y"}` cannot be pushed down to `sum(bar)`, since this
 // may change binary operation results.
-pub fn pushdown_binary_op_filters(e: &Expression, common_filters: &[LabelFilter]) -> Expression {
+pub fn pushdown_binary_op_filters(e: &Expression, common_filters: &Vec<LabelFilter>) -> Expression {
     if common_filters.len() == 0 {
         // Fast path - nothing to push down.
         // fixme
@@ -233,7 +233,7 @@ pub fn pushdown_binary_op_filters(e: &Expression, common_filters: &[LabelFilter]
 }
 
 
-pub fn pushdown_binary_op_filters_in_place(mut e: &Expression, common_filters: &[LabelFilter]) {
+pub fn pushdown_binary_op_filters_in_place(mut e: &Expression, common_filters: &Vec<LabelFilter>) {
     use Expression::*;
 
     if common_filters.len() == 0 {
@@ -281,7 +281,7 @@ fn intersect_label_filters<'a>(first: &[LabelFilter], second: &[LabelFilter]) ->
     return second.iter().filter(|x| set.contains(x.as_str())).collect::<Vec<_>>();
 }
 
-fn union_label_filters(a: &[LabelFilter], b: &[LabelFilter]) -> Vec<LabelFilter> {
+fn union_label_filters(a: &Vec<LabelFilter>, b: &Vec<LabelFilter>) -> Vec<LabelFilter> {
     if a.len() == 0 {
         return Vec::from(b);
     }

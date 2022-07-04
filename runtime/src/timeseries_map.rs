@@ -22,7 +22,7 @@ impl TimeseriesMap {
             values.push(nan);
         }
 
-        let origin: Timeseries;
+        let origin: Timeseries = Timeseries::new();
         origin.metric_name.copy_from(mn_src);
         if !keepMetricNames && !rollupFuncsKeepMetricName[funcName] {
             origin.metric_name.reset_metric_group()
@@ -38,7 +38,7 @@ impl TimeseriesMap {
         }
     }
 
-    pub(crate) fn getOrCreateTimeseries(&mut self, label_name: &str, label_value: &str) -> &Timeseries {
+    pub(crate) fn get_or_create_timeseries(&mut self, label_name: &str, label_value: &str) -> &Timeseries {
         let ts = self.get(label_value);
         if ts.is_some() {
             return *ts
@@ -48,6 +48,13 @@ impl TimeseriesMap {
         ts.metric_name.add_tag(label_name, label_value);
         tsm.m.insert(label_value, ts);
         return ts
+    }
+
+    pub(crate) fn append_timeseries_to(&mut self, dst: &Vec<Timeseries>) -> &Vec<Timeseries> {
+        for ts in self.m {
+            dst.push(ts)
+        }
+        return dst
     }
 }
 
