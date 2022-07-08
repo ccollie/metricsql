@@ -62,7 +62,7 @@ static TRANSFORM_FUNCTIONS: phf::OrderedSet<&'static str> = phf_ordered_set! {
   "pi",
   "prometheus_buckets",
   "rad",
-  "rand",
+  "random",
   "rand_exponential",
   "rand_normal",
   "range_avg",
@@ -86,6 +86,8 @@ static TRANSFORM_FUNCTIONS: phf::OrderedSet<&'static str> = phf_ordered_set! {
   "sort",
   "sort_by_label",
   "sort_by_label_desc",
+  "sort_by_label_numeric",
+  "sort_by_label_numeric_desc",
   "sort_desc",
   "sqrt",
   "start",
@@ -101,6 +103,6 @@ static TRANSFORM_FUNCTIONS: phf::OrderedSet<&'static str> = phf_ordered_set! {
 };
 
 pub(crate) fn is_transform_func(func: &str) -> bool {
-  let lower = func.to_lowercase().as_str();
-  TRANSFORM_FUNCTIONS.contains(lower)
+    let lower = func.to_lowercase();
+    TRANSFORM_FUNCTIONS.contains(&lower)
 }

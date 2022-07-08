@@ -39,6 +39,5 @@ static AGGR_FUNCTIONS: phf::OrderedSet<&'static str> = phf_ordered_set! {
 };
 
 pub fn is_aggr_func(func: &str) -> bool {
-  let lower = func.to_lowercase().as_str();
-  AGGR_FUNCTIONS.contains(lower)
+    AGGR_FUNCTIONS.contains(&func.to_lowercase())
 }

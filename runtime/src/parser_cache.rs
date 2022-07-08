@@ -1,95 +1,115 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use once_cell::sync::OnceCell;
-use lib::error::Error;
-use metricsql::types::Expression;
+use std::sync::{Arc};
+use std::sync::atomic::{AtomicU64, Ordering};
+use dashmap::DashMap;
+use dashmap::mapref::one::RefMut;
+
+use metricsql::ast::Expression;
+use metricsql::optimizer::optimize;
+use metricsql::parser::ParseError;
+use crate::binary_op::adjust_cmp_ops;
+use crate::create_evaluator;
+use crate::eval::{ExprEvaluator, NullEvaluator};
 
 const PARSE_CACHE_MAX_LEN: usize = 1000;
 
-struct ParseCacheInner {
-    requests: u64,
-    misses: u64,
-    m: HashMap<String, ParseCacheValue>
-}
-
-pub (crate) struct ParseCacheValue {
-    pub(crate) expr: Option<Expression>,
-    pub(crate) err: Option<Error>
+pub struct ParseCacheValue {
+    pub expr: Option<Expression>,
+    pub evaluator: Option<ExprEvaluator>,
+    pub err: Option<ParseError>,
+    pub(crate) ref_count: u64
 }
 
 pub struct ParseCache {
-    inner: Arc<Mutex<ParseCacheInner>>
+    requests: AtomicU64,
+    misses: AtomicU64,
+    hash: Arc<DashMap<String, ParseCacheValue>>,
 }
 
 impl ParseCache {
     pub fn new() -> Self {
-        let inner = ParseCacheInner {
-            requests: 0,
-            misses: 0,
-            m: HashMap::new()
-        };
         ParseCache {
-            inner: Arc::new(Mutex::new(inner))
+            requests: AtomicU64::new(0),
+            misses: AtomicU64::new(0),
+            hash: Arc::new(DashMap::default()),
         }
     }
 
     pub fn len(&self) -> usize {
-        let inner = self.inner.lock().unwrap();
-        inner.m.len()
+        self.hash.len()
     }
 
     pub fn misses(&self) -> u64 {
-        let inner = self.inner.lock().unwrap();
-        inner.misses
+        self.misses.fetch_add(0, Ordering::Relaxed)
     }
 
     pub fn requests(&self) -> u64 {
-        let inner = self.inner.lock().unwrap();
-        inner.requests
+        self.requests.fetch_add(0, Ordering::Relaxed)
     }
 
-    pub fn get(&mut self, key: String) -> ParseCacheValue {
-       let inner = self.inner.lock().unwrap();
-       inner.requests = inner.requests + 1;
-       let entry = inner.get(key);
-       if entry.is_none() {
-           inner.misses = inner.misses + 1;
-       }
-       return entry;
+    pub fn clear(&mut self) {
+        self.hash.clear()
     }
 
-    pub fn put(&mut self, q: String, pcv: ParseCacheValue) {
-        let inner = self.inner.lock().unwrap();
-        let mut overflow = inner.m.len() - PARSE_CACHE_MAX_LEN;
+    fn cleanup(&mut self) {
+        let mut overflow = self.len() - PARSE_CACHE_MAX_LEN;
         if overflow > 0 {
             // Remove 10% of items from the cache.
-            overflow = ((lpc.m.len() as f64) * 0.1) as usize;
-            for k in inner.m.keys() {
+            overflow = ((self.len() as f64) * 0.1) as usize;
+            let mut items = self.hash.iter().collect();
+
+            for k in self.hash.iter() {
                 inner.m.remove(k);
-                overflow = overflow - 1;
+                overflow -= 1;
                 if overflow <= 0 {
                     break
                 }
             }
         }
-        inner.m.insert(q, pcv);
     }
-}
 
-pub(crate) fn get_parse_cache() -> &'static ParseCache {
-    static INSTANCE: OnceCell<ParseCache> = OnceCell::new();
-    INSTANCE.get_or_init(|| {
-        /*
-	metrics.NewGauge(`vm_cache_requests_total{type="promql/parse"}`, func() float64 {
-		return float64(pc.Requests())
-	})
-	metrics.NewGauge(`vm_cache_misses_total{type="promql/parse"}`, func() float64 {
-		return float64(pc.Misses())
-	})
-	metrics.NewGauge(`vm_cache_entries{type="promql/parse"}`, func() float64 {
-		return float64(pc.Len())
-	})
-         */
-        ParseCache::new()
-    })
+    pub fn parse<'a>(&mut self, q: &str) -> RefMut<'a, String, ParseCacheValue> {
+        self.requests.fetch_add(1, Ordering::Relaxed);
+        let entry = self.hash.entry(q.to_string()).or_insert_with(|| {
+            self.misses.fetch_add(1, Ordering::Relaxed);
+            self.parse_internal(q)
+        });
+        entry.ref_count += 1;
+        entry
+    }
+
+    fn parse_internal(&mut self, q: &str) -> ParseCacheValue {
+        match metricsql::parser::parse(q) {
+            Ok(expr) => {
+                let mut expression = &optimize(&expr);
+                adjust_cmp_ops(&mut expression);
+                match create_evaluator(expression) {
+                    Ok(evaluator) => {
+                        ParseCacheValue {
+                            expr: Some(expr),
+                            evaluator: Some(evaluator),
+                            err: None,
+                            ref_count: 0
+                        }
+                    },
+                    Err(e) => {
+                        ParseCacheValue {
+                            expr: Some(expr),
+                            evaluator: Some(ExprEvaluator::Null(NullEvaluator{})),
+                            err: Some( ParseError::General("Error creating evaluator".to_string())),
+                            ref_count: 0
+                        }
+                    }
+                }
+            },
+            Err(e) => {
+                ParseCacheValue {
+                    expr: None,
+                    evaluator: Some(ExprEvaluator::Null(NullEvaluator{})),
+                    err: Some(e.clone()),
+                    ref_count: 0
+                }
+            }
+        }
+    }
+
 }

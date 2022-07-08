@@ -1,5 +1,5 @@
+use crate::ast::FuncExpr;
 use phf::phf_ordered_set;
-use crate::types::FuncExpr;
 
 static ROLLUP_FUNCTIONS: phf::OrderedSet<&'static str> = phf_ordered_set! {
   "absent_over_time",
@@ -79,22 +79,25 @@ static ROLLUP_FUNCTIONS: phf::OrderedSet<&'static str> = phf_ordered_set! {
 };
 
 pub fn is_rollup_func(func: &str) -> bool {
-  let lower = func.to_lowercase().as_str();
-  ROLLUP_FUNCTIONS.contains(lower)
+    let lower = func.to_lowercase();
+    ROLLUP_FUNCTIONS.contains(&lower)
 }
 
-// GetRollupArgIdx returns the argument index for the given fe, which accepts the rollup argument.
-//
-// -1 is returned if fe isn't a rollup function.
+/// get_rollup_arg_idx returns the argument index for the given fe, which accepts the rollup argument.
+///
+/// -1 is returned if fe isn't a rollup function.
 pub fn get_rollup_arg_idx(fe: &FuncExpr) -> i32 {
-  let lower = fe.name.to_lowercase().as_str();
-  if !ROLLUP_FUNCTIONS.contains(lower) {
-    return -1;
-  }
+    let lower = fe.name.to_lowercase();
+    if !ROLLUP_FUNCTIONS.contains(&lower) {
+        return -1;
+    }
 
-  match lower {
-    "quantile_over_time" | "aggr_over_time" | "hoeffding_bound_lower" | "hoeffding_bound_upper" => 1,
-    "quantiles_over_time" => fe.args.len() - 1,
-    _ => 0,
-  }
+    match lower.as_str() {
+        "quantile_over_time"
+        | "aggr_over_time"
+        | "hoeffding_bound_lower"
+        | "hoeffding_bound_upper" => 1,
+        "quantiles_over_time" => (fe.args.len() - 1) as i32,
+        _ => 0,
+    }
 }

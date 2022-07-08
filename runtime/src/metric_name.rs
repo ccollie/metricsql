@@ -1,19 +1,36 @@
-use std::collections::btree_map::BTreeMap;
 use std::cmp::Ordering;
+use std::collections::{BTreeMap, HashSet};
+use std::collections::btree_map::Iter;
+use std::fmt;
+use std::fmt::Display;
+use std::ops::DerefMut;
 
+use enquote::enquote;
+use lockfree_object_pool::{LinearObjectPool, LinearReusable};
+use once_cell::sync::Lazy;
 
-const NAME_LABEL: &str = "__name__";
+use lib::{unmarshal_string_fast, unmarshal_var_int};
 
-// Tag represents a (key, value) tag for metric.
-#[derive(Debug, PartialEq, Eq, Clone)]
+use crate::{marshal_bytes_fast, marshal_string_fast, unmarshal_bytes_fast};
+use crate::runtime_error::{RuntimeError, RuntimeResult};
+
+/// The maximum length of label name.
+///
+/// Longer names are truncated.
+pub const MAX_LABEL_NAME_LEN: usize = 256;
+
+pub const NAME_LABEL: &str = "__name__";
+
+/// Tag represents a (key, value) tag for metric.
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Tag {
-    key: String,
-    value: String,
+    pub(crate) key: String,
+    pub(crate) value: String,
 }
 
 impl PartialOrd for Tag {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        if self.key == other.keey {
+        if self.key == other.key {
             return Some(self.value.cmp(&other.value));
         }
         Some(self.key.cmp(&other.key))
@@ -21,56 +38,53 @@ impl PartialOrd for Tag {
 }
 
 
-// MetricName represents a metric name.
-#[derive(Debug, PartialEq, Eq, Clone)]
+/// MetricName represents a metric name.
+#[derive(Debug, PartialEq, Eq, Clone, Default, Hash)]
 pub struct MetricName {
-    metric_group: String,
-    // Tags are optional. They must be sorted by tag Key for canonical view.
-    // Use sortTags method.
-    tags: Vec<Tag>,
-    _items: BtreeMap,
-    sorted: bool,
+    pub metric_group: String,
+    _items: BTreeMap<String, String>,
 }
 
 impl MetricName {
-    pub fn new<S: Into<S>>(name: S) {
+    pub fn new(name: &str) -> Self {
         MetricName {
-            metric_group: name,
-            tags: vec![],
+            metric_group: name.to_string(),
             _items: BTreeMap::new(),
-            sorted: true,
         }
     }
 
-    pub fn get_metric_name(&self) {
-        self.metric_group
-    }
-
-    pub fn reset_metric_group(mut self) {
-        self.metric_group = "";
+    pub fn reset_metric_group(&mut self) {
+        self.metric_group = "".to_string();
     }
 
     pub fn get_tag_count(self) -> usize {
         self._items.len()
     }
 
-    // Reset resets the mn.
-    pub fn reset(&self) {
-        self.metric_group = "";
+    pub fn copy_from(&mut self, other: &MetricName) {
+        self.metric_group = other.metric_group.clone();
+        // todo: can we make this more efficient ?
+        self._items.clear();
+        self._items.clone_from(&other._items);
+    }
+
+    /// Reset resets the mn.
+    pub fn reset(&mut self) {
+        self.metric_group = "".to_string();
         self._items.clear();
     }
 
-    // AddTag adds new tag to mn with the given key and value.
-    pub fn add_tag<K: Into<String>, V: Into<String>>(mut self, key: K, value: V) {
+    /// adds new tag to mn with the given key and value.
+    pub fn add_tag(&mut self, key: &str, value: &str) {
         if key == NAME_LABEL {
-            self.metric_group = value;
+            self.metric_group = value.to_string();
             return;
         }
-        self._items.insert(key, value);
+        self._items.insert(key.to_string(), value.to_string());
     }
 
-    // RemoveTag removes a tag with the given tagKey
-    pub fn remove_tag<K: Into<String>>(&mut self, key: K) {
+    /// removes a tag with the given tagKey
+    pub fn remove_tag(&mut self, key: &str) {
         if key == NAME_LABEL {
             self.reset_metric_group();
             return;
@@ -78,94 +92,220 @@ impl MetricName {
         self._items.remove(key);
     }
 
-    pub fn has_tag(&self, key: &str) {
-        return self._items.contains_key(key);
+    // todo: rewrite to pass references
+    pub fn get_tags(&self) -> Vec<Tag> {
+        self._items.iter().map(|(k, v)| {
+            Tag {
+                key: k.to_string(),
+                value: v.to_string(),
+            }
+        }).collect()
     }
 
-    // GetTagValue returns tag value for the given tagKey.
-    pub fn get_tag_value(&self, key: &str) -> Option<String> {
+    pub fn has_tag(&self, key: &str) -> bool {
+        self._items.contains_key(key)
+    }
+
+    /// returns tag value for the given tagKey.
+    pub fn get_tag_value(&self, key: &str) -> Option<&String> {
         if key == NAME_LABEL {
-            return Some(self.metric_group);
+            return Some(&self.metric_group);
         }
-        return self._items.get_key_value(key);
+        self._items.get(key)
     }
 
-    // removes all the tags not included to on_tags.
-    pub fn remove_tags_on<I: Iterator<Item=Into<String>>>(mut self, on_tags: I) {
-        if !hasTag(on_tags, NAME_LABEL) {
+    pub fn get_tag_value_mut(&mut self, key: &str) -> Option<&mut String> {
+        if key == NAME_LABEL {
+            return Some(&mut self.metric_group);
+        }
+        self._items.get_mut(key)
+    }
+
+    /// removes all the tags not included to on_tags.
+    pub fn remove_tags_on(&mut self, on_tags: &[String]) {
+        let set: HashSet<&String> = HashSet::from_iter(on_tags);
+        if set.contains(&NAME_LABEL.to_string()) {
             self.reset_metric_group()
         }
-        let mut has_name_key: bool = false;
-        let tags = self.tags;
-        for tag in tags {
-            if hasTag(on_tags, tag.key) {
-                mn.AddTagBytes(tag.Key, tag.Value)
-            }
-        }
+        self._items.retain(|k, _| set.contains(k));
     }
 
-    // removes all the tags included in ignoring_tags.
-    pub fn remove_tags_ignoring<I: Iterator<Item=Into<String>>>(mut self, ignoring_tags: I) {
+    /// removes all the tags included in ignoring_tags.
+    pub fn remove_tags_ignoring(&mut self, ignoring_tags: &[String]) {
         for tag in ignoring_tags {
             if tag == NAME_LABEL {
-                self.metric_group = "";
+                self.metric_group = "".to_string();
             } else {
-                this._items.remove(tag)
+                self._items.remove(tag);
             }
         }
     }
 
-    // SetTags sets tags from src with keys matching add_tags.
-    pub(crate) fn set_tags<I: Iterator<Into<String>>>(mut self, add_tags: I, mut src: MetricName) {
+    /// sets tags from src with keys matching add_tags.
+    pub(crate) fn set_tags(&mut self, add_tags: &[String], mut src: &MetricName) {
         for tag_name in add_tags {
             if tag_name == NAME_LABEL {
-                mn.metric_group = tag_name;
+                self.metric_group = tag_name.clone();
                 continue;
             }
 
-            let tag_value = src.get_tag_value(tag_name);
-            if !Some(tag_value) {
-                self.remove_tag(tag_name);
-                continue;
-            } else {
-                let item = self._items.get_mut(tag_name);
-                if item.is_some() {
-                    *item = tag_value
-                } else {
-                    self._items.insert(tag_name, tag_value);
+            match src.get_tag_value(tag_name) {
+                Some(tag_value) => {
+                    if let Some(mut it) = self._items.get_mut(tag_name) {
+                        it = &mut tag_value.to_string()
+                    } else {
+                        self._items.insert(tag_name.to_string(), tag_value.to_string());
+                    }
+                },
+                None => {
+                    self.remove_tag(tag_name);
                 }
             }
         }
     }
 
-    pub fn append_tags_to_string(&self, &mut dst: Vec<u8>) {
-        dst.push("{{");
+    pub fn append_tags_to_string(&self, dst: &mut Vec<u8>) {
+        dst.extend_from_slice("{{".as_bytes());
+
+        let len = self._items.len();
+        let mut i = 0;
         for (k, v) in self._items {
-            dst.push(format!("{}={}", k, enquote("\"", v).as_bytes()));
-            if i + 1 < len(tags) {
-                dst.push(", ")
-            };
+            dst.extend_from_slice(format!("{}={}", k, enquote('"', &v)).as_bytes());
+            if i + 1 < len {
+                dst.extend_from_slice(", ".as_bytes())
+            }
+            i += 1;
         }
-        dst.push('}');
-        return dst;
+        // ??????????????
+        dst.extend_from_slice('}'.to_string().as_bytes());
     }
 
-    pub fn iter(&self) -> Iter<'_, K, V> {
-        return self._items.iter();
+    pub(crate) fn marshal_tags_fast(&self, dst: &mut Vec<u8>) {
+        for (k, v) in self._items {
+            marshal_bytes_fast(dst, k.as_bytes());
+            marshal_bytes_fast(dst, v.as_bytes());
+        }
+    }
+
+    pub fn marshal(&self, dst: &mut Vec<u8>) {
+        marshal_string_fast(dst, &self.metric_group);
+        self.marshal_tags_fast(dst);
+    }
+
+
+    // internal only
+    pub(crate) fn marshal_to_string(&self, buf: &mut Vec<u8>) -> RuntimeResult<String> {
+        self.marshal(buf);
+        return match std::str::from_utf8(&buf) {
+            Ok(s) => {
+                Ok(s.to_string())
+            },
+            Err(e) => {
+                Err(RuntimeError::SerializationError("Error marshaling metric name tp string".to_string()))
+            }
+        }
+    }
+
+    /// unmarshals mn from src, so mn members hold references to src.
+    ///
+    /// It is unsafe modifying src while mn is in use.
+    pub fn unmarshal_fast(src: &[u8]) -> RuntimeResult<(MetricName, &[u8])> {
+        let mut mn: MetricName = MetricName::default();
+        let tail = mn.unmarshal_fast_internal(src)?;
+        return Ok((mn, tail));
+    }
+
+    /// unmarshals mn from src, so mn members hold references to src.
+    ///
+    /// It is unsafe modifying src while mn is in use.
+    pub(crate) fn unmarshal_fast_internal(&mut self, src: &[u8]) -> RuntimeResult<&[u8]> {
+        let mut src = src;
+
+        match unmarshal_bytes_fast(src) {
+            Err(err) => {
+                return Err(RuntimeError::SerializationError(format!("cannot unmarshal MetricGroup: {:?}", err)));
+            }
+            Ok((tail, metric_group)) => {
+                src = tail;
+                self.metric_group = String::from_utf8_lossy(metric_group).to_string();
+            }
+        }
+
+        if src.len() < 2 {
+            return Err(RuntimeError::SerializationError(
+                format!("not enough bytes for unmarshaling len(tags); need at least 2 bytes; got {} bytes", src.len())
+            ));
+        }
+
+        let mut tags_len: u16 = 0;
+
+        match unmarshal_var_int::<u16>(src) {
+            Ok((len, tail)) => {
+                src = tail;
+                tags_len = len;
+            },
+            Err(err) => {
+                return Err(RuntimeError::SerializationError(format!("error reading tags length: {}", err)));
+            }
+        }
+
+        let mut key: String;
+        let mut val: String;
+
+        for i in 0..tags_len {
+            match unmarshal_string_fast(&mut src) {
+                Err(_) => {
+                    return Err(RuntimeError::SerializationError(format!("cannot unmarshal key for tag[{}]", i)));
+                }
+                Ok((t, v)) => {
+                    src = v;
+                    key = t;
+                }
+            }
+            match unmarshal_string_fast(&mut src) {
+                Err(_) => {
+                    return Err(
+                        RuntimeError::SerializationError(format!("cannot unmarshal value for tag[{}]", i))
+                    );
+                }
+                Ok((t, v)) => {
+                    src = v;
+                    val = t;
+                }
+            }
+
+            self.add_tag(&key, &val);
+        }
+
+        Ok(src)
+    }
+
+    pub fn iter(&self) -> Iter<'_, String, String> {
+        self._items.iter()
+    }
+
+    pub(crate) fn serialized_size(self) -> usize {
+        let mut n = 2 + self.metric_group.len();
+        n += 2; // Length of tags.
+        for (k,v) in self._items.iter() {
+            n += 2 + k.len();
+            n += 2 + v.len();
+        }
+        n
     }
 }
 
 impl Display for MetricName {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write(f, "{}{{", self.metric_group);
+        write!(f, "{}{{", self.metric_group)?;
         let len = self._items.len();
         let mut i = 0;
         for (k, v) in self._items {
-            write!(f, "{}={}", k, enquote("\"", v))?;
+            write!(f, "{}={}", k, enquote('"', &v))?;
             if i < len - 1 {
-                write!(f, ",");
+                write!(f, ",")?;
             }
-            i = i + 1;
+            i += 1;
         }
         write!(f, "}}")?;
         Ok(())
@@ -175,34 +315,39 @@ impl Display for MetricName {
 impl PartialOrd for MetricName {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         if self.metric_group != other.metric_group {
-            return Some(self.metric_group.cmp(other.metric_group));
+            return Some(self.metric_group.cmp(&other.metric_group));
         }
         // Metric names for a and b match. Compare tags.
         // Tags must be already sorted by the caller, so just compare them.
-        let ats = self._items;
-        let bts = other._items;
-        let b_iter = other._items.iter();
-        for at in ats.iter() {
-            let bt = b_iter.next();
+        let ats = &self._items;
+        let bts = &other._items;
+        let mut b_iter = other._items.iter();
+        for (a_key, a_value) in ats.iter() {
+            let bt = &b_iter.next();
             if bt.is_none() {
                 // a contains more tags than b and all the previous tags were identical,
                 // so a is considered bigger than b.
-                return Ordering::Greater;
+                return Some(Ordering::Greater);
             }
-            let bv = bt.unwrap();
-            if at.key != bv.key {
-                return Some(at.key.cmp(bt.key));
+            let (b_key, b_value) = bt.unwrap();
+            if a_key != b_key {
+                return Some(a_key.cmp(b_key));
             }
-            if at.value != bv.value {
-                return Some(at.value.cmp(bv.value));
+            if a_value != b_value {
+                return Some(a_value.cmp(b_value));
             }
         }
-        return Some(ats.len().comp(bts.len()));
+        return Some(ats.len().cmp(&bts.len()));
     }
 }
 
+static METRICNAME_POOL: Lazy<LinearObjectPool<MetricName>> = Lazy::new(||{
+    LinearObjectPool::<MetricName>::new(
+        || MetricName::default(),
+        |v| { v.reset(); }
+    )
+});
 
-// The maximum length of label name.
-//
-// Longer names are truncated.
-const maxLabelNameLen: usize = 256;
+pub(crate) fn get_pooled_metric_name() -> &'static MetricName {
+    LinearReusable::deref_mut(&mut METRICNAME_POOL.pull())
+}
