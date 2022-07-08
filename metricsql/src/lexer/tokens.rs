@@ -1,18 +1,15 @@
-use std::collections::VecDeque;
-use logos::{Logos, Span};
-use regex::internal::Input;
-use crate::error::{Error, Result};
+use logos::Logos;
+use std::fmt::{Display, Formatter};
 
-static DurationRegex: &str = r"(-?)(?=\d)(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)([DW]))?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?";
+static DURATION_REGEX: &str = r"(-?)(?=\d)(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)([DW]))?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?";
 
-
-#[derive(Logos, Debug, PartialEq)]
-enum RawToken<'a> {
+#[derive(Logos, Debug, PartialEq, Copy, Clone)]
+pub enum TokenKind {
     #[token("and", ignore(ascii_case))]
     And,
 
     #[token("atan2", ignore(ascii_case))]
-    OpAtan2,
+    Atan2,
 
     #[token("bool", ignore(ascii_case))]
     Bool,
@@ -123,19 +120,19 @@ enum RawToken<'a> {
     OpEqual,
 
     #[token("!=")]
-    OpNotEqual,
+    NotEqual,
 
     #[token("<")]
-    OpLessThan,
+    LessThan,
 
     #[token("<=")]
-    OpLessThanOrEqual,
+    LessThanOrEqual,
 
     #[token(">")]
-    OpGreaterThan,
+    GreaterThan,
 
     #[token(">=")]
-    OpGreaterThanOrEqual,
+    GreaterThanOrEqual,
 
     #[token("+")]
     OpPlus,
@@ -150,7 +147,7 @@ enum RawToken<'a> {
     OpMul,
 
     #[token("^")]
-    OpPow,
+    Pow,
 
     #[token("%")]
     OpMod,
@@ -184,114 +181,6 @@ enum RawToken<'a> {
     Error,
 }
 
-macro_rules! token_enum {
-  (
-    $(#[$($enum_m:tt)*])*
-    pub enum $name:ident {
-      $($case:ident $(#[$($m:tt)*])*)*
-    }
-  ) => {
-    $(#[$($enum_m)*])*
-    #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-    pub enum $name {
-      $(
-        $(#[$($m)*])*
-        $case,
-      )*
-    }
-  };
-}
-
-token_enum! {
-  /// Token kind.
-  #[derive(Display, Debug)]
-  pub enum TokenKind {
-    // keywords
-    And                                /// `and`
-    By                                 /// `by`
-    Bool                               /// `bool`
-    Default                            /// `default`
-    GroupLeft                          /// `group_left`
-    GroupRight                         /// `group_right`
-    If                                 /// `if`
-    IfNot                              /// `ifNot`
-    Ignoring                           /// `ignoring`
-    KeepMetricNames                    /// `keep_metric_names`
-    Limit                              /// `limit`
-    On                                 /// `on`
-    Offset                             /// `offset`
-    Or                                 /// `or`
-    Unless                             /// `unless`
-    With                               /// `with`
-    Without                            /// `without`
-
-    // variable tokens
-    Duration                                  /// duration token
-    Ident                                     /// identifier token
-    Number                                    /// number token
-
-    // symbols
-    At                                  /// '@'
-    LeftBrace                                 /// `{`
-    RightBrace                                /// `}`
-    LeftBracket                               /// `[`
-    RightBracket                              /// `]`
-    Colon                                     /// `:`
-    Comma                                    /// `,`
-    Dot                                         /// `.`
-    LeftParen                                   /// `(`
-    RightParen                                  /// `)`
-    SemiColon                                   /// `;`
-    Equal                                       /// '='
-
-    // operators
-    OpAtan2                                   /// `atan2`
-    OpMul                                     /// `*`
-    OpDiv                                     /// `/`
-    OpIf                                      /// 'if'
-    OpIfNot                                   /// 'ifNot'
-    OpMod                                     /// `%`
-    OpPlus                                    /// `+`
-    OpMinus                                   /// `-`
-    OpLessThan                                /// `<`
-    OpGreaterThan                             /// `>`
-    OpLessThanOrEqual                         /// `<=`
-    OpGreaterThanOrEqual                      /// `>=`
-    OpEqual                                   /// `==`
-    OpNotEqual                                /// `!=`
-    OpPow                                     /// `^`
-    OpRegexEqual                              /// `=~`
-    OpRegexNotEqual                           /// `!~`
-    OpAnd                                     /// `and`
-    OpOr                                      /// `or`
-    OpUnless                                  /// 'unless'
-
-    // strings
-    QuotedString                              ///  single or double quotes string
-
-    Whitespace                                /// any whitespace
-    SingleLineHashComment                     /// `# comment`
-    BlockComment                              /// `/* comment */`
-
-    // string errors
-    ErrorStringDoubleQuotedUnterminated       /// unterminated double quoted string
-    ErrorStringSingleQuotedUnterminated       /// unterminated single quoted string
-    ErrorStringMissingQuotes
-
-    // number errors
-    ErrorNumJunkAfterDecimalPoint             /// unexpected character after decimal point
-    ErrorNumJunkAfterExponent                 /// unexpected character after exponent
-    ErrorNumJunkAfterExponentSign             /// unexpected character after exponent sign
-
-    // comment errors
-    ErrorCommentUnterminated                  /// unterminated comment
-
-    // other
-    ErrorUnknownOperator                      /// unknown operator
-    ErrorInvalidToken                         /// invalid token
-  }
-}
-
 impl TokenKind {
     pub fn is_trivia(&self) -> bool {
         matches!(self, Self::Whitespace | Self::SingleLineHashComment)
@@ -300,57 +189,32 @@ impl TokenKind {
     pub fn is_error(&self) -> bool {
         use TokenKind::*;
 
-        match self {
-            ErrorStringDoubleQuotedUnterminated
+        matches!(self, ErrorStringDoubleQuotedUnterminated
             | ErrorStringSingleQuotedUnterminated
             | ErrorNumJunkAfterDecimalPoint
             | ErrorNumJunkAfterExponent
             | ErrorNumJunkAfterExponentSign
-            | ErrorUnknownOperator
             | ErrorStringMissingQuotes
-            | ErrorInvalidToken => true,
-            _ => false,
-        }
+            | Error)
     }
-    
+
     pub fn is_operator(&self) -> bool {
         use TokenKind::*;
-        
-        match self {
-            OpAtan2 
-            | OpMul
-            | OpDiv
-            | OpIf
-            | OpIfNot
-            | OpMod
-            | OpPlus
-            | OpMinus
-            | OpLessThan
-            | OpGreaterThan
-            | OpLessThanOrEqual
-            | OpGreaterThanOrEqual
-            | OpEqual
-            | OpNotEqual
-            | OpPow
-            | OpAnd 
-            | OpOr
-            | OpUnless => true,
-            _ => false
-        }
+
+        matches!(self, Atan2 | OpMul | OpDiv | If | IfNot | OpMod | OpPlus | OpMinus | LessThan
+            | GreaterThan | LessThanOrEqual | GreaterThanOrEqual | OpEqual | NotEqual | Pow
+            | And | Or | Unless)
     }
 
     #[inline]
     pub fn is_comparison_op(&self) -> bool {
         use TokenKind::*;
-        
+
         match self {
-            OpEqual 
-            | OpNotEqual 
-            | OpGreaterThanOrEqual 
-            | OpGreaterThan 
-            | OpLessThanOrEqual
-            | OpLessThan => true,
-            _ => false
+            OpEqual | NotEqual | GreaterThanOrEqual | GreaterThan | LessThanOrEqual | LessThan => {
+                true
+            }
+            _ => false,
         }
     }
 
@@ -358,225 +222,111 @@ impl TokenKind {
     pub fn is_rollup_start(&self) -> bool {
         use TokenKind::*;
 
-        match self {
-            Offset | At | LeftBracket => true,
-            _ => false
-        }
+        matches!(self, Offset | At | LeftBracket)
     }
 
     #[inline]
     pub fn is_group_modifier(&self) -> bool {
         use TokenKind::*;
-        match self {
-            On | Ignoring => true,
-            _ => false
-        }
+        matches!(self, On | Ignoring)
     }
 
     #[inline]
     pub fn is_join_modifier(&self) -> bool {
         use TokenKind::*;
-        match self {
-            GroupLeft | GroupRight => true,
-            _ => false
-        }
+        matches!(self, GroupLeft | GroupRight)
     }
 
     pub fn is_aggregate_modifier(&self) -> bool {
         use TokenKind::*;
-        match self {
-            By | Without => true,
-            _ => false
-        }
+        matches!(self, By | Without)
+    }
+
+    pub fn is_error_token(&self) -> bool {
+        use TokenKind::*;
+        matches!(self, ErrorNumJunkAfterDecimalPoint
+            | ErrorStringMissingQuotes
+            | ErrorNumJunkAfterExponent
+            | ErrorNumJunkAfterExponentSign
+            | ErrorStringDoubleQuotedUnterminated
+            | ErrorStringSingleQuotedUnterminated)
     }
 }
 
-/// A token of metricsql source.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Token<'a> {
-    /// The kind of token.
-    pub kind: TokenKind,
+impl Display for TokenKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            // keywords
+            Self::And => "and",
+            Self::By => "by",
+            Self::Bool => "bool",
+            Self::Default => "default",
+            Self::GroupLeft => "group_left",
+            Self::GroupRight => "group_right",
+            Self::If => "if",
+            Self::IfNot => "ifnot",
+            Self::Ignoring => "ignoring",
+            Self::KeepMetricNames => "keep_metric_names",
+            Self::Limit => "limit",
+            Self::On => "on",
+            Self::Offset => "offset",
+            Self::Or => "or",
+            Self::Unless => "unless",
+            Self::With => "with",
+            Self::Without => "without",
+            // variable tokens
+            Self::Duration => "<duration>",
+            Self::Ident => "<ident>",
+            Self::Number => "<number>",
+            // symbols
+            Self::At => "@",
+            Self::LeftBrace => "{{",
+            Self::RightBrace => "}}",
+            Self::LeftBracket => "[",
+            Self::RightBracket => "]",
+            Self::Colon => ":",
+            Self::Comma => ",",
+            Self::Dot => ".",
+            Self::LeftParen => "(",
+            Self::RightParen => ")",
+            Self::SemiColon => ";",
+            Self::Equal => "=",
+            // operators
+            Self::Atan2 => "atan2",
+            Self::OpMul => "*",
+            Self::OpDiv => "/",
+            Self::OpMod => "%",
+            Self::OpPlus => "+",
+            Self::OpMinus => "-",
+            Self::LessThan => "<",
+            Self::GreaterThan => ">",
+            Self::LessThanOrEqual => "<=",
+            Self::GreaterThanOrEqual => ">=",
+            Self::OpEqual => "==",
+            Self::NotEqual => "!=",
+            Self::Pow => "^",
+            Self::RegexEqual => "=~",
+            Self::RegexNotEqual => "!~",
+            // strings
+            Self::QuotedString => "<string>",
+            Self::Whitespace => "<ws>",
+            Self::SingleLineHashComment => "<#comment>",
 
-    pub text: &'a str,
+            // string errors
+            Self::ErrorStringDoubleQuotedUnterminated => "<unterminated double quoted string>",
+            Self::ErrorStringSingleQuotedUnterminated => "<unterminated single quoted string>",
+            Self::ErrorStringMissingQuotes => "<string missing quotes>",
 
-    pub token: RawToken<'a>,
+            // number errors
+            Self::ErrorNumJunkAfterDecimalPoint => "<unexpected character after decimal point>",
+            Self::ErrorNumJunkAfterExponent => "<unexpected character after exponent>",
+            Self::ErrorNumJunkAfterExponentSign => "<unexpected character after exponent sign>",
 
-    /// The token value.
-    pub len: u32,
-}
-
-/// A lexer of metricsql source.
-pub struct Lexer<'a> {
-    inner: logos::Lexer<'a, RawToken<'a>>,
-    done: bool,
-    peeked: VecDeque<Token<'a>>,
-    current: Option<Token<'a>>,
-    #[cfg(debug_assertions)]
-    len: u32,
-}
-
-impl<'a> Lexer<'a> {
-    pub fn new(content: &'a str) -> Self {
-        Self {
-            inner: RawToken::lexer(content),
-            done: false,
-            peeked: std::collections::VecDeque::new(),
-            current: None,
-            #[cfg(debug_assertions)]
-            len: 0,
-        }
-    }
-
-    fn read_token(&mut self) -> Option<Token> {
-        if self.done {
-            return None;
-        }
-
-        match self.inner.next() {
-            None => {
-                self.done = true;
-                None
-            }
-
-            Some(raw) => {
-                let len = self.inner.slice().len() as u32;
-
-                #[cfg(debug_assertions)]
-                {
-                    self.len += len;
-                    assert_eq!(self.len, self.inner.span().end as u32);
-                }
-
-                self.current = Some(self.to_token(raw, len));
-                *self.current
-            }
-        }
-    }
-
-    pub fn next(&mut self) -> Option<Token> {
-        match self.peeked.pop_front() {
-            Some(v) => {
-                self.current = Some(v);
-                self.current
-            },
-            None => self.read_token(),
-        }
-    }
-
-    pub fn span(&self) -> <dyn Logos>::Span {
-        self.inner.span()
-    }
-
-    pub fn token(&self) -> Option<Token<'a>> {
-       self.current
-    }
-
-    fn to_token(&self, raw: &RawToken, len: u32) -> Token {
-        let kind = match raw {
-            RawToken::And => TokenKind::OpAnd,
-            RawToken::OpAtan2 => TokenKind::OpAtan2,
-            RawToken::By => TokenKind::By,
-            RawToken::Bool => TokenKind::Bool,
-            RawToken::Equal => TokenKind::Equal,
-            RawToken::Default => TokenKind::Default,
-            RawToken::GroupLeft => TokenKind::GroupLeft,
-            RawToken::GroupRight => TokenKind::GroupRight,
-            RawToken::If => TokenKind::If,
-            RawToken::IfNot => TokenKind::IfNot,
-            RawToken::Ignoring => TokenKind::Ignoring,
-            RawToken::KeepMetricNames => TokenKind::KeepMetricNames,
-            RawToken::Limit => TokenKind::Limit,
-            RawToken::Offset => TokenKind::Offset,
-            RawToken::On => TokenKind::On,
-            RawToken::Or => TokenKind::OpOr,
-            RawToken::Unless => TokenKind::Unless,
-            RawToken::With => TokenKind::With,
-            RawToken::Without => TokenKind::Without,
-            RawToken::Duration => TokenKind::Duration,
-            RawToken::Ident => TokenKind::Ident,
-            RawToken::Number => TokenKind::Number,
-            RawToken::RegexEqual => TokenKind::OpRegexEqual,
-            RawToken::RegexNotEqual => TokenKind::OpRegexNotEqual,
-            RawToken::At => TokenKind::At,
-            RawToken::LeftBrace => TokenKind::LeftBrace,
-            RawToken::RightBrace => TokenKind::RightBrace,
-            RawToken::LeftBracket => TokenKind::LeftBracket,
-            RawToken::RightBracket => TokenKind::RightBracket,
-            RawToken::Colon => TokenKind::Colon,
-            RawToken::Comma => TokenKind::Comma,
-            RawToken::Dot => TokenKind::Dot,
-            RawToken::LeftParen => TokenKind::LeftParen,
-            RawToken::RightParen => TokenKind::RightParen,
-            RawToken::SemiColon => TokenKind::SemiColon,
-            RawToken::OpMul => TokenKind::OpMul,
-            RawToken::OpDiv => TokenKind::OpDiv,
-            RawToken::OpMod => TokenKind::OpMod,
-            RawToken::OpPlus => TokenKind::OpPlus,
-            RawToken::OpMinus => TokenKind::OpMinus,
-            RawToken::OpLessThan => TokenKind::OpLessThan,
-            RawToken::OpGreaterThan => TokenKind::OpGreaterThan,
-            RawToken::OpLessThanOrEqual => TokenKind::OpLessThanOrEqual,
-            RawToken::OpGreaterThanOrEqual => TokenKind::OpGreaterThanOrEqual,
-            RawToken::OpEqual => TokenKind::OpEqual,
-            RawToken::OpNotEqual => TokenKind::OpNotEqual,
-            RawToken::OpPow => TokenKind::OpPow,
-            RawToken::QuotedString => TokenKind::QuotedString,
-            RawToken::Whitespace => TokenKind::Whitespace,
-            RawToken::SingleLineHashComment => TokenKind::SingleLineHashComment,
-            RawToken::ErrorNumJunkAfterDecimalPoint => TokenKind::ErrorNumJunkAfterDecimalPoint,
-            RawToken::ErrorNumJunkAfterExponent => TokenKind::ErrorNumJunkAfterExponent,
-            RawToken::ErrorNumJunkAfterExponentSign => TokenKind::ErrorNumJunkAfterExponentSign,
-            RawToken::ErrorStringDoubleQuotedUnterminated => {
-                TokenKind::ErrorStringDoubleQuotedUnterminated
-            }
-            RawToken::ErrorStringSingleQuotedUnterminated => {
-                TokenKind::ErrorStringSingleQuotedUnterminated
-            }
-            RawToken::ErrorStringMissingQuotes => TokenKind::ErrorStringMissingQuotes,
-            // RawToken::Op(Operator::Unknown) => TokenKind::ErrorUnknownOperator,
-            RawToken::Error => TokenKind::ErrorInvalidToken,
-        };
-
-        Token { kind, len, token: *raw, text: self.slice() }
-    }
-
-    #[inline]
-    pub fn peek(&mut self) -> Option<Token> {
-        self.peek_nth(0)
-    }
-
-    pub fn peek_nth(&mut self, n: usize) -> Option<Token> {
-        while self.peeked.len() <= n && !self.done {
-            if let Some(tok) = self.read_token() {
-                self.peeked.push_back(tok);
-            }
-        }
-
-        self.peeked.get(n).copied()
-    }
-
-    pub fn is_eof(&self) -> bool {
-        self.done
+            // other
+            Self::Error => "<invalid token>",
+        })
     }
 }
-
-impl<'a> Iterator for Lexer<'a> {
-    type Item = Token<'a>;
-
-    #[inline]
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.peeked.pop_front() {
-            Some(v) => Some(v),
-            None => self.read_token(),
-        }
-    }
-}
-
-/// Tokenize a metricsql string into a list of tokens.
-pub fn tokenize<'a>(content: &'a str) -> impl Iterator<Item=Token> + 'a {
-    Lexer::new(content)
-}
-
 #[cfg(test)]
 mod tests {
     use super::{TokenKind::*, *};
@@ -684,13 +434,13 @@ mod tests {
     #[test]
     fn number_10_p_10() {
         test_tokens!(
-      "10+11",
-      [
-        Number=>"10",
-        OpPlus,
-        Number=>"11",
-      ]
-    );
+          "10+11",
+          [
+            Number=>"10",
+            OpPlus,
+            Number=>"11",
+          ]
+        );
     }
 
     #[test_case("1.+", ErrorNumJunkAfterDecimalPoint)]
@@ -743,13 +493,13 @@ mod tests {
     #[test]
     fn identifiers() {
         test_tokens!(
-      "foo bar123",
-      [
-        Ident=>"foo",
-        Whitespace,
-        Ident=>"bar123",
-      ]
-    );
+          "foo bar123",
+          [
+            Ident=>"foo",
+            Whitespace,
+            Ident=>"bar123",
+          ]
+        );
     }
 
     #[test]

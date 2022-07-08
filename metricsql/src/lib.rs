@@ -1,25 +1,20 @@
-// (C) Copyright 2019-2020 Hewlett Packard Enterprise Development LP
 #![forbid(unsafe_code)]
-
 extern crate logos;
-extern crate enquote;
-extern crate regex;
-extern crate phf;
 extern crate core;
+extern crate enquote;
 extern crate once_cell;
-extern crate rowan;
-extern crate num_derive;
-extern crate num_traits;
+extern crate phf;
+extern crate regex;
+extern crate thiserror;
 
-pub mod ast;
-pub(crate) mod lexer;
-mod syntax;
-mod parser;
-mod binaryop;
 pub mod error;
-pub mod types;
+pub mod ast;
+pub mod binaryop;
+mod lexer;
 
-pub use parser::{parse, parse_single_expr};
-
-pub use binaryop::*;
-pub(crate) use rowan::*;
+pub mod utils {
+    use crate::lexer;
+    pub use lexer::{ escape_ident, quote, parse_float };
+}
+pub mod optimizer;
+pub mod parser;

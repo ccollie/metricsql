@@ -2,7 +2,6 @@
 members = [
     "lib",
     "metricsql",
-    "metrics",
     "runtime"
 ]
 

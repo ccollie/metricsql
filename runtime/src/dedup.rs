@@ -1,29 +1,33 @@
-// SetDedupInterval sets the deduplication interval, which is applied to raw samples during data
-// ingestion and querying.
-//
-// De-duplication is disabled if dedupInterval is 0.
-//
-// This function must be called before initializing the storage.
-fn SetDedupInterval(dedupInterval: time.Duration) {
-    globalDedupInterval = dedupInterval.milliseconds()
+use once_cell::sync::Lazy;
+use std::sync::atomic::{AtomicI64, Ordering};
+use std::time::Duration;
+
+static GLOBAL_DEDUP_INTERVAL: Lazy<AtomicI64> = Lazy::new(|| AtomicI64::new(0));
+
+/// set_dedup_interval sets the deduplication interval, which is applied to raw samples during data
+/// ingestion and querying.
+///
+/// De-duplication is disabled if dedup_interval is 0.
+///
+/// This function must be called before initializing the storage.
+pub fn set_dedup_interval(dedup_interval: Duration) {
+    GLOBAL_DEDUP_INTERVAL.swap(dedup_interval.as_millis() as i64, Ordering::Relaxed);
 }
 
-// GetDedupInterval returns the dedup interval in milliseconds, which has been set via SetDedupInterval.
-fn GetDedupInterval() -> i64 {
-    return globalDedupInterval;
+/// get_dedup_interval returns the dedup interval in milliseconds, which has been set via set_dedup_interval.
+pub fn get_dedup_interval() -> i64 {
+    return GLOBAL_DEDUP_INTERVAL.load(Ordering::Relaxed);
 }
 
-let globalDedupInterval: i64
-
-fn is_dedup_enabled() -> bool {
-    return globalDedupInterval > 0;
+pub fn is_dedup_enabled() -> bool {
+    return get_dedup_interval() > 0;
 }
 
-// removes samples from src* if they are closer to each other than dedup_interval in milliseconds.
-pub fn deduplicate_samples(mut src_timestamps: &[i64], mut src_values: &[f64], dedup_interval: i64) -> Result<(&[i64], &[f64]), Error> {
+/// removes samples from src* if they are closer to each other than dedup_interval in milliseconds.
+pub fn deduplicate_samples(src_timestamps: &mut Vec<i64>, src_values: &mut Vec<f64>, dedup_interval: i64) {
     if !needs_dedup(src_timestamps, dedup_interval)  {
         // Fast path - nothing to deduplicate
-        return Ok((src_timestamps, src_values));
+        return;
     }
     let mut ts_next = src_timestamps[0] + dedup_interval - 1;
     ts_next = ts_next - (ts_next % dedup_interval);
@@ -44,13 +48,12 @@ pub fn deduplicate_samples(mut src_timestamps: &[i64], mut src_values: &[f64], d
     }
     dst_timestamps.push(src_timestamps[src_timestamps.len() - 1]);
     dst_values.push(src_values[src_values.len() - 1]);
-    return Ok((dst_timestamps, dst_values))
 }
 
-fn deduplicate_samples_during_merge(mut src_timestamps: &[i64], mut src_values: &[i64], dedup_interval: i64) -> Result<(&[i64], &[i64]), Error> {
+pub fn deduplicate_samples_during_merge(mut src_timestamps: &Vec<i64>, mut src_values: &Vec<i64>, dedup_interval: i64) {
     if !needs_dedup(src_timestamps, dedup_interval)  {
-// Fast path - nothing to deduplicate
-        return Ok((src_timestamps, src_values));
+        // Fast path - nothing to deduplicate
+        return;
     }
     let mut ts_next = src_timestamps[0] + dedup_interval - 1;
     ts_next = ts_next - (ts_next % dedup_interval);
@@ -71,20 +74,18 @@ fn deduplicate_samples_during_merge(mut src_timestamps: &[i64], mut src_values: 
             ts_next -= ts_next % dedup_interval
         }
     }
-    dst_timestamps.push(src_timestamps[len(src_timestamps) - 1]);
-    dst_values.push(src_values[len(src_values) - 1]);
-
-    Ok((dst_timestamps, dst_values))
+    dst_timestamps.push(src_timestamps[src_timestamps.len() - 1]);
+    dst_values.push(src_values[src_values.len() - 1]);
 }
 
 fn needs_dedup(timestamps: &[i64], dedup_interval: i64) -> bool {
-    if timestamps.length < 2 || dedup_interval <= 0 {
+    if timestamps.len() < 2 || dedup_interval <= 0 {
         return false;
     }
     let mut ts_next = timestamps[0] + dedup_interval - 1;
     ts_next = ts_next - (ts_next % dedup_interval);
-    for i in 1 .. timestamps.length {
-        let ts = &timestamps[i];
+    for i in 1 .. timestamps.len() {
+        let ts = timestamps[i];
         if ts <= ts_next {
             return true;
         }
