@@ -11,65 +11,81 @@ use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::timeseries::Timeseries;
 
 pub(crate) struct BinaryOpFuncArg {
-    pub(crate) be: BinaryOpExpr,
-    pub(crate) left: Vec<Timeseries>,
-    pub(crate) right: Vec<Timeseries>,
+    pub be: BinaryOpExpr,
+    pub left: Vec<Timeseries>,
+    pub right: Vec<Timeseries>,
 }
 
-pub(crate) type BinaryOpFunc = fn(bfa: &mut BinaryOpFuncArg) -> Vec<Timeseries>;
+pub(crate) type BinaryOpFunc = for<'a> fn(bfa: &'a mut BinaryOpFuncArg) -> Vec<Timeseries>;
+
+pub(self) trait BinaryOpFn: FnMut(&mut BinaryOpFuncArg) -> Vec<Timeseries> + Send + Sync {}
+
+impl<T> BinaryOpFn for T where T: Fn(&mut BinaryOpFuncArg) -> Vec<Timeseries> + Send + Sync {}
 
 type TimeseriesHashMap = HashMap<String, Vec<Timeseries>>;
 
-static BINARY_OP_PLUS: BinaryOpFunc = new_binary_op_arith_func(metricsql::binaryop::plus);
-static BINARY_OP_MINUS: BinaryOpFunc = new_binary_op_arith_func(metricsql::binaryop::minus);
-static BINARY_OP_MUL: BinaryOpFunc = new_binary_op_arith_func(metricsql::binaryop::mul);
-static BINARY_OP_DIV: BinaryOpFunc = new_binary_op_arith_func(metricsql::binaryop::div);
-static BINARY_OP_MOD: BinaryOpFunc = new_binary_op_arith_func(metricsql::binaryop::mod_);
-static BINARY_OP_POW: BinaryOpFunc = new_binary_op_arith_func(metricsql::binaryop::pow);
-static BINARY_OP_ATAN2: BinaryOpFunc = new_binary_op_arith_func(metricsql::binaryop::atan2);
+macro_rules! make_comp_func_boxed {
+    ( $name:ident, $af: expr ) => {
+        static $name: Box<dyn BinaryOpFn> = Box::new(new_binary_op_cmp_func($af));
+    };
+}
 
-static BINARY_OP_EQ: BinaryOpFunc = new_binary_op_cmp_func(metricsql::binaryop::eq);
-static BINARY_OP_NEQ: BinaryOpFunc = new_binary_op_cmp_func(metricsql::binaryop::neq);
-static BINARY_OP_GT: BinaryOpFunc = new_binary_op_cmp_func(metricsql::binaryop::gt);
-static BINARY_OP_LT: BinaryOpFunc = new_binary_op_cmp_func(metricsql::binaryop::lt);
-static BINARY_OP_GE: BinaryOpFunc = new_binary_op_cmp_func(metricsql::binaryop::gte);
-static BINARY_OP_LE: BinaryOpFunc = new_binary_op_cmp_func(metricsql::binaryop::lte);
+macro_rules! make_arith_func_boxed {
+    ( $name:ident, $af: expr ) => {
+        static $name: Box<dyn BinaryOpFn> = Box::new(new_binary_op_arith_func($af));
+    };
+}
+
+make_arith_func_boxed!(BINARY_OP_ADD, metricsql::binaryop::plus);
+make_arith_func_boxed!(BINARY_OP_SUB, metricsql::binaryop::minus);
+make_arith_func_boxed!(BINARY_OP_MUL, metricsql::binaryop::mul);
+make_arith_func_boxed!(BINARY_OP_DIV, metricsql::binaryop::div);
+make_arith_func_boxed!(BINARY_OP_MOD, metricsql::binaryop::mod_);
+make_arith_func_boxed!(BINARY_OP_POW, metricsql::binaryop::pow);
+make_arith_func_boxed!(BINARY_OP_ATAN2, metricsql::binaryop::atan2);
+
+make_comp_func_boxed!(BINARY_OP_EQ, metricsql::binaryop::eq);
+make_comp_func_boxed!(BINARY_OP_NEQ, metricsql::binaryop::neq);
+make_comp_func_boxed!(BINARY_OP_GT, metricsql::binaryop::gt);
+make_comp_func_boxed!(BINARY_OP_GTE, metricsql::binaryop::gte);
+make_comp_func_boxed!(BINARY_OP_LT, metricsql::binaryop::lt);
+make_comp_func_boxed!(BINARY_OP_LTE, metricsql::binaryop::lte);
 
 
-pub(crate) fn get_binary_op_func(op: BinaryOp) -> BinaryOpFunc{
-    match op {
-        BinaryOp::Add => BINARY_OP_PLUS,
-        BinaryOp::Sub => BINARY_OP_MINUS,
-        BinaryOp::Mul => BINARY_OP_MUL,
-        BinaryOp::Div => BINARY_OP_DIV,
-        BinaryOp::Mod => BINARY_OP_MOD,
-        BinaryOp::Pow => BINARY_OP_POW,
+pub(crate) fn exec_binop(bfa: &mut BinaryOpFuncArg) -> Vec<Timeseries> {
+    match bfa.be.op {
+        BinaryOp::Add => BINARY_OP_ADD(bfa),
+        BinaryOp::Sub => BINARY_OP_SUB(bfa),
+        BinaryOp::Mul => BINARY_OP_MUL(bfa),
+        BinaryOp::Div => BINARY_OP_DIV(bfa),
+        BinaryOp::Mod => BINARY_OP_MOD(bfa),
+        BinaryOp::Pow => BINARY_OP_POW(bfa),
 
         // See https://github.com/prometheus/prometheus/pull/9248
-        BinaryOp::Atan2 => BINARY_OP_ATAN2,
+        BinaryOp::Atan2 => BINARY_OP_ATAN2(bfa),
 
         // cmp ops
-        BinaryOp::Eql => BINARY_OP_EQ,
-        BinaryOp::Neq => BINARY_OP_NEQ,
-        BinaryOp::Gt => BINARY_OP_GT,
-        BinaryOp::Gte => BINARY_OP_GE,
-        BinaryOp::Lt => BINARY_OP_LT,
-        BinaryOp::Lte => BINARY_OP_LE,
+        BinaryOp::Eql => BINARY_OP_EQ(bfa),
+        BinaryOp::Neq => BINARY_OP_NEQ(bfa),
+        BinaryOp::Gt => BINARY_OP_GT(bfa),
+        BinaryOp::Gte => BINARY_OP_GTE(bfa),
+        BinaryOp::Lt => BINARY_OP_LT(bfa),
+        BinaryOp::Lte => BINARY_OP_LTE(bfa),
 
         // logical set ops
-        BinaryOp::And => binary_op_and,
-        BinaryOp::Or => binary_op_or,
-        BinaryOp::Unless => binary_op_unless,
+        BinaryOp::And => binary_op_and(bfa),
+        BinaryOp::Or => binary_op_or(bfa),
+        BinaryOp::Unless => binary_op_unless(bfa),
 
         // New ops
-        BinaryOp::If => binary_op_if,
-        BinaryOp::IfNot => binary_op_if_not,
-        BinaryOp::Default => binary_op_default
+        BinaryOp::If => binary_op_if(bfa),
+        BinaryOp::IfNot => binary_op_if_not(bfa),
+        BinaryOp::Default => binary_op_default(bfa)
     }
 }
 
-const fn new_binary_op_cmp_func(cf: fn(left: f64, right: f64) -> bool) -> BinaryOpFunc {
-    let cfe = |left: f64, right: f64, is_bool: bool| -> f64 {
+const fn new_binary_op_cmp_func(cf: fn(left: f64, right: f64) -> bool) -> impl BinaryOpFn {
+    let cfe = move |left: f64, right: f64, is_bool: bool| -> f64 {
         if !is_bool {
             if cf(left, right) {
                 return left
@@ -88,18 +104,20 @@ const fn new_binary_op_cmp_func(cf: fn(left: f64, right: f64) -> bool) -> Binary
     new_binary_op_func(cfe)
 }
 
-const fn new_binary_op_arith_func(af: fn(left: f64, right: f64) -> f64) -> BinaryOpFunc {
+const fn new_binary_op_arith_func(af: fn(left: f64, right: f64) -> f64) -> impl BinaryOpFn {
 
-    #[inline]
-    fn afe(left: f64, right: f64, is_bool: bool) -> f64 {
+    let afe = move |left: f64, right: f64, is_bool: bool| -> f64 {
         return af(left, right)
-    }
+    };
 
     new_binary_op_func(afe)
 }
 
+trait BinopClosureFn: Fn(f64, f64, bool) -> f64 + Send + Sync {}
+impl<T> BinopClosureFn for T where T: Fn(f64, f64, bool) -> f64 + Send + Sync {}
+
 // Possibly inline this or make it a macro
-fn new_binary_op_func(bf: fn(left: f64, right: f64, is_bool: bool) -> f64) -> BinaryOpFunc {
+const fn new_binary_op_func(bf: impl BinopClosureFn) -> impl BinaryOpFn {
     move |bfa: &mut BinaryOpFuncArg| -> Vec<Timeseries> {
         let op = bfa.be.op;
 
@@ -110,6 +128,7 @@ fn new_binary_op_func(bf: fn(left: f64, right: f64, is_bool: bool) -> f64) -> Bi
             remove_empty_series(&mut bfa.left);
             remove_empty_series(&mut bfa.right);
         }
+
         if bfa.left.len() == 0 || bfa.right.len() == 0 {
             return vec![];
         }
@@ -154,6 +173,7 @@ fn adjust_binary_op_tags(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<(Vec<Timese
             }
             return Ok((rvs_left, bfa.right, bfa.right))
         }
+
         if is_scalar(&bfa.right) {
             // Fast path: `vector op scalar`
             let mut rvs_right: Vec<Timeseries> = Vec::with_capacity(bfa.left.len());
@@ -226,10 +246,8 @@ fn adjust_binary_op_tags(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<(Vec<Timese
         }
     }
 
-    let mut dst = rvs_left;
-    if let Some(joinOp) = JoinModifierOp::GroupRight {
-        dst = rvs_right
-    }
+    let mut dst = if is_group_right(&bfa.be) { rvs_right } else { rvs_left };
+
     return Ok((rvs_left, rvs_right, dst))
 }
 
@@ -241,8 +259,8 @@ fn ensure_single_timeseries(side: &str, be: &BinaryOpExpr, tss: &mut Vec<Timeser
         let last = tss.remove(tss.len() - 1);
         if !merge_non_overlapping_timeseries(&mut tss[0], &last) {
             let msg = format!("duplicate time series on the {} side of {} {}: {} and {}",
-                              side, 
-                              be.op, 
+                              side,
+                              be.op,
                               group_modifier_to_string(&be.group_modifier),
                               tss[0].metric_name,
                               last.metric_name);
@@ -464,10 +482,12 @@ fn reset_metric_group_if_required(be: &BinaryOpExpr, ts: &mut Timeseries) {
         // do not reset MetricGroup for non-boolean `compare` binary ops like Prometheus does.
         return
     }
+
     if be.op == BinaryOp::Default || be.op == BinaryOp::If || be.op == BinaryOp::IfNot {
         // do not reset MetricGroup for these ops.
         return
     }
+
     ts.metric_name.reset_metric_group()
 }
 
@@ -489,7 +509,7 @@ fn binary_op_or(bfa: &mut BinaryOpFuncArg) -> Vec<Timeseries> {
             }
         }
     }
-    
+
     rvs
 }
 
@@ -587,7 +607,7 @@ fn create_timeseries_map_by_tag_set(bfa: &mut BinaryOpFuncArg) -> (&mut Timeseri
             }
             {
                 let key = mn.marshal_to_string(bb.deref_mut())?;
-                m.entry(key).or_insert(vec![]).push(ts.into());
+                m.entry(key).or_insert(vec![]).push(*ts.into());
                 bb.clear();
             }
         }
@@ -637,6 +657,13 @@ fn get_modifier_or_default(be: &mut BinaryOpExpr) -> (GroupModifierOp, &Vec<Stri
         Some(modifier) => {
             (modifier.op, &modifier.labels)
         }
+    }
+}
+
+fn is_group_right(bfa: &BinaryOpExpr) -> bool {
+    match &bfa.join_modifier {
+        Some(modifier) => modifier.op == JoinModifierOp::GroupRight,
+        None => false
     }
 }
 

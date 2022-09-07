@@ -2,6 +2,7 @@ use lockfree_object_pool::{LinearObjectPool, LinearReusable};
 use once_cell::sync::{Lazy, OnceCell};
 use std::fmt;
 use std::fmt::Display;
+use crate::functions::aggr::quantile;
 
 const E10MIN: i32 = -9;
 const E10MAX: i32 = 18;
@@ -54,6 +55,7 @@ pub struct Histogram {
     upper: u64,
     sum: f64,
     decimal_buckets: Vec<Vec<u64>>,
+    values: Vec<f64>
 }
 
 impl Histogram {
@@ -71,6 +73,7 @@ impl Histogram {
             upper: 0,
             sum: 0.0,
             decimal_buckets: buckets,
+            values: Vec::with_capacity(16)
         }
         // reset
     }
@@ -85,6 +88,7 @@ impl Histogram {
         self.count = 0;
         self.lower = 0;
         self.upper = 0;
+        self.values.clear();
     }
 
     // Update updates h with v.
@@ -98,6 +102,7 @@ impl Histogram {
         self.count += 1;
         let bucket_idx = (v.log10() - E10MIN as f64) * BUCKETS_PER_DECIMAL as f64;
         self.sum += v;
+        self.values.push(v);
         if bucket_idx < 0_f64 {
             self.lower += 1;
         } else if bucket_idx >= BUCKETS_COUNT as f64 {
@@ -152,6 +157,10 @@ impl Histogram {
             offset: 0,
             stage: IterationStage::Lower,
         }
+    }
+
+    pub fn quantile(&self, phi: f64) -> f64 {
+        quantile(phi, &self.values)
     }
 }
 

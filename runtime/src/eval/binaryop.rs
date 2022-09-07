@@ -9,13 +9,12 @@ use crate::{EvalConfig};
 use crate::timeseries::Timeseries;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 
-use crate::binary_op::{BinaryOpFunc, BinaryOpFuncArg, get_binary_op_func};
+use crate::binary_op::{BinaryOpFuncArg, exec_binop};
 use crate::eval::{create_evaluator, ExprEvaluator};
 use crate::eval::traits::Evaluator;
 
 pub(super) struct BinaryOpEvaluator {
     expr: BinaryOpExpr,
-    binop_fn: &'static BinaryOpFunc,
     lhs: Box<ExprEvaluator>,
     rhs: Box<ExprEvaluator>,
     can_pushdown_filters: bool
@@ -23,12 +22,10 @@ pub(super) struct BinaryOpEvaluator {
 
 impl BinaryOpEvaluator {
     pub fn new(expr: &BinaryOpExpr) -> RuntimeResult<Self> {
-        let binop_fn = get_binary_op_func(expr.op);
         let lhs = Box::new( create_evaluator(&expr.left)? );
         let rhs = Box::new(create_evaluator(&expr.right)? );
         let can_pushdown_filters = can_pushdown_common_filters(expr);
         Ok(Self {
-            binop_fn: &binop_fn,
             lhs,
             rhs,
             expr: expr.clone(),
@@ -124,7 +121,7 @@ impl Evaluator for BinaryOpEvaluator {
             right: tss_right,
         };
 
-        match (self.binop_fn)(&mut bfa) {
+        match exec_binop(&mut bfa) {
             Err(err) => Err(RuntimeError::from(format!("cannot evaluate {}: {}", &self.expr, err))),
             Ok(v) => Ok(v)
         }
@@ -192,7 +189,7 @@ fn get_common_label_filters(tss: &[Timeseries]) -> Vec<LabelFilter> {
         if values.len() == 1 {
             str_value = vals[0].into()
         } else {
-            str_value = join_regexp_values(vals);
+            str_value = join_regexp_values(&vals);
             is_regex = true;
         }
         let lf = if is_regex {
