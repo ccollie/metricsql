@@ -206,7 +206,7 @@ impl QueryResults {
     ///
     /// rss becomes unusable after the call to run_parallel.
     pub(crate) fn run_parallel<F>(&mut self, f: F) -> RuntimeResult<()>
-    where F: Fn(&mut QueryResult,u64) -> RuntimeResult<()> + Sync
+    where F: Fn(&mut QueryResult,u64) -> RuntimeResult<()> + Send + Sync
     {
 
         let mut id = 0;
@@ -254,6 +254,25 @@ impl QueryResults {
     pub fn cancel(&mut self) {
         self.must_stop.store(true, Ordering::Relaxed);
     }
+}
+
+pub fn remove_empty_values_and_timeseries(tss: &mut Vec<QueryResult>) -> Vec<QueryResult> {
+    let mut dst: Vec<QueryResult> = Vec::with_capacity(tss.len());
+    for ts in tss.into_iter() {
+        // Slow path: remove NaNs.
+        for i in (ts.timestamps.len() .. 0).rev() {
+            let v = ts.values[i];
+            if v.is_nan() {
+                ts.values.remove(i);
+                ts.timestamps.remove(i);
+            }
+        }
+        // Slow path: remove NaNs.
+        if ts.values.len() > 0 {
+            dst.push(ts.into())
+        }
+    }
+    return dst
 }
 
 

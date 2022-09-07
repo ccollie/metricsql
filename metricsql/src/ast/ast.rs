@@ -144,6 +144,7 @@ impl Expression {
             }
         })
     }
+
 }
 
 impl ExpressionNode for Expression {
@@ -208,6 +209,18 @@ pub struct StringExpr {
     pub(crate) tokens: Option<Vec<String>>,
 }
 
+impl From<String> for StringExpr {
+    fn from(s: String) -> Self {
+        StringExpr::new(s)
+    }
+}
+
+impl From<&str> for StringExpr {
+    fn from(s: &str) -> Self {
+        StringExpr::new(s)
+    }
+}
+
 impl StringExpr {
     pub fn new<S: Into<String>>(s: S) -> Self {
         StringExpr {
@@ -267,6 +280,24 @@ impl Display for StringExpr {
 pub struct NumberExpr {
     /// n is the parsed number, i.e. `1.23`, `-234`, etc.
     pub n: f64,
+}
+
+impl From<f64> for NumberExpr {
+    fn from(value: f64) -> Self {
+        NumberExpr::new(value)
+    }
+}
+
+impl From<i64> for NumberExpr {
+    fn from(value: i64) -> Self {
+        NumberExpr::new(value as f64)
+    }
+}
+
+impl From<usize> for NumberExpr {
+    fn from(value: usize) -> Self {
+        NumberExpr::new(value as f64)
+    }
 }
 
 impl NumberExpr {
@@ -855,6 +886,12 @@ pub struct DurationExpr {
     pub span: Span,
     pub const_value: i64,
     pub requires_step: bool,
+}
+
+impl From<&str> for DurationExpr {
+    fn from(value: &str) -> Self {
+        DurationExpr::new(value.to_string(), Span::default())
+    }
 }
 
 impl DurationExpr {

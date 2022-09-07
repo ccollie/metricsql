@@ -12,6 +12,8 @@ use crate::eval::duration::DurationEvaluator;
 use crate::eval::function::{create_function_evaluator, TransformEvaluator};
 use crate::eval::number::NumberEvaluator;
 use crate::eval::string::StringEvaluator;
+use crate::functions::rollup::get_string;
+use crate::functions::types::{DataType, Parameter, TypeSignature};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::search::Deadline;
 use crate::timeseries::Timeseries;
@@ -53,8 +55,8 @@ pub static MIN_TIMESERIES_POINTS_FOR_TIME_ROUNDING: usize = 50;
 ///
 /// The number mustn't exceed -search.maxPointsPerTimeseries.
 pub(crate) fn validate_max_points_per_timeseries(
-    start: i64,
-    end: i64,
+    start: Timestamp,
+    end: Timestamp,
     step: i64,
     max_points_per_timeseries: usize,
 ) -> RuntimeResult<()> {
@@ -68,7 +70,7 @@ pub(crate) fn validate_max_points_per_timeseries(
     }
 }
 
-pub fn adjust_start_end(start: i64, end: i64, step: i64) -> (i64, i64) {
+pub fn adjust_start_end(start: Timestamp, end: Timestamp, step: i64) -> (i64, i64) {
     // if disableCache {
     //     // do not adjust start and end values when cache is disabled.
     //     // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/563
@@ -109,16 +111,6 @@ pub fn align_start_end(start: i64, end: i64, step: i64) -> (i64, i64) {
 
 #[derive(Copy, Clone, Debug)]
 pub struct EvalOptions {
-    /// Whether to disable response caching. This may be useful during data backfilling
-    pub disable_cache: bool,
-
-    /// The maximum points per a single timeseries returned from /api/v1/query_range.
-    /// This option doesn't limit the number of scanned raw samples in the database. The main
-    /// purpose of this option is to limit the number of per-series points returned to graphing UI
-    /// such as Grafana. There is no sense in setting this limit to values bigger than the horizontal
-    /// resolution of the graph
-    pub max_points_per_timeseries: usize,
-
     /// Set this flag to true if the database doesn't contain Prometheus stale markers, so there is
     /// no need in spending additional CPU time on its handling. Staleness markers may exist only in
     /// data obtained from Prometheus scrape targets
@@ -145,8 +137,6 @@ impl EvalOptions {
 impl Default for EvalOptions {
     fn default() -> Self {
         Self {
-            disable_cache: false,
-            max_points_per_timeseries: 30e3 as usize,
             no_stale_markers: true,
             max_staleness_interval: Duration::milliseconds(0),
             min_staleness_interval: Duration::milliseconds(0),
@@ -249,7 +239,7 @@ impl EvalConfig {
     }
 
     pub fn may_cache(&self) -> bool {
-        if self.options.disable_cache {
+        if self.disable_cache {
             return false;
         }
         if self._may_cache {
@@ -262,6 +252,10 @@ impl EvalConfig {
             return false;
         }
         return true;
+    }
+
+    pub fn timestamps(&self) -> Option<&Arc<Vec<i64>>> {
+        self.ts_cell.get()
     }
 
     pub fn get_shared_timestamps(&mut self) -> &Arc<Vec<i64>> {
@@ -381,4 +375,149 @@ pub(crate) fn eval_time(ec: &mut EvalConfig) -> Vec<Timeseries> {
         rv[0].values[i] = *ts as f64 / 1e3_f64;
     }
     rv
+}
+
+
+fn get_string_arg(arg: &Vec<Timeseries>, arg_num: usize) -> RuntimeResult<String> {
+    if arg.len() != 1 {
+        let msg = format!(
+            "arg # {} must contain a single timeseries; got {} timeseries",
+            arg_num + 1,
+            arg.len()
+        );
+        return Err(RuntimeError::ArgumentError(msg));
+    }
+    let ts = &arg[0];
+    let all_nan = arg[0].values.iter().all(|x| x.is_nan());
+    if !all_nan {
+        let msg = format!("arg # {} contains non - string timeseries", arg_num + 1);
+        return Err(RuntimeError::ArgumentError(msg));
+    }
+    // todo: return reference
+    Ok(ts.metric_name.metric_group.clone())
+}
+
+fn get_label(arg: &Vec<Timeseries>, name: &str, arg_num: usize) -> RuntimeResult<String> {
+    match get_string_arg(arg, arg_num) {
+        Ok(lbl) => Ok(lbl),
+        Err(err) => {
+            let msg = format!("cannot read {} label name", name);
+            return Err(RuntimeError::ArgumentError(msg));
+        }
+    }
+}
+
+fn get_scalar(arg: &Vec<Timeseries>, arg_num: usize) -> RuntimeResult<&Vec<f64>> {
+    if arg.len() != 1 {
+        let msg = format!(
+            "arg # {} must contain a single timeseries; got {} timeseries",
+            arg_num + 1,
+            arg.len()
+        );
+        return Err(RuntimeError::ArgumentError(msg))
+    }
+    Ok(&arg[arg_num].values)
+}
+
+#[inline]
+fn get_int_number(arg: &Vec<Timeseries>, arg_num: usize) -> RuntimeResult<i64> {
+    let v = get_float(arg, arg_num)?;
+    Ok(v as i64)
+}
+
+#[inline]
+fn get_float(arg: &Vec<Timeseries>, arg_num: usize) -> RuntimeResult<f64> {
+    let v = get_scalar(arg, arg_num)?;
+    let mut n = 0_f64;
+    if v.len() > 0 {
+        n = v[0];
+    }
+    Ok(n)
+}
+
+fn get_param(
+    ctx: &mut Context,
+    ec: &mut EvalConfig,
+    expr: &ExprEvaluator,
+    expected: &DataType,
+    arg_num: usize) -> RuntimeResult<Parameter> {
+    let val = expr.eval(ctx, ec)?;
+    Ok(match expected {
+        DataType::Any => {
+          Parameter::Any(val)
+        },
+        DataType::Vector => {
+            let val = get_scalar(&val, arg_num)?;
+            Parameter::Vector(val.into())
+        },
+        DataType::Float => {
+            let val = get_float(&val, arg_num)?;
+            Parameter::Float(val)
+        },
+        DataType::Int => {
+            let val = get_int_number(&val, arg_num)?;
+            Parameter::Int(val)
+        },
+        DataType::String => {
+            let val = get_string(&val, arg_num)?;
+            Parameter::String(val)
+        }
+    })
+}
+
+
+
+pub fn eval_params(
+    ctx: &mut Context,
+    ec: &mut EvalConfig,
+    signature: &TypeSignature,
+    args: &[ExprEvaluator]
+) -> RuntimeResult<Vec<Parameter>> {
+
+    fn get_variadic(
+        ctx: &mut Context,
+        ec: &mut EvalConfig,
+        args: &[ExprEvaluator],
+        types: &Vec<DataType>
+    ) -> RuntimeResult<Vec<Parameter>> {
+        let mut params: Vec<Parameter> = Vec::with_capacity(types.len());
+        for (i, expected) in types.iter().enumerate() {
+            let arg = get_param(ctx, ec, &args[i], expected, i)?;
+            params.push(arg);
+        }
+        Ok(params)
+    }
+
+    return match signature {
+        TypeSignature::Variadic(valid_types, min) => {
+            get_variadic(ctx, ec, args, valid_types)
+        },
+        TypeSignature::Uniform(number, valid_type) => {
+            let mut params: Vec<Parameter> = Vec::with_capacity(args.len());
+            for i in 0 .. *number {
+                let arg = get_param(ctx, ec, &args[i], valid_type, i)?;
+                params.push(arg);
+            }
+            Ok(params)
+        },
+        TypeSignature::VariadicEqual(data_type, min) => {
+            let mut params: Vec<Parameter> = Vec::with_capacity(args.len());
+            for (i, evaluator) in args.iter().enumerate() {
+                let arg = get_param(ctx, ec, evaluator, data_type, i)?;
+                params.push(arg);
+            }
+            Ok(params)
+        }
+        TypeSignature::Exact(valid_types) => {
+            get_variadic(ctx, ec, args, valid_types)
+        },
+        TypeSignature::Any(number) => {
+            let mut params: Vec<Parameter> = Vec::with_capacity(*number);
+            for i in 0 .. *number {
+                let arg = get_param(ctx, ec, &args[i], &DataType::Any, i)?;
+                params.push(arg);
+            }
+            Ok(params)
+        }
+    }
 }

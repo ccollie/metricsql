@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use dashmap::DashMap;
 use dashmap::mapref::one::RefMut;
 
-use metricsql::ast::Expression;
+use metricsql::ast::{DurationExpr, Expression};
 use metricsql::optimizer::optimize;
 use metricsql::parser::ParseError;
 use crate::binary_op::adjust_cmp_ops;
@@ -111,5 +111,29 @@ impl ParseCache {
             }
         }
     }
+}
 
+/// IsMetricSelectorWithRollup verifies whether s contains PromQL metric selector
+/// wrapped into rollup.
+///
+/// It returns the wrapped query with the corresponding window with offset.
+pub fn is_metric_selector_with_rollup(s: &str) -> (String, DurationExpr, DurationExpr) {
+    let expr = parsePromQLWithCache(s)?;
+    match expr {
+        Expression::Rollup(r) => {
+            if r.window.is_none() || r.step.is_none() {
+                return None;
+            }
+            match r.expr {
+                Expression::MetricExpression(me) => {
+                    if me.label_filters.len() == 0 {
+                        return None
+                    }
+                }
+            }
+            let wrapped_query = r.expr.to_string();
+            Ok((wrapped_query, r.window, r.offset))
+        },
+        _ => Ok(None)
+    }
 }

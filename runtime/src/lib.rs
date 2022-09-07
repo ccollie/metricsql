@@ -37,6 +37,7 @@ mod histogram;
 pub mod traits;
 pub mod functions;
 pub mod context;
+pub mod parser;
 
 pub use eval::{create_evaluator, EvalConfig, EvalOptions, get_timestamps};
 pub use exec::*;

@@ -1,6 +1,5 @@
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex};
-use metrics::{describe_counter, register_counter};
 
 use once_cell::sync::{Lazy};
 use rayon::iter::IntoParallelRefIterator;
@@ -17,7 +16,6 @@ use crate::functions::{
         get_rollup_configs,
         get_rollup_func,
         NewRollupFunc,
-        PreFunc,
         rollup_func_keeps_metric_name,
         RollupConfig,
         RollupFunc
@@ -31,7 +29,7 @@ use tinyvec::*;
 use lib::is_stale_nan;
 use crate::cache::rollup_result_cache::merge_timeseries;
 use crate::context::Context;
-use crate::functions::rollup::MAX_SILENCE_INTERVAL;
+use crate::functions::rollup::{eval_prefuncs, MAX_SILENCE_INTERVAL};
 use crate::search::{join_tag_filterss, QueryResult, QueryResults, SearchQuery};
 
 
@@ -271,7 +269,7 @@ impl RollupEvaluator {
         }
 
         let shared_timestamps = ec.get_shared_timestamps();
-        let (pre_func, mut rcs) = get_rollup_configs(
+        let (mut rcs, pre_funcs) = get_rollup_configs(
             &self.func_name,
             rollup_func,
             &self.expr,
@@ -288,7 +286,7 @@ impl RollupEvaluator {
         ));
         let keep_metric_names = self.keep_metric_names;
 
-        do_parallel(&tss_sq, |ts_sq: &Timeseries, values: &mut [f64], timestamps: &mut [i64]| {
+        do_parallel(&tss_sq, move |ts_sq: &Timeseries, values: &mut [f64], timestamps: &mut [i64]| {
 
             let len = ts_sq.timestamps.len();
 
@@ -304,7 +302,7 @@ impl RollupEvaluator {
 
             // TODO!!!!!!!!!!!!!
 
-            pre_func(values, timestamps);
+            eval_prefuncs(&pre_funcs, values, timestamps);
             for rc in rcs.iter_mut() {
                 match TimeseriesMap::new(&self.func_name, keep_metric_names, shared_timestamps, &ts_sq.metric_name) {
                     Some(mut tsm) => {
@@ -340,12 +338,14 @@ impl RollupEvaluator {
         Ok(value)
     }
 
-    fn eval_with_incremental_aggregate(&self,
+    fn eval_with_incremental_aggregate<F>(&self,
                                        iafc: &mut IncrementalAggrFuncContext,
                                        rss: &mut QueryResults,
                                        rcs: &mut Vec<RollupConfig>,
-                                       pre_func: &PreFunc,
-                                       shared_timestamps: &Arc<Vec<i64>>) -> RuntimeResult<Vec<Timeseries>> {
+                                       pre_func: F,
+                                       shared_timestamps: &Arc<Vec<i64>>) -> RuntimeResult<Vec<Timeseries>>
+    where F: Fn(&mut [f64], &[i64]) -> () + Send + Sync
+    {
 
         let func_name = self.func_name.clone();
         let keep_metric_names = self.keep_metric_names;
@@ -420,7 +420,7 @@ impl RollupEvaluator {
             get_timestamps(start, ec.end, ec.step, ec.max_points_per_series)?
         );
 
-        let (pre_func, mut rcs) = get_rollup_configs(
+        let (mut rcs, pre_funcs) = get_rollup_configs(
             &self.func_name,
             rollup_func,
             &self.expr,
@@ -431,6 +431,10 @@ impl RollupEvaluator {
             ec.max_points_per_series,
             ec.lookback_delta,
             &shared_timestamps)?;
+
+        let pre_func = move |values, timestamps| {
+            eval_prefuncs(&pre_funcs, values, timestamps)
+        };
 
         // Fetch the remaining part of the result.
         let tfs = vec![me.label_filters];
@@ -534,14 +538,16 @@ impl RollupEvaluator {
         Ok(res)
     }
 
-    fn eval_no_incremental_aggregate(
+    fn eval_no_incremental_aggregate<F>(
         &self,
         rss: &mut QueryResults,
         rcs: &mut Vec<RollupConfig>,
-        pre_func: &PreFunc,
+        pre_func: F,
         shared_timestamps: &Arc<Vec<i64>>,
         no_stale_markers: bool,
-    ) -> RuntimeResult<Vec<Timeseries>> {
+    ) -> RuntimeResult<Vec<Timeseries>>
+        where F: Fn(&mut [f64], &[i64]) -> () + Send + Sync
+    {
 
         let tss_lock: Arc<Mutex<Vec<Timeseries>>> = Arc::new(Mutex::new(
             Vec::with_capacity(rss.len() * rcs.len())
@@ -589,7 +595,6 @@ impl RollupEvaluator {
     }
 }
 
-///////////////////////////////////////
 
 pub(super) fn compile_rollup_func_args(fe: &FuncExpr) -> RuntimeResult<(Vec<ExprEvaluator>, &RollupExpr, usize)> {
     // todo: can this check bbe done during parsing ?
@@ -699,7 +704,9 @@ fn get_keep_metric_names(expr: &Expression) -> bool {
     }
 }
 
-fn do_parallel(tss: &Vec<Timeseries>, f: fn(ts: &Timeseries, values: &mut [f64], timestamps: &mut [i64])) {
+fn do_parallel<F>(tss: &Vec<Timeseries>, f: F)
+where F: Fn(&Timeseries, &mut [f64], &mut [i64])
+{
     let mut tmp_values: TinyVec<[f64; 32]> = tiny_vec!();
     let mut tmp_timestamps = tiny_vec!([i64; 32]);
 

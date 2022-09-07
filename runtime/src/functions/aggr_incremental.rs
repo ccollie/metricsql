@@ -166,7 +166,7 @@ impl IncrementalAggrFuncContext {
                             // has been already reached.
                             continue;
                         }
-                        m_global.insert(k, *iac);
+                        m_global.insert(k, *iac.into());
                     }
                 }
             }

@@ -81,7 +81,7 @@ impl RollupResultCache {
         self.memory_limiter.get(size)
     }
 
-    pub fn release_memory(&mut self, size: usize) -> bool {
+    pub fn release_memory(&mut self, size: usize) -> RuntimeResult<()> {
         self.memory_limiter.put(size)
     }
 
@@ -330,7 +330,7 @@ pub fn merge_timeseries(a: &[Timeseries], b: &mut Vec<Timeseries>, b_start: i64,
                               tsB.values.len(), tsB.timestamps.len())
             }
         }
-        return Ok(b);
+        return Ok(b.into());
     }
 
     let mut m: HashMap<&str, &Timeseries> = HashMap::with_capacity(a.len());
@@ -535,7 +535,7 @@ impl Default for RollupResultCacheMetaInfo {
 }
 
 #[derive(Default, Clone, Eq, Hash)]
-struct RollupResultCacheMetaInfoEntry {
+pub(self) struct RollupResultCacheMetaInfoEntry {
     start: i64,
     end: i64,
     key: RollupResultCacheKey,
@@ -633,13 +633,13 @@ impl RollupResultCacheKey {
         }
     }
 
-    pub(self) fn marshal(&self, dst: &mut Vec<u8>)  {
+    fn marshal(&self, dst: &mut Vec<u8>)  {
         dst.push(ROLLUP_RESULT_CACHE_VERSION);
         marshal_var_int(dst, self.prefix);
         marshal_var_int(dst, self.suffix);
     }
 
-    pub(self) fn unmarshal(src: &[u8]) -> RuntimeResult<(RollupResultCacheKey, &[u8])> {
+    fn unmarshal(src: &[u8]) -> RuntimeResult<(RollupResultCacheKey, &[u8])> {
         if src.len() < 8 {
             return Err(RuntimeError::SerializationError(
                 format!("cannot unmarshal key prefix from {} bytes; need at least {} bytes", src.len(), 8)
