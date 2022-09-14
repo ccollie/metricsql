@@ -5,9 +5,9 @@ use std::sync::{Arc, RwLock};
 use phf::phf_map;
 
 use lib::get_pooled_buffer;
-use metricsql::ast::AggrFuncExpr;
+use metricsql::ast::{AggregateModifier, AggrFuncExpr};
 
-use crate::functions::aggr::remove_group_tags;
+use crate::functions::aggregate::aggr_fns::remove_group_tags;
 use crate::runtime_error::RuntimeResult;
 use crate::timeseries::Timeseries;
 
@@ -21,7 +21,7 @@ pub(crate) struct IncrementalAggrFuncCallbacks {
 }
 
 /// callbacks for optimized incremental calculations for aggregate functions
-/// over rollups over metricsql.MetricExpr.
+/// over rollup over metricsql.MetricExpr.
 ///
 /// These calculations save RAM for aggregates over big number of time series.
 static INCREMENTAL_AGGR_FUNC_CALLBACKS_MAP: phf::Map<&'static str, IncrementalAggrFuncCallbacks> = phf_map! {
@@ -81,6 +81,7 @@ finalize_aggr_func: finalize_aggr_geomean,
 },
 };
 
+#[derive(Default)]
 pub(crate) struct IncrementalAggrContext {
     ts: Timeseries,
     values: Vec<f64>,
@@ -89,7 +90,8 @@ pub(crate) struct IncrementalAggrContext {
 type ContextHash = HashMap<u64, HashMap<String, IncrementalAggrContext>>;
 
 pub(crate) struct IncrementalAggrFuncContext {
-    pub(crate) ae: AggrFuncExpr,
+    pub(crate) modifier: Option<AggregateModifier>,
+    pub(crate) limit: usize,
     // todo: use Rc/Arc based on cfg
     m: Arc<RwLock<ContextHash>>,
     callbacks: &'static IncrementalAggrFuncCallbacks,
@@ -100,7 +102,8 @@ impl IncrementalAggrFuncContext {
         let m: HashMap<u64, HashMap<String, IncrementalAggrContext>> = HashMap::new();
 
         IncrementalAggrFuncContext {
-            ae, // todo: box
+            modifier: ae.modifier.clone(),
+            limit: ae.limit,
             m: Arc::new(RwLock::new(m)),
             callbacks,
         }
@@ -115,7 +118,7 @@ impl IncrementalAggrFuncContext {
         if keep_original {
             ts = &mut ts_orig.clone();
         }
-        remove_group_tags(&mut ts.metric_name, &self.ae.modifier);
+        remove_group_tags(&mut ts.metric_name, &self.modifier);
 
         let mut bb = get_pooled_buffer(512);
         let key = ts.metric_name.marshal_to_string(bb.deref_mut())?;
@@ -123,7 +126,7 @@ impl IncrementalAggrFuncContext {
         let mut iac: &IncrementalAggrContext;
         match m.get(&key) {
             None => {
-                if self.ae.limit > 0 && m.len() >= self.ae.limit {
+                if self.limit > 0 && m.len() >= self.limit {
                     // Skip this time series, since the limit on the number of output time series has been already reached.
                     return Ok(());
                 }
@@ -161,12 +164,12 @@ impl IncrementalAggrFuncContext {
                         merge_aggr_func(iac_global, iac);
                     },
                     None => {
-                        if self.ae.limit > 0 && m_global.len() >= self.ae.limit {
+                        if self.limit > 0 && m_global.len() >= self.limit {
                             // Skip this time series, since the limit on the number of output time series
                             // has been already reached.
                             continue;
                         }
-                        m_global.insert(k, *iac.into());
+                        m_global.insert(k, std::mem::take(iac));
                     }
                 }
             }
@@ -305,18 +308,16 @@ fn update_aggr_max(iac: &mut IncrementalAggrContext, values: &[f64]) {
 
 fn merge_aggr_max(dst: &mut IncrementalAggrContext, src: &IncrementalAggrContext) {
     let src_values = &src.ts.values;
-    let src_counts = &src.values;
     let mut dst_values = &dst.ts.values;
-    let mut dst_counts = &dst.values;
 
     for (i, v) in src_values.iter().enumerate() {
-        if src_counts[i] == 0.0 {
+        if src.values[i] == 0.0 {
             continue;
         }
 
-        if dst_counts[i] == 0.0 {
-            dst_values[i] = *v;
-            dst_counts[i] = 1.0;
+        if dst.values[i] == 0.0 {
+            dst.ts.values[i] = *v;
+            dst.values[i] = 1.0;
             continue;
         }
 

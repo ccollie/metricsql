@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
-use regex::Regex;
+use regex::{escape, Regex};
 
 use metricsql::optimizer::{pushdown_binary_op_filters, trim_filters_by_group_modifier};
 use metricsql::ast::*;
@@ -12,6 +12,7 @@ use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::binary_op::{BinaryOpFuncArg, exec_binop};
 use crate::eval::{create_evaluator, ExprEvaluator};
 use crate::eval::traits::Evaluator;
+use crate::functions::types::Volatility;
 
 pub(super) struct BinaryOpEvaluator {
     expr: BinaryOpExpr,
@@ -31,6 +32,10 @@ impl BinaryOpEvaluator {
             expr: expr.clone(),
             can_pushdown_filters
         })
+    }
+
+    pub fn volatility(&self) -> Volatility {
+        Volatility::Volatile
     }
 
     fn eval_args(&self, ctx: &mut Context, ec: &mut EvalConfig) -> RuntimeResult<(Vec<Timeseries>, Vec<Timeseries>)> {
@@ -213,8 +218,8 @@ fn join_regexp_values(a: &Vec<&String>) -> String {
     let mut res = String::with_capacity(init_size);
     for (i, s) in a.iter().enumerate() {
         let regex = Regex::new(s).unwrap();
-        let s_quoted = regex.quote(s);
-        res.push_str(s_quoted);
+        let s_quoted = escape(s);
+        res.push_str(s_quoted.as_str());
         if i < a.len() - 1 {
             res.push('|')
         }

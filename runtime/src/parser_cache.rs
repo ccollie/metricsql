@@ -1,41 +1,45 @@
 use std::sync::{Arc};
 use std::sync::atomic::{AtomicU64, Ordering};
-use dashmap::DashMap;
-use dashmap::mapref::one::RefMut;
+use lru_time_cache::{LruCache};
 
-use metricsql::ast::{DurationExpr, Expression};
+use metricsql::ast::{Expression};
 use metricsql::optimizer::optimize;
 use metricsql::parser::ParseError;
 use crate::binary_op::adjust_cmp_ops;
 use crate::create_evaluator;
 use crate::eval::{ExprEvaluator, NullEvaluator};
 
-const PARSE_CACHE_MAX_LEN: usize = 1000;
+const PARSE_CACHE_MAX_LEN: usize = 500;
 
 pub struct ParseCacheValue {
     pub expr: Option<Expression>,
     pub evaluator: Option<ExprEvaluator>,
-    pub err: Option<ParseError>,
-    pub(crate) ref_count: u64
+    pub err: Option<ParseError>
 }
 
 pub struct ParseCache {
     requests: AtomicU64,
     misses: AtomicU64,
-    hash: Arc<DashMap<String, ParseCacheValue>>,
+    lru: Arc<LruCache<String, Arc<ParseCacheValue>>>, // todo: use parking_lot rwLock
+}
+
+impl Default for ParseCache {
+    fn default() -> Self {
+        ParseCache::new(PARSE_CACHE_MAX_LEN)
+    }
 }
 
 impl ParseCache {
-    pub fn new() -> Self {
+    pub fn new(capacity: usize) -> Self {
         ParseCache {
             requests: AtomicU64::new(0),
             misses: AtomicU64::new(0),
-            hash: Arc::new(DashMap::default()),
+            lru: Arc::new(LruCache::with_capacity(capacity)),
         }
     }
 
     pub fn len(&self) -> usize {
-        self.hash.len()
+        self.lru.len()
     }
 
     pub fn misses(&self) -> u64 {
@@ -47,34 +51,17 @@ impl ParseCache {
     }
 
     pub fn clear(&mut self) {
-        self.hash.clear()
+        self.lru.clear()
     }
 
-    fn cleanup(&mut self) {
-        let mut overflow = self.len() - PARSE_CACHE_MAX_LEN;
-        if overflow > 0 {
-            // Remove 10% of items from the cache.
-            overflow = ((self.len() as f64) * 0.1) as usize;
-            let mut items = self.hash.iter().collect();
-
-            for k in self.hash.iter() {
-                inner.m.remove(k);
-                overflow -= 1;
-                if overflow <= 0 {
-                    break
-                }
-            }
-        }
-    }
-
-    pub fn parse<'a>(&mut self, q: &str) -> RefMut<'a, String, ParseCacheValue> {
+    pub fn parse(&mut self, q: &str) -> Arc<ParseCacheValue> {
         self.requests.fetch_add(1, Ordering::Relaxed);
-        let entry = self.hash.entry(q.to_string()).or_insert_with(|| {
+        let entry = self.lru.entry(q.to_string()).or_insert_with(|| {
             self.misses.fetch_add(1, Ordering::Relaxed);
-            self.parse_internal(q)
+            let parsed = self.parse_internal(q);
+            Arc::new(parsed)
         });
-        entry.ref_count += 1;
-        entry
+        entry.clone()
     }
 
     fn parse_internal(&mut self, q: &str) -> ParseCacheValue {
@@ -88,7 +75,6 @@ impl ParseCache {
                             expr: Some(expr),
                             evaluator: Some(evaluator),
                             err: None,
-                            ref_count: 0
                         }
                     },
                     Err(e) => {
@@ -96,7 +82,6 @@ impl ParseCache {
                             expr: Some(expr),
                             evaluator: Some(ExprEvaluator::Null(NullEvaluator{})),
                             err: Some( ParseError::General("Error creating evaluator".to_string())),
-                            ref_count: 0
                         }
                     }
                 }
@@ -106,34 +91,8 @@ impl ParseCache {
                     expr: None,
                     evaluator: Some(ExprEvaluator::Null(NullEvaluator{})),
                     err: Some(e.clone()),
-                    ref_count: 0
                 }
             }
         }
-    }
-}
-
-/// IsMetricSelectorWithRollup verifies whether s contains PromQL metric selector
-/// wrapped into rollup.
-///
-/// It returns the wrapped query with the corresponding window with offset.
-pub fn is_metric_selector_with_rollup(s: &str) -> (String, DurationExpr, DurationExpr) {
-    let expr = parsePromQLWithCache(s)?;
-    match expr {
-        Expression::Rollup(r) => {
-            if r.window.is_none() || r.step.is_none() {
-                return None;
-            }
-            match r.expr {
-                Expression::MetricExpression(me) => {
-                    if me.label_filters.len() == 0 {
-                        return None
-                    }
-                }
-            }
-            let wrapped_query = r.expr.to_string();
-            Ok((wrapped_query, r.window, r.offset))
-        },
-        _ => Ok(None)
     }
 }

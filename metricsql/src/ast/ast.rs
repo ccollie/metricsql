@@ -209,18 +209,6 @@ pub struct StringExpr {
     pub(crate) tokens: Option<Vec<String>>,
 }
 
-impl From<String> for StringExpr {
-    fn from(s: String) -> Self {
-        StringExpr::new(s)
-    }
-}
-
-impl From<&str> for StringExpr {
-    fn from(s: &str) -> Self {
-        StringExpr::new(s)
-    }
-}
-
 impl StringExpr {
     pub fn new<S: Into<String>>(s: S) -> Self {
         StringExpr {
@@ -258,6 +246,18 @@ impl StringExpr {
     }
 }
 
+impl From<String> for StringExpr {
+    fn from(s: String) -> Self {
+        StringExpr::new(s)
+    }
+}
+
+impl From<&str> for StringExpr {
+    fn from(s: &str) -> Self {
+        StringExpr::new(s)
+    }
+}
+
 impl ExpressionNode for StringExpr {
     fn cast(self) -> Expression {
         Expression::String(self)
@@ -282,6 +282,17 @@ pub struct NumberExpr {
     pub n: f64,
 }
 
+impl NumberExpr {
+    pub fn new(v: f64) -> Self {
+        NumberExpr { n: v }
+    }
+
+    #[inline]
+    pub fn value(&self) -> f64 {
+        self.n
+    }
+}
+
 impl From<f64> for NumberExpr {
     fn from(value: f64) -> Self {
         NumberExpr::new(value)
@@ -300,13 +311,8 @@ impl From<usize> for NumberExpr {
     }
 }
 
-impl NumberExpr {
-    pub fn new(v: f64) -> Self {
-        NumberExpr { n: v }
-    }
-
-    #[inline]
-    pub fn value(&self) -> f64 {
+impl Into<f64> for NumberExpr {
+    fn into(self) -> f64 {
         self.n
     }
 }

@@ -6,6 +6,7 @@ extern crate effective_limits;
 extern crate enquote;
 extern crate integer_encoding;
 extern crate lockfree_object_pool;
+extern crate lru_time_cache;
 extern crate metrics;
 extern crate once_cell;
 extern crate phf;

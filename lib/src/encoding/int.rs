@@ -1,4 +1,3 @@
-use std::mem;
 use crate::error::{Error, Result};
 use byte_pool::{Block, BytePool};
 use integer_encoding::{FixedInt, VarInt};
