@@ -20,9 +20,11 @@
 use std::borrow::Borrow;
 use std::hash::Hash;
 use std::str::FromStr;
+
+use clone_dyn::clone_dyn;
+
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::Timeseries;
-use clone_dyn::clone_dyn;
 
 pub(crate) static MAX_ARG_COUNT: usize = 32;
 
@@ -83,17 +85,17 @@ impl ParameterValue {
         }
     }
 
-    pub fn get_int(&self) -> i64 {
+    pub fn get_int(&self) -> RuntimeResult<i64> {
         match self {
-            ParameterValue::Int(val) => *val,
-            _ => panic!("BUG: int parameter expected ")
+            ParameterValue::Int(val) => Ok(*val),
+            _ => Err(RuntimeError::InvalidNumber("int parameter expected ".to_string()))
         }
     }
 
-    pub fn get_float(&self) -> f64 {
+    pub fn get_float(&self) -> RuntimeResult<f64> {
         match self {
-            ParameterValue::Float(val) => *val,
-            _ => panic!("BUG: float parameter expected ")
+            ParameterValue::Float(val) => Ok(*val),
+            _ => Err(RuntimeError::InvalidNumber("float parameter expected ".to_string()))
         }
     }
 
@@ -104,19 +106,17 @@ impl ParameterValue {
         }
     }
 
-    pub fn get_str(&self) -> &str {
-        match self {
-            ParameterValue::String(val) => val.as_str(),
-            _ => panic!("BUG: invalid string parameter")
-        }
+    pub fn get_str(&self) -> RuntimeResult<&str> {
+        let str = self.get_string()?;
+        Ok(str.as_str())
     }
 
-    pub fn get_string(&self) -> String {
+    pub fn get_string(&self) -> RuntimeResult<String> {
         match self {
-            ParameterValue::String(val) => val.to_string(),
-            ParameterValue::Int(int) => int.to_string(),
-            ParameterValue::Float(f) => f.to_string(),
-            _ => panic!("BUG: invalid string parameter")
+            ParameterValue::String(val) => Ok(val.to_string()),
+            ParameterValue::Int(int) => Ok(int.to_string()),
+            ParameterValue::Float(f) => Ok(f.to_string()),
+            _ => Err(RuntimeError::ArgumentError("string parameter expected ".to_string()))
         }
     }
 

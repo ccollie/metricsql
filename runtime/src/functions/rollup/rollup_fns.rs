@@ -1,22 +1,25 @@
-use std::fmt::{Debug};
+use std::fmt::Debug;
 use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
 use std::sync::Arc;
 
+use clone_dyn::clone_dyn;
 use lockfree_object_pool::{LinearObjectPool, LinearReusable};
+use once_cell::sync::Lazy;
 use phf::{phf_map, phf_set};
 
 use lib::{get_float64s, is_stale_nan};
 use metricsql::ast::{Expression, ExpressionNode};
-use crate::eval::{validate_max_points_per_timeseries};
+
 use crate::{get_timeseries, get_timestamps};
-use crate::runtime_error::{RuntimeError, RuntimeResult};
-use super::timeseries_map::TimeseriesMap;
+use crate::eval::validate_max_points_per_timeseries;
 use crate::functions::{mode_no_nans, quantile, quantiles};
-use crate::functions::types::{ParameterValue};
-use clone_dyn::clone_dyn;
-use once_cell::sync::Lazy;
+use crate::functions::rollup::can_adjust_window;
+use crate::functions::types::ParameterValue;
+use crate::runtime_error::{RuntimeError, RuntimeResult};
+
 use super::rollup_function::RollupFunction;
+use super::timeseries_map::TimeseriesMap;
 
 pub(crate) type RollupArgValue = ParameterValue;
 
@@ -323,27 +326,6 @@ pub(crate) fn get_rollup_function_impl(func: &RollupFunction) -> &'static dyn Ne
     return &imp;
 }
 
-/// We can increase lookbehind window in square brackets for these functions
-/// if the given window doesn't contain enough samples for calculations.
-///
-/// This is needed in order to return the expected non-empty graphs when zooming in the graph in Grafana,
-/// which is built with `func_name(metric[$__interval])` query.
-static ROLLUP_FUNCTIONS_CAN_ADJUST_WINDOW: phf::Set<&'static str> = phf_set! {
-    "default_rollup",
-	"deriv",
-	"deriv_fast",
-	"ideriv",
-	"irate",
-	"rate",
-	"rate_over_sum",
-	"rollup",
-	"rollup_candlestick",
-	"rollup_deriv",
-	"rollup_rate",
-	"rollup_scrape_interval",
-	"scrape_interval",
-	"timestamp",
-};
 
 static ROLLUP_FUNCTIONS_REMOVE_COUNTER_RESETS: phf::Set<&'static str> = phf_set! {
 	"increase",
@@ -501,7 +483,7 @@ pub(crate) fn get_rollup_configs(
         pre_funcs.push(remove_counter_resets_pre_func);
     }
 
-    let may_adjust_window = ROLLUP_FUNCTIONS_CAN_ADJUST_WINDOW.contains(name);
+    let may_adjust_window = can_adjust_window(func);
     let is_default_rollup = *func == RollupFunction::DefaultRollup;
 
     let new_rollup_config = |rf: RollupFunc, tag_value: &str| -> RollupConfig {
@@ -1193,7 +1175,7 @@ fn rollup_hoeffding_bound_internal(rfa: &mut RollupFuncArg, phis: &[f64]) -> (f6
 }
 
 fn new_rollup_quantiles(args: &Vec<RollupArgValue>) -> Box<dyn RollupFn> {
-    let phi_label = args[0].get_str();
+    let phi_label = args[0].get_str()?;
     let cap = args.len() - 1;
 
     let mut phis = Vec::with_capacity(cap);
@@ -1201,7 +1183,7 @@ fn new_rollup_quantiles(args: &Vec<RollupArgValue>) -> Box<dyn RollupFn> {
     let mut phi_strs: Vec<String> = Vec::with_capacity(cap);
 
     for i in 1 .. args.len() {
-        let v = args[i].get_float();
+        let v = args[i].get_float()?;
         phis[i] = v;
         phi_strs[i] = format!("{}", v);
     }

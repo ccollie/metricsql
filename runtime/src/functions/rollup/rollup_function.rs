@@ -1,6 +1,8 @@
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
+
 use phf::phf_map;
+
 use crate::functions::types::{DataType, Signature, Volatility};
 use crate::runtime_error::RuntimeError;
 
@@ -216,6 +218,20 @@ impl RollupFunction {
             IRate | Rate | RollupIncrease | RollupRate
         )
     }
+}
+
+
+/// We can increase lookbehind window in square brackets for these functions
+/// if the given window doesn't contain enough samples for calculations.
+///
+/// This is needed in order to return the expected non-empty graphs when zooming in the graph in Grafana,
+/// which is built with `func_name(metric[$__interval])` query.
+pub fn can_adjust_window(func: &RollupFunction) -> bool {
+    use RollupFunction::*;
+    matches!(func,
+        DefaultRollup | Deriv | DerivFast | IDeriv | IRate | Rate | RateOverSum | Rollup |
+        RollupCandlestick | RollupDeriv | RollupRate | RollupScrapeInterval | ScrapeInterval | Timestamp
+    )
 }
 
 

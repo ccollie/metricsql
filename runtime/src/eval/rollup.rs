@@ -35,7 +35,7 @@ use crate::search::{join_tag_filterss, QueryResult, QueryResults, SearchQuery};
 use crate::timeseries::Timeseries;
 use crate::utils::{memory_limit, MemoryLimiter, num_cpus};
 
-use super::traits::{Evaluator};
+use super::traits::Evaluator;
 
 pub(super) struct RollupEvaluator {
     func: RollupFunction,
@@ -498,7 +498,7 @@ impl RollupEvaluator {
                 if iafc.modifier.is_some() {
                     if iafc.limit > 0 {
                         // There is an explicit limit on the number of output time series.
-                        timeseries_len *= iafc.ae.limit
+                        timeseries_len *= iafc.limit
                     } else {
                         // Increase the number of timeseries for non-empty group list: `aggr() by (something)`,
                         // since each group can have own set of time series in memory.

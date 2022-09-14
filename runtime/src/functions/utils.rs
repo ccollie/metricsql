@@ -1,6 +1,8 @@
 use std::cmp::Ordering;
 use std::ops::DerefMut;
+
 use tinyvec::TinyVec;
+
 use lib::get_float64s;
 
 pub(crate) fn less_with_nans(a: f64, b: f64) -> bool {
@@ -48,6 +50,21 @@ pub fn mode_no_nans(mut prev_value: f64, a: &mut Vec<f64>) -> f64 {
 }
 
 
+pub fn skip_leading_nans(values: &[f64]) -> &[f64] {
+    let mut i = 0;
+    while i < values.len() && values[i].is_nan() {
+        i += 1;
+    }
+    return &values[i..];
+}
+
+pub fn skip_trailing_nans(values: &[f64]) -> &[f64] {
+    let mut i = values.len() - 1;
+    while i >= 0 && values[i].is_nan() {
+        i -= 1;
+    }
+    return &values[0..i + 1];
+}
 
 /// quantiles calculates the given phis from originValues without modifying originValues, appends
 /// them to qs and returns the result.
