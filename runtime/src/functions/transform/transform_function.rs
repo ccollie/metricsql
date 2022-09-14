@@ -1,6 +1,8 @@
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
+
 use phf::phf_map;
+
 use crate::functions::types::{DataType, MAX_ARG_COUNT, Signature, Volatility};
 use crate::runtime_error::RuntimeError;
 
@@ -107,7 +109,7 @@ pub enum TransformFunction {
     TimezoneOffset,
     Union,
     Vector,
-    Year
+    Year,
 }
 
 impl Display for TransformFunction {
@@ -328,7 +330,7 @@ impl FromStr for TransformFunction {
         match REVERSE_MAP.get(lower.as_str()) {
             Some(op) => Ok(*op),
             None => Err(RuntimeError::AggregateError(
-                format!("Invalid rollup function: {}", s)))
+                format!("Invalid transform function: {}", s)))
         }
     }
 }
@@ -337,152 +339,165 @@ impl TransformFunction {
     /// These functions don't change physical meaning of input time series,
     /// so they don't drop metric name
     pub fn keep_metric_name(&self) -> bool {
+        use TransformFunction::*;
         match self {
-            TransformFunction::Ceil |
-            TransformFunction::Clamp |
-            TransformFunction::ClampMin |
-            TransformFunction::ClampMax |
-            TransformFunction::Floor |
-            TransformFunction::Interpolate |
-            TransformFunction::KeepLastValue |
-            TransformFunction::KeepNextValue |
-            TransformFunction::RangeAvg |
-            TransformFunction::RangeFirst |
-            TransformFunction::RangeLast |
-            TransformFunction::RangeMax |
-            TransformFunction::RangeMin |
-            TransformFunction::RangeQuantile |
-            TransformFunction::Round |
-            TransformFunction::RunningAvg |
-            TransformFunction::RangeMax |
-            TransformFunction::RangeMin |
-            TransformFunction::SmoothExponential => true,
-            _=> false
+            Ceil |
+            Clamp |
+            ClampMin |
+            ClampMax |
+            Floor |
+            Interpolate |
+            KeepLastValue |
+            KeepNextValue |
+            RangeAvg |
+            RangeFirst |
+            RangeLast |
+            RangeMax |
+            RangeMin |
+            RangeQuantile |
+            Round |
+            RunningAvg |
+            RangeMax |
+            RangeMin |
+            SmoothExponential => true,
+            _ => false
         }
     }
 
+    pub fn should_sort_results(&self) -> bool {
+        use TransformFunction::*;
+        matches!(&self,
+            SortByLabel |
+            SortByLabelDesc |
+            SortByLabelNumeric |
+            SortByLabelNumericDesc
+        )
+    }
+
     pub fn signature(&self) -> Signature {
+        use TransformFunction::*;
+
         // note: the physical expression must accept the type returned by this function or the execution panics.
         match self {
-            TransformFunction::BitmapAnd |
-            TransformFunction::BitmapOr |
-            TransformFunction::BitmapXor => {
+            BitmapAnd |
+            BitmapOr |
+            BitmapXor => {
                 Signature::exact(vec![DataType::Series, DataType::Int], Volatility::Immutable)
             }
-            TransformFunction::BucketsLimit => {
+            BucketsLimit => {
                 Signature::exact(vec![DataType::Int, DataType::Series], Volatility::Immutable)
             }
-            TransformFunction::Clamp => {
+            Clamp => {
                 Signature::exact(vec![DataType::Series, DataType::Int, DataType::Int], Volatility::Volatile)
             }
-            TransformFunction::ClampMax |
-            TransformFunction::ClampMin => {
+            ClampMax |
+            ClampMin => {
                 Signature::exact(vec![DataType::Series, DataType::Int], Volatility::Immutable)
             }
-            TransformFunction::Start |
-            TransformFunction::End => {
+            Start |
+            End => {
                 Signature::exact(vec![], Volatility::Stable)
             }
-            TransformFunction::DropCommonLabels => {
+            DropCommonLabels => {
                 Signature::variadic_equal(DataType::Series, 1, Volatility::Stable)
             }
-            TransformFunction::HistogramQuantile => {
+            HistogramQuantile => {
                 Signature::exact(vec![DataType::Float, DataType::Series], Volatility::Stable)
             }
-            TransformFunction::HistogramQuantiles => {
+            HistogramQuantiles => {
                 todo!()
             }
             // histogram_share(le, buckets)
-            TransformFunction::HistogramShare => {
+            HistogramShare => {
                 Signature::exact(vec![DataType::Float, DataType::Series], Volatility::Stable)
             }
-            TransformFunction::LabelCopy |
-            TransformFunction::LabelDel |
-            TransformFunction::LabelJoin |
-            TransformFunction::LabelKeep |
-            TransformFunction::LabelLowercase |
-            TransformFunction::LabelMap |
-            TransformFunction::LabelMatch |
-            TransformFunction::LabelMove |
-            TransformFunction::LabelSet |
-            TransformFunction::LabelLowercase => {
+            LabelCopy |
+            LabelDel |
+            LabelJoin |
+            LabelKeep |
+            LabelLowercase |
+            LabelMap |
+            LabelMatch |
+            LabelMove |
+            LabelSet |
+            LabelLowercase => {
                 let mut types = vec![DataType::String; MAX_ARG_COUNT];
                 types.insert(0, DataType::Series);
                 Signature::exact(types, Volatility::Stable)
             }
-            TransformFunction::LabelGraphiteGroup => {
+            LabelGraphiteGroup => {
                 // label_graphite_group(q, groupNum1, ... groupNumN)
                 let mut types = vec![DataType::Int; MAX_ARG_COUNT];
                 types.insert(0, DataType::Series);
                 Signature::exact(types, Volatility::Stable)
             }
-            TransformFunction::LabelReplace => {
+            LabelReplace => {
                 // label_replace(q, "dst_label", "replacement", "src_label", "regex")
                 Signature::exact(vec![
                     DataType::Series,
                     DataType::String,
                     DataType::String,
                     DataType::String,
-                    DataType::String
+                    DataType::String,
                 ], Volatility::Stable)
             }
-            TransformFunction::LabelTransform => {
+            LabelTransform => {
                 // label_transform(q, "label", "regexp", "replacement")
                 Signature::exact(vec![
                     DataType::Series,
                     DataType::String,
                     DataType::String,
-                    DataType::String
+                    DataType::String,
                 ], Volatility::Stable)
             }
-            TransformFunction::LabelValue => {
+            LabelValue => {
                 Signature::exact(vec![DataType::Series, DataType::String], Volatility::Stable)
             }
-            TransformFunction::LimitOffset => {
+            LimitOffset => {
                 Signature::exact(vec![DataType::Int, DataType::Int, DataType::Series], Volatility::Stable)
             }
-            TransformFunction::Now => {
+            Now => {
                 Signature::exact(vec![], Volatility::Stable)
             }
-            TransformFunction::Pi => {
+            Pi => {
                 Signature::exact(vec![], Volatility::Immutable)
             }
-            TransformFunction::Random |
-            TransformFunction::RandExponential |
-            TransformFunction::RandNormal => {
+            Random |
+            RandExponential |
+            RandNormal => {
                 Signature::variadic_min(vec![DataType::Float], 0, Volatility::Stable)
             }
-            TransformFunction::RangeQuantile => {
+            RangeQuantile => {
                 Signature::exact(vec![DataType::Float, DataType::Series], Volatility::Stable)
             }
-            TransformFunction::Round => {
+            Round => {
                 Signature::exact(vec![DataType::Series, DataType::Float], Volatility::Stable)
             }
-            TransformFunction::SmoothExponential => {
+            SmoothExponential => {
                 Signature::exact(vec![DataType::Series, DataType::Float], Volatility::Stable)
             }
-            TransformFunction::SortByLabel |
-            TransformFunction::SortByLabelDesc |
-            TransformFunction::SortByLabelNumeric |
-            TransformFunction::SortByLabelNumericDesc => {
+            SortByLabel |
+            SortByLabelDesc |
+            SortByLabelNumeric |
+            SortByLabelNumericDesc => {
                 let mut types = vec![DataType::String; MAX_ARG_COUNT];
                 types.insert(0, DataType::Series);
                 Signature::exact(types, Volatility::Stable)
             }
-            TransformFunction::Step => {
+            Step => {
                 Signature::exact(vec![], Volatility::Stable)
             }
-            TransformFunction::Time => {
+            Time => {
                 Signature::exact(vec![], Volatility::Stable)
             }
-            TransformFunction::TimezoneOffset => {
+            TimezoneOffset => {
                 Signature::exact(vec![DataType::String], Volatility::Stable)
             }
-            TransformFunction::Union => {
+            Union => {
                 // todo: specify minimum
                 Signature::uniform(MAX_ARG_COUNT, DataType::Series, Volatility::Stable)
             }
-            TransformFunction::Vector => {
+            Vector => {
                 Signature::exact(vec![DataType::Series], Volatility::Stable)
             }
             _ => {

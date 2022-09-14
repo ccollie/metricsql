@@ -1,3 +1,12 @@
+pub(crate) use utils::{
+    mode_no_nans,
+    quantile,
+    quantile_sorted,
+    quantiles,
+    skip_leading_nans,
+    skip_trailing_nans,
+};
+
 pub(crate) mod transform;
 pub(crate) mod types;
 pub(crate) mod aggregate;
@@ -8,9 +17,3 @@ mod utils;
 
 pub(crate) mod rollup;
 
-pub(crate) use utils::{
-    mode_no_nans,
-    quantile,
-    quantile_sorted,
-    quantiles
-};

@@ -3,7 +3,9 @@
 
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
+
 use phf::phf_map;
+
 use crate::functions::types::{DataType, Signature, Volatility};
 use crate::runtime_error::RuntimeError;
 
@@ -48,10 +50,12 @@ pub enum AggregateFunction {
     TopkMin,
     TopkMax,
     TopkAvg,
+    TopkLast,
     TopkMedian,
     BottomkMin,
     BottomkMax,
     BottomkAvg,
+    BottomkLast,
     BottomkMedian,
     /// any(q) by (group_labels) returns a single series per group_labels out of time series returned by q. See also group.
     Any,
@@ -93,10 +97,12 @@ impl Display for AggregateFunction {
             AggregateFunction::TopkMin => "topk_min",
             AggregateFunction::TopkMax => "topk_max",
             AggregateFunction::TopkAvg => "topk_avg",
+            AggregateFunction::TopkLast => "topk_last",
             AggregateFunction::TopkMedian => "topk_median",
             AggregateFunction::BottomkMin => "bottomk_min",
             AggregateFunction::BottomkMax => "bottomk_max",
             AggregateFunction::BottomkAvg => "bottomk_avg",
+            AggregateFunction::BottomkLast => "bottomk_last",
             AggregateFunction::BottomkMedian => "bottomk_median",
             AggregateFunction::Any => "any",
             AggregateFunction::Outliersk => "outliersk",
@@ -119,6 +125,7 @@ static FUNCTION_MAP: phf::Map<&'static str, AggregateFunction> = phf_map! {
     "count" =>         AggregateFunction::Count,
     "count_values" =>  AggregateFunction::CountValues,
     "bottomk" =>       AggregateFunction::Bottomk,
+    "bottomk_last" =>  AggregateFunction::BottomkLast,
     "topk" =>          AggregateFunction::Topk,
     "quantile" =>      AggregateFunction::Quantile,
     "quantiles" =>     AggregateFunction::Quantiles,
@@ -135,6 +142,7 @@ static FUNCTION_MAP: phf::Map<&'static str, AggregateFunction> = phf_map! {
     "topk_min" =>        AggregateFunction::TopkMin,
     "topk_max" =>        AggregateFunction::TopkMax,
     "topk_avg" =>        AggregateFunction::TopkAvg,
+    "topk_last" =>       AggregateFunction::TopkLast,
     "topk_median" =>     AggregateFunction::TopkMedian,
     "bottomk_min" =>     AggregateFunction::BottomkMin,
     "bottomk_max" =>     AggregateFunction::BottomkMax,
@@ -202,6 +210,7 @@ pub fn aggregate_function_signature(fun: &AggregateFunction) -> Signature {
         AggregateFunction::BottomkMin |
         AggregateFunction::BottomkMax |
         AggregateFunction::BottomkAvg |
+        AggregateFunction::BottomkLast |
         AggregateFunction::BottomkMedian => {
             Signature::variadic_min(vec![
                 DataType::Int,
@@ -220,4 +229,13 @@ pub fn aggregate_function_signature(fun: &AggregateFunction) -> Signature {
             Signature::variadic_min(quantile_types, 3, Volatility::Volatile)
         }
     }
+}
+
+fn aggr_function_can_sort_results(func: AggregateFunction) -> bool {
+    use AggregateFunction::*;
+    matches!(func,
+        Topk | Bottomk | Outliersk |  TopkMax | TopkMin | TopkAvg |
+        TopkMedian | TopkLast | BottomkMax |
+        BottomkMin | BottomkAvg | BottomkMedian | BottomkLast
+    )
 }

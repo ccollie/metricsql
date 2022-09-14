@@ -1,13 +1,15 @@
 use std::borrow::Cow;
-use crate::ast::*;
-use crate::parser::aggr::is_aggr_func;
-use crate::parser::rollup::is_rollup_func;
-use crate::parser::transform::is_transform_func;
-use phf::phf_ordered_set;
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::iter::FromIterator;
 use std::vec::Vec;
+
+use phf::phf_ordered_set;
+
+use crate::ast::*;
+use crate::parser::aggr::is_aggr_func;
+use crate::parser::rollup::is_rollup_func;
+use crate::parser::transform::is_transform_func;
 
 /// Optimize optimizes e in order to improve its performance.
 ///
@@ -235,7 +237,7 @@ pub fn pushdown_binary_op_filters<'a>(
     common_filters: &mut Vec<LabelFilter>,
 ) -> Cow<'a, Expression> {
     // according to pushdown_binary_op_filters_in_place, only the following types need to be
-    // handles, so exit otherwise
+    // handled, so exit otherwise
     if common_filters.is_empty() || !matches!(e, Expression::MetricExpression(_) |
         Expression::Function(_) |
         Expression::Rollup(_) |
