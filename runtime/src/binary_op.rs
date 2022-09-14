@@ -24,32 +24,32 @@ impl<T> BinaryOpFn for T where T: Fn(&mut BinaryOpFuncArg) -> Vec<Timeseries> + 
 
 type TimeseriesHashMap = HashMap<String, Vec<Timeseries>>;
 
-macro_rules! make_comp_func_boxed {
+macro_rules! make_comp_func {
     ( $name:ident, $af: expr ) => {
         static $name: Box<dyn BinaryOpFn> = Box::new(new_binary_op_cmp_func($af));
     };
 }
 
-macro_rules! make_arith_func_boxed {
+macro_rules! make_arith_func {
     ( $name:ident, $af: expr ) => {
         static $name: Box<dyn BinaryOpFn> = Box::new(new_binary_op_arith_func($af));
     };
 }
 
-make_arith_func_boxed!(BINARY_OP_ADD, metricsql::binaryop::plus);
-make_arith_func_boxed!(BINARY_OP_SUB, metricsql::binaryop::minus);
-make_arith_func_boxed!(BINARY_OP_MUL, metricsql::binaryop::mul);
-make_arith_func_boxed!(BINARY_OP_DIV, metricsql::binaryop::div);
-make_arith_func_boxed!(BINARY_OP_MOD, metricsql::binaryop::mod_);
-make_arith_func_boxed!(BINARY_OP_POW, metricsql::binaryop::pow);
-make_arith_func_boxed!(BINARY_OP_ATAN2, metricsql::binaryop::atan2);
+make_arith_func!(BINARY_OP_ADD, metricsql::binaryop::plus);
+make_arith_func!(BINARY_OP_SUB, metricsql::binaryop::minus);
+make_arith_func!(BINARY_OP_MUL, metricsql::binaryop::mul);
+make_arith_func!(BINARY_OP_DIV, metricsql::binaryop::div);
+make_arith_func!(BINARY_OP_MOD, metricsql::binaryop::mod_);
+make_arith_func!(BINARY_OP_POW, metricsql::binaryop::pow);
+make_arith_func!(BINARY_OP_ATAN2, metricsql::binaryop::atan2);
 
-make_comp_func_boxed!(BINARY_OP_EQ, metricsql::binaryop::eq);
-make_comp_func_boxed!(BINARY_OP_NEQ, metricsql::binaryop::neq);
-make_comp_func_boxed!(BINARY_OP_GT, metricsql::binaryop::gt);
-make_comp_func_boxed!(BINARY_OP_GTE, metricsql::binaryop::gte);
-make_comp_func_boxed!(BINARY_OP_LT, metricsql::binaryop::lt);
-make_comp_func_boxed!(BINARY_OP_LTE, metricsql::binaryop::lte);
+make_comp_func!(BINARY_OP_EQ, metricsql::binaryop::eq);
+make_comp_func!(BINARY_OP_NEQ, metricsql::binaryop::neq);
+make_comp_func!(BINARY_OP_GT, metricsql::binaryop::gt);
+make_comp_func!(BINARY_OP_GTE, metricsql::binaryop::gte);
+make_comp_func!(BINARY_OP_LT, metricsql::binaryop::lt);
+make_comp_func!(BINARY_OP_LTE, metricsql::binaryop::lte);
 
 
 pub(crate) fn exec_binop(bfa: &mut BinaryOpFuncArg) -> Vec<Timeseries> {
@@ -295,7 +295,7 @@ fn group_join(
         if tss_right.len() == 1 {
             // Easy case - right part contains only a single matching time series.
             tsLeft.metric_name.set_tags(join_tags, &tss_right[0].metric_name);
-            rvs_left.push(*tsLeft);
+            rvs_left.push(std::mem::take(tsLeft));
             rvs_right.push(tss_right.remove(0));
             continue
         }
@@ -456,13 +456,12 @@ fn add_right_nans_to_left(tss_left: &mut Vec<Timeseries>, tss_right: &Vec<Timese
 
 fn binary_op_default(bfa: &mut BinaryOpFuncArg) -> Vec<Timeseries> {
     let (mut m_left, mut m_right) = create_timeseries_map_by_tag_set(bfa);
-    let mut rvs: Vec<Timeseries> = Vec::with_capacity( m_left.len() );
 
     if m_left.len() == 0 {
         // see if we can make this more efficient
-        rvs.extend::<Vec<Timeseries>>(m_right.values());
-        return rvs
+        return m_right.into_values().collect();
     }
+    let mut rvs: Vec<Timeseries> = Vec::with_capacity( m_left.len() );
     for (k, mut tss_left) in m_left.iter_mut() {
         match series_by_key(m_right, &k) {
             None => {},

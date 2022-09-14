@@ -4,6 +4,7 @@ use std::iter;
 use std::sync::Arc;
 
 use crate::{MetricName, Timeseries};
+use crate::functions::rollup::RollupFunction;
 use crate::histogram::{Histogram, NonZeroBuckets};
 
 #[derive(Clone)]
@@ -15,12 +16,12 @@ pub(crate) struct TimeseriesMap {
 
 impl TimeseriesMap {
     pub fn new(
-        func_name: &str,
+        func: &RollupFunction,
         keep_metric_names: bool,
         shared_timestamps: &Arc<Vec<i64>>,
         mn_src: &MetricName) -> Option<TimeseriesMap> {
 
-        if !TimeseriesMap::is_eligible_function(func_name) {
+        if !TimeseriesMap::is_eligible_function(func) {
             return None;
         }
 
@@ -44,8 +45,8 @@ impl TimeseriesMap {
         })
     }
 
-    pub fn is_eligible_function(name: &str) -> bool {
-        name == "histogram_over_time" || name == "histogram_over_time"
+    pub fn is_eligible_function(func: &RollupFunction) -> bool {
+        *func == RollupFunction::HistogramOverTime || *func == RollupFunction::QuantilesOverTime
     }
 
     pub fn update(&mut self, value: f64) {

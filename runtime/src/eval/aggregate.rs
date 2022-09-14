@@ -1,21 +1,26 @@
 use std::ops::Deref;
-use metricsql::ast::{AggrFuncExpr, Expression, FuncExpr};
+use std::str::FromStr;
+use metricsql::ast::{AggregateModifier, AggrFuncExpr, Expression, FuncExpr};
 use metricsql::parser::rollup::get_rollup_arg_idx;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::{EvalConfig, Timeseries};
 use crate::context::Context;
-use crate::eval::{create_evaluator, create_evaluators, eval_args, ExprEvaluator};
+use super::{create_evaluators, Evaluator, eval_params, eval_volatility, ExprEvaluator};
 use crate::eval::rollup::{compile_rollup_func_args, RollupEvaluator};
-use crate::eval::traits::Evaluator;
 
+use crate::functions::rollup::get_rollup_func;
 use crate::functions::{
-    rollup::{get_rollup_func},
-    aggr::{AggrFunc, AggrFuncArg, get_aggr_func},
-    aggr_incremental::{
+    aggregate::{
+        AggrFn,
+        AggrFuncArg,
+        AggregateFunction,
+        get_aggr_func,
         get_incremental_aggr_func_callbacks,
         IncrementalAggrFuncContext
-    }
+    },
 };
+
+use crate::functions::types::{Signature, Volatility};
 
 
 pub(super) fn create_aggr_evaluator(ae: &AggrFuncExpr) -> RuntimeResult<ExprEvaluator> {
@@ -38,7 +43,6 @@ pub(super) fn create_aggr_evaluator(ae: &AggrFuncExpr) -> RuntimeResult<ExprEval
                     )?;
                     res.iafc = Some(iafc);
                     res.rollup_index = rollup_index as i32;
-                    res.evaluator = Box::new( create_evaluator(&expr)? );
                     return Ok(ExprEvaluator::Rollup(res))
                 },
                 _ => {}
@@ -52,44 +56,59 @@ pub(super) fn create_aggr_evaluator(ae: &AggrFuncExpr) -> RuntimeResult<ExprEval
 
 
 pub(crate) struct AggregateEvaluator {
-    ae: AggrFuncExpr,
-    aggr_func: &'static AggrFunc,
-    args: Vec<ExprEvaluator>
+    expr: String,
+    function: AggregateFunction,
+    signature: Signature,
+    handler: Box<dyn AggrFn + 'static>,
+    args: Vec<ExprEvaluator>,
+    /// optional modifier such as `by (...)` or `without (...)`.
+    modifier: Option<AggregateModifier>,
+    limit: usize
 }
 
 impl AggregateEvaluator {
     pub fn new(ae: &AggrFuncExpr) -> RuntimeResult<Self> {
-        match get_aggr_func(&ae.name) {
-            None => panic!("Bug: unknown aggregate function {}", ae.name),
-            Some(aggr_func) => {
-                let args = create_evaluators(&ae.args)?;
-                Ok(Self {
-                    aggr_func,
-                    args,
-                    ae: ae.clone()
-                })
-            }
-        }
+        let handler = get_aggr_func(&ae.name)?;
+        let function = AggregateFunction::from_str(&ae.name)?;
+        let signature = function.signature();
+        let args = create_evaluators(&ae.args)?;
+        let limit = ae.limit;
+
+        signature.validate_arg_count(&ae.name, args.len())?;
+
+        Ok(Self {
+            handler: Box::new(handler),
+            args,
+            function,
+            signature,
+            modifier: ae.modifier.clone(),
+            limit,
+            expr: ae.to_string()
+        })
     }
 }
 
 impl Evaluator for AggregateEvaluator {
     fn eval(&self, ctx: &mut Context, ec: &mut EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
-        let args = eval_args(ctx, ec, &self.args)?;
+        let args = eval_params(ctx, ec, &self.signature.type_signature, &self.args)?;
         //todo: use tinyvec for args
-        let mut afa = AggrFuncArg::new(*self.ae, args, ec);
-        match (self.aggr_func)(&mut afa) {
+        let mut afa = AggrFuncArg::new(ec, args,  &self.modifier, self.limit);
+        match (self.handler)(&mut afa) {
             Ok(res) => Ok(res),
             Err(e) => {
-                let res = format!("cannot evaluate {}: {:?}", self.ae, e);
+                let res = format!("cannot evaluate {}: {:?}", self.expr, e);
                 Err(RuntimeError::General(res))
             }
         }
     }
+
+    fn volatility(&self) -> Volatility { 
+        eval_volatility(&self.signature, &self.args)
+    }
 }
 
 
-pub(super) fn try_get_arg_rollup_func_with_metric_expr(ae: &AggrFuncExpr) -> Option<FuncExpr> {
+fn try_get_arg_rollup_func_with_metric_expr(ae: &AggrFuncExpr) -> Option<FuncExpr> {
     if ae.args.len() != 1 {
         return None;
     }
@@ -105,7 +124,7 @@ pub(super) fn try_get_arg_rollup_func_with_metric_expr(ae: &AggrFuncExpr) -> Opt
             if me.is_empty() {
                 return None;
             }
-            let fe = FuncExpr::default_rollup( *e);
+            let fe = FuncExpr::default_rollup( e.clone());
             Some(fe)
         }
         Expression::Rollup(re) => {
@@ -122,12 +141,12 @@ pub(super) fn try_get_arg_rollup_func_with_metric_expr(ae: &AggrFuncExpr) -> Opt
                 return None;
             }
             // e = metricExpr[d]
-            let fe = FuncExpr::default_rollup( *e);
+            let fe = FuncExpr::default_rollup( e.clone());
             Some(fe)
         }
         Expression::Function(fe) => {
             let nrf = get_rollup_func(&fe.name);
-            if nrf.is_none() {
+            if nrf.is_err() {
                 return None;
             }
             let rollup_arg_idx = get_rollup_arg_idx(fe);
@@ -142,7 +161,7 @@ pub(super) fn try_get_arg_rollup_func_with_metric_expr(ae: &AggrFuncExpr) -> Opt
                         return None;
                     }
                     // e = rollupFunc(metricExpr)
-                    let f = FuncExpr::from_single_arg(&fe.name, *arg);
+                    let f = FuncExpr::from_single_arg(&fe.name, arg.clone());
                     Some(f)
                 }
                 Expression::Rollup(re) => {

@@ -1,14 +1,24 @@
 use std::collections::HashSet;
 use std::ops::DerefMut;
+use std::sync::Arc;
 use chrono::Utc;
 
 use lib::{get_pooled_buffer, round_to_decimal_digits};
 use metricsql::ast::{Expression};
 use crate::context::Context;
 use crate::eval::{EvalConfig, Evaluator};
+use crate::parser_cache::ParseCacheValue;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::search::QueryResult;
 use crate::timeseries::Timeseries;
+
+pub fn parse_promql_with_cache(ctx: &mut Context, q: &str) -> RuntimeResult<Arc<ParseCacheValue>> {
+    let cached = ctx.parse_cache.parse(q);
+    if let Some(err) = &cached.err {
+        return Err(RuntimeError::ParseError(err.clone()))
+    }
+    return Ok(cached)
+}
 
 /// executes q for the given config.
 pub fn exec(env: &mut Context,
@@ -70,6 +80,7 @@ pub fn exec(env: &mut Context,
         }
     }
 }
+
 
 fn may_sort_results(e: &Expression, tss: &[Timeseries]) -> bool {
     return match e {

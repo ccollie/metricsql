@@ -1,6 +1,16 @@
-pub(crate) mod aggr;
-pub(crate) mod aggr_incremental;
-pub(crate) mod rollup;
 pub(crate) mod transform;
-pub(crate) mod timeseries_map;
 pub(crate) mod types;
+pub(crate) mod aggregate;
+mod udf;
+
+pub(crate) mod registry;
+mod utils;
+
+pub(crate) mod rollup;
+
+pub(crate) use utils::{
+    mode_no_nans,
+    quantile,
+    quantile_sorted,
+    quantiles
+};

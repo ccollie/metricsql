@@ -2,7 +2,6 @@ use lockfree_object_pool::{LinearObjectPool, LinearReusable};
 use once_cell::sync::{Lazy, OnceCell};
 use std::fmt;
 use std::fmt::Display;
-use crate::functions::aggr::quantile;
 
 const E10MIN: i32 = -9;
 const E10MAX: i32 = 18;
@@ -160,7 +159,7 @@ impl Histogram {
     }
 
     pub fn quantile(&self, phi: f64) -> f64 {
-        quantile(phi, &self.values)
+        crate::functions::quantile(phi, &self.values)
     }
 }
 

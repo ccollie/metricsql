@@ -256,10 +256,9 @@ impl QueryResults {
     }
 }
 
-pub fn remove_empty_values_and_timeseries(tss: &mut Vec<QueryResult>) -> Vec<QueryResult> {
-    let mut dst: Vec<QueryResult> = Vec::with_capacity(tss.len());
-    for ts in tss.into_iter() {
-        // Slow path: remove NaNs.
+pub fn remove_empty_values_and_timeseries(tss: &mut Vec<QueryResult>) {
+    tss.retain_mut(|ts| {
+
         for i in (ts.timestamps.len() .. 0).rev() {
             let v = ts.values[i];
             if v.is_nan() {
@@ -267,12 +266,9 @@ pub fn remove_empty_values_and_timeseries(tss: &mut Vec<QueryResult>) -> Vec<Que
                 ts.timestamps.remove(i);
             }
         }
-        // Slow path: remove NaNs.
-        if ts.values.len() > 0 {
-            dst.push(ts.into())
-        }
-    }
-    return dst
+
+        ts.values.len() > 0
+    });
 }
 
 

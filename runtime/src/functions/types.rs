@@ -17,33 +17,135 @@
 
 //! Signature module contains foundational types that are used to represent signatures, types,
 //! and return types of functions in DataFusion.
+use std::borrow::Borrow;
+use std::hash::Hash;
+use std::str::FromStr;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::Timeseries;
+use clone_dyn::clone_dyn;
+
+pub(crate) static MAX_ARG_COUNT: usize = 32;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub enum DataType {
-    Any,
+    Matrix,
+    Series,
+    /// Vec<f64> (normally Timeseries::values)
     Vector,
     /// A 64-bit floating point number.
     Float,
     /// A 64-bit int.
     Int,
+    /// An owned String
     String
 }
 
 impl DataType {
     /// Returns true if this type is numeric: (Int or Float).
     pub fn is_numeric(&self) -> bool {
-        self == DataType::Float || self == DataType::Int
+        *self == DataType::Float || *self == DataType::Int
     }
 }
 
-pub enum Parameter {
-    Any(Vec<Timeseries>),
+pub enum ParameterValue {
+    Matrix(Vec<Vec<Timeseries>>),
+    Series(Vec<Timeseries>),
     Vector(Vec<f64>),
     Float(f64),
     Int(i64),
     String(String),
+}
+
+impl ParameterValue {
+    pub fn is_numeric(&self) -> bool {
+        match self {
+            ParameterValue::Float(_) |
+            ParameterValue::Int(_) => true,
+            _ => false
+        }
+    }
+
+    pub fn data_type(&self) -> DataType {
+        match &self {
+            ParameterValue::Matrix(_) => DataType::Matrix,
+            ParameterValue::Float(_) => DataType::Float,
+            ParameterValue::String(_) => DataType::String,
+            ParameterValue::Int(_) => DataType::Int,
+            ParameterValue::Vector(_) => DataType::Vector,
+            ParameterValue::Series(_) => DataType::Series
+        }
+    }
+
+    pub fn get_matrix(&self) -> &Vec<Vec<Timeseries>> {
+        match self {
+            ParameterValue::Matrix(val) => val,
+            _ => panic!("BUG: range selection value expected ")
+        }
+    }
+
+    pub fn get_int(&self) -> i64 {
+        match self {
+            ParameterValue::Int(val) => *val,
+            _ => panic!("BUG: int parameter expected ")
+        }
+    }
+
+    pub fn get_float(&self) -> f64 {
+        match self {
+            ParameterValue::Float(val) => *val,
+            _ => panic!("BUG: float parameter expected ")
+        }
+    }
+
+    pub fn get_vector<'a>(&self) -> &'a Vec<f64> {
+        match self {
+            ParameterValue::Vector(val) => val,
+            _ => panic!("BUG: vector parameter expected ")
+        }
+    }
+
+    pub fn get_str(&self) -> &str {
+        match self {
+            ParameterValue::String(val) => val.as_str(),
+            _ => panic!("BUG: invalid string parameter")
+        }
+    }
+
+    pub fn get_string(&self) -> String {
+        match self {
+            ParameterValue::String(val) => val.to_string(),
+            ParameterValue::Int(int) => int.to_string(),
+            ParameterValue::Float(f) => f.to_string(),
+            _ => panic!("BUG: invalid string parameter")
+        }
+    }
+
+    pub fn get_series<'a>(&self) -> &'a Vec<Timeseries> {
+        match self {
+            ParameterValue::Series(val) => val.as_ref(),
+            _ => panic!("BUG: invalid series parameter")
+        }
+    }
+}
+
+impl FromStr for ParameterValue {
+    type Err = RuntimeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(ParameterValue::String(s.to_string()))
+    }
+}
+
+impl From<f64> for ParameterValue {
+    fn from(v: f64) -> Self {
+        ParameterValue::Float(v)
+    }
+}
+
+impl From<i64> for ParameterValue {
+    fn from(v: i64) -> Self {
+        ParameterValue::Int(v)
+    }
 }
 
 ///A function's volatility, which defines the functions eligibility for certain optimizations
@@ -83,12 +185,13 @@ pub enum TypeSignature {
 
 impl TypeSignature {
     /// Validate argument counts matches the `signature`.
-    pub fn validate_arg_count(&self, arg_len: usize) -> RuntimeResult<()> {
+    pub fn validate_arg_count(&self, name: &str, arg_len: usize) -> RuntimeResult<()> {
 
-        fn expect_arg_count(arg_len: usize, expected: usize) -> RuntimeResult<()> {
+        fn expect_arg_count(name: &str, arg_len: usize, expected: usize) -> RuntimeResult<()> {
             if arg_len != expected {
                 return Err(RuntimeError::ArgumentError(format!(
-                    "The function expected {} arguments but received {}",
+                    "The function {} expected {} arguments but received {}",
+                    name,
                     expected,
                     arg_len
                 )));
@@ -96,10 +199,11 @@ impl TypeSignature {
             Ok(())
         }
 
-        fn expect_min_args(args_len: usize, min: usize) -> RuntimeResult<()> {
+        fn expect_min_args(name: &str, args_len: usize, min: usize) -> RuntimeResult<()> {
             if args_len < min {
                 return Err(RuntimeError::ArgumentError(format!(
-                    "The function expected a minimum of {} arguments but received {}",
+                    "The function {} expected a minimum of {} arguments but received {}",
+                    name,
                     min,
                     args_len
                 )));
@@ -109,27 +213,28 @@ impl TypeSignature {
 
         return match self {
             TypeSignature::VariadicEqual(data_type_, min) => {
-                expect_min_args(arg_len, *min)
+                expect_min_args(name,arg_len, *min)
             },
             TypeSignature::Variadic(valid_types, min) => {
                 if valid_types.len() < *min || arg_len > valid_types.len() {
                     return Err(RuntimeError::ArgumentError(format!(
-                        "The function expected between {} and {} argument, but received {}",
+                        "The function {} expected between {} and {} argument, but received {}",
+                        name,
                         min,
                         valid_types.len(),
-                        args_len
+                        arg_len
                     )));
                 }
                 Ok(())
             },
             TypeSignature::Uniform(number, valid_type_) => {
-                expect_arg_count(arg_len, *number)
+                expect_arg_count(name, arg_len, *number)
             },
             TypeSignature::Exact(valid_types) => {
-                expect_arg_count(arg_len, valid_types.len())
+                expect_arg_count(name, arg_len, valid_types.len())
             },
             TypeSignature::Any(number) => {
-                expect_arg_count(arg_len, *number)
+                expect_arg_count(name, arg_len, *number)
             }
         }
     }
@@ -201,4 +306,51 @@ impl Signature {
             volatility,
         }
     }
+
+    /// Validate argument counts matches the `signature`.
+    pub fn validate_arg_count(&self, name: &str, arg_len: usize) -> RuntimeResult<()> {
+        self.type_signature.validate_arg_count(name, arg_len)
+    }
+
+}
+
+#[clone_dyn]
+pub trait FunctionImplementation<P: ?Sized, R>: Fn(&mut P) -> R
+    where
+        P: Send + Sync,
+{
+}
+
+impl<T, P: ?Sized, R> FunctionImplementation<P, R> for T
+    where
+        T: Fn(&mut P) -> R + 'static,
+        P: Send + Sync,
+{
+}
+
+
+pub trait FunctionRegistry<K, P: ?Sized, R>
+    where
+        K: Eq + Hash,
+{
+    fn into_vec(self) -> Vec<(K, Box<dyn FunctionImplementation<P, R>>)>;
+
+    fn remove<Q: ?Sized>(&mut self, key: &Q)
+        where
+            K: Borrow<Q>,
+            Q: Eq + Hash;
+
+    fn insert(&mut self, key: K, item: Box<dyn FunctionImplementation<P, R>>);
+
+    fn contains_key<Q: ?Sized>(&self, key: &Q) -> bool
+        where
+            K: Borrow<Q>,
+            Q: Eq + Hash;
+
+    fn get<Q: ?Sized>(&self, key: &Q) -> Option<&Box<dyn FunctionImplementation<P, R>>>
+        where
+            K: Borrow<Q>,
+            Q: Eq + Hash;
+
+    fn len(&self) -> usize;
 }

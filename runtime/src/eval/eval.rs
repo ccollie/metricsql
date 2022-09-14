@@ -1,6 +1,5 @@
 use chrono::Duration;
 use metricsql::ast::*;
-use once_cell::unsync::OnceCell;
 use std::sync::Arc;
 use crate::context::Context;
 
@@ -12,8 +11,7 @@ use crate::eval::duration::DurationEvaluator;
 use crate::eval::function::{create_function_evaluator, TransformEvaluator};
 use crate::eval::number::NumberEvaluator;
 use crate::eval::string::StringEvaluator;
-use crate::functions::rollup::get_string;
-use crate::functions::types::{DataType, Parameter, TypeSignature};
+use crate::functions::types::{DataType, ParameterValue, Signature, TypeSignature, Volatility};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::search::Deadline;
 use crate::timeseries::Timeseries;
@@ -42,6 +40,12 @@ impl Evaluator for ExprEvaluator {
             ExprEvaluator::Rollup(ref mut re) => re.eval(ctx, ec),
             ExprEvaluator::String(se) => se.eval(ctx, ec),
         }
+    }
+}
+
+impl Default for ExprEvaluator {
+    fn default() -> Self {
+        ExprEvaluator::Null(NullEvaluator{})
     }
 }
 
@@ -179,7 +183,7 @@ pub struct EvalConfig {
     /// Whether to disable response caching. This may be useful during data backfilling
     pub disable_cache: bool,
 
-    ts_cell: OnceCell<Arc<Vec<i64>>>,
+    _timestamps: Arc<Vec<i64>>,
 }
 
 impl EvalConfig {
@@ -195,10 +199,10 @@ impl EvalConfig {
             lookback_delta: 0,
             round_digits: 0,
             enforced_tag_filterss: vec![],
-            ts_cell: OnceCell::new(),
             options: EvalOptions::default(),
             max_points_per_series: 0,
-            disable_cache: false
+            disable_cache: false,
+            _timestamps: Arc::new(vec![])
         }
     }
 
@@ -215,10 +219,10 @@ impl EvalConfig {
             round_digits: self.round_digits,
             enforced_tag_filterss: vec![],
             // do not copy src.timestamps - they must be generated again.
+            _timestamps: Arc::new(vec![]),
             options: EvalOptions::default(),
             max_points_per_series: self.max_points_per_series,
             disable_cache: self.disable_cache,
-            ts_cell: Default::default(),
         };
         return ec;
     }
@@ -251,21 +255,33 @@ impl EvalConfig {
         if self.end % self.step != 0 {
             return false;
         }
-        return true;
+
+        true
     }
 
-    pub fn timestamps(&self) -> Option<&Arc<Vec<i64>>> {
-        self.ts_cell.get()
+    pub fn timestamps<'a>(&mut self) -> &'a Arc<Vec<i64>> {
+        &self._timestamps
     }
 
-    pub fn get_shared_timestamps(&mut self) -> &Arc<Vec<i64>> {
-        self.ts_cell
-            .get_or_init(|| Arc::new(get_timestamps(
+    pub fn get_timestamps<'a>(&mut self) -> &'a Arc<Vec<i64>> {
+        self.ensure_timestamps();
+        &self._timestamps
+    }
+
+    pub(crate) fn ensure_timestamps(&mut self) {
+        if self._timestamps.len() == 0 {
+            let ts = get_timestamps(
                 self.start,
                 self.end,
                 self.step,
                 self.max_points_per_series as usize
-            )?))
+            ).unwrap();
+            self._timestamps = Arc::new(ts);
+        }
+    }
+
+    pub fn get_shared_timestamps(&mut self) -> &Arc<Vec<i64>> {
+        self.get_timestamps()
     }
 }
 
@@ -356,7 +372,7 @@ pub(crate) fn eval_args(
 }
 
 pub(crate) fn eval_number(ec: &mut EvalConfig, n: f64) -> Vec<Timeseries> {
-    let timestamps = ec.get_shared_timestamps();
+    let timestamps = ec.timestamps();
     let values = vec![n; timestamps.len()];
     let ts = Timeseries::with_shared_timestamps(timestamps, &values);
     vec![ts]
@@ -435,33 +451,38 @@ fn get_float(arg: &Vec<Timeseries>, arg_num: usize) -> RuntimeResult<f64> {
     Ok(n)
 }
 
-fn get_param(
+pub(crate) fn eval_param(
     ctx: &mut Context,
     ec: &mut EvalConfig,
     expr: &ExprEvaluator,
     expected: &DataType,
-    arg_num: usize) -> RuntimeResult<Parameter> {
+    arg_num: usize) -> RuntimeResult<ParameterValue> {
     let val = expr.eval(ctx, ec)?;
     Ok(match expected {
-        DataType::Any => {
-          Parameter::Any(val)
+        DataType::Matrix => {
+            // this is likely incorrect
+            ParameterValue::Matrix(vec![val])
+        }
+        DataType::Series => {
+            ParameterValue::Series(val)
         },
         DataType::Vector => {
             let val = get_scalar(&val, arg_num)?;
-            Parameter::Vector(val.into())
+            ParameterValue::Vector(val.into())
         },
         DataType::Float => {
             let val = get_float(&val, arg_num)?;
-            Parameter::Float(val)
+            ParameterValue::Float(val)
         },
         DataType::Int => {
             let val = get_int_number(&val, arg_num)?;
-            Parameter::Int(val)
+            ParameterValue::Int(val)
         },
         DataType::String => {
-            let val = get_string(&val, arg_num)?;
-            Parameter::String(val)
+            let val = get_string_arg(&val, arg_num)?;
+            ParameterValue::String(val)
         }
+        _ => {}
     })
 }
 
@@ -472,17 +493,17 @@ pub fn eval_params(
     ec: &mut EvalConfig,
     signature: &TypeSignature,
     args: &[ExprEvaluator]
-) -> RuntimeResult<Vec<Parameter>> {
+) -> RuntimeResult<Vec<ParameterValue>> {
 
     fn get_variadic(
         ctx: &mut Context,
         ec: &mut EvalConfig,
         args: &[ExprEvaluator],
         types: &Vec<DataType>
-    ) -> RuntimeResult<Vec<Parameter>> {
-        let mut params: Vec<Parameter> = Vec::with_capacity(types.len());
+    ) -> RuntimeResult<Vec<ParameterValue>> {
+        let mut params: Vec<ParameterValue> = Vec::with_capacity(types.len());
         for (i, expected) in types.iter().enumerate() {
-            let arg = get_param(ctx, ec, &args[i], expected, i)?;
+            let arg = eval_param(ctx, ec, &args[i], expected, i)?;
             params.push(arg);
         }
         Ok(params)
@@ -493,17 +514,17 @@ pub fn eval_params(
             get_variadic(ctx, ec, args, valid_types)
         },
         TypeSignature::Uniform(number, valid_type) => {
-            let mut params: Vec<Parameter> = Vec::with_capacity(args.len());
+            let mut params: Vec<ParameterValue> = Vec::with_capacity(args.len());
             for i in 0 .. *number {
-                let arg = get_param(ctx, ec, &args[i], valid_type, i)?;
+                let arg = eval_param(ctx, ec, &args[i], valid_type, i)?;
                 params.push(arg);
             }
             Ok(params)
         },
         TypeSignature::VariadicEqual(data_type, min) => {
-            let mut params: Vec<Parameter> = Vec::with_capacity(args.len());
+            let mut params: Vec<ParameterValue> = Vec::with_capacity(args.len());
             for (i, evaluator) in args.iter().enumerate() {
-                let arg = get_param(ctx, ec, evaluator, data_type, i)?;
+                let arg = eval_param(ctx, ec, evaluator, data_type, i)?;
                 params.push(arg);
             }
             Ok(params)
@@ -512,12 +533,39 @@ pub fn eval_params(
             get_variadic(ctx, ec, args, valid_types)
         },
         TypeSignature::Any(number) => {
-            let mut params: Vec<Parameter> = Vec::with_capacity(*number);
+            let mut params: Vec<ParameterValue> = Vec::with_capacity(*number);
             for i in 0 .. *number {
-                let arg = get_param(ctx, ec, &args[i], &DataType::Any, i)?;
+                let arg = eval_param(ctx, ec, &args[i], &DataType::Series, i)?;
                 params.push(arg);
             }
             Ok(params)
         }
+    }
+}
+
+pub(super) fn eval_volatility(sig: &Signature, args: &Vec<ExprEvaluator>) -> Volatility {
+    if sig.volatility != Volatility::Immutable {
+        return sig.volatility
+    }
+
+    let mut has_volatile = false;
+    let mut mutable = false;
+
+    for arg in args {
+        let vol = arg.volatility();
+        if vol != Volatility::Immutable {
+            mutable = true;
+            has_volatile = vol == Volatility::Volatile;
+        }
+    }
+
+    if mutable {
+        return if has_volatile {
+            Volatility::Volatile
+        } else {
+            Volatility::Stable
+        }
+    } else {
+        Volatility::Immutable
     }
 }

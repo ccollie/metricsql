@@ -1,43 +1,50 @@
 use std::borrow::Cow;
-use std::cmp::Ordering;
 use std::collections::{HashMap};
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::ops::{Deref, DerefMut};
 use lockfree_object_pool::LinearReusable;
-use phf::phf_map;
+use phf::{phf_map};
 use tinyvec::*;
 
 use lib::{get_float64s, get_pooled_buffer};
-use metricsql::ast::{AggregateModifier, AggregateModifierOp, AggrFuncExpr};
+use metricsql::ast::{AggregateModifier, AggregateModifierOp};
 
-use crate::{MetricName, Timeseries};
-use crate::eval::{eval_number, EvalConfig};
+use crate::{EvalConfig, MetricName, Timeseries};
+use crate::eval::{eval_number};
 use crate::exec::remove_empty_series;
-use crate::functions::rollup::get_string;
+use super::aggregate_function::AggregateFunction;
 use crate::functions::transform::vmrange_buckets_to_le;
+use crate::functions::{mode_no_nans, quantile, quantiles};
+use crate::functions::types::ParameterValue;
 use crate::histogram::{get_pooled_histogram, Histogram};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 
+// todo: add lifetime so we dont need to copy modifier
 #[derive(Clone)]
-pub(crate) struct AggrFuncArg {
-    args: Vec<Vec<Timeseries>>,
-    ae: AggrFuncExpr,
-    ec: EvalConfig,
+pub struct AggrFuncArg {
+    pub(crate) args: Vec<ParameterValue>,
+    pub(crate) ec: EvalConfig,
+    pub(crate) modifier: Option<AggregateModifier>,
+    pub(crate) limit: usize
 }
 
 impl AggrFuncArg {
-    pub fn new(ae: AggrFuncExpr, args: Vec<Vec<Timeseries>>, ec: EvalConfig) -> Self {
+    pub fn new(ec: EvalConfig, 
+               args: Vec<ParameterValue>, 
+               modifier: &Option<AggregateModifier>,
+               limit: usize) -> Self {
         Self {
             args,
-            ae,
-            ec
+            ec,
+            modifier: modifier.clone(),
+            limit
         }
     }
 }
 
-pub type AggrFunc = fn(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>>;
+pub type AggrFunctionResult = RuntimeResult<Vec<Timeseries>>;
 
-trait AggrFn: FnMut(&mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> + Send + Sync {}
+pub trait AggrFn: Fn(&mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> + Send + Sync {}
 impl<T> AggrFn for T where T: Fn(&mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> + Send + Sync {}
 
 
@@ -49,7 +56,7 @@ fn new_aggr_func(afe: fn(tss: &mut Vec<Timeseries>)) -> impl AggrFn {
             tss.shrink_to(1);
             tss
         }, // todo: avoid cloning
-                      &mut tss, &afa.ae.modifier, afa.ae.limit, false)
+                      &mut tss, &afa.modifier, afa.limit, false)
     }
 }
 
@@ -110,7 +117,7 @@ fn aggr_func_ext(
         let key = ts.metric_name.marshal_to_string(bb.deref_mut())?;
 
         if keep_original {
-            ts = arg_orig[i].into();
+            std::mem::swap(&mut ts, &mut arg_orig[i]);
         }
         let tss = m.get_mut(key.as_str());
         bb.clear();
@@ -151,12 +158,12 @@ fn aggr_func_any(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let afe = move |tss: &mut Vec<Timeseries>, modifier| -> Vec<Timeseries> {
         return tss.into();
     };
-    let mut limit = afa.ae.limit;
+    let mut limit = afa.limit;
     if limit > 1 {
         // Only a single time series per group must be returned
         limit = 1
     }
-    aggr_func_ext(afe, &mut tss, &afa.ae.modifier, limit, true)
+    aggr_func_ext(afe, &mut tss, &afa.modifier, limit, true)
 }
 
 fn aggr_func_group(tss: &mut Vec<Timeseries>) {
@@ -244,7 +251,7 @@ fn aggr_func_geomean(tss: &mut Vec<Timeseries>) {
     }
 }
 
-fn aggr_func_histogram(tss: &mut Vec<Timeseries>) -> Vec<Timeseries> {
+fn aggr_func_histogram(tss: &mut Vec<Timeseries>) -> RuntimeResult<Vec<Timeseries>> {
     let mut h: LinearReusable<Histogram> = get_pooled_histogram();
     let mut m: HashMap<String, Timeseries> = HashMap::new();
     for i in 0 .. tss[0].values.len() {
@@ -265,16 +272,16 @@ fn aggr_func_histogram(tss: &mut Vec<Timeseries>) -> Vec<Timeseries> {
                     for k in 0 .. ts.values.len() {
                         ts.values[k] = 0.0;
                     }
-                    entry.insert(ts);
+                    entry.insert(ts)
                 },
-                Occupied(entry) => entry.into_mut(),
+                Occupied(mut entry) => entry.get_mut(),
             };
             ts.values[i] = bucket.count as f64;
         }
     }
 
-    let mut res: Vec<Timeseries> = m.values().collect();
-    return vmrange_buckets_to_le(&mut res);
+    let mut res: Vec<Timeseries> = m.into_values().collect();
+    Ok(vmrange_buckets_to_le(&mut res))
 }
 
 fn aggr_func_min(tss: &mut Vec<Timeseries>) {
@@ -497,52 +504,18 @@ fn aggr_func_zscore(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
         std::mem::take(tss)
     };
 
-    aggr_func_ext(afe, &mut tss, &afa.ae.modifier, afa.ae.limit, true)
+    aggr_func_ext(afe, &mut tss, &afa.modifier, afa.limit, true)
 }
 
-/// modeNoNaNs returns mode for a.
-///
-/// It is expected that a doesn't contain NaNs.
-///
-/// The function modifies contents for a, so the caller must prepare it accordingly.
-///
-/// See https://en.wikipedia.org/wiki/Mode_(statistics)
-pub(crate) fn mode_no_nans(mut prev_value: f64, a: &mut Vec<f64>) -> f64 {
-    if a.len() == 0 {
-        return prev_value;
-    }
-    a.sort_by(|a, b| a.total_cmp(b));
-    let mut j = -1;
-    let mut d_max = 0;
-    let mut mode = prev_value;
-    for (i, v) in a.iter().enumerate() {
-        if prev_value == *v {
-            continue;
-        }
-        let d = i - j;
-        if d > d_max || mode.is_nan() {
-            d_max = d;
-            mode = prev_value;
-        }
-        j = i;
-        prev_value = *v;
-    }
-    let d = a.len() - j;
-    if d > d_max || mode.is_nan() {
-        mode = prev_value
-    }
-    return mode;
-}
 
 fn aggr_func_count_values(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    expect_transform_args_num(&afa.args, 2)?;
-    let dst_label = get_string(&afa.args[0], 0)?;
+    let dst_label = afa.args[0].get_str();
 
     // Remove dst_label from grouping like Prometheus does.
-    if let Some(mut modifier) = &afa.ae.modifier {
+    if let Some(mut modifier) = &afa.modifier {
         match modifier.op {
             AggregateModifierOp::Without => {
-                modifier.args.push( dst_label);
+                modifier.args.push( dst_label.to_string());
             },
             AggregateModifierOp::By => {
                 modifier.args.retain(|x| x != &dst_label);
@@ -587,14 +560,13 @@ fn aggr_func_count_values(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries
         return rvs
     };
 
-    return aggr_func_ext(afe, &mut afa.args[1], &afa.ae.modifier, afa.ae.limit, false)
+    aggr_func_ext(afe, &mut afa.args[1], &afa.modifier, afa.limit, false)
 }
 
 fn new_aggr_func_topk(is_reverse: bool) -> impl AggrFn {
-    |afa: &mut AggrFuncArg| -> RuntimeResult<Vec<Timeseries>> {
-        let args = &afa.args;
-        expect_transform_args_num(args, 2)?;
-        let ks = get_scalar(&args[0], 0)?;
+    move |afa: &mut AggrFuncArg| -> RuntimeResult<Vec<Timeseries>> {
+        let ks = afa.args[0].get_vector();
+        let (left, right) = afa.args.split_at_mut(1);
 
         let afe = |tss: &mut Vec<Timeseries>, modifier: &Option<AggregateModifier>| -> Vec<Timeseries> {
             for n in 0..tss[0].values.len() {
@@ -611,10 +583,10 @@ fn new_aggr_func_topk(is_reverse: bool) -> impl AggrFn {
             }
             remove_empty_series(tss);
             tss.reverse();
-            return tss;
+            return tss.into();
         };
 
-        return aggr_func_ext(afe, &mut args[1], &afa.ae.modifier, afa.ae.limit, true);
+        aggr_func_ext(afe, &mut afa.args[1], &afa.modifier, afa.limit, true)
     }
 }
 
@@ -622,22 +594,14 @@ fn new_aggr_func_topk(is_reverse: bool) -> impl AggrFn {
 fn new_aggr_func_range_topk(f: fn(values: &[f64]) -> f64, is_reverse: bool) -> impl AggrFn {
     return move |afa: &mut AggrFuncArg| -> RuntimeResult<Vec<Timeseries>> {
         let args_len = afa.args.len();
-        if args_len < 2 {
-            let msg = format!("unexpected number of args; got {}; want at least {}", args_len, 2);
-            return Err(RuntimeError::ArgumentError(msg));
-        }
-        if args_len > 3 {
-            let msg = format!("unexpected number of args; got {}; want no more than {}", args_len, 3);
-            return Err(RuntimeError::ArgumentError(msg));
-        }
-        let ks: &Vec<f64>;
-        {
-            ks = get_scalar(&afa.args[0], 0)?;
-        }
-        let mut remaining_sum_tag_name = "";
-        if args_len == 3 {
-            remaining_sum_tag_name = get_string(&afa.args[2], 2)?.as_str()
-        }
+        let ks: &Vec<f64> = afa.args[0].get_vector();
+
+        let remaining_sum_tag_name = if args_len == 3 {
+            afa.args[2].get_str()
+        } else {
+            ""
+        };
+
         let afe = |tss: &mut Vec<Timeseries>, modifier: &Option<AggregateModifier>| {
             return get_range_topk_timeseries(tss,
                                              modifier,
@@ -646,16 +610,21 @@ fn new_aggr_func_range_topk(f: fn(values: &[f64]) -> f64, is_reverse: bool) -> i
                                              f,
                                              is_reverse);
         };
-        return aggr_func_ext(afe, &mut afa.args[1], &afa.ae.modifier, afa.ae.limit, true);
+
+        afa.args.remove(0);
+        aggr_func_ext(afe, &mut afa.args, &afa.modifier, afa.limit, true)
     };
 }
 
-fn get_range_topk_timeseries(tss: &mut Vec<Timeseries>,
+
+fn get_range_topk_timeseries<F>(tss: &mut Vec<Timeseries>,
                              modifier: &Option<AggregateModifier>,
                              ks: &Vec<f64>,
                              remaining_sum_tag_name: &str,
-                             f: fn(values: &[f64]) -> f64,
-                             is_reverse: bool) -> Vec<Timeseries> {
+                             f: F,
+                             is_reverse: bool) -> Vec<Timeseries>
+where F: Fn(&[f64]) -> f64,
+{
     struct TsWithValue<'a> {
         ts: &'a Timeseries,
         value: f64,
@@ -816,47 +785,36 @@ fn median_value(values: &[f64]) -> f64 {
     quantile(0.5, values)
 }
 
-fn aggr_func_outliers_k(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let args = &afa.args;
-    expect_transform_args_num(args, 2)?;
-    let ks = get_scalar(&args[0], 0)?;
+fn aggr_func_outliersk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    let ks = afa.args[0].get_vector();
     let afe = move |tss: &mut Vec<Timeseries>, modifier: &Option<AggregateModifier>| {
         // Calculate medians for each point across tss.
-        let medians: Vec<f64> = Vec::new();
-        let mut h = get_pooled_histogram();
-        // todo: set upper limit on ks ?
-        for n in 0..ks.len() {
-            h.reset();
-            for ts in tss.iter() {
-                let v = ts.values[n];
-                if !v.is_nan() {
-                    h.update(v);
-                }
-            }
-            medians[n] = h.quantile(0.5)
-        }
+        let medians = get_per_point_medians(tss);
 
         // Return topK time series with the highest variance from median.
-        let f = |values: &[f64]| -> f64 {
-            let mut sum2: f64 = 0.0;
+        let f = move |values: &[f64]| -> f64 {
+            let mut sum2 = 0_f64;
             for (n, v) in values.iter().enumerate() {
                 let d = v - medians[n];
                 sum2 += d * d;
             }
-            return sum2;
+            sum2
         };
 
-        return get_range_topk_timeseries(tss, &afa.ae.modifier, &ks, "", f, false);
+        return get_range_topk_timeseries(tss, &afa.modifier, &ks, "", f, false);
     };
 
-    return aggr_func_ext(afe, &mut args[1], &afa.ae.modifier, afa.ae.limit, true);
+    afa.args.remove(0);
+    aggr_func_ext(afe, &mut afa.args, &afa.modifier, afa.limit, true)
 }
 
 fn aggr_func_limitk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let mut args = &afa.args;
-    expect_transform_args_num(&args, 2)?;
-    let ks = get_scalar(&args[0], 0)?;
-    let mut max_k = ks.iter().max().unwrap().floor() as usize;
+    let ks = afa.args[0].get_vector();
+    let mut max_k =
+        ks.iter()
+            .max_by(|a, b| a.partial_cmp(&*b).unwrap())
+            .unwrap()
+            .floor() as usize;
 
     let afe = |tss: &mut Vec<Timeseries>, modifier: &Option<AggregateModifier>| {
         if tss.len() > max_k {
@@ -877,33 +835,22 @@ fn aggr_func_limitk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
         return tss
     };
 
-    aggr_func_ext(afe, &mut afa.args[1], &afa.ae.modifier, afa.ae.limit, true)
+    aggr_func_ext(afe, &mut afa.args[1], &afa.modifier, afa.limit, true)
 }
 
 fn aggr_func_quantiles(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut args = &afa.args;
-    expect_at_least_n_args(args, 3)?;
 
-    let mut dst_label: String;
-
-    match get_string(&args[0], 0) {
-        Ok(label) => dst_label = label,
-        Err(err) => {
-            return Err(RuntimeError::ArgumentError(format!("cannot obtain dst_label: {:?}", err)))
-        }
-    }
+    let mut dst_label = afa.args[0].get_string();
 
     let phi_args = &args[1 .. args.len()-1];
     
     // todo: smallvec
     let mut phis: Vec<f64> = Vec::with_capacity(phi_args.len());
-    for (i, phiArg) in phi_args.iter().enumerate() {
-        let phis_local = get_scalar(phiArg, i+1)?;
-        if phis.len() == 0 {
-            panic!("BUG: expecting at least a single sample")
-        }
-        phis.push(phis_local[0]);
+    for i in 1 .. afa.args.len() {
+        phis.push( afa.args[i].get_float());
     }
+
     let mut arg_orig = &args[args.len() - 1];
     let afe = |tss: &mut Vec<Timeseries>, modifier: &Option<AggregateModifier>| {
         // todo: smallvec
@@ -935,25 +882,26 @@ fn aggr_func_quantiles(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> 
         return tss_dst
     };
 
-    return aggr_func_ext(afe, &mut arg_orig, &afa.ae.modifier, afa.ae.limit, false)
+    let mut last = afa.args.remove(afa.args.len() - 1).get_series();
+    aggr_func_ext(afe, &mut last, &afa.modifier, afa.limit, false)
 }
 
 fn aggr_func_quantile(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    expect_transform_args_num(&afa.args, 2)?;
-    let phis = get_scalar(&afa.args[0], 0)?;
+    let (left, orig) = afa.args.split_at_mut(1);
+    let phis = left[0].get_vector();
     let afe = new_aggr_quantile_func(phis);
-    return aggr_func_ext(afe, &mut afa.args[1], &afa.ae.modifier, afa.ae.limit, false);
+    return aggr_func_ext(afe, &mut orig, &afa.modifier, afa.limit, false);
 }
 
 fn aggr_func_median(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut tss = get_aggr_timeseries(&afa.args)?;
     let phis = &eval_number(&mut afa.ec, 0.5)[0].values;
     let afe = new_aggr_quantile_func(phis);
-    return aggr_func_ext(afe, &mut tss, &afa.ae.modifier, afa.ae.limit, false);
+    return aggr_func_ext(afe, &mut tss, &afa.modifier, afa.limit, false);
 }
 
 fn new_aggr_quantile_func(phis: &Vec<f64>) -> impl AggrFnExt {
-    |tss: &mut Vec<Timeseries>, modifier: &Option<AggregateModifier>| -> Vec<Timeseries> {
+    move |tss: &mut Vec<Timeseries>, modifier: &Option<AggregateModifier>| -> Vec<Timeseries> {
         let count = tss[0].values.len();
         let mut values = get_float64s(count);
 
@@ -966,94 +914,88 @@ fn new_aggr_quantile_func(phis: &Vec<f64>) -> impl AggrFnExt {
             values.clear();
         }
 
-        return tss
+        return tss.into()
     }
 }
 
-fn less_with_nans(a: f64, b: f64) -> bool {
-    if a.is_nan() {
-        return !b.is_nan();
-    }
-    return a < b;
+fn aggr_func_MAD(tss: &mut Vec<Timeseries>) -> RuntimeResult<Vec<Timeseries>> {
+    // Calculate medians for each point across tss.
+    let medians = get_per_point_medians(tss);
+    // Calculate MAD values multiplied by tolerance for each point across tss.
+    // See https://en.wikipedia.org/wiki/Median_absolute_deviation
+    let mads = get_per_point_mads(tss, &medians);
+
+    tss[0].values.extend_from_slice(&mads);
+    Ok(tss.into_iter().collect())
 }
 
-/// quantiles calculates the given phis from originValues without modifying originValues, appends
-/// them to qs and returns the result.
-pub fn quantiles(qs: &mut [f64], phis: &[f64], origin_values: &[f64]) {
-    if origin_values.len() <= 64 {
-        let mut vec = tiny_vec!([f64; 64]);
-        prepare_tv_for_quantile_float64(&mut vec, origin_values);
-        return quantiles_sorted(qs, phis, &vec)
-    }
+fn aggr_func_outliers_MAD(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    let tolerances = afa.args[0].get_vector();
 
-    let mut block = get_float64s(phis.len());
-    let a = block.deref_mut();
-    prepare_for_quantile_float64(a, origin_values);
-    quantiles_sorted(qs, phis, a)
-}
-
-/// calculates the given phi from origin_values without modifying originValues
-pub fn quantile(phi: f64, origin_values: &[f64]) -> f64 {
-    // todo: smallvec
-    let mut block = get_float64s(origin_values.len());
-    prepare_for_quantile_float64(&mut block, origin_values);
-    quantile_sorted(phi, &block)
-}
-
-/// prepare_for_quantile_float64 copies items from src to dst but removes NaNs and sorts the dst
-fn prepare_for_quantile_float64(dst: &mut Vec<f64>, src: &[f64]) {
-    for v in src {
-        if v.is_nan() {
-            continue
+    let afe = |tss : &mut Vec<Timeseries>, modifier: &Option<AggregateModifier>| -> Vec<Timeseries> {
+        // Calculate medians for each point across tss.
+        let medians = get_per_point_medians(tss);
+        // Calculate MAD values multiplied by tolerance for each point across tss.
+        // See https://en.wikipedia.org/wiki/Median_absolute_deviation
+        let mut mads = get_per_point_mads(tss, &medians);
+        let mut n = 0;
+        for mad in mads.iter_mut() {
+            *mad *= tolerances[n];
+            n += 1;
         }
-        dst.push(*v);
-    }
-    dst.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Less));
+
+        // Leave only time series with at least a single peak above the MAD multiplied by tolerance.
+        let res = tss.iter().filter(|ts| {
+            for (n, v) in ts.values.iter().enumerate() {
+                let ad = (v - medians[n]).abs();
+                let mad = mads[n];
+                if ad > mad {
+                    return true
+                 }
+            }
+            false
+        }).collect::<Vec<_>>();
+
+        return res
+    };
+
+    aggr_func_ext(afe, &afa.args[1], &afa.modifier, afa.limit, true)
 }
 
-/// copies items from src to dst but removes NaNs and sorts the dst
-fn prepare_tv_for_quantile_float64(dst: &mut TinyVec<[f64; 64]>, src: &[f64]) {
-    for v in src {
-        if v.is_nan() {
-            continue
+fn get_per_point_medians(tss: &mut Vec<Timeseries>) -> Vec<f64> {
+    if tss.len() == 0 {
+        // logger.Panicf("BUG: expecting non-empty tss")
+    }
+    let medians = Vec::with_capacity(tss[0].values.len());
+    let mut values = get_float64s(medians.len());
+    for n in 0 .. medians.len() {
+        values.clear();
+        for j in 0 .. tss.len() {
+            let v = tss[j].values[n];
+            if !v.is_nan() {
+                values.push(v);
+            }
         }
-        dst.push(*v);
+        medians[n] = quantile(0.5, &values)
     }
-    dst.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Less));
+    return medians
 }
 
-/// calculates the given phis over a sorted list of values, appends them to qs and returns the result.
-///
-/// It is expected that values won't contain NaN items.
-/// The implementation mimics Prometheus implementation for compatibility's sake.
-pub fn quantiles_sorted(qs: &mut [f64], phis: &[f64], values: &[f64]) {
-    for (i, phi) in phis.iter().enumerate() {
-        qs[i] = quantile_sorted(*phi, values);
+fn get_per_point_mads(tss: &mut Vec<Timeseries>, medians: &[f64]) -> Vec<f64> {
+    let mut mads: Vec<f64> = Vec::with_capacity(medians.len());
+    let mut values = get_float64s(mads.len());
+    for (n, median) in medians.iter().enumerate() {
+        values.clear();
+        for j in 0 .. tss.len() {
+            let v = tss[j].values[n];
+            if !v.is_nan() {
+                let ad = (v - median).abs();
+                values.push(ad);
+            }
+        }
+        mads[n] = quantile(0.5, &values)
     }
-}
-
-/// quantile_sorted calculates the given quantile over a sorted list of values.
-///
-/// It is expected that values won't contain NaN items.
-/// The implementation mimics Prometheus implementation for compatibility's sake.
-pub fn quantile_sorted(phi: f64, values: &[f64]) -> f64 {
-    if values.len() == 0 || phi.is_nan() {
-        return f64::NAN
-    }
-    if phi < 0.0 {
-        return f64::NEG_INFINITY;
-    }
-    if phi > 1.0 {
-        return f64::INFINITY;
-    }
-    let n = values.len() as f64;
-    let rank = phi * (n - 1.0);
-
-    let lower_index = std::cmp::max(0, rank.floor() as usize);
-    let upper_index = std::cmp::min(n-1.0, (lower_index + 1) as f64) as usize;
-
-    let weight = rank - rank.floor();
-    return values[lower_index]*(1.0-weight) + values[upper_index]*weight
+    mads
 }
 
 macro_rules! create_aggr_fn {
@@ -1080,6 +1022,7 @@ static AGGR_FUNCS: phf::Map<&'static str, Box<dyn AggrFn>> = phf_map! {
 
     // PromQL extension funcs
     "median" =>          Box::new(aggr_func_median),
+    "mad" =>             Box::new(aggr_func_MAD),
     "limitk" =>          Box::new(aggr_func_limitk),
     "distinct" =>        create_aggr_fn!(aggr_func_distinct),
     "sum2" =>            create_aggr_fn!(aggr_func_sum2),
@@ -1094,37 +1037,23 @@ static AGGR_FUNCS: phf::Map<&'static str, Box<dyn AggrFn>> = phf_map! {
     "bottomk_avg" =>     Box::new(new_aggr_func_range_topk(avg_value, true)),
     "bottomk_median" =>  Box::new(new_aggr_func_range_topk(median_value, true)),
     "any" =>             Box::new(aggr_func_any),
-    "outliersk" =>       Box::new(aggr_func_outliers_k),
+    "outliersk" =>       Box::new(aggr_func_outliersk),
+    "outliers_mad" =>    Box::new(aggr_func_outliers_MAD),
     "mode" =>            Box::new(new_aggr_func(aggr_func_mode)),
     "zscore" =>          Box::new(aggr_func_zscore),
 };
 
+pub(crate) fn get_aggr_func_by_op(op: &AggregateFunction) -> &'static Box<dyn AggrFn> {
+    get_aggr_func(format!("{}", op).as_str()).unwrap()
+}
 
-pub fn get_aggr_func(name: &str) -> Option<&'static AggrFunc> {
+pub fn get_aggr_func(name: &str) -> RuntimeResult<&Box<dyn AggrFn>> {
     let lower = name.to_lowercase().as_str();
     match AGGR_FUNCS.get(lower) {
-        None => None,
-        Some(f) => Some(f.deref())
+        Some(handler) => Ok(handler),
+        None => Err( RuntimeError::UnknownFunction(name.to_string())) 
     }
 }
-
-
-fn expect_transform_args_num(args: &Vec<Vec<Timeseries>>, expected_num: usize) -> RuntimeResult<()> {
-    if args.len() == expected_num {
-        return Ok(());
-    }
-    return Err(RuntimeError::ArgumentError(format!("unexpected number of args; got {}; want {}", args.len(), expected_num)));
-}
-
-fn expect_at_least_n_args(tfa: &Vec<Vec<Timeseries>>, n: usize) -> RuntimeResult<()> {
-    let len = tfa.len();
-    if len < n {
-        let err = format!("not enough args; got {}; want at least {}", len, n);
-        return Err(RuntimeError::ArgumentError(err));
-    }
-    Ok(())
-}
-
 
 /// returns a copy of tss with real copy of metric_names,
 /// but with shallow copy of Timestamps and Values if make_copy is set.

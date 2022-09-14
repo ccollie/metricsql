@@ -30,7 +30,7 @@ impl Context {
 impl Default for Context {
     fn default() -> Self {
         Self {
-            parse_cache: ParseCache::new(),
+            parse_cache: ParseCache::default(),
             query_stats: QueryStatsTracker::default(),
             active_queries: ActiveQueries::new(),
             rollup_result_cache: RollupResultCache::default(),

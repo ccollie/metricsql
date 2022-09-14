@@ -4,6 +4,7 @@ use crate::runtime_error::{RuntimeResult};
 use crate::{EvalConfig, Timeseries};
 use crate::context::Context;
 use crate::eval::traits::Evaluator;
+use crate::functions::types::Volatility;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub(super) struct DurationEvaluator {
@@ -23,5 +24,13 @@ impl Evaluator for DurationEvaluator {
         let d = self.expr.duration(ec.step);
         let d_sec: f64 = (d / 1000) as f64;
         Ok(eval_number(ec, d_sec))
+    }
+
+    fn volatility(&self) -> Volatility {
+        if self.expr.requires_step {
+            Volatility::Stable
+        } else {
+            Volatility::Immutable
+        }
     }
 }
