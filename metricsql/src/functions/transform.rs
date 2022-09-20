@@ -3,8 +3,12 @@ use std::str::FromStr;
 
 use phf::phf_map;
 
-use crate::functions::types::{DataType, MAX_ARG_COUNT, Signature, Volatility};
-use crate::runtime_error::RuntimeError;
+use crate::ast::ReturnValue;
+use crate::error::Error;
+use crate::functions::MAX_ARG_COUNT;
+use crate::functions::signature::{Signature, Volatility};
+
+use super::data_type::DataType;
 
 // TODO: tfu, ttf, ru, alias
 
@@ -322,25 +326,35 @@ static REVERSE_MAP: phf::Map<&'static str, TransformFunction> = phf_map! {
 "year" => TransformFunction::Year
 };
 
+pub(crate) fn is_transform_func(func: &str) -> bool {
+    let lower = func.to_lowercase();
+    REVERSE_MAP.contains_key(&lower)
+}
+
+
 impl FromStr for TransformFunction {
-    type Err = RuntimeError;
+    type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let lower = s.to_lowercase();
         match REVERSE_MAP.get(lower.as_str()) {
             Some(op) => Ok(*op),
-            None => Err(RuntimeError::AggregateError(
+            None => Err(Error::new(
                 format!("Invalid transform function: {}", s)))
         }
     }
 }
 
 impl TransformFunction {
+    pub fn name(&self) -> String {
+        self.to_string()
+    }
+
     /// These functions don't change physical meaning of input time series,
     /// so they don't drop metric name
     pub fn keep_metric_name(&self) -> bool {
         use TransformFunction::*;
-        match self {
+        matches!(self,
             Ceil |
             Clamp |
             ClampMin |
@@ -357,20 +371,28 @@ impl TransformFunction {
             RangeQuantile |
             Round |
             RunningAvg |
-            RangeMax |
-            RangeMin |
-            SmoothExponential => true,
-            _ => false
-        }
+            SmoothExponential)
     }
 
-    pub fn should_sort_results(&self) -> bool {
+    pub fn sorts_results(&self) -> bool {
         use TransformFunction::*;
         matches!(&self,
+            Sort |
+            SortDesc |
             SortByLabel |
             SortByLabelDesc |
             SortByLabelNumeric |
             SortByLabelNumericDesc
+        )
+    }
+    
+    pub fn manipulates_labels(&self) -> bool {
+        // todo: "alias",
+        use TransformFunction::*;
+        matches!(self, 
+            DropCommonLabels | LabelCopy | LabelDel | LabelGraphiteGroup | LabelJoin |
+            LabelKeep | LabelLowercase | LabelMap | LabelMatch | LabelMismatch | LabelMove |
+            LabelReplace | LabelTransform | LabelUppercase | LabelValue
         )
     }
 
@@ -419,8 +441,7 @@ impl TransformFunction {
             LabelMap |
             LabelMatch |
             LabelMove |
-            LabelSet |
-            LabelLowercase => {
+            LabelSet => {
                 let mut types = vec![DataType::String; MAX_ARG_COUNT];
                 types.insert(0, DataType::Series);
                 Signature::exact(types, Volatility::Stable)
@@ -506,5 +527,27 @@ impl TransformFunction {
             }
         }
     }
+
+    pub fn return_type(&self) -> ReturnValue {
+        match self {
+            TransformFunction::Time => ReturnValue::Scalar,
+            _ => ReturnValue::InstantVector
+        }
+    }
 }
 
+pub fn get_transform_arg_idx_for_optimization(func: TransformFunction, arg_count: usize) -> Option<usize> {
+    if func.manipulates_labels() {
+        return None
+    }
+
+    use TransformFunction::*;
+    match func {
+        Absent | Scalar | Union | Vector => None,
+        End | Now | Pi | Start | Step | Time => None, // todo Ru
+        LimitOffset => Some(2),
+        BucketsLimit | HistogramQuantile | HistogramShare | RangeQuantile => Some(1),
+        HistogramQuantiles => Some(arg_count - 1),
+        _ => Some(0)
+    }
+}

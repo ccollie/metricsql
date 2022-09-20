@@ -1,13 +1,17 @@
-use crate::lexer::{Token, TokenKind};
-use std::fmt::Display;
 use std::{fmt, mem};
+use std::fmt::Display;
+
 use text_size::TextRange;
 use thiserror::Error;
+
+use crate::lexer::{Token, TokenKind};
 
 pub type ParseResult<T> = Result<T, ParseError>;
 
 #[derive(Debug, PartialEq, Clone, Error)]
 pub enum ParseError {
+    #[error("{0}")]
+    ArgumentError(String),
     #[error(transparent)]
     InvalidToken(InvalidTokenError),
     #[error("Duplicate argument `{0}`")]
@@ -26,6 +30,8 @@ pub enum ParseError {
     General(String),
     #[error("Invalid regex: {0}")]
     InvalidRegex(String),
+    #[error("{0}")]
+    InvalidFunction(String),
 }
 
 #[derive(Debug, PartialEq, Clone, Error)]
@@ -176,9 +182,11 @@ impl Display for ArgCountError {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::lexer::TokenKind;
     use std::ops::Range as StdRange;
+
+    use crate::lexer::TokenKind;
+
+    use super::*;
 
     fn check(
         expected: Vec<TokenKind>,

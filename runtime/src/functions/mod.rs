@@ -1,3 +1,4 @@
+pub use metricsql::functions::*;
 pub(crate) use utils::{
     mode_no_nans,
     quantile,
@@ -16,4 +17,3 @@ pub(crate) mod registry;
 mod utils;
 
 pub(crate) mod rollup;
-

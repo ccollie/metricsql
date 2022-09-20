@@ -1,13 +1,14 @@
 use std::collections::HashSet;
 use std::result::Result;
+use std::str::FromStr;
 
 use once_cell::sync::OnceCell;
 use text_size::TextRange;
 
 use crate::ast::*;
 use crate::binaryop::eval_binary_op;
-use crate::lexer::{parse_float, quote, unescape_ident, Lexer, Token, TokenKind};
-use crate::parser::aggr::is_aggr_func;
+use crate::functions::{AggregateFunction, BuiltinFunction, is_aggr_func};
+use crate::lexer::{Lexer, parse_float, quote, Token, TokenKind, unescape_ident};
 use crate::parser::expand_with::expand_with_expr;
 use crate::parser::parse_error::{InvalidTokenError, ParseError};
 use crate::parser::ParseResult;
@@ -23,6 +24,7 @@ pub struct Parser {
     tokens: Vec<Token>,
     cursor: usize,
     expected_kinds: Vec<TokenKind>,
+    parsing_with: bool
 }
 
 impl Parser {
@@ -31,6 +33,7 @@ impl Parser {
             expected_kinds: Vec::new(),
             cursor: 0,
             tokens,
+            parsing_with: false
         }
     }
 
@@ -392,10 +395,10 @@ pub fn parse(input: &str) -> Result<Expression, ParseError> {
             let exp = remove_parens_expr(&expr);
             // if we have a parens expr, simplify it further
             let res = match exp {
-                Expression::Parens(pe) => simplify_parens_expr(pe),
+                Expression::Parens(pe) => simplify_parens_expr(pe)?,
                 _ => exp,
             };
-            Ok(simplify_constants(&res))
+            simplify_constants(&res)
         }
         Err(e) => Err(e),
     }
@@ -446,8 +449,12 @@ fn parse_func_expr(p: &mut Parser) -> ParseResult<Expression> {
         keep_metric_names = true;
         p.bump();
     }
-    let mut fe = FuncExpr::new(&name, args);
+
+    let mut fe = FuncExpr::new(&name, args)?;
     fe.keep_metric_names = keep_metric_names;
+
+    // todo: move this to function constructor
+    validate_args(&fe.function, &fe.args)?;
 
     match span {
         Some(mut span) => {
@@ -461,14 +468,13 @@ fn parse_func_expr(p: &mut Parser) -> ParseResult<Expression> {
         }
     }
 
-    Ok(Expression::Function(fe))
+    Ok(fe.cast())
 }
 
 fn parse_aggr_func_expr(p: &mut Parser) -> ParseResult<Expression> {
     let tok = p.peek_token().unwrap();
-    if !is_aggr_func(tok.text().as_str()) {
-        return Err(ParseError::InvalidAggregateFunction(tok.text()));
-    }
+
+    let func: AggregateFunction = AggregateFunction::from_str(tok.text().as_str())?;
 
     fn handle_prefix(p: &mut Parser, ae: &mut AggrFuncExpr) -> Result<(), ParseError> {
         p.expect_one_of(&[TokenKind::By, TokenKind::Without])?;
@@ -478,6 +484,8 @@ fn parse_aggr_func_expr(p: &mut Parser) -> ParseResult<Expression> {
 
     fn handle_args(p: &mut Parser, ae: &mut AggrFuncExpr) -> ParseResult<()> {
         ae.args = p.parse_arg_list(false)?;
+
+        validate_args(&BuiltinFunction::Aggregate(ae.function), &ae.args)?;
         let tok = p.peek_token().unwrap();
         // Verify whether func suffix exists.
         if ae.modifier.is_none() && tok.kind.is_aggregate_modifier() {
@@ -486,10 +494,9 @@ fn parse_aggr_func_expr(p: &mut Parser) -> ParseResult<Expression> {
 
         if p.at(TokenKind::Limit) {
             ae.limit = p.parse_limit()?;
-            Ok(())
-        } else {
-            Ok(())
         }
+
+        Ok(())
     }
 
     let start: TextRange;
@@ -497,10 +504,7 @@ fn parse_aggr_func_expr(p: &mut Parser) -> ParseResult<Expression> {
         start = tok.range;
     }
 
-    let name = unescape_ident(tok.text().as_str())
-        .to_lowercase();
-    let mut ae: AggrFuncExpr = AggrFuncExpr::new(&name);
-
+    let mut ae: AggrFuncExpr = AggrFuncExpr::new(&func);
     p.bump();
 
     if p.at_set(&[TokenKind::Ident, TokenKind::LeftParen]) {
@@ -835,14 +839,21 @@ fn parse_parens_expr(p: &mut Parser) -> ParseResult<Expression> {
     Ok(Expression::Parens(ParensExpr::new(exprs)))
 }
 
-// parseWithExpr parses `WITH (withArgExpr...) expr`.
+/// parses `WITH (withArgExpr...) expr`.
 fn parse_with_expr(p: &mut Parser) -> Result<WithExpr, ParseError> {
     use TokenKind::*;
 
     p.expect_token(With)?;
     p.expect_token(LeftParen)?;
 
+    let was_in_with = p.parsing_with;
+    p.parsing_with = true;
+
     let was = p.parse_comma_separated(Parser::parse_with_arg_expr)?;
+
+    if !was_in_with {
+        p.parsing_with = false
+    }
 
     p.expect_token(RightParen)?;
 
@@ -992,45 +1003,45 @@ fn remove_parens_expr(e: &Expression) -> Expression {
     }
 }
 
-fn simplify_parens_expr(expr: ParensExpr) -> Expression {
+fn simplify_parens_expr(expr: ParensExpr) -> ParseResult<Expression> {
     if expr.len() == 1 {
         let res = *expr.expressions[0].clone();
-        return res;
+        return Ok(res);
     }
     // Treat parensExpr as a function with empty name, i.e. union()
-    let fe = FuncExpr::new("", expr.expressions);
-    Expression::Function(fe)
+    let fe = FuncExpr::new("union", expr.expressions)?;
+    Ok(Expression::Function(fe))
 }
 
 // todo: use a COW?
-fn simplify_constants(expr: &Expression) -> Expression {
+fn simplify_constants(expr: &Expression) -> ParseResult<Expression> {
     match expr {
         Expression::Rollup(re) => {
             let mut clone = re.clone();
-            let expr = simplify_constants(&re.expr);
+            let expr = simplify_constants(&re.expr)?;
             clone.expr = Box::new(expr);
             match &re.at {
                 Some(at) => {
-                    let simplified = simplify_constants(at);
+                    let simplified = simplify_constants(at)?;
                     clone.at = Some(Box::new(simplified));
                 }
                 None => {}
             }
-            Expression::Rollup(clone)
+            Ok(Expression::Rollup(clone))
         }
         Expression::BinaryOperator(be) => {
-            let left = simplify_constants(&*be.left);
-            let right = simplify_constants(&*be.right);
+            let left = simplify_constants(&*be.left)?;
+            let right = simplify_constants(&*be.right)?;
 
             match (left, right) {
                 (Expression::Number(ln), Expression::Number(rn)) => {
-                    let n = eval_binary_op(ln.value(), rn.value(), be.op, be.bool_modifier);
-                    Expression::Number(NumberExpr::new(n))
+                    let n = eval_binary_op(ln.value, rn.value, be.op, be.bool_modifier);
+                    Ok(Expression::from(n))
                 }
                 (Expression::String(left), Expression::String(right)) => {
                     if be.op == BinaryOp::Add {
                         let val = format!("{}{}", left.s, right.s);
-                        return Expression::String(StringExpr::new(val))
+                        return Ok(Expression::from(val))
                     }
                     let n = if string_compare(&left.s, &right.s, be.op) {
                         1.0
@@ -1039,40 +1050,42 @@ fn simplify_constants(expr: &Expression) -> Expression {
                     } else {
                         0.0
                     };
-                    Expression::Number(NumberExpr::new(n))
+                    Ok(Expression::from(n))
                 }
-                _ => Expression::BinaryOperator(be.clone()),
+                _ => Ok(expr.clone().cast()),
             }
         }
         Expression::Aggregation(agg) => {
             let mut res = agg.clone();
-            res.args = simplify_args_constants(&res.args);
-            Expression::Aggregation(res)
+            res.args = simplify_args_constants(&res.args)?;
+            Ok(Expression::Aggregation(res))
         }
         Expression::Function(fe) => {
             let mut res = fe.clone();
-            res.args = simplify_args_constants(&res.args);
-            Expression::Function(res)
+            res.args = simplify_args_constants(&res.args)?;
+            Ok(Expression::Function(res))
         }
         Expression::Parens(parens) => {
-            let args = simplify_args_constants(&parens.expressions);
+            let args = simplify_args_constants(&parens.expressions)?;
             if parens.len() == 1 {
                 let expr = args.into_iter().next();
-                return *expr.unwrap();
+                return Ok(*expr.unwrap());
             }
             // Treat parensExpr as a function with empty name, i.e. union()
-            Expression::Function(FuncExpr::new("", args))
+            Ok(Expression::Function(FuncExpr::new("union", args)?))
         }
-        _ => expr.clone().cast(),
+        _ => Ok(expr.clone().cast()),
     }
 }
 
-fn simplify_args_constants(args: &[BExpression]) -> Vec<BExpression> {
-    args.iter()
-        .map(|arg| 
-            Box::new( simplify_constants(arg))
-        )
-        .collect()
+fn simplify_args_constants(args: &[BExpression]) -> ParseResult<Vec<BExpression>> {
+    let mut res: Vec<BExpression> = Vec::with_capacity(args.len());
+    for arg in args {
+        let simple = simplify_constants(arg)?;
+        res.push(Box::new(simple));
+    }
+
+    Ok(res)
 }
 
 fn must_parse_with_arg_expr(s: &str) -> Result<WithArgExpr, ParseError> {
@@ -1112,4 +1125,20 @@ fn string_compare(a: &str, b: &str, op: BinaryOp) -> bool {
         BinaryOp::Gte => a >= b,
         _ => panic!("unexpected operator {} in string comparison", op),
     }
+}
+
+pub(crate) fn validate_args(func: &BuiltinFunction, args: &[BExpression]) -> ParseResult<()> {
+    // validate function args
+    let sig = func.signature();
+    sig.validate_arg_count(&func.name(), args.len())?;
+    // todo: validate types
+
+    let (arg_types, _) = sig.expand_types();
+
+    for (i, arg)  in args.iter().enumerate()  {
+        let expected = arg_types[i];
+        // let actual = arg.return_type();
+
+    }
+    Ok(())
 }

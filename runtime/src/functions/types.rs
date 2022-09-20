@@ -23,31 +23,12 @@ use std::str::FromStr;
 
 use clone_dyn::clone_dyn;
 
+use metricsql::functions::DataType;
+
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::Timeseries;
 
 pub(crate) static MAX_ARG_COUNT: usize = 32;
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub enum DataType {
-    Matrix,
-    Series,
-    /// Vec<f64> (normally Timeseries::values)
-    Vector,
-    /// A 64-bit floating point number.
-    Float,
-    /// A 64-bit int.
-    Int,
-    /// An owned String
-    String
-}
-
-impl DataType {
-    /// Returns true if this type is numeric: (Int or Float).
-    pub fn is_numeric(&self) -> bool {
-        *self == DataType::Float || *self == DataType::Int
-    }
-}
 
 pub enum ParameterValue {
     Matrix(Vec<Vec<Timeseries>>),
@@ -85,24 +66,60 @@ impl ParameterValue {
         }
     }
 
+    pub fn get_float(&self) -> RuntimeResult<f64> {
+        match self {
+            ParameterValue::Series(series) => {
+                let ts = get_single_timeseries(series)?;
+                if ts.values.len() != 1 {
+                    let msg = format!("expected a vector of size 1; got {}", ts.values.len());
+                    return Err(RuntimeError::ArgumentError(msg))
+                }
+                Ok(ts.values[0])
+            },
+            ParameterValue::Vector(vec) => {
+                if vec.len() != 1 {
+                    let msg = format!("expected a vector of size 1; got {}", vec.len());
+                    return Err(RuntimeError::ArgumentError(msg))
+                }
+                Ok(vec[0])
+            },
+            ParameterValue::Float(val) => Ok(*val),
+            ParameterValue::Int(val) => Ok(*val as f64),
+            ParameterValue::String(s) => {
+                match f64::from_str(s) {
+                    Err(e) => {
+                        return Err(RuntimeError::TypeCastError(
+                            format!("{} cannot be converted to a float", s)
+                        ))
+                    },
+                    Ok(val) => Ok(val)
+                }
+            },
+            _ => {
+                return Err(RuntimeError::TypeCastError(
+                    format!("{} cannot be converted to a float", self.data_type())
+                ))
+            }
+        }
+    }
+
     pub fn get_int(&self) -> RuntimeResult<i64> {
         match self {
             ParameterValue::Int(val) => Ok(*val),
-            _ => Err(RuntimeError::InvalidNumber("int parameter expected ".to_string()))
+            ParameterValue::Float(val) => Ok(*val as i64),
+            _=> {
+                match self.get_float()? {
+                    ParameterValue::Float(f) => Ok(f as i64),
+                    _=> unreachable!()
+                }
+            }
         }
     }
 
-    pub fn get_float(&self) -> RuntimeResult<f64> {
+    pub fn get_vector<'a>(&self) -> RuntimeResult<&'a Vec<f64>> {
         match self {
-            ParameterValue::Float(val) => Ok(*val),
-            _ => Err(RuntimeError::InvalidNumber("float parameter expected ".to_string()))
-        }
-    }
-
-    pub fn get_vector<'a>(&self) -> &'a Vec<f64> {
-        match self {
-            ParameterValue::Vector(val) => val,
-            _ => panic!("BUG: vector parameter expected ")
+            ParameterValue::Vector(val) => Ok(val),
+            _ => Err(RuntimeError::InvalidNumber("vector parameter expected ".to_string()))
         }
     }
 
@@ -111,20 +128,49 @@ impl ParameterValue {
         Ok(str.as_str())
     }
 
-    pub fn get_string(&self) -> RuntimeResult<String> {
-        match self {
-            ParameterValue::String(val) => Ok(val.to_string()),
-            ParameterValue::Int(int) => Ok(int.to_string()),
-            ParameterValue::Float(f) => Ok(f.to_string()),
-            _ => Err(RuntimeError::ArgumentError("string parameter expected ".to_string()))
-        }
-    }
-
     pub fn get_series<'a>(&self) -> &'a Vec<Timeseries> {
         match self {
             ParameterValue::Series(val) => val.as_ref(),
             _ => panic!("BUG: invalid series parameter")
         }
+    }
+
+    pub fn get_series_mut<'a>(&self) -> &'a mut Vec<Timeseries> {
+        match self {
+            ParameterValue::Series(mut val) => val.as_mut(),
+            _ => panic!("BUG: invalid series parameter")
+        }
+    }
+
+    pub fn get_string(&self) -> RuntimeResult<String> {
+        match self {
+            ParameterValue::String(s) => {
+                Ok(s.to_string())
+            }
+            ParameterValue::Series(series) => {
+                let ts = get_single_timeseries(series)?;
+                if ts.values.len() > 0 {
+                    let all_nan = series[0].values.iter().all(|x| x.is_nan());
+                    if !all_nan {
+                        let msg = format!("series contains non-string timeseries");
+                        return Err(RuntimeError::ArgumentError(msg));
+                    }
+                }
+                let res = ts.metric_name.metric_group.clone();
+                // todo: return reference
+                Ok(res)
+            }
+            _ => {
+                let msg = format!("cannot cast {} to a string", self.data_type());
+                return Err(RuntimeError::TypeCastError(msg))
+            }
+        }
+    }
+}
+
+impl Default for ParameterValue {
+    fn default() -> Self {
+        ParameterValue::Int(0)
     }
 }
 
@@ -148,171 +194,30 @@ impl From<i64> for ParameterValue {
     }
 }
 
-///A function's volatility, which defines the functions eligibility for certain optimizations
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub enum Volatility {
-    /// Immutable - An immutable function will always return the same output when given the same
-    /// input. An example of this is [super::BuiltinScalarFunction::Cos].
-    Immutable,
-    /// Stable - A stable function may return different values given the same input across different
-    /// queries but must return the same value for a given input within a query. An example of
-    /// this is [super::BuiltinScalarFunction::Now].
-    Stable,
-    /// Volatile - A volatile function may change the return value from evaluation to evaluation.
-    /// Multiple invocations of a volatile function may return different results when used in the
-    /// same query. An example of this is [super::BuiltinScalarFunction::Random].
-    Volatile,
-}
 
-/// A function's type signature, which defines the function's supported argument types.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum TypeSignature {
-    /// arbitrary number of arguments of an common type out of a list of valid types
-    /// second element is the min number of arguments
-    /// A function such as `concat` is `Variadic(vec![DataType::String, DataType::Float], 1)`
-    Variadic(Vec<DataType>, usize),
-    /// arbitrary number of arguments of an arbitrary but equal type, with possible minimum
-    // A function such as `array` is `VariadicEqual`
-    VariadicEqual(DataType, usize),
-    /// fixed number of arguments of an arbitrary type out of a list of valid types
-    // A function of one argument of f64 is `Uniform(1, Float)`
-    Uniform(usize, DataType),
-    /// exact number of arguments of an exact type
-    Exact(Vec<DataType>),
-    /// fixed number of arguments of arbitrary types
-    Any(usize)
-}
-
-impl TypeSignature {
-    /// Validate argument counts matches the `signature`.
-    pub fn validate_arg_count(&self, name: &str, arg_len: usize) -> RuntimeResult<()> {
-
-        fn expect_arg_count(name: &str, arg_len: usize, expected: usize) -> RuntimeResult<()> {
-            if arg_len != expected {
-                return Err(RuntimeError::ArgumentError(format!(
-                    "The function {} expected {} arguments but received {}",
-                    name,
-                    expected,
-                    arg_len
-                )));
-            }
-            Ok(())
-        }
-
-        fn expect_min_args(name: &str, args_len: usize, min: usize) -> RuntimeResult<()> {
-            if args_len < min {
-                return Err(RuntimeError::ArgumentError(format!(
-                    "The function {} expected a minimum of {} arguments but received {}",
-                    name,
-                    min,
-                    args_len
-                )));
-            }
-            Ok(())
-        }
-
-        return match self {
-            TypeSignature::VariadicEqual(data_type_, min) => {
-                expect_min_args(name,arg_len, *min)
-            },
-            TypeSignature::Variadic(valid_types, min) => {
-                if valid_types.len() < *min || arg_len > valid_types.len() {
-                    return Err(RuntimeError::ArgumentError(format!(
-                        "The function {} expected between {} and {} argument, but received {}",
-                        name,
-                        min,
-                        valid_types.len(),
-                        arg_len
-                    )));
-                }
-                Ok(())
-            },
-            TypeSignature::Uniform(number, valid_type_) => {
-                expect_arg_count(name, arg_len, *number)
-            },
-            TypeSignature::Exact(valid_types) => {
-                expect_arg_count(name, arg_len, valid_types.len())
-            },
-            TypeSignature::Any(number) => {
-                expect_arg_count(name, arg_len, *number)
-            }
+#[inline]
+fn get_single_series_from_param(param: &ParameterValue) -> RuntimeResult<&Timeseries> {
+    match param {
+        ParameterValue::Series(series) => get_single_timeseries(series),
+        _ => {
+            let msg = format!("expected a timeseries vector; got {}", param.data_type());
+            return Err(RuntimeError::TypeCastError(msg))
         }
     }
 }
 
-
-///The Signature of a function defines its supported input types as well as its volatility.
-#[derive(Debug, Clone, PartialEq, Hash)]
-pub struct Signature {
-    /// type_signature - The types that the function accepts. See [TypeSignature] for more information.
-    pub type_signature: TypeSignature,
-    /// volatility - The volatility of the function. See [Volatility] for more information.
-    pub volatility: Volatility,
+#[inline]
+fn get_single_timeseries(series: &Vec<Timeseries>) -> RuntimeResult<&Timeseries> {
+    if series.len() != 1 {
+        let msg = format!(
+            "arg must contain a single timeseries; got {} timeseries",
+            series.len()
+        );
+        return Err(RuntimeError::TypeCastError(msg))
+    }
+    Ok(&series[0])
 }
 
-impl Signature {
-    /// new - Creates a new Signature from any type signature and the volatility.
-    pub fn new(type_signature: TypeSignature, volatility: Volatility) -> Self {
-        Signature {
-            type_signature,
-            volatility,
-        }
-    }
-    /// variadic - Creates a variadic signature that represents an arbitrary number of arguments all from a type in common_types.
-    pub fn variadic(common_types: Vec<DataType>, volatility: Volatility) -> Self {
-        Self {
-            type_signature: TypeSignature::Variadic(common_types, 0),
-            volatility,
-        }
-    }
-
-    /// variadic - Creates a variadic signature that represents an arbitrary number of arguments all from a type in common_types.
-    pub fn variadic_min(common_types: Vec<DataType>, min: usize, volatility: Volatility) -> Self {
-        Self {
-            type_signature: TypeSignature::Variadic(common_types, min),
-            volatility,
-        }
-    }
-
-    /// variadic_equal - Creates a variadic signature that represents an arbitrary number of arguments of the same type.
-    pub fn variadic_equal(valid_type: DataType, min: usize, volatility: Volatility) -> Self {
-        Self {
-            type_signature: TypeSignature::VariadicEqual(valid_type, min),
-            volatility,
-        }
-    }
-    /// uniform - Creates a function with a fixed number of arguments of the same type, which must be from valid_types.
-    pub fn uniform(
-        arg_count: usize,
-        valid_type: DataType,
-        volatility: Volatility,
-    ) -> Self {
-        Self {
-            type_signature: TypeSignature::Uniform(arg_count, valid_type),
-            volatility,
-        }
-    }
-    /// exact - Creates a signature which must match the types in exact_types in order.
-    pub fn exact(exact_types: Vec<DataType>, volatility: Volatility) -> Self {
-        Signature {
-            type_signature: TypeSignature::Exact(exact_types),
-            volatility,
-        }
-    }
-    /// any - Creates a signature which can a be made of any type but of a specified number
-    pub fn any(arg_count: usize, volatility: Volatility) -> Self {
-        Signature {
-            type_signature: TypeSignature::Any(arg_count),
-            volatility,
-        }
-    }
-
-    /// Validate argument counts matches the `signature`.
-    pub fn validate_arg_count(&self, name: &str, arg_len: usize) -> RuntimeResult<()> {
-        self.type_signature.validate_arg_count(name, arg_len)
-    }
-
-}
 
 #[clone_dyn]
 pub trait FunctionImplementation<P: ?Sized, R>: Fn(&mut P) -> R

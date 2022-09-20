@@ -1,24 +1,26 @@
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
-use regex::{escape, Regex};
 
-use metricsql::optimizer::{pushdown_binary_op_filters, trim_filters_by_group_modifier};
+use regex::escape;
+
 use metricsql::ast::*;
-use crate::context::Context;
-use crate::{EvalConfig};
-use crate::timeseries::Timeseries;
-use crate::runtime_error::{RuntimeError, RuntimeResult};
+use metricsql::functions::Volatility;
+use metricsql::optimizer::{can_pushdown_op_filters, pushdown_binary_op_filters, trim_filters_by_group_modifier};
 
+use crate::EvalConfig;
 use crate::binary_op::{BinaryOpFuncArg, exec_binop};
+use crate::context::Context;
 use crate::eval::{create_evaluator, ExprEvaluator};
 use crate::eval::traits::Evaluator;
-use crate::functions::types::Volatility;
+use crate::runtime_error::{RuntimeError, RuntimeResult};
+use crate::timeseries::Timeseries;
 
 pub(super) struct BinaryOpEvaluator {
     expr: BinaryOpExpr,
     lhs: Box<ExprEvaluator>,
     rhs: Box<ExprEvaluator>,
-    can_pushdown_filters: bool
+    can_pushdown_filters: bool,
+    can_pushdown_op_filters: bool
 }
 
 impl BinaryOpEvaluator {
@@ -26,11 +28,13 @@ impl BinaryOpEvaluator {
         let lhs = Box::new( create_evaluator(&expr.left)? );
         let rhs = Box::new(create_evaluator(&expr.right)? );
         let can_pushdown_filters = can_pushdown_common_filters(expr);
+        let pushdown_op_filters = can_pushdown_op_filters(&expr.right);
         Ok(Self {
             lhs,
             rhs,
             expr: expr.clone(),
-            can_pushdown_filters
+            can_pushdown_filters,
+            can_pushdown_op_filters: pushdown_op_filters
         })
     }
 
@@ -38,7 +42,7 @@ impl BinaryOpEvaluator {
         Volatility::Volatile
     }
 
-    fn eval_args(&self, ctx: &mut Context, ec: &mut EvalConfig) -> RuntimeResult<(Vec<Timeseries>, Vec<Timeseries>)> {
+    fn eval_args(&self, ctx: &mut Context, ec: &EvalConfig) -> RuntimeResult<(Vec<Timeseries>, Vec<Timeseries>)> {
 
         if !self.can_pushdown_filters {
             // Execute both sides in parallel, since it is impossible to push down common filters
@@ -106,9 +110,9 @@ impl BinaryOpEvaluator {
 
 impl Evaluator for BinaryOpEvaluator {
     /// Evaluates and returns the result.
-    fn eval(&self, ctx: &mut Context, ec: &mut EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
-        let tss_left: Vec<Timeseries> = vec![];
-        let tss_right: Vec<Timeseries> = vec![];
+    fn eval(&self, ctx: &mut Context, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
+        let mut tss_left: Vec<Timeseries> = vec![];
+        let mut tss_right: Vec<Timeseries> = vec![];
 
         if self.expr.op == BinaryOp::And || self.expr.op == BinaryOp::If {
             // Fetch right-side series at first, since it usually contains
@@ -122,12 +126,14 @@ impl Evaluator for BinaryOpEvaluator {
 
         let mut bfa = BinaryOpFuncArg {
             be: self.expr,
-            left: tss_left,
-            right: tss_right,
+            left: std::mem::take(&mut tss_left),
+            right: std::mem::take(&mut tss_right),
         };
 
         match exec_binop(&mut bfa) {
-            Err(err) => Err(RuntimeError::from(format!("cannot evaluate {}: {}", &self.expr, err))),
+            Err(err) => Err(RuntimeError::from(
+                format!("cannot evaluate {}: {:?}", &self.expr, err)
+            )),
             Ok(v) => Ok(v)
         }
     }
@@ -217,7 +223,6 @@ fn join_regexp_values(a: &Vec<&String>) -> String {
     );
     let mut res = String::with_capacity(init_size);
     for (i, s) in a.iter().enumerate() {
-        let regex = Regex::new(s).unwrap();
         let s_quoted = escape(s);
         res.push_str(s_quoted.as_str());
         if i < a.len() - 1 {

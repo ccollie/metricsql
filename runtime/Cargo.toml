@@ -33,7 +33,7 @@ thiserror = "1.0.31"
 scopeguard = "1.1.0"
 dashmap = "5.3.4"
 pydeco = "0.1.0"
-xxhash-rust = "0.8.5"
+xxhash-rust = { version = "0.8.5", features = ["xxh3", "xxh64"] }
 lib={ path = "../lib" }
 metricsql={ path = "../metricsql" }
 

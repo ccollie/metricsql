@@ -58,12 +58,30 @@ pub fn skip_leading_nans(values: &[f64]) -> &[f64] {
     return &values[i..];
 }
 
+#[inline]
+pub fn get_first_non_nan_index(values: &[f64]) -> usize {
+    let mut i = 0;
+    while i < values.len() && values[i].is_nan() {
+        i += 1;
+    }
+    i
+}
+
 pub fn skip_trailing_nans(values: &[f64]) -> &[f64] {
     let mut i = values.len() - 1;
     while i >= 0 && values[i].is_nan() {
         i -= 1;
     }
     return &values[0..i + 1];
+}
+
+#[inline]
+pub fn get_last_non_nan_index(values: &[f64]) -> usize {
+    let mut i = values.len() - 1;
+    while i >= 0 && values[i].is_nan() {
+        i -= 1;
+    }
+    i
 }
 
 /// quantiles calculates the given phis from originValues without modifying originValues, appends

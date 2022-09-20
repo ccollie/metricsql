@@ -1,20 +1,23 @@
-use std::sync::{Arc};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use lru_time_cache::{LruCache};
 
-use metricsql::ast::{Expression};
+use lru_time_cache::LruCache;
+
+use metricsql::ast::Expression;
 use metricsql::optimizer::optimize;
 use metricsql::parser::ParseError;
+
 use crate::binary_op::adjust_cmp_ops;
 use crate::create_evaluator;
-use crate::eval::{ExprEvaluator, NullEvaluator};
+use crate::eval::ExprEvaluator;
 
 const PARSE_CACHE_MAX_LEN: usize = 500;
 
 pub struct ParseCacheValue {
     pub expr: Option<Expression>,
     pub evaluator: Option<ExprEvaluator>,
-    pub err: Option<ParseError>
+    pub err: Option<ParseError>,
+    pub has_subquery: bool
 }
 
 pub struct ParseCache {
@@ -75,12 +78,14 @@ impl ParseCache {
                             expr: Some(expr),
                             evaluator: Some(evaluator),
                             err: None,
+                            has_subquery: expression.contains_subquery()
                         }
                     },
                     Err(e) => {
                         ParseCacheValue {
                             expr: Some(expr),
-                            evaluator: Some(ExprEvaluator::Null(NullEvaluator{})),
+                            evaluator: Some(ExprEvaluator::default()),
+                            has_subquery: false,
                             err: Some( ParseError::General("Error creating evaluator".to_string())),
                         }
                     }
@@ -89,8 +94,9 @@ impl ParseCache {
             Err(e) => {
                 ParseCacheValue {
                     expr: None,
-                    evaluator: Some(ExprEvaluator::Null(NullEvaluator{})),
+                    evaluator: Some(ExprEvaluator::default()),
                     err: Some(e.clone()),
+                    has_subquery: false
                 }
             }
         }

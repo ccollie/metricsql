@@ -1,9 +1,11 @@
+use std::collections::HashSet;
+use std::ops::Deref;
+
+use enquote::unquote;
+
 use crate::ast::*;
 use crate::lexer::{is_string_prefix, quote};
 use crate::parser::{ArgCountError, ParseError, ParseResult};
-use enquote::unquote;
-use std::collections::HashSet;
-use std::ops::Deref;
 
 pub(crate) fn expand_with_expr(was: &[WithArgExpr], expr: &Expression) -> ParseResult<Expression> {
     use Expression::*;
@@ -75,13 +77,15 @@ fn expand_binary(e: &BinaryOpExpr, was: &[WithArgExpr]) -> ParseResult<Expressio
 
 fn expand_function(func: &FuncExpr, was: &[WithArgExpr]) -> ParseResult<Expression> {
     let args = expand_with_args(was, &func.args);
-    match get_with_arg_expr(was, &func.name) {
+
+    // TODO: !!!!!!! fill out impl of udf/withexpr on BuiltinFunction
+    match get_with_arg_expr(was, &func.with_name) {
         Some(wa) => {
             let expr = expand_with_expr_ext(was, wa, Some(&args))?;
             Ok(expr)
         }
         None => {
-            let fe = FuncExpr::new(&func.name, args);
+            let fe = FuncExpr::new(&func.name(), args)?;
             Ok(Expression::Function(fe))
         }
     }
@@ -243,7 +247,7 @@ fn expand_metric_labels(e: &MetricExpr, was: &[WithArgExpr]) -> ParseResult<Metr
     // Populate me.LabelFilters
     for lfe in e.label_filter_exprs.iter() {
         if !lfe.is_expanded() {
-            // Expand lfe.Label into Vec<LabelFilter>.
+            // Expand lfe.label into Vec<LabelFilter>.
             let wa = get_with_arg_expr(was, &lfe.label);
             if wa.is_none() {
                 let msg = format!("missing {} value inside MetricExpr", lfe.label);
@@ -377,7 +381,7 @@ fn expand_with_expr_ext(
 
     if wa.args.len() != args_len {
         if args.is_none() {
-            // Just return MetricExpr with the wa.Name name.
+            // Just return MetricExpr with the wa.name name.
             let me = Expression::MetricExpression(MetricExpr::new(&wa.name));
             return Ok(me);
         }

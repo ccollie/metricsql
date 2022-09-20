@@ -1,14 +1,20 @@
-use crate::ast::expression_kind::ExpressionKind;
-use crate::ast::label_filter::{LabelFilter, LabelFilterExpr};
-use crate::ast::{BinaryOp, LabelFilterOp};
-use crate::lexer::{duration_value, escape_ident};
-use crate::parser::ParseError;
 use std::{fmt, iter};
 use std::fmt::Display;
 use std::hash::{Hash, Hasher};
+use std::ops::Deref;
 use std::string::{String, ToString};
+
 use text_size::TextRange;
+
 use lib::hash_f64;
+
+use crate::ast::{BinaryOp, LabelFilterOp};
+use crate::ast::expression_kind::ExpressionKind;
+use crate::ast::label_filter::{LabelFilter, LabelFilterExpr};
+use crate::ast::return_type::ReturnValue;
+use crate::functions::{AggregateFunction, BuiltinFunction, get_aggregate_arg_idx_for_optimization, is_rollup_aggregation_over_time, TransformFunction};
+use crate::lexer::{duration_value, escape_ident};
+use crate::parser::{ParseError, ParseResult};
 
 pub type Span = TextRange;
 
@@ -29,6 +35,7 @@ pub trait ExpressionNode {
 pub enum Expression {
     Duration(DurationExpr),
 
+    /// A single scalar number.
     Number(NumberExpr),
 
     /// A single scalar string.
@@ -145,6 +152,43 @@ impl Expression {
         })
     }
 
+    pub fn contains_subquery(&self) -> bool {
+        use Expression::*;
+        match self {
+            Function(fe) => {
+                fe.args.iter().any(|e| e.contains_subquery())
+            }
+            BinaryOperator(bo) => {
+                bo.left.contains_subquery() || bo.right.contains_subquery()
+            }
+            Aggregation(aggr) => {
+                aggr.args.iter().any(|e| e.contains_subquery())
+            }
+            Rollup(re) => {
+                re.for_subquery()
+            }
+            _ => false
+        }
+    }
+
+    pub fn return_value(&self) -> ReturnValue {
+        match self {
+            Expression::Duration(de) => de.return_value(),
+            Expression::Number(ne) => ne.return_value(),
+            Expression::String(se) => se.return_value(),
+            Expression::Parens(pe) => pe.return_value(),
+            Expression::Function(fe) => fe.return_value(),
+            Expression::Aggregation(ae) => ae.return_value(),
+            Expression::BinaryOperator(be) => be.return_value(),
+            Expression::With(_) => {
+                // Todo
+                ReturnValue::RangeVector
+            }
+            Expression::Rollup(re) => re.return_value(),
+            Expression::MetricExpression(me) => me.return_value()
+        }
+    }
+
 }
 
 impl ExpressionNode for Expression {
@@ -197,6 +241,36 @@ impl Display for Expression {
     }
 }
 
+impl From<f64> for Expression {
+    fn from(v: f64) -> Self {
+        Expression::Number(NumberExpr::new(v))
+    }
+}
+
+impl From<i64> for Expression {
+    fn from(v: i64) -> Self {
+        Expression::Number(NumberExpr::new(v as f64))
+    }
+}
+
+impl From<usize> for Expression {
+    fn from(value: usize) -> Self {
+        Expression::Number(NumberExpr::new(value as f64))
+    }
+}
+
+impl From<String> for Expression {
+    fn from(s: String) -> Self {
+        Expression::String(StringExpr::new(s))
+    }
+}
+
+impl From<&str> for Expression {
+    fn from(s: &str) -> Self {
+        Expression::String (StringExpr::new(s))
+    }
+}
+
 /// StringExpr represents string expression.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Hash)]
 pub struct StringExpr {
@@ -244,6 +318,10 @@ impl StringExpr {
     pub(crate) fn is_expanded(&self) -> bool {
         !self.s.is_empty() || self.token_count() > 0
     }
+
+    pub fn return_value(&self) -> ReturnValue {
+        ReturnValue::String
+    }
 }
 
 impl From<String> for StringExpr {
@@ -275,21 +353,28 @@ impl Display for StringExpr {
     }
 }
 
+impl Deref for StringExpr {
+    type Target = String;
+
+    fn deref(&self) -> &Self::Target {
+        &self.s
+    }
+}
+
 /// NumberExpr represents number expression.
 #[derive(Default, Debug, Clone, Copy)]
 pub struct NumberExpr {
     /// n is the parsed number, i.e. `1.23`, `-234`, etc.
-    pub n: f64,
+    pub value: f64,
 }
 
 impl NumberExpr {
     pub fn new(v: f64) -> Self {
-        NumberExpr { n: v }
+        NumberExpr { value: v }
     }
 
-    #[inline]
-    pub fn value(&self) -> f64 {
-        self.n
+    pub fn return_value(&self) -> ReturnValue {
+        ReturnValue::Scalar
     }
 }
 
@@ -313,13 +398,13 @@ impl From<usize> for NumberExpr {
 
 impl Into<f64> for NumberExpr {
     fn into(self) -> f64 {
-        self.n
+        self.value
     }
 }
 
 impl PartialEq for NumberExpr {
     fn eq(&self, other: &Self) -> bool {
-        (self.n - other.n).abs() <= f64::EPSILON
+        (self.value - other.value).abs() <= f64::EPSILON
     }
 }
 
@@ -334,11 +419,11 @@ impl ExpressionNode for NumberExpr {
 
 impl Display for NumberExpr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if self.n.is_nan() {
+        if self.value.is_nan() {
             write!(f, "NaN")?;
-        } else if self.n.is_finite() {
-            write!(f, "{}", self.n)?;
-        } else if self.n.is_sign_positive() {
+        } else if self.value.is_finite() {
+            write!(f, "{}", self.value)?;
+        } else if self.value.is_sign_positive() {
             write!(f, "+Inf")?;
         } else {
             write!(f, "-Inf")?;
@@ -349,7 +434,7 @@ impl Display for NumberExpr {
 
 impl Hash for NumberExpr {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        hash_f64(state, self.n);
+        hash_f64(state, self.value);
     }
 }
 
@@ -634,6 +719,42 @@ impl BinaryOpExpr {
         std::mem::swap(&mut self.left, &mut self.right);
         true
     }
+
+    pub fn return_value(&self) -> ReturnValue {
+        // binary operator exprs can only contain (and return) instant vectors
+        let lhs_ret = self.left.return_value();
+        let rhs_ret = self.right.return_value();
+
+        // operators can only have instant vectors or scalars
+        if !lhs_ret.is_operator_valid() {
+            return ReturnValue::unknown(
+                format!("lhs return type ({:?}) is not valid in an operator", &lhs_ret),
+                self.clone().cast()
+            );
+        }
+
+        if !rhs_ret.is_operator_valid() {
+            return ReturnValue::unknown(
+                format!("rhs return type ({:?}) is not valid in an operator", &rhs_ret),
+                self.clone().cast()
+            );
+        }
+
+
+        match (lhs_ret, rhs_ret) {
+            (ReturnValue::Scalar, ReturnValue::Scalar) => ReturnValue::Scalar,
+            (ReturnValue::String, ReturnValue::String) => {
+                if self.op != BinaryOp::Add {
+                    return ReturnValue::unknown(
+                        format!("Operator {} is not valid for (String, String)", &self.op),
+                        self.clone().cast()
+                    );
+                }
+                return ReturnValue::String
+            },
+            _ => return ReturnValue::InstantVector
+        }
+    }
 }
 
 impl Display for BinaryOpExpr {
@@ -681,10 +802,9 @@ impl ExpressionNode for BinaryOpExpr {
 }
 
 /// FuncExpr represents MetricsQL function such as `foo(...)`
-#[derive(Debug, Clone, Default, Hash)]
+#[derive(Debug, Clone, Hash)]
 pub struct FuncExpr {
-    /// Name is function name.
-    pub name: String,
+    pub function: BuiltinFunction,
 
     /// Args contains function args.
     pub args: Vec<BExpression>,
@@ -695,33 +815,42 @@ pub struct FuncExpr {
     pub is_scalar: bool,
 
     pub span: Option<Span>,
+
+    /// internal only name parsed in WITH expression
+    pub(crate) with_name: String,
 }
 
 impl FuncExpr {
-    pub fn new(name: &str, args: Vec<BExpression>) -> Self {
+    pub fn new(name: &str, args: Vec<BExpression>) -> ParseResult<Self> {
         // time() returns scalar in PromQL - see https://prometheus.io/docs/prometheus/latest/querying/functions/#time
         let lower = name.to_lowercase();
+        let function = BuiltinFunction::new(name)?;
         let is_scalar = lower == "time";
 
-        FuncExpr {
-            name: name.into(),
+        Ok(FuncExpr {
+            function,
             args,
             keep_metric_names: false,
             span: None,
             is_scalar,
-        }
+            with_name: "".to_string()
+        })
     }
 
-    pub fn default_rollup(arg: Expression) -> Self {
+    pub fn name(&self) -> String {
+        self.function.name()
+    }
+
+    pub fn default_rollup(arg: Expression) -> ParseResult<Self> {
         FuncExpr::from_single_arg("default_rollup", arg)
     }
 
-    pub fn from_single_arg(name: &str, arg: Expression) -> Self {
+    pub fn from_single_arg(name: &str, arg: Expression) -> ParseResult<Self> {
         let args = vec![Box::new(arg)];
         FuncExpr::new(name, args)
     }
 
-    pub fn create(name: &str, args: &[Expression]) -> Self {
+    pub fn create(name: &str, args: &[Expression]) -> ParseResult<Self> {
         let params =
             Vec::from(args).into_iter().map(Box::new).collect();
         FuncExpr::new(name, params)
@@ -731,11 +860,77 @@ impl FuncExpr {
         self.span = Some(span.into());
         self
     }
+
+    pub fn is_aggregate(&self) -> bool {
+        self.type_name() == "aggregate"
+    }
+
+    pub fn is_rollup(&self) -> bool {
+        self.type_name() == "rollup"
+    }
+
+    pub fn type_name(&self) -> &'static str {
+        self.function.type_name()
+    }
+
+    pub fn return_value(&self) -> ReturnValue {
+        // functions generally pass through labels of one of their arguments, with
+        // some exceptions
+
+        if self.is_scalar {
+            return ReturnValue::Scalar
+        }
+
+        // determine the arg to pass through
+        let arg = self.get_arg_for_optimization();
+
+        let kind = if arg.is_none() {
+            ReturnValue::RangeVector
+        } else {
+            arg.unwrap().return_value()
+        };
+
+        return match self.function {
+            BuiltinFunction::Rollup(rf) => {
+                if is_rollup_aggregation_over_time(rf) {
+                    match kind {
+                        ReturnValue::RangeVector => ReturnValue::InstantVector,
+                        _ => {
+                            // invalid arg
+                            ReturnValue::unknown(
+                                format!("aggregation over time is not valid with expression returning {:?}", kind),
+                                // show the arg as the cause
+                                // doesn't follow the usual pattern of showing the parent, but would
+                                // otherwise be ambiguous with multiple args
+                                *arg.unwrap().clone()
+                            )
+                        }
+                    }
+                } else {
+                    kind
+                }
+            },
+            _ => kind
+        }
+    }
+
+    pub fn get_arg_idx_for_optimization(&self) -> Option<usize> {
+        self.function.get_arg_idx_for_optimization(&self.args)
+    }
+
+    pub fn get_arg_for_optimization(&self) -> Option<&'_ BExpression> {
+        match self.get_arg_idx_for_optimization() {
+            None => None,
+            Some(idx) => {
+                Some(&self.args[idx])
+            }
+        }
+    }
 }
 
 impl Display for FuncExpr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.name)?;
+        write!(f, "{}", self.name())?;
         write_expression_list(&self.args, f)?;
         if self.keep_metric_names {
             write!(f, " keep_metric_names")?;
@@ -761,20 +956,22 @@ pub struct RollupExpr {
     /// if subquery is used. https://prometheus.io/blog/2019/01/28/subquery-support/
     pub expr: BExpression,
 
-    /// window contains optional window value from square brackets
+    /// window contains optional window value from square brackets. Equivalent to `range` in
+    /// prometheus terminology
     ///
     /// For example, `http_requests_total[5m]` will have Window value `5m`.
     pub window: Option<DurationExpr>,
+
+    /// step contains optional step value from square brackets. Equivalent to `resolution`
+    /// in the prometheus docs
+    ///
+    /// For example, `foobar[1h:3m]` will have step value `3m`.
+    pub step: Option<DurationExpr>,
 
     /// offset contains optional value from `offset` part.
     ///
     /// For example, `foobar{baz="aa"} offset 5m` will have Offset value `5m`.
     pub offset: Option<DurationExpr>,
-
-    /// step contains optional step value from square brackets.
-    ///
-    /// For example, `foobar[1h:3m]` will have step value `3m`.
-    pub step: Option<DurationExpr>,
 
     /// if set to true, then `foo[1h:]` would print the same instead of `foo[1h]`.
     pub inherit_step: bool,
@@ -801,11 +998,6 @@ impl RollupExpr {
         }
     }
 
-    pub fn wrap(expr: impl ExpressionNode) -> Self {
-        let converted = expr.cast();
-        Self::new(converted)
-    }
-
     pub fn for_subquery(&self) -> bool {
         self.step.is_some() || self.inherit_step
     }
@@ -826,6 +1018,23 @@ impl RollupExpr {
 
     pub fn set_expr(&mut self, expr: impl ExpressionNode) {
         self.expr = Box::new(Expression::cast(expr));
+    }
+
+    pub fn return_value(&self) -> ReturnValue {
+        // subqueries turn instant vectors into ranges
+        let kind = match (self.window.is_some(), self.for_subquery()) {
+            (false, false) => ReturnValue::InstantVector,
+            (false, true) => ReturnValue::RangeVector,
+            (true, false) => ReturnValue::RangeVector,
+
+            // range + subquery is not allowed (however this is syntactically invalid)
+            (true, true) => ReturnValue::unknown(
+                "range and subquery are not allowed together",
+                self.clone().cast()
+            )
+        };
+
+        kind
     }
 }
 
@@ -894,11 +1103,23 @@ pub struct DurationExpr {
     pub requires_step: bool,
 }
 
-impl From<&str> for DurationExpr {
-    fn from(value: &str) -> Self {
-        DurationExpr::new(value.to_string(), Span::default())
+impl TryFrom<&str> for DurationExpr {
+    type Error = ParseError;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        let last_ch: char = s.chars().rev().next().unwrap();
+        let const_value = duration_value(&s, 1)?;
+        let requires_step: bool = last_ch == 'i' || last_ch == 'I';
+
+        Ok(Self {
+            s: s.to_string(),
+            const_value,
+            requires_step,
+            span: Span::default(),
+        })
     }
 }
+
 
 impl DurationExpr {
     pub fn new(s: String, span: Span) -> DurationExpr {
@@ -922,6 +1143,10 @@ impl DurationExpr {
         } else {
             self.const_value
         }
+    }
+
+    pub fn return_value(&self) -> ReturnValue {
+        ReturnValue::Scalar
     }
 }
 
@@ -1108,6 +1333,9 @@ impl Display for AggregateModifier {
 /// AggrFuncExpr represents aggregate function such as `sum(...) by (...)`
 #[derive(Debug, Clone, Hash)]
 pub struct AggrFuncExpr {
+    /// the aggregation function enum
+    pub function: AggregateFunction,
+
     /// name is the function name.
     pub name: String,
 
@@ -1129,9 +1357,10 @@ pub struct AggrFuncExpr {
 }
 
 impl AggrFuncExpr {
-    pub fn new(name: &str) -> AggrFuncExpr {
+    pub fn new(function: &AggregateFunction) -> AggrFuncExpr {
         AggrFuncExpr {
-            name: name.to_string(),
+            function: *function,
+            name: function.to_string(),
             args: vec![],
             modifier: None,
             limit: 0,
@@ -1166,11 +1395,28 @@ impl AggrFuncExpr {
             _ => self.keep_metric_names = false,
         }
     }
+
+    pub fn return_value(&self) -> ReturnValue {
+        ReturnValue::InstantVector
+    }
+
+    pub fn get_arg_idx_for_optimization(&self) -> Option<usize> {
+        get_aggregate_arg_idx_for_optimization(self.function, self.args.len())
+    }
+
+    pub fn get_arg_for_optimization(&self) -> Option<&'_ BExpression> {
+        match self.get_arg_idx_for_optimization() {
+            None => None,
+            Some(idx) => {
+                Some(&self.args[idx])
+            }
+        }
+    }
 }
 
 impl Display for AggrFuncExpr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", escape_ident(&self.name))?;
+        write!(f, "{}", self.function)?;
         let args_len = self.args.len();
         if args_len > 0 {
             write_expression_list(&self.args, f)?;
@@ -1248,6 +1494,11 @@ impl MetricExpr {
             }
         }
     }
+
+    pub fn return_value(&self) -> ReturnValue {
+        //??? TODO:: is this correct ?
+        ReturnValue::RangeVector
+    }
 }
 
 impl Display for MetricExpr {
@@ -1307,6 +1558,15 @@ impl ParensExpr {
 
     pub fn is_empty(&self) -> bool {
         self.expressions.is_empty()
+    }
+
+    pub fn return_value(&self) -> ReturnValue {
+        if self.expressions.len() == 1 {
+            return self.expressions[0].return_value();
+        }
+
+        // Treat as a function with empty name, i.e. union()
+        TransformFunction::Union.return_type()
     }
 }
 

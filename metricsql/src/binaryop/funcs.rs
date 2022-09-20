@@ -118,11 +118,11 @@ pub fn eval_binary_op(left: f64, right: f64, op: BinaryOp, is_bool: bool) -> f64
     use BinaryOp::*;
 
     fn fixup_comparison(left: f64, right: f64, cf: fn(left: f64, right: f64) -> bool) -> f64 {
-        let val = cf(left, right);
-        if val {
-            return 1.0;
+        if cf(left, right) {
+            1.0
+        } else {
+            0.0
         }
-        0.0
     }
 
     match op {

@@ -4,14 +4,14 @@
 /// - 16 bytes are for subkey encoding
 /// - 4 bytes are for len(key)+len(value) encoding inside fastcache
 /// - 1 byte is implementation detail of fastcache
-const MAX_SUB_VALUE_LEN: _ = CHUNK_SIZE - 16 - 4 - 1;
+const MAX_SUB_VALUE_LEN: usize = CHUNK_SIZE - 16 - 4 - 1;
 
 /// max_key_len is the maximum size of key.
 ///
 /// - 16 bytes are for (hash + value_len)
 /// - 4 bytes are for len(key)+len(subkey)
 /// - 1 byte is implementation detail of fastcache
-const max_key_len: _ = CHUNK_SIZE - 16 - 4 - 1;
+const max_key_len: usize = CHUNK_SIZE - 16 - 4 - 1;
 
 /// set_big sets (k, v) to c where v.len() may exceed 64KB.
 ///

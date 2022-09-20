@@ -9,9 +9,11 @@ extern crate lockfree_object_pool;
 extern crate lru_time_cache;
 extern crate metrics;
 extern crate once_cell;
+#[macro_use]
+extern crate paste;
 extern crate phf;
-extern crate rayon;
 extern crate rand_distr;
+extern crate rayon;
 extern crate regex;
 #[macro_use(defer)]
 extern crate scopeguard;
@@ -19,6 +21,12 @@ extern crate scopeguard;
 extern crate tinyvec;
 #[cfg(feature = "xxh64")]
 extern crate xxhash_rust;
+
+pub use eval::{create_evaluator, EvalConfig, EvalOptions, get_timestamps};
+pub use exec::*;
+pub use lib::*;
+pub use metric_name::*;
+pub use timeseries::*;
 
 mod timeseries;
 mod exec;
@@ -40,8 +48,3 @@ pub mod functions;
 pub mod context;
 pub mod parser;
 
-pub use eval::{create_evaluator, EvalConfig, EvalOptions, get_timestamps};
-pub use exec::*;
-pub use lib::*;
-pub use metric_name::*;
-pub use timeseries::*;

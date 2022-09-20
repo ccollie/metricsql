@@ -4,12 +4,7 @@ use std::collections::HashSet;
 use std::iter::FromIterator;
 use std::vec::Vec;
 
-use phf::phf_ordered_set;
-
 use crate::ast::*;
-use crate::parser::aggr::is_aggr_func;
-use crate::parser::rollup::is_rollup_func;
-use crate::parser::transform::is_transform_func;
 
 /// Optimize optimizes e in order to improve its performance.
 ///
@@ -95,18 +90,16 @@ pub fn get_common_label_filters(e: &Expression) -> Vec<LabelFilter> {
     match e {
         MetricExpression(m) => get_label_filters_without_metric_name(&m.label_filters),
         Rollup(r) => get_common_label_filters(&r.expr),
-        Function(f) => {
-            let (_, arg) = get_func_arg_for_optimization(&f.name, &f.args);
-            if let Some(arg) = arg {
+        Function(fe) => {
+            if let Some(arg) = fe.get_arg_for_optimization() {
                 get_common_label_filters(arg)
             } else {
                 vec![]
             }
         }
         Aggregation(agg) => {
-            let (_, arg) = get_func_arg_for_optimization(&agg.name, &agg.args);
-            if let Some(arg) = arg {
-                let mut filters = get_common_label_filters(arg);
+            if let Some(argument) = agg.get_arg_for_optimization() {
+                let mut filters = get_common_label_filters(argument);
                 trim_filters_by_aggr_modifier(&mut filters, agg);
                 filters
             } else {
@@ -196,8 +189,7 @@ pub fn trim_filters_by_aggr_modifier(lfs: &mut Vec<LabelFilter>, afe: &AggrFuncE
     }
 }
 
-/// TrimFiltersByGroupModifier trims lfs by the specified
-/// be.group_modifier.Op (e.g. on() or ignoring()).
+/// trims lfs by the specified be.group_modifier.Op (e.g. on() or ignoring()).
 ///
 /// The following cases are possible:
 /// - It returns lfs as is if be doesn't contain any group modifier
@@ -251,20 +243,31 @@ pub fn pushdown_binary_op_filters<'a>(
     Cow::Owned(copy)
 }
 
+#[inline]
+pub fn can_pushdown_op_filters(e: &Expression) -> bool {
+    // these are the types handled below in pushdown_binary_op_filters_in_place
+    matches!(e, Expression::MetricExpression(_) |
+        Expression::Function(_) |
+        Expression::Rollup(_) |
+        Expression::BinaryOperator(_) |
+        Expression::Aggregation(_))
+}
+
 fn pushdown_binary_op_filters_in_place(e: &mut Expression, common_filters: &mut Vec<LabelFilter>) {
     use Expression::*;
 
     if common_filters.is_empty() {
         return;
     }
+
     match e {
         MetricExpression(me) => {
             union_label_filters(&mut me.label_filters, common_filters);
             sort_label_filters(&mut me.label_filters);
         }
         Function(fe) => {
-            let (idx, arg) = get_func_arg_for_optimization(&fe.name, &fe.args);
-            if let Some(val) = arg {
+            if let Some(idx) = fe.get_arg_idx_for_optimization() {
+                let val = &fe.args[idx];
                 let mut expr = val.clone();
                 pushdown_binary_op_filters_in_place(&mut expr, common_filters);
                 fe.args[idx] = expr;
@@ -280,10 +283,13 @@ fn pushdown_binary_op_filters_in_place(e: &mut Expression, common_filters: &mut 
         Aggregation(aggr) => {
             trim_filters_by_aggr_modifier(common_filters, aggr);
             if !common_filters.is_empty() {
-                let (idx, arg) = get_func_arg_for_optimization(&aggr.name, &aggr.args);
+                let arg = aggr.get_arg_for_optimization();
                 if let Some(argument) = arg {
                     let mut expr = argument.clone();
                     pushdown_binary_op_filters_in_place(&mut expr, common_filters);
+                    // .unwrap is safe here since get_arg_idx_for_optimization is used internally by
+                    // get_arg_for_optimization
+                    let idx = aggr.get_arg_idx_for_optimization().unwrap();
                     aggr.args[idx] = expr;
                 }
             }
@@ -353,96 +359,4 @@ fn filter_label_filters_ignoring(lfs: &mut Vec<LabelFilter>, args: &[String]) {
         let m: HashSet<&String> = HashSet::from_iter(args.iter());
         lfs.retain(|x| !m.contains(&x.label))
     }
-}
-
-fn get_func_arg_for_optimization<'a>(
-    func_name: &str,
-    args: &'a [BExpression],
-) -> (usize, Option<&'a BExpression>) {
-    let idx = get_func_arg_idx_for_optimization(func_name, args);
-    if idx < 0 {
-        (usize::MAX, None)
-    } else {
-        (idx as usize, args.get(idx as usize))
-    }
-}
-
-fn get_func_arg_idx_for_optimization(func_name: &str, args: &[BExpression]) -> i16 {
-    let lower = func_name.to_lowercase();
-    if is_rollup_func(&lower) {
-        return get_rollup_arg_idx_for_optimization(func_name, args) as i16;
-    }
-    if is_transform_func(func_name) {
-        return get_transform_arg_idx_for_optimization(func_name, args) as i16;
-    }
-    if is_aggr_func(func_name) {
-        return get_aggr_arg_idx_for_optimization(func_name, args) as i16;
-    }
-    -1
-}
-
-fn get_aggr_arg_idx_for_optimization(func: &str, args: &[BExpression]) -> i16 {
-    let func_name = func.to_lowercase();
-    return match func_name.as_str() {
-        "bottomk" | "bottomk_avg" | "bottomk_max" | "bottomk_median" | "bottomk_last"
-        | "bottomk_min" | "limitk" | "outliers_mad" | "outliersk" | "quantile" | "topk"
-        | "topk_avg" | "topk_max" | "topk_median" | "topk_last" | "topk_min" => 1,
-        "count_values" => return -1,
-        "quantiles" => (args.len() - 1) as i16,
-        _ => return 0,
-    };
-}
-
-fn get_rollup_arg_idx_for_optimization(func_name: &str, args: &[BExpression]) -> i16 {
-    // This must be kept in sync with GetRollupArgIdx()
-    let lower = func_name.to_lowercase();
-    return match lower.as_str() {
-        "absent_over_time" => -1,
-        "quantile_over_time"
-        | "aggr_over_time"
-        | "hoeffding_bound_lower"
-        | "hoeffding_bound_upper" => 1,
-        "quantiles_over_time" => (args.len() - 1) as i16,
-        _ => 0,
-    };
-}
-
-fn get_transform_arg_idx_for_optimization(func: &str, args: &[BExpression]) -> i16 {
-    let func_name = func.to_lowercase();
-    if is_label_manipulation_func(&func_name) {
-        return -1;
-    }
-    match func_name.as_str() {
-        "" | "absent" | "scalar" | "union" | "vector" => -1,
-        "end" | "now" | "pi" | "ru" | "start" | "step" | "time" => -1,
-        "limit_offset" => 2,
-        "buckets_limit" | "histogram_quantile" | "histogram_share" | "range_quantile" => 1,
-        "histogram_quantiles" => (args.len() - 1) as i16,
-        _ => 0,
-    }
-}
-
-static LABEL_MANIPULATION_FUNCTIONS: phf::OrderedSet<&'static str> = phf_ordered_set! {
-    "alias",
-   "drop_common_labels",
-   "label_copy",
-   "label_del",
-   "label_graphite_group",
-   "label_join",
-   "label_keep",
-   "label_lowercase",
-   "label_map",
-   "label_match",
-   "label_mismatch",
-   "label_move",
-   "label_replace",
-   "label_set",
-   "label_transform",
-   "label_uppercase",
-   "label_value",
-};
-
-fn is_label_manipulation_func(func: &str) -> bool {
-    let lower = func.to_lowercase();
-    LABEL_MANIPULATION_FUNCTIONS.contains(&lower)
 }

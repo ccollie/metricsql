@@ -1,8 +1,17 @@
+use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::ops::DerefMut;
 
 use lib::get_pooled_buffer;
-use metricsql::ast::{BinaryOp, BinaryOpExpr, Expression, GroupModifier, GroupModifierOp, JoinModifier, JoinModifierOp};
+use metricsql::ast::{
+    BinaryOp,
+    BinaryOpExpr,
+    Expression,
+    GroupModifier,
+    GroupModifierOp,
+    JoinModifier,
+    JoinModifierOp
+};
 use metricsql::parser::visit_all;
 
 use crate::exec::remove_empty_series;
@@ -16,11 +25,9 @@ pub(crate) struct BinaryOpFuncArg {
     pub right: Vec<Timeseries>,
 }
 
-pub(crate) type BinaryOpFunc = for<'a> fn(bfa: &'a mut BinaryOpFuncArg) -> Vec<Timeseries>;
+pub(self) trait BinaryOpFn: FnMut(&mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> + Send + Sync {}
 
-pub(self) trait BinaryOpFn: FnMut(&mut BinaryOpFuncArg) -> Vec<Timeseries> + Send + Sync {}
-
-impl<T> BinaryOpFn for T where T: Fn(&mut BinaryOpFuncArg) -> Vec<Timeseries> + Send + Sync {}
+impl<T> BinaryOpFn for T where T: Fn(&mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> + Send + Sync {}
 
 type TimeseriesHashMap = HashMap<String, Vec<Timeseries>>;
 
@@ -52,7 +59,7 @@ make_comp_func!(BINARY_OP_LT, metricsql::binaryop::lt);
 make_comp_func!(BINARY_OP_LTE, metricsql::binaryop::lte);
 
 
-pub(crate) fn exec_binop(bfa: &mut BinaryOpFuncArg) -> Vec<Timeseries> {
+pub(crate) fn exec_binop(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     match bfa.be.op {
         BinaryOp::Add => BINARY_OP_ADD(bfa),
         BinaryOp::Sub => BINARY_OP_SUB(bfa),
@@ -118,7 +125,7 @@ impl<T> BinopClosureFn for T where T: Fn(f64, f64, bool) -> f64 + Send + Sync {}
 
 // Possibly inline this or make it a macro
 const fn new_binary_op_func(bf: impl BinopClosureFn) -> impl BinaryOpFn {
-    move |bfa: &mut BinaryOpFuncArg| -> Vec<Timeseries> {
+    move |bfa: &mut BinaryOpFuncArg| -> RuntimeResult<Vec<Timeseries>> {
         let op = bfa.be.op;
 
         if op.is_comparison() {
@@ -130,7 +137,7 @@ const fn new_binary_op_func(bf: impl BinopClosureFn) -> impl BinaryOpFn {
         }
 
         if bfa.left.len() == 0 || bfa.right.len() == 0 {
-            return vec![];
+            return Ok(vec![]);
         }
 
         let (left, right, mut dst) = adjust_binary_op_tags(bfa)?;
@@ -155,7 +162,7 @@ const fn new_binary_op_func(bf: impl BinopClosureFn) -> impl BinaryOpFn {
         }
         // do not remove time series containing only NaNs, since then the `(foo op bar) default N`
         // won't work as expected if `(foo op bar)` results to NaN series.
-        return dst;
+        Ok(dst)
     }
 }
 
@@ -165,11 +172,11 @@ fn adjust_binary_op_tags(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<(Vec<Timese
         if is_scalar(&bfa.left) {
             // Fast path: `scalar op vector`
             let mut rvs_left: Vec<Timeseries> = Vec::with_capacity(bfa.right.len());
-            let ts_left = &bfa.left[0];
+            let ts_left = bfa.left.remove(0).borrow_mut();
 
             for mut ts_right in bfa.right.into_iter() {
                 reset_metric_group_if_required(&bfa.be, &mut ts_right);
-                rvs_left.push(ts_left.into()); // should be clone ????
+                rvs_left.push(std::mem::take(ts_left)); // should be clone ????
             }
             return Ok((rvs_left, bfa.right, bfa.right))
         }
@@ -177,10 +184,10 @@ fn adjust_binary_op_tags(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<(Vec<Timese
         if is_scalar(&bfa.right) {
             // Fast path: `vector op scalar`
             let mut rvs_right: Vec<Timeseries> = Vec::with_capacity(bfa.left.len());
-            let mut ts_right = &bfa.right[0];
+            let mut ts_right = bfa.right.remove(0).borrow_mut();
             for tsLeft in bfa.left.iter_mut() {
                 reset_metric_group_if_required(&bfa.be, tsLeft);
-                rvs_right.push(*ts_right);
+                rvs_right.push(std::mem::take(ts_right));
             }
             return Ok((bfa.left, rvs_right, bfa.left))
         }
@@ -240,7 +247,8 @@ fn adjust_binary_op_tags(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<(Vec<Timese
                         ts_left.metric_name.remove_tags_ignoring(group_tags)
                     }
                 }
-                &rvs_left.push(*ts_left);
+
+                rvs_left.push(std::mem::take(&mut ts_left));
                 rvs_right.push(tss_right.remove(0))
             }
         }
@@ -264,19 +272,21 @@ fn ensure_single_timeseries(side: &str, be: &BinaryOpExpr, tss: &mut Vec<Timeser
                               group_modifier_to_string(&be.group_modifier),
                               tss[0].metric_name,
                               last.metric_name);
+
             return Err(RuntimeError::from(msg));
         }
     }
+
     Ok(())
 }
 
-fn group_join(
+fn group_join<'a>(
     single_timeseries_side: &str,
     be: &BinaryOpExpr,
-    rvs_left: &mut Vec<Timeseries>,
-    rvs_right: &mut Vec<Timeseries>,
-    tss_left: &mut Vec<Timeseries>,
-    tss_right: &mut Vec<Timeseries>) -> RuntimeResult<()> {
+    rvs_left: &'a mut Vec<Timeseries>,
+    rvs_right: &'a mut Vec<Timeseries>,
+    tss_left: &'a mut Vec<Timeseries>,
+    tss_right: &'a mut Vec<Timeseries>) -> RuntimeResult<()> {
 
     let join_tags = if let Some(be_) = &be.join_modifier {
         &be_.labels
@@ -289,7 +299,9 @@ fn group_join(
         right: &'a Timeseries
     }
 
-    let mut m:HashMap<String, TsPair> = HashMap::with_capacity(rvs_left.len());
+    let mut m: HashMap<String, TsPair> = HashMap::with_capacity(rvs_left.len());
+    let mut bb = get_pooled_buffer(512);
+
     for tsLeft in tss_left.into_iter() {
         reset_metric_group_if_required(be, tsLeft);
         if tss_right.len() == 1 {
@@ -304,11 +316,12 @@ fn group_join(
         // Verify it doesn't result in duplicate MetricName values after adding missing tags.
         m.clear();
 
-        let mut bb = get_pooled_buffer(512);
         for tsRight in tss_right {
-            let mut ts_copy = Timeseries::copy_from_shallow_timestamps(tsLeft);
+            // todo: Question - do we need to copy? I dont think tss_left and tss_right
+            // are used anymore when we exit this function
+            let mut ts_copy = Timeseries::copy(tsLeft);
             ts_copy.metric_name.set_tags(join_tags, &tsRight.metric_name);
-            let key = ts_copy.metric_name.marshal_to_string(bb.deref_mut())?;
+            let key = ts_copy.metric_name.marshal_to_string(bb.deref_mut()).to_string();
 
             // todo: check specifically for error
             match m.get_mut(&key) {
@@ -320,8 +333,9 @@ fn group_join(
                     continue
                 },
                 Some(mut pair) => {
+                    // Todo: may not need to copy
                     // Try merging pair.right with tsRight if they don't overlap.
-                    let mut tmp: Timeseries = Timeseries::copy_from_shallow_timestamps(pair.right);
+                    let mut tmp: Timeseries = Timeseries::copy(pair.right);
                     if !merge_non_overlapping_timeseries(&mut tmp, tsRight) {
                         let err = format!("duplicate time series on the {} side of `{} {} {}`: {} and {}",
                                           single_timeseries_side, be.op,
@@ -401,7 +415,7 @@ pub fn merge_non_overlapping_timeseries(dst: &mut Timeseries, src: &Timeseries) 
     true
 }
 
-fn binary_op_if(bfa: &mut BinaryOpFuncArg) -> Vec<Timeseries> {
+fn binary_op_if(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let (mut m_left, m_right) = create_timeseries_map_by_tag_set(bfa);
     let mut rvs: Vec<Timeseries> = Vec::with_capacity( m_left.len() );
 
@@ -415,10 +429,10 @@ fn binary_op_if(bfa: &mut BinaryOpFuncArg) -> Vec<Timeseries> {
         }
     }
 
-    rvs
+    Ok(rvs)
 }
 
-fn binary_op_and(bfa: &mut BinaryOpFuncArg) -> Vec<Timeseries> {
+fn binary_op_and(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let (mut m_left, m_right) = create_timeseries_map_by_tag_set(bfa);
     let mut rvs: Vec<Timeseries> = Vec::with_capacity( std::cmp::min(m_left.len(), m_right.len() ) );
 
@@ -433,7 +447,7 @@ fn binary_op_and(bfa: &mut BinaryOpFuncArg) -> Vec<Timeseries> {
         }
     }
 
-    rvs
+    Ok(rvs)
 }
 
 fn add_right_nans_to_left(tss_left: &mut Vec<Timeseries>, tss_right: &Vec<Timeseries>) {
@@ -454,12 +468,13 @@ fn add_right_nans_to_left(tss_left: &mut Vec<Timeseries>, tss_right: &Vec<Timese
     remove_empty_series(tss_left)
 }
 
-fn binary_op_default(bfa: &mut BinaryOpFuncArg) -> Vec<Timeseries> {
+fn binary_op_default(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let (mut m_left, mut m_right) = create_timeseries_map_by_tag_set(bfa);
 
     if m_left.len() == 0 {
         // see if we can make this more efficient
-        return m_right.into_values().collect();
+        let items = m_right.into_values().flatten().collect();
+        return Ok(items)
     }
     let mut rvs: Vec<Timeseries> = Vec::with_capacity( m_left.len() );
     for (k, mut tss_left) in m_left.iter_mut() {
@@ -472,7 +487,7 @@ fn binary_op_default(bfa: &mut BinaryOpFuncArg) -> Vec<Timeseries> {
         rvs.append(&mut tss_left);
     }
 
-    rvs
+    Ok(rvs)
 }
 
 
@@ -490,13 +505,11 @@ fn reset_metric_group_if_required(be: &BinaryOpExpr, ts: &mut Timeseries) {
     ts.metric_name.reset_metric_group()
 }
 
-fn binary_op_or(bfa: &mut BinaryOpFuncArg) -> Vec<Timeseries> {
+fn binary_op_or(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let (mut m_left, mut m_right) = create_timeseries_map_by_tag_set(bfa);
     let mut rvs: Vec<Timeseries> = Vec::with_capacity( std::cmp::max(m_left.len(), m_right.len() ) );
 
-    for (_, tss) in m_left.into_iter() {
-        rvs.append(&mut tss);
-    }
+    rvs.append(&mut m_left.into_values().flatten().collect::<Vec<_>>());
 
     for (k, tss_right) in m_right.iter_mut() {
         match m_left.get(k) {
@@ -509,7 +522,7 @@ fn binary_op_or(bfa: &mut BinaryOpFuncArg) -> Vec<Timeseries> {
         }
     }
 
-    rvs
+    Ok(rvs)
 }
 
 #[inline]
@@ -532,7 +545,7 @@ fn fill_left_nans_with_right_values(tss_left: &mut Vec<Timeseries>, tss_right: &
     }
 }
 
-fn binary_op_unless(bfa: &mut BinaryOpFuncArg) -> Vec<Timeseries> {
+fn binary_op_unless(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let (mut m_left, mut m_right) = create_timeseries_map_by_tag_set(bfa);
     let mut rvs: Vec<Timeseries> = Vec::with_capacity( m_left.len());
 
@@ -546,10 +559,11 @@ fn binary_op_unless(bfa: &mut BinaryOpFuncArg) -> Vec<Timeseries> {
             }
         }
     }
-    rvs
+
+    Ok(rvs)
 }
 
-fn binary_op_if_not(bfa: &mut BinaryOpFuncArg) -> Vec<Timeseries> {
+fn binary_op_if_not(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let (mut m_left, mut m_right) = create_timeseries_map_by_tag_set(bfa);
     let mut rvs: Vec<Timeseries> = Vec::with_capacity( m_left.len());
 
@@ -560,12 +574,12 @@ fn binary_op_if_not(bfa: &mut BinaryOpFuncArg) -> Vec<Timeseries> {
             },
             Some(tss_right) => {
                 add_left_nans_if_no_right_nans(&mut tss_left, tss_right);
-                rvs.extend::<Vec<Timeseries>>(*tss_left);
+                rvs.extend(tss_left.drain(0..).collect::<Vec<_>>());
             }
         }
     }
 
-    rvs
+    Ok(rvs)
 }
 
 fn add_left_nans_if_no_right_nans(tss_left: &mut Vec<Timeseries>, tss_right: &Vec<Timeseries>) {
@@ -605,8 +619,11 @@ fn create_timeseries_map_by_tag_set(bfa: &mut BinaryOpFuncArg) -> (&mut Timeseri
                 },
             }
             {
-                let key = mn.marshal_to_string(bb.deref_mut())?;
-                m.entry(key).or_insert(vec![]).push(*ts.into());
+                let key = mn.marshal_to_string(bb.deref_mut());
+                m.entry(key.to_string())
+                    .or_insert(vec![])
+                    .push(std::mem::take(ts));
+
                 bb.clear();
             }
         }

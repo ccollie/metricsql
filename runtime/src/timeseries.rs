@@ -1,13 +1,14 @@
-use std::borrow::{BorrowMut};
+use std::borrow::BorrowMut;
 use std::fmt::Debug;
 use std::sync::Arc;
 
 use byte_slice_cast::{AsByteSlice, AsSliceOf};
 use integer_encoding::VarInt;
-use lockfree_object_pool::{LinearObjectPool};
+use lockfree_object_pool::LinearObjectPool;
 use once_cell::sync::OnceCell;
 
 use lib::{marshal_var_int, unmarshal_uint16};
+
 use crate::MetricName;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::traits::{Timestamp, TimestampTrait};
@@ -17,7 +18,6 @@ pub struct Timeseries {
     pub metric_name: MetricName,
     pub values: Vec<f64>,
     pub timestamps: Arc<Vec<i64>>, //Arc used vs Rc since Rc is !Send
-    pub(crate) deny_reuse: bool,
 }
 
 impl Timeseries {
@@ -26,18 +26,15 @@ impl Timeseries {
             metric_name: MetricName::default(),
             values,
             timestamps: Arc::new(timestamps),
-            deny_reuse: true,
         }
     }
 
-    pub fn copy_shallow(src: &Timeseries) -> Self {
-        let mut ts = Timeseries {
+    pub fn copy(src: &Timeseries) -> Self {
+        Timeseries {
             timestamps: src.timestamps.clone(),
             metric_name: src.metric_name.clone(),
             values: src.values.clone(),
-            deny_reuse: true,
-        };
-        ts
+        }
     }
 
     pub fn copy_from_metric_name(src: &Timeseries) -> Self {
@@ -45,7 +42,6 @@ impl Timeseries {
             timestamps: src.timestamps.clone(),
             metric_name: src.metric_name.clone(),
             values: src.values.clone(),
-            deny_reuse: true,
         };
         ts
     }
@@ -57,7 +53,6 @@ impl Timeseries {
             values: Vec::from(values),
             // see https://pkolaczk.github.io/server-slower-than-a-laptop/ under the section #the fix
             timestamps: Arc::new(timestamps.as_ref().clone()),   // clones the value under Arc and wraps it in a new counter
-            deny_reuse: true,
         }
     }
 
@@ -72,12 +67,7 @@ impl Timeseries {
             metric_name: src.metric_name.clone(),
             values: src.values.clone(),
             timestamps: src.timestamps.clone(),
-            deny_reuse: true,
         }
-    }
-
-    pub fn copy_shared_timestamps(mut self, timestamps: &Vec<i64>) {
-
     }
 
     pub fn len(&self) -> usize {
@@ -113,7 +103,7 @@ impl Timeseries {
     ///
     /// It doesn't marshal timestamps.
     ///
-    /// The result must be unmarshaled with unmarshal_fast_no_timestamps.
+    /// The result must be unmarshalled with unmarshal_fast_no_timestamps.
     pub fn marshal_fast_no_timestamps(&self, dst: &mut Vec<u8>) {
         let mn = &self.metric_name;
         marshal_bytes_fast(dst, mn.metric_group.as_bytes());
@@ -144,7 +134,6 @@ impl Timeseries {
     ///
     /// It is unsafe to modify src while ts is in use.
     fn unmarshal_fast_no_timestamps(&mut self, src: &[u8]) -> RuntimeResult<&[u8]> {
-        self.deny_reuse = true;
         let mut tail = src;
         match self.metric_name.unmarshal_fast_internal(src) {
             Err(_) => return Err(RuntimeError::SerializationError("Cannot unmarshal metric name".to_string())),
@@ -225,7 +214,6 @@ pub(crate) fn unmarshal_timeseries_fast(src: &[u8]) -> RuntimeResult<Vec<Timeser
             metric_name: Default::default(),
             values: vec![],
             timestamps: shared_timestamps.clone(),
-            deny_reuse: false,
         };
 
         let tail = ts.unmarshal_fast_no_timestamps(src)?;
@@ -297,7 +285,6 @@ where T: Clone + byte_slice_cast::FromByteSlice
 /// It is unsafe to modify src while ts is in use.
 pub(crate) fn unmarshal_fast_no_timestamps<'a>(ts: &mut Timeseries, src: &'a [u8]) -> RuntimeResult<&'a [u8]> {
     // ts members point to src, so they cannot be re-used.
-    ts.deny_reuse = true;
 
     let mut tail = src;
     match ts.metric_name.unmarshal_fast_internal(src) {
@@ -349,7 +336,7 @@ pub fn unmarshal_bytes_fast(src: &[u8]) -> RuntimeResult<(&[u8], &[u8])> {
     }
 }
 
-/// copy_timeseries_shallow returns a copy of arg with shallow copies of MetricNames,
+/// returns a copy of arg with shallow copies of MetricNames,
 /// Timestamps and Values.
 pub(crate) fn copy_timeseries_shallow(arg: &Vec<Timeseries>) -> Vec<Timeseries> {
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(arg.len());
@@ -440,7 +427,6 @@ fn reset_timeseries(v: &mut TimeseriesPoolEntry) {
     let current_time = Timestamp::now();
     // ts.timestamps points to shared_timestamps. Zero it, so it can be re-used.
     v.timeseries.timestamps = Arc::new(vec![]);
-    v.timeseries.deny_reuse = false;
     let cap = v.timeseries.values.capacity();
     if cap > 1024*1024 && (4 * v.timeseries.values.len()) < cap &&
         (current_time - v.last_reset_time) > 100 {

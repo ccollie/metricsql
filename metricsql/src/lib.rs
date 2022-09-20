@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
-extern crate logos;
 extern crate core;
 extern crate enquote;
+extern crate logos;
 extern crate once_cell;
 extern crate phf;
 extern crate regex;
@@ -13,8 +13,11 @@ pub mod binaryop;
 mod lexer;
 
 pub mod utils {
+    pub use lexer::{escape_ident, parse_float, quote};
+
     use crate::lexer;
-    pub use lexer::{ escape_ident, quote, parse_float };
 }
 pub mod optimizer;
 pub mod parser;
+mod types;
+pub mod functions;

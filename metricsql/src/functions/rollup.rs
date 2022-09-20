@@ -3,10 +3,10 @@ use std::str::FromStr;
 
 use phf::phf_map;
 
-use crate::functions::types::{DataType, Signature, Volatility};
-use crate::runtime_error::RuntimeError;
-
-const MAX_ARG_COUNT: usize = 32;
+use crate::functions::data_type::DataType;
+use crate::functions::MAX_ARG_COUNT;
+use crate::functions::signature::{Signature, Volatility};
+use crate::parser::ParseError;
 
 /// Built-in Rollup Functions
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Hash)]
@@ -49,6 +49,7 @@ pub enum RollupFunction {
     LastOverTime, 
     Lifetime,
     MaxOverTime,
+    MedianOverTime,
     MinOverTime, 
     ModeOverTime,
     PredictLinear,
@@ -128,6 +129,7 @@ impl Display for RollupFunction {
             RollupFunction::LastOverTime => "last_over_time",
             RollupFunction::Lifetime => "lifetime",
             RollupFunction::MaxOverTime => "max_over_time",
+            RollupFunction::MedianOverTime => "median_over_time",
             RollupFunction::MinOverTime => "min_over_time",
             RollupFunction::ModeOverTime => "mode_over_time",
             RollupFunction::PredictLinear => "predict_linear",
@@ -167,6 +169,10 @@ impl Display for RollupFunction {
 }
 
 impl RollupFunction {
+    pub fn name(&self) -> String {
+        self.to_string()
+    }
+
     /// the signatures supported by the function `fun`.
     pub fn signature(&self) -> Signature {
         // note: the physical expression must accept the type returned by this function or the execution panics.
@@ -181,7 +187,8 @@ impl RollupFunction {
             | RollupFunction::ShareLeOverTime => {
                 Signature::exact(vec![DataType::Series, DataType::Float], Volatility::Immutable)
             },
-            RollupFunction::HoeffdingBoundLower | RollupFunction::HoeffdingBoundLower => {
+            RollupFunction::HoeffdingBoundLower |
+            RollupFunction::HoeffdingBoundUpper => {
                 Signature::exact(vec![DataType::Float, DataType::Series], Volatility::Immutable)
             },
             RollupFunction::HoltWinters => {
@@ -274,6 +281,7 @@ static FUNCTION_MAP: phf::Map<&'static str, RollupFunction> = phf_map! {
     "last_over_time" => RollupFunction::LastOverTime,
     "lifetime" => RollupFunction::Lifetime,
     "max_over_time" => RollupFunction::MaxOverTime,
+    "median_over_time" => RollupFunction::MedianOverTime,
     "min_over_time" => RollupFunction::MinOverTime,
     "mode_over_time" => RollupFunction::ModeOverTime,
     "predict_linear" => RollupFunction::PredictLinear,
@@ -311,13 +319,77 @@ static FUNCTION_MAP: phf::Map<&'static str, RollupFunction> = phf_map! {
 
 
 impl FromStr for RollupFunction {
-    type Err = RuntimeError;
+    type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let lower = s.to_lowercase();
         match FUNCTION_MAP.get(lower.as_str()) {
             Some(op) => Ok(*op),
-            None => Err(RuntimeError::UnknownFunction(s.to_string()))
+            None => Err(ParseError::InvalidFunction(
+                format!("unknown rollup function: {}", s)
+            ))
         }
     }
+}
+
+pub fn is_rollup_func(func: &str) -> bool {
+    let lower = func.to_lowercase();
+    FUNCTION_MAP.contains_key(&lower)
+}
+
+/// get_rollup_arg_idx returns the argument index for the given fe, which accepts the rollup argument.
+///
+/// -1 is returned if fe isn't a rollup function.
+pub fn get_rollup_arg_idx(fe: &RollupFunction, arg_count: usize) -> i32 {
+    use RollupFunction::*;
+    match fe {
+        QuantileOverTime | AggrOverTime | HoeffdingBoundLower | HoeffdingBoundUpper => 1,
+        QuantilesOverTime => (arg_count - 1) as i32,
+        _ => 0
+    }
+}
+
+pub fn get_rollup_arg_idx_for_optimization(func: RollupFunction, arg_count: usize) -> Option<usize> {
+    // This must be kept in sync with GetRollupArgIdx()
+    use RollupFunction::*;
+    match func {
+        AbsentOverTime => None,
+        QuantileOverTime | AggrOverTime | HoeffdingBoundLower | HoeffdingBoundUpper => Some(1),
+        QuantilesOverTime => Some(arg_count - 1),
+        _ => Some(0)
+    }
+}
+
+/// Determines if a given rollup function converts a range vector to an instance vector
+///
+/// Note that `_over_time` functions do not affect labels, unlike their regular
+/// counterparts
+pub fn is_rollup_aggregation_over_time(func: RollupFunction) -> bool {
+    use RollupFunction::*;
+    let name = func.name();
+
+    if name.ends_with("over_time") {
+        return true
+    }
+
+    matches!(func,
+            | Delta
+            | DeltaPrometheus
+            | Deriv
+            | DerivFast
+            | IDelta
+            | IDeriv
+            | Increase
+            | IncreasePure
+            | IncreasePrometheus
+            | IncreasesOverTime
+            | IRate
+            | PredictLinear
+            | Rate
+            | Resets
+            | RollupDeriv
+            | RollupDelta
+            | RollupIncrease
+            | RollupRate
+    )
 }

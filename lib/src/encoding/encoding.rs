@@ -1,3 +1,11 @@
+use std::fmt;
+use std::iter::repeat;
+use std::ops::Deref;
+
+use byte_slice_cast::AsByteSlice;
+use integer_encoding::VarInt;
+
+use crate::{fastnum, get_pooled_buffer};
 use crate::encoding::compress::{compress_lz4, decompress_lz4};
 use crate::encoding::int::{marshal_var_int, unmarshal_var_int};
 use crate::encoding::nearest_delta::{marshal_int64_nearest_delta, unmarshal_int64_nearest_delta};
@@ -5,12 +13,6 @@ use crate::encoding::nearest_delta2::{
     marshal_int64_nearest_delta2, unmarshal_int64_nearest_delta2,
 };
 use crate::error::{Error, Result};
-use crate::{fastnum, get_pooled_buffer};
-use byte_slice_cast::AsByteSlice;
-use integer_encoding::VarInt;
-use std::fmt;
-use std::iter::repeat;
-use std::ops::Deref;
 
 /// MIN_COMPRESSIBLE_BLOCK_SIZE is the minimum block size in bytes for trying compression.
 ///
@@ -75,7 +77,7 @@ impl TryFrom<u8> for MarshalType {
 
 /// check_precision_bits makes sure precision_bits is in the range [1..64].
 pub(crate) fn check_precision_bits(precision_bits: u8) -> std::result::Result<(), Error> {
-    if precision_bits < 1 || precision_bits > 64 {
+    if !(1..=64).contains(&precision_bits) {
         return Err(Error::from(format!(
             "precision_bits must be in the range [1...64]; got {}",
             precision_bits
