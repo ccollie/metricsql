@@ -1,10 +1,13 @@
 use std::borrow::Cow;
 use std::fmt;
 use std::fmt::Display;
-use std::ops::{Add};
+use std::ops::Add;
+
 use chrono::Duration;
+
 use metricsql::ast::{Expression, LabelFilter};
 use metricsql::parser::parse;
+
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::traits::{Timestamp, TimestampTrait};
 
@@ -97,7 +100,7 @@ pub fn parse_metric_selector(s: &str) -> RuntimeResult<Vec<LabelFilter>> {
                     Ok(me.label_filters.into())
                 },
                 _ => {
-                    let msg = format!("expecting metricSelector; got {}", expr);
+                    let msg = format!("expecting metric selector; got {}", expr);
                     Err(RuntimeError::from(msg))
                 }
             }

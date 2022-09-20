@@ -14,7 +14,7 @@ const MAX_GEN: u64 = 1 << GEN_SIZE_BITS - 1;
 
 const MAX_BUCKET_SIZE: u64 = 1 << BUCKET_SIZE_BITS;
 
-/// maxSubvalue_len is the maximum size of subvalue chunk.
+/// MAX_SUUB_VALUE_LEN is the maximum size of subvalue chunk.
 ///
 /// - 16 bytes are for subkey encoding
 /// - 4 bytes are for len(key)+len(value) encoding inside fastcache
@@ -256,8 +256,12 @@ impl Cache {
             return dst
         }
 
-        let value_hash = unmarshalUint64(sub_key);
-        let value_len = unmarshalUint64(sub_key.B[8: ])
+        let meta = unmarshal_meta(sub_key);
+        if meta.is_none() {
+            return  dst
+        }
+
+        let (value_hash, value_len) = meta.unwrap();
 
         // Collect result from chunks.
         let dst_len = dst.len();
@@ -267,7 +271,7 @@ impl Cache {
         let mut i: u64 = 0;
 
         while (dst.len() - dst_len) < value_len {
-            marshal_meta(sub_key, value_hash, i as u64);
+            marshal_meta(sub_key, value_hash, i);
             i += 1;
             let dst_new = self.get(dst, sub_key);
             if dst_new.len() == dst.len() {
@@ -293,9 +297,45 @@ impl Cache {
 }
 
 #[inline]
-fn marshal_meta(buf: &mut Vec<u8>, value_hash: uu64, index: u64) {
+fn marshal_meta(buf: &mut Vec<u8>, value_hash: u64, index: u64) {
     marshal_var_int(buf, value_hash);
     marshal_var_int(buf, index);
+}
+
+fn unmarshal_meta(src: &[u8]) -> Option<(u64, u64)> {
+    if src.len() < 8 {
+        return None
+    }
+    let mut cursor: &[u8];
+    let mut value_hash: u64;
+
+    match unmarshal_var_int::<u64>(src) {
+        Err(_) => {
+            return None;
+        },
+        Ok((val, tail)) => {
+            value_hash = val;
+            cursor = tail;
+        }
+    }
+
+    if src.len() < 8 {
+        return None;
+    }
+
+    let mut index: u64;
+
+    match unmarshal_var_int::<u64>(cursor) {
+        Err(_) => {
+            return None
+        },
+        Ok((val, tail)) => {
+            index = val;
+            cursor = tail;
+        }
+    }
+
+    Ok((value_hash, index))
 }
 
 struct BucketInner {

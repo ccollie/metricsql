@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use chrono::Duration;
 
+use chrono::Duration;
 use effective_limits::memory_limit;
 use once_cell::sync::Lazy;
+/// import commonly used items from the prelude:
+use rand::prelude::*;
 
 use lib::{
     compress_lz4,
@@ -18,8 +20,6 @@ use lib::{
 use metricsql::ast::{Expression, LabelFilter};
 
 use crate::{copy_timeseries_shallow, EvalConfig, marshal_timeseries_fast, Timeseries, unmarshal_timeseries_fast};
-/// import commonly used items from the prelude:
-use rand::prelude::*;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::traits::{Timestamp, TimestampTrait};
 use crate::utils::MemoryLimiter;
@@ -317,20 +317,19 @@ fn marshal_rollup_result_cache_key(dst: &mut Vec<u8>,
 ///
 /// Postconditions:
 /// - a and b cannot be used after returning from the call.
-pub fn merge_timeseries(a: &[Timeseries], b: &mut Vec<Timeseries>, b_start: i64, ec: &mut EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
-    let shared_timestamps = ec.get_shared_timestamps();
+pub fn merge_timeseries(a: &[Timeseries], b: &mut Vec<Timeseries>, b_start: i64, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
+    let shared_timestamps = ec.timestamps();
     if b_start == ec.start {
         // Nothing to merge - b covers all the time range.
         // Verify b is correct.
         for tsB in b.iter_mut() {
-            tsB.deny_reuse = true;
             tsB.timestamps = shared_timestamps.clone();
             if tsB.values.len() != tsB.timestamps.len() {
                 panic!("BUG: unexpected number of values in b; got {}; want {}",
                               tsB.values.len(), tsB.timestamps.len())
             }
         }
-        return Ok(b.into());
+        return Ok(std::mem::take(b));
     }
 
     let mut m: HashMap<&str, &Timeseries> = HashMap::with_capacity(a.len());
@@ -338,7 +337,7 @@ pub fn merge_timeseries(a: &[Timeseries], b: &mut Vec<Timeseries>, b_start: i64,
     let mut bb = get_pooled_buffer(1024);
 
     for ts in a.iter() {
-        let key = ts.metric_name.marshal_to_string(bb.deref_mut())?;
+        let key = ts.metric_name.marshal_to_string(bb.deref_mut());
         m.insert(&key, ts);
         bb.clear();
     }
@@ -347,16 +346,15 @@ pub fn merge_timeseries(a: &[Timeseries], b: &mut Vec<Timeseries>, b_start: i64,
     for tsB in b.iter_mut() {
         let mut tmp: Timeseries = Timeseries {
             metric_name: tsB.metric_name.into(),
-            deny_reuse: true,
             timestamps: shared_timestamps.clone(),
             values: Vec::with_capacity(shared_timestamps.len())
         };
         // do not use MetricName.copy_from for performance reasons.
         // It is safe to make shallow copy, since tsB must no longer used.
 
-        let key = tsB.metric_name.marshal_to_string(bb.deref_mut())?;
+        let key = tsB.metric_name.marshal_to_string(bb.deref_mut());
 
-        let k = key.as_str();
+        let k = key.as_ref();
         match m.get_mut(k) {
             None => {
                 let mut t_start = ec.start;
@@ -383,7 +381,6 @@ pub fn merge_timeseries(a: &[Timeseries], b: &mut Vec<Timeseries>, b_start: i64,
     // Copy the remaining timeseries from m.
     for (_, mut tsA) in m.iter_mut() {
         let mut tmp = Timeseries::default();
-        tmp.deny_reuse = true;
         tmp.timestamps = shared_timestamps.clone();
         // do not use MetricName.CopyFrom for performance reasons.
         // It is safe to make shallow copy, since tsA must no longer used.
@@ -596,7 +593,7 @@ impl RollupResultCacheMetaInfoEntry {
             }
         }
 
-        self.key.unmarshal(src);
+        (self.key, src) = RollupResultCacheKey::unmarshal(src)?;
 
         Ok(src)
     }
@@ -639,7 +636,7 @@ impl RollupResultCacheKey {
         marshal_var_int(dst, self.suffix);
     }
 
-    fn unmarshal(src: &[u8]) -> RuntimeResult<(RollupResultCacheKey, &[u8])> {
+    pub(self) fn unmarshal(src: &[u8]) -> RuntimeResult<(RollupResultCacheKey, &[u8])> {
         if src.len() < 8 {
             return Err(RuntimeError::SerializationError(
                 format!("cannot unmarshal key prefix from {} bytes; need at least {} bytes", src.len(), 8)

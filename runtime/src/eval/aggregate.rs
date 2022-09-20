@@ -1,48 +1,45 @@
 use std::ops::Deref;
-use std::str::FromStr;
-use metricsql::ast::{AggregateModifier, AggrFuncExpr, Expression, FuncExpr};
-use metricsql::parser::rollup::get_rollup_arg_idx;
-use crate::runtime_error::{RuntimeError, RuntimeResult};
+
+use metricsql::ast::{AggregateModifier, AggrFuncExpr, Expression, FuncExpr, MetricExpr};
+use metricsql::functions::{AggregateFunction, BuiltinFunction, RollupFunction, Signature, Volatility};
+
 use crate::{EvalConfig, Timeseries};
 use crate::context::Context;
-use super::{create_evaluators, Evaluator, eval_params, eval_volatility, ExprEvaluator};
 use crate::eval::rollup::{compile_rollup_func_args, RollupEvaluator};
-
-use crate::functions::rollup::get_rollup_func;
 use crate::functions::{
     aggregate::{
         AggrFn,
         AggrFuncArg,
-        AggregateFunction,
-        get_aggr_func,
         get_incremental_aggr_func_callbacks,
         IncrementalAggrFuncContext
     },
 };
+use crate::functions::aggregate::get_aggr_func;
+use crate::runtime_error::{RuntimeError, RuntimeResult};
 
-use crate::functions::types::{Signature, Volatility};
-
+use super::{create_evaluators, eval_params, eval_volatility, Evaluator, ExprEvaluator};
 
 pub(super) fn create_aggr_evaluator(ae: &AggrFuncExpr) -> RuntimeResult<ExprEvaluator> {
     match get_incremental_aggr_func_callbacks(&ae.name) {
         Some(callbacks) => {
-            match try_get_arg_rollup_func_with_metric_expr(ae) {
+            match try_get_arg_rollup_func_with_metric_expr(ae)? {
                 Some(fe) => {
                     // There is an optimized path for calculating `Expression::AggrFuncExpr` over: RollupFunc
                     // over Expression::MetricExpr.
                     // The optimized path saves RAM for aggregates over big number of time series.
-                    let (args, re, rollup_index) = compile_rollup_func_args(&fe)?;
+                    let (args, re) = compile_rollup_func_args(&fe)?;
                     let iafc = IncrementalAggrFuncContext::new(ae, callbacks);
                     let expr = Expression::Aggregation(ae.clone());
+                    let func = get_rollup_function(&fe)?;
 
                     let mut res = RollupEvaluator::create_internal(
-                        &ae.name,
+                        func,
                         &re,
                         expr,
                         args
                     )?;
+
                     res.iafc = Some(iafc);
-                    res.rollup_index = rollup_index as i32;
                     return Ok(ExprEvaluator::Rollup(res))
                 },
                 _ => {}
@@ -56,8 +53,8 @@ pub(super) fn create_aggr_evaluator(ae: &AggrFuncExpr) -> RuntimeResult<ExprEval
 
 
 pub(crate) struct AggregateEvaluator {
-    expr: String,
-    function: AggregateFunction,
+    pub expr: String,
+    pub function: AggregateFunction,
     signature: Signature,
     handler: Box<dyn AggrFn + 'static>,
     args: Vec<ExprEvaluator>,
@@ -68,13 +65,11 @@ pub(crate) struct AggregateEvaluator {
 
 impl AggregateEvaluator {
     pub fn new(ae: &AggrFuncExpr) -> RuntimeResult<Self> {
-        let handler = get_aggr_func(&ae.name)?;
-        let function = AggregateFunction::from_str(&ae.name)?;
+        let handler = get_aggr_func(&ae.function);
+        let function = ae.function;
         let signature = function.signature();
         let args = create_evaluators(&ae.args)?;
         let limit = ae.limit;
-
-        signature.validate_arg_count(&ae.name, args.len())?;
 
         Ok(Self {
             handler: Box::new(handler),
@@ -89,7 +84,7 @@ impl AggregateEvaluator {
 }
 
 impl Evaluator for AggregateEvaluator {
-    fn eval(&self, ctx: &mut Context, ec: &mut EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
+    fn eval(&self, ctx: &mut Context, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
         let args = eval_params(ctx, ec, &self.signature.type_signature, &self.args)?;
         //todo: use tinyvec for args
         let mut afa = AggrFuncArg::new(ec, args,  &self.modifier, self.limit);
@@ -108,9 +103,9 @@ impl Evaluator for AggregateEvaluator {
 }
 
 
-fn try_get_arg_rollup_func_with_metric_expr(ae: &AggrFuncExpr) -> Option<FuncExpr> {
+fn try_get_arg_rollup_func_with_metric_expr(ae: &AggrFuncExpr) -> RuntimeResult<Option<FuncExpr>> {
     if ae.args.len() != 1 {
-        return None;
+        return Ok(None);
     }
     let e = ae.args[0].deref();
     // Make sure e contains one of the following:
@@ -119,67 +114,92 @@ fn try_get_arg_rollup_func_with_metric_expr(ae: &AggrFuncExpr) -> Option<FuncExp
     // -: RollupFunc(metricExpr)
     // -: RollupFunc(metricExpr[d])
 
-    return match ae.args[0].deref() {
+    fn create_func(me: &MetricExpr, expr: &Expression, name: &str, for_subquery: bool) -> RuntimeResult<Option<FuncExpr>> {
+        if me.is_empty() || for_subquery {
+            return Ok(None)
+        }
+
+        let func_name = if name.len() == 0 {
+            "default_rollup"
+        } else {
+            name
+        };
+
+        match FuncExpr::from_single_arg(func_name, expr.clone()) {
+            Err(e) => {
+                Err(RuntimeError::General(
+                    format!("Error creating function {}: {:?}", func_name, expr)
+                ))
+            },
+            Ok(fe) => Ok(Some(fe))
+        }
+    }
+
+
+   return match ae.args[0].deref() {
         Expression::MetricExpression(me) => {
-            if me.is_empty() {
-                return None;
-            }
-            let fe = FuncExpr::default_rollup( e.clone());
-            Some(fe)
+            return create_func(me, e, "", false)
         }
         Expression::Rollup(re) => {
-            let mut is_me: bool = false;
-            let mut is_empty: bool = false;
             match re.expr.deref() {
                 Expression::MetricExpression(me) => {
-                    is_me = true;
-                    is_empty = me.is_empty();
+                    // e = metricExpr[d]
+                    create_func(me, e, "", re.for_subquery())
                 },
-                _ => {}
+                _ => Ok(None)
             }
-            if !is_me || is_empty || re.for_subquery() {
-                return None;
-            }
-            // e = metricExpr[d]
-            let fe = FuncExpr::default_rollup( e.clone());
-            Some(fe)
         }
         Expression::Function(fe) => {
-            let nrf = get_rollup_func(&fe.name);
-            if nrf.is_err() {
-                return None;
-            }
-            let rollup_arg_idx = get_rollup_arg_idx(fe);
-            if rollup_arg_idx >= fe.args.len() as i32 {
-                // Incorrect number of args for rollup func.
-                return None;
-            }
-            let arg = fe.args[rollup_arg_idx as usize].deref();
-            match arg {
-                Expression::MetricExpression(me) => {
-                    if me.is_empty() {
-                        return None;
-                    }
-                    // e = rollupFunc(metricExpr)
-                    let f = FuncExpr::from_single_arg(&fe.name, arg.clone());
-                    Some(f)
-                }
-                Expression::Rollup(re) => {
-                    match re.expr.deref() {
-                        Expression::MetricExpression(me) => {
-                            if me.is_empty() || re.for_subquery() {
-                                return None;
-                            }
-                            // e = RollupFunc(metricExpr[d])
-                            // todo: use COW to avoid clone
-                            Some(fe.clone())
+            match fe.function {
+                BuiltinFunction::Rollup(rf) => {
+                    match fe.get_arg_for_optimization() {
+                        None => {
+                            // Incorrect number of args for rollup func.
+                            // TODO: this should be an error
+                            // all rollup functions should have a value for this
+                            return Ok(None);
                         },
-                        _ => None
+                        Some(arg) => {
+                            match arg.deref() {
+                                Expression::MetricExpression(me) => {
+                                    create_func(me, e, &fe.name(), false)
+                                },
+                                Expression::Rollup(re) => {
+                                    match &*re.expr {
+                                        Expression::MetricExpression(me) => {
+                                            if me.is_empty() || re.for_subquery() {
+                                                Ok(None)
+                                            } else {
+                                                // e = RollupFunc(metricExpr[d])
+                                                // todo: use COW to avoid clone
+                                                Ok(Some(fe.clone()))
+                                            }
+                                        },
+                                        _ => Ok(None)
+                                    }
+
+                                },
+                                _=> Ok(None)
+                            }
+                        }
+
                     }
                 }
-                _ => None
+                _ => Ok(None)
             }
+
         }
-        _ => None
+        _ => Ok(None)
+    };
+}
+
+
+fn get_rollup_function(fe: &FuncExpr) -> RuntimeResult<RollupFunction> {
+    match fe.function {
+        BuiltinFunction::Rollup(rf) => Ok(rf),
+        _ => {
+            // should not happen
+            Err( RuntimeError::General("Bug: cant extract rollup from function".to_string()))
+        }
     }
 }

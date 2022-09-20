@@ -7,7 +7,6 @@ use phf::phf_map;
 use lib::get_pooled_buffer;
 use metricsql::ast::{AggregateModifier, AggrFuncExpr};
 
-use crate::functions::aggregate::aggr_fns::remove_group_tags;
 use crate::runtime_error::RuntimeResult;
 use crate::timeseries::Timeseries;
 
@@ -118,10 +117,10 @@ impl IncrementalAggrFuncContext {
         if keep_original {
             ts = &mut ts_orig.clone();
         }
-        remove_group_tags(&mut ts.metric_name, &self.modifier);
+        ts.metric_name.remove_group_tags(&self.modifier);
 
         let mut bb = get_pooled_buffer(512);
-        let key = ts.metric_name.marshal_to_string(bb.deref_mut())?;
+        let key = ts.metric_name.marshal_to_string(bb.deref_mut()).to_string();
 
         let mut iac: &IncrementalAggrContext;
         match m.get(&key) {
@@ -140,7 +139,7 @@ impl IncrementalAggrFuncContext {
                     ts: ts_aggr,
                     values: Vec::with_capacity(ts.values.len()),
                 };
-                m.insert(key, new_iac);
+                m.insert(key.to_string(), new_iac);
                 iac = &new_iac;
             },
             Some(e) => {

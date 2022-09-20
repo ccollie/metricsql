@@ -1,21 +1,25 @@
-use chrono::Duration;
-use metricsql::ast::*;
 use std::sync::Arc;
-use crate::context::Context;
 
-use super::rollup::RollupEvaluator;
-use super::traits::{NullEvaluator, Evaluator};
-use crate::eval::aggregate::{create_aggr_evaluator, AggregateEvaluator};
+use chrono::Duration;
+
+use metricsql::ast::*;
+use metricsql::functions::{DataType, Signature, TypeSignature, Volatility};
+
+use crate::context::Context;
+use crate::eval::aggregate::{AggregateEvaluator, create_aggr_evaluator};
 use crate::eval::binaryop::BinaryOpEvaluator;
 use crate::eval::duration::DurationEvaluator;
 use crate::eval::function::{create_function_evaluator, TransformEvaluator};
 use crate::eval::number::NumberEvaluator;
 use crate::eval::string::StringEvaluator;
-use crate::functions::types::{DataType, ParameterValue, Signature, TypeSignature, Volatility};
+use crate::functions::types::ParameterValue;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::search::Deadline;
 use crate::timeseries::Timeseries;
-use crate::traits::{Timestamp};
+use crate::traits::Timestamp;
+
+use super::rollup::RollupEvaluator;
+use super::traits::{Evaluator, NullEvaluator};
 
 pub(crate) enum ExprEvaluator {
     Null(NullEvaluator),
@@ -29,7 +33,7 @@ pub(crate) enum ExprEvaluator {
 }
 
 impl Evaluator for ExprEvaluator {
-    fn eval(&self, ctx: &mut Context, ec: &mut EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
+    fn eval(&self, ctx: &mut Context, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
         match self {
             ExprEvaluator::Null(e) => e.eval(ctx, ec),
             ExprEvaluator::Aggregate(ae) => ae.eval(ctx, ec),
@@ -47,6 +51,70 @@ impl Default for ExprEvaluator {
     fn default() -> Self {
         ExprEvaluator::Null(NullEvaluator{})
     }
+}
+
+impl From<i64> for ExprEvaluator {
+    fn from(val: i64) -> Self {
+        Self::Number(NumberEvaluator::from(val as f64))
+    }
+}
+
+impl From<f64> for ExprEvaluator {
+    fn from(val: f64) -> Self {
+        Self::Number(NumberEvaluator::from(val))
+    }
+}
+
+impl From<String> for ExprEvaluator {
+    fn from(val: String) -> Self {
+        Self::String(StringEvaluator::new(&val))
+    }
+}
+
+impl From<&str> for ExprEvaluator {
+    fn from(val: &str) -> Self {
+        Self::String(StringEvaluator::new(val))
+    }
+}
+
+pub fn create_evaluator(expr: &Expression) -> RuntimeResult<ExprEvaluator> {
+    match expr {
+        Expression::Aggregation(ae) => create_aggr_evaluator(ae),
+        Expression::MetricExpression(me) => {
+            Ok(ExprEvaluator::Rollup(RollupEvaluator::from_metric_expression(me.clone())?))
+        }
+        Expression::Rollup(re) => Ok(ExprEvaluator::Rollup(RollupEvaluator::new(re)?)),
+        Expression::Function(fe) => create_function_evaluator(fe),
+        Expression::BinaryOperator(be) => Ok(
+            ExprEvaluator::BinaryOp(BinaryOpEvaluator::new(be)?)
+        ),
+        Expression::Number(ne) => Ok(ExprEvaluator::from(ne.value)),
+        Expression::String(se) => Ok(ExprEvaluator::from(se.value())),
+        Expression::Duration(de) => {
+            if de.requires_step {
+                Ok(ExprEvaluator::Duration(DurationEvaluator::new(de)))
+            } else {
+                Ok(ExprEvaluator::from(de.const_value ))
+            }
+        },
+        Expression::With(_) => {
+            panic!("unexpected WITH expression - {}: Should have been expanded during parsing", expr);
+        }
+        _ => {
+            panic!("unexpected expression {}: ", expr);
+        }
+    }
+}
+
+pub(crate) fn create_evaluators(vec: &Vec<BExpression>) -> RuntimeResult<Vec<ExprEvaluator>> {
+    let mut res: Vec<ExprEvaluator> = Vec::with_capacity(vec.len());
+    for arg in vec {
+        match create_evaluator(arg) {
+            Err(e) => return Err(e),
+            Ok(eval) => { res.push(eval) },
+        }
+    }
+    Ok(res)
 }
 
 /// The minimum number of points per timeseries for enabling time rounding.
@@ -259,25 +327,26 @@ impl EvalConfig {
         true
     }
 
-    pub fn timestamps<'a>(&mut self) -> &'a Arc<Vec<i64>> {
+    pub fn timestamps<'a>(&self) -> &'a Arc<Vec<i64>> {
         &self._timestamps
     }
 
     pub fn get_timestamps<'a>(&mut self) -> &'a Arc<Vec<i64>> {
-        self.ensure_timestamps();
+        self.ensure_timestamps().unwrap(); //???
         &self._timestamps
     }
 
-    pub(crate) fn ensure_timestamps(&mut self) {
+    pub(crate) fn ensure_timestamps(&mut self) -> RuntimeResult<()> {
         if self._timestamps.len() == 0 {
             let ts = get_timestamps(
                 self.start,
                 self.end,
                 self.step,
                 self.max_points_per_series as usize
-            ).unwrap();
+            )?;
             self._timestamps = Arc::new(ts);
         }
+        Ok(())
     }
 
     pub fn get_shared_timestamps(&mut self) -> &Arc<Vec<i64>> {
@@ -322,40 +391,6 @@ pub(crate) fn copy_eval_config(src: &EvalConfig) -> EvalConfig {
     src.copy_no_timestamps()
 }
 
-pub fn create_evaluator(expr: &Expression) -> RuntimeResult<ExprEvaluator> {
-    match expr {
-        Expression::Aggregation(ae) => create_aggr_evaluator(ae),
-        Expression::MetricExpression(me) => {
-            Ok(ExprEvaluator::Rollup(RollupEvaluator::from_metric_expression(*me)?))
-        }
-        Expression::Rollup(re) => Ok(ExprEvaluator::Rollup(RollupEvaluator::new(re)?)),
-        Expression::Function(fe) => create_function_evaluator(fe),
-        Expression::BinaryOperator(be) => Ok(
-            ExprEvaluator::BinaryOp(BinaryOpEvaluator::new(be)?)
-        ),
-        Expression::Number(ne) => Ok(ExprEvaluator::Number(NumberEvaluator::new(&ne))),
-        Expression::String(se) => Ok(ExprEvaluator::String(StringEvaluator::new(&se))),
-        Expression::Duration(de) => Ok(ExprEvaluator::Duration(DurationEvaluator::new(de))),
-        Expression::With(_) => {
-            panic!("unexpected WITH expression - {}: Should have been expanded during parsing", expr);
-        }
-        _ => {
-            panic!("unexpected expression {}: ", expr);
-        }
-    }
-}
-
-pub(crate) fn create_evaluators(vec: &Vec<BExpression>) -> RuntimeResult<Vec<ExprEvaluator>> {
-    let mut res: Vec<ExprEvaluator> = Vec::with_capacity(vec.len());
-    for arg in vec {
-        match create_evaluator(arg) {
-            Err(e) => return Err(e),
-            Ok(eval) => { res.push(eval) },
-        }
-    }
-    Ok(res)
-}
-
 pub(crate) fn eval_args(
     ctx: &mut Context,
     ec: &mut EvalConfig,
@@ -371,23 +406,22 @@ pub(crate) fn eval_args(
     Ok(res)
 }
 
-pub(crate) fn eval_number(ec: &mut EvalConfig, n: f64) -> Vec<Timeseries> {
+pub(crate) fn eval_number(ec: &EvalConfig, n: f64) -> Vec<Timeseries> {
     let timestamps = ec.timestamps();
     let values = vec![n; timestamps.len()];
     let ts = Timeseries::with_shared_timestamps(timestamps, &values);
     vec![ts]
 }
 
-pub(crate) fn eval_string(ec: &mut EvalConfig, s: &str) -> Vec<Timeseries> {
+pub(crate) fn eval_string(ec: &EvalConfig, s: &str) -> Vec<Timeseries> {
     let mut rv = eval_number(ec, f64::NAN);
     rv[0].metric_name.metric_group = s.to_string();
     rv
 }
 
-pub(crate) fn eval_time(ec: &mut EvalConfig) -> Vec<Timeseries> {
+pub(crate) fn eval_time(ec: &EvalConfig) -> Vec<Timeseries> {
     let mut rv = eval_number(ec, f64::NAN);
-    let timestamps = &rv[0].timestamps;
-    for (i, ts) in timestamps.iter().enumerate() {
+    for (i, ts) in rv[0].timestamps.iter().enumerate() {
         rv[0].values[i] = *ts as f64 / 1e3_f64;
     }
     rv
@@ -423,7 +457,7 @@ fn get_label(arg: &Vec<Timeseries>, name: &str, arg_num: usize) -> RuntimeResult
     }
 }
 
-fn get_scalar(arg: &Vec<Timeseries>, arg_num: usize) -> RuntimeResult<&Vec<f64>> {
+pub(super) fn get_scalar(arg: &Vec<Timeseries>, arg_num: usize) -> RuntimeResult<&Vec<f64>> {
     if arg.len() != 1 {
         let msg = format!(
             "arg # {} must contain a single timeseries; got {} timeseries",
@@ -453,7 +487,7 @@ fn get_float(arg: &Vec<Timeseries>, arg_num: usize) -> RuntimeResult<f64> {
 
 pub(crate) fn eval_param(
     ctx: &mut Context,
-    ec: &mut EvalConfig,
+    ec: &EvalConfig,
     expr: &ExprEvaluator,
     expected: &DataType,
     arg_num: usize) -> RuntimeResult<ParameterValue> {
@@ -468,7 +502,7 @@ pub(crate) fn eval_param(
         },
         DataType::Vector => {
             let val = get_scalar(&val, arg_num)?;
-            ParameterValue::Vector(val.into())
+            ParameterValue::Vector(val.into_iter().collect())
         },
         DataType::Float => {
             let val = get_float(&val, arg_num)?;
@@ -482,25 +516,51 @@ pub(crate) fn eval_param(
             let val = get_string_arg(&val, arg_num)?;
             ParameterValue::String(val)
         }
-        _ => {}
     })
 }
 
 
+pub(crate) fn validate_params(
+    name: &str,
+    signature: &Signature,
+    args: &[ExprEvaluator]
+) -> RuntimeResult<()> {
+
+    let (arg_types, min) = signature.expand_types();
+    match signature.type_signature.validate_arg_count(name, args.len()) {
+        Err(e) => {
+            let msg = format!("{:?}", e);
+            return Err(RuntimeError::ArgumentError(msg))
+        },
+        _ => {}
+    }
+
+    for (i, arg)  in args.iter().enumerate()  {
+        let expected = arg_types[i];
+        let actual = arg.return_type();
+
+        // todo:
+        let mut valid = false;
+        todo!()
+    }
+
+    Ok(())
+}
 
 pub fn eval_params(
     ctx: &mut Context,
-    ec: &mut EvalConfig,
+    ec: &EvalConfig,
     signature: &TypeSignature,
     args: &[ExprEvaluator]
 ) -> RuntimeResult<Vec<ParameterValue>> {
 
-    fn get_variadic(
+    fn eval_param_variadic(
         ctx: &mut Context,
-        ec: &mut EvalConfig,
+        ec: &EvalConfig,
         args: &[ExprEvaluator],
         types: &Vec<DataType>
     ) -> RuntimeResult<Vec<ParameterValue>> {
+        // todo: tinyvec
         let mut params: Vec<ParameterValue> = Vec::with_capacity(types.len());
         for (i, expected) in types.iter().enumerate() {
             let arg = eval_param(ctx, ec, &args[i], expected, i)?;
@@ -511,7 +571,7 @@ pub fn eval_params(
 
     return match signature {
         TypeSignature::Variadic(valid_types, min) => {
-            get_variadic(ctx, ec, args, valid_types)
+            eval_param_variadic(ctx, ec, args, valid_types)
         },
         TypeSignature::Uniform(number, valid_type) => {
             let mut params: Vec<ParameterValue> = Vec::with_capacity(args.len());
@@ -530,7 +590,7 @@ pub fn eval_params(
             Ok(params)
         }
         TypeSignature::Exact(valid_types) => {
-            get_variadic(ctx, ec, args, valid_types)
+            eval_param_variadic(ctx, ec, args, valid_types)
         },
         TypeSignature::Any(number) => {
             let mut params: Vec<ParameterValue> = Vec::with_capacity(*number);
@@ -542,6 +602,45 @@ pub fn eval_params(
         }
     }
 }
+
+#[inline]
+fn should_parallelize(t: &DataType) -> bool {
+    !matches!(t, DataType::String | DataType::Float | DataType::Int | DataType::Vector )
+}
+
+/// Determines if we should parallelize parameter parsing. We ignore "lightweight"
+/// parameter types like `String` or `Int`
+pub(crate) fn should_parallelize_param_parsing(signature: &Signature) -> bool {
+    let types = &signature.type_signature;
+
+    fn check_args(valid_types: &[DataType]) -> bool {
+        valid_types.iter().filter(|x| should_parallelize(*x)).count() > 1
+    }
+
+    return match types {
+        TypeSignature::Variadic(valid_types, min) => {
+            check_args(valid_types)
+        },
+        TypeSignature::Uniform(number, valid_type) => {
+            let types = &[*valid_type];
+            return *number >= 2 && check_args(types)
+        },
+        TypeSignature::VariadicEqual(data_type, _) => {
+            let types = &[*data_type];
+            check_args(types)
+        }
+        TypeSignature::Exact(valid_types) => {
+            check_args(valid_types)
+        },
+        TypeSignature::Any(number) => {
+            if *number < 2 {
+                return false
+            }
+            true
+        }
+    }
+}
+
 
 pub(super) fn eval_volatility(sig: &Signature, args: &Vec<ExprEvaluator>) -> Volatility {
     if sig.volatility != Volatility::Immutable {

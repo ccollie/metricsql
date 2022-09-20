@@ -1,5 +1,7 @@
 use std::ops::Deref;
+
 use metricsql::ast::{DurationExpr, Expression};
+
 use crate::context::Context;
 use crate::parse_promql_with_cache;
 use crate::runtime_error::RuntimeResult;
@@ -29,8 +31,7 @@ pub fn is_rollup(ctx: &mut Context, s: &str) -> RuntimeResult<Option<(String, Du
     }
 }
 
-/// IsMetricSelectorWithRollup verifies whether s contains PromQL metric selector
-/// wrapped into rollup.
+/// verifies whether s contains PromQL metric selectorwrapped into rollup.
 ///
 /// It returns the wrapped query with the corresponding window with offset.
 pub fn is_metric_selector_with_rollup(ctx: &mut Context, s: &str) -> RuntimeResult<Option<(String, DurationExpr, DurationExpr)>> {

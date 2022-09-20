@@ -1,7 +1,10 @@
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
-use crate::functions::types::{DataType, FunctionImplementation, Signature, Volatility};
+
+use metricsql::functions::{DataType, Signature, Volatility};
+
+use crate::functions::types::FunctionImplementation;
 
 /// Logical representation of a UDF.
 pub(crate) struct Udf<P, R>

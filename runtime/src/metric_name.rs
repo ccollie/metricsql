@@ -1,15 +1,17 @@
+use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashSet};
 use std::collections::btree_map::Iter;
 use std::fmt;
 use std::fmt::Display;
-use std::ops::DerefMut;
+use std::ops::{Deref, DerefMut};
 
 use enquote::enquote;
 use lockfree_object_pool::{LinearObjectPool, LinearReusable};
 use once_cell::sync::Lazy;
 
 use lib::{unmarshal_string_fast, unmarshal_var_int};
+use metricsql::ast::{AggregateModifier, AggregateModifierOp};
 
 use crate::{marshal_bytes_fast, marshal_string_fast, unmarshal_bytes_fast};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
@@ -42,6 +44,7 @@ impl PartialOrd for Tag {
 #[derive(Debug, PartialEq, Eq, Clone, Default, Hash)]
 pub struct MetricName {
     pub metric_group: String,
+    // todo: Consider https://crates.io/crates/btree-slab to minimize allocations
     _items: BTreeMap<String, String>,
 }
 
@@ -90,6 +93,15 @@ impl MetricName {
             return;
         }
         self._items.remove(key);
+    }
+
+    /// replaces a tag value
+    pub fn replace_tag(&mut self, key: &str, value: &str) {
+        if key == NAME_LABEL {
+            self.metric_group = value.to_string();
+            return;
+        }
+        self._items.insert(key.to_string(), value.to_string());
     }
 
     // todo: rewrite to pass references
@@ -194,19 +206,12 @@ impl MetricName {
 
 
     // internal only
-    pub(crate) fn marshal_to_string(&self, buf: &mut Vec<u8>) -> RuntimeResult<String> {
+    pub(crate) fn marshal_to_string(&self, buf: &mut Vec<u8>) -> Cow<'_, str> {
         self.marshal(buf);
-        return match std::str::from_utf8(&buf) {
-            Ok(s) => {
-                Ok(s.to_string())
-            },
-            Err(e) => {
-                Err(RuntimeError::SerializationError("Error marshaling metric name tp string".to_string()))
-            }
-        }
+        String::from_utf8_lossy(&buf)
     }
 
-    /// unmarshals mn from src, so mn members hold references to src.
+    /// unmarshal mn from src, so mn members hold references to src.
     ///
     /// It is unsafe modifying src while mn is in use.
     pub fn unmarshal_fast(src: &[u8]) -> RuntimeResult<(MetricName, &[u8])> {
@@ -215,7 +220,7 @@ impl MetricName {
         return Ok((mn, tail));
     }
 
-    /// unmarshals mn from src, so mn members hold references to src.
+    /// unmarshal mn from src, so mn members hold references to src.
     ///
     /// It is unsafe modifying src while mn is in use.
     pub(crate) fn unmarshal_fast_internal(&mut self, src: &[u8]) -> RuntimeResult<&[u8]> {
@@ -233,7 +238,7 @@ impl MetricName {
 
         if src.len() < 2 {
             return Err(RuntimeError::SerializationError(
-                format!("not enough bytes for unmarshaling len(tags); need at least 2 bytes; got {} bytes", src.len())
+                format!("not enough bytes for unmarshalling len(tags); need at least 2 bytes; got {} bytes", src.len())
             ));
         }
 
@@ -292,6 +297,27 @@ impl MetricName {
             n += 2 + v.len();
         }
         n
+    }
+
+    pub fn remove_group_tags(&mut self, modifier: &Option<AggregateModifier>) {
+        let mut group_op = AggregateModifierOp::By;
+        let mut labels = &vec![]; // zero alloc
+
+        if let Some(m) = modifier.deref() {
+            group_op = m.op.clone();
+            labels = &m.args
+        };
+
+        match group_op {
+            AggregateModifierOp::By => {
+                self.remove_tags_on(labels);
+            }
+            AggregateModifierOp::Without => {
+                self.remove_tags_ignoring(labels);
+                // Reset metric group as Prometheus does on `aggr(...) without (...)` call.
+                self.reset_metric_group();
+            }
+        }
     }
 }
 

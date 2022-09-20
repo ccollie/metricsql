@@ -1,7 +1,9 @@
-use std::{fmt};
+use std::fmt;
 use std::error::Error;
 use std::fmt::Display;
+
 use thiserror::Error;
+
 use metricsql::parser::ParseError;
 
 pub type RuntimeResult<T> = Result<T, RuntimeError>;
@@ -28,6 +30,8 @@ pub enum RuntimeError {
     ParseError(ParseError),
     #[error("Serialization error: {0}")]
     SerializationError(String),
+    #[error("Type casting error: {0}")]
+    TypeCastError(String),
 }
 
 
@@ -127,9 +131,11 @@ impl Display for ArgCountError {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::ops::Range as StdRange;
+
     use crate::lexer::TokenKind;
+
+    use super::*;
 
     fn check(
         expected: Vec<TokenKind>,

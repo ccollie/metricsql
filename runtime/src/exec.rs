@@ -1,10 +1,12 @@
 use std::collections::HashSet;
 use std::ops::DerefMut;
 use std::sync::Arc;
+
 use chrono::Utc;
 
 use lib::{get_pooled_buffer, round_to_decimal_digits};
-use metricsql::ast::{Expression};
+use metricsql::ast::Expression;
+
 use crate::context::Context;
 use crate::eval::{EvalConfig, Evaluator};
 use crate::parser_cache::ParseCacheValue;
@@ -36,12 +38,16 @@ pub fn exec(env: &mut Context,
     ec.validate()?;
 
     let parsed = env.parse_cache.parse(q);
-    match (&parsed.err, &parsed.evaluator, &parsed.expr) {
-        (Some(err), None, None) => {
+    match (&parsed.err, &parsed.evaluator, &parsed.expr, &parsed.has_subquery) {
+        (Some(err), None, None, _) => {
             return Err(RuntimeError::ParseError(err.clone()))
         },
-        (None, Some(evaluator), Some(expr)) => {
+        (None, Some(evaluator), Some(expr), has_subquery) => {
             let qid = env.active_queries.add(ec, q);
+
+            if *has_subquery {
+                ec.ensure_timestamps()?;
+            }
 
             let rv = evaluator.eval(env, ec);
             match rv {
@@ -85,21 +91,10 @@ pub fn exec(env: &mut Context,
 fn may_sort_results(e: &Expression, tss: &[Timeseries]) -> bool {
     return match e {
         Expression::Function(fe) => {
-            let lower = fe.name.to_lowercase().as_str();
-            match lower {
-                "sort" | "sort_desc" | "sort_by_label" | "sort_by_label_desc" => false,
-                _ => true
-            }
+            !fe.function.sorts_results()
         },
         Expression::Aggregation(ae) => {
-            let lower = ae.name.to_lowercase().as_str();
-            match lower {
-                "topk" | "bottomk" | "outliersk" |
-                "topk_max" | "topk_min" | "topk_avg" |
-                "topk_median" | "topk_last" | "bottomk_max" |
-                "bottomk_min" | "bottomk_avg" | "bottomk_median" | "bottomk_last" => false,
-                _ => true
-            }
+            !ae.function.sorts_results()
         },
         _ => true
     }
@@ -112,14 +107,15 @@ pub(crate) fn timeseries_to_result<'a>(tss: &mut Vec<Timeseries>, may_sort: bool
     let mut bb = get_pooled_buffer(512);
 
     for (i, ts) in tss.iter_mut().enumerate() {
-        let key = ts.metric_name.marshal_to_string(bb.deref_mut())?;
-        if m.contains(key.as_str()) {
+        let key = ts.metric_name.marshal_to_string(bb.deref_mut());
+        if m.contains(key.as_ref()) {
             return Err(RuntimeError::from(format!("duplicate output timeseries: {}", ts.metric_name)));
         }
         m.insert(&key);
         result[i].metric_name.copy_from(&ts.metric_name);
         result[i].values = ts.values.into();
         result[i].timestamps.append(&mut *ts.timestamps);
+        bb.clear();
     }
 
     if may_sort {
