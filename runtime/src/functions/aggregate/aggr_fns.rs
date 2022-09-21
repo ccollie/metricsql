@@ -139,7 +139,7 @@ fn aggr_func_ext(
 fn aggr_func_any(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut tss = get_aggr_timeseries(&afa.args)?;
     let afe = move |tss: &mut Vec<Timeseries>, modifier| {
-        tss.drain(0..).collect();
+        tss.drain(0..).collect()
     };
     let mut limit = afa.limit;
     if limit > 1 {
@@ -925,7 +925,7 @@ fn aggr_func_MAD(tss: &mut Vec<Timeseries>) {
 }
 
 fn aggr_func_outliers_MAD(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let tolerances = afa.args[0].get_vector()?;
+    let tolerances = afa.args[0].get_vector().unwrap();
 
     let afe = move |tss: &mut Vec<Timeseries>, modifier: &Option<AggregateModifier>| {
         // Calculate medians for each point across tss.
@@ -949,9 +949,9 @@ fn aggr_func_outliers_MAD(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries
                 }
             }
             false
-        })
+        });
 
-       // Ok(std::mem::take(tss))
+        std::mem::take(tss)
     };
 
     let mut series = get_series(afa, 1)?;
@@ -1002,6 +1002,12 @@ macro_rules! create_aggr_fn {
     }
 }
 
+macro_rules! create_range_fn {
+    ($f:expr, $top:expr) => {
+        Box::new(new_aggr_func_range_topk($f, $top))
+    }
+}
+
 static AGGR_FUNCS: phf::Map<&'static str, Box<dyn AggrFn>> = phf_map! {
 // See https://prometheus.io/docs/prometheus/latest/querying/operators/#aggregation-operators
     "sum" =>           create_aggr_fn!(aggr_func_sum),
@@ -1026,16 +1032,16 @@ static AGGR_FUNCS: phf::Map<&'static str, Box<dyn AggrFn>> = phf_map! {
     "sum2" =>            create_aggr_fn!(aggr_func_sum2),
     "geomean" =>         create_aggr_fn!(aggr_func_geomean),
     "histogram" =>       Box::new(new_aggr_func(aggr_func_histogram)),
-    "topk_min" =>        Box::new(new_aggr_func_range_topk(min_value, false)),
-    "topk_max" =>        Box::new(new_aggr_func_range_topk(max_value, false)),
-    "topk_avg" =>        Box::new(new_aggr_func_range_topk(avg_value, false)),
-    "topk_last" =>       Box::new(new_aggr_func_range_topk(last_value, false)),
-    "topk_median" =>     Box::new(new_aggr_func_range_topk(median_value, false)),
-    "bottomk_min" =>     Box::new(new_aggr_func_range_topk(min_value, true)),
-    "bottomk_max" =>     Box::new(new_aggr_func_range_topk(max_value, true)),
-    "bottomk_avg" =>     Box::new(new_aggr_func_range_topk(avg_value, true)),
-    "bottomk_last" =>    Box::new(new_aggr_func_range_topk(last_value, true)),
-    "bottomk_median" =>  Box::new(new_aggr_func_range_topk(median_value, true)),
+    "topk_min" =>        create_range_fn!(min_value, false),
+    "topk_max" =>        create_range_fn!(max_value, false),
+    "topk_avg" =>        create_range_fn!(avg_value, false),
+    "topk_last" =>       create_range_fn!(last_value, false),
+    "topk_median" =>     create_range_fn!(median_value, false),
+    "bottomk_min" =>     create_range_fn!(min_value, true),
+    "bottomk_max" =>     create_range_fn!(max_value, true),
+    "bottomk_avg" =>     create_range_fn!(avg_value, true),
+    "bottomk_last" =>    create_range_fn!(last_value, true),
+    "bottomk_median" =>  create_range_fn!(median_value, true),
     "any" =>             Box::new(aggr_func_any),
     "outliersk" =>       Box::new(aggr_func_outliersk),
     "outliers_mad" =>    Box::new(aggr_func_outliers_MAD),

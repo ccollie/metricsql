@@ -108,9 +108,9 @@ impl ParameterValue {
             ParameterValue::Int(val) => Ok(*val),
             ParameterValue::Float(val) => Ok(*val as i64),
             _=> {
-                match self.get_float()? {
-                    ParameterValue::Float(f) => Ok(f as i64),
-                    _=> unreachable!()
+                match self.get_float() {
+                    Ok(val) => Ok(val as i64),
+                    Err(e) => Err(e)
                 }
             }
         }

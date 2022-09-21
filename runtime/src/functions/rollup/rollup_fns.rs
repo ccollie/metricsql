@@ -410,8 +410,12 @@ pub(crate) fn rollup_func_keeps_metric_name(name: &str) -> bool {
 }
 
 pub(crate) fn get_rollup_func_by_name(func_name: &str) -> RuntimeResult<&dyn NewRollupFn> {
-    let op = RollupFunction::from_str(func_name)?;
-    Ok(get_rollup_function_impl(&op))
+    match RollupFunction::from_str(func_name) {
+        Err(_) => {
+            Err(RuntimeError::UnknownFunction(func_name.to_string()))
+        },
+        Ok(func) => Ok(get_rollup_function_impl(&func))
+    }
 }
 
 pub(crate) fn get_rollup_func_factory(func: &RollupFunction) -> RuntimeResult<&dyn NewRollupFn> {
@@ -638,7 +642,7 @@ pub(crate) fn get_rollup_configs<'a>(
 pub(crate) struct RollupConfig<'a> {
     /// This tag value must be added to "rollup" tag if non-empty.
     pub tag_value: String,
-    func: &'a Box<dyn RollupFn<Output = f64>>, // ???
+    func: &'a Box<dyn RollupFn<Output=f64>>,
     start: i64,
     end: i64,
     step: i64,
@@ -667,7 +671,7 @@ impl<'a> RollupConfig<'a> {
     fn clone_with_fn(&self, rollup_fn: &Box<dyn RollupFn>, tag_value: &str) -> Self {
         return RollupConfig {
             tag_value: tag_value.to_string(),
-            func: rollup_fn, //????
+            func: rollup_fn,
             start: self.start,
             end: self.end,
             step: self.step,
@@ -676,7 +680,7 @@ impl<'a> RollupConfig<'a> {
             lookback_delta: self.lookback_delta,
             timestamps: self.timestamps.clone(),
             is_default_rollup: self.is_default_rollup,
-            max_points_per_timeseries: self.max_points_per_timeseries
+            max_points_per_timeseries: self.max_points_per_timeseries,
         }
     }
 
@@ -970,7 +974,7 @@ fn new_rollup_holt_winters(args: &Vec<ParameterValue>) -> &Box<dyn RollupFn> {
     let sfs = args[1].get_vector().unwrap();
     let tfs = args[2].get_vector().unwrap();
 
-    let res = |rfa: &mut RollupFuncArg| -> f64 {
+    let res: Box<dyn RollupFn> = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
         // There is no need in handling NaNs here, since they must be cleaned up
         // before calling rollup fns.
         if rfa.values.len() == 0 {
@@ -1000,7 +1004,7 @@ fn new_rollup_holt_winters(args: &Vec<ParameterValue>) -> &Box<dyn RollupFn> {
         }
 
         let mut b0 = rfa.values[ofs] - s0;
-        for i in ofs .. rfa.values.len() {
+        for i in ofs..rfa.values.len() {
             let v = rfa.values[i];
             let s1 = sf * v + (1.0 - sf) * (s0 + b0);
             let b1 = tf * (s1 - s0) + (1.0 - tf) * b0;
@@ -1008,23 +1012,23 @@ fn new_rollup_holt_winters(args: &Vec<ParameterValue>) -> &Box<dyn RollupFn> {
             b0 = b1
         }
         return s0;
-    };
+    });
 
-    &Box::new(res)
+    &res
 }
 
 fn new_rollup_predict_linear(args: &Vec<ParameterValue>) -> &Box<dyn RollupFn> {
     let secs = args[1].get_vector().unwrap();
 
-    let f = |rfa: &mut RollupFuncArg| -> f64 {
+    let f: Box<dyn RollupFn> = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
         let (v, k) = linear_regression(rfa);
         if v.is_nan() {
             return NAN;
         }
         return v + k * secs[rfa.idx];
-    };
+    });
 
-    &Box::new(f)
+    &f
 }
 
 fn linear_regression(rfa: &mut RollupFuncArg) -> (f64, f64) {
@@ -1075,13 +1079,14 @@ fn are_const_values(values: &Vec<f64>) -> bool {
         }
         v_prev = *v
     }
-    return true;
+
+    true
 }
 
 fn new_rollup_duration_over_time(args: &Vec<ParameterValue>) -> &Box<dyn RollupFn> {
     let d_maxs = args[1].get_vector().unwrap();
 
-    let f = move |rfa: &mut RollupFuncArg| -> f64 {
+    let f: Box<dyn RollupFn> = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
         // There is no need in handling NaNs here, since they must be cleaned up
         // before calling rollup fns.
         if rfa.timestamps.len() == 0 {
@@ -1099,9 +1104,9 @@ fn new_rollup_duration_over_time(args: &Vec<ParameterValue>) -> &Box<dyn RollupF
         }
 
         (d_sum as f64 / 1000_f64) as f64
-    };
+    });
 
-    &Box::new(f)
+    &f
 }
 
 fn new_rollup_share_le(args: &Vec<ParameterValue>) -> &Box<dyn RollupFn> {
@@ -1158,12 +1163,12 @@ fn count_filter_ne(values: &[f64], ne: f64) -> i32 {
 
 fn new_rollup_share_filter(args: &Vec<ParameterValue>, count_filter: fn(values: &[f64], limit: f64) -> i32) -> &Box<dyn RollupFn> {
     let rf = new_rollup_count_filter(args, count_filter);
-    let f = move |rfa: &mut RollupFuncArg| -> f64 {
+    let f: Box<dyn RollupFn> = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
         let n = rf(rfa);
         return n / rfa.values.len() as f64;
-    };
+    });
 
-    &Box::new(f)
+    &f
 }
 
 fn new_rollup_count_le(args: &Vec<ParameterValue>) -> &Box<dyn RollupFn> {
@@ -1187,7 +1192,7 @@ fn new_rollup_count_filter(args: &Vec<ParameterValue>, count_filter: fn(values: 
     // `unwrap()` is sound since parameters are checked before this function is called
     let limits = args[1].get_vector().unwrap();
 
-    let f = move |rfa: &mut RollupFuncArg| -> f64 {
+    let f: Box<dyn RollupFn> = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
         // There is no need in handling NaNs here, since they must be cleaned up
         // before calling rollup fns.
         if rfa.values.len() == 0 {
@@ -1195,30 +1200,30 @@ fn new_rollup_count_filter(args: &Vec<ParameterValue>, count_filter: fn(values: 
         }
         let limit = limits[rfa.idx];
         return count_filter(&rfa.values, limit as f64) as f64;
-    };
+    });
 
-    &Box::new(f)
+    &f
 }
 
 fn new_rollup_hoeffding_bound_lower(args: &Vec<ParameterValue>) -> &Box<dyn RollupFn> {
-    let phis = args[0].get_vector()?;
-    let f = move |rfa: &mut RollupFuncArg| -> f64 {
+    let phis = args[0].get_vector().unwrap();
+    let f: Box<dyn RollupFn> = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
         let (bound, avg) = rollup_hoeffding_bound_internal(rfa, &phis);
-        return avg - bound;
-    };
+        avg - bound
+    });
 
-    &Box::new(f)
+    &f
 }
 
 fn new_rollup_hoeffding_bound_upper(args: &Vec<ParameterValue>) -> &Box<dyn RollupFn> {
-    let phis = args[0].get_vector()?;
+    let phis = args[0].get_vector().unwrap();
 
-    let f = move |rfa: &mut RollupFuncArg| -> f64 {
+    let f: Box<dyn RollupFn> = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
         let (bound, avg) = rollup_hoeffding_bound_internal(rfa, &phis);
         return avg + bound;
-    };
+    });
 
-    &Box::new(f)
+    &f
 }
 
 fn rollup_hoeffding_bound_internal(rfa: &mut RollupFuncArg, phis: &[f64]) -> (f64, f64) {
@@ -1268,7 +1273,7 @@ fn new_rollup_quantiles(args: &Vec<ParameterValue>) -> &Box<dyn RollupFn> {
         phi_strs[i] = format!("{}", v);
     }
 
-    let f = move |rfa: &mut RollupFuncArg| -> f64 {
+    let f: Box<dyn RollupFn> = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
         // There is no need in handling NaNs here, since they must be cleaned up
         // before calling rollup fns.
         if rfa.values.len() == 0 {
@@ -1289,9 +1294,9 @@ fn new_rollup_quantiles(args: &Vec<ParameterValue>) -> &Box<dyn RollupFn> {
         }
 
         return NAN;
-    };
+    });
 
-    &Box::new(f)
+    &f
 }
 
 fn new_rollup_quantile(args: &Vec<ParameterValue>) -> Box<dyn RollupFn> {

@@ -26,7 +26,7 @@ pub struct WithExprFunction {
 }
 
 // todo: change name to BuiltinFunction ?
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone, Hash, PartialEq)]
 pub enum BuiltinFunction {
     Aggregate(AggregateFunction),
     Rollup(RollupFunction),
