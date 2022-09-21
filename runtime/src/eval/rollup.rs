@@ -777,11 +777,22 @@ where F: Fn(&Timeseries, &mut [f64], &mut [i64]) -> RuntimeResult<()>
     let mut tmp_values: TinyVec<[f64; 32]> = tiny_vec!();
     let mut tmp_timestamps = tiny_vec!([i64; 32]);
 
-    tss.par_iter().for_each(|ts| {
-        f(ts, tmp_values.as_mut(), tmp_timestamps.as_mut())?;
+    let mut err: Option<RuntimeError> = None;
+    tss.iter().par_iter().for_each(|ts| {
+        match f(ts, tmp_values.as_mut(), tmp_timestamps.as_mut()) {
+            Err(e) => {
+                if err.is_none() {
+                    err = Some(e);
+                }
+            }
+            _ => {}
+        }
     });
 
-    Ok(())
+    return match err {
+        Some(e) => Err(e),
+        None => Ok(())
+    };
 }
 
 fn remove_nan_values(dst_values: &mut Vec<f64>, dst_timestamps: &mut Vec<i64>, values: &[f64], timestamps: &[i64]) {

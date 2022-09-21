@@ -29,7 +29,7 @@ use crate::utils::MemoryLimiter;
 /// due to time synchronization issues between this library and data sources. See also
 /// -search.disableAutoCacheReset
 /// TODO: move to EvalConfig
-const cache_timestamp_offset: Duration = Duration::minutes(5);
+const CACHE_TIMESTAMP_OFFSET: Duration = Duration::minutes(5);
 
 /// Whether to disable automatic response cache reset if a sample with timestamp outside
 /// -search.cachetimestampOffset is inserted into VictoriaMetrics
@@ -192,10 +192,10 @@ impl RollupResultCache {
             return Ok(());
         }
 
-        // Remove values up to currentTime - step - cache_timestamp_offset,
+        // Remove values up to currentTime - step - CACHE_TIMESTAMP_OFFSET,
         // since these values may be added later.
         let timestamps = &tss[0].timestamps;
-        let deadline = (Timestamp::now() as f64 / 1e6_f64) as i64 - ec.step - cache_timestamp_offset.num_milliseconds();
+        let deadline = (Timestamp::now() as f64 / 1e6_f64) as i64 - ec.step - CACHE_TIMESTAMP_OFFSET.num_milliseconds();
         let mut i = timestamps.len() - 1;
         while i >= 0 && timestamps[i] > deadline {
             i -= 1;

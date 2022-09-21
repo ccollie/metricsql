@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::ops::Deref;
 use std::result::Result;
 use std::str::FromStr;
 
@@ -7,7 +8,7 @@ use text_size::TextRange;
 
 use crate::ast::*;
 use crate::binaryop::eval_binary_op;
-use crate::functions::{AggregateFunction, BuiltinFunction, is_aggr_func};
+use crate::functions::{AggregateFunction, BuiltinFunction, DataType, is_aggr_func};
 use crate::lexer::{Lexer, parse_float, quote, Token, TokenKind, unescape_ident};
 use crate::parser::expand_with::expand_with_expr;
 use crate::parser::parse_error::{InvalidTokenError, ParseError};
@@ -1128,17 +1129,80 @@ fn string_compare(a: &str, b: &str, op: BinaryOp) -> bool {
 }
 
 pub(crate) fn validate_args(func: &BuiltinFunction, args: &[BExpression]) -> ParseResult<()> {
+    let expect = |actual: ReturnValue, expected: ReturnValue, index: usize| -> ParseResult<()> {
+        // Note: we don't use == because we're blocked from deriving PartialEq on ReturnValue because
+        // of the Unknown variant
+        if actual.to_string() != expected.to_string() {
+            return Err(ParseError::ArgumentError(
+                format!("Invalid argument #{} to {}. {} expected", index, func, expected)
+            ))
+        }
+        Ok(())
+    };
+
+    let validate_return_type = |return_type: ReturnValue, expected: DataType, index: usize| -> ParseResult<()> {
+        match return_type {
+            ReturnValue::Unknown(u) => {
+                return Err(ParseError::ArgumentError(
+                    format!("Bug: Cannot determine type of argument #{} to {}. {}", index, func, u.message)
+                ))
+            },
+            _ => {}
+        }
+        match expected {
+            DataType::Matrix => {
+                return expect(return_type, ReturnValue::RangeVector, index);
+            }
+            DataType::Series => {
+                return expect(return_type, ReturnValue::InstantVector, index);
+            }
+            DataType::Vector => {
+                // ?? should we accept RangeVector and flatten ?
+                return expect(return_type, ReturnValue::InstantVector, index);
+            }
+            DataType::Float | DataType::Int => {
+                if !return_type.is_operator_valid() {
+                    return Err(ParseError::ArgumentError(
+                        format!("Invalid argument #{} to {}. Scalar or InstantVector expected", index, func)
+                    ))
+                }
+            }
+            DataType::String => {
+                return expect(return_type, ReturnValue::InstantVector, index);
+            }
+        }
+        Ok(())
+    };
+
     // validate function args
     let sig = func.signature();
     sig.validate_arg_count(&func.name(), args.len())?;
-    // todo: validate types
 
     let (arg_types, _) = sig.expand_types();
 
-    for (i, arg)  in args.iter().enumerate()  {
+    for (i, arg) in args.iter().enumerate() {
         let expected = arg_types[i];
-        // let actual = arg.return_type();
+        match *arg.deref() {
+            Expression::Number(_) => {
+                if expected.is_numeric() {
+                    continue;
+                }
+            }
+            Expression::String(_) => {
+                if expected == DataType::String {
+                    continue;
+                }
+            }
+            Expression::Duration(_) => {
+                // technically should not occur as a function parameter
+                if expected.is_numeric() {
+                    continue;
+                }
+            },
+            _ => {}
+        }
 
+        validate_return_type(arg.return_value(), expected, i)?
     }
     Ok(())
 }

@@ -1021,7 +1021,7 @@ impl RollupExpr {
     }
 
     pub fn return_value(&self) -> ReturnValue {
-        // subqueries turn instant vectors into ranges
+        // sub queries turn instant vectors into ranges
         let kind = match (self.window.is_some(), self.for_subquery()) {
             (false, false) => ReturnValue::InstantVector,
             (false, true) => ReturnValue::RangeVector,
