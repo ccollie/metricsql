@@ -16,11 +16,10 @@ use crate::eval::{
     align_start_end,
     create_evaluator,
     eval_number,
-    eval_params,
     ExprEvaluator,
-    validate_max_points_per_timeseries
+    validate_max_points_per_timeseries,
 };
-use crate::eval::eval::eval_volatility;
+use crate::eval::arg_list::ArgList;
 use crate::functions::aggregate::IncrementalAggrFuncContext;
 use crate::functions::rollup::{
     eval_prefuncs, get_rollup_configs, get_rollup_function_impl,
@@ -41,7 +40,7 @@ pub(super) struct RollupEvaluator {
     pub expr: Expression,
     pub re: RollupExpr,
     pub evaluator: Box<ExprEvaluator>,
-    pub args: Vec<ExprEvaluator>,
+    pub args: ArgList,
     pub at: Option<Box<ExprEvaluator>>,
     pub iafc: Option<IncrementalAggrFuncContext>,
     nrf: Box<&'static dyn NewRollupFn>,
@@ -64,7 +63,7 @@ impl Evaluator for RollupEvaluator {
     }
 
     fn volatility(&self) -> Volatility {
-        eval_volatility(&self.signature, &self.args)
+        self.args.volatility
     }
     
     fn return_type(&self) -> DataType {
@@ -148,7 +147,8 @@ impl RollupEvaluator {
 
         let keep_metric_names = get_keep_metric_names(&expr);
         let nrf = Box::new(get_rollup_function_impl(&func));
-        let evaluator = Box::new(create_evaluator(&expr)? );
+        let evaluator = Box::new(create_evaluator(&expr)?);
+        let arg_list = ArgList::from(&signature, args);
 
         let mut res = RollupEvaluator {
             func,
@@ -156,11 +156,11 @@ impl RollupEvaluator {
             expr,
             re: re.clone(),
             evaluator,
-            args,
+            args: arg_list,
             at,
             iafc: None,
             nrf,
-            keep_metric_names
+            keep_metric_names,
         };
 
         Ok(res)
@@ -171,7 +171,7 @@ impl RollupEvaluator {
     // - aggrFunc(rollupFunc(m)) if iafc isn't None
     fn eval_rollup(&self, ctx: &mut Context, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
         // todo: tinyvec
-        let params = eval_params(ctx, ec, &self.signature.type_signature,  &self.args)?;
+        let params = self.args.eval(ctx, ec)?;
 
         let rf = (self.nrf)(&params);
 

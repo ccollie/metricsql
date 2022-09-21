@@ -2,8 +2,8 @@ use metricsql::ast::FuncExpr;
 use metricsql::functions::{BuiltinFunction, Signature, TransformFunction, Volatility};
 
 use crate::context::Context;
-use crate::eval::{create_evaluators, eval_params, ExprEvaluator};
-use crate::eval::eval::eval_volatility;
+use crate::eval::ExprEvaluator;
+use crate::eval::arg_list::ArgList;
 use crate::eval::rollup::RollupEvaluator;
 use crate::eval::traits::Evaluator;
 use crate::EvalConfig;
@@ -28,8 +28,8 @@ pub(super) struct TransformEvaluator {
     /// function signature. Copied here to avoid per-call allocation
     signature: Signature,
     handler: Box<dyn TransformFn + 'static>,
-    args: Vec<ExprEvaluator>,
-    keep_metric_names: bool
+    args: ArgList,
+    keep_metric_names: bool,
 }
 
 impl TransformEvaluator {
@@ -40,7 +40,7 @@ impl TransformEvaluator {
                 let signature = function.signature();
 
                 // todo: validate count
-                let args = create_evaluators(&fe.args)?;
+                let args = ArgList::new(&signature, &fe.args)?;
                 let keep_metric_names = fe.keep_metric_names || function.keep_metric_name();
                 Ok(Self {
                     handler: Box::new(func),   // looks sketchy
@@ -64,7 +64,7 @@ impl TransformEvaluator {
 impl Evaluator for TransformEvaluator {
     fn eval(&self, ctx: &mut Context, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
         // todo: tinyvec
-        let args = eval_params(ctx, ec, &self.signature.type_signature, &self.args)?;
+        let args = self.args.eval(ctx, ec)?;
         let mut tfa = TransformFuncArg::new(ec, &self.fe, &args, self.keep_metric_names);
         match (self.handler)(&mut tfa) {
             Err(err) => Err(RuntimeError::from(format!("cannot evaluate {}: {}", self.fe, err))),
@@ -73,6 +73,6 @@ impl Evaluator for TransformEvaluator {
     }
 
     fn volatility(&self) -> Volatility {
-        eval_volatility(&self.signature, &self.args)
+        self.args.volatility
     }
 }
