@@ -5,6 +5,7 @@ use metricsql::functions::{AggregateFunction, BuiltinFunction, RollupFunction, S
 
 use crate::{EvalConfig, Timeseries};
 use crate::context::Context;
+use crate::eval::arg_list::ArgList;
 use crate::eval::rollup::{compile_rollup_func_args, RollupEvaluator};
 use crate::functions::{
     aggregate::{
@@ -17,7 +18,7 @@ use crate::functions::{
 use crate::functions::aggregate::get_aggr_func;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 
-use super::{create_evaluators, eval_params, eval_volatility, Evaluator, ExprEvaluator};
+use super::{Evaluator, ExprEvaluator};
 
 pub(super) fn create_aggr_evaluator(ae: &AggrFuncExpr) -> RuntimeResult<ExprEvaluator> {
     match get_incremental_aggr_func_callbacks(&ae.name) {
@@ -57,10 +58,10 @@ pub(crate) struct AggregateEvaluator {
     pub function: AggregateFunction,
     signature: Signature,
     handler: Box<dyn AggrFn + 'static>,
-    args: Vec<ExprEvaluator>,
+    args: ArgList,
     /// optional modifier such as `by (...)` or `without (...)`.
     modifier: Option<AggregateModifier>,
-    limit: usize
+    limit: usize,
 }
 
 impl AggregateEvaluator {
@@ -68,7 +69,7 @@ impl AggregateEvaluator {
         let handler = get_aggr_func(&ae.function);
         let function = ae.function;
         let signature = function.signature();
-        let args = create_evaluators(&ae.args)?;
+        let args = ArgList::new(&signature, &ae.args)?;
         let limit = ae.limit;
 
         Ok(Self {
@@ -85,7 +86,7 @@ impl AggregateEvaluator {
 
 impl Evaluator for AggregateEvaluator {
     fn eval(&self, ctx: &mut Context, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
-        let args = eval_params(ctx, ec, &self.signature.type_signature, &self.args)?;
+        let args = self.args.eval(ctx, ec)?;
         //todo: use tinyvec for args
         let mut afa = AggrFuncArg::new(ec, args,  &self.modifier, self.limit);
         match (self.handler)(&mut afa) {
@@ -97,8 +98,8 @@ impl Evaluator for AggregateEvaluator {
         }
     }
 
-    fn volatility(&self) -> Volatility { 
-        eval_volatility(&self.signature, &self.args)
+    fn volatility(&self) -> Volatility {
+        self.args.volatility
     }
 }
 

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use chrono::Duration;
 
 use metricsql::ast::*;
-use metricsql::functions::{DataType, Signature, TypeSignature, Volatility};
+use metricsql::functions::{Signature, Volatility};
 
 use crate::context::Context;
 use crate::eval::aggregate::{AggregateEvaluator, create_aggr_evaluator};
@@ -101,12 +101,12 @@ pub fn create_evaluator(expr: &Expression) -> RuntimeResult<ExprEvaluator> {
             panic!("unexpected WITH expression - {}: Should have been expanded during parsing", expr);
         }
         _ => {
-            panic!("unexpected expression {}: ", expr);
+            panic!("Bug: unexpected expression {}: ", expr);
         }
     }
 }
 
-pub(crate) fn create_evaluators(vec: &Vec<BExpression>) -> RuntimeResult<Vec<ExprEvaluator>> {
+pub(crate) fn create_evaluators(vec: &[BExpression]) -> RuntimeResult<Vec<ExprEvaluator>> {
     let mut res: Vec<ExprEvaluator> = Vec::with_capacity(vec.len());
     for arg in vec {
         match create_evaluator(arg) {
@@ -391,21 +391,6 @@ pub(crate) fn copy_eval_config(src: &EvalConfig) -> EvalConfig {
     src.copy_no_timestamps()
 }
 
-pub(crate) fn eval_args(
-    ctx: &mut Context,
-    ec: &mut EvalConfig,
-    args: &Vec<ExprEvaluator>,
-) -> RuntimeResult<Vec<Vec<Timeseries>>> {
-    let mut res: Vec<Vec<Timeseries>> = Vec::with_capacity(args.len());
-    for evaluator in args {
-        match evaluator.eval(ctx, ec) {
-            Err(e) => return Err(e),
-            Ok(val) => res.push(val)
-        }
-    }
-    Ok(res)
-}
-
 pub(crate) fn eval_number(ec: &EvalConfig, n: f64) -> Vec<Timeseries> {
     let timestamps = ec.timestamps();
     let values = vec![n; timestamps.len()];
@@ -426,7 +411,6 @@ pub(crate) fn eval_time(ec: &EvalConfig) -> Vec<Timeseries> {
     }
     rv
 }
-
 
 fn get_string_arg(arg: &Vec<Timeseries>, arg_num: usize) -> RuntimeResult<String> {
     if arg.len() != 1 {
@@ -484,163 +468,6 @@ fn get_float(arg: &Vec<Timeseries>, arg_num: usize) -> RuntimeResult<f64> {
     }
     Ok(n)
 }
-
-pub(crate) fn eval_param(
-    ctx: &mut Context,
-    ec: &EvalConfig,
-    expr: &ExprEvaluator,
-    expected: &DataType,
-    arg_num: usize) -> RuntimeResult<ParameterValue> {
-    let val = expr.eval(ctx, ec)?;
-    Ok(match expected {
-        DataType::Matrix => {
-            // this is likely incorrect
-            ParameterValue::Matrix(vec![val])
-        }
-        DataType::Series => {
-            ParameterValue::Series(val)
-        },
-        DataType::Vector => {
-            let val = get_scalar(&val, arg_num)?;
-            ParameterValue::Vector(val.into_iter().collect())
-        },
-        DataType::Float => {
-            let val = get_float(&val, arg_num)?;
-            ParameterValue::Float(val)
-        },
-        DataType::Int => {
-            let val = get_int_number(&val, arg_num)?;
-            ParameterValue::Int(val)
-        },
-        DataType::String => {
-            let val = get_string_arg(&val, arg_num)?;
-            ParameterValue::String(val)
-        }
-    })
-}
-
-
-pub(crate) fn validate_params(
-    name: &str,
-    signature: &Signature,
-    args: &[ExprEvaluator]
-) -> RuntimeResult<()> {
-
-    let (arg_types, min) = signature.expand_types();
-    match signature.type_signature.validate_arg_count(name, args.len()) {
-        Err(e) => {
-            let msg = format!("{:?}", e);
-            return Err(RuntimeError::ArgumentError(msg))
-        },
-        _ => {}
-    }
-
-    for (i, arg)  in args.iter().enumerate()  {
-        let expected = arg_types[i];
-        let actual = arg.return_type();
-
-        // todo:
-        let mut valid = false;
-        todo!()
-    }
-
-    Ok(())
-}
-
-pub fn eval_params(
-    ctx: &mut Context,
-    ec: &EvalConfig,
-    signature: &TypeSignature,
-    args: &[ExprEvaluator]
-) -> RuntimeResult<Vec<ParameterValue>> {
-
-    fn eval_param_variadic(
-        ctx: &mut Context,
-        ec: &EvalConfig,
-        args: &[ExprEvaluator],
-        types: &Vec<DataType>
-    ) -> RuntimeResult<Vec<ParameterValue>> {
-        // todo: tinyvec
-        let mut params: Vec<ParameterValue> = Vec::with_capacity(types.len());
-        for (i, expected) in types.iter().enumerate() {
-            let arg = eval_param(ctx, ec, &args[i], expected, i)?;
-            params.push(arg);
-        }
-        Ok(params)
-    }
-
-    return match signature {
-        TypeSignature::Variadic(valid_types, min) => {
-            eval_param_variadic(ctx, ec, args, valid_types)
-        },
-        TypeSignature::Uniform(number, valid_type) => {
-            let mut params: Vec<ParameterValue> = Vec::with_capacity(args.len());
-            for i in 0 .. *number {
-                let arg = eval_param(ctx, ec, &args[i], valid_type, i)?;
-                params.push(arg);
-            }
-            Ok(params)
-        },
-        TypeSignature::VariadicEqual(data_type, min) => {
-            let mut params: Vec<ParameterValue> = Vec::with_capacity(args.len());
-            for (i, evaluator) in args.iter().enumerate() {
-                let arg = eval_param(ctx, ec, evaluator, data_type, i)?;
-                params.push(arg);
-            }
-            Ok(params)
-        }
-        TypeSignature::Exact(valid_types) => {
-            eval_param_variadic(ctx, ec, args, valid_types)
-        },
-        TypeSignature::Any(number) => {
-            let mut params: Vec<ParameterValue> = Vec::with_capacity(*number);
-            for i in 0 .. *number {
-                let arg = eval_param(ctx, ec, &args[i], &DataType::Series, i)?;
-                params.push(arg);
-            }
-            Ok(params)
-        }
-    }
-}
-
-#[inline]
-fn should_parallelize(t: &DataType) -> bool {
-    !matches!(t, DataType::String | DataType::Float | DataType::Int | DataType::Vector )
-}
-
-/// Determines if we should parallelize parameter parsing. We ignore "lightweight"
-/// parameter types like `String` or `Int`
-pub(crate) fn should_parallelize_param_parsing(signature: &Signature) -> bool {
-    let types = &signature.type_signature;
-
-    fn check_args(valid_types: &[DataType]) -> bool {
-        valid_types.iter().filter(|x| should_parallelize(*x)).count() > 1
-    }
-
-    return match types {
-        TypeSignature::Variadic(valid_types, min) => {
-            check_args(valid_types)
-        },
-        TypeSignature::Uniform(number, valid_type) => {
-            let types = &[*valid_type];
-            return *number >= 2 && check_args(types)
-        },
-        TypeSignature::VariadicEqual(data_type, _) => {
-            let types = &[*data_type];
-            check_args(types)
-        }
-        TypeSignature::Exact(valid_types) => {
-            check_args(valid_types)
-        },
-        TypeSignature::Any(number) => {
-            if *number < 2 {
-                return false
-            }
-            true
-        }
-    }
-}
-
 
 pub(super) fn eval_volatility(sig: &Signature, args: &Vec<ExprEvaluator>) -> Volatility {
     if sig.volatility != Volatility::Immutable {

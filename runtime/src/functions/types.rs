@@ -123,6 +123,7 @@ impl ParameterValue {
         }
     }
 
+
     pub fn get_str(&self) -> RuntimeResult<&str> {
         let str = self.get_string()?;
         Ok(str.as_str())

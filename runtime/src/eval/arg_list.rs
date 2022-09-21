@@ -1,56 +1,85 @@
-use std::str::FromStr;
+use rayon::iter::IntoParallelIterator;
 
-use rayon::iter::IntoParallelRefIterator;
-
-use metricsql::functions::{DataType, Signature, TypeSignature};
+use metricsql::ast::BExpression;
+use metricsql::functions::{DataType, Signature, TypeSignature, Volatility};
 
 use crate::{EvalConfig, Timeseries};
 use crate::context::Context;
-use crate::eval::ExprEvaluator;
+use crate::eval::{create_evaluators, Evaluator, ExprEvaluator};
+use crate::eval::eval::eval_volatility;
 use crate::functions::types::ParameterValue;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 
 pub(crate) struct ArgList {
     args: Vec<ExprEvaluator>,
-    parallel: bool
+    parallel: bool,
+    pub volatility: Volatility,
 }
 
 impl ArgList {
-    pub fn new(signature: &Signature, args: Vec<ExprEvaluator>) -> Self {
+    pub fn new(signature: &Signature, args: &[BExpression]) -> RuntimeResult<Self> {
+        let _args = create_evaluators(args)?;
+        let volatility = eval_volatility(signature, &_args);
+        Ok(Self {
+            args: _args,
+            volatility,
+            parallel: should_parallelize_param_parsing(signature),
+        })
+    }
+
+    pub fn from(signature: &Signature, args: Vec<ExprEvaluator>) -> Self {
+        let volatility = eval_volatility(signature, &args);
         Self {
             args,
-            parallel: should_parallelize_param_parsing(signature)
+            volatility,
+            parallel: should_parallelize_param_parsing(signature),
         }
     }
 
-    pub fn eval(&mut self, ctx: &mut Context, ec: &EvalConfig) -> RuntimeResult<Vec<ParameterValue>> {
+    pub fn eval(&self, ctx: &mut Context, ec: &EvalConfig) -> RuntimeResult<Vec<ParameterValue>> {
+        // todo: use tinyvec and pass in as &mut vec
         if self.parallel {
-            todo!()
+            return self.eval_parallel(ctx, ec)
         } else {
-            todo!()
+            let mut res: Vec<ParameterValue> = Vec::with_capacity(self.args.len());
+            for expr in self.args {
+                let val = expr.eval(ctx, ec)?;
+                res.push(val);
+            }
+            Ok(res)
         }
     }
 
-    fn eval_parallel(&mut self, ctx: &mut Context, ec: &EvalConfig) -> RuntimeResult<Vec<ParameterValue>> {
-        // self.args.par_iter().map(|x| {
-        //     eval_param(ctx, ec)
-        // })
-        todo!()
-    }
-}
+    fn eval_parallel(&self, ctx: &mut Context, ec: &EvalConfig) -> RuntimeResult<Vec<ParameterValue>> {
+        let mut err: Option<RuntimeError> = None;
+        let res: Vec<Vec<Timeseries>> = self.args.into_par_iter().map(|expr| {
+            match expr.eval(ctx, ec) {
+                Err(e) => {
+                    if err.is_none() {
+                        err = Some(e)
+                    }
+                    vec![]
+                }
+                Ok(val) => {
+                    val
+                }
+            }
+        }).collect::<Vec<_>>();
 
-struct IndexedItem<T> {
-    item: T,
-    index: usize
+        return match err {
+            Some(e) => Err(e),
+            None => Ok(res)
+        };
+    }
 }
 
 
 #[inline]
 fn should_parallelize(t: &DataType) -> bool {
-    !matches!(t, DataType::String | DataType::Float | DataType::Int | DataType::Vector )
+    !matches!(t, DataType::String | DataType::Float | DataType::Int | DataType::Vector)
 }
 
-/// Determines if we should parallelize parameter parsing. We ignore "lightweight"
+/// Determines if we should parallelize parameter evaluation. We ignore "lightweight"
 /// parameter types like `String` or `Int`
 pub(crate) fn should_parallelize_param_parsing(signature: &Signature) -> bool {
     let types = &signature.type_signature;
@@ -81,128 +110,4 @@ pub(crate) fn should_parallelize_param_parsing(signature: &Signature) -> bool {
             true
         }
     }
-}
-
-
-// todo: use COW for this ??
-fn convert(src: &ParameterValue, expected: DataType) -> RuntimeResult<ParameterValue> {
-    match expected {
-        DataType::Matrix => convert_to_matrix(src),
-        DataType::Series => convert_to_series(src),
-        DataType::Vector => convert_to_vector(src),
-        DataType::Float => convert_to_float(src),
-        DataType::Int => convert_to_int(src),
-        DataType::String => convert_to_string(src)
-    }
-}
-
-fn convert_to_vector(src: &ParameterValue) -> RuntimeResult<ParameterValue> {
-    todo!()
-}
-
-fn convert_to_matrix(src: &ParameterValue) -> RuntimeResult<ParameterValue> {
-    todo!()
-}
-
-fn convert_to_series(src: &ParameterValue) -> RuntimeResult<ParameterValue> {
-    todo!()
-}
-
-fn convert_to_string(src: &ParameterValue) -> RuntimeResult<ParameterValue> {
-    match src {
-        ParameterValue::String(s) => {
-            Ok(ParameterValue::String(s.to_string()))
-        }
-        ParameterValue::Series(series) => {
-            let ts = get_single_timeseries(series)?;
-            if ts.values.len() > 0 {
-                let all_nan = series[0].values.iter().all(|x| x.is_nan());
-                if !all_nan {
-                    let msg = format!("series contains non-string timeseries");
-                    return Err(RuntimeError::ArgumentError(msg));
-                }
-            }
-            let res = ts.metric_name.metric_group.clone();
-            // todo: return reference
-            Ok(ParameterValue::String(res))
-        }
-        _ => {
-            let msg = format!("cannot cast {} to a string", src.data_type());
-            return Err(RuntimeError::TypeCastError(msg))
-        }
-    }
-}
-
-fn convert_to_float(src: &ParameterValue) -> RuntimeResult<ParameterValue> {
-    match src {
-        ParameterValue::Series(series) => {
-            let ts = get_single_timeseries(series)?;
-            if ts.values.len() != 1 {
-                let msg = format!("expected a vector of size 1; got {}", ts.values.len());
-                return Err(RuntimeError::ArgumentError(msg))
-            }
-            Ok(ParameterValue::Float(ts.values[0]))
-        },
-        ParameterValue::Vector(vec) => {
-            if vec.len() != 1 {
-                let msg = format!("expected a vector of size 1; got {}", vec.len());
-                return Err(RuntimeError::ArgumentError(msg))
-            }
-            Ok(ParameterValue::Float(vec[0]))
-        },
-        ParameterValue::Float(val) => Ok(ParameterValue::Float(*val)),
-        ParameterValue::Int(val) => Ok(ParameterValue::Float(*val as f64)),
-        ParameterValue::String(s) => {
-            match f64::from_str(s) {
-                Err(e) => {
-                    return Err(RuntimeError::TypeCastError(
-                        format!("{} cannot be converted to a float", s)
-                    ))
-                },
-                Ok(val) => Ok( ParameterValue::Float(val))
-            }
-        },
-        _ => {
-            return Err(RuntimeError::TypeCastError(
-                format!("{} cannot be converted to a float", src.data_type())
-            ))
-        }
-    }
-}
-
-fn convert_to_int(src: &ParameterValue) -> RuntimeResult<ParameterValue> {
-    match src {
-        ParameterValue::Int(val) => Ok(ParameterValue::Int(*val)),
-        ParameterValue::Float(val) => Ok(ParameterValue::Int(*val as i64)),
-        _=> {
-            match convert_to_float(src)? {
-                ParameterValue::Float(f) => Ok(ParameterValue::Int(f as i64)),
-                _=> unreachable!()
-            }
-        }
-    }
-}
-
-
-#[inline]
-fn get_single_series_from_param(param: &ParameterValue) -> RuntimeResult<&Timeseries> {
-    match param {
-        ParameterValue::Series(series) => get_single_timeseries(series),
-        _ => {
-            let msg = format!("expected a timeseries vector; got {}", param.data_type());
-            return Err(RuntimeError::TypeCastError(msg))
-        }
-    }
-}
-
-#[inline]
-fn get_single_timeseries(series: &Vec<Timeseries>) -> RuntimeResult<&Timeseries> {
-    if series.len() != 1 {
-        let msg = format!(
-            "arg must contain a single timeseries; got {} timeseries",
-            series.len()
-        );
-        return Err(RuntimeError::TypeCastError(msg))
-    }
-    Ok(&series[0])
 }

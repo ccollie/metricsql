@@ -258,15 +258,6 @@ pub fn aggregate_function_signature(fun: &AggregateFunction) -> Signature {
 }
 
 
-fn aggr_function_can_sort_results(func: AggregateFunction) -> bool {
-  use AggregateFunction::*;
-  matches!(func,
-        Topk | Bottomk | Outliersk |  TopkMax | TopkMin | TopkAvg |
-        TopkMedian | TopkLast | BottomkMax |
-        BottomkMin | BottomkAvg | BottomkMedian | BottomkLast
-    )
-}
-
 pub fn get_aggregate_arg_idx_for_optimization(func: AggregateFunction, arg_count: usize) -> Option<usize> {
   use AggregateFunction::*;
   match func {

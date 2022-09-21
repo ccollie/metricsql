@@ -890,7 +890,7 @@ fn aggr_func_quantile(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
 
 fn aggr_func_median(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut tss = get_aggr_timeseries(&afa.args)?;
-    let phis = &eval_number(&mut afa.ec, 0.5)[0].values;
+    let phis = &eval_number(&afa.ec, 0.5)[0].values; // todo: use more efficient method
     let afe = new_aggr_quantile_func(phis);
     return aggr_func_ext(afe, &mut tss, &afa.modifier, afa.limit, false);
 }
