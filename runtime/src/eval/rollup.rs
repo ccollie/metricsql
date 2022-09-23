@@ -2,7 +2,7 @@ use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex};
 
 use once_cell::sync::Lazy;
-use rayon::iter::IntoParallelRefIterator;
+use rayon::prelude::IntoParallelRefIterator;
 use tinyvec::*;
 
 use lib::is_stale_nan;
@@ -25,6 +25,7 @@ use crate::functions::rollup::{eval_prefuncs, get_rollup_configs, get_rollup_fun
                                MAX_SILENCE_INTERVAL, rollup_func_keeps_metric_name, RollupConfig,
                                RollupHandlerEnum, RollupHandlerFactory, TimeseriesMap};
 use crate::functions::transform::get_absent_timeseries;
+use crate::rayon::iter::ParallelIterator;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::search::{join_tag_filterss, QueryResult, QueryResults, SearchQuery};
 use crate::timeseries::Timeseries;
@@ -777,13 +778,13 @@ fn get_keep_metric_names(expr: &Expression) -> bool {
 }
 
 fn do_parallel<F>(tss: &Vec<Timeseries>, f: F) -> RuntimeResult<()>
-where F: Fn(&Timeseries, &mut [f64], &mut [i64]) -> RuntimeResult<()>
+    where F: Fn(&Timeseries, &mut [f64], &mut [i64]) -> RuntimeResult<()> + Send + Sync
 {
     let mut tmp_values: TinyVec<[f64; 32]> = tiny_vec!();
     let mut tmp_timestamps = tiny_vec!([i64; 32]);
 
     let mut err: Option<RuntimeError> = None;
-    tss.iter().par_iter().for_each(|ts| {
+    tss.par_iter().for_each(|ts| {
         match f(ts, tmp_values.as_mut(), tmp_timestamps.as_mut()) {
             Err(e) => {
                 if err.is_none() {

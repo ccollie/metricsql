@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+
 use crate::active_queries::ActiveQueries;
 use crate::cache::rollup_result_cache::RollupResultCache;
 use crate::parser_cache::ParseCache;
@@ -10,7 +11,7 @@ pub struct Context {
     pub query_stats: QueryStatsTracker,
     pub active_queries: ActiveQueries,
     pub rollup_result_cache: RollupResultCache,
-    pub series_data: Box<dyn SeriesDataSource>,
+    pub series_data: Box<dyn SeriesDataSource>, // mutex
 }
 
 impl Context {

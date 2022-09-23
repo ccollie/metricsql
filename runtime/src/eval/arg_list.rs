@@ -8,6 +8,7 @@ use crate::context::Context;
 use crate::eval::{create_evaluators, Evaluator, ExprEvaluator};
 use crate::eval::eval::eval_volatility;
 use crate::functions::types::ParameterValue;
+use crate::rayon::iter::ParallelIterator;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 
 pub(crate) struct ArgList {
