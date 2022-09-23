@@ -1,9 +1,7 @@
+use std::default::Default;
 use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
 use std::sync::Arc;
-
-use clone_dyn::clone_dyn;
-use phf::{phf_map, phf_set};
 
 use lib::{get_float64s, is_stale_nan};
 use metricsql::ast::{Expression, ExpressionNode};
@@ -12,6 +10,7 @@ use metricsql::functions::{can_adjust_window, RollupFunction};
 use crate::{get_timeseries, get_timestamps};
 use crate::eval::validate_max_points_per_timeseries;
 use crate::functions::{mode_no_nans, quantile, quantiles};
+use crate::functions::rollup::{RollupFn, RollupFunc, RollupFuncArg, RollupHandler, RollupHandlerEnum};
 use crate::functions::types::ParameterValue;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 
@@ -42,277 +41,196 @@ pub const MIN_STALENESS_INTERVAL: i64 = 0;
 /// Todo: place as field on EvalConfig
 pub const MAX_STALENESS_INTERVAL: i64 = 0;
 
-#[derive(Default, Clone)]
-pub(crate) struct RollupFuncArg {
-    /// The value preceding values if it fits staleness interval.
-    prev_value: f64,
 
-    /// The timestamp for prev_value.
-    prev_timestamp: i64,
-
-    /// Values that fit window ending at curr_timestamp.
-    values: Vec<f64>,
-
-    /// Timestamps for values.
-    timestamps: Vec<i64>,
-
-    /// Real value preceding values without restrictions on staleness interval.
-    real_prev_value: f64,
-
-    /// Real value which goes after values.
-    real_next_value: f64,
-
-    /// Current timestamp for rollup evaluation.
-    curr_timestamp: i64,
-
-    /// Index for the currently evaluated point relative to time range for query evaluation.
-    idx: usize,
-
-    /// Time window for rollup calculations.
-    window: i64,
-
-    tsm: Option<TimeseriesMap>,
-}
-
-impl RollupFuncArg {
-    pub fn reset(mut self) {
-        self.prev_value = 0.0;
-        self.prev_timestamp = 0;
-        self.values = vec![];
-        self.timestamps = vec![];
-        self.curr_timestamp = 0;
-        self.idx = 0;
-        self.window = 0;
-        if let Some(mut tsm) = self.tsm {
-            tsm.reset()
-        }
-    }
-}
-
-
-pub(crate) type RollupFunc = fn(rfa: &mut RollupFuncArg) -> f64;
-
-#[clone_dyn]
-/// RollupFunc must return rollup value for the given rfa.
-///
-/// prev_value may be NAN, values and timestamps may be empty.
-pub(crate) trait RollupFn: Fn(&mut RollupFuncArg) -> f64 + Send + Sync {}
-
-/// implement `Rollup` on any type that implements `Fn(&RollupFuncArg) -> f64`.
-impl<T> RollupFn for T where T: Fn(&mut RollupFuncArg) -> f64 + Send + Sync {}
-
-#[clone_dyn]
-pub(crate) trait NewRollupFn: Fn(&Vec<ParameterValue>) -> &Box<dyn RollupFn> {}
-impl<T> NewRollupFn for T where T: Fn(&Vec<ParameterValue>) -> &Box<dyn RollupFn> {}
-
-
-// Pre-allocated box for closure to save allocations at runtime
+// Pre-allocated handlers for closure to save allocations at runtime
 macro_rules! wrap_rollup_fn {
     ( $name: ident, $rf: expr ) => {
-        pub(crate) static $name: Box<(dyn RollupFn<Output = f64> + 'static)> = Box::new($rf);
+        const $name: RollupHandlerEnum = RollupHandlerEnum::wrap($rf);
     };
 }
 
-// used to create a raw function instead of a closure
-macro_rules! make_wrapper {
+macro_rules! make_factory {
     ( $name: ident, $rf: expr ) => {
         #[inline]
-        fn $name(args: &Vec<ParameterValue>) -> &Box<(dyn RollupFn<Output = f64> + 'static)> {
-            &$rf
-        }
-    };
-
-    ( $name: ident, $box_name: expr, $box_fn: ident, $rf: expr) => {
-        #[inline]
-        fn $name(args: &Vec<ParameterValue>) -> &Box<(dyn RollupFn<Output = f64> + 'static)> {
-            $box_fn
+        fn $name(args: &Vec<ParameterValue>) -> RollupHandlerEnum {
+            RollupHandlerEnum::wrap($rf)
         }
     };
 }
 
 macro_rules! fake_wrapper {
-    ( $funcName: ident, $name: ident ) => {
+    ( $funcName: ident, $name: expr ) => {
         #[inline]
-        fn $funcName(args: &Vec<ParameterValue>) -> Box<(dyn RollupFn<Output = f64> + 'static)> {
-            panic!("BUG: {} shouldn't be called", stringify!($name));
-        }
-    };
-
-    ( $funcName: ident ) => {
-        #[inline]
-        fn $funcName(args: &Vec<ParameterValue>) -> Box<(dyn RollupFn<Output = f64> + 'static)> {
-            panic!("BUG: {} shouldn't be called", stringify!($funcName));
+        fn $funcName(args: &Vec<ParameterValue>) -> RollupHandlerEnum {
+            RollupHandlerEnum::fake($name)
         }
     };
 }
 
-// create static boxes (todo: do we need the macro? Do it manually ?. Pro is that refactoring is simpler
-wrap_rollup_fn!(fn_absent_over_time,    rollup_absent);
-wrap_rollup_fn!(fn_ascent_over_time,    rollup_ascent_over_time);
-wrap_rollup_fn!(fn_avg_over_time,       rollup_avg);
-wrap_rollup_fn!(fn_changes,             rollup_changes);
-wrap_rollup_fn!(fn_changes_prometheus,  rollup_changes_prometheus);
-wrap_rollup_fn!(fn_count_over_time,     rollup_count);
-wrap_rollup_fn!(fn_decreases_over_time, rollup_decreases);
-wrap_rollup_fn!(fn_default_rollup,      rollup_default);
-wrap_rollup_fn!(fn_delta,               rollup_delta);
-wrap_rollup_fn!(fn_delta_prometheus,    rollup_delta_prometheus);
-wrap_rollup_fn!(fn_deriv_slow,          rollup_deriv_slow);
-wrap_rollup_fn!(fn_deriv_fast,          rollup_deriv_fast);
-wrap_rollup_fn!(fn_descent_over_time,   rollup_descent_over_time);
-wrap_rollup_fn!(fn_distinct_over_time, rollup_distinct);
-wrap_rollup_fn!(fn_first_over_time,     rollup_first);
-wrap_rollup_fn!(fn_geomean_over_time,   rollup_geomean);
-wrap_rollup_fn!(fn_histogram_over_time,   rollup_histogram);
-wrap_rollup_fn!(fn_idelta,              rollup_idelta);
-wrap_rollup_fn!(fn_ideriv,              rollup_ideriv);
-wrap_rollup_fn!(fn_increase,            rollup_delta);
-wrap_rollup_fn!(fn_increase_pure,       rollup_increase_pure);
-wrap_rollup_fn!(fn_increases_over_time,  rollup_increases);
-wrap_rollup_fn!(fn_integrate,           rollup_integrate);
-wrap_rollup_fn!(fn_irate,               rollup_ideriv);
-wrap_rollup_fn!(fn_lag,                 rollup_lag);
-wrap_rollup_fn!(fn_last_over_time,      rollup_last);
-wrap_rollup_fn!(fn_lifetime,            rollup_lifetime);
-wrap_rollup_fn!(fn_max_over_time,       rollup_max);
-wrap_rollup_fn!(fn_median_over_time,    rollup_median);
-wrap_rollup_fn!(fn_min_over_time,       rollup_min);
-wrap_rollup_fn!(fn_mode_over_time,      rollup_mode_over_time);
-wrap_rollup_fn!(fn_present_over_time,   rollup_present);
-wrap_rollup_fn!(fn_range_over_time,     rollup_range);
-wrap_rollup_fn!(fn_rate_over_time,      rollup_deriv_fast);
-wrap_rollup_fn!(fn_rate_over_sum,       rollup_rate_over_sum);
-wrap_rollup_fn!(fn_resets,              rollup_resets);
-wrap_rollup_fn!(fn_scrape_interval,     rollup_deriv_fast);
-wrap_rollup_fn!(fn_stale_samples_over_time,  rollup_stale_samples);
-wrap_rollup_fn!(fn_stddev_over_time,    rollup_stddev);
-wrap_rollup_fn!(fn_stdvar_over_time,    rollup_stdvar);
-wrap_rollup_fn!(fn_sum_over_time,       rollup_sum);
-wrap_rollup_fn!(fn_sum2_over_time,      rollup_sum2);
-wrap_rollup_fn!(fn_tfirst_over_time,    rollup_tfirst);
-wrap_rollup_fn!(fn_timestamp,           rollup_tlast);
-wrap_rollup_fn!(fn_timestamp_with_name, rollup_tlast);
-wrap_rollup_fn!(fn_tlast_change_over_time,   rollup_tlast_change);
-wrap_rollup_fn!(fn_tlast_over_time,    rollup_tlast);
-wrap_rollup_fn!(fn_tmax_over_time,     rollup_tmax);
-wrap_rollup_fn!(fn_tmin_over_time,     rollup_tmin);
-wrap_rollup_fn!(fn_zscore_over_time,   rollup_zscore_over_time);
 
-wrap_rollup_fn!(fn_fake,   rollup_fake);
+fn get_aggr_fn(f: RollupFunction) -> RuntimeResult<RollupFunc> {
+    use RollupFunction::*;
 
-static ROLLUP_AGGR_FUNCTIONS: phf::Map<&'static str, &Box<dyn RollupFn>> = phf_map! {
-    "absent_over_time" =>        &fn_absent_over_time,
-	"ascent_over_time" =>        &fn_ascent_over_time,
-	"avg_over_time" =>           &fn_avg_over_time,
-	"changes" =>                 &fn_changes,
-	"count_over_time" =>         &fn_count_over_time,
-	"decreases_over_time" =>     &fn_decreases_over_time,
-	"default_rollup" =>          &fn_default_rollup,
-	"delta" =>                   &fn_delta,
-	"deriv" =>                   &fn_deriv_slow,
-	"deriv_fast" =>              &fn_deriv_fast,
-	"descent_over_time" =>       &fn_descent_over_time,
-	"distinct_over_time" =>      &fn_distinct_over_time,
-	"first_over_time" =>         &fn_first_over_time,
-	"geomean_over_time" =>       &fn_geomean_over_time,
-	"idelta" =>                  &fn_idelta,
-	"ideriv" =>                  &fn_ideriv,
-	"increase" =>                &fn_increase,
-	"increase_pure" =>           &fn_increase_pure,
-	"increases_over_time" =>     &fn_increases_over_time,
-	"integrate" =>               &fn_integrate,
-	"irate" =>                   &fn_irate,
-	"lag" =>                     &fn_lag,
-	"last_over_time" =>          &fn_last_over_time,
-	"lifetime" =>                &fn_lifetime,
-	"max_over_time" =>           &fn_max_over_time,
-	"min_over_time" =>           &fn_min_over_time,
-    "median_over_time" =>        &fn_median_over_time,
-	"mode_over_time" =>          &fn_mode_over_time,
-	"present_over_time" =>       &fn_present_over_time,
-	"range_over_time" =>         &fn_range_over_time,
-	"rate" =>                    &fn_rate_over_time,
-	"rate_over_sum" =>           &fn_rate_over_sum,
-	"resets" =>                  &fn_resets,
-	"scrape_interval" =>         &fn_scrape_interval,
-	"stale_samples_over_time" => &fn_stale_samples_over_time,
-	"stddev_over_time" =>        &fn_stddev_over_time,
-	"stdvar_over_time" =>        &fn_stdvar_over_time,
-	"sum_over_time" =>           &fn_sum_over_time,
-	"sum2_over_time" =>          &fn_sum2_over_time,
-	"tfirst_over_time" =>        &fn_tfirst_over_time,
-	"timestamp" =>               &fn_timestamp,
-	"timestamp_with_name" =>     &fn_timestamp_with_name,
-	"tlast_change_over_time" =>  &fn_tlast_change_over_time,
-	"tlast_over_time" =>         &fn_tlast_over_time,
-	"tmax_over_time" =>          &fn_tmax_over_time,
-	"tmin_over_time" =>          &fn_tmin_over_time,
-	"zscore_over_time" =>        &fn_zscore_over_time,
-};
+    let res = match f {
+        AbsentOverTime => rollup_absent,
+        AscentOverTime => rollup_ascent_over_time,
+        AvgOverTime => rollup_avg,
+        Changes => rollup_changes,
+        CountOverTime => rollup_count,
+        DecreasesOverTime => rollup_decreases,
+        DefaultRollup => rollup_default,
+        Delta => rollup_delta,
+        Deriv => rollup_deriv_slow,
+        DerivFast => rollup_deriv_fast,
+        DescentOverTime => rollup_descent_over_time,
+        DistinctOverTime => rollup_distinct,
+        FirstOverTime => rollup_first,
+        GeomeanOverTime => rollup_geomean,
+        IDelta => rollup_idelta,
+        IDeriv => rollup_ideriv,
+        Increase => rollup_delta,
+        IncreasePure => rollup_increase_pure,
+        IncreasesOverTime => rollup_increases,
+        Integrate => rollup_integrate,
+        IRate => rollup_ideriv,
+        Lag => rollup_lag,
+        LastOverTime => rollup_last,
+        Lifetime => rollup_lifetime,
+        MaxOverTime => rollup_max,
+        MinOverTime => rollup_min,
+        MedianOverTime => rollup_median,
+        ModeOverTime => rollup_mode_over_time,
+        PresentOverTime => rollup_present,
+        RangeOverTime => rollup_range,
+        Rate => rollup_deriv_fast,
+        RateOverSum => rollup_rate_over_sum,
+        Resets => rollup_resets,
+        ScrapeInterval => rollup_scrape_interval,
+        StaleSamplesOverTime => rollup_stale_samples,
+        StddevOverTime => rollup_stddev,
+        StdvarOverTime => rollup_stdvar,
+        SumOverTime => rollup_sum,
+        Sum2OverTime => rollup_sum2,
+        TFirstOverTime => rollup_tfirst,
+        Timestamp => rollup_tlast,
+        TimestampWithName => rollup_tlast,
+        TLastChangeOverTime => rollup_tlast_change,
+        TLastOverTime => rollup_tlast,
+        TMaxOverTime => rollup_tmax,
+        TMinOverTime => rollup_tmin,
+        ZScoreOverTime => rollup_zscore_over_time,
+        _ => return Err(RuntimeError::General(
+            format!("{} is not an aggregate function", f.name())
+        ))
+    };
+
+    Ok(res)
+}
+
+fn get_aggr_func_by_name(name: &str) -> RuntimeResult<RollupFunction> {
+    match RollupFunction::from_str(name) {
+        Err(e) => Err(RuntimeError::UnknownFunction(name.to_string())),
+        Ok(func) => Ok(func)
+    }
+}
+
+fn requires_config(f: RollupFunction) -> bool {
+    use RollupFunction::*;
+
+    matches!(f,
+        PredictLinear | DurationOverTime | HoltWinters |
+        ShareLeOverTime | ShareGtOverTime |
+        CountLeOverTime | CountGtOverTime | CountEqOverTime | CountNeOverTime |
+        HoeffdingBoundLower | HoeffdingBoundUpper |
+        QuantilesOverTime | QuantileOverTime
+    )
+}
+
+fn is_aggr_function(f: RollupFunction) -> bool {
+    use RollupFunction::*;
+    matches!(f,
+        AbsentOverTime | AscentOverTime | AvgOverTime |
+        Changes | CountOverTime | DecreasesOverTime |
+        DefaultRollup | Delta | Deriv | DerivFast |
+        DescentOverTime | DistinctOverTime | FirstOverTime |
+        GeomeanOverTime | IDelta | IDeriv | Increase |
+        IncreasePure | IncreasesOverTime | Integrate | IRate |
+        Lag | LastOverTime | Lifetime | MaxOverTime | MinOverTime |
+        MedianOverTime | ModeOverTime | PresentOverTime | RangeOverTime |
+	    Rate | RateOverSum | Resets | ScrapeInterval | StaleSamplesOverTime |
+	    StddevOverTime | StdvarOverTime | SumOverTime | Sum2OverTime |
+	    TFirstOverTime | Timestamp | TimestampWithName | TLastChangeOverTime |
+	    TLastOverTime | TMaxOverTime | TMinOverTime | ZScoreOverTime
+    )
+}
+
 
 // pass through to existing functions
-make_wrapper!(new_rollup_absent_over_time,      fn_absent_over_time);
-make_wrapper!(new_rollup_aggr_over_time,        fn_fake);
-make_wrapper!(new_rollup_ascent_over_time,      fn_ascent_over_time);
-make_wrapper!(new_rollup_avg_over_time,         fn_avg_over_time);
-make_wrapper!(new_rollup_changes,               fn_changes);
-make_wrapper!(new_rollup_changes_prometheus,    fn_changes_prometheus);
-make_wrapper!(new_rollup_count_over_time,       fn_count_over_time);
-make_wrapper!(new_rollup_decreases_over_time,   fn_decreases_over_time);
-make_wrapper!(new_rollup_default,               fn_default_rollup);
-make_wrapper!(new_rollup_delta,                 fn_delta);
-make_wrapper!(new_rollup_delta_prometheus,      fn_delta_prometheus);
-make_wrapper!(new_rollup_deriv,                 fn_deriv_slow);
-make_wrapper!(new_rollup_deriv_fast,            fn_deriv_fast);
-make_wrapper!(new_rollup_descent_over_time,     fn_descent_over_time);
-make_wrapper!(new_rollup_distinct_over_time,    fn_distinct_over_time);
-make_wrapper!(new_rollup_first_over_time,       fn_first_over_time);
-make_wrapper!(new_rollup_geomean_over_time,     fn_geomean_over_time);
-make_wrapper!(new_rollup_histogram_over_time,   fn_histogram_over_time);
-make_wrapper!(new_rollup_idelta,                fn_idelta);
-make_wrapper!(new_rollup_ideriv,                fn_ideriv);
-make_wrapper!(new_rollup_increase,              fn_delta);
-make_wrapper!(new_rollup_increase_pure,         fn_increase_pure);
-make_wrapper!(new_rollup_increases_over_time,   fn_increases_over_time);
-make_wrapper!(new_rollup_integrate,             fn_integrate);
-make_wrapper!(new_rollup_irate,                 fn_ideriv);
-make_wrapper!(new_rollup_lag,                   fn_lag);
-make_wrapper!(new_rollup_last_over_time,        fn_last_over_time);
-make_wrapper!(new_rollup_lifetime,              fn_lifetime);
-make_wrapper!(new_rollup_max_over_time,         fn_max_over_time);
-make_wrapper!(new_rollup_min_over_time,         fn_min_over_time);
-make_wrapper!(new_rollup_median_over_time,      fn_median_over_time);
-make_wrapper!(new_rollup_mode_over_time,        fn_mode_over_time);
-make_wrapper!(new_rollup_present_over_time,     fn_present_over_time);
-make_wrapper!(new_rollup_range_over_time,       fn_range_over_time);
-make_wrapper!(new_rollup_rate,                  fn_rate_over_time);
-make_wrapper!(new_rollup_rate_over_sum,         fn_rate_over_sum);
-make_wrapper!(new_rollup_resets,                fn_resets);
-make_wrapper!(new_rollup_scrape_interval,       fn_scrape_interval);
-make_wrapper!(new_rollup_stale_samples_over_time, fn_stale_samples_over_time);
-make_wrapper!(new_rollup_stddev_over_time,      fn_stddev_over_time);
-make_wrapper!(new_rollup_stdvar_over_time,      fn_stdvar_over_time);
-make_wrapper!(new_rollup_sum_over_time,         fn_sum_over_time);
-make_wrapper!(new_rollup_sum2_over_time,        fn_sum2_over_time);
-make_wrapper!(new_rollup_tfirst_over_time,      fn_tfirst_over_time);
-make_wrapper!(new_rollup_timestamp,             fn_timestamp);
-make_wrapper!(new_rollup_timestamp_with_name,   fn_timestamp);
-make_wrapper!(new_rollup_tlast_change_over_time, fn_timestamp_with_name);
-make_wrapper!(new_rollup_tlast_over_time,       fn_tlast_over_time);
-make_wrapper!(new_rollup_tmax_over_time,        fn_tmax_over_time);
-make_wrapper!(new_rollup_tmin_over_time,        fn_tmin_over_time);
-make_wrapper!(new_rollup_zscore_over_time,      fn_zscore_over_time);
 
-fake_wrapper!(new_rollup,               rollup);
-fake_wrapper!(new_rollup_candlestick,   rollup_candlestick);
-fake_wrapper!(new_rollup_rollup_delta,  rollup_delta);
-fake_wrapper!(new_rollup_rollup_deriv,  rollup_deriv);
-fake_wrapper!(new_rollup_rollup_increase, rollup_increase); // + rollupFuncsRemoveCounterResets
-fake_wrapper!(new_rollup_rollup_rate,    rollup_rate); // + rollupFuncsRemoveCounterResets
-fake_wrapper!(new_rollup_rollup_scrape_interval, rollup_scrape_interval);
+///////////
+make_factory!(new_rollup_absent_over_time,      rollup_absent);
+make_factory!(new_rollup_aggr_over_time,        rollup_fake);
+make_factory!(new_rollup_ascent_over_time,      rollup_ascent_over_time);
+make_factory!(new_rollup_avg_over_time,         rollup_avg);
+make_factory!(new_rollup_changes,               rollup_changes);
+make_factory!(new_rollup_changes_prometheus,    rollup_changes_prometheus);
+make_factory!(new_rollup_count_over_time,       rollup_count);
+make_factory!(new_rollup_decreases_over_time,   rollup_decreases);
+make_factory!(new_rollup_default,               rollup_default);
+make_factory!(new_rollup_delta,                 rollup_delta);
+make_factory!(new_rollup_delta_prometheus,      rollup_delta_prometheus);
+make_factory!(new_rollup_deriv,                 rollup_deriv_slow);
+make_factory!(new_rollup_deriv_fast,            rollup_deriv_fast);
+make_factory!(new_rollup_descent_over_time,     rollup_descent_over_time);
+make_factory!(new_rollup_distinct_over_time,    rollup_distinct);
+make_factory!(new_rollup_first_over_time,       rollup_first);
+make_factory!(new_rollup_geomean_over_time,     rollup_geomean);
+make_factory!(new_rollup_histogram_over_time,   rollup_histogram);
+make_factory!(new_rollup_idelta,                rollup_idelta);
+make_factory!(new_rollup_ideriv,                rollup_ideriv);
+make_factory!(new_rollup_increase,              rollup_delta);
+make_factory!(new_rollup_increase_pure,         rollup_increase_pure);
+make_factory!(new_rollup_increases_over_time,   rollup_increases);
+make_factory!(new_rollup_integrate,             rollup_integrate);
+make_factory!(new_rollup_irate,                 rollup_ideriv);
+make_factory!(new_rollup_lag,                   rollup_lag);
+make_factory!(new_rollup_last_over_time,        rollup_last);
+make_factory!(new_rollup_lifetime,              rollup_lifetime);
+make_factory!(new_rollup_max_over_time,         rollup_max);
+make_factory!(new_rollup_min_over_time,         rollup_min);
+make_factory!(new_rollup_median_over_time,      rollup_median);
+make_factory!(new_rollup_mode_over_time,        rollup_mode_over_time);
+make_factory!(new_rollup_present_over_time,     rollup_present);
+make_factory!(new_rollup_range_over_time,       rollup_range);
+make_factory!(new_rollup_rate,                  rollup_deriv_fast);
+make_factory!(new_rollup_rate_over_sum,         rollup_rate_over_sum);
+make_factory!(new_rollup_resets,                rollup_resets);
+make_factory!(new_rollup_scrape_interval,       rollup_scrape_interval);
+make_factory!(new_rollup_stale_samples_over_time, rollup_stale_samples);
+make_factory!(new_rollup_stddev_over_time,      rollup_stddev);
+make_factory!(new_rollup_stdvar_over_time,      rollup_stdvar);
+make_factory!(new_rollup_sum_over_time,         rollup_sum);
+make_factory!(new_rollup_sum2_over_time,        rollup_sum2);
+make_factory!(new_rollup_tfirst_over_time,      rollup_tfirst);
+make_factory!(new_rollup_timestamp,             rollup_tlast);
+make_factory!(new_rollup_timestamp_with_name,   rollup_tlast);
+make_factory!(new_rollup_tlast_change_over_time, rollup_tlast_change);
+make_factory!(new_rollup_tlast_over_time,       rollup_tlast);
+make_factory!(new_rollup_tmax_over_time,        rollup_tmax);
+make_factory!(new_rollup_tmin_over_time,        rollup_tmin);
+make_factory!(new_rollup_zscore_over_time,      rollup_zscore_over_time);
+
+fake_wrapper!(new_rollup,                   "rollup");
+fake_wrapper!(new_rollup_candlestick,       "rollup_candlestick");
+fake_wrapper!(new_rollup_rollup_delta,      "rollup_delta");
+fake_wrapper!(new_rollup_rollup_deriv,      "rollup_deriv");
+fake_wrapper!(new_rollup_rollup_increase,   "rollup_increase"); // + rollupFuncsRemoveCounterResets
+fake_wrapper!(new_rollup_rollup_rate,       "rollup_rate"); // + rollupFuncsRemoveCounterResets
+fake_wrapper!(new_rollup_rollup_scrape_interval, "rollup_scrape_interval");
 
 
-pub(crate) fn get_rollup_function_impl(func: &RollupFunction) -> &'static dyn NewRollupFn {
+
+pub(crate) fn get_rollup_function_factory(func: RollupFunction) -> fn(&Vec<ParameterValue>) -> RollupHandlerEnum {
     let imp = match func {
         RollupFunction::AbsentOverTime => new_rollup_absent_over_time,
         RollupFunction::AggrOverTime => new_rollup_aggr_over_time,
@@ -388,19 +306,15 @@ pub(crate) fn get_rollup_function_impl(func: &RollupFunction) -> &'static dyn Ne
         RollupFunction::ZScoreOverTime => new_rollup_zscore_over_time
     };
 
-    return &imp;
+    return imp;
 }
 
 
-static ROLLUP_FUNCTIONS_REMOVE_COUNTER_RESETS: phf::Set<&'static str> = phf_set! {
-	"increase",
-	"increase_prometheus",
-	"increase_pure",
-	"irate",
-	"rate",
-	"rollup_increase",
-	"rollup_rate"
-};
+#[inline]
+fn is_removes_counter_resets(f: RollupFunction) -> bool {
+    use RollupFunction::*;
+    matches!(f, Increase | IncreasePrometheus | IncreasePure | IRate | RollupIncrease | RollupRate )
+}
 
 pub(crate) fn rollup_func_keeps_metric_name(name: &str) -> bool {
     match RollupFunction::from_str(name) {
@@ -409,21 +323,9 @@ pub(crate) fn rollup_func_keeps_metric_name(name: &str) -> bool {
     }
 }
 
-pub(crate) fn get_rollup_func_by_name(func_name: &str) -> RuntimeResult<&dyn NewRollupFn> {
-    match RollupFunction::from_str(func_name) {
-        Err(_) => {
-            Err(RuntimeError::UnknownFunction(func_name.to_string()))
-        },
-        Ok(func) => Ok(get_rollup_function_impl(&func))
-    }
-}
-
-pub(crate) fn get_rollup_func_factory(func: &RollupFunction) -> RuntimeResult<&dyn NewRollupFn> {
-    Ok(get_rollup_function_impl(func))
-}
 
 // todo: use in optimize so its cached in the ast
-pub(crate) fn get_rollup_aggr_func_names(expr: &Expression) -> RuntimeResult<Vec<String>> {
+pub(crate) fn get_rollup_aggr_funcs(expr: &Expression) -> RuntimeResult<Vec<RollupFunction>> {
     let fe = match expr {
         Expression::Aggregation(afe) => {
             // This is for incremental aggregate function case:
@@ -452,50 +354,35 @@ pub(crate) fn get_rollup_aggr_func_names(expr: &Expression) -> RuntimeResult<Vec
             }
 
             let arg_len = fe_.args.len();
-            if arg_len != 2 {
-                let msg = format!("unexpected number of args to aggr_over_time(); got {}; want {}", arg_len, 2);
+            if arg_len < 2 {
+                let msg = format!("unexpected number of args to aggr_over_time(); got {}; want at least {}", arg_len, 2);
                 return Err(RuntimeError::from(msg));
             }
 
-            let arg = fe_.args[0].as_ref();
-            let mut aggr_func_names: Vec<String> = Vec::with_capacity(1);
-            match arg {
-                Expression::String(se) => {
-                    aggr_func_names.push(se.to_string());
-                },
-                Expression::Function(fe) => {
-                    let name = fe.name();
-                    if name.len() > 0 {
-                        let msg = format!("{} cannot be passed to aggr_over_time(); expecting quoted aggregate function name",
-                                          arg);
-                        return Err(RuntimeError::General(msg));
-                    }
-                    for exp in fe.args {
-                        match *exp {
-                            Expression::String(se) => {
-                                let name = &se.s;
-                                if ROLLUP_AGGR_FUNCTIONS.contains_key(&name) {
-                                    aggr_func_names.push(se.s);
-                                } else {
-                                    let msg = format!("{} cannot be used in `aggr_over_time` function; expecting quoted aggregate function name", name);
-                                    return Err(RuntimeError::General(msg));
-                                }
-                            },
-                            _ => {
-                                let msg = format!("{} cannot be passed here; expecting quoted aggregate function name", exp);
+            let mut aggr_funcs: Vec<RollupFunction> = Vec::with_capacity(1);
+            for i in 0..fe_.args.len() - 1 {
+                let arg = &fe_.args[i];
+                match arg.deref() {
+                    Expression::String(se) => {
+                        let name = &se.s;
+                        match get_aggr_func_by_name(name) {
+                            Err(_) => {
+                                let msg = format!("{} cannot be used in `aggr_over_time` function; expecting quoted aggregate function name", name);
                                 return Err(RuntimeError::General(msg));
                             }
+                            Ok(rf) => {
+                                aggr_funcs.push(rf)
+                            }
                         }
+                    },
+                    _ => {
+                        let msg = format!("{} cannot be passed here; expecting quoted aggregate function name", arg);
+                        return Err(RuntimeError::General(msg));
                     }
-                },
-                _ => {
-                    let msg = format!("{} cannot be passed to aggr_over_time(); expecting a list of quoted aggregate function names",
-                                      arg);
-                    return Err(RuntimeError::General(msg));
                 }
             }
 
-            Ok(aggr_func_names)
+            Ok(aggr_funcs)
         }
     }
 
@@ -546,10 +433,11 @@ wrap_rollup_fn!(fn_max,    rollup_max);
 wrap_rollup_fn!(fn_avg,    rollup_avg);
 wrap_rollup_fn!(fn_low,    rollup_low);
 wrap_rollup_fn!(fn_high,   rollup_high);
+wrap_rollup_fn!(fn_fake,   rollup_fake);
 
 pub(crate) fn get_rollup_configs<'a>(
     func: &RollupFunction,
-    rf: &'a Box<dyn RollupFn>,
+    rf: &'a RollupHandlerEnum,
     expr: &Expression,
     start: i64, end: i64, step: i64, window: i64,
     max_points_per_series: usize,
@@ -568,7 +456,7 @@ pub(crate) fn get_rollup_configs<'a>(
 
     let template = RollupConfig {
         tag_value: "".to_string(),
-        func: &fn_fake,
+        handler: &fn_fake,
         start,
         end,
         step,
@@ -577,17 +465,17 @@ pub(crate) fn get_rollup_configs<'a>(
         lookback_delta,
         timestamps: shared_timestamps.clone(),
         is_default_rollup,
-        max_points_per_timeseries: max_points_per_series
+        max_points_per_timeseries: max_points_per_series,
     };
 
-    let new_rollup_config = |rf: &Box<dyn RollupFn<Output=f64>> , tag_value: &str| -> RollupConfig {
+    let new_rollup_config = |rf: &RollupHandlerEnum, tag_value: &str| -> RollupConfig {
         template.clone_with_fn(rf, tag_value)
     };
     
     let append_rollup_configs = |dst: &mut Vec<RollupConfig>| {
-        dst.push(new_rollup_config(&fn_min_over_time, "min"));
-        dst.push(new_rollup_config(&fn_max_over_time, "max"));
-        dst.push(new_rollup_config(&fn_avg_over_time, "avg"));
+        dst.push(new_rollup_config(&fn_min, "min"));
+        dst.push(new_rollup_config(&fn_max, "max"));
+        dst.push(new_rollup_config(&fn_avg, "avg"));
     };
 
     // todo: tinyvec
@@ -613,19 +501,20 @@ pub(crate) fn get_rollup_configs<'a>(
             append_rollup_configs(&mut rcs);
         },
         RollupFunction::AggrOverTime => {
-            match get_rollup_aggr_func_names(expr) {
+            match get_rollup_aggr_funcs(expr) {
                 Err(_) => {
                     return Err(RuntimeError::ArgumentError(format!("invalid args to {}", expr)))
                 },
-                Ok(func_names) => {
-                    for aggr_func_name in func_names {
-                        if ROLLUP_FUNCTIONS_REMOVE_COUNTER_RESETS.contains(&aggr_func_name) {
+                Ok(funcs) => {
+                    for rf in funcs {
+                        if is_removes_counter_resets(rf) {
                             // There is no need to save the previous pre_func, since it is either empty or the same.
                             pre_funcs.clear();
                             pre_funcs.push(remove_counter_resets_pre_func);
                         }
-                        let rf = ROLLUP_AGGR_FUNCTIONS.get(&aggr_func_name).unwrap();
-                        rcs.push(new_rollup_config(rf, &aggr_func_name));
+                        let rollup_fn = get_aggr_fn(rf)?;
+                        let handler = RollupHandlerEnum::wrap(rollup_fn);
+                        rcs.push(new_rollup_config(&handler, &rf.name()));
                     }
                 }
             }
@@ -642,7 +531,7 @@ pub(crate) fn get_rollup_configs<'a>(
 pub(crate) struct RollupConfig<'a> {
     /// This tag value must be added to "rollup" tag if non-empty.
     pub tag_value: String,
-    func: &'a Box<dyn RollupFn<Output=f64>>,
+    handler: &'a RollupHandlerEnum,
     start: i64,
     end: i64,
     step: i64,
@@ -668,10 +557,10 @@ pub(crate) struct RollupConfig<'a> {
 }
 
 impl<'a> RollupConfig<'a> {
-    fn clone_with_fn(&self, rollup_fn: &Box<dyn RollupFn>, tag_value: &str) -> Self {
+    fn clone_with_fn(&self, rollup_fn: &RollupHandlerEnum, tag_value: &str) -> Self {
         return RollupConfig {
             tag_value: tag_value.to_string(),
-            func: rollup_fn,
+            handler: rollup_fn,
             start: self.start,
             end: self.end,
             step: self.step,
@@ -786,7 +675,7 @@ impl<'a> RollupConfig<'a> {
                 rfa.real_next_value = NAN;
             }
             rfa.curr_timestamp = *tEnd;
-            let value = (self.func)(&mut rfa);
+            let value = (self.handler).eval(&mut rfa);
             rfa.idx += 1;
             dst_values.push(value);
         }
@@ -969,66 +858,68 @@ fn deriv_values(values: &mut [f64], timestamps: &[i64]) {
     values[values.len() - 1] = prev_deriv
 }
 
-fn new_rollup_holt_winters(args: &Vec<ParameterValue>) -> &Box<dyn RollupFn> {
+fn new_rollup_holt_winters(args: &Vec<ParameterValue>) -> RollupHandlerEnum {
     // unwrap is sound since arguments are checked before this is called
     let sfs = args[1].get_vector().unwrap();
     let tfs = args[2].get_vector().unwrap();
 
-    let res: Box<dyn RollupFn> = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
-        // There is no need in handling NaNs here, since they must be cleaned up
-        // before calling rollup fns.
-        if rfa.values.len() == 0 {
-            return rfa.prev_value;
-        }
-        let sf = sfs[rfa.idx];
-        if sf <= 0.0 || sf >= 1.0 {
-            return NAN;
-        }
-        let tf = tfs[rfa.idx];
-        if tf <= 0.0 || tf >= 1.0 {
-            return NAN;
-        }
-
-        let mut ofs = 0;
-
-        // See https://en.wikipedia.org/wiki/Exponential_smoothing#Double_exponential_smoothing .
-        // TODO: determine whether this shit really works.
-        let mut s0 = rfa.prev_value;
-        if s0.is_nan() {
-            ofs = 1;
-            s0 = rfa.values[0];
-
-            if rfa.values.len() <= 1 {
-                return s0;
-            }
-        }
-
-        let mut b0 = rfa.values[ofs] - s0;
-        for i in ofs..rfa.values.len() {
-            let v = rfa.values[i];
-            let s1 = sf * v + (1.0 - sf) * (s0 + b0);
-            let b1 = tf * (s1 - s0) + (1.0 - tf) * b0;
-            s0 = s1;
-            b0 = b1
-        }
-        return s0;
-    });
-
-    &res
+    RollupHandlerEnum::General(Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
+        holt_winters_internal(rfa, sfs, tfs)
+    }))
 }
 
-fn new_rollup_predict_linear(args: &Vec<ParameterValue>) -> &Box<dyn RollupFn> {
+fn holt_winters_internal(rfa: &mut RollupFuncArg, sfs: &Vec<f64>, tfs: &Vec<f64>) -> f64 {
+    // There is no need in handling NaNs here, since they must be cleaned up
+    // before calling rollup fns.
+    if rfa.values.len() == 0 {
+        return rfa.prev_value;
+    }
+    let sf = sfs[rfa.idx];
+    if sf <= 0.0 || sf >= 1.0 {
+        return NAN;
+    }
+    let tf = tfs[rfa.idx];
+    if tf <= 0.0 || tf >= 1.0 {
+        return NAN;
+    }
+
+    let mut ofs = 0;
+
+    // See https://en.wikipedia.org/wiki/Exponential_smoothing#Double_exponential_smoothing .
+    // TODO: determine whether this shit really works.
+    let mut s0 = rfa.prev_value;
+    if s0.is_nan() {
+        ofs = 1;
+        s0 = rfa.values[0];
+
+        if rfa.values.len() <= 1 {
+            return s0;
+        }
+    }
+
+    let mut b0 = rfa.values[ofs] - s0;
+    for i in ofs..rfa.values.len() {
+        let v = rfa.values[i];
+        let s1 = sf * v + (1.0 - sf) * (s0 + b0);
+        let b1 = tf * (s1 - s0) + (1.0 - tf) * b0;
+        s0 = s1;
+        b0 = b1
+    }
+
+    s0
+}
+
+fn new_rollup_predict_linear(args: &Vec<ParameterValue>) -> RollupHandlerEnum {
     let secs = args[1].get_vector().unwrap();
 
-    let f: Box<dyn RollupFn> = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
+    RollupHandlerEnum::General(Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
         let (v, k) = linear_regression(rfa);
         if v.is_nan() {
             return NAN;
         }
         return v + k * secs[rfa.idx];
-    });
+    }))
 
-    &f
 }
 
 fn linear_regression(rfa: &mut RollupFuncArg) -> (f64, f64) {
@@ -1083,10 +974,10 @@ fn are_const_values(values: &Vec<f64>) -> bool {
     true
 }
 
-fn new_rollup_duration_over_time(args: &Vec<ParameterValue>) -> &Box<dyn RollupFn> {
+fn new_rollup_duration_over_time(args: &Vec<ParameterValue>) -> RollupHandlerEnum {
     let d_maxs = args[1].get_vector().unwrap();
 
-    let f: Box<dyn RollupFn> = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
+    let f = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
         // There is no need in handling NaNs here, since they must be cleaned up
         // before calling rollup fns.
         if rfa.timestamps.len() == 0 {
@@ -1106,10 +997,10 @@ fn new_rollup_duration_over_time(args: &Vec<ParameterValue>) -> &Box<dyn RollupF
         (d_sum as f64 / 1000_f64) as f64
     });
 
-    &f
+    RollupHandlerEnum::General(f)
 }
 
-fn new_rollup_share_le(args: &Vec<ParameterValue>) -> &Box<dyn RollupFn> {
+fn new_rollup_share_le(args: &Vec<ParameterValue>) -> RollupHandlerEnum {
     new_rollup_share_filter(args, count_filter_le)
 }
 
@@ -1123,7 +1014,7 @@ fn count_filter_le(values: &[f64], le: f64) -> i32 {
     n
 }
 
-fn new_rollup_share_gt(args: &Vec<ParameterValue>) -> &Box<dyn RollupFn> {
+fn new_rollup_share_gt(args: &Vec<ParameterValue>) -> RollupHandlerEnum {
     new_rollup_share_filter(args, count_filter_gt)
 }
 
@@ -1161,69 +1052,72 @@ fn count_filter_ne(values: &[f64], ne: f64) -> i32 {
 }
 
 
-fn new_rollup_share_filter(args: &Vec<ParameterValue>, count_filter: fn(values: &[f64], limit: f64) -> i32) -> &Box<dyn RollupFn> {
+fn new_rollup_share_filter(args: &Vec<ParameterValue>, count_filter: fn(values: &[f64], limit: f64) -> i32) -> RollupHandlerEnum {
     let rf = new_rollup_count_filter(args, count_filter);
-    let f: Box<dyn RollupFn> = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
-        let n = rf(rfa);
+    let f = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
+        let n = rf.eval(rfa);
         return n / rfa.values.len() as f64;
     });
 
-    &f
+    RollupHandlerEnum::General(f)
 }
 
-fn new_rollup_count_le(args: &Vec<ParameterValue>) -> &Box<dyn RollupFn> {
+fn new_rollup_count_le(args: &Vec<ParameterValue>) -> RollupHandlerEnum {
     new_rollup_count_filter(args, count_filter_le)
 }
 
-fn new_rollup_count_gt(args: &Vec<ParameterValue>) -> &Box<dyn RollupFn> {
+fn new_rollup_count_gt(args: &Vec<ParameterValue>) -> RollupHandlerEnum {
     new_rollup_count_filter(args, count_filter_gt)
 }
 
-fn new_rollup_count_eq(args: &Vec<ParameterValue>) -> &Box<dyn RollupFn> {
-   new_rollup_count_filter(args, count_filter_eq)
+fn new_rollup_count_eq(args: &Vec<ParameterValue>) -> RollupHandlerEnum {
+    new_rollup_count_filter(args, count_filter_eq)
 }
 
-fn new_rollup_count_ne(args: &Vec<ParameterValue>) -> &Box<dyn RollupFn> {
+fn new_rollup_count_ne(args: &Vec<ParameterValue>) -> RollupHandlerEnum {
     new_rollup_count_filter(args, count_filter_ne)
 }
 
-fn new_rollup_count_filter(args: &Vec<ParameterValue>, count_filter: fn(values: &[f64], limit: f64) -> i32) -> &Box<dyn RollupFn> {
+fn new_rollup_count_filter(
+    args: &Vec<ParameterValue>,
+    count_filter: fn(values: &[f64], limit: f64) -> i32) -> RollupHandlerEnum {
 
     // `unwrap()` is sound since parameters are checked before this function is called
     let limits = args[1].get_vector().unwrap();
 
-    let f: Box<dyn RollupFn> = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
+    let handler = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
         // There is no need in handling NaNs here, since they must be cleaned up
         // before calling rollup fns.
         if rfa.values.len() == 0 {
             return NAN;
         }
         let limit = limits[rfa.idx];
-        return count_filter(&rfa.values, limit as f64) as f64;
+        count_filter(&rfa.values, limit as f64) as f64
     });
 
-    &f
+    RollupHandlerEnum::General(handler)
 }
 
-fn new_rollup_hoeffding_bound_lower(args: &Vec<ParameterValue>) -> &Box<dyn RollupFn> {
+fn new_rollup_hoeffding_bound_lower(args: &Vec<ParameterValue>) -> RollupHandlerEnum {
     let phis = args[0].get_vector().unwrap();
-    let f: Box<dyn RollupFn> = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
+
+    let f = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
         let (bound, avg) = rollup_hoeffding_bound_internal(rfa, &phis);
         avg - bound
     });
 
-    &f
+    RollupHandlerEnum::General(f)
 }
 
-fn new_rollup_hoeffding_bound_upper(args: &Vec<ParameterValue>) -> &Box<dyn RollupFn> {
+fn new_rollup_hoeffding_bound_upper(args: &Vec<ParameterValue>) -> RollupHandlerEnum {
     let phis = args[0].get_vector().unwrap();
 
-    let f: Box<dyn RollupFn> = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
+    let f = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
         let (bound, avg) = rollup_hoeffding_bound_internal(rfa, &phis);
         return avg + bound;
     });
 
-    &f
+    RollupHandlerEnum::General(f)
 }
 
 fn rollup_hoeffding_bound_internal(rfa: &mut RollupFuncArg, phis: &[f64]) -> (f64, f64) {
@@ -1258,7 +1152,7 @@ fn rollup_hoeffding_bound_internal(rfa: &mut RollupFuncArg, phis: &[f64]) -> (f6
     return (bound, v_avg)
 }
 
-fn new_rollup_quantiles(args: &Vec<ParameterValue>) -> &Box<dyn RollupFn> {
+fn new_rollup_quantiles(args: &Vec<ParameterValue>) -> RollupHandlerEnum {
     let phi_label = args[0].get_str().unwrap();
     let cap = args.len() - 1;
 
@@ -1266,7 +1160,7 @@ fn new_rollup_quantiles(args: &Vec<ParameterValue>) -> &Box<dyn RollupFn> {
     // todo: smallvec ??
     let mut phi_strs: Vec<String> = Vec::with_capacity(cap);
 
-    for i in 1 .. args.len() {
+    for i in 1..args.len() {
         // unwrap should be safe, since parameters types are checked before calling the function
         let v = args[i].get_float().unwrap();
         phis[i] = v;
@@ -1296,20 +1190,20 @@ fn new_rollup_quantiles(args: &Vec<ParameterValue>) -> &Box<dyn RollupFn> {
         return NAN;
     });
 
-    &f
+    RollupHandlerEnum::General(f)
 }
 
-fn new_rollup_quantile(args: &Vec<ParameterValue>) -> Box<dyn RollupFn> {
+fn new_rollup_quantile(args: &Vec<ParameterValue>) -> RollupHandlerEnum {
     let phis = args[0].get_vector().unwrap();
 
-    let rf = move |rfa: &mut RollupFuncArg| {
+    let rf = Box::new(move |rfa: &mut RollupFuncArg| {
         // There is no need in handling NaNs here, since they must be cleaned up
         // before calling rollup fns.
         let phi = phis[rfa.idx];
         quantile(phi, &rfa.values)
-    };
+    });
 
-    Box::new(rf)
+    RollupHandlerEnum::General(rf)
 }
 
 fn rollup_histogram(rfa: &mut RollupFuncArg) -> f64 {
@@ -1456,8 +1350,8 @@ fn rollup_tlast(rfa: &mut RollupFuncArg) -> f64 {
 }
 
 fn rollup_tlast_change(rfa: &mut RollupFuncArg) -> f64 {
-// There is no need in handling NaNs here, since they must be cleaned up
-// before calling rollup fns.
+    // There is no need in handling NaNs here, since they must be cleaned up
+    // before calling rollup fns.
     let mut values = &rfa.values[0..];
     if values.len() == 0 {
         return NAN;

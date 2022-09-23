@@ -560,7 +560,7 @@ impl<'a> Default for Bucket<'a> {
     }
 }
 
-pub(crate) fn vmrange_buckets_to_le<'a>(tss: &mut Vec<Timeseries>) -> Vec<Timeseries> {
+pub(crate) fn vmrange_buckets_to_le<'a>(tss: &'a mut Vec<Timeseries>) -> Vec<Timeseries> {
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(tss.len());
 
     let mut m: HashMap<String, Vec<Bucket>> = HashMap::new();
