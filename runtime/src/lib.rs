@@ -9,8 +9,6 @@ extern crate lockfree_object_pool;
 extern crate lru_time_cache;
 extern crate metrics;
 extern crate once_cell;
-#[macro_use]
-extern crate paste;
 extern crate phf;
 extern crate rand_distr;
 extern crate rayon;

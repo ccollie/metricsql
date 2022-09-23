@@ -12,7 +12,6 @@ use crate::eval::duration::DurationEvaluator;
 use crate::eval::function::{create_function_evaluator, TransformEvaluator};
 use crate::eval::number::NumberEvaluator;
 use crate::eval::string::StringEvaluator;
-use crate::functions::types::ParameterValue;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::search::Deadline;
 use crate::timeseries::Timeseries;

@@ -19,15 +19,15 @@ use crate::get_pooled_metric_name;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::timeseries::Timeseries;
 
-pub(crate) struct BinaryOpFuncArg {
-    pub be: BinaryOpExpr,
+pub(crate) struct BinaryOpFuncArg<'a> {
+    pub be: &'a BinaryOpExpr,
     pub left: Vec<Timeseries>,
     pub right: Vec<Timeseries>,
 }
 
-pub(self) trait BinaryOpFn: FnMut(&mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> + Send + Sync {}
+pub(self) trait BinaryOpFn<'a>: FnMut(&'a mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> + Send + Sync {}
 
-impl<T> BinaryOpFn for T where T: Fn(&mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> + Send + Sync {}
+impl<T> BinaryOpFn<'_> for T where T: Fn(&'_ mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> + Send + Sync {}
 
 type TimeseriesHashMap = HashMap<String, Vec<Timeseries>>;
 
@@ -91,7 +91,7 @@ pub(crate) fn exec_binop(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeser
     }
 }
 
-const fn new_binary_op_cmp_func(cf: fn(left: f64, right: f64) -> bool) -> impl BinaryOpFn {
+fn new_binary_op_cmp_func(cf: fn(left: f64, right: f64) -> bool) -> impl BinaryOpFn<'static> {
     let cfe = move |left: f64, right: f64, is_bool: bool| -> f64 {
         if !is_bool {
             if cf(left, right) {
@@ -111,8 +111,7 @@ const fn new_binary_op_cmp_func(cf: fn(left: f64, right: f64) -> bool) -> impl B
     new_binary_op_func(cfe)
 }
 
-const fn new_binary_op_arith_func(af: fn(left: f64, right: f64) -> f64) -> impl BinaryOpFn {
-
+fn new_binary_op_arith_func(af: fn(left: f64, right: f64) -> f64) -> impl BinaryOpFn<'static> {
     let afe = move |left: f64, right: f64, is_bool: bool| -> f64 {
         return af(left, right)
     };
@@ -124,7 +123,7 @@ trait BinopClosureFn: Fn(f64, f64, bool) -> f64 + Send + Sync {}
 impl<T> BinopClosureFn for T where T: Fn(f64, f64, bool) -> f64 + Send + Sync {}
 
 // Possibly inline this or make it a macro
-const fn new_binary_op_func(bf: impl BinopClosureFn) -> impl BinaryOpFn {
+const fn new_binary_op_func(bf: impl BinopClosureFn) -> impl BinaryOpFn<'static> {
     move |bfa: &mut BinaryOpFuncArg| -> RuntimeResult<Vec<Timeseries>> {
         let op = bfa.be.op;
 
@@ -597,8 +596,7 @@ fn add_left_nans_if_no_right_nans(tss_left: &mut Vec<Timeseries>, tss_right: &Ve
     remove_empty_series(tss_left);
 }
 
-fn create_timeseries_map_by_tag_set(bfa: &mut BinaryOpFuncArg) -> (&mut TimeseriesHashMap, &TimeseriesHashMap) {
-
+fn create_timeseries_map_by_tag_set<'a>(bfa: &'a mut BinaryOpFuncArg) -> (&'a mut TimeseriesHashMap, &'a TimeseriesHashMap) {
     let (group_op, group_tags) = get_modifier_or_default(&mut bfa.be);
 
     let get_tags_map = |arg: &mut Vec<Timeseries>| -> TimeseriesHashMap {

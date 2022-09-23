@@ -21,11 +21,9 @@ use crate::eval::{
 };
 use crate::eval::arg_list::ArgList;
 use crate::functions::aggregate::IncrementalAggrFuncContext;
-use crate::functions::rollup::{
-    eval_prefuncs, get_rollup_configs, get_rollup_function_impl,
-    MAX_SILENCE_INTERVAL, NewRollupFn, rollup_func_keeps_metric_name,
-    RollupConfig, RollupFn, TimeseriesMap
-};
+use crate::functions::rollup::{eval_prefuncs, get_rollup_configs, get_rollup_function_factory,
+                               MAX_SILENCE_INTERVAL, rollup_func_keeps_metric_name, RollupConfig,
+                               RollupHandlerEnum, RollupHandlerFactory, TimeseriesMap};
 use crate::functions::transform::get_absent_timeseries;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::search::{join_tag_filterss, QueryResult, QueryResults, SearchQuery};
@@ -43,7 +41,7 @@ pub(super) struct RollupEvaluator {
     pub args: ArgList,
     pub at: Option<Box<ExprEvaluator>>,
     pub iafc: Option<IncrementalAggrFuncContext>,
-    nrf: Box<&'static dyn NewRollupFn>,
+    nrf: RollupHandlerFactory,
     keep_metric_names: bool,
 }
 
@@ -146,7 +144,7 @@ impl RollupEvaluator {
         }
 
         let keep_metric_names = get_keep_metric_names(&expr);
-        let nrf = Box::new(get_rollup_function_impl(&func));
+        let nrf = get_rollup_function_factory(func);
         let evaluator = Box::new(create_evaluator(&expr)?);
         let arg_list = ArgList::from(&signature, args);
 
@@ -171,30 +169,17 @@ impl RollupEvaluator {
     // - aggrFunc(rollupFunc(m)) if iafc isn't None
     fn eval_rollup(&self, ctx: &mut Context, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
         // todo: tinyvec
+        // todo(perf): if function is not volatile and the non metric args are const, we can store t
+        // he results of the nrf call since the result won't change, hence sparing the call to eval
+        // the arg list. For ex `quantile(0.95, latency{func="make-widget"})`. We know which is
         let params = self.args.eval(ctx, ec)?;
-
         let rf = (self.nrf)(&params);
 
         if self.at.is_none() {
-            return self.eval_without_at(ctx, ec, &*rf);
+            return self.eval_without_at(ctx, ec, &rf);
         }
 
-        let mut tss_at: &Vec<Timeseries>;
-
-        match self.at.unwrap().eval(ctx, ec) {
-            Err(err) => {
-                let msg = format!("cannot evaluate `@` modifier");
-                return Err(RuntimeError::from(msg));
-            }
-            Ok(ref res) => tss_at = res
-        };
-
-        if tss_at.len() != 1 {
-            let msg = format!("`@` modifier must return a single series; it returns {} series instead", tss_at.len());
-            return Err(RuntimeError::from(msg));
-        }
-
-        let at_timestamp = (tss_at[0].values[0] * 1000_f64) as i64;
+        let at_timestamp = self.get_at_timestamp(ctx, ec, &self.at.unwrap())?;
         let mut ec_new = ec.copy_no_timestamps();
         ec_new.start = at_timestamp;
         ec_new.end = at_timestamp;
@@ -208,6 +193,23 @@ impl RollupEvaluator {
             ts.values = vec![v; timestamps.len()];
         }
         return Ok(tss);
+    }
+
+    #[inline]
+    fn get_at_timestamp(&self, ctx: &mut Context, ec: &EvalConfig, evaluator: &ExprEvaluator) -> RuntimeResult<i64> {
+        match evaluator.eval(ctx, ec) {
+            Err(err) => {
+                let msg = format!("cannot evaluate `@` modifier");
+                return Err(RuntimeError::from(msg));
+            }
+            Ok(ref tss_at) => {
+                if tss_at.len() != 1 {
+                    let msg = format!("`@` modifier must return a single series; it returns {} series instead", tss_at.len());
+                    return Err(RuntimeError::from(msg));
+                }
+                Ok((tss_at[0].values[0] * 1000_f64) as i64)
+            }
+        }
     }
 
     #[inline]
@@ -242,7 +244,7 @@ impl RollupEvaluator {
         }
     }
 
-    fn eval_without_at(&self, ctx: &mut Context, ec: &EvalConfig, rollup_func: &Box<dyn RollupFn>) -> RuntimeResult<Vec<Timeseries>> {
+    fn eval_without_at(&self, ctx: &mut Context, ec: &EvalConfig, rollup_func: &RollupHandlerEnum) -> RuntimeResult<Vec<Timeseries>> {
         let mut ec_new = ec;
 
         let mut offset: i64 = self.get_offset(ec.step);
@@ -305,7 +307,10 @@ impl RollupEvaluator {
         Ok(rvs)
     }
 
-    fn eval_with_subquery(&self, ctx: &mut Context, ec: &EvalConfig, rollup_func: &Box<dyn RollupFn>) -> RuntimeResult<Vec<Timeseries>> {
+    fn eval_with_subquery(&self,
+                          ctx: &mut Context,
+                          ec: &EvalConfig,
+                          rollup_func: &RollupHandlerEnum) -> RuntimeResult<Vec<Timeseries>> {
         // TODO: determine whether to use rollup result cache here.
 
         let step = self.get_step(ec.step);
@@ -448,7 +453,7 @@ impl RollupEvaluator {
         ctx: &mut Context,
         ec: &EvalConfig,
         me: &MetricExpr,
-        rollup_func: &Box<dyn RollupFn>,
+        rollup_func: &RollupHandlerEnum,
     ) -> RuntimeResult<Vec<Timeseries>> {
         let window = self.get_window(ec.step);
 
@@ -644,7 +649,7 @@ impl RollupEvaluator {
                 }
             }
             Ok(())
-        }).expect("TODO: panic message");
+        })?;
 
         // https://users.rust-lang.org/t/how-to-move-the-content-of-mutex-wrapped-by-arc/10259/7
         let res = Arc::try_unwrap(tss_lock).unwrap().into_inner().unwrap();

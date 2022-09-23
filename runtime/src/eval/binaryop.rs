@@ -7,11 +7,11 @@ use metricsql::ast::*;
 use metricsql::functions::Volatility;
 use metricsql::optimizer::{can_pushdown_op_filters, pushdown_binary_op_filters, trim_filters_by_group_modifier};
 
-use crate::EvalConfig;
 use crate::binary_op::{BinaryOpFuncArg, exec_binop};
 use crate::context::Context;
 use crate::eval::{create_evaluator, ExprEvaluator};
 use crate::eval::traits::Evaluator;
+use crate::EvalConfig;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::timeseries::Timeseries;
 
@@ -125,7 +125,7 @@ impl Evaluator for BinaryOpEvaluator {
         }
 
         let mut bfa = BinaryOpFuncArg {
-            be: self.expr,
+            be: &self.expr,
             left: std::mem::take(&mut tss_left),
             right: std::mem::take(&mut tss_right),
         };
