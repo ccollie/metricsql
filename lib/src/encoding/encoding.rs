@@ -502,7 +502,7 @@ pub fn marshal_string_fast(dst: &mut Vec<u8>, src: &str) {
     dst.extend_from_slice(src.as_byte_slice());
 }
 
-pub fn unmarshal_string_fast(src: &mut [u8]) -> Result<(String, &[u8])> {
+pub fn unmarshal_string_fast(src: &[u8]) -> Result<(String, &[u8])> {
     if src.len() < 2 {
         return Err(Error::from(
             "cannot decode size from src=; it must be at least 2 bytes",
@@ -517,7 +517,7 @@ pub fn unmarshal_string_fast(src: &mut [u8]) -> Result<(String, &[u8])> {
                 return Ok((str, src));
             }
             // todo:
-            Ok(("".to_string(), src))
+            Ok(("".to_string(), tail))
         }
         Err(err) => Err(Error::from(format!(
             "error unmarshalling string len: {} ",

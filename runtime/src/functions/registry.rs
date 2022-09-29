@@ -36,7 +36,7 @@ impl <K, P: ?Sized + Send + Sync, R> FunctionRegistry<K, P, R> for HashMapFuncti
         self.hash.insert(key, item);
     }
 
-    fn contains_key<Q: ?Sized>(&self, key: &Q) -> bool where K: Borrow<Q>, Q: Eq + Hash {
+    fn contains_key<Q: ?Sized>(&self, _key: &Q) -> bool where K: Borrow<Q>, Q: Eq + Hash {
         todo!()
     }
 

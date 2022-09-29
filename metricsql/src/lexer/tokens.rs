@@ -209,13 +209,7 @@ impl TokenKind {
     #[inline]
     pub fn is_comparison_op(&self) -> bool {
         use TokenKind::*;
-
-        match self {
-            OpEqual | NotEqual | GreaterThanOrEqual | GreaterThan | LessThanOrEqual | LessThan => {
-                true
-            }
-            _ => false,
-        }
+        matches!(self, OpEqual | NotEqual | GreaterThanOrEqual | GreaterThan | LessThanOrEqual | LessThan)
     }
 
     #[inline]

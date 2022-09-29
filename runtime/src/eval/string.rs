@@ -27,7 +27,7 @@ impl From<&str> for StringEvaluator {
 
 impl Evaluator for StringEvaluator {
     /// Evaluates and returns the result.
-    fn eval(&self, ctx: &mut Context, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
+    fn eval(&self, _ctx: &mut Context, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
         Ok(eval_string(ec, &self.value))
     }
 

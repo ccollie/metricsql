@@ -220,7 +220,7 @@ fn get_label_filters_without_metric_name(lfs: &[LabelFilter]) -> Vec<LabelFilter
 ///
 /// e must be a part of binary operation - either left or right.
 ///
-/// For example, if e contains `foo + sum(bar)` and common_filters={x="y"},
+/// For example, if e contains `foo + sum(bar)` and common_filters=`{x="y"}`,
 /// then the returned expression will contain `foo{x="y"} + sum(bar)`.
 /// The `{x="y"}` cannot be pushed down to `sum(bar)`, since this
 /// may change binary operation results.
@@ -230,11 +230,7 @@ pub fn pushdown_binary_op_filters<'a>(
 ) -> Cow<'a, Expression> {
     // according to pushdown_binary_op_filters_in_place, only the following types need to be
     // handled, so exit otherwise
-    if common_filters.is_empty() || !matches!(e, Expression::MetricExpression(_) |
-        Expression::Function(_) |
-        Expression::Rollup(_) |
-        Expression::BinaryOperator(_) |
-        Expression::Aggregation(_)) {
+    if common_filters.is_empty() || !can_pushdown_op_filters(e){
         return Cow::Borrowed(e)
     }
 

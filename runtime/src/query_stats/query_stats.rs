@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::ops::{Add, DerefMut, Sub};
+use std::ops::{Add, Sub};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use chrono::Duration;
@@ -111,7 +111,7 @@ impl QueryStatsTracker {
         }
     }
 
-    pub(crate) fn enabled(self) -> bool {
+    pub(crate) fn enabled(&self) -> bool {
         self.config.last_queries_count > 0
     }
 
@@ -149,16 +149,13 @@ impl QueryStatsTracker {
         let current_time = Utc::now();
 
         let mut m: HashMap<&QueryStatKey, u64> = HashMap::new();
-        {
-            let mut qst = self.inner.lock().unwrap();
-            for r in qst.data.iter() {
-                if r.matches(current_time, max_lifetime) {
-                    let k = &r.key;
-                    let mut entry = m.entry(k).or_insert(0);
-                    *entry += 1;
-                }
+        let qst = self.inner.lock().unwrap();
+        qst.data.iter().for_each(|r|  {
+            if r.matches(current_time, max_lifetime) {
+                let entry = m.entry(&r.key).or_insert(0);
+                *entry += 1;
             }
-        }
+        });
 
         let mut a: Vec<QueryStatByCount> = Vec::with_capacity(m.len());
         for (k, count) in m {
@@ -187,28 +184,26 @@ impl QueryStatsTracker {
 
         let mut m: HashMap<&QueryStatKey, CountSum> = HashMap::new();
 
-        {
-            let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().unwrap();
 
-            for r in inner.data.iter_mut() {
-                if r.matches(current_time, max_lifetime) {
-                    let k = &r.key;
-                    let mut ks = m.entry(k)
-                        .or_insert(CountSum{
-                            count: 0,
-                            sum: Duration::milliseconds(0)
-                        });
-                    ks.count += 1;
-                    ks.sum.add(r.duration);
-                    m.insert(k, *ks);
-                }
+        inner.data.iter().for_each(|r| {
+            if r.matches(current_time, max_lifetime) {
+                let k = &r.key;
+                let mut ks = m.entry(k)
+                    .or_insert(CountSum{
+                        count: 0,
+                        sum: Duration::milliseconds(0)
+                    });
+
+                ks.count += 1;
+                ks.sum.add(r.duration);
             }
-        }
+        });
 
         let mut a: Vec<QueryStatByDuration> = Vec::with_capacity(m.len());
-        for (k, ks) in m.into_iter() {
+        for (k, ks) in m.iter() {
             a.push(QueryStatByDuration {
-                query: k.query.into(),
+                query: k.query.clone(),
                 time_range_secs: k.time_range_secs,
                 duration: Duration::milliseconds(ks.sum.num_milliseconds() / ks.count as i64),
                 count: ks.count as u64,
@@ -233,22 +228,19 @@ impl QueryStatsTracker {
 
         let mut m: HashMap<&QueryStatKey, CountDuration> = HashMap::new();
 
-        {
-            let mut qst = self.inner.lock().unwrap().deref_mut();
-
-            for r in qst.data.iter_mut() {
-                if r.matches(current_time, max_lifetime) {
-                    let kd = m.entry(&r.key).or_insert(
-                        CountDuration{
-                            count: 0,
-                            sum: Duration::milliseconds(0)
-                        }
-                    );
-                    kd.count +=1;
-                    kd.sum.add(r.duration);
-                }
+        let qst = self.inner.lock().unwrap();
+        qst.data.iter().for_each(|r| {
+            if r.matches(current_time, max_lifetime) {
+                let kd = m.entry(&r.key).or_insert(
+                    CountDuration{
+                        count: 0,
+                        sum: Duration::milliseconds(0)
+                    }
+                );
+                kd.count +=1;
+                kd.sum.add(r.duration);
             }
-        }
+        });
 
         let mut a: Vec<QueryStatByDuration> = Vec::with_capacity(m.len());
         for (k, kd) in m.iter() {

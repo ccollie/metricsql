@@ -32,8 +32,17 @@ pub enum RuntimeError {
     SerializationError(String),
     #[error("Type casting error: {0}")]
     TypeCastError(String),
+    #[error("Deadline exceeded: {0}")]
+    DeadlineExceededError(String),
+    #[error("Task cancelled: {0}")]
+    TaskCancelledError(String),
 }
 
+impl RuntimeError {
+    pub fn deadline_exceeded(s: &str) -> Self {
+        RuntimeError::DeadlineExceededError(s.to_string())
+    }
+}
 
 impl From<&str> for RuntimeError {
     fn from(message: &str) -> Self {

@@ -20,7 +20,7 @@ extern crate tinyvec;
 #[cfg(feature = "xxh64")]
 extern crate xxhash_rust;
 
-pub use eval::{create_evaluator, EvalConfig, EvalOptions, get_timestamps};
+pub use eval::{create_evaluator, EvalConfig, get_timestamps};
 pub use exec::*;
 pub use lib::*;
 pub use metric_name::*;

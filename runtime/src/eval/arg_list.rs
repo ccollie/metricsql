@@ -1,15 +1,15 @@
-use rayon::iter::IntoParallelIterator;
+use rayon::iter::{IntoParallelRefIterator};
 
 use metricsql::ast::BExpression;
 use metricsql::functions::{DataType, Signature, TypeSignature, Volatility};
 
-use crate::{EvalConfig, Timeseries};
+use crate::{EvalConfig};
 use crate::context::Context;
 use crate::eval::{create_evaluators, Evaluator, ExprEvaluator};
 use crate::eval::eval::eval_volatility;
 use crate::functions::types::ParameterValue;
 use crate::rayon::iter::ParallelIterator;
-use crate::runtime_error::{RuntimeError, RuntimeResult};
+use crate::runtime_error::{RuntimeResult};
 
 pub(crate) struct ArgList {
     args: Vec<ExprEvaluator>,
@@ -39,38 +39,42 @@ impl ArgList {
 
     pub fn eval(&self, ctx: &mut Context, ec: &EvalConfig) -> RuntimeResult<Vec<ParameterValue>> {
         // todo: use tinyvec and pass in as &mut vec
-        if self.parallel {
+        if self.parallel && self.args.len() >= 2 {
             return self.eval_parallel(ctx, ec)
         } else {
             let mut res: Vec<ParameterValue> = Vec::with_capacity(self.args.len());
-            for expr in self.args {
+            for expr in self.args.iter() {
                 let val = expr.eval(ctx, ec)?;
-                res.push(val);
+                // TODO:: res.push(val);
+                res.push( ParameterValue::Series(val))
             }
             Ok(res)
         }
     }
 
     fn eval_parallel(&self, ctx: &mut Context, ec: &EvalConfig) -> RuntimeResult<Vec<ParameterValue>> {
-        let mut err: Option<RuntimeError> = None;
-        let res: Vec<Vec<Timeseries>> = self.args.into_par_iter().map(|expr| {
+        let params: _ = self.args.par_iter().map(|expr| {
             match expr.eval(ctx, ec) {
-                Err(e) => {
-                    if err.is_none() {
-                        err = Some(e)
-                    }
-                    vec![]
-                }
+                Err(e) => Err(e),
                 Ok(val) => {
-                    val
+                    Ok(ParameterValue::Series(val))
                 }
             }
         }).collect::<Vec<_>>();
 
-        return match err {
-            Some(e) => Err(e),
-            None => Ok(res)
-        };
+        let mut result: Vec<ParameterValue> = Vec::with_capacity(params.len());
+        for p in params.into_iter() {
+            match p {
+                Ok(v) => {
+                    result.push(v)
+                },
+                Err(e) => {
+                    return Err(e.clone())
+                }
+            }
+        }
+
+        Ok(result)
     }
 }
 
@@ -90,7 +94,7 @@ pub(crate) fn should_parallelize_param_parsing(signature: &Signature) -> bool {
     }
 
     return match types {
-        TypeSignature::Variadic(valid_types, min) => {
+        TypeSignature::Variadic(valid_types, _min) => {
             check_args(valid_types)
         },
         TypeSignature::Uniform(number, valid_type) => {

@@ -1,5 +1,4 @@
 use std::collections::HashSet;
-use std::ops::DerefMut;
 use std::sync::Arc;
 
 use chrono::Utc;
@@ -60,10 +59,13 @@ pub fn exec(env: &mut Context,
 
             let mut rv = rv.unwrap();
             if is_first_point_only {
-                // Remove all the points except the first one from every time series.
-                for ts in rv.iter_mut() {
-                    ts.values.resize(1, 0.0);
-                    ts.timestamps.resize(1, 0);
+                if rv[0].timestamps.len() > 0 {
+                    let timestamps = Arc::new(vec![rv[0].timestamps[0]]);
+                    // Remove all the points except the first one from every time series.
+                    for ts in rv.iter_mut() {
+                        ts.values.resize(1, 0.0);
+                        ts.timestamps = Arc::clone(&timestamps);
+                    }
                 }
             }
 
@@ -88,7 +90,7 @@ pub fn exec(env: &mut Context,
 }
 
 
-fn may_sort_results(e: &Expression, tss: &[Timeseries]) -> bool {
+fn may_sort_results(e: &Expression, _tss: &[Timeseries]) -> bool {
     return match e {
         Expression::Function(fe) => {
             !fe.function.sorts_results()
@@ -100,21 +102,21 @@ fn may_sort_results(e: &Expression, tss: &[Timeseries]) -> bool {
     }
 }
 
-pub(crate) fn timeseries_to_result<'a>(tss: &mut Vec<Timeseries>, may_sort: bool) -> RuntimeResult<Vec<QueryResult>> {
+pub(crate) fn timeseries_to_result(tss: &mut Vec<Timeseries>, may_sort: bool) -> RuntimeResult<Vec<QueryResult>> {
     remove_empty_series(tss);
     let mut result: Vec<QueryResult> = Vec::with_capacity(tss.len());
-    let mut m: HashSet<&'a str> = HashSet::with_capacity(tss.len());
-    let mut bb = get_pooled_buffer(512);
+    let mut m: HashSet<String> = HashSet::with_capacity(tss.len());
+    let mut bb = get_pooled_buffer(256);
 
     for (i, ts) in tss.iter_mut().enumerate() {
-        let key = ts.metric_name.marshal_to_string(bb.deref_mut());
+        let key = ts.metric_name.marshal_to_string(&mut bb);
         if m.contains(key.as_ref()) {
             return Err(RuntimeError::from(format!("duplicate output timeseries: {}", ts.metric_name)));
         }
-        m.insert(&key);
+        m.insert(key.to_string());
         result[i].metric_name.copy_from(&ts.metric_name);
         result[i].values = ts.values.into();
-        result[i].timestamps.append(&mut *ts.timestamps);
+        result[i].timestamps.extend_from_slice(&ts.timestamps);
         bb.clear();
     }
 

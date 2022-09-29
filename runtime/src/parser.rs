@@ -17,7 +17,7 @@ pub fn is_rollup(ctx: &mut Context, s: &str) -> RuntimeResult<Option<(String, Du
             if r.window.is_none() {
                 return Ok(None)
             }
-            let window = r.window.unwrap().clone();
+            let window = r.window.as_ref().unwrap().clone();
             Ok(Some(
                 (
                     wrapped_query,
@@ -31,7 +31,7 @@ pub fn is_rollup(ctx: &mut Context, s: &str) -> RuntimeResult<Option<(String, Du
     }
 }
 
-/// verifies whether s contains PromQL metric selectorwrapped into rollup.
+/// verifies whether s contains PromQL metric selector wrapped into rollup.
 ///
 /// It returns the wrapped query with the corresponding window with offset.
 pub fn is_metric_selector_with_rollup(ctx: &mut Context, s: &str) -> RuntimeResult<Option<(String, DurationExpr, DurationExpr)>> {
@@ -49,7 +49,7 @@ pub fn is_metric_selector_with_rollup(ctx: &mut Context, s: &str) -> RuntimeResu
                 },
                 _ => return Ok(None)
             }
-            let window = r.window.unwrap().clone();
+            let window = r.window.as_ref().unwrap().clone();
             let wrapped_query = r.expr.to_string();
 
             let offset = get_duration_expr(&r.offset);

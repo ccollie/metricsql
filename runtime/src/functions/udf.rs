@@ -60,7 +60,7 @@ impl <P: ?Sized , R>Udf<P, R>
     pub fn new(
         name: &str,
         signature: Signature,
-        fun: impl FunctionImplementation<P, R>,
+        fun: impl FunctionImplementation<P, R> + 'static,
     ) -> Self {
         Self {
             name: name.to_owned(),
@@ -72,9 +72,8 @@ impl <P: ?Sized , R>Udf<P, R>
     fn create_basic(name: &str, arg_count: usize, f: impl FunctionImplementation<P, R>) -> Self {
         let mut types: Vec<DataType> = Vec::with_capacity(arg_count);
         types.push(DataType::Series);
-        for i in 1 .. arg_count {
-            types.push(DataType::Vector);
-        }
+        types.resize(arg_count,DataType::Vector);
+
         let sig: Signature = Signature::exact(types, Volatility::Immutable);
         Self::new(name, sig, f)
     }

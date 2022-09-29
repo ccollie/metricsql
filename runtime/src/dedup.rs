@@ -31,26 +31,34 @@ pub fn deduplicate_samples(src_timestamps: &mut Vec<i64>, src_values: &mut Vec<f
     }
     let mut ts_next = src_timestamps[0] + dedup_interval - 1;
     ts_next = ts_next - (ts_next % dedup_interval);
-    let mut dst_timestamps = src_timestamps;
-    let mut dst_values = src_values;
+    let mut j: usize = 0;
+    let mut count = 0;
+
     for i in 1 .. src_timestamps.len() {
         let ts = src_timestamps[i];
         if ts <= ts_next {
             continue;
         }
-        dst_timestamps.push(src_timestamps[i]);
-        dst_values.push(src_values[i]);
+
+        src_timestamps[j] = ts;
+        src_values[j] = src_values[i];
+        j += 1;
+        count += 1;
+
         ts_next = ts_next + dedup_interval;
         if ts_next < ts {
             ts_next = ts + dedup_interval - 1;
             ts_next -= ts_next % dedup_interval
         }
     }
-    dst_timestamps.push(src_timestamps[src_timestamps.len() - 1]);
-    dst_values.push(src_values[src_values.len() - 1]);
+
+    src_timestamps[count - 1] = src_timestamps[src_timestamps.len() - 1];
+    src_values[count - 1] = src_values[src_values.len() - 1];
+    src_timestamps.truncate(count);
+    src_values.truncate(count);
 }
 
-pub fn deduplicate_samples_during_merge(mut src_timestamps: &Vec<i64>, mut src_values: &Vec<i64>, dedup_interval: i64) {
+pub fn deduplicate_samples_during_merge(src_timestamps: &mut Vec<i64>, src_values: &mut Vec<i64>, dedup_interval: i64) {
     if !needs_dedup(src_timestamps, dedup_interval)  {
         // Fast path - nothing to deduplicate
         return;
@@ -58,24 +66,30 @@ pub fn deduplicate_samples_during_merge(mut src_timestamps: &Vec<i64>, mut src_v
     let mut ts_next = src_timestamps[0] + dedup_interval - 1;
     ts_next = ts_next - (ts_next % dedup_interval);
 
-    let mut dst_timestamps = src_timestamps;
-    let mut dst_values = src_values;
+    let mut j: usize = 1;
+    let mut count: usize = 0;
 
     for i in 1 .. src_timestamps.len() {
         let ts = src_timestamps[i];
         if ts <= ts_next {
             continue;
         }
-        dst_timestamps.push(src_timestamps[i]);
-        dst_values.push(src_values[i]);
+
+        src_timestamps[j] = ts;
+        src_values[j] = src_values[i];
+        j += 1;
+        count += 1;
+
         ts_next += dedup_interval;
         if ts_next < ts {
             ts_next = ts + dedup_interval - 1;
             ts_next -= ts_next % dedup_interval
         }
     }
-    dst_timestamps.push(src_timestamps[src_timestamps.len() - 1]);
-    dst_values.push(src_values[src_values.len() - 1]);
+    src_timestamps[count - 1] = src_timestamps[src_timestamps.len() - 1];
+    src_values[count - 1] = src_values[src_values.len() - 1];
+    src_timestamps.truncate(count);
+    src_values.truncate(count);
 }
 
 fn needs_dedup(timestamps: &[i64], dedup_interval: i64) -> bool {
