@@ -129,7 +129,7 @@ fn try_get_arg_rollup_func_with_metric_expr(ae: &AggrFuncExpr) -> RuntimeResult<
         match FuncExpr::from_single_arg(func_name, expr.clone()) {
             Err(e) => {
                 Err(RuntimeError::General(
-                    format!("Error creating function {}: {:?}", func_name, expr)
+                    format!("Error creating function {}: {:?}", func_name, e)
                 ))
             },
             Ok(fe) => Ok(Some(fe))
@@ -152,7 +152,7 @@ fn try_get_arg_rollup_func_with_metric_expr(ae: &AggrFuncExpr) -> RuntimeResult<
         }
         Expression::Function(fe) => {
             match fe.function {
-                BuiltinFunction::Rollup(rf) => {
+                BuiltinFunction::Rollup(_) => {
                     match fe.get_arg_for_optimization() {
                         None => {
                             // Incorrect number of args for rollup func.

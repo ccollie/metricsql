@@ -68,22 +68,22 @@ impl Display for Deadline {
 
 
 /// join_tag_filterss adds etfs to every src filter and returns the result.
-pub(crate) fn join_tag_filterss<'a>(src: &Vec<Vec<LabelFilter>>, etfs: &Vec<Vec<LabelFilter>>) -> Cow<'a, Vec<Vec<LabelFilter>>> {
+pub(crate) fn join_tag_filterss<'a>(src: &'a Vec<Vec<LabelFilter>>, etfs: &'a Vec<Vec<LabelFilter>>) -> Cow<'a, Vec<Vec<LabelFilter>>> {
     if src.len() == 0 {
-        return Cow::Borrowed(etfs)
+        return Cow::Borrowed::<'a>(etfs)
     }
     if etfs.len() == 0 {
-        return Cow::Borrowed(src)
+        return Cow::Borrowed::<'a>(src)
     }
     let mut dst: Vec<Vec<LabelFilter>> = Vec::with_capacity(src.len());
-    for tf in src {
-        let mut tfs: Vec<LabelFilter> = tf.clone();
-        for etf in etfs {
+    for tf in src.iter() {
+        for etf in etfs.iter() {
+            let mut tfs: Vec<LabelFilter> = tf.clone();
             tfs.append( &mut etf.clone());
             dst.push(tfs.into());
         }
     }
-    Cow::Owned(dst)
+    Cow::Owned::<'a>(dst)
 }
 
 /// parse_metric_selector parses s containing PromQL metric selector and returns the corresponding 

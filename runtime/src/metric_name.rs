@@ -44,7 +44,7 @@ impl PartialOrd for Tag {
 #[derive(Debug, PartialEq, Eq, Clone, Default, Hash)]
 pub struct MetricName {
     pub metric_group: String,
-    // todo: Consider https://crates.io/crates/btree-slab to minimize allocations
+    // todo: Consider https://crates.io/crates/btree-slab or heapless btree to minimize allocations
     _items: BTreeMap<String, String>,
 }
 
@@ -60,7 +60,7 @@ impl MetricName {
         self.metric_group = "".to_string();
     }
 
-    pub fn get_tag_count(self) -> usize {
+    pub fn get_tag_count(&self) -> usize {
         self._items.len()
     }
 
@@ -114,6 +114,14 @@ impl MetricName {
         }).collect()
     }
 
+    pub fn for_each_tag<F>(&self, f: F) -> ()
+    where F: FnMut(&String, &String) -> () {
+        if self.metric_group.len() > 0 {
+            f(&NAME_LABEL.to_string(), &self.metric_group);
+        }
+        self._items.iter().for_each(|(k,v)| f(k, v))
+    }
+
     pub fn has_tag(&self, key: &str) -> bool {
         self._items.contains_key(key)
     }
@@ -154,7 +162,7 @@ impl MetricName {
     }
 
     /// sets tags from src with keys matching add_tags.
-    pub(crate) fn set_tags(&mut self, add_tags: &[String], mut src: &MetricName) {
+    pub(crate) fn set_tags(&mut self, add_tags: &[String], src: &mut MetricName) {
         for tag_name in add_tags {
             if tag_name == NAME_LABEL {
                 self.metric_group = tag_name.clone();
@@ -163,11 +171,7 @@ impl MetricName {
 
             match src.get_tag_value(tag_name) {
                 Some(tag_value) => {
-                    if let Some(mut it) = self._items.get_mut(tag_name) {
-                        it = &mut tag_value.to_string()
-                    } else {
-                        self._items.insert(tag_name.to_string(), tag_value.to_string());
-                    }
+                    let _ = self._items.insert(tag_name.to_string(), tag_value.to_string());
                 },
                 None => {
                     self.remove_tag(tag_name);
@@ -179,11 +183,11 @@ impl MetricName {
     pub fn append_tags_to_string(&self, dst: &mut Vec<u8>) {
         dst.extend_from_slice("{{".as_bytes());
 
-        let len = self._items.len();
+        let len = &self._items.len();
         let mut i = 0;
-        for (k, v) in self._items {
+        for (k, v) in &self._items {
             dst.extend_from_slice(format!("{}={}", k, enquote('"', &v)).as_bytes());
-            if i + 1 < len {
+            if i + 1 < *len {
                 dst.extend_from_slice(", ".as_bytes())
             }
             i += 1;
@@ -193,7 +197,7 @@ impl MetricName {
     }
 
     pub(crate) fn marshal_tags_fast(&self, dst: &mut Vec<u8>) {
-        for (k, v) in self._items {
+        for (k, v) in &self._items {
             marshal_bytes_fast(dst, k.as_bytes());
             marshal_bytes_fast(dst, v.as_bytes());
         }
@@ -206,7 +210,7 @@ impl MetricName {
 
 
     // internal only
-    pub(crate) fn marshal_to_string(&self, buf: &mut Vec<u8>) -> Cow<'_, str> {
+    pub(crate) fn marshal_to_string<'a>(&self, buf: &'a mut Vec<u8>) -> Cow<'a, str> {
         self.marshal(buf);
         String::from_utf8_lossy(&buf)
     }
@@ -220,10 +224,8 @@ impl MetricName {
         return Ok((mn, tail));
     }
 
-    /// unmarshal mn from src, so mn members hold references to src.
-    ///
-    /// It is unsafe modifying src while mn is in use.
-    pub(crate) fn unmarshal_fast_internal(&mut self, src: &[u8]) -> RuntimeResult<&[u8]> {
+    /// unmarshal mn from src
+    pub(crate) fn unmarshal_fast_internal<'a>(&mut self, src: &'a [u8]) -> RuntimeResult<&'a [u8]> {
         let mut src = src;
 
         match unmarshal_bytes_fast(src) {
@@ -242,7 +244,7 @@ impl MetricName {
             ));
         }
 
-        let mut tags_len: u16 = 0;
+        let tags_len: u16;
 
         match unmarshal_var_int::<u16>(src) {
             Ok((len, tail)) => {
@@ -267,6 +269,7 @@ impl MetricName {
                     key = t;
                 }
             }
+
             match unmarshal_string_fast(&mut src) {
                 Err(_) => {
                     return Err(
@@ -289,7 +292,7 @@ impl MetricName {
         self._items.iter()
     }
 
-    pub(crate) fn serialized_size(self) -> usize {
+    pub(crate) fn serialized_size(&self) -> usize {
         let mut n = 2 + self.metric_group.len();
         n += 2; // Length of tags.
         for (k,v) in self._items.iter() {
@@ -326,7 +329,7 @@ impl Display for MetricName {
         write!(f, "{}{{", self.metric_group)?;
         let len = self._items.len();
         let mut i = 0;
-        for (k, v) in self._items {
+        for (k, v) in self._items.iter() {
             write!(f, "{}={}", k, enquote('"', &v))?;
             if i < len - 1 {
                 write!(f, ",")?;
@@ -348,7 +351,7 @@ impl PartialOrd for MetricName {
         let ats = &self._items;
         let bts = &other._items;
         let mut b_iter = other._items.iter();
-        for (a_key, a_value) in ats.iter() {
+        for (a_key, a_value) in self._items.iter() {
             let bt = &b_iter.next();
             if bt.is_none() {
                 // a contains more tags than b and all the previous tags were identical,

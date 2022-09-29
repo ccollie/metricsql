@@ -1,5 +1,5 @@
+use std::borrow::Borrow;
 use std::sync::Arc;
-
 use chrono::Duration;
 
 use metricsql::ast::*;
@@ -40,7 +40,7 @@ impl Evaluator for ExprEvaluator {
             ExprEvaluator::Duration(de) => de.eval(ctx, ec),
             ExprEvaluator::Function(fe) => fe.eval(ctx, ec),
             ExprEvaluator::Number(n) => n.eval(ctx, ec),
-            ExprEvaluator::Rollup(ref mut re) => re.eval(ctx, ec),
+            ExprEvaluator::Rollup(ref re) => re.eval(ctx, ec),
             ExprEvaluator::String(se) => se.eval(ctx, ec),
         }
     }
@@ -141,7 +141,7 @@ pub(crate) fn validate_max_points_per_timeseries(
     }
 }
 
-pub fn adjust_start_end(start: Timestamp, end: Timestamp, step: i64) -> (i64, i64) {
+pub fn adjust_start_end(start: Timestamp, end: Timestamp, step: i64) -> (Timestamp, Timestamp) {
     // if disableCache {
     //     // do not adjust start and end values when cache is disabled.
     //     // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/563
@@ -168,7 +168,7 @@ pub fn adjust_start_end(start: Timestamp, end: Timestamp, step: i64) -> (i64, i6
     return (start, _end);
 }
 
-pub fn align_start_end(start: i64, end: i64, step: i64) -> (i64, i64) {
+pub fn align_start_end(start: Timestamp, end: Timestamp, step: i64) -> (Timestamp, Timestamp) {
     // Round start to the nearest smaller value divisible by step.
     let new_start = start - start % step;
     // Round end to the nearest bigger value divisible by step.
@@ -180,40 +180,6 @@ pub fn align_start_end(start: i64, end: i64, step: i64) -> (i64, i64) {
     return (new_start, new_end);
 }
 
-#[derive(Copy, Clone, Debug)]
-pub struct EvalOptions {
-    /// Set this flag to true if the database doesn't contain Prometheus stale markers, so there is
-    /// no need in spending additional CPU time on its handling. Staleness markers may exist only in
-    /// data obtained from Prometheus scrape targets
-    pub no_stale_markers: bool,
-
-    /// The maximum interval for staleness calculations. By default it is automatically calculated from
-    /// the median interval between samples. This could be useful for tuning Prometheus data model
-    /// closer to Influx-style data model.
-    /// See https://prometheus.io/docs/prometheus/latest/querying/basics/#staleness for details.
-    /// See also '-search.setLookbackToStep' flag
-    pub max_staleness_interval: Duration,
-
-    /// The minimum interval for staleness calculations. This could be useful for removing gaps on
-    /// graphs generated from time series with irregular intervals between samples.
-    pub min_staleness_interval: Duration,
-}
-
-impl EvalOptions {
-    pub fn new() -> Self {
-        EvalOptions::default()
-    }
-}
-
-impl Default for EvalOptions {
-    fn default() -> Self {
-        Self {
-            no_stale_markers: true,
-            max_staleness_interval: Duration::milliseconds(0),
-            min_staleness_interval: Duration::milliseconds(0),
-        }
-    }
-}
 
 #[derive(Clone)]
 pub struct EvalConfig {
@@ -242,15 +208,29 @@ pub struct EvalConfig {
     /// enforced_tag_filterss may contain additional label filters to use in the query.
     pub enforced_tag_filterss: Vec<Vec<LabelFilter>>,
 
-    pub options: EvalOptions,
+    /// Set this flag to true if the data doesn't contain Prometheus stale markers, so there is
+    /// no need in spending additional CPU time on its handling. Staleness markers may exist only in
+    /// data obtained from Prometheus scrape targets
+    pub no_stale_markers: bool,
+
+    /// The maximum interval for staleness calculations. By default it is automatically calculated from
+    /// the median interval between samples. This could be useful for tuning Prometheus data model
+    /// closer to Influx-style data model.
+    /// See https://prometheus.io/docs/prometheus/latest/querying/basics/#staleness for details.
+    /// See also '-search.setLookbackToStep' flag
+    pub max_staleness_interval: Duration,
+
+    /// The minimum interval for staleness calculations. This could be useful for removing gaps on
+    /// graphs generated from time series with irregular intervals between samples.
+    pub min_staleness_interval: Duration,
 
     /// The limit on the number of points which can be generated per each returned time series.
     pub max_points_per_series: usize,
 
-    /// Whether to disable response caching. This may be useful during data backfilling
+    /// Whether to disable response caching. This may be useful during data back-filling
     pub disable_cache: bool,
 
-    _timestamps: Arc<Vec<i64>>,
+    _timestamps: Arc<Vec<Timestamp>>,
 }
 
 impl EvalConfig {
@@ -266,14 +246,16 @@ impl EvalConfig {
             lookback_delta: 0,
             round_digits: 0,
             enforced_tag_filterss: vec![],
-            options: EvalOptions::default(),
+            no_stale_markers: true,
             max_points_per_series: 0,
             disable_cache: false,
+            max_staleness_interval: Duration::milliseconds(0),
+            min_staleness_interval: Duration::milliseconds(0),
             _timestamps: Arc::new(vec![])
         }
     }
 
-    pub fn copy_no_timestamps(self) -> EvalConfig {
+    pub fn copy_no_timestamps(&self) -> EvalConfig {
         let ec = EvalConfig {
             start: self.start,
             end: self.end,
@@ -284,12 +266,14 @@ impl EvalConfig {
             _may_cache: self._may_cache,
             lookback_delta: self.lookback_delta,
             round_digits: self.round_digits,
-            enforced_tag_filterss: vec![],
+            enforced_tag_filterss: self.enforced_tag_filterss.clone(),
             // do not copy src.timestamps - they must be generated again.
             _timestamps: Arc::new(vec![]),
-            options: EvalOptions::default(),
+            no_stale_markers: self.no_stale_markers,
             max_points_per_series: self.max_points_per_series,
             disable_cache: self.disable_cache,
+            max_staleness_interval: self.max_staleness_interval,
+            min_staleness_interval: self.min_staleness_interval,
         };
         return ec;
     }
@@ -326,13 +310,13 @@ impl EvalConfig {
         true
     }
 
-    pub fn timestamps<'a>(&self) -> &'a Arc<Vec<i64>> {
-        &self._timestamps
+    pub fn timestamps(&self) -> Arc<Vec<i64>> {
+        Arc::clone(&self._timestamps)
     }
 
-    pub fn get_timestamps<'a>(&mut self) -> &'a Arc<Vec<i64>> {
+    pub fn get_timestamps(&mut self) -> Arc<Vec<Timestamp>> {
         self.ensure_timestamps().unwrap(); //???
-        &self._timestamps
+        Arc::clone(&self._timestamps)
     }
 
     pub(crate) fn ensure_timestamps(&mut self) -> RuntimeResult<()> {
@@ -348,21 +332,35 @@ impl EvalConfig {
         Ok(())
     }
 
-    pub fn get_shared_timestamps(&mut self) -> &Arc<Vec<i64>> {
+    pub fn get_shared_timestamps(&mut self) -> Arc<Vec<i64>> {
         self.get_timestamps()
     }
 }
 
-pub fn get_timestamps(start: i64, end: i64, step: i64, max_timestamps_per_timeseries: usize) -> RuntimeResult<Vec<i64>> {
+impl Default for EvalConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl From<EvalConfig> for &EvalConfig {
+    fn from(ec: EvalConfig) -> Self {
+        ec.borrow()
+    }
+}
+
+pub fn get_timestamps(start: Timestamp, end: Timestamp, step: i64, max_timestamps_per_timeseries: usize) -> RuntimeResult<Vec<i64>> {
     // Sanity checks.
     if step <= 0 {
         let msg = format!("BUG: Step must be bigger than 0; got {}", step);
         return Err(RuntimeError::from(msg));
     }
+
     if start > end {
         let msg = format!("BUG: Start cannot exceed End; got {} vs {}", start, end);
         return Err(RuntimeError::from(msg));
     }
+
     match validate_max_points_per_timeseries(start, end, step, max_timestamps_per_timeseries) {
         Err(err) => {
             let msg = format!(
@@ -378,10 +376,11 @@ pub fn get_timestamps(start: i64, end: i64, step: i64, max_timestamps_per_timese
     let n: usize = (1 + (end - start) / step) as usize;
     let mut timestamps: Vec<i64> = Vec::with_capacity(n);
     let mut cursor = start;
-    for i in 0..n {
+    while cursor < end {
         timestamps.push(cursor);
         cursor += step;
     }
+
     return Ok(timestamps);
 }
 
@@ -393,7 +392,7 @@ pub(crate) fn copy_eval_config(src: &EvalConfig) -> EvalConfig {
 pub(crate) fn eval_number(ec: &EvalConfig, n: f64) -> Vec<Timeseries> {
     let timestamps = ec.timestamps();
     let values = vec![n; timestamps.len()];
-    let ts = Timeseries::with_shared_timestamps(timestamps, &values);
+    let ts = Timeseries::with_shared_timestamps(&timestamps, &values);
     vec![ts]
 }
 
@@ -405,8 +404,9 @@ pub(crate) fn eval_string(ec: &EvalConfig, s: &str) -> Vec<Timeseries> {
 
 pub(crate) fn eval_time(ec: &EvalConfig) -> Vec<Timeseries> {
     let mut rv = eval_number(ec, f64::NAN);
-    for (i, ts) in rv[0].timestamps.iter().enumerate() {
-        rv[0].values[i] = *ts as f64 / 1e3_f64;
+    for i in 0 .. rv[0].timestamps.len() {
+        let ts = rv[0].timestamps[i];
+        rv[0].values[i] = ts as f64 / 1e3_f64;
     }
     rv
 }
@@ -434,7 +434,7 @@ fn get_label(arg: &Vec<Timeseries>, name: &str, arg_num: usize) -> RuntimeResult
     match get_string_arg(arg, arg_num) {
         Ok(lbl) => Ok(lbl),
         Err(err) => {
-            let msg = format!("cannot read {} label name", name);
+            let msg = format!("cannot read {} label name: {:?}", name, err);
             return Err(RuntimeError::ArgumentError(msg));
         }
     }

@@ -105,9 +105,20 @@ pub struct BigStats {
     invalid_value_hash_errors: u64,
 }
 
+impl BigStats {
+    pub fn reset(&mut self) {
+        self.invalid_value_hash_errors = 0;
+        self.invalid_value_len_errors = 0;
+        self.get_big_calls = 0;
+        self.invalid_metavalue_errors = 0;
+        self.too_big_key_errors = 0;
+        self.set_big_calls = 0;
+    }
+}
+
 struct CacheInner {
     buckets: [Bucket; bucketsCount],
-    // big_stats: BigStats
+    big_stats: BigStats
 }
 
 /// Cache is a fast thread-safe in-memory cache optimized for big number
@@ -180,9 +191,9 @@ impl Cache {
     ///
     /// k and v contents may be modified after returning from SetBig.
     pub fn set_big(&mut self, k: &[u8], v: &[u8]) {
-        self.big_stats.set_big_calls.fetch_add(1, Ordering::Relaxed);
+        self.big_stats.set_big_calls += 1;
         if k.len() > MAX_KEY_LEN {
-            self.big_stats.too_big_key_errors.fetch_add(1, Ordering::Relaxed);
+            self.big_stats.too_big_key_errors += 1;
             return
         }
         let value_len = v.len();
@@ -240,25 +251,24 @@ impl Cache {
     /// with values stored via other methods.
     ///
     /// k contents may be modified after returning from GetBig.
-    pub fn get_big<'a>(&mut self, k: &[u8], dst: &'a mut Vec<u8>) -> &'a [u8] {
+    pub fn get_big(&mut self, k: &[u8], dst: &mut Vec<u8>) -> bool {
         self.big_stats.get_big_calls.fetch_add(1, Ordering::Relaxed);
         let sub_key = getSubkeyBuf();
 
         // Read and parse metavalue
-        sub_key.B = self.get(k, sub_key);
-        if sub_key.len() == 0 {
+        if !self.get(k, sub_key) {
             // Nothing found.
-            return dst
+            return false
         }
 
         if sub_key.len() != 16 {
             self.big_stats.invalid_metavalue_errors.fetch_add(1, Ordering::Relaxed);
-            return dst
+            return false
         }
 
         let meta = unmarshal_meta(sub_key);
         if meta.is_none() {
-            return  dst
+            return  false
         }
 
         let (value_hash, value_len) = meta.unwrap();
@@ -276,7 +286,7 @@ impl Cache {
             let dst_new = self.get(dst, sub_key);
             if dst_new.len() == dst.len() {
                 // Cannot find subvalue
-                return &dst[0..dstLen]
+                return false
             }
             dst = dst_new
         }
@@ -284,15 +294,19 @@ impl Cache {
         // Verify the obtained value.
         let v = &dst[dst_len..];
         if v.len() != value_len {
-            atomic.AddUint64(&c.bigStats.invalidvalue_lenErrors, 1);
-            return dst[:dstLen]
+            // Corrupted data during the load from file. Just skip it.
+            self.corruptions.fetch_add(1, Ordering::Relaxed);
+            self.big_stats.invalidvalue_len_Errors.fetch_add(1, Ordering::Relaxed);
+            return false
         }
+
         let h = xxh3_64(v);
         if h != value_hash {
-            atomic.AddUint64(&c.big_stats.invalidvalue_hashErrors, 1);
-            return dst[:dstLen]
+            self.big_stats.invalidvalue_hashErrors.fetch_add(1, Ordering::Relaxed);
+            return false
         }
-        return dst
+
+        return true
     }
 }
 
@@ -352,11 +366,11 @@ struct BucketInner {
     /// gen is the generation of chunks.
     gen: u64,
 
-    get_calls:   AtomicU64,
-    set_calls:   AtomicU64,
-    misses:      AtomicU64,
-    collisions:  AtomicU64,
-    corruptions: AtomicU64
+    get_calls:   u64,
+    set_calls:   u64,
+    misses:      u64,
+    collisions:  u64,
+    corruptions: u64
 }
 
 impl BucketInner {
@@ -368,11 +382,11 @@ impl BucketInner {
             m: HashMap::new(),
             idx: 0,
             gen: 0,
-            get_calls: AtomicU64::new(0),
-            set_calls: AtomicU64::new(0),
-            misses: AtomicU64::new(0),
-            collisions: AtomicU64::new(0),
-            corruptions: AtomicU64::new(0)
+            get_calls: 0,
+            set_calls: 0,
+            misses: 0,
+            collisions: 0,
+            corruptions: 0
         }
     }
 
@@ -383,11 +397,11 @@ impl BucketInner {
         self.idx = 0;
         self.gen = 1;
         self.m.clear();
-        self.get_calls.store(0, Ordering::SeqCst);
-        self.set_calls.store(0, Ordering::SeqCst);
-        self.misses.store(0, Ordering::SeqCst);
-        self.collisions.store(0, Ordering::SeqCst);
-        self.corruptions.store(0, Ordering::SeqCst);
+        self.get_calls = 0;
+        self.set_calls = 0;
+        self.misses = 0;
+        self.collisions = 0;
+        self.corruptions = 0;
     }
 
     fn clean_locked(&mut self) {
@@ -404,7 +418,7 @@ impl BucketInner {
     }
 
     pub fn set(&mut self, k: &[u8], v: &[u8]) {
-        self.set_calls.fetch_add(1, Ordering::Relaxed);
+        self.set_calls += 1;
         if k.len() >= (1<<16) || v.len() >= (1<<16) {
             // Too big key or value - its length cannot be encoded
             // with 2 bytes (see below). Skip the entry.
@@ -461,8 +475,8 @@ impl BucketInner {
         }
     }
 
-    pub fn get(&mut self, k: &[u8], h: u64, dst: &mut Vec<u8>) -> Option<&[u8]> {
-        self.get_calls.fetch_add(1, Ordering::Relaxed);
+    pub fn get(&mut self, k: &[u8], h: u64, dst: &mut Vec<u8>) -> bool {
+        self.get_calls += 1;
         let mut found = false;
 
         if let Some(v) = self.m.get(h) {
@@ -504,7 +518,7 @@ impl BucketInner {
                         }
                         found = true
                     } else {
-                        self.collisions.fetch_add(1, Ordering::Relaxed)
+                        self.collisions += 1;
                     }
                     break
                 }
@@ -512,10 +526,10 @@ impl BucketInner {
         }
 
         if !found {
-            self.misses.fetch_add(1, Ordering::Relaxed);
+            self.misses += 1;
         }
 
-        return dst, found
+        return found
 
     }
 }

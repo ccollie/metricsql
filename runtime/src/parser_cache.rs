@@ -1,4 +1,5 @@
-use std::sync::Arc;
+use std::borrow::{Cow};
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use lru_time_cache::LruCache;
@@ -23,7 +24,7 @@ pub struct ParseCacheValue {
 pub struct ParseCache {
     requests: AtomicU64,
     misses: AtomicU64,
-    lru: Arc<LruCache<String, Arc<ParseCacheValue>>>, // todo: use parking_lot rwLock
+    lru: Mutex<LruCache<String, Arc<ParseCacheValue>>>, // todo: use parking_lot rwLock
 }
 
 impl Default for ParseCache {
@@ -37,12 +38,12 @@ impl ParseCache {
         ParseCache {
             requests: AtomicU64::new(0),
             misses: AtomicU64::new(0),
-            lru: Arc::new(LruCache::with_capacity(capacity)),
+            lru: Mutex::new(LruCache::with_capacity(capacity)),
         }
     }
 
     pub fn len(&self) -> usize {
-        self.lru.len()
+        self.lru.lock().unwrap().len()
     }
 
     pub fn misses(&self) -> u64 {
@@ -54,28 +55,38 @@ impl ParseCache {
     }
 
     pub fn clear(&mut self) {
-        self.lru.clear()
+        self.lru.lock().unwrap().clear()
     }
 
     pub fn parse(&mut self, q: &str) -> Arc<ParseCacheValue> {
         self.requests.fetch_add(1, Ordering::Relaxed);
-        let entry = self.lru.entry(q.to_string()).or_insert_with(|| {
-            self.misses.fetch_add(1, Ordering::Relaxed);
-            let parsed = self.parse_internal(q);
-            Arc::new(parsed)
-        });
-        entry.clone()
+        let k = q.to_string();
+        let mut lru = self.lru.lock().unwrap();
+        {
+            match lru.get_mut(q) {
+                Some(value) => return value.clone(),
+                None => {}
+            }
+        }
+        self.misses.fetch_add(1, Ordering::Relaxed);
+        let parsed = Self::parse_internal(q);
+        let value = lru.insert(k, Arc::new(parsed));
+
+        value.unwrap().clone()
     }
 
-    fn parse_internal(&mut self, q: &str) -> ParseCacheValue {
+    fn parse_internal(q: &str) -> ParseCacheValue {
         match metricsql::parser::parse(q) {
             Ok(expr) => {
-                let mut expression = &optimize(&expr);
+                let mut expression = match &optimize(&expr) {
+                    Cow::Owned(exp) => exp,
+                    Cow::Borrowed(exp) => exp
+                };
                 adjust_cmp_ops(&mut expression);
                 match create_evaluator(expression) {
                     Ok(evaluator) => {
                         ParseCacheValue {
-                            expr: Some(expr),
+                            expr: Some(expr.clone()),
                             evaluator: Some(evaluator),
                             err: None,
                             has_subquery: expression.contains_subquery()
@@ -86,7 +97,9 @@ impl ParseCache {
                             expr: Some(expr),
                             evaluator: Some(ExprEvaluator::default()),
                             has_subquery: false,
-                            err: Some( ParseError::General("Error creating evaluator".to_string())),
+                            err: Some(
+                                ParseError::General(format!("Error creating evaluator: {:?}", e))
+                            ),
                         }
                     }
                 }

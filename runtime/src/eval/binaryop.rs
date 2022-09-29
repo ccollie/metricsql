@@ -1,13 +1,18 @@
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
+use std::ops::Deref;
 
 use regex::escape;
 
 use metricsql::ast::*;
 use metricsql::functions::Volatility;
-use metricsql::optimizer::{can_pushdown_op_filters, pushdown_binary_op_filters, trim_filters_by_group_modifier};
+use metricsql::optimizer::{
+    can_pushdown_op_filters,
+    pushdown_binary_op_filters,
+    trim_filters_by_group_modifier
+};
 
-use crate::binary_op::{BinaryOpFuncArg, exec_binop};
+use crate::binary_op::{BinaryOpFn, BinaryOpFuncArg, get_binary_op_handler};
 use crate::context::Context;
 use crate::eval::{create_evaluator, ExprEvaluator};
 use crate::eval::traits::Evaluator;
@@ -19,6 +24,7 @@ pub(super) struct BinaryOpEvaluator {
     expr: BinaryOpExpr,
     lhs: Box<ExprEvaluator>,
     rhs: Box<ExprEvaluator>,
+    handler: Box<dyn BinaryOpFn>,
     can_pushdown_filters: bool,
     can_pushdown_op_filters: bool
 }
@@ -29,10 +35,12 @@ impl BinaryOpEvaluator {
         let rhs = Box::new(create_evaluator(&expr.right)? );
         let can_pushdown_filters = can_pushdown_common_filters(expr);
         let pushdown_op_filters = can_pushdown_op_filters(&expr.right);
+        let handler = get_binary_op_handler(expr.op);
         Ok(Self {
             lhs,
             rhs,
             expr: expr.clone(),
+            handler: Box::new( handler.deref() ),
             can_pushdown_filters,
             can_pushdown_op_filters: pushdown_op_filters
         })
@@ -44,22 +52,20 @@ impl BinaryOpEvaluator {
 
     fn eval_args(&self, ctx: &mut Context, ec: &EvalConfig) -> RuntimeResult<(Vec<Timeseries>, Vec<Timeseries>)> {
 
+        // todo: don't parallelize if both sides are scalar
         if !self.can_pushdown_filters {
             // Execute both sides in parallel, since it is impossible to push down common filters
             // from exprFirst to exprSecond.
             // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/2886
 
             // todo: we need to clone ec
-            match rayon::join(
+            return match rayon::join(
                 || self.lhs.eval(ctx, ec),
                 || self.rhs.eval(ctx, ec),
             ) {
-                (Ok(first), Ok(second)) => return Ok((first, second)),
-                (Err(err), _) => return Err(err),
-                (Ok(_), Err(err)) => return Err(err),
-                _ => {
-                    unreachable!("Bug! Invalid match condition in parallel evaluation of binop args")
-                }
+                (Ok(first), Ok(second)) => Ok((first, second)),
+                (Err(err), _) => Err(err),
+                (Ok(_), Err(err)) => Err(err)
             };
         }
 
@@ -92,7 +98,7 @@ impl BinaryOpEvaluator {
         trim_filters_by_group_modifier(&mut lfs, &self.expr);
         let sec = pushdown_binary_op_filters(&self.expr.right, &mut lfs);
         return match sec {
-            Cow::Borrowed(e) => {
+            Cow::Borrowed(_) => {
                 // if it hasn't been modified, default to existing evaluator
                 let tss_second = self.rhs.eval(ctx, ec)?;
                 Ok((tss_first, tss_second))
@@ -125,12 +131,12 @@ impl Evaluator for BinaryOpEvaluator {
         }
 
         let mut bfa = BinaryOpFuncArg {
-            be: &self.expr,
+            be: self.expr.clone(),
             left: std::mem::take(&mut tss_left),
             right: std::mem::take(&mut tss_right),
         };
 
-        match exec_binop(&mut bfa) {
+        match (self.handler)(&mut bfa) {
             Err(err) => Err(RuntimeError::from(
                 format!("cannot evaluate {}: {:?}", &self.expr, err)
             )),
@@ -194,7 +200,7 @@ fn get_common_label_filters(tss: &[Timeseries]) -> Vec<LabelFilter> {
         let mut vals: Vec<&String> = values.iter().collect::<Vec<_>>();
         vals.sort();
 
-        let mut str_value: String;
+        let str_value: String;
         let mut is_regex = false;
 
         if values.len() == 1 {

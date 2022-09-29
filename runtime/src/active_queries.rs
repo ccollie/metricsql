@@ -16,8 +16,8 @@ pub struct ActiveQueries {
 
 #[derive(Clone, Debug)]
 pub struct ActiveQueryEntry {
-    pub start: i64,
-    pub end: i64,
+    pub start: Timestamp,
+    pub end: Timestamp,
     pub step: i64,
     pub qid: u64,
     pub quoted_remote_addr: String,
@@ -42,35 +42,45 @@ impl ActiveQueries {
     }
 
     pub(crate) fn add_ex(&mut self, ec: &EvalConfig, q: &str, start_time: Timestamp) -> u64 {
-        let inner = self.inner.write().unwrap();
-        inner.id = inner.id + 1;
+        let mut inner = self.inner.write().unwrap();
+        let qid = inner.id + 1;
+        inner.id = qid;
+
+        let quoted_remote_addr = if ec.quoted_remote_addr.is_some() {
+            ec.quoted_remote_addr.as_ref().unwrap().clone()
+        } else {
+            "".to_string()
+        };
 
         let aqe = ActiveQueryEntry {
             start: ec.start,
             end: ec.end,
             step: ec.step,
-            qid: inner.id,
-            quoted_remote_addr: ec.quoted_remote_addr.unwrap_or("".to_string()),
+            qid,
+            quoted_remote_addr,
             q: q.to_string(),
             start_time,
         };
 
-        inner.data.insert(aqe.qid, aqe);
+        inner.data.insert(qid, aqe);
 
-        return aqe.qid.clone();
+        qid
     }
 
     pub(crate) fn remove(&mut self, qid: u64) {
-        let inner = self.inner.write().unwrap();
+        let mut inner = self.inner.write().unwrap();
         inner.data.remove(&qid);
     }
 
-    pub fn get_all(&self) -> Vec<&ActiveQueryEntry> {
+    pub fn get_all(&self) -> Vec<ActiveQueryEntry> {
         let inner = self.inner.read().unwrap();
         let mut entries = inner.data.values()
-            .collect::<Vec<&ActiveQueryEntry>>();
+            .map(|x| x.clone())
+            .collect::<Vec<_>>();
+
 
         entries.sort_by(|a, b| a.start_time.cmp(&b.start_time));
+
         entries
     }
 }

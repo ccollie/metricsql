@@ -71,7 +71,7 @@ pub trait SeriesDataSource {
 pub struct NullSeriesDataSource{}
 
 impl SeriesDataSource for NullSeriesDataSource {
-    fn search(&self, sq: &SearchQuery, deadline: &Deadline) -> RuntimeResult<QueryResults> {
+    fn search(&self, _sq: &SearchQuery, _deadline: &Deadline) -> RuntimeResult<QueryResults> {
         let qr = QueryResults::new();
         Ok(qr)
     }

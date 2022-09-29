@@ -6,12 +6,13 @@ use crate::parser_cache::ParseCache;
 use crate::query_stats::query_stats::QueryStatsTracker;
 use crate::traits::{NullSeriesDataSource, SeriesDataSource};
 
+// todo; should this be a trait
 pub struct Context {
     pub parse_cache: ParseCache,
     pub query_stats: QueryStatsTracker,
     pub active_queries: ActiveQueries,
     pub rollup_result_cache: RollupResultCache,
-    pub series_data: Box<dyn SeriesDataSource>, // mutex
+    pub series_data: Box<dyn SeriesDataSource + Send + Sync>, // mutex
 }
 
 impl Context {

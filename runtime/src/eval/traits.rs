@@ -22,7 +22,7 @@ pub trait Evaluator {
 pub(crate) struct NullEvaluator {}
 
 impl Evaluator for NullEvaluator {
-    fn eval(&self, ctx: &mut Context, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
+    fn eval(&self, _ctx: &mut Context, _ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
         Ok(vec![])
     }
 }

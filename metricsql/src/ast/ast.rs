@@ -364,7 +364,7 @@ impl Deref for StringExpr {
 /// NumberExpr represents number expression.
 #[derive(Default, Debug, Clone, Copy)]
 pub struct NumberExpr {
-    /// n is the parsed number, i.e. `1.23`, `-234`, etc.
+    /// value is the parsed number, i.e. `1.23`, `-234`, etc.
     pub value: f64,
 }
 
@@ -1531,7 +1531,6 @@ impl ExpressionNode for MetricExpr {
     fn cast(self) -> Expression {
         Expression::MetricExpression(self)
     }
-
     fn kind(&self) -> ExpressionKind {
         ExpressionKind::Metric
     }

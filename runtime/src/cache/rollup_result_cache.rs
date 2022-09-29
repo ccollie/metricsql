@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-use chrono::Duration;
 use effective_limits::memory_limit;
 use once_cell::sync::Lazy;
 /// import commonly used items from the prelude:
@@ -20,6 +20,7 @@ use lib::{
 use metricsql::ast::{Expression, LabelFilter};
 
 use crate::{copy_timeseries_shallow, EvalConfig, marshal_timeseries_fast, Timeseries, unmarshal_timeseries_fast};
+use crate::cache::traits::RollupResultCacheProvider;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::traits::{Timestamp, TimestampTrait};
 use crate::utils::MemoryLimiter;
@@ -29,7 +30,7 @@ use crate::utils::MemoryLimiter;
 /// due to time synchronization issues between this library and data sources. See also
 /// -search.disableAutoCacheReset
 /// TODO: move to EvalConfig
-const CACHE_TIMESTAMP_OFFSET: Duration = Duration::minutes(5);
+static CACHE_TIMESTAMP_OFFSET: i64 = 5000;
 
 /// Whether to disable automatic response cache reset if a sample with timestamp outside
 /// -search.cachetimestampOffset is inserted into VictoriaMetrics
@@ -38,7 +39,7 @@ const CACHE_TIMESTAMP_OFFSET: Duration = Duration::minutes(5);
 static ROLLUP_RESULT_CACHE_KEY_PREFIX: Lazy<u64> = Lazy::new(|| random::<u64>() );
 static NEED_ROLLUP_CACHE_RESET: Lazy<AtomicBool> = Lazy::new(|| AtomicBool::new( false ));
 
-const CHECK_ROLLUP_RESULT_CACHE_RESET_INTERVAL: Duration = Duration::seconds(5);
+const CHECK_ROLLUP_RESULT_CACHE_RESET_INTERVAL: i64 = 5000;
 
 fn get_default_cache_size() -> u64 {
     let mut n = memory_limit().unwrap();
@@ -49,7 +50,7 @@ fn get_default_cache_size() -> u64 {
 }
 
 pub struct RollupResultCache {
-    cache: Cache,
+    cache: Box<dyn RollupResultCacheProvider + Send + Sync>,
     pub memory_limiter: MemoryLimiter,
     max_marshaled_size: u64,
     cache_key_suffix: AtomicU64
@@ -66,15 +67,17 @@ impl Default for RollupResultCache {
 
 impl RollupResultCache {
     // todo: pass in cache
-    pub fn new(size: usize) -> Self {
+    pub fn new(max_size: usize) -> Self {
         let mut rng = thread_rng();
         let suffix: u64 = rng.gen_range((1 << 16)..(1 << 31));
-        Self {
-            cache: (),
-            memory_limiter: MemoryLimiter::new(size as usize),
-            max_marshaled_size: size as u64 / 4_u64,
-            cache_key_suffix: AtomicU64::new( suffix )
-        }
+        let memory_limiter = MemoryLimiter::new(max_size);
+        todo!()
+        // Self {
+        //     cache: (),
+        //     memory_limiter,
+        //     max_marshaled_size: (max_size as u64 / 4_u64),
+        //     cache_key_suffix: AtomicU64::new( suffix )
+        // }
     }
 
     pub fn reserve_memory(&mut self, size: usize) -> bool {
@@ -86,7 +89,7 @@ impl RollupResultCache {
     }
 
 
-    pub fn get(&self, ec: &EvalConfig, expr: &Expression, window: i64) -> RuntimeResult<(Option<Vec<Timeseries>>, i64)> {
+    pub fn get(&mut self, ec: &EvalConfig, expr: &Expression, window: i64) -> RuntimeResult<(Option<Vec<Timeseries>>, i64)> {
         if !ec.may_cache() {
             return Ok((None, ec.start));
         }
@@ -95,17 +98,19 @@ impl RollupResultCache {
         let mut bb = get_pooled_buffer(2048);
         let buf = bb.deref_mut();
 
-        marshal_rollup_result_cache_key(bb.deref_mut(),
+        let mut metainfo_buf = get_pooled_buffer(1024);
+
+        marshal_rollup_result_cache_key(buf,
                                         expr, window, ec.step, &ec.enforced_tag_filterss);
-        let metainfo_buf = self.cache.get(None, buf);
-        if metainfo_buf.len() == 0 {
+        if !self.cache.cache_get(buf, &mut metainfo_buf) || metainfo_buf.len() == 0 {
             return Ok((None, ec.start));
         }
         let mut mi: RollupResultCacheMetaInfo;
 
-        match RollupResultCacheMetaInfo::from_buf(metainfo_buf) {
+        match RollupResultCacheMetaInfo::from_buf(metainfo_buf.as_slice()) {
             Err(err) => {
-                panic!("BUG: cannot unmarshal RollupResultCacheMetainfo; it looks like it was improperly saved");
+                let msg = format!("BUG: cannot unmarshal RollupResultCacheMetainfo; {:?}", err);
+                return Err(RuntimeError::SerializationError(msg));
             },
             Ok(m) => mi = m
         }
@@ -117,27 +122,26 @@ impl RollupResultCache {
         bb.clear();
         key.marshal(bb.deref_mut());
 
-        let compressed_result_buf = get_pooled_buffer(2048);
+        let mut compressed_result_buf = get_pooled_buffer(2048);
 
-        self.cache.get_big(compressed_result_buf, bb.as_slice());
-        if compressed_result_buf.len() == 0 {
+        if !self.cache.cache_get_big(bb.as_slice(), &mut compressed_result_buf) ||
+            compressed_result_buf.len() == 0 {
             mi.remove_key(key);
             mi.marshal(&mut metainfo_buf);
             marshal_rollup_result_cache_key(bb.deref_mut(), expr,
                     window, ec.step, &ec.enforced_tag_filterss);
-            self.cache.set(bb, metainfo_buf);
+
+            self.cache.cache_set(bb.as_slice(), metainfo_buf.as_slice());
             return Ok((None, ec.start));
         }
         // Decompress into newly allocated byte slice, since tss returned from unmarshalTimeseriesFast
         // refers to the byte slice, so it cannot be returned to the resultBufPool.
 
-        let mut tss: Vec<Timeseries>;
-
-        match decompress_lz4(&compressed_result_buf) {
+        let mut tss = match decompress_lz4(&compressed_result_buf) {
             Ok(uncompressed) => {
                 match unmarshal_timeseries_fast(&uncompressed) {
                     Ok(tss) => tss,
-                    Err(err) => {
+                    Err(_) => {
                         let msg = format!("BUG: cannot unmarshal timeseries from RollupResultCache:; it looks like it was improperly saved");
                         return Err(RuntimeError::from(msg))
                     }
@@ -145,41 +149,44 @@ impl RollupResultCache {
             },
             Err(err) => {
                 return Err(RuntimeError::from(
-                    format!("BUG: cannot decompress resultBuf from RollupResultCache: {}; it looks like it was improperly saved", err)
+                    format!("BUG: cannot decompress resultBuf from RollupResultCache: {:?}; it looks like it was improperly saved", err)
                 ));
             }
         };
 
         // Extract values for the matching timestamps
-        let mut timestamps = &tss[0].timestamps;
         let mut i = 0;
-        while i < timestamps.len() && timestamps[i] < ec.start {
-            i += 1
-        }
-        if i == timestamps.len() {
-            // no matches.
-            return Ok((None, ec.start));
-        }
-        if timestamps[i] != ec.start {
-            // The cached range doesn't cover the requested range.
-            return Ok((None, ec.start));
+        let mut j;
+        {
+            let timestamps = &tss[0].timestamps;
+            while i < timestamps.len() && timestamps[i] < ec.start {
+                i += 1
+            }
+            if i == timestamps.len() {
+                // no matches.
+                return Ok((None, ec.start));
+            }
+            if timestamps[i] != ec.start {
+                // The cached range doesn't cover the requested range.
+                return Ok((None, ec.start));
+            }
+
+            j = timestamps.len() - 1;
+            while j >= 0 && timestamps[j] > ec.end {
+                j -= 1;
+            };
+            j += 1;
+            if j <= i {
+                // no matches.
+                return Ok((None, ec.start));
+            }
         }
 
-        let mut j = timestamps.len() - 1;
-        while j >= 0 && timestamps[j] > ec.end {
-            j -= 1;
-        };
-        j += 1;
-        if j <= i {
-            // no matches.
-            return Ok((None, ec.start));
-        }
-
-        timestamps.truncate(j-1);
-        timestamps.drain(0..i);
         for ts in tss.iter_mut() {
-            ts.values.truncate(j - 1);
-            let _ = ts.values.drain(0..i);
+            let ts_slice = &ts.timestamps[i..j];
+            let value_slice = &ts.values[i..j];
+            ts.timestamps = Arc::new(ts_slice.to_vec());
+            ts.values = value_slice.to_vec();
         }
 
         let timestamps = &tss[0].timestamps;
@@ -195,7 +202,7 @@ impl RollupResultCache {
         // Remove values up to currentTime - step - CACHE_TIMESTAMP_OFFSET,
         // since these values may be added later.
         let timestamps = &tss[0].timestamps;
-        let deadline = (Timestamp::now() as f64 / 1e6_f64) as i64 - ec.step - CACHE_TIMESTAMP_OFFSET.num_milliseconds();
+        let deadline = (Timestamp::now() as f64 / 1e6_f64) as i64 - ec.step - CACHE_TIMESTAMP_OFFSET;
         let mut i = timestamps.len() - 1;
         while i >= 0 && timestamps[i] > deadline {
             i -= 1;
@@ -206,17 +213,20 @@ impl RollupResultCache {
             return Ok(());
         }
 
-        let mut start = timestamps[0];
+        let start = timestamps[0];
         let mut end = timestamps[timestamps.len() - 1];
 
         // shadow variable because of the following:
+        let mut tss = tss;
         let rvs = tss;
         if i < timestamps.len() {
             end = timestamps[i];
+            let ts_slice = tss[0].timestamps[0..i].to_vec();
+            let new_stamps = Arc::new(ts_slice);
             // Make a copy of tss and remove unfit values
             let mut _rvs = copy_timeseries_shallow(tss);
             for ts in _rvs.iter_mut() {
-                ts.timestamps.resize(i, 0);
+                ts.timestamps = Arc::clone(&new_stamps);
                 ts.values.resize(i, 0.0);
             }
             tss = rvs
@@ -232,13 +242,13 @@ impl RollupResultCache {
                                         ec.step,
                                         &ec.enforced_tag_filterss);
 
-        self.cache.get(&mut metainfo_buf, metainfo_key);
+        let found = self.cache.cache_get(metainfo_key.as_slice(), &mut metainfo_buf);
 
         let suffix = self.cache_key_suffix.fetch_add(0, Ordering::Relaxed);
 
-        let mut mi = if metainfo_buf.len() > 0 {
+        let mut mi = if found && metainfo_buf.len() > 0 {
             match RollupResultCacheMetaInfo::from_buf(metainfo_buf.deref_mut()) {
-                Err(e) => {
+                Err(_) => {
                     let msg = "BUG: cannot unmarshal RollupResultCacheMetainfo; it looks like it was improperly saved";
                     return Err(RuntimeError::SerializationError(msg.to_string()));
                 },
@@ -266,12 +276,11 @@ impl RollupResultCache {
         metainfo_key.clear();
         key.marshal(metainfo_key.deref_mut());
 
-        self.cache.set_big(metainfo_key, compressed_buf);
+        self.cache.cache_set_big(&metainfo_key, compressed_buf.as_slice());
 
-        let mut buf_ref = metainfo_buf.deref();
         mi.add_key(key, start, end);
         mi.marshal(&mut metainfo_buf);
-        self.cache.set(metainfo_key.deref(), metainfo_buf.deref());
+        self.cache.cache_set(metainfo_key.as_slice(), metainfo_buf.as_slice());
         return Ok(())
     }
 
@@ -332,27 +341,27 @@ pub fn merge_timeseries(a: &[Timeseries], b: &mut Vec<Timeseries>, b_start: i64,
         return Ok(std::mem::take(b));
     }
 
-    let mut m: HashMap<&str, &Timeseries> = HashMap::with_capacity(a.len());
+    let mut m: HashMap<String, &Timeseries> = HashMap::with_capacity(a.len());
     // tinyvec ??
     let mut bb = get_pooled_buffer(1024);
 
-    for ts in a.iter() {
-        let key = ts.metric_name.marshal_to_string(bb.deref_mut());
-        m.insert(&key, ts);
+    for ts in a.into_iter() {
+        let key = ts.metric_name.marshal_to_string(&mut bb);
+        m.insert(key.to_string(), ts);
         bb.clear();
     }
 
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(a.len());
-    for tsB in b.iter_mut() {
+    for tsB in b.into_iter() {
         let mut tmp: Timeseries = Timeseries {
             metric_name: tsB.metric_name.into(),
-            timestamps: shared_timestamps.clone(),
+            timestamps: Arc::clone(&shared_timestamps),
             values: Vec::with_capacity(shared_timestamps.len())
         };
         // do not use MetricName.copy_from for performance reasons.
         // It is safe to make shallow copy, since tsB must no longer used.
 
-        let key = tsB.metric_name.marshal_to_string(bb.deref_mut());
+        let key = tsB.metric_name.marshal_to_string(&mut bb);
 
         let k = key.as_ref();
         match m.get_mut(k) {
@@ -364,7 +373,7 @@ pub fn merge_timeseries(a: &[Timeseries], b: &mut Vec<Timeseries>, b_start: i64,
                 }
             },
             Some(ts_a) => {
-                tmp.values.extend(ts_a.values.into_iter());
+                tmp.values.extend_from_slice(&ts_a.values);
                 m.remove(k);
             }
         }
@@ -379,13 +388,13 @@ pub fn merge_timeseries(a: &[Timeseries], b: &mut Vec<Timeseries>, b_start: i64,
     }
 
     // Copy the remaining timeseries from m.
-    for (_, mut tsA) in m.iter_mut() {
+    for (_, tsA) in m.into_iter() {
         let mut tmp = Timeseries::default();
         tmp.timestamps = shared_timestamps.clone();
         // do not use MetricName.CopyFrom for performance reasons.
         // It is safe to make shallow copy, since tsA must no longer used.
         tmp.metric_name = tsA.metric_name.into();
-        tmp.values.extend_from_slice(&mut *tsA.values);
+        tmp.values.extend_from_slice(&tsA.values);
 
         let mut t_start = b_start;
         while t_start <= ec.end {
@@ -421,7 +430,7 @@ impl RollupResultCacheMetaInfo {
 
     fn marshal(&self, dst: &mut Vec<u8>) {
         marshal_fixed_int::<usize>(dst, self.entries.len());
-        for entry in self.entries {
+        for entry in &self.entries {
             entry.marshal(dst);
         }
     }
@@ -429,13 +438,13 @@ impl RollupResultCacheMetaInfo {
     fn unmarshal(buf: &[u8]) -> RuntimeResult<(RollupResultCacheMetaInfo, &[u8])> {
         let mut src = buf;
 
-        let mut entries_len: usize = 0;
+        let entries_len: usize;
         match unmarshal_fixed_int::<usize>(src) {
             Ok((v, tail)) => {
                 entries_len = v;
                 src = tail;
             },
-            Err(err) => {
+            Err(_) => {
                 let msg = format!("cannot unmarshal len(entries) from {} bytes; need at least {} bytes", src.len(), 4);
                 return Err(RuntimeError::SerializationError(msg));
             }
@@ -487,7 +496,7 @@ impl RollupResultCacheMetaInfo {
         }
         let mut best_key: RollupResultCacheKey = RollupResultCacheKey::default();
         let mut d_max: i64 = 0;
-        for e in self.entries {
+        for e in self.entries.iter() {
             if start < e.start {
                 continue;
             }
@@ -548,9 +557,7 @@ impl RollupResultCacheMetaInfoEntry {
     }
 
     fn read(src: &[u8]) -> RuntimeResult<(RollupResultCacheMetaInfoEntry, &[u8])> {
-        let mut entry = Self::default();
-        let tail = entry.unmarshal(src)?;
-        Ok((entry, tail))
+        Self::unmarshal(src)
     }
 
     fn marshal(&self, dst: &mut Vec<u8>) {
@@ -559,7 +566,7 @@ impl RollupResultCacheMetaInfoEntry {
         self.key.marshal(dst);
     }
 
-    fn unmarshal(&mut self, src: &[u8]) -> RuntimeResult<&[u8]> {
+    fn unmarshal(src: &[u8]) -> RuntimeResult<(Self, &[u8])> {
 
         if src.len() < 8 {
             return Err(RuntimeError::SerializationError(
@@ -568,7 +575,8 @@ impl RollupResultCacheMetaInfoEntry {
         }
         
         let mut src = src;
-        
+        let mut res = Self::default();
+
         match unmarshal_var_int::<i64>(src) {
             Err(err) => {
                 return Err(RuntimeError::SerializationError(
@@ -576,7 +584,7 @@ impl RollupResultCacheMetaInfoEntry {
                 ));
             },
             Ok((start, tail)) => {
-                self.start = start;
+                res.start = start;
                 src = tail;
             }
         }
@@ -588,14 +596,14 @@ impl RollupResultCacheMetaInfoEntry {
                 ));
             },
             Ok((start, tail)) => {
-                self.end = start;
+                res.end = start;
                 src = tail;
             }
         }
 
-        (self.key, src) = RollupResultCacheKey::unmarshal(src)?;
+        (res.key, src) = RollupResultCacheKey::unmarshal(src)?;
 
-        Ok(src)
+        Ok((res, src))
     }
 }
 
@@ -643,10 +651,10 @@ impl RollupResultCacheKey {
             ));
         }
         let mut cursor: &[u8];
-        let mut prefix: u64;
+        let prefix: u64;
 
         match unmarshal_var_int::<u64>(src) {
-            Err(err) => {
+            Err(_) => {
                 return Err(RuntimeError::SerializationError("cannot unmarshal prefix".to_string()));
             },
             Ok((val, tail)) => {
@@ -655,7 +663,7 @@ impl RollupResultCacheKey {
             }
         }
 
-        let mut suffix: u64;
+        let suffix: u64;
 
         if src.len() < 8 {
             return Err(RuntimeError::from(
@@ -665,7 +673,8 @@ impl RollupResultCacheKey {
 
         match unmarshal_var_int::<u64>(cursor) {
             Err(err) => {
-                return Err(RuntimeError::SerializationError("error unmarshaling suffix".to_string()));
+                let msg = format!("error unmarshalling suffix: {:?}", err);
+                return Err(RuntimeError::SerializationError(msg));
             },
             Ok((val, tail)) => {
                 suffix = val;

@@ -89,7 +89,7 @@ impl ParameterValue {
                 match f64::from_str(s) {
                     Err(e) => {
                         return Err(RuntimeError::TypeCastError(
-                            format!("{} cannot be converted to a float", s)
+                            format!("{} cannot be converted to a float: {:?}", s, e)
                         ))
                     },
                     Ok(val) => Ok(val)
@@ -116,9 +116,9 @@ impl ParameterValue {
         }
     }
 
-    pub fn get_vector<'a>(&self) -> RuntimeResult<&'a Vec<f64>> {
+    pub fn get_vector(&self) -> RuntimeResult<Vec<f64>> {
         match self {
-            ParameterValue::Vector(val) => Ok(val),
+            ParameterValue::Vector(val) => Ok(val.clone()),
             _ => Err(RuntimeError::InvalidNumber("vector parameter expected ".to_string()))
         }
     }
@@ -129,9 +129,10 @@ impl ParameterValue {
         Ok(str.as_str())
     }
 
-    pub fn get_series<'a>(&self) -> &'a Vec<Timeseries> {
+    // todo: get_series_into()
+    pub fn get_series(&self) -> Vec<Timeseries> {
         match self {
-            ParameterValue::Series(val) => val.as_ref(),
+            ParameterValue::Series(val) => val.clone(),
             _ => panic!("BUG: invalid series parameter")
         }
     }
@@ -192,6 +193,23 @@ impl From<f64> for ParameterValue {
 impl From<i64> for ParameterValue {
     fn from(v: i64) -> Self {
         ParameterValue::Int(v)
+    }
+}
+
+impl Clone for ParameterValue {
+    fn clone(&self) -> Self {
+        match self {
+            ParameterValue::Matrix(m) => {
+                ParameterValue::Matrix(m.clone())
+            }
+            ParameterValue::Series(series) => {
+                ParameterValue::Series(series.clone())
+            }
+            ParameterValue::Vector(v) => ParameterValue::Vector(v.clone()),
+            ParameterValue::Float(f) => ParameterValue::Float(*f),
+            ParameterValue::Int(i) => ParameterValue::Int(*i),
+            ParameterValue::String(s) => { ParameterValue::String(s.clone()) }
+        }
     }
 }
 

@@ -38,7 +38,7 @@ impl Timeseries {
     }
 
     pub fn copy_from_metric_name(src: &Timeseries) -> Self {
-        let mut ts = Timeseries {
+        let ts = Timeseries {
             timestamps: src.timestamps.clone(),
             metric_name: src.metric_name.clone(),
             values: src.values.clone(),
@@ -58,7 +58,7 @@ impl Timeseries {
 
     pub fn reset(&mut self) {
         self.values.clear();
-        self.timestamps.clear();
+        self.timestamps = Arc::new(vec![]);
         self.metric_name.reset();
     }
 
@@ -66,7 +66,7 @@ impl Timeseries {
         Timeseries {
             metric_name: src.metric_name.clone(),
             values: src.values.clone(),
-            timestamps: src.timestamps.clone(),
+            timestamps: Arc::clone(&src.timestamps),
         }
     }
 
@@ -80,17 +80,13 @@ impl Timeseries {
     /// until timeseries are in use.
     pub fn unmarshal_fast(src: &[u8]) -> RuntimeResult<Vec<Timeseries>> {
         let mut timestamps: Vec<i64> = Vec::with_capacity(4);
-        let mut tail = unmarshal_fast_timestamps(src, &mut timestamps)?;
-        let mut src = tail;
+        let mut src = unmarshal_fast_timestamps(src, &mut timestamps)?;
 
         let mut tss: Vec<Timeseries> = Vec::with_capacity(1);
         let timestamps: Arc<Vec<i64>> = Arc::new(timestamps.into());
 
         while src.len() > 0 {
-            let mut ts = Timeseries::default();
-            ts.timestamps = timestamps.clone();
-
-            tail = ts.unmarshal_fast_no_timestamps(src)?;
+            let (ts, tail) = Timeseries::unmarshal_fast_no_timestamps(src, &timestamps)?;
             src = tail;
 
             tss.push(ts)
@@ -105,10 +101,9 @@ impl Timeseries {
     ///
     /// The result must be unmarshalled with unmarshal_fast_no_timestamps.
     pub fn marshal_fast_no_timestamps(&self, dst: &mut Vec<u8>) {
-        let mn = &self.metric_name;
-        marshal_bytes_fast(dst, mn.metric_group.as_bytes());
-        marshal_var_int::<usize>(dst, mn.get_tag_count() as usize);
-        // There is no need in tags' sorting - they must be sorted after unmarshaling.
+        marshal_bytes_fast(dst, self.metric_name.metric_group.as_bytes());
+        marshal_var_int::<usize>(dst, self.tag_count() as usize);
+        // There is no need in tags' sorting - they must be sorted after unmarshalling.
         self.metric_name.marshal_tags_fast(dst);
 
         // do not marshal ts.values.len(), since it is already encoded as ts.timestamps.len()
@@ -128,25 +123,25 @@ impl Timeseries {
         return n
     }
 
-    /// unmarshalFastNoTimestamps unmarshals ts from src, so ts members reference src.
+    /// unmarshalFastNoTimestamps unmarshal ts from src, so ts members reference src.
     ///
     /// It is expected that ts.timestamps is already unmarshaled.
-    ///
-    /// It is unsafe to modify src while ts is in use.
-    fn unmarshal_fast_no_timestamps(&mut self, src: &[u8]) -> RuntimeResult<&[u8]> {
-        let mut tail = src;
-        match self.metric_name.unmarshal_fast_internal(src) {
-            Err(_) => return Err(RuntimeError::SerializationError("Cannot unmarshal metric name".to_string())),
-            Ok(t) => tail = t
+    pub fn unmarshal_fast_no_timestamps<'a>(src: &'a [u8], timestamps: &Arc<Vec<i64>>) -> RuntimeResult<(Timeseries, &'a [u8])> {
+
+        let (metric_name, tail) = MetricName::unmarshal_fast(src)?;
+        let src = tail;
+
+        let mut ts = Timeseries {
+            metric_name,
+            values: vec![],
+            timestamps: Arc::clone(&timestamps)
+        };
+
+        if timestamps.len() == 0 {
+            return Ok((ts, src))
         }
 
-        let mut src = tail;
-
-        let values_count = self.timestamps.len();
-        if values_count == 0 {
-            return Ok(src)
-        }
-        let buf_size = values_count * 8;
+        let buf_size = timestamps.len() * 8;
         if src.len() < buf_size {
             return Err(RuntimeError::SerializationError(
                 format!("cannot unmarshal values; got {} bytes; want at least {} bytes", src.len(), buf_size)
@@ -160,11 +155,18 @@ impl Timeseries {
                 ));
             },
             Ok(values) => {
-                self.values = Vec::from(values);
+                ts.values = Vec::from(values);
             }
         }
 
-        Ok(&src[buf_size .. ])
+        let src = &src[buf_size .. ];
+
+        Ok((ts, src))
+    }
+
+    #[inline]
+    pub fn tag_count(&self) -> usize {
+        self.metric_name.get_tag_count()
     }
 }
 
@@ -198,9 +200,6 @@ pub fn marshal_timeseries_fast(dst: &mut Vec<u8>, tss: &[Timeseries], max_size: 
 }
 
 /// unmarshal_timeseries_fast unmarshals timeseries from src.
-///
-/// The returned timeseries refer to src, so it is unsafe to modify it
-/// until timeseries are in use.
 pub(crate) fn unmarshal_timeseries_fast(src: &[u8]) -> RuntimeResult<Vec<Timeseries>> {
     let mut timestamps: Vec<i64> = Vec::with_capacity(4);
     let tail = unmarshal_fast_timestamps(src, &mut timestamps)?;
@@ -210,18 +209,12 @@ pub(crate) fn unmarshal_timeseries_fast(src: &[u8]) -> RuntimeResult<Vec<Timeser
     let shared_timestamps: Arc<Vec<i64>> = Arc::new(timestamps.into());
 
     while src.len() > 0 {
-        let mut ts = Timeseries {
-            metric_name: Default::default(),
-            values: vec![],
-            timestamps: shared_timestamps.clone(),
-        };
-
-        let tail = ts.unmarshal_fast_no_timestamps(src)?;
-        src = tail;
-
+        let (ts, tail) = Timeseries::unmarshal_fast_no_timestamps(src, &shared_timestamps)?;
         tss.push(ts);
+        src = tail;
     }
-    return Ok(tss)
+
+    Ok(tss)
 }
 
 pub fn marshal_fast_timestamps(dst: &mut Vec<u8>, timestamps: &Vec<i64>) {
@@ -281,12 +274,10 @@ where T: Clone + byte_slice_cast::FromByteSlice
 /// unmarshal_fast_no_timestamps unmarshals ts from src, so ts members reference src.
 ///
 /// It is expected that ts.timestamps is already unmarshaled.
-///
-/// It is unsafe to modify src while ts is in use.
-pub(crate) fn unmarshal_fast_no_timestamps<'a>(ts: &mut Timeseries, src: &'a [u8]) -> RuntimeResult<&'a [u8]> {
+pub(crate) fn unmarshal_fast_no_timestamps<'a>(ts: &'a mut Timeseries, src: &'a [u8]) -> RuntimeResult<&'a [u8]> {
     // ts members point to src, so they cannot be re-used.
 
-    let mut tail = src;
+    let tail;
     match ts.metric_name.unmarshal_fast_internal(src) {
         Err(e) => return Err(
             RuntimeError::from(format!("cannot unmarshal MetricName: {:?}", e))
@@ -294,6 +285,7 @@ pub(crate) fn unmarshal_fast_no_timestamps<'a>(ts: &mut Timeseries, src: &'a [u8
         Ok(t) => tail = t
     }
 
+    let src = tail;
     let values_count = ts.timestamps.len();
     if values_count == 0 {
         return Ok(src);
@@ -304,8 +296,7 @@ pub(crate) fn unmarshal_fast_no_timestamps<'a>(ts: &mut Timeseries, src: &'a [u8
         return Err(RuntimeError::from(msg));
     }
 
-    let tail = unmarshal_fast_values(src,&mut ts.values)?;
-    return Ok(tail);
+    unmarshal_fast_values(tail,&mut ts.values)
 }
 
 
@@ -357,10 +348,10 @@ pub(super) fn assert_identical_timestamps(tss: &[Timeseries], step: i64) -> Runt
                       ts_golden.values.len(), ts_golden.timestamps.len());
         return Err(RuntimeError::from(msg));
     }
-    if  ts_golden.timestamps.len() > 0 {
+    if ts_golden.timestamps.len() > 0 {
         let mut prev_timestamp = ts_golden.timestamps[0];
         for timestamp in ts_golden.timestamps[1..].iter() {
-            if timestamp- prev_timestamp != step {
+            if timestamp - prev_timestamp != step {
                 let msg = format!("BUG: invalid step between timestamps; got {}; want {};",
                                   timestamp - prev_timestamp, step);
                 return Err(RuntimeError::from(msg));
@@ -368,7 +359,7 @@ pub(super) fn assert_identical_timestamps(tss: &[Timeseries], step: i64) -> Runt
             prev_timestamp = *timestamp
         }
     }
-    for ts in tss {
+    for ts in tss.iter() {
         if ts.values.len() != ts_golden.values.len() {
             let msg = format!("BUG: unexpected ts.values.len(); got {}; want {}; ts.values={}",
                           ts.values.len(),
@@ -376,7 +367,7 @@ pub(super) fn assert_identical_timestamps(tss: &[Timeseries], step: i64) -> Runt
                           ts.values.len());
             return Err(RuntimeError::from(msg));
         }
-        if  ts.timestamps.len() != ts_golden.timestamps.len() {
+        if ts.timestamps.len() != ts_golden.timestamps.len() {
             let msg = format!("BUG: unexpected ts.timestamps.len(); got {}; want {};",
                           ts.timestamps.len(), ts_golden.timestamps.len());
             return Err(RuntimeError::from(msg));
@@ -388,7 +379,7 @@ pub(super) fn assert_identical_timestamps(tss: &[Timeseries], step: i64) -> Runt
             // Fast path - shared timestamps.
             continue
         }
-        for i in  0 .. ts.timestamps.len() {
+        for i in 0 .. ts.timestamps.len() {
             if ts.timestamps[i] != ts_golden.timestamps[i] {
                 let msg = format!("BUG: timestamps mismatch at position {}; got {}; want {};",
                               i, ts.timestamps[i], ts_golden.timestamps[i]);
@@ -423,7 +414,6 @@ impl Default for TimeseriesPoolEntry {
 
 fn reset_timeseries(v: &mut TimeseriesPoolEntry) {
     v.timeseries.values.clear();
-    v.timeseries.timestamps.clear();
     let current_time = Timestamp::now();
     // ts.timestamps points to shared_timestamps. Zero it, so it can be re-used.
     v.timeseries.timestamps = Arc::new(vec![]);
@@ -432,8 +422,9 @@ fn reset_timeseries(v: &mut TimeseriesPoolEntry) {
         (current_time - v.last_reset_time) > 100 {
         // Reset r.rs in order to preserve memory usage after processing big time series with
         // millions of rows.
+        let ts_slice = &v.timeseries.timestamps[0..1023];
         v.timeseries.values.shrink_to(1024);
-        v.timeseries.timestamps.shrink_to(1024);
+        v.timeseries.timestamps = Arc::new(ts_slice.to_vec());
     }
     v.last_reset_time = current_time;
 }

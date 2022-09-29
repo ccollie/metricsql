@@ -23,7 +23,7 @@ impl MemoryLimiter {
 
     pub fn get(&mut self, n: usize) -> bool {
         // read() will only block when `producer_thread` is holding a write lock
-        if let Ok(usage) = self.inner.lock() {
+        if let Ok(mut usage) = self.inner.lock() {
             if n <= self.max_size && self.max_size-n >= *usage {
                 *usage += n;
                 true
@@ -36,7 +36,7 @@ impl MemoryLimiter {
     }
 
     pub fn put(&mut self, n: usize) -> RuntimeResult<()> {
-        let inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().unwrap();
         if n > *inner {
             return Err(RuntimeError::from(format!("MemoryLimiter: n={} cannot exceed {}", n, *inner)));
         }

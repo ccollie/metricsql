@@ -21,7 +21,7 @@ impl DurationEvaluator {
 }
 
 impl Evaluator for DurationEvaluator {
-    fn eval(&self, ctx: &mut Context, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
+    fn eval(&self, _ctx: &mut Context, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
         let d = self.expr.duration(ec.step);
         let d_sec: f64 = (d / 1000) as f64;
         Ok(eval_number(ec, d_sec))

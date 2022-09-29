@@ -1,7 +1,10 @@
+use std::cell::RefCell;
+use std::rc::Rc;
 use clone_dyn::clone_dyn;
 
 use crate::functions::rollup::TimeseriesMap;
 use crate::functions::types::ParameterValue;
+use crate::traits::Timestamp;
 
 #[derive(Default, Clone)]
 pub(crate) struct RollupFuncArg {
@@ -9,7 +12,7 @@ pub(crate) struct RollupFuncArg {
     pub(super) prev_value: f64,
 
     /// The timestamp for prev_value.
-    pub(super) prev_timestamp: i64,
+    pub(super) prev_timestamp: Timestamp,
 
     /// Values that fit window ending at curr_timestamp.
     pub(crate) values: Vec<f64>,
@@ -24,7 +27,7 @@ pub(crate) struct RollupFuncArg {
     pub(crate) real_next_value: f64,
 
     /// Current timestamp for rollup evaluation.
-    pub(super) curr_timestamp: i64,
+    pub(super) curr_timestamp: Timestamp,
 
     /// Index for the currently evaluated point relative to time range for query evaluation.
     pub(super) idx: usize,
@@ -32,7 +35,7 @@ pub(crate) struct RollupFuncArg {
     /// Time window for rollup calculations.
     pub(super) window: i64,
 
-    pub(super) tsm: Option<TimeseriesMap>,
+    pub(super) tsm: Option<Rc<RefCell<TimeseriesMap>>>,
 }
 
 impl RollupFuncArg {
@@ -44,8 +47,8 @@ impl RollupFuncArg {
         self.curr_timestamp = 0;
         self.idx = 0;
         self.window = 0;
-        if let Some(mut tsm) = self.tsm {
-            tsm.reset()
+        if let Some(tsm) = self.tsm {
+            tsm.borrow_mut().reset()
         }
     }
 }
@@ -68,3 +71,44 @@ pub trait NewRollupFn: Fn(&Vec<ParameterValue>) -> &Box<dyn RollupFn> {}
 impl<T> NewRollupFn for T where T: Fn(&Vec<ParameterValue>) -> &Box<dyn RollupFn> {}
 
 pub(super) type CountFilter = fn(values: &[f64], val: f64) -> i32;
+
+pub(crate) trait RollupHandler {
+    fn eval(&self, arg: &mut RollupFuncArg) -> f64;
+}
+
+pub(crate) enum RollupHandlerEnum {
+    Wrapped(RollupFunc),
+    Fake(&'static str),
+    General(Box<dyn RollupFn>),
+}
+
+impl RollupHandlerEnum {
+    pub fn wrap(f: RollupFunc) -> Self {
+        RollupHandlerEnum::Wrapped(f)
+    }
+
+    pub fn fake(name: &'static str) -> Self {
+        RollupHandlerEnum::Fake(name)
+    }
+
+    pub fn is_wrapped(&self) -> bool {
+        match self {
+            RollupHandlerEnum::Wrapped(_) => true,
+            _ => false
+        }
+    }
+}
+
+impl RollupHandler for RollupHandlerEnum {
+    fn eval(&self, arg: &mut RollupFuncArg) -> f64 {
+        match self {
+            RollupHandlerEnum::Wrapped(wrapped) => wrapped(arg),
+            RollupHandlerEnum::Fake(name) => {
+                panic!("BUG: {} shouldn't be called", name);
+            },
+            RollupHandlerEnum::General(df) => df(arg)
+        }
+    }
+}
+
+pub(crate) type RollupHandlerFactory = fn(&Vec<ParameterValue>) -> RollupHandlerEnum;

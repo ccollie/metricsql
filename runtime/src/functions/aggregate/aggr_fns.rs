@@ -1,10 +1,11 @@
-use std::borrow::Cow;
+use std::borrow::{BorrowMut, Cow};
 use std::collections::{BTreeMap, HashMap};
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::ops::{Deref, DerefMut};
+use std::sync::RwLock;
 
 use lockfree_object_pool::LinearReusable;
-use phf::phf_map;
+use once_cell::sync::Lazy;
 use tinyvec::*;
 use xxhash_rust::xxh3::Xxh3;
 
@@ -52,7 +53,7 @@ impl<T> AggrFn for T where T: Fn(&mut AggrFuncArg) -> RuntimeResult<Vec<Timeseri
 fn new_aggr_func(afe: fn(tss: &mut Vec<Timeseries>)) -> impl AggrFn {
     move |afa: &mut AggrFuncArg| -> RuntimeResult<Vec<Timeseries>> {
         let mut tss = get_aggr_timeseries(&afa.args)?;
-        aggr_func_ext(move |tss: &mut Vec<Timeseries>, modifier: &Option<AggregateModifier>| {
+        aggr_func_ext(move |tss: &mut Vec<Timeseries>, _: &Option<AggregateModifier>| {
             afe(tss);
             tss.shrink_to(1);
             std::mem::take(tss)
@@ -62,7 +63,7 @@ fn new_aggr_func(afe: fn(tss: &mut Vec<Timeseries>)) -> impl AggrFn {
 }
 
 fn get_aggr_timeseries(args: &Vec<ParameterValue>) -> RuntimeResult<&mut Vec<Timeseries>> {
-    let mut tss = args[0].get_series_mut();
+    let tss = args[0].get_series_mut();
     for i in 1 .. args.len() {
         let other = args[i].get_series_mut();
         tss.append(other);
@@ -75,7 +76,7 @@ trait AggrFnExt: FnMut(&mut Vec<Timeseries>, &Option<AggregateModifier>) -> Vec<
 impl<T> AggrFnExt for T where T: FnMut(&mut Vec<Timeseries>, &Option<AggregateModifier>) -> Vec<Timeseries> {}
 
 fn aggr_func_ext(
-    afe: impl AggrFnExt,
+    mut afe: impl AggrFnExt,
     arg_orig: &mut Vec<Timeseries>,
     modifier: &Option<AggregateModifier>,
     max_series: usize,
@@ -88,12 +89,12 @@ fn aggr_func_ext(
     let mut bb = get_pooled_buffer(256);
 
     let mut i = 0;
-    for mut ts in arg.into_iter() {
+    for ts in arg.iter_mut() {
         ts.metric_name.remove_group_tags(modifier);
-        let key = ts.metric_name.marshal_to_string(bb.deref_mut());
+        let key = &ts.metric_name.marshal_to_string(&mut bb);
 
         if keep_original {
-            std::mem::swap(&mut ts, &mut arg_orig[i]);
+            // TODO: !!!!! std::mem::swap(&mut ts, &mut arg_orig[i]);
         }
 
         let k = key.as_ref();
@@ -104,11 +105,12 @@ fn aggr_func_ext(
                     // We already reached time series limit after grouping. Skip other time series.
                     continue;
                 }
-                let value = vec![ts];
-                ve.insert(value);
+                // TODO: !!!!!
+                // let value = vec![ts];
+                // ve.insert(value);
             },
-            Occupied(oe) => {
-                oe.get().push(ts);
+            Occupied(mut oe) => {
+               // TODO!!! oe.get_mut().push(ts);
             }
         }
 
@@ -138,7 +140,7 @@ fn aggr_func_ext(
 
 fn aggr_func_any(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut tss = get_aggr_timeseries(&afa.args)?;
-    let afe = move |tss: &mut Vec<Timeseries>, modifier| {
+    let afe = move |tss: &mut Vec<Timeseries>, _modifier_: &Option<AggregateModifier>| {
         tss.drain(0..).collect()
     };
     let mut limit = afa.limit;
@@ -150,7 +152,7 @@ fn aggr_func_any(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
 }
 
 fn aggr_func_group(tss: &mut Vec<Timeseries>) {
-    for dv in tss[0].values.iter_mut() {
+    for i in 0 .. tss[0].values.len() {
         let mut v = f64::NAN;
         for (i, ts) in tss.iter().enumerate() {
             if ts.values[i].is_nan() {
@@ -158,7 +160,7 @@ fn aggr_func_group(tss: &mut Vec<Timeseries>) {
             }
             v = 1.0;
         }
-        *dv = v;
+        tss[0].values[i] = v;
     }
 }
 
@@ -167,12 +169,10 @@ fn aggr_func_sum(tss: &mut Vec<Timeseries>) {
         return;
     }
 
-    let mut i: usize = 0;
-
-    for dv in tss[0].values.iter_mut() {
+    for i in 0 .. tss[0].values.len() {
         let mut sum: f64 = 0.0;
         let mut count: usize = 0;
-        for ts in tss {
+        for ts in tss.iter() {
             let v = ts.values[i];
             if v.is_nan() {
                 continue;
@@ -180,8 +180,12 @@ fn aggr_func_sum(tss: &mut Vec<Timeseries>) {
             sum += v;
             count += 1;
         }
-        *dv = sum;
-        i += i;
+
+        if count == 0 {
+            sum = f64::NAN
+        }
+
+        tss[0].values[i] = sum;
     }
 }
 
@@ -190,12 +194,10 @@ fn aggr_func_sum2(tss: &mut Vec<Timeseries>) {
         return
     }
 
-    let mut i: usize = 0;
-
-    for v in tss[0].values.iter_mut() {
+    for i in 0 .. tss[0].values.len() {
         let mut sum2: f64 = 0.0;
         let mut count: usize = 0;
-        for ts in tss {
+        for ts in tss.iter() {
             let x = ts.values[i];
             if x.is_nan() {
                 continue;
@@ -203,11 +205,12 @@ fn aggr_func_sum2(tss: &mut Vec<Timeseries>) {
             sum2 += x * x;
             count += 1;
         }
+
         if count == 0 {
             sum2 = f64::NAN;
         }
-        *v = sum2;
-        i += i;
+
+        tss[0].values[i] = sum2;
     }
 }
 
@@ -219,7 +222,7 @@ fn aggr_func_geomean(tss: &mut Vec<Timeseries>) {
     for i in 0..tss[0].values.len() {
         let mut p = 1.0;
         let mut count = 0;
-        for ts in tss {
+        for ts in tss.iter() {
             let v = ts.values[i];
             if v.is_nan() {
                 continue;
@@ -230,6 +233,7 @@ fn aggr_func_geomean(tss: &mut Vec<Timeseries>) {
         if count == 0 {
             p = f64::NAN
         }
+
         tss[0].values[i] = p.powf((1 / count) as f64);
     }
 }
@@ -245,20 +249,18 @@ fn aggr_func_histogram(tss: &mut Vec<Timeseries>) {
         }
 
         for bucket in h.non_zero_buckets() {
-            let mut ts = match m.entry(bucket.vm_range.to_string()) {
-                Vacant(entry) => {
+            let ts = m.entry(bucket.vm_range.to_string())
+                .or_insert_with(|| {
                     let mut ts = Timeseries::copy_from_shallow_timestamps(&tss[0]);
                     ts.metric_name.remove_tag("vmrange");
                     ts.metric_name.add_tag("vmrange", bucket.vm_range);
 
-                    // todo: should be a more efficient way to do this
-                    for k in 0 .. ts.values.len() {
+                    // todo(perf): should be a more efficient way to do this
+                    for k in 0..ts.values.len() {
                         ts.values[k] = 0.0;
                     }
-                    entry.insert(ts)
-                },
-                Occupied(mut entry) => entry.get_mut(),
-            };
+                    ts
+                });
             ts.values[i] = bucket.count as f64;
         }
     }
@@ -274,18 +276,15 @@ fn aggr_func_min(tss: &mut Vec<Timeseries>) {
         return
     }
 
-    let mut i = 0;
-
-    for min in tss[0].values.iter_mut() {
-        for ts in tss {
-            let v = ts.values[i];
-            if min.is_nan() || v < *min {
-                *min = v;
+    for i in 0 .. tss[0].values.len() {
+        let min = tss[0].values[i];
+        for j in 0 .. tss.len() {
+            let v = tss[j].values[i];
+            if min.is_nan() || v < min {
+                tss[0].values[i] = v;
             }
         }
-        i += 1;
     }
-
 }
 
 fn aggr_func_max(tss: &mut Vec<Timeseries>) {
@@ -293,15 +292,15 @@ fn aggr_func_max(tss: &mut Vec<Timeseries>) {
         // Fast path - nothing to max.
         return
     }
-    let mut i = 0;
-    for max in tss[0].values.iter_mut() {
-        for ts in tss.iter() {
-            let v = ts.values[i];
-            if max.is_nan() || v > *max { 
-                *max = v;
+
+    for i in 0 .. tss[0].values.len() {
+        let max = tss[0].values[i];
+        for j in 0 .. tss.len() {
+            let v = tss[j].values[i];
+            if max.is_nan() || v > max {
+                tss[0].values[i] = v;
             }
         }
-        i += 1;
     }
 }
 
@@ -311,14 +310,13 @@ fn aggr_func_avg(tss: &mut Vec<Timeseries>) {
         return;
     }
 
-    let mut i = 0;
-    for dst_value in tss[0].values.iter_mut() {
+    for j in 0 .. tss[0].values.len() {
         // do not use `Rapid calculation methods` at https://en.wikipedia.org/wiki/Standard_deviation,
         // since it is slower and has no obvious benefits in increased precision.
         let mut sum: f64 = 0.0;
         let mut count: usize = 0;
-        for ts in tss {
-            let v = ts.values[i];
+        for ts in tss.iter() {
+            let v = ts.values[j];
             if v.is_nan() {
                 continue;
             }
@@ -329,9 +327,7 @@ fn aggr_func_avg(tss: &mut Vec<Timeseries>) {
         if count > 0 {
             avg = sum / count as f64;
         }
-        *dst_value = avg;
-
-        i += 1;
+        tss[0].values[j] = avg;
     }
 }
 
@@ -363,15 +359,14 @@ fn aggr_func_stdvar(tss: &mut Vec<Timeseries>)  {
         return
     }
 
-    let mut i = 0;
-    for dst_value in tss[0].values.iter_mut() {
+    for k in 0 .. tss[0].values.len() {
         // See `Rapid calculation methods` at https://en.wikipedia.org/wiki/Standard_deviation
         let mut avg: f64 = 0.0;
         let mut count: f64 = 0.0;
         let mut q = 0.0;
 
         for ts in tss.iter() {
-            let v = ts.values[i];
+            let v = ts.values[k];
             if v.is_nan() {
                 continue;
             }
@@ -380,20 +375,20 @@ fn aggr_func_stdvar(tss: &mut Vec<Timeseries>)  {
             q += (v - avg) * (v - avg_new);
             avg = avg_new
         }
-        if count == 0.0 {
-            *dst_value = f64::NAN
+
+        tss[0].values[k] = if count == 0.0 {
+            f64::NAN
         } else {
-            *dst_value = q / count;
-        }
-        i += 1;
+            q / count
+        };
     }
 }
 
 fn aggr_func_count(tss: &mut Vec<Timeseries>) {
-    for dst_val in tss[0].values.iter_mut() {
+    for i in 0 .. tss[0].values.len() {
         let mut count = 0;
-        for (i, ts) in tss.iter().enumerate() {
-            if ts.values[i].is_nan() {
+        for (j, ts) in tss.iter().enumerate() {
+            if ts.values[j].is_nan() {
                 continue;
             }
             count += 1;
@@ -402,15 +397,15 @@ fn aggr_func_count(tss: &mut Vec<Timeseries>) {
         if count == 0 {
             v = f64::NAN
         }
-        *dst_val = v;
+
+        tss[0].values[i] = v;
     }
 }
 
 fn aggr_func_distinct(tss: &mut Vec<Timeseries>) {
     let mut values: Vec<f64> = Vec::with_capacity(tss.len());
 
-    let mut i = 0;
-    for dst_value in tss[0].values.iter_mut() {
+    for i in 0 .. tss[0].values.len() {
         for ts in tss.iter() {
             let v = ts.values[i];
             if v.is_nan() {
@@ -421,7 +416,7 @@ fn aggr_func_distinct(tss: &mut Vec<Timeseries>) {
         values.sort_by(|a, b| a.total_cmp(&b));
         values.dedup();
         let n = values.len();
-        *dst_value = if n == 0 { f64::NAN } else { n as f64 };
+        tss[0].values[i] = if n == 0 { f64::NAN } else { n as f64 };
 
         values.clear();
     }
@@ -429,23 +424,21 @@ fn aggr_func_distinct(tss: &mut Vec<Timeseries>) {
 
 fn aggr_func_mode(tss: &mut Vec<Timeseries>) {
     let mut a: Vec<f64> = Vec::with_capacity(tss.len());
-    let mut i = 0;
-    for dst_value in tss[0].values.iter_mut() {
-        for ts in tss {
+    for i in 0 .. tss[0].values.len() {
+        for ts in tss.iter() {
             let v = ts.values[i];
             if !v.is_nan() {
                 a.push(v);
             }
         }
-        *dst_value = mode_no_nans(f64::NAN, &mut a);
+        tss[0].values[i] = mode_no_nans(f64::NAN, &mut a);
         a.clear();
-        i += 1;
     }
 }
 
 fn aggr_func_zscore(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut tss = get_aggr_timeseries(&afa.args)?;
-    let afe = |tss: &mut Vec<Timeseries>, modifier: &Option<AggregateModifier>| {
+    let afe = |tss: &mut Vec<Timeseries>, _: &Option<AggregateModifier>| {
         for i in 0..tss[0].values.len() {
             // Calculate avg and stddev for tss points at position i.
             // See `Rapid calculation methods` at https://en.wikipedia.org/wiki/Standard_deviation
@@ -453,7 +446,7 @@ fn aggr_func_zscore(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
             let mut count: u32 = 0;
             let mut q: f64 = 0.0;
 
-            for ts in tss {
+            for ts in tss.iter() {
                 let v = ts.values[i];
                 if v.is_nan() {
                     continue;
@@ -493,21 +486,24 @@ fn aggr_func_zscore(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
 
 
 fn aggr_func_count_values(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let dst_label = afa.args[0].get_str()?;
+    let dst_label = afa.args[0].get_string()?;
 
     // Remove dst_label from grouping like Prometheus does.
-    if let Some(mut modifier) = &afa.modifier {
-        match modifier.op {
-            AggregateModifierOp::Without => {
-                modifier.args.push( dst_label.to_string());
-            },
-            AggregateModifierOp::By => {
-                modifier.args.retain(|x| x != &dst_label);
+    match afa.modifier.borrow_mut() {
+        None => {},
+        Some(modifier) => {
+            match modifier.op {
+                AggregateModifierOp::Without => {
+                    modifier.args.push( dst_label);
+                },
+                AggregateModifierOp::By => {
+                    modifier.args.retain(|x| x != &dst_label);
+                }
             }
         }
     }
 
-    let afe = |tss: &mut Vec<Timeseries>, modifier: &Option<AggregateModifier>| -> Vec<Timeseries> {
+    let afe = move |tss: &mut Vec<Timeseries>, _: &Option<AggregateModifier>| -> Vec<Timeseries> {
         let mut values: Vec<f64> = Vec::with_capacity(16); // todo: calculate initial capacity
         for ts in tss.iter() {
             for v in ts.values.iter() {
@@ -530,7 +526,7 @@ fn aggr_func_count_values(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries
             let mut i = 0;
             for dst_value in dst.values.iter_mut() {
                 let mut count = 0;
-                for ts in tss {
+                for ts in tss.iter() {
                     if ts.values[i] == v {
                         count += 1;
                     }
@@ -544,16 +540,15 @@ fn aggr_func_count_values(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries
         return rvs
     };
 
-    let mut series = get_series(afa, 1)?;
-    aggr_func_ext(afe, &mut series, &afa.modifier, afa.limit, false)
+    let series = get_series_mut(afa, 1)?;
+    aggr_func_ext(afe, series, &afa.modifier, afa.limit, false)
 }
 
 fn new_aggr_func_topk(is_reverse: bool) -> impl AggrFn {
     move |afa: &mut AggrFuncArg| -> RuntimeResult<Vec<Timeseries>> {
         let ks = afa.args[0].get_vector()?;
-        let (left, right) = afa.args.split_at_mut(1);
 
-        let afe = |tss: &mut Vec<Timeseries>, modifier: &Option<AggregateModifier>| -> Vec<Timeseries> {
+        let afe = |tss: &mut Vec<Timeseries>, _modifier: &Option<AggregateModifier>| -> Vec<Timeseries> {
             for n in 0..tss[0].values.len() {
                 tss.sort_by(|first, second| {
                     let a = first.values[n];
@@ -581,19 +576,19 @@ fn new_aggr_func_topk(is_reverse: bool) -> impl AggrFn {
 fn new_aggr_func_range_topk(f: fn(values: &[f64]) -> f64, is_reverse: bool) -> impl AggrFn {
     return move |afa: &mut AggrFuncArg| -> RuntimeResult<Vec<Timeseries>> {
         let args_len = afa.args.len();
-        let ks: &Vec<f64> = afa.args[0].get_vector()?;
+        let ks: Vec<f64> = afa.args[0].get_vector()?;
 
         let remaining_sum_tag_name = if args_len == 3 {
-            afa.args[2].get_str()?
+            afa.args[2].get_string()?
         } else {
-            ""
+            "".to_string()
         };
 
         let afe = move |tss: &mut Vec<Timeseries>, modifier: &Option<AggregateModifier>| {
             return get_range_topk_timeseries(tss,
                                              modifier,
                                              &ks,
-                                             remaining_sum_tag_name,
+                                             &remaining_sum_tag_name,
                                              f,
                                              is_reverse);
         };
@@ -625,8 +620,8 @@ where F: Fn(&[f64]) -> f64,
         });
     }
     maxs.sort_by(move |first, second| {
-        let mut a = first.value;
-        let mut b = second.value;
+        let a = first.value;
+        let b = second.value;
         if is_reverse {
             b.total_cmp(&a)
         } else {
@@ -634,7 +629,7 @@ where F: Fn(&[f64]) -> f64,
         }
     });
 
-    let mut series = maxs.into_iter()
+    let series = maxs.into_iter()
         .map(|x| *x.ts);
 
     tss.extend(series);
@@ -683,8 +678,8 @@ fn get_remaining_sum_timeseries(
         let mut count = 0;
 
         for j in 0 .. tss.len() - kn {
-            let mut ts = &tss[j];
-            let mut v = ts.values[i];
+            let ts = &tss[j];
+            let v = ts.values[i];
             if v.is_nan() {
                 continue;
             }
@@ -699,10 +694,13 @@ fn get_remaining_sum_timeseries(
     return Some(dst);
 }
 
-fn fill_nans_at_idx(idx: usize, k: f64, tss: &Vec<Timeseries>) {
+fn fill_nans_at_idx(idx: usize, k: f64, tss: &mut Vec<Timeseries>) {
     let kn = get_int_k(k, tss.len());
-    for ts in &tss[0..tss.len() - kn] {
-        ts.values[idx] = f64::NAN
+
+    let mut i = 0;
+    while i < tss.len() - kn {
+        tss[i].values[idx] = f64::NAN;
+        i += 1;
     }
 }
 
@@ -737,7 +735,7 @@ fn min_value(values: &[f64]) -> f64 {
 
 fn max_value(values: &[f64]) -> f64 {
     let mut max = f64::NAN;
-    let mut values = &values;
+    let values = &values;
     let mut i = 0;
     while i < values.len() && values[i].is_nan() {
         i += 1;
@@ -782,7 +780,7 @@ fn last_value(values: &[f64]) -> f64 {
 
 fn aggr_func_outliersk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let ks = afa.args[0].get_vector()?;
-    let afe = move |tss: &mut Vec<Timeseries>, modifier: &Option<AggregateModifier>| {
+    let afe = move |tss: &mut Vec<Timeseries>, _modifier: &Option<AggregateModifier>| {
         // Calculate medians for each point across tss.
         let medians = get_per_point_medians(tss);
 
@@ -799,8 +797,8 @@ fn aggr_func_outliersk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> 
         return get_range_topk_timeseries(tss, &afa.modifier, &ks, "", f, false);
     };
 
-    let mut series = get_series(afa, 1)?;
-    aggr_func_ext(afe, &mut series, &afa.modifier, afa.limit, true)
+    let series = get_series_mut(afa, 1)?;
+    aggr_func_ext(afe, series, &afa.modifier, afa.limit, true)
 }
 
 fn aggr_func_limitk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
@@ -811,7 +809,7 @@ fn aggr_func_limitk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
 
     let limit = limit as usize;
 
-    let afe =  move |tss: &mut Vec<Timeseries>, modifier: &Option<AggregateModifier>| {
+    let afe =  move |tss: &mut Vec<Timeseries>, _modifier: &Option<AggregateModifier>| {
         let mut hasher: Xxh3 = Xxh3::new();
         let mut buf = get_pooled_buffer(256);
 
@@ -832,13 +830,13 @@ fn aggr_func_limitk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
         return res
     };
 
-    let mut series = get_series(afa, 1)?;
-    aggr_func_ext(afe, &mut series, &afa.modifier, afa.limit, true)
+    let series = get_series_mut(afa, 1)?;
+    aggr_func_ext(afe, series, &afa.modifier, afa.limit, true)
 }
 
 
 fn aggr_func_quantiles(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let mut dst_label = afa.args[0].get_string()?;
+    let dst_label = afa.args[0].get_string()?;
 
     // todo: smallvec
     let mut phis: Vec<f64> = Vec::with_capacity(afa.args.len() - 2);
@@ -846,15 +844,15 @@ fn aggr_func_quantiles(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> 
         phis.push(afa.args[i].get_float()?);
     }
 
-    let afe = |tss: &mut Vec<Timeseries>, modifier: &Option<AggregateModifier>| {
+    let afe = |tss: &mut Vec<Timeseries>, _modifier: &Option<AggregateModifier>| {
         // todo: smallvec
-        let tss_dst: Vec<Timeseries> = Vec::with_capacity(phis.len());
-        for j in 0..tss_dst.len() {
+        let mut tss_dst: Vec<Timeseries> = Vec::with_capacity(phis.len());
+        for j in 0..phis.len() {
             let mut ts = Timeseries::copy_from_shallow_timestamps(&tss[0]);
             ts.metric_name.remove_tag(&dst_label);
             // TODO
             ts.metric_name.add_tag(&dst_label, &format!("{}", phis[j]));
-            tss_dst[j] = ts;
+            tss_dst.push(ts);
         }
 
         let mut _vals = tiny_vec!([f64; 10]);
@@ -864,7 +862,7 @@ fn aggr_func_quantiles(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> 
         for n in tss[0].values {
             values.clear();
             let idx = n as usize; // todo: handle panic
-            for ts in tss {
+            for ts in tss.iter() {
                 values.push(ts.values[idx]);
             }
             quantiles(qs.deref_mut(), &phis, values.deref());
@@ -883,7 +881,7 @@ fn aggr_func_quantiles(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> 
 fn aggr_func_quantile(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let (left, orig) = afa.args.split_at_mut(1);
     let phis = left[0].get_vector()?;
-    let afe = new_aggr_quantile_func(phis);
+    let afe = new_aggr_quantile_func(&phis);
     let mut orig = orig[0].get_series();
     return aggr_func_ext(afe, &mut orig, &afa.modifier, afa.limit, false);
 }
@@ -896,7 +894,7 @@ fn aggr_func_median(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
 }
 
 fn new_aggr_quantile_func(phis: &Vec<f64>) -> impl AggrFnExt + '_ {
-    move |tss: &mut Vec<Timeseries>, modifier: &Option<AggregateModifier>| -> Vec<Timeseries> {
+    move |tss: &mut Vec<Timeseries>, _: &Option<AggregateModifier>| -> Vec<Timeseries> {
 
         let count = tss[0].values.len();
         let mut values = get_float64s(count);
@@ -927,7 +925,7 @@ fn aggr_func_MAD(tss: &mut Vec<Timeseries>) {
 fn aggr_func_outliers_MAD(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let tolerances = afa.args[0].get_vector().unwrap();
 
-    let afe = move |tss: &mut Vec<Timeseries>, modifier: &Option<AggregateModifier>| {
+    let afe = move |tss: &mut Vec<Timeseries>, _: &Option<AggregateModifier>| {
         // Calculate medians for each point across tss.
         let medians = get_per_point_medians(tss);
         // Calculate MAD values multiplied by tolerance for each point across tss.
@@ -954,15 +952,15 @@ fn aggr_func_outliers_MAD(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries
         std::mem::take(tss)
     };
 
-    let mut series = get_series(afa, 1)?;
-    aggr_func_ext(afe, &mut series, &afa.modifier, afa.limit, true)
+    let series = get_series_mut(afa, 1)?;
+    aggr_func_ext(afe, series, &afa.modifier, afa.limit, true)
 }
 
 fn get_per_point_medians(tss: &mut Vec<Timeseries>) -> Vec<f64> {
     if tss.len() == 0 {
         // logger.Panicf("BUG: expecting non-empty tss")
     }
-    let medians = Vec::with_capacity(tss[0].values.len());
+    let mut medians = Vec::with_capacity(tss[0].values.len());
     let mut values = get_float64s(medians.len());
     for n in 0 .. medians.len() {
         values.clear();
@@ -1008,58 +1006,57 @@ macro_rules! create_range_fn {
     }
 }
 
-static AGGR_FUNCS: phf::Map<&'static str, Box<dyn AggrFn>> = phf_map! {
-// See https://prometheus.io/docs/prometheus/latest/querying/operators/#aggregation-operators
-    "sum" =>           create_aggr_fn!(aggr_func_sum),
-    "min" =>           create_aggr_fn!(aggr_func_min),
-    "max" =>           create_aggr_fn!(aggr_func_max),
-    "avg" =>           create_aggr_fn!(aggr_func_avg),
-    "stddev" =>        create_aggr_fn!(aggr_func_stddev),
-    "stdvar" =>        create_aggr_fn!(aggr_func_stdvar),
-    "count" =>         create_aggr_fn!(aggr_func_count),
-    "count_values" =>  Box::new(aggr_func_count_values),
-    "bottomk" =>       Box::new(new_aggr_func_topk(true)),
-    "topk" =>          Box::new(new_aggr_func_topk(false)),
-    "quantile" =>      Box::new(aggr_func_quantile),
-    "quantiles" =>     Box::new(aggr_func_quantiles),
-    "group" =>         create_aggr_fn!(aggr_func_group),
+static HANDLER_MAP: Lazy<RwLock<HashMap<AggregateFunction, Box<dyn AggrFn>>>> = Lazy::new(|| {
+    use AggregateFunction::*;
+
+    let mut m: HashMap<AggregateFunction, Box<dyn AggrFn>> = HashMap::with_capacity(33);
+    m.insert(Sum, create_aggr_fn!(aggr_func_sum));
+
+    m.insert(Min, create_aggr_fn!(aggr_func_min));
+    m.insert(Max, create_aggr_fn!(aggr_func_max));
+    m.insert(Avg,    create_aggr_fn!(aggr_func_avg));
+    m.insert(StdDev, create_aggr_fn!(aggr_func_stddev));
+    m.insert(StdVar,    create_aggr_fn!(aggr_func_stdvar));
+    m.insert(Count,     create_aggr_fn!(aggr_func_count));
+    m.insert(CountValues, Box::new(aggr_func_count_values));
+    m.insert(   Bottomk, Box::new(new_aggr_func_topk(true)));
+    m.insert(   Topk,          Box::new(new_aggr_func_topk(false)));
+    m.insert(Quantile,      Box::new(aggr_func_quantile));
+    m.insert(Quantiles, Box::new(aggr_func_quantiles));
+    m.insert(Group, create_aggr_fn!(aggr_func_group));
 
     // PromQL extension funcs
-    "median" =>          Box::new(aggr_func_median),
-    "mad" =>             create_aggr_fn!(aggr_func_MAD),
-    "limitk" =>          Box::new(aggr_func_limitk),
-    "distinct" =>        create_aggr_fn!(aggr_func_distinct),
-    "sum2" =>            create_aggr_fn!(aggr_func_sum2),
-    "geomean" =>         create_aggr_fn!(aggr_func_geomean),
-    "histogram" =>       Box::new(new_aggr_func(aggr_func_histogram)),
-    "topk_min" =>        create_range_fn!(min_value, false),
-    "topk_max" =>        create_range_fn!(max_value, false),
-    "topk_avg" =>        create_range_fn!(avg_value, false),
-    "topk_last" =>       create_range_fn!(last_value, false),
-    "topk_median" =>     create_range_fn!(median_value, false),
-    "bottomk_min" =>     create_range_fn!(min_value, true),
-    "bottomk_max" =>     create_range_fn!(max_value, true),
-    "bottomk_avg" =>     create_range_fn!(avg_value, true),
-    "bottomk_last" =>    create_range_fn!(last_value, true),
-    "bottomk_median" =>  create_range_fn!(median_value, true),
-    "any" =>             Box::new(aggr_func_any),
-    "outliersk" =>       Box::new(aggr_func_outliersk),
-    "outliers_mad" =>    Box::new(aggr_func_outliers_MAD),
-    "mode" =>            create_aggr_fn!(aggr_func_mode),
-    "zscore" =>          Box::new(aggr_func_zscore),
-};
+    m.insert(Median,  Box::new(aggr_func_median));
+    m.insert(MAD,create_aggr_fn!(aggr_func_MAD));
+    m.insert(   Limitk, Box::new(aggr_func_limitk));
+    m.insert(Distinct,create_aggr_fn!(aggr_func_distinct));
+    m.insert(Sum2,            create_aggr_fn!(aggr_func_sum2));
+    m.insert(GeoMean,         create_aggr_fn!(aggr_func_geomean));
+    m.insert(Histogram,       Box::new(new_aggr_func(aggr_func_histogram)));
+    m.insert(TopkMin,        create_range_fn!(min_value, false));
+    m.insert(TopkMax,        create_range_fn!(max_value, false));
+    m.insert(TopkAvg,        create_range_fn!(avg_value, false));
+    m.insert(TopkLast,       create_range_fn!(last_value, false));
+    m.insert(TopkMedian,     create_range_fn!(median_value, false));
+    m.insert(BottomkMin,     create_range_fn!(min_value, true));
+    m.insert(BottomkMax,     create_range_fn!(max_value, true));
+    m.insert(BottomkAvg,     create_range_fn!(avg_value, true));
+    m.insert(BottomkLast,    create_range_fn!(last_value, true));
+    m.insert(BottomkMedian,  create_range_fn!(median_value, true));
+    m.insert(Any,             Box::new(aggr_func_any));
+    m.insert(Outliersk,       Box::new(aggr_func_outliersk));
+    m.insert(OutliersMAD,    Box::new(aggr_func_outliers_MAD));
+    m.insert(Mode,            create_aggr_fn!(aggr_func_mode));
+    m.insert(ZScore,          Box::new(aggr_func_zscore));
+    RwLock::new(m)
+});
+
 
 pub fn get_aggr_func(op: &AggregateFunction) -> &'static Box<dyn AggrFn> {
-    get_aggr_func_by_name(format!("{}", op).as_str()).unwrap()
+    let map = HANDLER_MAP.read().unwrap();
+    map.get(&op).unwrap()
 }
 
-pub fn get_aggr_func_by_name(name: &str) -> RuntimeResult<&Box<dyn AggrFn>> {
-    let lower = name.to_lowercase().as_str();
-    match AGGR_FUNCS.get(lower) {
-        Some(handler) => Ok(handler),
-        None => Err( RuntimeError::UnknownFunction(name.to_string())) 
-    }
-}
 
 /// returns a copy of tss with real copy of metric_names,
 /// but with shallow copy of Timestamps and Values if make_copy is set.
@@ -1083,7 +1080,7 @@ fn get_scalar(arg: &[Timeseries], arg_num: usize) -> RuntimeResult<&Vec<f64>> {
 
 fn get_series<'a>(tfa: &'a AggrFuncArg, arg_num: usize) -> RuntimeResult<&'a Vec<Timeseries>> {
     let tss = tfa.args[arg_num].get_series();
-    Ok(tss)
+    Ok(&tss)
 }
 
 fn get_series_mut<'a>(tfa: &'a AggrFuncArg, arg_num: usize) -> RuntimeResult<&'a mut Vec<Timeseries>> {

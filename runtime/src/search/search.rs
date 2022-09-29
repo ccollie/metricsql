@@ -71,7 +71,7 @@ impl SearchQuery {
 impl Display for SearchQuery {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut a: Vec<String> = Vec::with_capacity(self.tag_filterss.len());
-        for tfs in self.tag_filterss {
+        for tfs in &self.tag_filterss {
             a.push(filters_to_string(&tfs))
         }
         let start = self.min_timestamp.to_string_millis();
@@ -180,11 +180,11 @@ impl QueryResults {
     }
 
     /// Len returns the number of results in rss.
-    pub fn len(self) -> usize {
+    pub fn len(&self) -> usize {
         self.series.len()
     }
 
-    fn deadline_exceeded(self) -> bool {
+    fn deadline_exceeded(&self) -> bool {
         return self.deadline.exceeded();
     }
 
@@ -206,7 +206,7 @@ impl QueryResults {
     ///
     /// rss becomes unusable after the call to run_parallel.
     pub(crate) fn run_parallel<F>(&mut self, f: F) -> RuntimeResult<()>
-    where F: Fn(&mut QueryResult,u64) -> RuntimeResult<()> + Send + Sync
+    where F: FnMut(&mut QueryResult, u64) -> RuntimeResult<()> + Send + Sync
     {
 
         let mut id = 0;
@@ -220,35 +220,66 @@ impl QueryResults {
         let must_stop = self.must_stop.clone();
         let deadline = &self.deadline;
 
-        let mut err: Option<RuntimeError> = None;
+        self.series.into_par_iter().try_for_each(move |mut rs| {
 
-        self.series.into_par_iter().try_for_each(|mut rs| {
             if must_stop.load(Ordering::Relaxed) {
-                return None;
+                return Err(RuntimeError::TaskCancelledError("Search".to_string()));
             }
+
             if deadline.exceeded() {
                 must_stop.store(true, Ordering::Relaxed);
-                return None;
+                return Err(RuntimeError::deadline_exceeded("todo!!"));
             }
 
             if rs.timestamps.len() > 0 {
-                match f(&mut rs, rs.worker_id) {
-                    Err(e) => {
-                        err = Some(e);
-                        None
-                    },
-                    Ok(_) => Some(())
-                }
+                let worker_id = rs.worker_id;
+                f(&mut rs, worker_id)
             } else {
-                Some(())
+                Ok(())
             }
+        })
+
+    }
+
+    /// run_parallel runs f in parallel for all the results from rss.
+    ///
+    /// f shouldn't hold references to rs after returning.
+    /// Data processing is immediately stopped if f returns an error.
+    ///
+    /// rss becomes unusable after the call to run_parallel.
+    pub(crate) fn run_parallel2<F, C: Sync + Send>(&mut self, f: F, ctx: &mut C) -> RuntimeResult<()>
+        where F: Fn(&mut C, &mut QueryResult, u64) -> RuntimeResult<()> + Send + Sync
+    {
+        // todo: fetch all ts from storage
+
+        let must_stop = self.must_stop.clone();
+        let deadline = &self.deadline;
+        let mut err: Option<RuntimeError> = None;
+
+        rayon::scope(|s| {
+            let mut ctx = ctx;
+            let mut i = 0;
+            for rs in self.series.iter_mut() {
+               if rs.timestamps.len() > 0 {
+                   s.spawn(&mut move |_| {
+                       match f(&mut ctx, rs, i) {
+                           Err(e) => {
+                               err = Some(e);
+                               must_stop.store(true, Ordering::Relaxed);
+                           }
+                           _ => {}
+                       }
+                   });
+               }
+               i += 1;
+           }
         });
 
-        if let Some(e) = err {
-            Err(e)
-        } else {
-            Ok(())
+        match err {
+            None => Ok(()),
+            Some(err) => Err(err)
         }
+
     }
 
     pub fn cancel(&mut self) {
@@ -273,7 +304,7 @@ pub fn remove_empty_values_and_timeseries(tss: &mut Vec<QueryResult>) {
 
 
 pub(crate) fn get_pooled_result() -> &'static mut QueryResult{
-    let entry = get_result_pool().pull();
+    let mut entry = get_result_pool().pull();
     &mut entry.rs
 }
 
@@ -293,10 +324,10 @@ impl ResultPoolEntry {
 
     fn reset(&mut self) {
         let current_time = Timestamp::now();
-        let values = &self.rs.values;
-        let cap = values.capacity();
+        let len = self.rs.values.len();
+        let cap = self.rs.values.capacity();
         self.rs.reset();
-        if cap > 1024*1024 && 4*values.len() < cap && current_time - self.last_reset_time > 100 {
+        if cap > 1024*1024 && 4 * len < cap && current_time - self.last_reset_time > 100 {
             // Reset r.rs in order to preserve memory usage after processing big time series with
             // millions of rows.
             self.rs.shrink(1024);

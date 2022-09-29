@@ -1,17 +1,34 @@
 
-/// Cache operations
-pub trait RollupResultCacheProvider<K, V> {
+/// Rollup Result Cache operations
+pub trait RollupResultCacheProvider {
     /// Attempt to retrieve a cached value
-    fn cache_get(&mut self, k: &K) -> Option<&V>;
+    fn cache_get(&mut self, k: &[u8], dst: &mut Vec<u8>) -> bool;
 
-    /// Attempt to retrieve a cached value with mutable access
-    fn cache_get_mut(&mut self, k: &K) -> Option<&mut V>;
+    /// Searches for the value for the given k, appends it to dst
+    /// and returns the result.
+    ///
+    /// Returns only values stored via SetBig. It doesn't work
+    /// with values stored via other methods.
+    ///
+    /// k contents may be modified after returning from GetBig.
+    fn cache_get_big(&mut self, k: &[u8], dst: &mut Vec<u8>) -> bool;
 
-    /// Insert a key, value pair and return the previous value
-    fn cache_set(&mut self, k: K, v: V) -> Option<V>;
+    /// Insert a key, value pair
+    fn cache_set(&mut self, k: &[u8], v: &[u8]);
 
-    /// Remove a cached value
-    fn cache_remove(&mut self, k: &u8) -> Option<V>;
+    /// cache_set_big sets (k, v) to c where v.len() may exceed 64KB.
+    ///
+    /// cache_get_big must be used for reading stored values.
+    ///
+    /// The stored entry may be evicted at any time either due to cache
+    /// overflow or due to unlikely hash collision.
+    /// Pass higher maxBytes value to New if the added items disappear
+    /// frequently.
+    ///
+    /// It is safe to store entries smaller than 64KB with SetBig.
+    ///
+    /// k and v contents may be modified after returning from SetBig.
+    fn cache_set_big(&mut self, k: &[u8], v: &[u8]);
 
     /// Remove all cached values. Keeps the allocated memory for reuse.
     fn cache_clear(&mut self);
@@ -32,11 +49,6 @@ pub trait RollupResultCacheProvider<K, V> {
 
     /// Return the number of times a cached value was unable to be retrieved
     fn cache_misses(&self) -> Option<u64> {
-        None
-    }
-
-    /// Set the lifespan of cached values, returns the old value
-    fn cache_set_lifespan(&mut self, _seconds: u64) -> Option<u64> {
         None
     }
 }
