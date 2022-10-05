@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use rayon::iter::{IntoParallelRefIterator};
 
 use metricsql::ast::BExpression;
@@ -7,7 +8,7 @@ use crate::{EvalConfig};
 use crate::context::Context;
 use crate::eval::{create_evaluators, Evaluator, ExprEvaluator};
 use crate::eval::eval::eval_volatility;
-use crate::functions::types::ParameterValue;
+use crate::functions::types::AnyValue;
 use crate::rayon::iter::ParallelIterator;
 use crate::runtime_error::{RuntimeResult};
 
@@ -37,32 +38,30 @@ impl ArgList {
         }
     }
 
-    pub fn eval(&self, ctx: &mut Context, ec: &EvalConfig) -> RuntimeResult<Vec<ParameterValue>> {
+    /// Are all arguments scalar/string or duration without step ?
+    pub(super) fn all_const(&self) -> bool {
+        self.args.len() == 0 || self.args.iter().all(|x| x.is_const())
+    }
+
+    pub fn eval(&self, ctx: &Arc<&Context>, ec: &EvalConfig) -> RuntimeResult<Vec<AnyValue>> {
         // todo: use tinyvec and pass in as &mut vec
         if self.parallel && self.args.len() >= 2 {
             return self.eval_parallel(ctx, ec)
         } else {
-            let mut res: Vec<ParameterValue> = Vec::with_capacity(self.args.len());
+            let mut res: Vec<AnyValue> = Vec::with_capacity(self.args.len());
             for expr in self.args.iter() {
-                let val = expr.eval(ctx, ec)?;
-                // TODO:: res.push(val);
-                res.push( ParameterValue::Series(val))
+                res.push(expr.eval(ctx, ec)? );
             }
             Ok(res)
         }
     }
 
-    fn eval_parallel(&self, ctx: &mut Context, ec: &EvalConfig) -> RuntimeResult<Vec<ParameterValue>> {
-        let params: _ = self.args.par_iter().map(|expr| {
-            match expr.eval(ctx, ec) {
-                Err(e) => Err(e),
-                Ok(val) => {
-                    Ok(ParameterValue::Series(val))
-                }
-            }
-        }).collect::<Vec<_>>();
+    fn eval_parallel(&self, ctx: &Arc<&Context>, ec: &EvalConfig) -> RuntimeResult<Vec<AnyValue>> {
+        let params: _ = self.args.par_iter()
+            .map(move |expr| { expr.eval(&mut ctx.clone(), ec) })
+            .collect::<Vec<_>>();
 
-        let mut result: Vec<ParameterValue> = Vec::with_capacity(params.len());
+        let mut result: Vec<AnyValue> = Vec::with_capacity(params.len());
         for p in params.into_iter() {
             match p {
                 Ok(v) => {
@@ -81,7 +80,7 @@ impl ArgList {
 
 #[inline]
 fn should_parallelize(t: &DataType) -> bool {
-    !matches!(t, DataType::String | DataType::Float | DataType::Int | DataType::Vector)
+    !matches!(t, DataType::String | DataType::Scalar | DataType::Vector)
 }
 
 /// Determines if we should parallelize parameter evaluation. We ignore "lightweight"

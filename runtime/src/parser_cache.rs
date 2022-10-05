@@ -6,11 +6,9 @@ use lru_time_cache::LruCache;
 
 use metricsql::ast::Expression;
 use metricsql::optimizer::optimize;
-use metricsql::parser::ParseError;
+use metricsql::parser::{ParseError, visit_all};
 
-use crate::binary_op::adjust_cmp_ops;
-use crate::create_evaluator;
-use crate::eval::ExprEvaluator;
+use crate::eval::{create_evaluator, ExprEvaluator};
 
 const PARSE_CACHE_MAX_LEN: usize = 500;
 
@@ -58,32 +56,40 @@ impl ParseCache {
         self.lru.lock().unwrap().clear()
     }
 
-    pub fn parse(&mut self, q: &str) -> Arc<ParseCacheValue> {
+    pub fn parse(&self, q: &str) -> Arc<ParseCacheValue> {
         self.requests.fetch_add(1, Ordering::Relaxed);
-        let k = q.to_string();
-        let mut lru = self.lru.lock().unwrap();
-        {
-            match lru.get_mut(q) {
-                Some(value) => return value.clone(),
-                None => {}
+        match self.get(q) {
+            Some(value) => value,
+            None => {
+                self.misses.fetch_add(1, Ordering::Relaxed);
+                let parsed = Self::parse_internal(q);
+                let k = q.to_string();
+
+                let mut lru = self.lru.lock().unwrap();
+                let value = lru.insert(k, Arc::new(parsed));
+                value.unwrap().clone()
             }
         }
-        self.misses.fetch_add(1, Ordering::Relaxed);
-        let parsed = Self::parse_internal(q);
-        let value = lru.insert(k, Arc::new(parsed));
+    }
 
-        value.unwrap().clone()
+    pub fn get(&self, q: &str) -> Option<Arc<ParseCacheValue>> {
+        // use interior mutability here
+        let mut lru = self.lru.lock().unwrap();
+        match lru.get(q) {
+            None => None,
+            Some(v) => Some(Arc::clone(v))
+        }
     }
 
     fn parse_internal(q: &str) -> ParseCacheValue {
         match metricsql::parser::parse(q) {
             Ok(expr) => {
-                let mut expression = match &optimize(&expr) {
+                let mut expression = match optimize(&expr) {
                     Cow::Owned(exp) => exp,
-                    Cow::Borrowed(exp) => exp
+                    Cow::Borrowed(exp) => exp.clone()
                 };
                 adjust_cmp_ops(&mut expression);
-                match create_evaluator(expression) {
+                match create_evaluator(&expression) {
                     Ok(evaluator) => {
                         ParseCacheValue {
                             expr: Some(expr.clone()),
@@ -114,4 +120,17 @@ impl ParseCache {
             }
         }
     }
+}
+
+// todo: put in optimize phase
+pub(crate) fn adjust_cmp_ops(e: &mut Expression) {
+    visit_all(e, |expr: &mut Expression|
+        {
+            match expr {
+                Expression::BinaryOperator(be) => {
+                    let _ = be.adjust_comparison_op();
+                },
+                _ => {}
+            }
+        });
 }

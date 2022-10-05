@@ -1,7 +1,6 @@
-use std::{fmt, mem};
+use std::{fmt};
 use std::fmt::Display;
-
-use text_size::TextRange;
+use text_size::{TextRange, TextSize};
 use thiserror::Error;
 
 use crate::lexer::{Token, TokenKind};
@@ -16,6 +15,8 @@ pub enum ParseError {
     InvalidToken(InvalidTokenError),
     #[error("Duplicate argument `{0}`")]
     DuplicateArgument(String),
+    #[error("Unexpected end of text")]
+    UnexpectedEOF,
     #[error("Invalid aggregation function `{0}`")]
     InvalidAggregateFunction(String),
     #[error("Expected positive duration: found `{0}`")]
@@ -32,6 +33,8 @@ pub enum ParseError {
     InvalidRegex(String),
     #[error("{0}")]
     InvalidFunction(String),
+    #[error("{0}")]
+    InvalidExpression(String),
 }
 
 #[derive(Debug, PartialEq, Clone, Error)]
@@ -43,11 +46,11 @@ pub struct InvalidTokenError {
 }
 
 impl InvalidTokenError {
-    pub fn new(mut expected: Vec<TokenKind>, found: Option<TokenKind>, range: TextRange) -> Self {
+    pub fn new(expected: &[TokenKind], found: Option<TokenKind>, range: &TextRange) -> Self {
         Self {
-            expected: mem::take(&mut expected),
+            expected: Vec::from(expected),
             found,
-            range,
+            range: range.clone(),
             context: "".to_string(),
         }
     }
@@ -62,19 +65,33 @@ impl Display for InvalidTokenError {
         if !self.context.is_empty() {
             write!(f, "{} :", self.context)?;
         }
-        write!(
-            f,
-            "error at {}..{}: expected ",
-            u32::from(self.range.start()),
-            u32::from(self.range.end()),
-        )?;
+        if self.found.is_none() {
+            write!(f,"unexpected end of stream")?;
+            if self.range.start() > TextSize::from(0) {
+                write!(
+                    f,
+                    " at {}..{}",
+                    u32::from(self.range.start()),
+                    u32::from(self.range.end()),
+                )?;
+            }
+        } else {
+            write!(
+                f,
+                "error at {}..{}",
+                u32::from(self.range.start()),
+                u32::from(self.range.end()),
+            )?;
+        }
+
+        write!(f, ": expected ")?;
 
         let num_expected = self.expected.len();
         let is_first = |idx| idx == 0;
         let is_last = |idx| idx == num_expected - 1;
 
         for (idx, expected_kind) in self.expected.iter().enumerate() {
-            let expected = *expected_kind;
+            let expected = expected_kind.to_string();
             if is_first(idx) {
                 write!(f, "{}", expected)?;
             } else if is_last(idx) {
@@ -120,7 +137,7 @@ impl ArgCountError {
     /// * `min` - Smallest allowed number of arguments
     /// * `max` - Largest allowed number of arguments
     pub fn new_with_token(token: &Token, signature: &str, min: usize, max: usize) -> Self {
-        Self::new_with_index(Some(usize::from(token.range.start())), signature, min, max)
+        Self::new_with_index(Some(usize::from(token.span.start())), signature, min, max)
     }
 
     /// Create a new instance of the error at a specific position
@@ -182,8 +199,8 @@ impl Display for ArgCountError {
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Range as StdRange;
-
+    use std::ops::Range;
+    use text_size::TextSize;
     use crate::lexer::TokenKind;
 
     use super::*;
@@ -191,17 +208,13 @@ mod tests {
     fn check(
         expected: Vec<TokenKind>,
         found: Option<TokenKind>,
-        range: StdRange<u32>,
+        range: Range<u32>,
         output: &str,
     ) {
-        let error = ParseError {
+        let error = InvalidTokenError {
             expected,
             found,
-            range: {
-                let start = range.start.into();
-                let end = range.end.into();
-                TextRange::new(start, end)
-            },
+            range: TextRange::new( TextSize::from(range.start), TextSize::from(range.end)),
             context: "".to_string(),
         };
 
@@ -231,8 +244,8 @@ mod tests {
     #[test]
     fn two_expected_did_find() {
         check(
-            vec![TokenKind::Plus, TokenKind::Minus],
-            Some(TokenKind::Equals),
+            vec![TokenKind::OpPlus, TokenKind::OpMinus],
+            Some(TokenKind::Equal),
             0..1,
             "error at 0..1: expected ‘+’ or ‘-’, but found ‘=’",
         );
@@ -244,12 +257,12 @@ mod tests {
             vec![
                 TokenKind::Number,
                 TokenKind::Ident,
-                TokenKind::Minus,
-                TokenKind::LParen,
+                TokenKind::OpMinus,
+                TokenKind::LeftParen,
             ],
-            Some(TokenKind::LetKw),
+            Some(TokenKind::With),
             100..105,
-            "error at 100..105: expected number, identifier, ‘-’ or ‘(’, but found ‘let’",
+            "error at 100..105: expected number, identifier, ‘-’ or ‘(’, but found ‘with’",
         );
     }
 }

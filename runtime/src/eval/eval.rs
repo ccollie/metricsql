@@ -1,17 +1,17 @@
-use std::borrow::Borrow;
 use std::sync::Arc;
-use chrono::Duration;
-
 use metricsql::ast::*;
-use metricsql::functions::{Signature, Volatility};
+use metricsql::binaryop::{eval_binary_op, string_compare};
+use metricsql::functions::{DataType, Signature, Volatility};
 
 use crate::context::Context;
 use crate::eval::aggregate::{AggregateEvaluator, create_aggr_evaluator};
-use crate::eval::binaryop::BinaryOpEvaluator;
+use crate::eval::binary_op::BinaryOpEvaluator;
 use crate::eval::duration::DurationEvaluator;
 use crate::eval::function::{create_function_evaluator, TransformEvaluator};
-use crate::eval::number::NumberEvaluator;
+use crate::eval::instant_vector::InstantVectorEvaluator;
+use crate::eval::scalar::ScalarEvaluator;
 use crate::eval::string::StringEvaluator;
+use crate::functions::types::AnyValue;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::search::Deadline;
 use crate::timeseries::Timeseries;
@@ -20,19 +20,33 @@ use crate::traits::Timestamp;
 use super::rollup::RollupEvaluator;
 use super::traits::{Evaluator, NullEvaluator};
 
-pub(crate) enum ExprEvaluator {
+pub enum ExprEvaluator {
     Null(NullEvaluator),
     Aggregate(AggregateEvaluator),
     BinaryOp(BinaryOpEvaluator),
     Duration(DurationEvaluator),
     Function(TransformEvaluator),
-    Number(NumberEvaluator),
+    Number(ScalarEvaluator),
     Rollup(RollupEvaluator),
     String(StringEvaluator),
+    InstantVector(InstantVectorEvaluator)
 }
 
+impl ExprEvaluator {
+    /// returns true if the evaluator returns a const value i.e. calling it is
+    /// essentially idempotent
+    pub fn is_const(&self) -> bool {
+        match self {
+            ExprEvaluator::Number(_) |
+            ExprEvaluator::String(_) |
+            ExprEvaluator::Null(_) => true,
+            ExprEvaluator::Duration(d) => d.is_const(),
+            _ => false
+        }
+    }
+}
 impl Evaluator for ExprEvaluator {
-    fn eval(&self, ctx: &mut Context, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
+    fn eval(&self, ctx: &Arc<&Context>, ec: &EvalConfig) -> RuntimeResult<AnyValue> {
         match self {
             ExprEvaluator::Null(e) => e.eval(ctx, ec),
             ExprEvaluator::Aggregate(ae) => ae.eval(ctx, ec),
@@ -42,6 +56,21 @@ impl Evaluator for ExprEvaluator {
             ExprEvaluator::Number(n) => n.eval(ctx, ec),
             ExprEvaluator::Rollup(ref re) => re.eval(ctx, ec),
             ExprEvaluator::String(se) => se.eval(ctx, ec),
+            ExprEvaluator::InstantVector(iv) => iv.eval(ctx, ec)
+        }
+    }
+
+    fn return_type(&self) -> DataType {
+        match self {
+            ExprEvaluator::Null(e) => e.return_type(),
+            ExprEvaluator::Aggregate(ae) => ae.return_type(),
+            ExprEvaluator::BinaryOp(bo) => bo.return_type(),
+            ExprEvaluator::Duration(de) => de.return_type(),
+            ExprEvaluator::Function(fe) => fe.return_type(),
+            ExprEvaluator::Number(n) => n.return_type(),
+            ExprEvaluator::Rollup(ref re) => re.return_type(),
+            ExprEvaluator::String(se) => se.return_type(),
+            ExprEvaluator::InstantVector(iv) => iv.return_type()
         }
     }
 }
@@ -54,13 +83,13 @@ impl Default for ExprEvaluator {
 
 impl From<i64> for ExprEvaluator {
     fn from(val: i64) -> Self {
-        Self::Number(NumberEvaluator::from(val as f64))
+        Self::Number(ScalarEvaluator::from(val as f64))
     }
 }
 
 impl From<f64> for ExprEvaluator {
     fn from(val: f64) -> Self {
-        Self::Number(NumberEvaluator::from(val))
+        Self::Number(ScalarEvaluator::from(val))
     }
 }
 
@@ -84,9 +113,7 @@ pub fn create_evaluator(expr: &Expression) -> RuntimeResult<ExprEvaluator> {
         }
         Expression::Rollup(re) => Ok(ExprEvaluator::Rollup(RollupEvaluator::new(re)?)),
         Expression::Function(fe) => create_function_evaluator(fe),
-        Expression::BinaryOperator(be) => Ok(
-            ExprEvaluator::BinaryOp(BinaryOpEvaluator::new(be)?)
-        ),
+        Expression::BinaryOperator(be) => create_evaluator_from_binop(be),
         Expression::Number(ne) => Ok(ExprEvaluator::from(ne.value)),
         Expression::String(se) => Ok(ExprEvaluator::from(se.value())),
         Expression::Duration(de) => {
@@ -105,6 +132,38 @@ pub fn create_evaluator(expr: &Expression) -> RuntimeResult<ExprEvaluator> {
     }
 }
 
+fn create_evaluator_from_binop(be: &BinaryOpExpr) -> RuntimeResult<ExprEvaluator> {
+    match (be.left.as_ref(), be.right.as_ref()) {
+        (Expression::Number(ln), Expression::Number(rn)) => {
+            let n = eval_binary_op(ln.value, rn.value, be.op, be.bool_modifier);
+            Ok(ExprEvaluator::from(n))
+        }
+        (Expression::String(lhs), Expression::String(rhs)) => {
+            if be.op == BinaryOp::Add {
+                let val = format!("{}{}", lhs.s, rhs.s);
+                return Ok(ExprEvaluator::from(val))
+            }
+            let n = match string_compare(&lhs.s, &rhs.s, be.op) {
+                Ok(v) => {
+                    if v {
+                        1.0
+                    } else {
+                        if be.bool_modifier { 0.0 } else { f64::NAN }
+                    }
+                }
+                Err(_) => {
+                    // todo: should be unreachable
+                    f64::NAN
+                }
+            };
+            Ok(ExprEvaluator::from(n))
+        }
+        _ => {
+            Ok(ExprEvaluator::BinaryOp(BinaryOpEvaluator::new(be)?))
+        },
+    }
+}
+
 pub(crate) fn create_evaluators(vec: &[BExpression]) -> RuntimeResult<Vec<ExprEvaluator>> {
     let mut res: Vec<ExprEvaluator> = Vec::with_capacity(vec.len());
     for arg in vec {
@@ -115,11 +174,6 @@ pub(crate) fn create_evaluators(vec: &[BExpression]) -> RuntimeResult<Vec<ExprEv
     }
     Ok(res)
 }
-
-/// The minimum number of points per timeseries for enabling time rounding.
-/// This improves cache hit ratio for frequently requested queries over
-/// big time ranges.
-pub static MIN_TIMESERIES_POINTS_FOR_TIME_ROUNDING: usize = 50;
 
 /// validate_max_points_per_timeseries checks the maximum number of points that
 /// may be returned per each time series.
@@ -133,13 +187,18 @@ pub(crate) fn validate_max_points_per_timeseries(
 ) -> RuntimeResult<()> {
     let points = (end - start) / step + 1;
     if (max_points_per_timeseries > 0) && points > max_points_per_timeseries as i64 {
-        let msg = format!("too many points for the given step={}, start={} and end={}: {}; cannot exceed -search.maxPointsPerTimeseries={}",
+        let msg = format!("too many points for the given step={}, start={} and end={}: {}; cannot exceed {}",
                           step, start, end, points, max_points_per_timeseries);
         Err(RuntimeError::from(msg))
     } else {
         Ok(())
     }
 }
+
+/// The minimum number of points per timeseries for enabling time rounding.
+/// This improves cache hit ratio for frequently requested queries over
+/// big time ranges.
+const MIN_TIMESERIES_POINTS_FOR_TIME_ROUNDING: i64 = 50;
 
 pub fn adjust_start_end(start: Timestamp, end: Timestamp, step: i64) -> (Timestamp, Timestamp) {
     // if disableCache {
@@ -148,7 +207,7 @@ pub fn adjust_start_end(start: Timestamp, end: Timestamp, step: i64) -> (Timesta
     //     return (start, end);
     // }
     let points = (end - start) / step + 1;
-    if points < MIN_TIMESERIES_POINTS_FOR_TIME_ROUNDING as i64 {
+    if points < MIN_TIMESERIES_POINTS_FOR_TIME_ROUNDING {
         // Too small number of points for rounding.
         return (start, end);
     }
@@ -185,9 +244,9 @@ pub fn align_start_end(start: Timestamp, end: Timestamp, step: i64) -> (Timestam
 pub struct EvalConfig {
     pub start: Timestamp,
     pub end: Timestamp,
-    pub step: Timestamp,
+    pub step: i64, // todo: Duration
 
-    /// max_series is the maximum number of time series, which can be scanned by the query.
+    /// max_series is the maximum number of time series which can be scanned by the query.
     /// Zero means 'no limit'
     pub max_series: usize,
 
@@ -200,6 +259,7 @@ pub struct EvalConfig {
     _may_cache: bool,
 
     /// lookback_delta is analog to `-query.lookback-delta` from Prometheus.
+    /// todo: change type to Duration
     pub lookback_delta: i64,
 
     /// How many decimal digits after the point to leave in response.
@@ -213,17 +273,6 @@ pub struct EvalConfig {
     /// data obtained from Prometheus scrape targets
     pub no_stale_markers: bool,
 
-    /// The maximum interval for staleness calculations. By default it is automatically calculated from
-    /// the median interval between samples. This could be useful for tuning Prometheus data model
-    /// closer to Influx-style data model.
-    /// See https://prometheus.io/docs/prometheus/latest/querying/basics/#staleness for details.
-    /// See also '-search.setLookbackToStep' flag
-    pub max_staleness_interval: Duration,
-
-    /// The minimum interval for staleness calculations. This could be useful for removing gaps on
-    /// graphs generated from time series with irregular intervals between samples.
-    pub min_staleness_interval: Duration,
-
     /// The limit on the number of points which can be generated per each returned time series.
     pub max_points_per_series: usize,
 
@@ -234,25 +283,12 @@ pub struct EvalConfig {
 }
 
 impl EvalConfig {
-    pub fn new() -> Self {
-        EvalConfig {
-            start: 0,
-            end: 0,
-            step: 0,
-            max_series: 0,
-            quoted_remote_addr: None,
-            deadline: Deadline::default(),
-            _may_cache: false,
-            lookback_delta: 0,
-            round_digits: 0,
-            enforced_tag_filterss: vec![],
-            no_stale_markers: true,
-            max_points_per_series: 0,
-            disable_cache: false,
-            max_staleness_interval: Duration::milliseconds(0),
-            min_staleness_interval: Duration::milliseconds(0),
-            _timestamps: Arc::new(vec![])
-        }
+    pub fn new(start: Timestamp, end: Timestamp, step: i64) -> Self {
+        let mut result = EvalConfig::default();
+        result.start = start;
+        result.end = end;
+        result.step = step;
+        result
     }
 
     pub fn copy_no_timestamps(&self) -> EvalConfig {
@@ -272,10 +308,14 @@ impl EvalConfig {
             no_stale_markers: self.no_stale_markers,
             max_points_per_series: self.max_points_per_series,
             disable_cache: self.disable_cache,
-            max_staleness_interval: self.max_staleness_interval,
-            min_staleness_interval: self.min_staleness_interval,
         };
         return ec;
+    }
+
+    pub fn adjust_by_offset(&mut self, offset: i64) {
+        self.start -= offset;
+        self.end -= offset;
+        self._timestamps = Arc::new(vec![]);
     }
 
     pub fn validate(&self) -> RuntimeResult<()> {
@@ -310,6 +350,23 @@ impl EvalConfig {
         true
     }
 
+    pub fn no_cache(&mut self) {
+        self._may_cache = false
+    }
+
+    pub fn set_caching(&mut self, may_cache: bool) {
+        self._may_cache = may_cache;
+    }
+
+    pub fn update_from_context(&mut self, ctx: &Context) {
+        let state_config = &ctx.config;
+        self.disable_cache = state_config.disable_cache;
+        self.max_points_per_series = state_config.max_points_subquery_per_timeseries as usize;
+        self.no_stale_markers = state_config.no_stale_markers;
+        self.lookback_delta = state_config.max_lookback.num_milliseconds();
+        self.max_series = state_config.max_unique_timeseries;
+    }
+
     pub fn timestamps(&self) -> Arc<Vec<i64>> {
         Arc::clone(&self._timestamps)
     }
@@ -339,13 +396,30 @@ impl EvalConfig {
 
 impl Default for EvalConfig {
     fn default() -> Self {
-        Self::new()
+        Self {
+            start: 0,
+            end: 0,
+            step: 0,
+            max_series: 0,
+            quoted_remote_addr: None,
+            deadline: Deadline::default(),
+            _may_cache: false,
+            lookback_delta: 0,
+            round_digits: 100,
+            enforced_tag_filterss: vec![],
+            no_stale_markers: true,
+            max_points_per_series: 0,
+            disable_cache: false,
+            _timestamps: Arc::new(vec![])
+        }
     }
 }
 
-impl From<EvalConfig> for &EvalConfig {
-    fn from(ec: EvalConfig) -> Self {
-        ec.borrow()
+impl From<&Context> for EvalConfig {
+    fn from(ctx: &Context) -> Self {
+        let mut config = EvalConfig::default();
+        config.update_from_context(ctx);
+        config
     }
 }
 
@@ -384,22 +458,11 @@ pub fn get_timestamps(start: Timestamp, end: Timestamp, step: i64, max_timestamp
     return Ok(timestamps);
 }
 
-// copy_eval_config returns src copy.
-pub(crate) fn copy_eval_config(src: &EvalConfig) -> EvalConfig {
-    src.copy_no_timestamps()
-}
-
 pub(crate) fn eval_number(ec: &EvalConfig, n: f64) -> Vec<Timeseries> {
     let timestamps = ec.timestamps();
     let values = vec![n; timestamps.len()];
     let ts = Timeseries::with_shared_timestamps(&timestamps, &values);
     vec![ts]
-}
-
-pub(crate) fn eval_string(ec: &EvalConfig, s: &str) -> Vec<Timeseries> {
-    let mut rv = eval_number(ec, f64::NAN);
-    rv[0].metric_name.metric_group = s.to_string();
-    rv
 }
 
 pub(crate) fn eval_time(ec: &EvalConfig) -> Vec<Timeseries> {
@@ -411,62 +474,6 @@ pub(crate) fn eval_time(ec: &EvalConfig) -> Vec<Timeseries> {
     rv
 }
 
-fn get_string_arg(arg: &Vec<Timeseries>, arg_num: usize) -> RuntimeResult<String> {
-    if arg.len() != 1 {
-        let msg = format!(
-            "arg # {} must contain a single timeseries; got {} timeseries",
-            arg_num + 1,
-            arg.len()
-        );
-        return Err(RuntimeError::ArgumentError(msg));
-    }
-    let ts = &arg[0];
-    let all_nan = arg[0].values.iter().all(|x| x.is_nan());
-    if !all_nan {
-        let msg = format!("arg # {} contains non - string timeseries", arg_num + 1);
-        return Err(RuntimeError::ArgumentError(msg));
-    }
-    // todo: return reference
-    Ok(ts.metric_name.metric_group.clone())
-}
-
-fn get_label(arg: &Vec<Timeseries>, name: &str, arg_num: usize) -> RuntimeResult<String> {
-    match get_string_arg(arg, arg_num) {
-        Ok(lbl) => Ok(lbl),
-        Err(err) => {
-            let msg = format!("cannot read {} label name: {:?}", name, err);
-            return Err(RuntimeError::ArgumentError(msg));
-        }
-    }
-}
-
-pub(super) fn get_scalar(arg: &Vec<Timeseries>, arg_num: usize) -> RuntimeResult<&Vec<f64>> {
-    if arg.len() != 1 {
-        let msg = format!(
-            "arg # {} must contain a single timeseries; got {} timeseries",
-            arg_num + 1,
-            arg.len()
-        );
-        return Err(RuntimeError::ArgumentError(msg))
-    }
-    Ok(&arg[arg_num].values)
-}
-
-#[inline]
-fn get_int_number(arg: &Vec<Timeseries>, arg_num: usize) -> RuntimeResult<i64> {
-    let v = get_float(arg, arg_num)?;
-    Ok(v as i64)
-}
-
-#[inline]
-fn get_float(arg: &Vec<Timeseries>, arg_num: usize) -> RuntimeResult<f64> {
-    let v = get_scalar(arg, arg_num)?;
-    let mut n = 0_f64;
-    if v.len() > 0 {
-        n = v[0];
-    }
-    Ok(n)
-}
 
 pub(super) fn eval_volatility(sig: &Signature, args: &Vec<ExprEvaluator>) -> Volatility {
     if sig.volatility != Volatility::Immutable {
@@ -476,7 +483,7 @@ pub(super) fn eval_volatility(sig: &Signature, args: &Vec<ExprEvaluator>) -> Vol
     let mut has_volatile = false;
     let mut mutable = false;
 
-    for arg in args {
+    for arg in args.iter() {
         let vol = arg.volatility();
         if vol != Volatility::Immutable {
             mutable = true;

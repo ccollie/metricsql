@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::default::Default;
 use std::ops::DerefMut;
 use std::str::FromStr;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 
 use chrono::{Datelike, DateTime, Timelike, TimeZone, Utc, Weekday};
 use once_cell::sync::Lazy;
@@ -14,17 +14,16 @@ use rand_distr::num_traits::FloatConst;
 use regex::Regex;
 
 use lib::{copysign, fmod, from_float, get_float64s, get_pooled_buffer, isinf, modf};
-use lib::error::Error;
 use metricsql::ast::{Expression, FuncExpr};
 use metricsql::functions::TransformFunction;
 use metricsql::parser::compile_regexp;
 
-use crate::{MetricName, Timeseries};
+use crate::{METRIC_NAME_LABEL, MetricName, remove_empty_series, Timeseries};
 use crate::binary_op::merge_non_overlapping_timeseries;
 use crate::chrono_tz::Tz;
 use crate::eval::{eval_number, eval_time, EvalConfig};
-use crate::functions::{quantile_sorted, skip_leading_nans};
-use crate::functions::types::ParameterValue;
+use crate::functions::{quantile_sorted};
+use crate::functions::types::AnyValue;
 use crate::functions::utils::{get_first_non_nan_index, get_last_non_nan_index};
 use crate::rand_distr::Distribution;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
@@ -32,15 +31,15 @@ use crate::runtime_error::{RuntimeError, RuntimeResult};
 const INF: f64 = f64::INFINITY;
 const NAN: f64 = f64::NAN;
 
-pub(crate) struct TransformFuncArg<'a> {
+pub struct TransformFuncArg<'a> {
     pub ec: &'a EvalConfig,
     pub fe: &'a FuncExpr,
-    pub args: &'a Vec<ParameterValue>,
+    pub args: Vec<AnyValue>,
     pub keep_metric_names: bool
 }
 
 impl<'a> TransformFuncArg<'a> {
-    pub fn new(ec: &'a EvalConfig, fe: &'a FuncExpr, args: &'a Vec<ParameterValue>, keep_metric_names: bool) -> Self {
+    pub fn new(ec: &'a EvalConfig, fe: &'a FuncExpr, args: Vec<AnyValue>, keep_metric_names: bool) -> Self {
         Self { ec, fe, args, keep_metric_names }
     }
 }
@@ -50,55 +49,44 @@ impl<'a> TransformFuncArg<'a> {
 
 // This trait is local to this crate,
 // so we can implement it on any type we want.
-pub(crate) trait TransformFn: Fn(&mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> + Sync + Send {}
+pub trait TransformFn: Fn(&mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> + Sync + Send {}
 
 /// implement `Transform` on any type that implements `Fn(&mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>>>`.
 impl<T> TransformFn for T where T: Fn(&mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> + Sync + Send {}
 
+pub type TransformFnImplementation = Arc<dyn TransformFn>;
 
 macro_rules! create_func_one_arg {
     ($f:expr) => {
-        Box::new(new_transform_func_one_arg($f))
+        Arc::new(new_transform_func_one_arg($f))
     };
 }
 
 macro_rules! create_func_zero_args {
     ($f:expr) => {
-        Box::new(new_transform_func_zero_args($f))
+        Arc::new(new_transform_func_zero_args($f))
     };
 }
 
 macro_rules! boxed {
     ($f:expr) => {
-        Box::new($f)
+        Arc::new($f)
     };
 }
 
-macro_rules! create_rand_func {
-    ($name: ident, $f:expr) => {
-        fn $name(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-            let mut rng: StdRng = create_rng(tfa)?;
-
-            let mut rand_func = $f(&mut rng);
-            let mut tss = eval_number(&tfa.ec, 0.0);
-            for value in tss[0].values.iter_mut() {
-                *value = rand_func();
-            }
-            Ok(tss)
-        }
-    };
-}
 
 // todo: parking_lot rwlock
 
-static HANDLER_MAP: Lazy<RwLock<HashMap<TransformFunction, Box<dyn TransformFn>>>> = Lazy::new(|| {
+static HANDLER_MAP: Lazy<RwLock<HashMap<TransformFunction,
+    TransformFnImplementation >>> = Lazy::new(|| {
     use TransformFunction::*;
 
-    let mut m: HashMap<TransformFunction, Box<dyn TransformFn>> = HashMap::with_capacity(100);
+    let mut m: HashMap<TransformFunction, TransformFnImplementation > = HashMap::with_capacity(100);
     m.insert(Abs,create_func_one_arg!(transform_abs));
     m.insert(Absent,boxed!(transform_absent));
     m.insert(Acos, create_func_one_arg!(transform_acos));
     m.insert(Acosh, create_func_one_arg!(transform_acosh));
+    m.insert(Alias, boxed!(transform_alias));
     m.insert(Asin, create_func_one_arg!(transform_asin));
     m.insert(Asinh, create_func_one_arg!(transform_asinh));
     m.insert(Atan, create_func_one_arg!(transform_atan));
@@ -199,12 +187,13 @@ static HANDLER_MAP: Lazy<RwLock<HashMap<TransformFunction, Box<dyn TransformFn>>
 });
 
 
-pub fn get_transform_func(f: TransformFunction) -> RuntimeResult<&'static Box<dyn TransformFn>> {
+pub fn get_transform_func(f: TransformFunction) -> RuntimeResult<TransformFnImplementation> {
     let map = HANDLER_MAP.read().unwrap();
-    Ok(map.get(&f).unwrap())
+    let imp = map.get(&f).unwrap();
+    Ok(imp.clone())
 }
 
-pub fn get_transform_func_by_name(s: &str) -> RuntimeResult<&Box<dyn TransformFn>> {
+pub fn get_transform_func_by_name(s: &str) -> RuntimeResult<TransformFnImplementation> {
     match TransformFunction::from_str(s) {
         Err(_) => {
             Err(RuntimeError::UnknownFunction(
@@ -212,8 +201,7 @@ pub fn get_transform_func_by_name(s: &str) -> RuntimeResult<&Box<dyn TransformFn
             ))
         }
         Ok(tf) => {
-            let map = HANDLER_MAP.read().unwrap();
-            Ok(map.get(&tf).unwrap())
+            get_transform_func(tf)
         }
     }
 }
@@ -229,7 +217,7 @@ fn new_transform_func_one_arg(tf: fn(v: f64) -> f64) -> impl TransformFn {
     };
 
     move |tfa: &mut TransformFuncArg| -> RuntimeResult<Vec<Timeseries>> {
-        let mut series = get_series_mut(tfa, 0)?;
+        let mut series = get_series(tfa, 0)?;
         do_transform_values(&mut series, tfe, tfa.keep_metric_names)
     }
 }
@@ -238,10 +226,10 @@ fn new_transform_func_one_arg(tf: fn(v: f64) -> f64) -> impl TransformFn {
 #[inline]
 fn do_transform_values(
     arg: &mut Vec<Timeseries>,
-    tf: impl TransformValuesFn,
+    mut tf: impl TransformValuesFn,
     keep_metric_names: bool
 ) -> RuntimeResult<Vec<Timeseries>> {
-    for ts in arg {
+    for ts in arg.iter_mut() {
         if !keep_metric_names {
             ts.metric_name.reset_metric_group();
         }
@@ -290,7 +278,7 @@ pub(crate) fn get_absent_timeseries(ec: &EvalConfig, arg: &Expression) -> Vec<Ti
                 if tf.is_regexp() || tf.is_negative() {
                     continue;
                 }
-                rvs[0].metric_name.add_tag(&tf.label, &tf.value)
+                rvs[0].metric_name.set_tag(&tf.label, &tf.value)
             }
         }
         _ => {}
@@ -315,7 +303,7 @@ fn transform_clamp(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>>
         }
     };
 
-    let mut series = get_series_mut(tfa, 0)?;
+    let mut series = get_series(tfa, 0)?;
     do_transform_values(&mut series, tf, tfa.keep_metric_names)
 }
 
@@ -324,14 +312,14 @@ fn transform_clamp_max(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseri
     let tf = |values: &mut [f64]| {
         let mut i = 0;
         for v in values {
-            if v > &mut maxs[i] {
+            if *v > maxs[i] {
                 *v = maxs[i]
             }
             i += 1;
         }
     };
 
-    let mut series = get_series_mut(tfa, 0)?;
+    let mut series = get_series(tfa, 0)?;
     do_transform_values(&mut series, tf, tfa.keep_metric_names)
 }
 
@@ -347,7 +335,7 @@ fn transform_clamp_min(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseri
         }
     };
 
-    let mut series = get_series_mut(tfa, 0)?;
+    let mut series = get_series(tfa, 0)?;
     do_transform_values(&mut series, tf, tfa.keep_metric_names)
 }
 
@@ -367,7 +355,7 @@ fn new_transform_func_datetime(f: fn(t: DateTime<Utc>) -> f64) -> impl Transform
             let mut arg = eval_time(&tfa.ec);
             do_transform_values(&mut arg, tf, tfa.keep_metric_names)
         } else {
-            let mut arg = get_series_mut(tfa, 0)?;
+            let mut arg = get_series(tfa, 0)?;
             do_transform_values(&mut arg, tf, tfa.keep_metric_names)
         }
     }
@@ -423,8 +411,8 @@ fn transform_buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Time
         // Preserve the first and the last bucket for better accuracy for min and max values.
         limit = 3
     }
-    let mut series = get_series_mut(tfa, 1)?;
-    let tss = vmrange_buckets_to_le(&mut series);
+    let series = get_series(tfa, 1)?;
+    let mut tss = vmrange_buckets_to_le(series);
     let tss_len = tss.len();
 
     if tss_len == 0 {
@@ -435,38 +423,46 @@ fn transform_buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Time
     struct Bucket {
         le: f64,
         hits: f64,
-        ts: Timeseries,
+        ts_index: usize
     }
 
-    let mut m: HashMap<String, Vec<Bucket>> = HashMap::new();
+    let mut bucket_map: HashMap<String, Vec<Bucket>> = HashMap::new();
 
     // todo: make sure to cap data returned from marshal below
     let mut bb = get_pooled_buffer(512);
 
     let mut mn: MetricName = MetricName::default();
 
-    for ts in tss.into_iter() {
+    for (ts_index, ts) in tss.iter().enumerate() {
         let le_str = ts
             .metric_name
-            .get_tag_value("le")
-            .unwrap_or(&String::from(""));
+            .get_tag_value("le");
 
-        if le_str.len() == 0 {
-            // Skip time series without `le` tag.
-            continue;
+        // Skip time series without `le` tag.
+        match le_str {
+            None => continue,
+            Some(le_str) => {
+                if le_str.len() == 0 {
+                    continue;
+                }
+            }
         }
+
+        let le_str = le_str.unwrap();
 
         match le_str.parse::<f64>() {
             Ok(le) => {
                 mn.copy_from(&ts.metric_name);
                 mn.remove_tag("le");
 
-                let key = mn.marshal_to_string(&mut bb).to_string();
-                m.entry(key)
-                    .or_insert(vec![])
-                    .push(Bucket { le, hits: 0.0, ts });
+                ts.metric_name.marshal(bb.deref_mut());
+                let key = String::from_utf8_lossy(&bb).to_string();
 
                 bb.clear();
+
+                bucket_map.entry(key)
+                    .or_default()
+                    .push(Bucket { le, hits: 0.0, ts_index });
             }
             _ => {
                 // Skip time series with invalid `le` tag.
@@ -477,47 +473,53 @@ fn transform_buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Time
 
     // Remove buckets with the smallest counters.
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(tss_len);
-    for (_, leGroup) in m.iter_mut() {
-        if leGroup.len() <= limit {
+    for (_, le_group) in bucket_map.iter_mut() {
+        if le_group.len() <= limit {
             // Fast path - the number of buckets doesn't exceed the given limit.
             // Keep all the buckets as is.
-            let series = leGroup.into_iter().map(|x| x.ts).collect::<Vec<_>>();
+            let series = le_group.into_iter()
+                .map(|x| tss.remove(x.ts_index))
+                .collect::<Vec<_>>();
             rvs.extend(series);
             continue;
         }
         // Slow path - remove buckets with the smallest number of hits until their count reaches the limit.
 
         // Calculate per-bucket hits.
-        leGroup.sort_by(|a, b| a.le.total_cmp(&b.le));
+        le_group.sort_by(|a, b| a.le.total_cmp(&b.le));
         for n in 0..limits.len() {
             let mut prev_value: f64 = 0.0;
-            for i in 0..leGroup.len() {
-                let xx = &leGroup[i];
-                let value = xx.ts.values[n];
-                leGroup[i].hits += value - prev_value;
-                prev_value = value
+            for bucket in le_group.iter_mut() {
+                match tss.get(bucket.ts_index) {
+                    Some(ts) => {
+                        let value = ts.values[n];
+                        bucket.hits += value - prev_value;
+                        prev_value = value
+                    }
+                    _ => {}
+                }
             }
         }
-        while leGroup.len() > limit {
+        while le_group.len() > limit {
             // Preserve the first and the last bucket for better accuracy for min and max values
             let mut xx_min_idx = 1;
-            let mut min_merge_hits = leGroup[1].hits + leGroup[2].hits;
-            for i in 0..leGroup[1..leGroup.len() - 2].len() {
-                let merge_hits = leGroup[i + 1].hits + leGroup[i + 2].hits;
+            let mut min_merge_hits = le_group[1].hits + le_group[2].hits;
+            for i in 0..le_group[1..le_group.len() - 2].len() {
+                let merge_hits = le_group[i + 1].hits + le_group[i + 2].hits;
                 if merge_hits < min_merge_hits {
                     xx_min_idx = i + 1;
                     min_merge_hits = merge_hits
                 }
             }
-            leGroup[xx_min_idx + 1].hits += leGroup[xx_min_idx].hits;
+            le_group[xx_min_idx + 1].hits += le_group[xx_min_idx].hits;
             // remove item at xx_min_idx ?
             // leGroup = append(leGroup[: xx_min_idx], leGroup[xx_min_idx + 1: ]...)
-            leGroup.remove(xx_min_idx);
+            le_group.remove(xx_min_idx);
         }
 
-        let ts_iter = leGroup
+        let ts_iter = le_group
             .into_iter()
-            .map(|x| x.ts)
+            .map(|x| tss.remove(x.ts_index))
             .collect::<Vec<Timeseries>>();
 
         rvs.extend(ts_iter);
@@ -527,24 +529,24 @@ fn transform_buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Time
 }
 
 fn transform_prometheus_buckets(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let mut series = get_series_mut(tfa, 0)?;
-    let rvs = vmrange_buckets_to_le(&mut series);
+    let series = get_series(tfa, 0)?;
+    let rvs = vmrange_buckets_to_le(series);
     return Ok(rvs);
 }
 
 static ELLIPSIS: &str = "...";
 
 /// Group timeseries by MetricGroup+tags excluding `vmrange` tag.
-struct Bucket<'a> {
+struct Bucket {
     start_str: String,
     end_str: String,
     start: f64,
     end: f64,
-    ts: &'a mut Timeseries,
+    ts: Timeseries,
 }
 
-impl<'a> Bucket<'a> {
-    fn new(ts: &mut Timeseries) -> Self {
+impl Bucket {
+    fn new(ts: Timeseries) -> Self {
        Self {
            start_str: "".to_string(),
            end_str: "".to_string(),
@@ -555,23 +557,21 @@ impl<'a> Bucket<'a> {
     }
 }
 
-impl<'a> Default for Bucket<'a> {
+impl Default for Bucket {
     fn default() -> Self {
-        Self::new(&mut Timeseries::default())
+        Self::new(Timeseries::default())
     }
 }
 
-pub(crate) fn vmrange_buckets_to_le<'a>(tss: &'a mut Vec<Timeseries>) -> Vec<Timeseries> {
+pub(crate) fn vmrange_buckets_to_le(tss: Vec<Timeseries>) -> Vec<Timeseries> {
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(tss.len());
 
-    let mut m: HashMap<String, Vec<Bucket>> = HashMap::new();
-
-    let mut bb = get_pooled_buffer(512);
+    let mut buckets: HashMap<String, Vec<Bucket>> = HashMap::new();
 
     for ts in tss.into_iter() {
         let vm_range = match ts.metric_name.get_tag_value("vmrange") {
             Some(value) => value,
-            None => &"".to_string(),
+            None => "",
         };
 
         if vm_range.len() == 0 {
@@ -579,7 +579,7 @@ pub(crate) fn vmrange_buckets_to_le<'a>(tss: &'a mut Vec<Timeseries>) -> Vec<Tim
                 Some(le) => {
                     if le.len() > 0 {
                         // Keep Prometheus-compatible buckets.
-                        rvs.push(std::mem::take(ts) );
+                        rvs.push(ts );
                     }
                 }
                 None => {}
@@ -604,19 +604,21 @@ pub(crate) fn vmrange_buckets_to_le<'a>(tss: &'a mut Vec<Timeseries>) -> Vec<Tim
             Ok(n) => n,
         };
 
-        ts.metric_name.remove_tag("le");
-        ts.metric_name.remove_tag("vmrange");
-        let key = ts.metric_name.marshal_to_string(bb.deref_mut());
+        let mut _ts = ts;
+        _ts.metric_name.remove_tag("le");
+        _ts.metric_name.remove_tag("vmrange");
 
-        m.entry(key.to_string()).or_default().push(Bucket {
-            start_str: start_str.to_owned(),
-            end_str: end_str.to_string().to_owned(),
-            start,
-            end,
-            ts
-        });
+        let key = _ts.metric_name.to_string();
 
-        bb.clear()
+        buckets.entry(key)
+            .or_default()
+            .push(Bucket {
+                    start_str: format!("{}", start),
+                    end_str: format!("{}", end),
+                    start,
+                    end,
+                    ts: std::mem::take(&mut _ts)  // does this copy ???
+            });
     }
 
     // Convert `vmrange` label in each group of time series to `le` label.
@@ -624,62 +626,72 @@ pub(crate) fn vmrange_buckets_to_le<'a>(tss: &'a mut Vec<Timeseries>) -> Vec<Tim
         let mut ts: Timeseries = Timeseries::copy_from_shallow_timestamps(src);
         ts.values.resize(ts.values.len(), 0.0);
         ts.metric_name.remove_tag("le");
-        ts.metric_name.add_tag("le", le_str);
+        ts.metric_name.set_tag("le", le_str);
         return ts;
     };
 
     let is_zero_ts = |ts: &Timeseries| -> bool { ts.values.iter().all(|x| *x <= 0.0) };
 
-    let default_bucket: Bucket<'a> = Default::default();
+    let default_bucket: Bucket = Default::default();
 
-    for xss in m.values_mut() {
+    for xss in buckets.values_mut() {
         xss.sort_by(|a, b| a.end.total_cmp(&b.end));
         let mut xss_new: Vec<Bucket> = Vec::with_capacity(xss.len() + 1);
         let mut xs_prev: &Bucket = &default_bucket;
 
-        let mut uniq_ts: HashMap<&String, &Timeseries> = HashMap::with_capacity(xss.len());
+        let mut uniq_ts: HashMap<String, usize> = HashMap::with_capacity(xss.len());
         for mut xs in xss.into_iter() {
-            if is_zero_ts(xs.ts) {
+            if is_zero_ts(&xs.ts) {
                 // Skip time series with zeros. They are substituted by xss_new below.
                 xs_prev = xs;
                 continue;
             }
             if xs.start != xs_prev.end && !uniq_ts.contains_key(&xs.start_str) {
-                uniq_ts.insert(&xs.start_str, &xs.ts);
                 xss_new.push(Bucket {
                     start_str: "".to_string(),
                     end_str: xs.start_str.clone(),
                     start: 0.0,
                     end: xs.start,
-                    ts: &mut copy_ts(xs.ts, &xs.start_str),
-                })
+                    ts: copy_ts(&xs.ts, &xs.start_str),
+                });
+                uniq_ts.insert(xs.start_str.clone(), xss_new.len() - 1);
             }
-            xs.ts.metric_name.add_tag("le", &xs.end_str);
-            match uniq_ts.get(&xs.end_str) {
-                Some(mut prev_ts) => {
-                    // the end of the current bucket is not unique, need to merge it with the existing bucket.
-                    merge_non_overlapping_timeseries(&mut prev_ts, xs.ts);
+            xs.ts.metric_name.set_tag("le", &xs.end_str);
+
+            let end_str = xs.end_str.clone();
+            match uniq_ts.get(&end_str) {
+                Some(prev_index) => {
+                    if let Some(prev_bucket) = xss_new.get_mut(*prev_index) {
+                        // the end of the current bucket is not unique, need to merge it with the existing bucket.
+                        merge_non_overlapping_timeseries(&mut prev_bucket.ts, &xs.ts);
+                    }
                 }
                 None => {
                     xss_new.push(std::mem::take(&mut xs));
-                    uniq_ts.insert(&xs.end_str, xs.ts);
+                    uniq_ts.insert(xs.end_str.clone(), xss_new.len() - 1);
                 }
             }
+
             xs_prev = xs
         }
+
         if !isinf(xs_prev.end, 1) {
             xss_new.push(Bucket {
                 start_str: "".to_string(),
                 end_str: "+Inf".to_string(),
                 start: 0.0,
                 end: f64::INFINITY,
-                ts: &mut copy_ts(&xs_prev.ts, "+Inf"),
+                ts: copy_ts(&xs_prev.ts, "+Inf"),
             })
         }
-        let xss = &xss_new;
-        for i in 0..xss[0].ts.values.len() {
+
+        if xss_new.len() == 0 {
+            continue;
+        }
+
+        for i in 0..xss_new[0].ts.values.len() {
             let mut count: f64 = 0.0;
-            for xs in xss {
+            for xs in xss_new.iter_mut() {
                 let v = xs.ts.values[i];
                 if !v.is_nan() && v > 0.0 {
                     count += v
@@ -687,9 +699,11 @@ pub(crate) fn vmrange_buckets_to_le<'a>(tss: &'a mut Vec<Timeseries>) -> Vec<Tim
                 xs.ts.values[i] = count
             }
         }
-        for xs in xss.into_iter() {
+
+        for mut xs in xss_new.into_iter() {
             rvs.push(std::mem::take(&mut xs.ts))
         }
+
     }
 
     return rvs;
@@ -699,8 +713,8 @@ fn transform_histogram_share(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Ti
     let les: Vec<f64> = tfa.args[0].get_vector()?;
 
     // Convert buckets with `vmrange` labels to buckets with `le` labels.
-    let mut series = get_series_mut(tfa, 1)?;
-    let mut tss = vmrange_buckets_to_le(&mut series);
+    let series = get_series(tfa, 1)?;
+    let mut tss = vmrange_buckets_to_le(series);
 
     // Parse bounds_label. See https://github.com/prometheus/prometheus/issues/5706 for details.
     let bounds_label = if tfa.args.len() > 2 {
@@ -728,7 +742,7 @@ fn transform_histogram_share(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Ti
         let mut v_prev: f64 = 0.0;
         let mut le_prev: f64 = 0.0;
 
-        for xs in xss {
+        for xs in xss.iter() {
             let v = xs.ts.values[i];
             let le = xs.le;
             if le_req >= le {
@@ -756,24 +770,26 @@ fn transform_histogram_share(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Ti
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(m.len());
     for (_, mut xss) in m.into_iter() {
         xss.sort_by(|a, b| a.le.total_cmp(&b.le));
-        let mut dst = xss[0].ts;
+
+        merge_same_le(&mut xss);
+
         let mut ts_lower: Timeseries;
         let mut ts_upper: Timeseries;
 
         if bounds_label.len() > 0 {
-            ts_lower = Timeseries::copy_from_shallow_timestamps(dst);
+            ts_lower = Timeseries::copy_from_shallow_timestamps(&xss[0].ts);
             ts_lower.metric_name.remove_tag(&bounds_label);
-            ts_lower.metric_name.add_tag(&bounds_label, "lower");
+            ts_lower.metric_name.set_tag(&bounds_label, "lower");
 
-            ts_upper = Timeseries::copy_from_shallow_timestamps(dst);
+            ts_upper = Timeseries::copy_from_shallow_timestamps(&xss[0].ts);
             ts_upper.metric_name.remove_tag(&bounds_label);
-            ts_upper.metric_name.add_tag(&bounds_label, "upper")
+            ts_upper.metric_name.set_tag(&bounds_label, "upper")
         } else {
             ts_lower = Timeseries::default();
             ts_upper = Timeseries::default();
         }
 
-        for i in 0..dst.values.len() {
+        for i in 0..xss[0].ts.values.len() {
             let (q, lower, upper) = share(i, &les, &mut xss);
             xss[0].ts.values[i] = q;
             if bounds_label.len() > 0 {
@@ -782,7 +798,7 @@ fn transform_histogram_share(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Ti
             }
         }
 
-        rvs.push(std::mem::take(&mut dst));
+        rvs.push(std::mem::take(&mut xss[0].ts));
         if bounds_label.len() > 0 {
             rvs.push(ts_lower);
             rvs.push(ts_upper);
@@ -793,8 +809,8 @@ fn transform_histogram_share(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Ti
 }
 
 fn transform_histogram_avg(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let mut series = get_series_mut(tfa, 0)?;
-    let mut tss = vmrange_buckets_to_le(&mut series);
+    let series = get_series(tfa, 0)?;
+    let mut tss = vmrange_buckets_to_le(series);
     let mut m = group_le_timeseries(&mut tss);
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(m.len());
 
@@ -809,8 +825,8 @@ fn transform_histogram_avg(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Time
 }
 
 fn transform_histogram_stddev(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let mut series = get_series(tfa, 0)?;
-    let mut tss = vmrange_buckets_to_le(&mut series);
+    let series = get_series(tfa, 0)?;
+    let mut tss = vmrange_buckets_to_le(series);
     let m = group_le_timeseries(&mut tss);
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(m.len());
 
@@ -826,8 +842,8 @@ fn transform_histogram_stddev(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<T
 }
 
 fn transform_histogram_stdvar(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let mut series = get_series_mut(tfa, 0)?;
-    let mut tss = vmrange_buckets_to_le(&mut series);
+    let series = get_series(tfa, 0)?;
+    let mut tss = vmrange_buckets_to_le(series);
     let m = group_le_timeseries(&mut tss);
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(m.len());
     for (_, mut xss) in m.into_iter() {
@@ -901,15 +917,14 @@ fn transform_histogram_quantiles(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
     let dst_label = tfa.args[0].get_string()?;
 
     let len = tfa.args.len();
-    let tss_orig = tfa.args[len - 1].get_series();
+    let tss_orig = tfa.args[len - 1].get_instant_vector()?;
     // Calculate quantile individually per each phi.
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(tfa.args.len());
 
-    let args: Vec<ParameterValue> = vec![];
     let mut tfa_tmp = TransformFuncArg {
         ec: tfa.ec,
         fe: tfa.fe,
-        args: &args,
+        args: vec![],
         keep_metric_names: tfa.keep_metric_names
     };
 
@@ -923,9 +938,9 @@ fn transform_histogram_quantiles(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
         let phi_str = phis[0].to_string();
         let tss = copy_timeseries(&tss_orig);
 
-        tfa_tmp.args = &vec![
-            ParameterValue::Float(phi_arg),
-            ParameterValue::Series(tss)
+        tfa_tmp.args = vec![
+            AnyValue::Scalar(phi_arg),
+            AnyValue::InstantVector(tss)
         ];
 
         match transform_histogram_quantile(&mut tfa_tmp) {
@@ -936,7 +951,7 @@ fn transform_histogram_quantiles(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
             Ok(mut tss_tmp) => {
                 for ts in tss_tmp.iter_mut() {
                     ts.metric_name.remove_tag(&dst_label);
-                    ts.metric_name.add_tag(&dst_label, &phi_str);
+                    ts.metric_name.set_tag(&dst_label, &phi_str);
                 }
                 rvs.extend(tss_tmp)
             }
@@ -950,8 +965,8 @@ fn transform_histogram_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec
     let phis: Vec<f64> = tfa.args[0].get_vector()?;
 
     // Convert buckets with `vmrange` labels to buckets with `le` labels.
-    let mut series = get_series_mut(tfa, 1)?;
-    let mut tss = vmrange_buckets_to_le(&mut series);
+    let series = get_series(tfa, 1)?;
+    let mut tss = vmrange_buckets_to_le(series);
 
     // Parse bounds_label. See https://github.com/prometheus/prometheus/issues/5706 for details.
     let bounds_label = if tfa.args.len() > 2 {
@@ -998,7 +1013,7 @@ fn transform_histogram_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec
         let v_req = v_last * phi;
         let mut v_prev: f64 = 0.0;
         let mut le_prev: f64 = 0.0;
-        for xs in xss {
+        for xs in xss.iter() {
             let v = xs.ts.values[i];
             let le = xs.le;
             if v <= 0.0 {
@@ -1027,15 +1042,16 @@ fn transform_histogram_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(m.len());
     for mut xss in m.into_values() {
         xss.sort_by(|a, b| a.le.total_cmp(&b.le));
+        merge_same_le(&mut xss);
+
         let mut ts_lower: Timeseries;
         let mut ts_upper: Timeseries;
 
         if bounds_label.len() > 0 {
-            let dst = xss[0].ts;
-            ts_lower = Timeseries::copy_from_shallow_timestamps(dst);
+            ts_lower = Timeseries::copy_from_shallow_timestamps(&xss[0].ts);
             ts_lower.metric_name.replace_tag(&bounds_label, "lower");
 
-            ts_upper = Timeseries::copy_from_shallow_timestamps(dst);
+            ts_upper = Timeseries::copy_from_shallow_timestamps(&xss[0].ts);
             ts_upper.metric_name.replace_tag(&bounds_label, "upper");
         } else {
             ts_lower = Timeseries::default();
@@ -1066,18 +1082,30 @@ fn transform_histogram_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec
     Ok(rvs)
 }
 
-struct LeTimeseries<'a> {
+#[derive(Default)]
+struct LeTimeseries {
     le: f64,
-    ts: &'a mut Timeseries,
+    ts: Timeseries,
 }
+
+
+// impl<'a> Default for LeTimeseries<'a> {
+//     fn default() -> Self {
+//         Self {
+//             le: 0.0,
+//             ts: &mut Timeseries {
+//                 metric_name: Default::default(),
+//                 values: vec![],
+//                 timestamps: Arc::new(vec![])
+//             }
+//         }
+//     }
+// }
 
 fn group_le_timeseries(tss: &mut Vec<Timeseries>) -> HashMap<String, Vec<LeTimeseries>> {
     let mut m: HashMap<String, Vec<LeTimeseries>> = HashMap::new();
 
-    // todo: tinyvec ???
-    let mut bb = get_pooled_buffer(256);
-
-    for ts in tss.iter_mut() {
+    for mut ts in tss.iter_mut() {
         match ts.metric_name.get_tag_value("le") {
             None => {}
             Some(tag_value) => {
@@ -1089,11 +1117,11 @@ fn group_le_timeseries(tss: &mut Vec<Timeseries>) -> HashMap<String, Vec<LeTimes
                     Ok(le) => {
                         ts.metric_name.reset_metric_group();
                         ts.metric_name.remove_tag("le");
-                        let key = ts.metric_name.marshal_to_string(bb.deref_mut());
-                        m.entry(key.to_string())
+                        let key = ts.metric_name.to_string();
+
+                        m.entry(key)
                             .or_default()
-                            .push(LeTimeseries { le, ts });
-                        bb.clear()
+                            .push(LeTimeseries { le, ts: std::mem::take(&mut ts) });
                     }
                 }
             }
@@ -1113,7 +1141,7 @@ fn fix_broken_buckets(i: usize, xss: &mut Vec<LeTimeseries>) {
         return;
     }
     let mut j = xss.len() - 1;
-    while j >= 0 {
+    loop {
         let v = xss[j].ts.values[i];
         if !v.is_nan() {
             j += 1;
@@ -1123,21 +1151,59 @@ fn fix_broken_buckets(i: usize, xss: &mut Vec<LeTimeseries>) {
             }
             break;
         }
+        if i == 0 {
+            break
+        }
         j -= 1;
     }
 
     let mut v_next = xss[xss.len() - 1].ts.values[i];
 
     let mut j = xss.len() - 1;
-    while j >= 0 {
+    loop {
         let v = xss[j].ts.values[i];
         if v.is_nan() || v > v_next {
             xss[j].ts.values[i] = v_next
         } else {
             v_next = v;
         }
+        if j == 0 {
+            break;
+        }
         j -= 1;
     }
+}
+
+fn merge_same_le(xss: &mut Vec<LeTimeseries>) -> Vec<LeTimeseries> {
+    // Merge buckets with identical le values.
+    // See https://github.com/VictoriaMetrics/VictoriaMetrics/pull/3225
+    let mut prev_le = xss[0].le;
+    let mut dst = Vec::with_capacity(xss.len());
+    let mut iter = xss.into_iter();
+    let first = iter.next();
+    if first.is_none() {
+        return dst;
+    }
+    dst.push( std::mem::take( &mut first.unwrap() ) );
+    let mut dst_index = 0;
+
+    for mut xs in iter {
+        if xs.le != prev_le {
+            prev_le = xs.le.clone();
+            dst.push(std::mem::take(&mut xs));
+            dst_index = dst.len() - 1;
+            continue
+        }
+
+        let dst_values = dst.get_mut(dst_index);
+        if let Some(dst) = dst_values {
+            for k in 0 .. xs.ts.values.len() {
+                let v = xs.ts.values[k];
+                dst.ts.values[k] += v;
+            }
+        }
+    }
+    return dst
 }
 
 #[inline]
@@ -1173,7 +1239,7 @@ fn running_avg(a: f64, b: f64, idx: usize) -> f64 {
 }
 
 fn transform_keep_last_value(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let series = get_series_mut(tfa, 0)?;
+    let mut series = get_series(tfa, 0)?;
     for ts in series.iter_mut() {
         if ts.values.len() == 0 {
             continue;
@@ -1188,11 +1254,11 @@ fn transform_keep_last_value(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Ti
         }
     }
 
-    Ok(std::mem::take(series))
+    Ok(series)
 }
 
 fn transform_keep_next_value(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let series = get_series_mut(tfa, 0)?;
+    let mut series = get_series(tfa, 0)?;
     for ts in series.iter_mut() {
         let values = &ts.values;
         if values.len() == 0 {
@@ -1200,22 +1266,25 @@ fn transform_keep_next_value(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Ti
         }
         let mut next_value = *ts.values.last().unwrap();
         let mut i = ts.values.len() - 1;
-        while i >= 0 {
+        loop {
             let v = ts.values[i];
             if !v.is_nan() {
                 next_value = v;
                 continue;
             }
             ts.values[i] = next_value;
+            if i == 0 {
+                break
+            }
             i -= 1;
         }
     }
 
-    Ok(std::mem::take(series))
+    Ok(series)
 }
 
 fn transform_interpolate(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let tss = get_series_mut(tfa, 0)?;
+    let mut tss = get_series(tfa, 0)?;
     for ts in tss.iter_mut() {
         if ts.values.len() == 0 {
             continue;
@@ -1254,12 +1323,12 @@ fn transform_interpolate(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timese
         }
     }
 
-    Ok(std::mem::take(tss))
+    Ok(tss)
 }
 
 fn new_transform_func_running(rf: fn(a: f64, b: f64, idx: usize) -> f64) -> impl TransformFn {
     move |tfa: &mut TransformFuncArg| -> RuntimeResult<Vec<Timeseries>> {
-        let res = get_series_mut(tfa, 0)?;
+        let mut res = get_series(tfa, 0)?;
         for ts in res.iter_mut() {
             ts.metric_name.reset_metric_group();
 
@@ -1278,7 +1347,7 @@ fn new_transform_func_running(rf: fn(a: f64, b: f64, idx: usize) -> f64) -> impl
             }
         }
 
-        Ok(std::mem::take(res))
+        Ok(res)
     }
 }
 
@@ -1298,10 +1367,10 @@ fn transform_range_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
         phi = phis[0]
     }
 
-    let mut series = get_series_mut(tfa, 1)?;
+    let mut series = get_series(tfa, 1)?;
     let mut values = get_float64s(series.len()).to_vec();
 
-    for ts in series.iter() {
+    for ts in series.iter_mut() {
         let mut last_idx = 0;
         values.clear();
         for (i, v) in ts.values.iter().enumerate() {
@@ -1316,12 +1385,13 @@ fn transform_range_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
             ts.values[last_idx] = quantile_sorted(phi, &values)
         }
     }
+
     set_last_values(&mut series);
-    Ok(std::mem::take(series))
+    Ok(series)
 }
 
 fn transform_range_first(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let series = get_series_mut(tfa, 0)?;
+    let mut series = get_series(tfa, 0)?;
     for ts in series.iter_mut() {
 
         let len = ts.values.len();
@@ -1340,13 +1410,13 @@ fn transform_range_first(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timese
         }
     }
 
-    Ok(std::mem::take(series))
+    Ok(series)
 }
 
 fn transform_range_last(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let mut series = get_series_mut(tfa, 0)?;
+    let mut series = get_series(tfa, 0)?;
     set_last_values(&mut series);
-    Ok(std::mem::take(series))
+    Ok(series)
 }
 
 fn set_last_values(tss: &mut Vec<Timeseries>) {
@@ -1368,50 +1438,54 @@ fn set_last_values(tss: &mut Vec<Timeseries>) {
 
 fn transform_smooth_exponential(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let sfs = get_scalar(&tfa, 1)?;
-    let series = get_series_mut(tfa, 0)?;
+    let mut series = get_series(tfa, 0)?;
 
-    for ts in series {
-        let mut values = skip_leading_nans(&ts.values);
-        for v in values.iter() {
-            if !isinf(*v, 0) {
-                values = &values[1..];
-                break;
-            }
+    for ts in series.iter_mut() {
+        let len = ts.values.len();
+
+        // skip NaN and Inf
+        let mut i = 0;
+        while i < len && (ts.values[i].is_nan() || !isinf(ts.values[i], 0)) {
+            i += 1
         }
-        if values.len() == 0 {
+
+        if i >= len {
             continue;
         }
-        let mut avg = values[0];
-        values = &values[1..];
-        let sfs_x = &sfs[ts.values.len() - values.len()..];
-        for (i, v) in values.iter_mut().enumerate() {
+
+        let mut avg = ts.values[0];
+        i += 1;
+
+        let sfs_x = &sfs[len - i..];
+        for j in i .. len {
+            let v = ts.values[j];
             if v.is_nan() {
                 continue;
             }
-            if isinf(*v, 0) {
-                *v = avg;
+            if isinf(v, 0) {
+                ts.values[j] = avg;
                 continue;
             }
-            let mut sf = sfs_x[i];
+            let mut sf = sfs_x[j];
             if sf.is_nan() {
                 sf = 1.0;
             }
             sf = sf.clamp(0.0, 1.0);
 
-            avg = avg * (1.0 - sf) + (*v) * sf;
-            *v = avg;
+            avg = avg * (1.0 - sf) + v * sf;
+            ts.values[j] = avg;
         }
     }
 
-    Ok(std::mem::take(series))
+    Ok(series)
 }
 
 fn transform_remove_resets(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let mut series = get_series_mut(tfa, 0)?;
+    let mut series = get_series(tfa, 0)?;
     for ts in series.iter_mut() {
         remove_counter_resets_maybe_nans(&mut ts.values);
     }
-    Ok(std::mem::take(&mut series))
+    Ok(series)
 }
 
 fn transform_union(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
@@ -1419,7 +1493,7 @@ fn transform_union(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>>
         return Ok(eval_number(&mut tfa.ec, NAN));
     }
 
-    let series = get_series_mut(tfa, 0)?;
+    let series = get_series(tfa, 0)?;
 
     let len = series.len();
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(len);
@@ -1427,9 +1501,10 @@ fn transform_union(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>>
     // todo:: tinyvec
     let mut bb = get_pooled_buffer(512).to_vec();
     for i in 1 .. tfa.args.len() {
-        let other_series = tfa.args[i].get_series();
+        let other_series = tfa.args[i].get_instant_vector()?;
         for mut ts in other_series.into_iter() {
-            let key = ts.metric_name.marshal_to_string(&mut bb).to_string();
+            let key = ts.metric_name.to_string();
+
             if m.insert(key) {
                 rvs.push(std::mem::take(&mut ts));
             }
@@ -1446,12 +1521,12 @@ fn transform_label_keep(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeser
         keep_labels.push(keep_label);
     }
 
-    let series = get_series_mut(tfa, 0)?;
+    let mut series = get_series(tfa, 0)?;
     for ts in series.iter_mut() {
         ts.metric_name.remove_tags_on(&keep_labels)
     }
 
-    Ok(std::mem::take(series))
+    Ok(series)
 }
 
 fn transform_label_del(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
@@ -1461,30 +1536,44 @@ fn transform_label_del(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseri
         del_labels.push(del_label);
     }
 
-    let series = get_series_mut(tfa, 0)?;
+    let mut series = get_series(tfa, 0)?;
     for ts in series.iter_mut() {
-        ts.metric_name.remove_tags_ignoring(&del_labels[0..])
+        ts.metric_name.remove_tags(&del_labels[0..])
     }
 
-    Ok(std::mem::take(series))
+    Ok(series)
 }
 
 fn transform_label_set(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
 
     let (dst_labels, dst_values) = get_string_pairs(tfa, 1)?;
-    let series = get_series_mut(tfa, 0)?;
+    let mut series = get_series(tfa, 0)?;
 
+    label_set(&mut series, &dst_labels, &dst_values);
+
+    Ok(series)
+}
+
+fn transform_alias(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+
+    let alias = get_string(tfa, 1)?;
+    let mut series = get_series(tfa, 0)?;
+
+    label_set(&mut series, &[METRIC_NAME_LABEL.to_string()], &[alias]);
+
+    Ok(series)
+}
+
+fn label_set(series: &mut Vec<Timeseries>, dst_labels: &[String], dst_values: &[String]) {
     for ts in series.iter_mut() {
-        for (j, dstLabel) in dst_labels.iter().enumerate() {
+        for (j, dst_label) in dst_labels.iter().enumerate() {
             if dst_values[j].len() == 0 {
-                ts.metric_name.remove_tag(&dstLabel);
+                ts.metric_name.remove_tag(&dst_label);
             } else {
-                ts.metric_name.replace_tag(dstLabel, &dst_labels[j])
+                ts.metric_name.replace_tag(dst_label, &dst_labels[j])
             }
         }
     }
-
-    Ok(std::mem::take(series))
 }
 
 fn transform_label_uppercase(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
@@ -1506,21 +1595,21 @@ fn transform_label_value_func(
         let label = get_string(&tfa, i)?;
         labels.push(label);
     }
-    let series = get_series_mut(tfa, 0)?;
+    let mut series = get_series(tfa, 0)?;
     for ts in series.iter_mut() {
         for label in labels.iter() {
-            let mut dst_value = get_tag_value(&mut ts.metric_name, label);
+            let dst_value = get_tag_value(&mut ts.metric_name, label);
             let transformed = &*f(&dst_value);
 
             if transformed.len() == 0 {
                 ts.metric_name.remove_tag(label);
             } else {
-                ts.metric_name.add_tag(label, &transformed);
+                ts.metric_name.set_tag(label, &transformed);
             }
         }
     }
 
-    Ok(std::mem::take(series))
+    Ok(series)
 }
 
 fn transform_label_map(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
@@ -1532,7 +1621,7 @@ fn transform_label_map(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseri
         m.insert(src_value, &dst_values[i]);
     }
 
-    let series = get_series_mut(tfa, 0)?;
+    let mut series = get_series(tfa, 0)?;
     for ts in series.iter_mut() {
         let mut dst_value = get_tag_value(&mut ts.metric_name, &label);
         if let Some(value) = m.get(dst_value.as_str()) {
@@ -1541,37 +1630,32 @@ fn transform_label_map(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseri
         if dst_value.len() == 0 {
             ts.metric_name.remove_tag(&label);
         } else {
-            ts.metric_name.add_tag(&label, &dst_value);
+            ts.metric_name.set_tag(&label, &dst_value);
         }
     }
 
-    Ok(std::mem::take(series))
+    Ok(series)
 }
 
 fn transform_drop_common_labels(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
 
-    let series = get_series_mut(tfa, 0)?;
+    let mut series = get_series(tfa, 0)?;
     for i in 1 .. tfa.args.len() {
-        let other = get_series_mut(tfa, i)?;
-        series.append( other );
+        let mut other = get_series(tfa, i)?;
+        series.append( &mut other );
     }
 
-    let mut m: HashMap<&String, HashMap<&String, usize>> = HashMap::new();
+    let mut counts_map: HashMap<String, HashMap<String, usize>> = HashMap::new();
 
-    let count_label = move |name: &String, _: &String| {
-        let x = m.entry(name).or_insert_with(|| HashMap::new());
-        x.entry(name)
-            .and_modify(|count| *count += 1)
-            .or_insert(0);
-    };
-
-    for ts in series.iter_mut() {
-        ts.metric_name.for_each_tag(&mut count_label);
+    for ts in series.iter() {
+        ts.metric_name.count_label_values(&mut counts_map);
     }
 
-    for (label_name, x) in m.iter() {
+    let series_len = series.len();
+    // m.iter().filter(|entry| entry.1)
+    for (label_name, x) in counts_map.iter() {
         for (_, count) in x {
-            if *count != series.len() {
+            if *count != series_len {
                 continue;
             }
             for ts in series.iter_mut() {
@@ -1580,8 +1664,9 @@ fn transform_drop_common_labels(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec
         }
     }
 
-    Ok(std::mem::take(series))
+    Ok(series)
 }
+
 
 fn transform_label_copy(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     transform_label_copy_ext(tfa, false)
@@ -1597,46 +1682,50 @@ fn transform_label_copy_ext(
 ) -> RuntimeResult<Vec<Timeseries>> {
     let (src_labels, dst_labels) = get_string_pairs(tfa, 1)?;
 
-    let series = get_series_mut(tfa, 0)?;
+    let mut series = get_series(tfa, 0)?;
     for ts in series.iter_mut() {
-        for (i, srcLabel) in src_labels.iter().enumerate() {
+        for (i, src_label) in src_labels.iter().enumerate() {
             let dst_label = &dst_labels[i];
-            match ts.metric_name.get_tag_value(srcLabel) {
-                Some(value) => {
-                    if value.len() == 0 {
-                        // do not remove destination label if the source label doesn't exist.
-                        continue;
-                    }
-                    let mut dst_value = get_dst_value(&mut ts.metric_name, dst_label);
-                    dst_value.push_str(&value);
-                    if remove_src_labels && srcLabel != dst_label {
-                        ts.metric_name.remove_tag(srcLabel)
-                    }
-                }
-                None => {}
+            let value = ts.metric_name.get_tag_value(src_label);
+            if value.is_none() {
+                continue;
+            }
+            let value = value.unwrap();
+            if value.len() == 0 {
+                // do not remove destination label if the source label doesn't exist.
+                continue;
+            }
+
+            // this is done because value is a live (owned) ref to data in ts.metric_name
+            // because of this, there was an outstanding borrow
+            let v = value.clone();
+            ts.metric_name.set_tag(dst_label, &v);
+
+            if remove_src_labels && src_label != dst_label {
+                ts.metric_name.remove_tag(src_label)
             }
         }
     }
 
-    Ok(std::mem::take(series))
+    Ok(series)
 }
 
 fn get_string_pairs(
     tfa: &mut TransformFuncArg,
     start: usize,
 ) -> RuntimeResult<(Vec<String>, Vec<String>)> {
-    let args = tfa.args;
-    if args.len() % 2 != 0 {
+    let arg_len = tfa.args.len();
+    if arg_len % 2 != 0 {
         return Err(RuntimeError::ArgumentError(format!(
             "the number of string args must be even; got {}",
-            args.len()
+            arg_len
         )));
     }
-    let result_len = args.len() / 2;
+    let result_len = arg_len / 2;
     let mut ks: Vec<String> = Vec::with_capacity(result_len);
     let mut vs: Vec<String> = Vec::with_capacity(result_len);
     let mut i = start;
-    while i < args.len() {
+    while i < arg_len {
         let k = get_string(&tfa, i)?;
         ks.push(k);
         let v = get_string(&tfa, i + 1)?;
@@ -1659,15 +1748,15 @@ fn transform_label_join(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeser
         src_labels.push(src_label);
     }
 
-    let series = get_series_mut(tfa, 0)?;
+    let mut series = get_series(tfa, 0)?;
     for ts in series.iter_mut() {
         let mut dst_value = get_tag_value(&mut ts.metric_name, &dst_label);
         // use some manner of string buffer
 
         dst_value.clear(); //??? test this
 
-        for (j, srcLabel) in src_labels.iter().enumerate() {
-            match ts.metric_name.get_tag_value(srcLabel) {
+        for (j, src_label) in src_labels.iter().enumerate() {
+            match ts.metric_name.get_tag_value(src_label) {
                 Some(src_value) => {
                     dst_value.push_str(&src_value);
                     if j + 1 < src_labels.len() {
@@ -1681,11 +1770,11 @@ fn transform_label_join(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeser
         if dst_value.len() == 0 {
             ts.metric_name.remove_tag(&dst_label);
         } else {
-            ts.metric_name.add_tag(&dst_label, &dst_value);
+            ts.metric_name.set_tag(&dst_label, &dst_value);
         }
     }
 
-    Ok(std::mem::take(series))
+    Ok(series)
 }
 
 fn transform_label_transform(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
@@ -1706,7 +1795,7 @@ fn transform_label_transform(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Ti
         }
     }
 
-    let mut series = get_series_mut(tfa, 0)?;
+    let mut series = get_series(tfa, 0)?;
     label_replace(&mut series, &label, &r.unwrap(), &label, &replacement)
 }
 
@@ -1717,7 +1806,7 @@ fn transform_label_replace(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Time
         let dst_label = tfa.args[1].get_string()?;
         let replacement = tfa.args[2].get_string()?;
         let src_label = tfa.args[3].get_string()?;
-        let mut series = get_series_mut(tfa, 0)?;
+        let mut series = get_series(tfa, 0)?;
 
         label_replace(&mut series, &src_label, &r, &dst_label, &replacement)
     })
@@ -1731,21 +1820,30 @@ fn label_replace(
     replacement: &str,
 ) -> RuntimeResult<Vec<Timeseries>> {
     for ts in tss.iter_mut() {
-        match ts.metric_name.get_tag_value(src_label) {
-            Some(src_value) => {
-                if !r.is_match(&src_value) {
-                    continue;
+        let src_value = ts.metric_name.get_tag_value(src_label);
+        if src_value.is_none() {
+            continue;
+        }
+        let src_value = src_value.unwrap();
+        if !r.is_match(&src_value) {
+            continue;
+        }
+        let b = r.replace_all(&src_value, replacement);
+        if b.len() == 0 {
+            ts.metric_name.remove_tag(dst_label)
+        } else {
+            // if we have borrowed src_value, we need to clone it to avoid holding
+            // a borrowed ref to ts.metric_name
+            match b {
+                Cow::Borrowed(_) => {
+                    let cloned = src_value.clone();
+                    ts.metric_name.set_tag(dst_label, &cloned);
+                },
+                Cow::Owned(owned) => {
+                    ts.metric_name.set_tag(dst_label, &owned);
                 }
-                let b = r.replace_all(&src_value, replacement);
-                if b.len() == 0 {
-                    ts.metric_name.remove_tag(dst_label)
-                } else {
-                    ts.metric_name.add_tag(dst_label, &b);
-                }
-            }
-            _ => {
-                continue;
-            }
+            };
+
         }
     }
 
@@ -1756,7 +1854,7 @@ fn transform_label_value(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timese
     let label_name = tfa.args[1].get_string()?;
     let mut x: f64;
 
-    let mut series = get_series_mut(tfa, 0)?;
+    let mut series = get_series(tfa, 0)?;
     for ts in series.iter_mut() {
         ts.metric_name.reset_metric_group();
         match ts.metric_name.get_tag_value(&label_name) {
@@ -1779,21 +1877,6 @@ fn transform_label_value(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timese
     Ok(std::mem::take(&mut series))
 }
 
-// todo: make this a macro
-#[inline]
-fn process_regex(
-    tfa: &mut TransformFuncArg,
-    re: &str,
-    handler: fn(tfa: &mut TransformFuncArg, r: &Regex) -> RuntimeResult<Vec<Timeseries>>,
-) -> RuntimeResult<Vec<Timeseries>> {
-    match Regex::new(re) {
-        Err(e) => Err(RuntimeError::from(format!(
-            "cannot compile regexp {} : {}",
-            &re, e
-        ))),
-        Ok(ref r) => handler(tfa, r),
-    }
-}
 
 #[inline]
 fn process_anchored_regex<F>(
@@ -1818,7 +1901,7 @@ fn transform_label_match(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timese
     let label_re = get_label(tfa, "regexp", 1)?;
 
     process_anchored_regex(tfa, &label_re, move |tfa, r|  {
-        let series = get_series_mut(tfa, 0)?;
+        let mut series = get_series(tfa, 0)?;
         series.retain(|ts| {
             if let Some(label_value) = ts.metric_name.get_tag_value(&label_name) {
                 r.is_match(label_value)
@@ -1827,7 +1910,7 @@ fn transform_label_match(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timese
             }
         });
 
-        Ok(std::mem::take(series))
+        Ok(series)
     })
 }
 
@@ -1836,7 +1919,7 @@ fn transform_label_mismatch(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
 
     process_anchored_regex(tfa, &label_re, |tfa, r| {
         let label_name = get_label(tfa, "", 1)?;
-        let mut series = get_series_mut(tfa, 0)?;
+        let mut series = get_series(tfa, 0)?;
         series.retain(|ts| {
             if let Some(label_value) = ts.metric_name.get_tag_value(&label_name) {
                 !r.is_match(label_value)
@@ -1861,15 +1944,15 @@ fn transform_label_graphite_group(tfa: &mut TransformFuncArg) -> RuntimeResult<V
         }
     }
 
-    let mut series = get_series_mut(tfa, 0)?;
+    let mut series = get_series(tfa, 0)?;
 
     for ts in series.iter_mut() {
         let groups: Vec<&str> = ts.metric_name.metric_group.split(DOT_SEPARATOR).collect();
         let mut group_name: String =
             String::with_capacity(ts.metric_name.metric_group.len() + groups.len());
-        for (j, groupID) in group_ids.iter().enumerate() {
-            if *groupID >= 0_i64 && *groupID < (groups.len() as i64) {
-                let idx = *groupID as usize;
+        for (j, group_id) in group_ids.iter().enumerate() {
+            if *group_id >= 0_i64 && *group_id < (groups.len() as i64) {
+                let idx = *group_id as usize;
                 group_name.push_str(groups[idx]);
             }
             if j < group_ids.len() - 1 {
@@ -1906,7 +1989,12 @@ fn transform_limit_offset(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Times
         }
     }
 
-    let mut rvs = get_series_mut(tfa, 2)?;
+    let mut rvs = get_series(tfa, 2)?;
+
+    // remove_empty_series so offset will be calculated after empty series
+    // were filtered out.
+    remove_empty_series(&mut rvs);
+
     if rvs.len() >= offset {
         rvs.drain(0..offset);
     }
@@ -1947,12 +2035,11 @@ fn transform_round(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>>
     let nearest = if tfa.args.len() == 1 {
         get_scalar(tfa, 1)?
     } else {
-        let vals = vec![1_f64; tfa.ec.timestamps().len()];
-        vals.as_slice()
+        vec![1_f64; tfa.ec.timestamps().len()]
     };
 
     let tf = move |values: &mut [f64]| {
-        let mut n_prev: f64;
+        let mut n_prev: f64 = values[0];
         let mut p10: f64 = 0.0;
         for (i, v) in values.iter_mut().enumerate() {
             let n = nearest[i];
@@ -1968,7 +2055,7 @@ fn transform_round(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>>
         }
     };
 
-    let mut series = get_series_mut(tfa, 0)?;
+    let mut series = get_series(tfa, 0)?;
     do_transform_values(&mut series, tf, tfa.keep_metric_names)
 }
 
@@ -1985,7 +2072,7 @@ fn transform_sgn(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
         }
     };
 
-    let mut series = get_series_mut(tfa, 0)?;
+    let mut series = get_series(tfa, 0)?;
     do_transform_values(&mut series, tf, tfa.keep_metric_names)
 }
 
@@ -1993,25 +2080,22 @@ fn transform_scalar(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>
     match &tfa.args[0] {
         // Verify whether the arg is a string.
         // Then try converting the string to number.
-        ParameterValue::String(s) => {
+        AnyValue::String(s) => {
             let n = match s.parse::<f64>() {
                 Ok(n) => n,
                 Err(_) => f64::NAN,
             };
             Ok(eval_number(&mut tfa.ec, n))
         },
-        ParameterValue::Float(f) => {
+        AnyValue::Scalar(f) => {
             Ok(eval_number(&mut tfa.ec, *f))
         },
-        ParameterValue::Int(f) => {
-            Ok(eval_number(&mut tfa.ec, *f as f64))
-        }
         _ => {
             // The arg isn't a string. Extract scalar from it.
             if tfa.args.len() != 1 {
                 Ok(eval_number(&mut tfa.ec, NAN))
             } else {
-                let mut arg = tfa.args[0].get_series().remove(0);
+                let mut arg = tfa.args[0].get_instant_vector()?.remove(0);
                 arg.metric_name.reset();
                 Ok(vec![arg])
             }
@@ -2022,7 +2106,7 @@ fn transform_scalar(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>
 fn new_transform_func_sort_by_label(is_desc: bool) -> impl TransformFn {
     move |tfa: &mut TransformFuncArg| -> RuntimeResult<Vec<Timeseries>> {
         let mut labels: Vec<String> = Vec::with_capacity(1);
-        let series = get_series_mut(tfa, 0)?;
+        let mut series = get_series(tfa, 0)?;
 
         for i in 1..tfa.args.len() {
             let label = tfa.args[i].get_string()?;
@@ -2054,7 +2138,7 @@ fn new_transform_func_sort_by_label(is_desc: bool) -> impl TransformFn {
             return Ordering::Equal;
         });
 
-        Ok(std::mem::take(series))
+        Ok(series)
     }
 }
 
@@ -2075,7 +2159,7 @@ fn new_transform_func_alpha_numeric_sort(is_desc: bool) -> impl TransformFn {
             }
         }
 
-        let mut res = get_series_mut(tfa, 0)?;
+        let mut res = get_series(tfa, 0)?;
         res.sort_by(|first, second| {
             for label in &labels {
                 match (
@@ -2109,7 +2193,7 @@ fn new_transform_func_alpha_numeric_sort(is_desc: bool) -> impl TransformFn {
             Ordering::Equal
         });
 
-        Ok(std::mem::take(&mut res))
+        Ok(res)
     }
 }
 
@@ -2218,20 +2302,21 @@ pub fn compare_str_alphanumeric<A: AsRef<str>, B: AsRef<str>>(a: A, b: B) -> Ord
 fn new_transform_func_sort(is_desc: bool) -> impl TransformFn {
     return move |tfa: &mut TransformFuncArg| -> RuntimeResult<Vec<Timeseries>> {
 
-        let mut series = get_series_mut(tfa, 0)?;
+        let mut series = get_series(tfa, 0)?;
         series.sort_by(move |first, second| {
             let a = &first.values;
             let b = &second.values;
             let mut n = a.len() - 1;
-            while n >= 0 {
+            loop {
                 if !a[n].is_nan() && !b[n].is_nan() && a[n] != b[n] {
                     break;
                 }
+                if n == 0 {
+                    return Ordering::Greater;
+                }
                 n -= 1;
             }
-            if n < 0 {
-                return Ordering::Greater;
-            }
+
             if is_desc {
                 return b[n].total_cmp(&a[n]);
             }
@@ -2351,30 +2436,31 @@ fn create_rng(tfa: &mut TransformFuncArg) -> RuntimeResult<StdRng> {
     }
 }
 
-#[inline]
-fn new_rand_float64(r: &mut StdRng) -> Box<dyn RandFunc + '_> {
-    Box::new(
-        move || r.gen::<f64>()
-    )
+
+macro_rules! create_rand_func {
+    ($name: ident, $f:expr) => {
+        fn $name(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+            let mut rng: StdRng = create_rng(tfa)?;
+            let mut tss = eval_number(&tfa.ec, 0.0);
+            for value in tss[0].values.iter_mut() {
+                *value = $f(&mut rng);
+            }
+            Ok(tss)
+        }
+    };
 }
 
-#[inline]
-fn new_rand_norm_float64(r: &mut StdRng) -> Box<dyn RandFunc + '_> {
-    Box::new(
-        move || <StandardNormal as Distribution<f64>>::sample::<StdRng>(&StandardNormal, r) as f64
-    )
-}
 
-#[inline]
-fn new_rand_exp_float64(r: &mut StdRng) -> Box<dyn RandFunc + '_> {
-    Box::new(
-        move || <Exp1 as Distribution<f64>>::sample::<StdRng>(&Exp1, r) as f64
-    )
-}
+create_rand_func!(transform_rand, |r: &mut StdRng| r.gen::<f64>() );
 
-create_rand_func!(transform_rand, new_rand_float64);
-create_rand_func!(transform_rand_norm, new_rand_norm_float64);
-create_rand_func!(transform_rand_exp, new_rand_exp_float64);
+create_rand_func!(transform_rand_norm, |r: &mut StdRng|  {
+    <StandardNormal as Distribution<f64>>::sample::<StdRng>(&StandardNormal, r) as f64
+});
+
+create_rand_func!(transform_rand_exp, |r: &mut StdRng| {
+    <Exp1 as Distribution<f64>>::sample::<StdRng>(&Exp1, r) as f64
+});
+
 
 fn transform_pi(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     Ok(eval_number(&tfa.ec, f64::PI()))
@@ -2413,15 +2499,20 @@ fn new_transform_bitmap(bitmap_func: fn(a: u64, b: u64) -> u64) -> impl Transfor
             }
         };
 
-        let mut series = get_series_mut(tfa, 0)?;
+        let mut series = get_series(tfa, 0)?;
         do_transform_values(&mut series, tf, tfa.keep_metric_names)
     }
 }
 
-fn parse_zone(tz_name: &str) -> Result<Tz, Error> {
-    let zone: Tz = tz_name.parse()?;
-    Ok(zone)
+fn parse_zone(tz_name: &str) -> RuntimeResult<Tz> {
+    match tz_name.parse() {
+        Ok(zone) => Ok(zone),
+        Err(e) => Err(RuntimeError::ArgumentError(
+            format!("unable to parse tz: {:?}", e)
+        ))
+    }
 }
+
 fn transform_timezone_offset(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let tz_name = match tfa.args[0].get_string() {
         Err(e) => {
@@ -2461,8 +2552,8 @@ fn transform_time(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> 
 }
 
 fn transform_vector(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let series = get_series_mut(tfa, 0)?;
-    Ok(std::mem::take(series))
+    let series = get_series(tfa, 0)?;
+    Ok(series)
 }
 
 #[inline]
@@ -2518,16 +2609,6 @@ fn copy_timeseries_metric_names(tss: &Vec<Timeseries>, make_copy: bool) -> Cow<V
     return Cow::Owned(rvs);
 }
 
-fn get_dst_value<'a>(mn: &'a mut MetricName, dst_label: &str) -> &'a String {
-    match mn.get_tag_value_mut(dst_label) {
-        Some(val) => val,
-        None => {
-            mn.add_tag(dst_label, "");
-            mn.get_tag_value_mut(dst_label).unwrap()
-        }
-    }
-}
-
 fn get_tag_value(mn: &mut MetricName, dst_label: &str) -> String {
     match mn.get_tag_value(dst_label) {
         Some(val) => val.to_owned(),
@@ -2547,10 +2628,21 @@ fn is_leap_year(y: u32) -> bool {
 
 const DAYS_IN_MONTH: [u8; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 
-fn remove_counter_resets_maybe_nans(mut values: &[f64]) {
-    values = skip_leading_nans(values);
-    if values.len() == 0 {
+fn remove_counter_resets_maybe_nans(values: &mut Vec<f64>) {
+    let mut i = 0;
+    while i < values.len() && values[i].is_nan() {
+        i += 1;
+    }
+    if i > values.len() {
+        values.clear();
         return;
+    }
+    if i > 0 {
+        if i == 1 {
+            values.remove(i);
+        } else {
+            values.drain(0..i);
+        }
     }
     let mut correction: f64 = 0.0;
     let mut prev_value = values[0];
@@ -2575,10 +2667,9 @@ fn remove_counter_resets_maybe_nans(mut values: &[f64]) {
 
 fn get_string(tfa: &TransformFuncArg, arg_num: usize) -> RuntimeResult<String> {
     match &tfa.args[arg_num] {
-        ParameterValue::String(s) => Ok(s.clone()), // todo: use .into ??
-        ParameterValue::Float(f) => Ok(f.to_string()),
-        ParameterValue::Int(i) => Ok(i.to_string()),
-        ParameterValue::Series(series) => {
+        AnyValue::String(s) => Ok(s.clone()), // todo: use .into ??
+        AnyValue::Scalar(f) => Ok(f.to_string()),
+        AnyValue::InstantVector(series) => {
             if series.len() != 1 {
                 let msg = format!(
                     "arg # {} must contain a single timeseries; got {} timeseries",
@@ -2587,7 +2678,7 @@ fn get_string(tfa: &TransformFuncArg, arg_num: usize) -> RuntimeResult<String> {
                 );
                 return Err(RuntimeError::ArgumentError(msg));
             }
-            for v in series[0].values {
+            for v in series[0].values.iter() {
                 if !v.is_nan() {
                     let msg = format!("arg # {} contains non - string timeseries", arg_num + 1);
                     return Err(RuntimeError::ArgumentError(msg));
@@ -2601,7 +2692,7 @@ fn get_string(tfa: &TransformFuncArg, arg_num: usize) -> RuntimeResult<String> {
 }
 
 fn get_label(tfa: &TransformFuncArg, name: &str, arg_num: usize) -> RuntimeResult<String> {
-    match tfa.args[arg_num].get_str() {
+    match tfa.args[arg_num].get_string() {
         Ok(lbl) => Ok(lbl.to_string()),
         Err(_) => {
             let msg = format!("cannot read {} label name", name);
@@ -2610,31 +2701,21 @@ fn get_label(tfa: &TransformFuncArg, name: &str, arg_num: usize) -> RuntimeResul
     }
 }
 
-fn get_series_mut<'a>(tfa: &'a TransformFuncArg, arg_num: usize) -> RuntimeResult<&'a mut Vec<Timeseries>> {
-    let tss = tfa.args[arg_num].get_series_mut();
-    Ok(tss)
-}
 
 pub fn get_series(tfa: &TransformFuncArg, arg_num: usize) -> RuntimeResult<Vec<Timeseries>> {
-    Ok(tfa.args[arg_num].get_series())
+    Ok(tfa.args[arg_num].get_instant_vector()?)
 }
 
-pub fn get_scalar<'a>(tfa: &'a TransformFuncArg, arg_num: usize) -> RuntimeResult<&'a [f64]> {
+pub fn get_scalar(tfa: &TransformFuncArg, arg_num: usize) -> RuntimeResult<Vec<f64>> {
     let arg = &tfa.args[arg_num];
     match arg {
-        ParameterValue::Float(val) => {
+        AnyValue::Scalar(val) => {
             let len = tfa.ec.timestamps().len();
             // todo: tinyvec
             let values = vec![*val; len];
-            Ok(values.as_slice())
+            Ok(values)
         },
-        ParameterValue::Int(val) => {
-            let len = tfa.ec.timestamps().len();
-            // todo: tinyvec
-            let values = vec![*val as f64; len];
-            Ok(values.as_slice())
-        },
-        ParameterValue::Series(s) => {
+        AnyValue::InstantVector(s) => {
             if s.len() != 1 {
                 let msg = format!(
                     "arg # {} must contain a single timeseries; got {} timeseries",
@@ -2643,7 +2724,7 @@ pub fn get_scalar<'a>(tfa: &'a TransformFuncArg, arg_num: usize) -> RuntimeResul
                 );
                 return Err(RuntimeError::ArgumentError(msg))
             }
-            Ok(&s[0].values)
+            Ok(s[0].values.clone())
         },
         _ => {
             let msg = format!(

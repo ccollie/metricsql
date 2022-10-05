@@ -3,20 +3,24 @@ use std::fmt::Display;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::string::{String, ToString};
-
-use text_size::TextRange;
+use text_size::{TextRange, TextSize};
 
 use lib::hash_f64;
 
 use crate::ast::{BinaryOp, LabelFilterOp};
 use crate::ast::expression_kind::ExpressionKind;
 use crate::ast::label_filter::{LabelFilter, LabelFilterExpr};
+use crate::ast::LabelFilterOp::Equal;
 use crate::ast::return_type::ReturnValue;
-use crate::functions::{AggregateFunction, BuiltinFunction, get_aggregate_arg_idx_for_optimization, is_rollup_aggregation_over_time, TransformFunction};
+use crate::functions::{
+   AggregateFunction,
+   BuiltinFunction,
+   get_aggregate_arg_idx_for_optimization,
+   is_rollup_aggregation_over_time,
+   TransformFunction
+};
 use crate::lexer::{duration_value, escape_ident};
 use crate::parser::{ParseError, ParseResult};
-
-pub type Span = TextRange;
 
 pub trait Visitor<T> {
     fn visit_expr(&mut self, visitor: fn(e: &Expression) -> ());
@@ -189,6 +193,27 @@ impl Expression {
         }
     }
 
+    pub fn is_metric_expression(&self) -> bool {
+        match self {
+            Expression::MetricExpression(_) => true,
+            _ => false
+        }
+    }
+
+    pub fn span(&self) -> TextRange {
+        match self {
+            Expression::Duration(de) => de.span.clone(),
+            Expression::Number(num) => num.span.clone(),
+            Expression::String(se) => se.span.clone(),
+            Expression::Parens(pe) => pe.span.clone(),
+            Expression::Function(fe) => fe.span.clone(),
+            Expression::Aggregation(ae) => ae.span.clone(),
+            Expression::BinaryOperator(be) => be.span.clone(),
+            Expression::With(we) => we.span.clone(),
+            Expression::Rollup(re) => re.span.clone(),
+            Expression::MetricExpression(me) => me.span.clone()
+        }
+    }
 }
 
 impl ExpressionNode for Expression {
@@ -243,33 +268,35 @@ impl Display for Expression {
 
 impl From<f64> for Expression {
     fn from(v: f64) -> Self {
-        Expression::Number(NumberExpr::new(v))
+        Expression::Number(NumberExpr::from(v))
     }
 }
 
 impl From<i64> for Expression {
     fn from(v: i64) -> Self {
-        Expression::Number(NumberExpr::new(v as f64))
+        Expression::Number(NumberExpr::from(v as f64))
     }
 }
 
 impl From<usize> for Expression {
     fn from(value: usize) -> Self {
-        Expression::Number(NumberExpr::new(value as f64))
+        Expression::Number(NumberExpr::from(value as f64))
     }
 }
 
 impl From<String> for Expression {
     fn from(s: String) -> Self {
-        Expression::String(StringExpr::new(s))
+        Expression::String(StringExpr::from(s))
     }
 }
 
 impl From<&str> for Expression {
     fn from(s: &str) -> Self {
-        Expression::String (StringExpr::new(s))
+        Expression::String (StringExpr::from(s))
     }
 }
+// todo: integrate cheecks from
+// https://github.com/prometheus/prometheus/blob/fa6e05903fd3ce52e374a6e1bf4eb98c9f1f45a7/promql/parser/parse.go#L436
 
 /// StringExpr represents string expression.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Hash)]
@@ -281,13 +308,23 @@ pub struct StringExpr {
     /// They must be converted into S by expand_with_expr.
     // todo: SmallVec
     pub(crate) tokens: Option<Vec<String>>,
+    pub span: TextRange
 }
 
 impl StringExpr {
-    pub fn new<S: Into<String>>(s: S) -> Self {
+    pub fn new<S: Into<String>>(s: S, span: TextRange) -> Self {
         StringExpr {
             s: s.into(),
             tokens: None,
+            span
+        }
+    }
+
+    pub fn from_tokens(tokens: Vec<String>, span: TextRange) -> Self {
+        StringExpr {
+            s: "".to_string(),
+            tokens: Some(tokens),
+            span
         }
     }
 
@@ -326,13 +363,17 @@ impl StringExpr {
 
 impl From<String> for StringExpr {
     fn from(s: String) -> Self {
-        StringExpr::new(s)
+        let range = TextRange::at(TextSize::from(0),
+        TextSize::from(s.len() as u32));
+        StringExpr::new(s, range)
     }
 }
 
 impl From<&str> for StringExpr {
     fn from(s: &str) -> Self {
-        StringExpr::new(s)
+        let range = TextRange::at(TextSize::from(0),
+                                  TextSize::from(s.len() as u32));
+        StringExpr::new(s, range)
     }
 }
 
@@ -366,13 +407,13 @@ impl Deref for StringExpr {
 pub struct NumberExpr {
     /// value is the parsed number, i.e. `1.23`, `-234`, etc.
     pub value: f64,
+    pub span: TextRange
 }
 
 impl NumberExpr {
-    pub fn new(v: f64) -> Self {
-        NumberExpr { value: v }
+    pub fn new(v: f64, span: TextRange) -> Self {
+        NumberExpr { value: v, span }
     }
-
     pub fn return_value(&self) -> ReturnValue {
         ReturnValue::Scalar
     }
@@ -380,19 +421,19 @@ impl NumberExpr {
 
 impl From<f64> for NumberExpr {
     fn from(value: f64) -> Self {
-        NumberExpr::new(value)
+        NumberExpr::new(value, TextRange::default())
     }
 }
 
 impl From<i64> for NumberExpr {
     fn from(value: i64) -> Self {
-        NumberExpr::new(value as f64)
+        NumberExpr::new(value as f64, TextRange::default())
     }
 }
 
 impl From<usize> for NumberExpr {
     fn from(value: usize) -> Self {
-        NumberExpr::new(value as f64)
+        NumberExpr::new(value as f64, TextRange::default())
     }
 }
 
@@ -482,7 +523,7 @@ pub struct GroupModifier {
     /// A list of labels to which the operator is applied
     pub labels: Vec<String>,
 
-    pub span: Option<Span>,
+    pub span: Option<TextRange>,
 }
 
 impl GroupModifier {
@@ -528,7 +569,7 @@ impl GroupModifier {
         self
     }
 
-    pub fn span<S: Into<Span>>(mut self, span: S) -> Self {
+    pub fn span<S: Into<TextRange>>(mut self, span: S) -> Self {
         self.span = Some(span.into());
         self
     }
@@ -589,7 +630,7 @@ pub struct JoinModifier {
     /// group_left(foo) copies the label `foo` from the right hand side
     pub labels: Vec<String>,
 
-    pub span: Option<Span>,
+    pub span: Option<TextRange>,
 }
 
 impl JoinModifier {
@@ -635,7 +676,7 @@ impl JoinModifier {
         self
     }
 
-    pub fn span<S: Into<Span>>(mut self, span: S) -> Self {
+    pub fn span<S: Into<TextRange>>(mut self, span: S) -> Self {
         self.span = Some(span.into());
         self
     }
@@ -658,42 +699,53 @@ pub struct BinaryOpExpr {
     /// Op is the operation itself, i.e. `+`, `-`, `*`, etc.
     pub op: BinaryOp,
 
-    /// Bool indicates whether `bool` modifier is present.
+    /// bool_modifier indicates whether `bool` modifier is present.
     /// For example, `foo >bool bar`.
     pub bool_modifier: bool,
 
-    /// GroupModifier contains modifier such as "on" or "ignoring".
+    /// group_modifier contains modifier such as "on" or "ignoring".
     pub group_modifier: Option<GroupModifier>,
 
-    /// JoinModifier contains modifier such as "group_left" or "group_right".
+    /// join_modifier contains modifier such as "group_left" or "group_right".
     pub join_modifier: Option<JoinModifier>,
 
-    /// Left contains left arg for the `left op right` expression.
+    /// left contains left arg for the `left op right` expression.
     pub left: BExpression,
 
-    /// Right contains right arg for the `left op right` expression.
+    /// right contains right arg for the `left op right` expression.
     pub right: BExpression,
 
-    pub span: Span,
+    pub span: TextRange,
 }
 
 impl BinaryOpExpr {
-    pub fn new(op: BinaryOp, lhs: Expression, rhs: Expression) -> Self {
-        BinaryOpExpr {
+    pub fn new(op: BinaryOp, lhs: Expression, rhs: Expression) -> ParseResult<Self> {
+        let expr = BinaryOpExpr {
             op,
             left: Box::new(lhs),
             right: Box::new(rhs),
             join_modifier: None,
             group_modifier: None,
             bool_modifier: false,
-            span: Span::default(),
+            span: TextRange::default(),
+        };
+
+        // ensure we have a operands are valid for the operator
+        match expr.return_value() {
+            ReturnValue::Unknown(unknown_cause) => {
+                // todo: better error variant. also include span
+                Err(ParseError::General(
+                    unknown_cause.message
+                ))
+            },
+            _ => Ok(expr)
         }
     }
 
     /// Unary minus. Substitute `-expr` with `0 - expr`
-    pub fn new_unary_minus(e: impl ExpressionNode) -> Self {
+    pub fn new_unary_minus(e: impl ExpressionNode, span: TextRange) -> ParseResult<Self> {
         let expr = Expression::cast(e);
-        let lhs = Expression::Number(NumberExpr::new(0.0));
+        let lhs = Expression::Number(NumberExpr::new(0.0, span));
         BinaryOpExpr::new(BinaryOp::Sub, lhs, expr)
     }
 
@@ -739,7 +791,6 @@ impl BinaryOpExpr {
                 self.clone().cast()
             );
         }
-
 
         match (lhs_ret, rhs_ret) {
             (ReturnValue::Scalar, ReturnValue::Scalar) => ReturnValue::Scalar,
@@ -814,27 +865,37 @@ pub struct FuncExpr {
 
     pub is_scalar: bool,
 
-    pub span: Option<Span>,
+    pub span: TextRange,
 
     /// internal only name parsed in WITH expression
     pub(crate) with_name: String,
 }
 
 impl FuncExpr {
-    pub fn new(name: &str, args: Vec<BExpression>) -> ParseResult<Self> {
+    pub fn new(name: &str, args: Vec<BExpression>, span: TextRange) -> ParseResult<Self> {
         // time() returns scalar in PromQL - see https://prometheus.io/docs/prometheus/latest/querying/functions/#time
         let lower = name.to_lowercase();
         let function = BuiltinFunction::new(name)?;
-        let is_scalar = lower == "time";
+        let is_scalar = lower == "time"; // todo: what about now() and pi()
 
-        Ok(FuncExpr {
+        let expr = FuncExpr {
             function,
             args,
             keep_metric_names: false,
-            span: None,
+            span,
             is_scalar,
             with_name: "".to_string()
-        })
+        };
+
+        match expr.return_value() {
+            // todo: pass span to error
+            ReturnValue::Unknown(unknown) => {
+                Err(ParseError::InvalidExpression(
+                    unknown.message
+                ))
+            }
+            _ => Ok(expr)
+        }
     }
 
     pub fn name(&self) -> String {
@@ -842,23 +903,19 @@ impl FuncExpr {
     }
 
     pub fn default_rollup(arg: Expression) -> ParseResult<Self> {
-        FuncExpr::from_single_arg("default_rollup", arg)
+        let span = arg.span();
+        FuncExpr::from_single_arg("default_rollup", arg, span)
     }
 
-    pub fn from_single_arg(name: &str, arg: Expression) -> ParseResult<Self> {
+    pub fn from_single_arg(name: &str, arg: Expression, span: TextRange) -> ParseResult<Self> {
         let args = vec![Box::new(arg)];
-        FuncExpr::new(name, args)
+        FuncExpr::new(name, args, span)
     }
 
-    pub fn create(name: &str, args: &[Expression]) -> ParseResult<Self> {
+    pub fn create(name: &str, args: &[Expression], span: TextRange) -> ParseResult<Self> {
         let params =
             Vec::from(args).into_iter().map(Box::new).collect();
-        FuncExpr::new(name, params)
-    }
-
-    pub fn span(mut self, span: Span) -> Self {
-        self.span = Some(span.into());
-        self
+        FuncExpr::new(name, params, span)
     }
 
     pub fn is_aggregate(&self) -> bool {
@@ -874,9 +931,6 @@ impl FuncExpr {
     }
 
     pub fn return_value(&self) -> ReturnValue {
-        // functions generally pass through labels of one of their arguments, with
-        // some exceptions
-
         if self.is_scalar {
             return ReturnValue::Scalar
         }
@@ -982,11 +1036,12 @@ pub struct RollupExpr {
     /// See https://prometheus.io/docs/prometheus/latest/querying/basics/#modifier
     pub at: Option<BExpression>,
 
-    pub span: Option<Span>,
+    pub span: TextRange,
 }
 
 impl RollupExpr {
     pub fn new(expr: Expression) -> Self {
+        let span = expr.span();
         RollupExpr {
             expr: Box::new(expr),
             window: None,
@@ -994,7 +1049,7 @@ impl RollupExpr {
             step: None,
             inherit_step: false,
             at: None,
-            span: None,
+            span,
         }
     }
 
@@ -1029,12 +1084,19 @@ impl RollupExpr {
 
             // range + subquery is not allowed (however this is syntactically invalid)
             (true, true) => ReturnValue::unknown(
-                "range and subquery are not allowed together",
+                "range and subquery are not allowed together in a rollup expression",
                 self.clone().cast()
             )
         };
 
         kind
+    }
+
+    pub fn wraps_metric_expr(&self) -> bool {
+        match *self.expr {
+            Expression::MetricExpression(_) => true,
+            _ => false
+        }
     }
 }
 
@@ -1098,7 +1160,7 @@ impl ExpressionNode for RollupExpr {
 #[derive(Default, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DurationExpr {
     pub s: String,
-    pub span: Span,
+    pub span: TextRange,
     pub const_value: i64,
     pub requires_step: bool,
 }
@@ -1115,21 +1177,21 @@ impl TryFrom<&str> for DurationExpr {
             s: s.to_string(),
             const_value,
             requires_step,
-            span: Span::default(),
+            span: TextRange::default(),
         })
     }
 }
 
 
 impl DurationExpr {
-    pub fn new(s: String, span: Span) -> DurationExpr {
+    pub fn new(s: &str, span: TextRange) -> DurationExpr {
         let last_ch: char = s.chars().rev().next().unwrap();
         let requires_step: bool = last_ch == 'i' || last_ch == 'I';
         // todo: the following is icky
-        let const_value = duration_value(&s, 1).unwrap_or(0);
+        let const_value = duration_value(s, 1).unwrap_or(0);
 
         DurationExpr {
-            s,
+            s: s.to_string(),
             const_value,
             requires_step,
             span,
@@ -1167,21 +1229,21 @@ impl ExpressionNode for DurationExpr {
     }
 }
 
-/// withExpr represents `with (...)` extension from MetricsQL.
+/// WithExpr represents `with (...)` extension from MetricsQL.
 #[derive(Debug, Clone, Hash)]
 pub struct WithExpr {
     pub was: Vec<WithArgExpr>,
     pub expr: BExpression,
-    pub span: Option<Span>,
+    pub span: TextRange,
 }
 
 impl WithExpr {
-    pub fn new(expr: impl ExpressionNode, was: Vec<WithArgExpr>) -> Self {
+    pub fn new(expr: impl ExpressionNode, was: Vec<WithArgExpr>, span: TextRange) -> Self {
         let expression = Expression::cast(expr);
         WithExpr {
             expr: Box::new(expression),
             was,
-            span: None,
+            span,
         }
     }
 }
@@ -1280,7 +1342,7 @@ pub struct AggregateModifier {
     pub op: AggregateModifierOp,
     /// Modifier args from parens.
     pub args: Vec<String>,
-    pub span: Option<Span>,
+    pub span: Option<TextRange>,
 }
 
 impl AggregateModifier {
@@ -1353,7 +1415,7 @@ pub struct AggrFuncExpr {
 
     pub keep_metric_names: bool,
 
-    pub span: Span,
+    pub span: TextRange,
 }
 
 impl AggrFuncExpr {
@@ -1365,7 +1427,7 @@ impl AggrFuncExpr {
             modifier: None,
             limit: 0,
             keep_metric_names: false,
-            span: Span::default(),
+            span: TextRange::default(),
         }
     }
 
@@ -1397,6 +1459,7 @@ impl AggrFuncExpr {
     }
 
     pub fn return_value(&self) -> ReturnValue {
+
         ReturnValue::InstantVector
     }
 
@@ -1442,7 +1505,7 @@ impl ExpressionNode for AggrFuncExpr {
 }
 
 /// MetricExpr represents MetricsQL metric with optional filters, i.e. `foo{...}`.
-#[derive(Default, Debug, Clone, PartialEq, Hash)]
+#[derive(Debug, Clone, PartialEq, Hash)]
 pub struct MetricExpr {
     /// LabelFilters contains a list of label filters from curly braces.
     /// Filter or metric name must be the first if present.
@@ -1451,7 +1514,7 @@ pub struct MetricExpr {
     /// label_filters must be expanded to LabelFilters by expand_with_expr.
     pub(crate) label_filter_exprs: Vec<LabelFilterExpr>,
 
-    pub span: Option<Span>,
+    pub span: TextRange,
 }
 
 impl MetricExpr {
@@ -1460,7 +1523,7 @@ impl MetricExpr {
         MetricExpr {
             label_filters: vec![name_filter],
             label_filter_exprs: vec![],
-            span: None,
+            span: TextRange::default(),
         }
     }
 
@@ -1495,9 +1558,24 @@ impl MetricExpr {
         }
     }
 
+    pub fn add_tag<S: Into<String>>(&mut self, name: S, value: S) {
+        let name_str = name.into();
+        for label in self.label_filters.iter_mut() {
+            if label.label == name_str {
+                label.value = value.into();
+                return;
+            }
+        }
+        self.label_filters.push(LabelFilter {
+            op: Equal,
+            label: name_str,
+            value: value.into()
+        });
+    }
+
     pub fn return_value(&self) -> ReturnValue {
         //??? TODO:: is this correct ?
-        ReturnValue::RangeVector
+        ReturnValue::InstantVector
     }
 }
 
@@ -1527,6 +1605,16 @@ impl Display for MetricExpr {
     }
 }
 
+impl Default for MetricExpr {
+    fn default() -> Self {
+        Self {
+            label_filters: vec![],
+            label_filter_exprs: vec![],
+            span: TextRange::default()
+        }
+    }
+}
+
 impl ExpressionNode for MetricExpr {
     fn cast(self) -> Expression {
         Expression::MetricExpression(self)
@@ -1540,14 +1628,14 @@ impl ExpressionNode for MetricExpr {
 #[derive(Default, Debug, Clone, Hash)]
 pub struct ParensExpr {
     pub expressions: Vec<BExpression>,
-    pub span: Option<Span>,
+    pub span: TextRange,
 }
 
 impl ParensExpr {
     pub fn new(expressions: Vec<BExpression>) -> Self {
         ParensExpr {
             expressions,
-            span: None,
+            span: TextRange::default(),
         }
     }
 

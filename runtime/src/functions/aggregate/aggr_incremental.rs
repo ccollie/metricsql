@@ -1,20 +1,18 @@
+use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::HashMap;
-use std::ops::DerefMut;
 use std::sync::{Arc, RwLock};
 
 use phf::phf_map;
-
-use lib::get_pooled_buffer;
-use metricsql::ast::{AggregateModifier, AggrFuncExpr};
+use metricsql::ast::{AggrFuncExpr};
 
 use crate::runtime_error::RuntimeResult;
 use crate::timeseries::Timeseries;
 
 // todo: make it a trait ??
 pub(crate) struct IncrementalAggrFuncCallbacks {
-    update_aggr_func: fn(iac: &mut IncrementalAggrContext, values: &[f64]),
-    merge_aggr_func: fn(dst: &mut IncrementalAggrContext, src: &IncrementalAggrContext),
-    finalize_aggr_func: fn(iac: &mut IncrementalAggrContext),
+    update: fn(iac: &mut IncrementalAggrContext, values: &[f64]),
+    merge: fn(dst: &mut IncrementalAggrContext, src: &IncrementalAggrContext),
+    finalize: fn(iac: &mut IncrementalAggrContext),
     // Whether to keep the original MetricName for every time series during aggregation
     keep_original: bool,
 }
@@ -25,57 +23,57 @@ pub(crate) struct IncrementalAggrFuncCallbacks {
 /// These calculations save RAM for aggregates over big number of time series.
 static INCREMENTAL_AGGR_FUNC_CALLBACKS_MAP: phf::Map<&'static str, IncrementalAggrFuncCallbacks> = phf_map! {
 "sum" => IncrementalAggrFuncCallbacks {
-update_aggr_func:   update_aggr_sum,
-merge_aggr_func:    merge_aggr_sum,
-finalize_aggr_func: finalize_aggr_common,
+update:   update_aggr_sum,
+merge:    merge_aggr_sum,
+finalize: finalize_aggr_common,
         keep_original: false
 },
 "min" => IncrementalAggrFuncCallbacks{
-update_aggr_func:   update_aggr_min,
-merge_aggr_func:    merge_aggr_min,
-finalize_aggr_func: finalize_aggr_common,
+update:   update_aggr_min,
+merge:    merge_aggr_min,
+finalize: finalize_aggr_common,
         keep_original: false
 },
 "max" => IncrementalAggrFuncCallbacks {
-update_aggr_func:   update_aggr_max,
-merge_aggr_func:    merge_aggr_max,
-finalize_aggr_func: finalize_aggr_common,
+update:   update_aggr_max,
+merge:    merge_aggr_max,
+finalize: finalize_aggr_common,
         keep_original: false
 },
 "avg" => IncrementalAggrFuncCallbacks{
-update_aggr_func:   update_aggr_avg,
-merge_aggr_func:    merge_aggr_avg,
-finalize_aggr_func: finalize_aggr_avg,
+update:   update_aggr_avg,
+merge:    merge_aggr_avg,
+finalize: finalize_aggr_avg,
         keep_original: false
 },
 "count" => IncrementalAggrFuncCallbacks{
-update_aggr_func:   update_aggr_count,
-merge_aggr_func:    merge_aggr_count,
-finalize_aggr_func: finalize_aggr_count,
+update:   update_aggr_count,
+merge:    merge_aggr_count,
+finalize: finalize_aggr_count,
         keep_original: false
 },
 "sum2" => IncrementalAggrFuncCallbacks{
-update_aggr_func:   update_aggr_sum2,
-merge_aggr_func:    merge_aggr_sum2,
-finalize_aggr_func: finalize_aggr_common,
+update:   update_aggr_sum2,
+merge:    merge_aggr_sum2,
+finalize: finalize_aggr_common,
         keep_original: false
 },
 "geomean" => IncrementalAggrFuncCallbacks{
-update_aggr_func:   update_aggr_geomean,
-merge_aggr_func:    merge_aggr_geomean,
-finalize_aggr_func: finalize_aggr_geomean,
+update:   update_aggr_geomean,
+merge:    merge_aggr_geomean,
+finalize: finalize_aggr_geomean,
         keep_original: false
 },
 "any" => IncrementalAggrFuncCallbacks{
-    update_aggr_func:   update_aggr_any,
-    merge_aggr_func:    merge_aggr_any,
-    finalize_aggr_func: finalize_aggr_common,
+    update:   update_aggr_any,
+    merge:    merge_aggr_any,
+    finalize: finalize_aggr_common,
     keep_original: true,
 },
 "group" => IncrementalAggrFuncCallbacks{
-    update_aggr_func:   update_aggr_count,
-    merge_aggr_func:    merge_aggr_count,
-    finalize_aggr_func: finalize_aggr_group,
+    update:   update_aggr_count,
+    merge:    merge_aggr_count,
+    finalize: finalize_aggr_group,
         keep_original: false
 },
 };
@@ -88,75 +86,87 @@ pub(crate) struct IncrementalAggrContext {
 
 type ContextHash = HashMap<u64, HashMap<String, IncrementalAggrContext>>;
 
-pub(crate) struct IncrementalAggrFuncContext {
-    pub(crate) modifier: Option<AggregateModifier>,
-    pub(crate) limit: usize,
+pub(crate) struct IncrementalAggrFuncContext<'a> {
+    ae: &'a AggrFuncExpr,
     // todo: use Rc/Arc based on cfg
-    m: Arc<RwLock<ContextHash>>,
+    context_map: RwLock<ContextHash>,
     callbacks: &'static IncrementalAggrFuncCallbacks,
 }
 
-impl IncrementalAggrFuncContext {
-    pub(crate) fn new(ae: &AggrFuncExpr, callbacks: &IncrementalAggrFuncCallbacks) -> Self {
+impl<'a> IncrementalAggrFuncContext<'a> {
+    pub(crate) fn new(ae: &'a AggrFuncExpr, callbacks: &'static IncrementalAggrFuncCallbacks) -> Self {
         let m: HashMap<u64, HashMap<String, IncrementalAggrContext>> = HashMap::new();
 
-        IncrementalAggrFuncContext {
-            modifier: ae.modifier.clone(),
-            limit: ae.limit,
-            m: Arc::new(RwLock::new(m)),
+        Self {
+            ae,
+            context_map: RwLock::new(m),
             callbacks,
         }
     }
 
     pub fn update_timeseries(&mut self, ts_orig: &mut Timeseries, worker_id: u64) -> RuntimeResult<()> {
-        let mut im = self.m.write().unwrap();
+        let mut im = self.context_map.write().unwrap();
         let m = im.entry(worker_id).or_default();
 
-        if self.limit > 0 && m.len() >= self.limit {
+        if self.ae.limit > 0 && m.len() >= self.ae.limit {
             // Skip this time series, since the limit on the number of output time series has been already reached.
             return Ok(());
         }
 
-        let mut ts = ts_orig;
         let keep_original = self.callbacks.keep_original;
-        if keep_original {
-            ts = &mut ts_orig.clone();
+
+        // avoid temporary value dropped while borrowed
+        let mut ts: &mut Timeseries = ts_orig;
+        if !keep_original {
+            ts.metric_name.remove_group_tags(&self.ae.modifier);
         }
-        ts.metric_name.remove_group_tags(&self.modifier);
 
-        let mut bb = get_pooled_buffer(512);
-        let key = ts.metric_name.marshal_to_string(bb.deref_mut()).to_string();
+        let key = ts.metric_name.to_string();
 
-        let mut iac = m.entry(key).or_insert_with(|| {
-            let values: Vec<f64> = Vec::with_capacity(ts.values.len());
-            let mut ts_aggr = Timeseries::with_shared_timestamps(&ts.timestamps, &values);
-            if keep_original {
-                ts = ts_orig
+        let value_len = ts.values.len();
+
+        match m.entry(key) {
+            Vacant(entry) => {
+                if keep_original {
+                    ts = ts_orig
+                }
+                let ts_aggr = Timeseries {
+                    metric_name: ts.metric_name.clone(),
+                    values: vec![0_f64; value_len],
+                    timestamps: Arc::clone(&ts.timestamps)
+                };
+
+                let mut iac = IncrementalAggrContext {
+                    ts: ts_aggr,
+                    values: vec![0_f64; value_len],
+                };
+
+                (self.callbacks.update)(&mut iac, &ts.values);
+                entry.insert(iac);
             }
-            ts_aggr.metric_name = ts.metric_name.clone();
-            IncrementalAggrContext {
-                ts: ts_aggr,
-                values: Vec::with_capacity(ts.values.len()),
+            Occupied(mut entry) => {
+                let mut iac = entry.get_mut();
+                (self.callbacks.update)(&mut iac, &ts.values);
             }
-        });
+        };
 
-        Ok((self.callbacks.update_aggr_func)(&mut iac, &ts.values))
+        Ok(())
     }
 
     pub fn finalize_timeseries(&mut self) -> Vec<Timeseries> {
         // There is no need in iafc.mLock.lock here, since finalize_timeseries must be called
         // without concurrent threads touching iafc.
         let mut m_global: HashMap<&String, IncrementalAggrContext> = HashMap::new();
-        let merge_aggr_func = self.callbacks.merge_aggr_func;
-        let hash = self.m.read().as_mut().unwrap();
+        let merge = self.callbacks.merge;
+        let mut hash = self.context_map.write().unwrap();
         for (_, m) in hash.iter_mut() {
             for (k, iac) in m.into_iter() {
                 match m_global.get_mut(k) {
                     Some(iac_global) => {
-                        merge_aggr_func(iac_global, iac);
+                        merge(iac_global, iac);
                     },
                     None => {
-                        if self.limit > 0 && m_global.len() >= self.limit {
+                        if self.ae.limit > 0 && m_global.len() >= self.ae.limit {
                             // Skip this time series, since the limit on the number of output time series
                             // has been already reached.
                             continue;
@@ -167,7 +177,7 @@ impl IncrementalAggrFuncContext {
             }
         }
         let mut tss: Vec<Timeseries> = Vec::with_capacity(m_global.len());
-        let finalize_aggrfn = self.callbacks.finalize_aggr_func;
+        let finalize_aggrfn = self.callbacks.finalize;
         for mut iac in m_global.into_values() {
             finalize_aggrfn(&mut iac);
             tss.push(std::mem::take(&mut iac.ts));
@@ -178,7 +188,7 @@ impl IncrementalAggrFuncContext {
 
 pub(crate) fn get_incremental_aggr_func_callbacks(
     name: &str,
-) -> Option<&IncrementalAggrFuncCallbacks> {
+) -> Option<&'static IncrementalAggrFuncCallbacks> {
     return INCREMENTAL_AGGR_FUNC_CALLBACKS_MAP.get(&name.to_lowercase());
 }
 

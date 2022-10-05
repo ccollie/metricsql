@@ -4,7 +4,6 @@ pub(crate) use utils::{
     quantile,
     quantile_sorted,
     quantiles,
-    skip_leading_nans,
     skip_trailing_nans,
 };
 

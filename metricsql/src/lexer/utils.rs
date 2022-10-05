@@ -1,4 +1,4 @@
-use enquote::{enquote, unquote};
+use enquote::{enquote, unescape};
 use std::str;
 
 pub fn is_string_prefix(s: &str) -> bool {
@@ -39,9 +39,34 @@ pub fn escape_ident(s: &str) -> String {
 }
 
 pub fn unescape_ident(str: &str) -> String {
-    unquote(str).unwrap()
+    unescape(str, None).unwrap()
 }
 
 pub fn quote(str: &str) -> String {
     enquote('\"', str)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::lexer::unescape_ident;
+
+    #[inline]
+    fn test_unescape_ident() {
+        fn f(s: &str, expected: &str) {
+            let result = unescape_ident(s);
+            assert_eq!(result, expected, "unexpected result for unescape_ident({}); got {}; want {}", s, result, expected)
+        }
+
+        f("", "");
+        f("a", "a");
+        f("\\", "");
+        f(r"\\", "\\");
+        f(r"\foo\-bar", "foo-bar");
+        f(r#"a\\\\b\"c\d"#, r#"a\\b"cd"#);
+		f(r"foo.bar:baz_123#", r"foo.bar:baz_123");
+        f(r"foo\ bar", "foo bar");
+        f(r"\x21", "!");
+        f(r"\xeDfoo\x2Fbar\-\xqw\x", r"\xedfoo\x2fbar-xqwx");
+        f(r"\п\р\и\в\е\т123", "привет123")
+    }
 }

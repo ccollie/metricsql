@@ -1,8 +1,23 @@
+use std::collections::{HashMap, HashSet};
+use std::sync::{RwLock};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::vec::VecDequeue;
 use xxhash_rust::xxh3::xxh3_64;
+use crate::{get_pooled_buffer};
+
+const U64_SIZE: usize = 8;
+
+#[cfg(target_pointer_width = "64")]
+const SIZEOF_USIZE: usize = 8;
+#[cfg(target_pointer_width = "32")]
+const SIZEOF_USIZE: usize = 4;
+#[cfg(target_pointer_width = "16")]
+const SIZEOF_USIZE: usize = 2;
+
+const METADATA_SIZE: usize = 8 /* sizeof u64 */ + SIZEOF_USIZE;
 
 const BUCKETS_COUNT: usize = 512;
+
+const BUCKETS_COUNT_SMALL : usize = 256;
 
 const CHUNK_SIZE: usize = 64 * 1024;
 
@@ -10,60 +25,84 @@ const BUCKET_SIZE_BITS: usize = 40;
 
 const GEN_SIZE_BITS: usize = 64 - BUCKET_SIZE_BITS;
 
-const MAX_GEN: u64 = 1 << GEN_SIZE_BITS - 1;
+const MAX_GEN: u64 = (1 << GEN_SIZE_BITS) - 1;
 
-const MAX_BUCKET_SIZE: u64 = 1 << BUCKET_SIZE_BITS;
+const GEN_BIT_MASK: u64 = (1 << GEN_SIZE_BITS) - 1;
 
-/// MAX_SUUB_VALUE_LEN is the maximum size of subvalue chunk.
+const MAX_BUCKET_SIZE: usize = 1 << BUCKET_SIZE_BITS;
+
+/// MAX_SUB_VALUE_LEN is the maximum size of sub value chunk.
 ///
-/// - 16 bytes are for subkey encoding
-/// - 4 bytes are for len(key)+len(value) encoding inside fastcache
+/// - 16 bytes are for sub key encoding
+/// - 4 bytes are for key.len()+value.len() encoding
 /// - 1 byte is implementation detail of fastcache
 const MAX_SUB_VALUE_LEN: usize = CHUNK_SIZE - 16 - 4 - 1;
 
 /// MAX_KEY_LEN is the maximum size of key.
 ///
 /// - 16 bytes are for (hash + value_len)
-/// - 4 bytes are for len(key)+len(subkey)
+/// - 4 bytes are for key.len()+len(sub key)
 /// - 1 byte is implementation detail of fastcache
 const MAX_KEY_LEN: usize = CHUNK_SIZE - 16 - 4 - 1;
 
+const MIN_CACHE_SIZE: usize = 4 * 1024 * 1024;
+
+const BIG_CACHE_SIZE_MIN: usize = 32 * 1024 * 1024;
+const SMALL_CACHE_SIZE_MIN: usize = 4 * 1024 * 1024;
 
 /// Stats represents cache stats.
 ///
 /// Use Cache.UpdateStats for obtaining fresh stats from the cache.
+#[derive(Default)]
 pub struct Stats {
     /// get_calls is the number of Get calls.
-    get_calls: u64,
+    pub get_calls: u64,
 
     /// set_calls is the number of Set calls.
-    set_calls: u64,
+    pub set_calls: u64,
 
     /// misses is the number of cache misses.
-    misses: u64,
+    pub misses: u64,
 
     /// Collisions is the number of cache collisions.
     ///
     /// Usually the number of collisions must be close to zero.
     /// High number of collisions suggest something wrong with cache.
-    collisions: u64,
+    pub collisions: u64,
 
     /// Corruptions is the number of detected corruptions of the cache.
     ///
     /// Corruptions may occur when corrupted cache is loaded from file.
-    corruptions: u64,
+    pub corruptions: u64,
 
     /// EntriesCount is the current number of entries in the cache.
-    entries_count: u64,
+    pub entries_count: u64,
 
     /// BytesSize is the current size of the cache in bytes.
-    bytes_size: u64,
+    pub bytes_size: u64,
 
     /// MaxBytesSize is the maximum allowed size of the cache in bytes (aka capacity).
-    max_bytes_size: u64,
+    pub max_bytes_size: u64,
 
-    /// BigStats contains stats for GetBig/SetBig methods.
-    // BigStats
+    /// GetBigCalls is the number of get_big calls.
+    pub get_big_calls: u64,
+
+    /// the number of set_big calls.
+    pub set_big_calls: u64,
+
+    /// the number of calls to set_big with too big key.
+    pub too_big_key_errors: u64,
+
+    /// InvalidMetavalueErrors is the number of calls to get_big resulting
+    /// to invalid meta value.
+    pub invalid_metavalue_errors: u64,
+
+    /// the number of calls to GetBig resulting to a chunk with invalid length.
+    pub invalid_value_len_errors: u64,
+
+    /// invalid_value_hash_errors is the number of calls to get_big resulting
+    /// to a chunk with invalid hash value.
+    pub invalid_value_hash_errors: u64
 }
 
 impl Stats {
@@ -77,62 +116,75 @@ impl Stats {
         self.entries_count = 0;
         self.bytes_size = 0;
         self.max_bytes_size = 0;
+        self.get_big_calls = 0;
+        self.set_big_calls = 0;
+        self.too_big_key_errors = 0;
+        self.invalid_metavalue_errors = 0;
+        self.invalid_value_hash_errors = 0;
+        self.invalid_value_len_errors = 0;
     }
 }
 
 /// BigStats contains stats for GetBig/SetBig methods.
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug)]
 pub struct BigStats {
-    /// GetBigCalls is the number of GetBig calls.
-    get_big_calls: u64,
+    /// get_big_calls is the number of GetBig calls.
+    pub get_big_calls: AtomicU64,
 
-    /// SetBigCalls is the number of SetBig calls.
-    set_big_calls: u64,
+    /// the number of set_big calls.
+    pub set_big_calls: AtomicU64,
 
-    /// TooBigKeyErrors is the number of calls to SetBig with too big key.
-    too_big_key_errors: u64,
+    /// too_big_key_errors is the number of calls to SetBig with too big key.
+    pub too_big_key_errors: AtomicU64,
 
-    /// InvalidMetavalueErrors is the number of calls to GetBig resulting
+    /// invalid_metavalue_errors is the number of calls to GetBig resulting
     /// to invalid metavalue.
-    invalid_metavalue_errors: u64,
+    pub invalid_metavalue_errors: AtomicU64,
 
-    /// InvalidValueLenErrors is the number of calls to GetBig resulting
+    /// invalid_value_len_errors is the number of calls to GetBig resulting
     /// to a chunk with invalid length.
-    invalid_value_len_errors: u64,
+    pub invalid_value_len_errors: AtomicU64,
 
-    /// InvalidValueHashErrors is the number of calls to GetBig resulting
+    /// invalid_value_hash_errors is the number of calls to GetBig resulting
     /// to a chunk with invalid hash value.
-    invalid_value_hash_errors: u64,
+    pub invalid_value_hash_errors: AtomicU64,
 }
 
 impl BigStats {
+    pub fn new() -> Self {
+        Self {
+            invalid_value_hash_errors: AtomicU64::new(0),
+            invalid_value_len_errors: AtomicU64::new(0),
+            invalid_metavalue_errors: AtomicU64::new(0),
+            get_big_calls: AtomicU64::new(0),
+            set_big_calls: AtomicU64::new(0),
+            too_big_key_errors: AtomicU64::new(0)
+        }
+    }
+
     pub fn reset(&mut self) {
-        self.invalid_value_hash_errors = 0;
-        self.invalid_value_len_errors = 0;
-        self.get_big_calls = 0;
-        self.invalid_metavalue_errors = 0;
-        self.too_big_key_errors = 0;
-        self.set_big_calls = 0;
+        self.invalid_value_hash_errors.store(0, Ordering::SeqCst);
+        self.invalid_value_len_errors.store(0, Ordering::Relaxed);
+        self.get_big_calls.store(0, Ordering::Relaxed);
+        self.invalid_metavalue_errors.store(0, Ordering::Relaxed);
+        self.too_big_key_errors.store(0, Ordering::Relaxed);
+        self.set_big_calls.store(0, Ordering::Relaxed);
     }
 }
 
-struct CacheInner {
-    buckets: [Bucket; bucketsCount],
-    big_stats: BigStats
-}
 
 /// Cache is a fast thread-safe in-memory cache optimized for big number
 /// of entries.
 ///
-/// It has much lower impact on GC comparing to a simple `HashMap<String,byte[]>`.
+/// It has much lower impact on alloc/fragmentation comparing to a simple `HashMap<str,[u8]>`.
 ///
-/// Use New or LoadFromFile* for creating new cache instance.
 /// Multiple threads may call any Cache methods on the same cache instance.
 ///
 /// Call reset when the cache is no longer needed. This reclaims the allocated
 /// memory.
-pub struct Cache {
-    inner: CacheInner,
+pub struct FastCache {
+    buckets: Vec<Bucket>,
+    big_stats: BigStats
 }
 
 /// New returns new cache with the given maxBytes capacity in bytes.
@@ -140,27 +192,40 @@ pub struct Cache {
 /// max_bytes must be smaller than the available RAM size for the app,
 /// since the cache holds data in memory.
 ///
-/// If maxBytes is less than 32MB, then the minimum cache capacity is 32MB.
-impl Cache {
+/// If maxBytes is less than MIN_CACHE_SIZE, then the minimum cache capacity is MIN_CACHE_SIZE.
+impl FastCache {
     pub fn new(max_bytes: usize) -> Self {
-        if max_bbytes == 0 {
-            panic!("maxBytes must be greater than 0; got {}", max_bytes);
-        }
-        let max_bucket_bytes = (maxBytes + bucketsCount - 1) / bucketsCount;
-        let buckets = [Bucket; BUCKETS_COUNT];
-        for i in 0 .. buckets.len() {
-            buckets[i].new(max_bucket_bytes)
-        }
-        return Cache {
-            inner: {
-                buckets
+        let max_bytes = {
+            if max_bytes < SMALL_CACHE_SIZE_MIN {
+                SMALL_CACHE_SIZE_MIN
+            } else {
+                max_bytes
             }
+        };
+
+        let max_buckets = if max_bytes <= SMALL_CACHE_SIZE_MIN {
+            BUCKETS_COUNT_SMALL
+        } else {
+            BUCKETS_COUNT
+        };
+
+        let max_bucket_bytes = (max_bytes + max_buckets - 1) / max_buckets;
+        let mut bucket_count = max_bytes / max_bucket_bytes;
+        bucket_count = bucket_count.clamp(bucket_count, BUCKETS_COUNT);
+
+        let mut buckets = Vec::with_capacity(bucket_count);
+        (0 .. bucket_count).for_each(|_| {
+            buckets.push( Bucket::new(max_bucket_bytes) );
+        });
+        FastCache {
+            buckets,
+            big_stats: BigStats::new()
         }
     }
 
-    /// Set stores (k, v) in the cache.
+    /// `.set` stores (k, v) in the cache.
     ///
-    /// Get must be used for reading the stored entry.
+    /// `.get` must be used for reading the stored entry.
     ///
     /// The stored entry may be evicted at any time either due to cache
     /// overflow or due to unlikely hash collision.
@@ -171,78 +236,53 @@ impl Cache {
     /// set_big can be used for storing entries exceeding 64KB.
     ///
     /// k and v contents may be modified after returning from Set.
-    pub fn set(&mut self, k: &[u8], v: &[u8]) {
+    pub fn set(&self, k: &[u8], v: &[u8]) {
         let h = xxh3_64(k);
-        let buckets = self.inner.buckets;
-        let idx = h % buckets.len();
-        buckets[idx].set(k, v, h)
+        let bucket = self._get_bucket(h);
+        bucket.set(k, v, h)
     }
 
-    /// set_big sets (k, v) to c where v.len() may exceed 64KB.
+    /// `set_big` sets (k, v) to c where v.len() may exceed 64KB.
     ///
-    /// get_big must be used for reading stored values.
+    /// `get_big` must be used for reading stored values.
     ///
     /// The stored entry may be evicted at any time either due to cache
     /// overflow or due to unlikely hash collision.
     /// Pass higher maxBytes value to New if the added items disappear
     /// frequently.
     ///
-    /// It is safe to store entries smaller than 64KB with SetBig.
+    /// It is safe to store entries smaller than 64KB with set_big.
     ///
-    /// k and v contents may be modified after returning from SetBig.
+    /// k and v contents may be modified after returning from set_big.
     pub fn set_big(&mut self, k: &[u8], v: &[u8]) {
-        self.big_stats.set_big_calls += 1;
+        self.big_stats.set_big_calls.fetch_add(1, Ordering::Relaxed);
         if k.len() > MAX_KEY_LEN {
-            self.big_stats.too_big_key_errors += 1;
+            self.big_stats.too_big_key_errors.fetch_add(1, Ordering::Relaxed);
             return
         }
         let value_len = v.len();
         let value_hash = xxh3_64(k);
 
-        // Split v into chunks with up to 64Kb each.
-        // todo: tinyvec
-        let mut sub_key = get_pooled_buffer(2048);
-        let i: u64 = 0;
-        let v = &mut v;
-        while v.len() > 0 {
-            marshal_meta(sub_key, value_hash, i as u64);
+        let mut meta_buf: [u8; METADATA_SIZE] = [0; METADATA_SIZE];
 
-            i += 1;
-            let mut sub_value_len = MAX_SUB_VALUE_LEN;
-            if v.len() < sub_value_len {
-                sub_value_len = v.len()
-            }
-            let sub_value = v[0 ..sub_value_len];
-            v = v[sub_value_len..];
-            self.set(sub_key, sub_value);
-            sub_key.clear();
+        for (i, chunk) in v.chunks(MAX_SUB_VALUE_LEN).enumerate() {
+            marshal_meta(&mut meta_buf, value_hash, i);
+            self.set(&meta_buf, chunk);
         }
 
         // Write metavalue, which consists of value_hash and value_len.
-        marshal_meta(sub_key, value_hash, value_len);
-        self.set(k, subkey)
+        marshal_meta(&mut meta_buf, value_hash, value_len);
+        self.set(k, &meta_buf)
     }
 
     /// get appends value by the key k to dst and returns the result.
     ///
-    /// Get allocates new byte slice for the returned value if dst is nil.
-    ///
-    /// Get returns only values stored in c via Set.
-    ///
-    /// k contents may be modified after returning from Get.
-    pub fn get(&mut self, k: &[u8], dst: &mut Vec<u8>) -> Option<&[u8]> {
+    /// Get returns only values stored via `set`.
+    pub fn get(&self, k: &[u8], dst: &mut Vec<u8>) -> bool {
         let h = xxh3_64(k);
-        let buckets = self.inner.buckets;
-        let idx = h % buckets.len();
-        let start = dst.len();
-        let (dst, found) = buckets[idx].get(dst, k, h, dst);
-        if found {
-            Some(&dst[start..])
-        } else {
-            None
-        }
+        let bucket = self._get_bucket(h);
+        bucket.get(k, h, dst)
     }
-
 
     /// Searches for the value for the given k, appends it to dst
     /// and returns the result.
@@ -250,25 +290,26 @@ impl Cache {
     /// Returns only values stored via SetBig. It doesn't work
     /// with values stored via other methods.
     ///
-    /// k contents may be modified after returning from GetBig.
+    /// k contents may be modified after returning from get_big.
     pub fn get_big(&mut self, k: &[u8], dst: &mut Vec<u8>) -> bool {
         self.big_stats.get_big_calls.fetch_add(1, Ordering::Relaxed);
-        let sub_key = getSubkeyBuf();
+
+        let mut key_buf = get_pooled_buffer(32);
 
         // Read and parse metavalue
-        if !self.get(k, sub_key) {
+        if !self.get(k, &mut key_buf) {
             // Nothing found.
             return false
         }
 
-        if sub_key.len() != 16 {
+        if key_buf.len() != METADATA_SIZE {
             self.big_stats.invalid_metavalue_errors.fetch_add(1, Ordering::Relaxed);
             return false
         }
 
-        let meta = unmarshal_meta(sub_key);
+        let meta = unmarshal_meta(&key_buf);
         if meta.is_none() {
-            return  false
+            return false;
         }
 
         let (value_hash, value_len) = meta.unwrap();
@@ -277,79 +318,107 @@ impl Cache {
         let dst_len = dst.len();
         dst.reserve(value_len);
 
-        let dst = &dst[0..dstLen];
-        let mut i: u64 = 0;
-
+        let mut meta_key_buf: [u8; METADATA_SIZE] = [0; METADATA_SIZE];
+        let mut i: usize = 0;
         while (dst.len() - dst_len) < value_len {
-            marshal_meta(sub_key, value_hash, i);
+            marshal_meta(&mut meta_key_buf, value_hash, i);
             i += 1;
-            let dst_new = self.get(dst, sub_key);
-            if dst_new.len() == dst.len() {
-                // Cannot find subvalue
+
+            if !self.get(&meta_key_buf, dst) {
+                // Cannot find sub value
                 return false
             }
-            dst = dst_new
         }
 
         // Verify the obtained value.
         let v = &dst[dst_len..];
         if v.len() != value_len {
             // Corrupted data during the load from file. Just skip it.
-            self.corruptions.fetch_add(1, Ordering::Relaxed);
-            self.big_stats.invalidvalue_len_Errors.fetch_add(1, Ordering::Relaxed);
+            self.big_stats.invalid_value_len_errors.fetch_add(1, Ordering::Relaxed);
             return false
         }
 
         let h = xxh3_64(v);
         if h != value_hash {
-            self.big_stats.invalidvalue_hashErrors.fetch_add(1, Ordering::Relaxed);
+            self.big_stats.invalid_value_hash_errors.fetch_add(1, Ordering::Relaxed);
             return false
         }
 
-        return true
+        true
+    }
+
+    /// Has returns true if entry for the given key k exists in the cache.
+    pub fn has(&self, k: &[u8]) -> bool {
+        let h = xxh3_64(k);
+        let bucket = self._get_bucket(h);
+        bucket.has(k, h)
+    }
+
+    /// UpdateStats adds cache stats to s.
+    ///
+    /// call s.reset() before calling update_stats if s is re-used.
+    pub fn update_stats(&self, s: &mut Stats) {
+        for bucket in self.buckets.iter() {
+            bucket.update_stats(s);
+        }
+        s.get_big_calls += self.big_stats.get_big_calls.fetch_add(0, Ordering::Relaxed);
+        s.set_big_calls += self.big_stats.set_big_calls.fetch_add(0, Ordering::Relaxed);
+        s.too_big_key_errors += self.big_stats.too_big_key_errors.fetch_add(0, Ordering::Relaxed);
+        s.invalid_metavalue_errors += self.big_stats.invalid_metavalue_errors.fetch_add(0, Ordering::Relaxed);
+        s.invalid_value_len_errors += self.big_stats.invalid_value_len_errors.fetch_add(0, Ordering::Relaxed);
+        s.invalid_value_hash_errors += self.big_stats.invalid_value_hash_errors.fetch_add(0, Ordering::Relaxed);
+    }
+
+    pub fn reset(&mut self) {
+        for bucket in self.buckets.iter_mut() {
+            bucket.reset();
+        }
+        self.big_stats.reset();
+    }
+
+    // Del deletes value for the given k from the cache.
+    //
+    // k contents may be modified after returning from Del.
+    pub fn del(&self, k: &[u8]) {
+        let h = xxh3_64(k);
+        let bucket = self._get_bucket(h);
+        bucket.del(h)
+    }
+
+
+    pub fn clean(&mut self) {
+        for bucket in self.buckets.iter_mut() {
+            bucket.clean();
+        }
+    }
+
+    fn _get_bucket(&self, hash: u64) -> &Bucket {
+        let idx = (hash % self.buckets.len() as u64) as usize;
+        &self.buckets[idx]
     }
 }
 
 #[inline]
-fn marshal_meta(buf: &mut Vec<u8>, value_hash: u64, index: u64) {
-    marshal_var_int(buf, value_hash);
-    marshal_var_int(buf, index);
+fn marshal_meta(buf: &mut [u8; METADATA_SIZE], value_hash: u64, index: usize) {
+    buf[0..U64_SIZE].copy_from_slice(&value_hash.to_ne_bytes());
+    buf[U64_SIZE..METADATA_SIZE].copy_from_slice(&index.to_ne_bytes());
 }
 
-fn unmarshal_meta(src: &[u8]) -> Option<(u64, u64)> {
-    if src.len() < 8 {
+fn unmarshal_meta(src: &[u8]) -> Option<(u64, usize)> {
+    if src.len() < METADATA_SIZE {
         return None
     }
-    let mut cursor: &[u8];
-    let mut value_hash: u64;
 
-    match unmarshal_var_int::<u64>(src) {
-        Err(_) => {
-            return None;
-        },
-        Ok((val, tail)) => {
-            value_hash = val;
-            cursor = tail;
-        }
-    }
+    let mut hash_buf: [u8; U64_SIZE] = Default::default();
+    let mut index_buf: [u8; SIZEOF_USIZE] = Default::default();
 
-    if src.len() < 8 {
-        return None;
-    }
+    hash_buf.copy_from_slice(&src[0..U64_SIZE]);
+    index_buf.copy_from_slice(&src[U64_SIZE..METADATA_SIZE]);
 
-    let mut index: u64;
+    let value_hash: u64 = u64::from_ne_bytes(hash_buf);
+    let index: usize = usize::from_ne_bytes(index_buf);
 
-    match unmarshal_var_int::<u64>(cursor) {
-        Err(_) => {
-            return None
-        },
-        Ok((val, tail)) => {
-            index = val;
-            cursor = tail;
-        }
-    }
-
-    Ok((value_hash, index))
+    Some((value_hash, index))
 }
 
 struct BucketInner {
@@ -357,11 +426,12 @@ struct BucketInner {
     /// It consists of 64KB chunks.
     chunks: Vec<Vec<u8>>,
 
-    /// m maps hash(k) to idx of (k, v) pair in chunks.
-    m: HashMap<u64, u64>,
+    /// maps hash(k) to idx of (k, v) pair in chunks.
+    /// todo(perf): use a non-cryptographic hash
+    hash_idx_map: HashMap<u64, usize>,
 
     /// idx points to chunks for writing the next (k, v) pair.
-    idx: u64,
+    idx: usize,
 
     /// gen is the generation of chunks.
     gen: u64,
@@ -374,12 +444,12 @@ struct BucketInner {
 }
 
 impl BucketInner {
-    pub fn new(bucket_count: usize) -> Self {
-        let chunks: Vec<Vec<u8>> = Vec::with_capacity(bucket_count);
+    pub fn new(chunk_count: usize) -> Self {
+        let chunks: Vec<Vec<u8>> = Vec::with_capacity(chunk_count);
 
         Self {
             chunks,
-            m: HashMap::new(),
+            hash_idx_map: HashMap::new(),
             idx: 0,
             gen: 0,
             get_calls: 0,
@@ -396,7 +466,7 @@ impl BucketInner {
         }
         self.idx = 0;
         self.gen = 1;
-        self.m.clear();
+        self.hash_idx_map.clear();
         self.get_calls = 0;
         self.set_calls = 0;
         self.misses = 0;
@@ -405,30 +475,36 @@ impl BucketInner {
     }
 
     fn clean_locked(&mut self) {
-        let b_gen = self.gen & ((1 << GEN_SIZE_BITS) - 1);
+        let b_gen = self.gen & GEN_BIT_MASK;
         let b_idx = self.idx;
-        for (k, v) in self.m.iter_mut() {
-            let gen = v >> BUCKET_SIZE_BITS;
-            let idx = v & ((1 << BUCKET_SIZE_BITS) - 1);
-            if (gen+1 == b_gen || gen == MAX_GEN && b_gen == 1) && idx >= b_idx || gen == b_gen && idx < b_idx {
+
+        let mut to_remove: HashSet<u64> = HashSet::with_capacity(16);
+        for (k, v) in self.hash_idx_map.iter() {
+            let gen = (*v >> BUCKET_SIZE_BITS) as u64;
+            let idx = *v & ((1 << BUCKET_SIZE_BITS) - 1);
+            if (gen + 1 == b_gen || gen == MAX_GEN && b_gen == 1) &&
+                idx >= b_idx || gen == b_gen && idx < b_idx {
                 continue
             }
-            self.m.remove(k)
+            to_remove.insert(*k);
         }
+
+        self.hash_idx_map.retain(|key, _size| !to_remove.contains(key));
     }
 
-    pub fn set(&mut self, k: &[u8], v: &[u8]) {
+    pub fn set(&mut self, k: &[u8], v: &[u8], h: u64) {
         self.set_calls += 1;
         if k.len() >= (1<<16) || v.len() >= (1<<16) {
             // Too big key or value - its length cannot be encoded
             // with 2 bytes (see below). Skip the entry.
             return
         }
-        let mut kv_len_buf: [u8; 4];
-        kv_len_buf[0] = (k.len() >> 8) as u8;
-        kv_len_buf[1] = k.len() as u8;
-        kv_len_buf[2] = (v.len() >> 8) as u8;
-        kv_len_buf[3] = v.len() as u8;
+        let kv_len_buf: [u8; 4] = [
+            (k.len() >> 8) as u8,
+            k.len() as u8,
+            (v.len() >> 8) as u8,
+            v.len() as u8
+        ];
         let kv_len = kv_len_buf.len() + k.len() + v.len();
         if kv_len >= CHUNK_SIZE {
             // Do not store too big keys and values, since they do not
@@ -436,11 +512,10 @@ impl BucketInner {
             return
         }
 
-        let mut chunks = self.chunks;
         let mut need_clean = false;
         let mut idx = self.idx;
         let mut idx_new = idx + kv_len;
-        let mut chunk_idx = idx / CHUNK_SIZE;
+        let mut chunk_idx: usize = idx / CHUNK_SIZE;
         let chunk_idx_new = idx_new / CHUNK_SIZE;
         if chunk_idx_new > chunk_idx {
             if chunk_idx_new >= self.chunks.len() {
@@ -448,7 +523,7 @@ impl BucketInner {
                 idx_new = kv_len;
                 chunk_idx = 0;
                 self.gen += 1;
-                if self.gen & ((1 << GEN_SIZE_BITS)-1) == 0 {
+                if self.gen & GEN_BIT_MASK == 0 {
                     self.gen += 1;
                 }
                 need_clean = true
@@ -458,88 +533,86 @@ impl BucketInner {
                 chunk_idx = chunk_idx_new
             }
         }
-        if chunk_idx > self.chunks.len() {
+
+        if chunk_idx >= self.chunks.len() {
             let vec: Vec<u8> = Vec::with_capacity(CHUNK_SIZE);
-            self.chunks.resize(chunk_idx, vec)
+            self.chunks.push(vec)
         }
 
-        let mut chunk = self.chunks[chunk_idx];
-        chunk.extend_from_slice(kv_len_buf);
+        let chunk = self.chunks.get_mut(chunk_idx);
+        debug_assert!(chunk.is_some());
+
+        let chunk = chunk.unwrap();
+        chunk.extend_from_slice(&kv_len_buf);
         chunk.extend_from_slice(k);
         chunk.extend_from_slice(v);
-        chunks[chunk_idx] = chunk;
-        self.m.insert(h, idx | (self.gen << BUCKET_SIZE_BITS));
+
+        self.hash_idx_map.insert(h, idx | (self.gen << BUCKET_SIZE_BITS) as usize);
         self.idx = idx_new;
         if need_clean {
             self.clean_locked()
         }
     }
 
-    pub fn get(&mut self, k: &[u8], h: u64, dst: &mut Vec<u8>) -> bool {
+
+    fn get(&mut self, k: &[u8], h: u64) -> Option<&[u8]> {
         self.get_calls += 1;
-        let mut found = false;
 
-        if let Some(v) = self.m.get(h) {
-            while v > 0 {
-                let b_gen = self.gen & ((1 << GEN_SIZE_BITS) - 1);
-                let mut gen = v >> BUCKET_SIZE_BITS;
-                let mut idx = v & ((1 << BUCKET_SIZE_BITS) - 1);
-                if gen == b_gen && idx < self.idx ||
-                    gen + 1 == b_gen && idx >= self.idx ||
-                    gen == MAX_GEN && b_gen == 1 && idx >= self.idx {
-                    let mut chunk_idx = idx / CHUNK_SIZE;
-                    if chunk_idx >= self.chunks.len() {
-                        // Corrupted data during the load from file. Just skip it.
-                        self.corruptions.fetch_add(1, Ordering::Relaxed);
-                        break
-                    }
-                    idx %= CHUNK_SIZE;
-                    if idx+4 >= CHUNK_SIZE {
-                        // Corrupted data during the load from file. Just skip it.
-                        self.corruptions.fetch_add(1, Ordering::Relaxed);
-                        break
-                    }
-                    let mut chunk = self.chunks[chunk_idx];
-                    let kv_len_buf = chunk[idx .. idx+4];
-                    let key_len = ((kv_len_buf[0] as u64) << 8) | kv_len_buf[1] as u64;
-                    let val_len = ((kv_len_buf[2] as u64) << 8) | kv_len_buf[3] as u64;
-                    idx += 4;
-                    if idx + key_len + val_len >= CHUNK_SIZE {
-                        // Corrupted data during the load from file. Just skip it.
-                        self.corruptions.fetch_add(1, Ordering::Relaxed);
-                        break
-                    }
+        if let Some(v) = self.hash_idx_map.get(&h) {
+            let b_gen = self.gen & GEN_BIT_MASK;
+            let gen = (v >> BUCKET_SIZE_BITS) as u64;
+            let idx = (v & ((1 << BUCKET_SIZE_BITS) - 1)) as usize;
+            if gen == b_gen && idx < self.idx ||
+                gen + 1 == b_gen && idx >= self.idx ||
+                gen == MAX_GEN && b_gen == 1 && idx >= self.idx {
+                let chunk_idx: usize = idx / CHUNK_SIZE;
+                if chunk_idx >= self.chunks.len() {
+                    // Corrupted data during the load from file. Just skip it.
+                    self.corruptions += 1;
+                    return None;
+                }
 
-                    let key = &chunk[idx .. idx + key_len];
-                    if k == key {
-                        idx += key_len;
-                        if return_dst {
-                            dst.extend_from_slice(&chunk[idx .. idx + val_len]);
-                        }
-                        found = true
-                    } else {
-                        self.collisions += 1;
-                    }
-                    break
+                let mut idx: usize = idx % CHUNK_SIZE;
+                if idx + 4 >= CHUNK_SIZE {
+                    // Corrupted data during the load from file. Just skip it.
+                    self.corruptions += 1;
+                    return None;
+                }
+                let chunk = &self.chunks[chunk_idx];
+                let kv_len_buf = &chunk[idx..idx + 4];
+                let key_len = (((kv_len_buf[0] as u64) << 8) | kv_len_buf[1] as u64) as usize;
+                let val_len = (((kv_len_buf[2] as u64) << 8) | kv_len_buf[3] as u64) as usize;
+                idx += 4;
+                if idx + (key_len + val_len) as usize >= CHUNK_SIZE {
+                    // Corrupted data during the load from file. Just skip it.
+                    self.corruptions += 1;
+                    return None;
+                }
+
+                let key = &chunk[idx..idx + key_len];
+                return if k == key {
+                    idx += key_len;
+                    let res = &chunk[idx..idx + val_len];
+                    Some(res)
+                } else {
+                    self.misses += 1;
+                    self.collisions += 1;
+                    None
                 }
             }
         }
 
-        if !found {
-            self.misses += 1;
-        }
-
-        return found
-
+        None
     }
+
 }
 
 struct Bucket {
-    inner: Arc<Mutex<BucketInner>>
+    inner: RwLock<BucketInner>
 }
 
 impl Bucket {
-    pub fn new(max_bytes: u64) -> Self {
+    pub fn new(max_bytes: usize) -> Self {
         if max_bytes == 0 {
             panic!("max_bytes cannot be zero");
         }
@@ -547,42 +620,457 @@ impl Bucket {
             panic!("too big max_bytes={}; should be smaller than {}", max_bytes, MAX_BUCKET_SIZE);
         }
         let max_chunks = (max_bytes + CHUNK_SIZE - 1) / CHUNK_SIZE;
-        let chunks: VecDequeue<Vec<u8>> = VecDequeue::with_capacity(max_chunks);
-        let data = BucketInner {
-            chunks,
-            m: HashMap::new(),
-            idx: 0,
-            gen: 0,
-            get_calls: 0,
-            set_calls: 0,
-            misses: 0,
-            collisions: 0,
-            corruptions: 0
-        };
-        let inner = Arc::new(Mutex::new( data ));
+        let data = BucketInner::new(max_chunks);
+        let inner = RwLock::new( data );
         Self {
             inner
         }
     }
 
-    pub fn reset(&mut self) {
-        let inner = self.inner.lock().unwrap();
+    pub fn reset(&self) {
+        let mut inner = self.inner.write().unwrap();
         inner.reset();
     }
 
-    fn clean_locked(&mut self) {
-        let inner = self.inner.lock().unwrap();
+    fn clean(&self) {
+        let mut inner = self.inner.write().unwrap();
         inner.clean_locked();
     }
 
-    pub fn set(&mut self, k: &[u8], v: &[u8]) {
-        let inner = self.inner.lock().unwrap();
-        inner.set(k, v);
+    pub fn set(&self, k: &[u8], v: &[u8], h: u64) {
+        let mut inner = self.inner.write().unwrap();
+        inner.set(k, v, h);
     }
 
-    pub fn get(&mut self, k: &[u8], h: u64, return_dst: bool) -> Option<&[u8]> {
-        let inner = self.inner.lock().unwrap();
-        inner.get(k, h, return_dst)
+    fn get(&self, k: &[u8], h: u64, dst: &mut Vec<u8>) -> bool {
+        let mut inner = self.inner.write().unwrap();
+        match inner.get(k, h) {
+            None => false,
+            Some(v) => {
+                dst.extend_from_slice(v);
+                true
+            }
+        }
     }
 
+    pub(self) fn has(&self, k: &[u8], h: u64) -> bool {
+        let mut inner = self.inner.write().unwrap();
+        inner.get(k, h).is_some()
+    }
+
+    pub(self) fn del(&self, h: u64) {
+        let mut inner = self.inner.write().unwrap();
+        inner.hash_idx_map.remove(&h);
+    }
+
+    pub(self) fn update_stats(&self, s: &mut Stats) {
+        let inner = self.inner.read().unwrap();
+        
+        s.get_calls += inner.get_calls;
+        s.set_calls += inner.set_calls;
+        s.misses += inner.misses;
+        s.collisions += inner.collisions;
+        s.corruptions += inner.corruptions;
+        s.entries_count += inner.hash_idx_map.len() as u64;
+        let mut bytes_size = 0;
+        for chunk in inner.chunks.iter() {
+            bytes_size += chunk.capacity()
+        }
+        s.bytes_size += bytes_size as u64;
+        s.max_bytes_size += (inner.chunks.len() * CHUNK_SIZE) as u64;
+    }
+
+    pub(self) fn get_gen(&self) -> u64 {
+        let inner = self.inner.read().unwrap();
+        inner.gen
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use byte_slice_cast::AsByteSlice;
+    use crate::fast_cache::fast_cache::{BIG_CACHE_SIZE_MIN, BUCKETS_COUNT, CHUNK_SIZE};
+    use crate::{FastCache, Stats};
+
+    #[test]
+    fn test_cache_small() {
+        let mut c = FastCache::new(1);
+
+        let mut v: Vec<u8> = vec![];
+
+        c.get(b"aaa", &mut v);
+        assert_eq!(v.len(), 0, "unexpected non-empty value obtained from small cache: {}",
+                   String::from_utf8_lossy(&v));
+
+        assert!(!c.get(b"aaa", &mut v),
+                "unexpected non-empty value obtained from small cache: {}",  String::from_utf8_lossy(&v));
+
+        c.set(b"key", b"value");
+        let mut dst: Vec<u8> = vec![];
+
+        c.get(b"key", &mut dst);
+        assert_eq!(String::from_utf8_lossy(&dst), "value",
+                   "unexpected value obtained; got {}; want {}", String::from_utf8_lossy(&v), "value");
+
+        v.clear();
+        c.get(b"aaa", &mut v);
+        assert_eq!(v.len(), 0 , "unexpected non-empty value obtained from small cache: {}",
+                   String::from_utf8_lossy(&v));
+
+        v.clear();
+        c.set(b"aaa", b"bbb");
+        c.get(b"aaa", &mut v);
+        assert_eq!(String::from_utf8_lossy(&v), "bbb",
+                   "unexpected value obtained; got {}; want {}", String::from_utf8_lossy(&v), "bbb");
+
+        v.clear();
+        assert!(c.get(b"aaa", &mut v) && String::from_utf8_lossy(&v) == "bbb",
+                "unexpected value obtained; got {}; want {}", String::from_utf8_lossy(&v), "bbb");
+
+        c.reset();
+        v.clear();
+        c.get(b"aaa", &mut v);
+        assert_eq!(v.len(), 0, "unexpected non-empty value obtained from empty cache: {}", String::from_utf8_lossy(&v));
+
+        assert!(!c.get(b"aaa", &mut v) && v.is_empty(),
+                "unexpected non-empty value obtained from small cache: {}",  String::from_utf8_lossy(&v));
+
+        // Test empty value
+        let k = b"empty";
+        c.set(k, &[]);
+        assert!(c.get(k, &mut v) && v.is_empty(), "unexpected non-empty value obtained from empty entry: {}",
+                String::from_utf8_lossy(&v));
+        assert!(c.get(k, &mut v),
+                "cannot find empty entry for key {}",  String::from_utf8_lossy(k));
+        assert_eq!(v.len(), 0, "unexpected non-empty value obtained from empty entry: {}",
+                String::from_utf8_lossy(&v));
+        assert!(c.has(k), "cannot find empty entry for key {}",  String::from_utf8_lossy(k));
+
+        assert!(!c.has(b"foobar"), "non-existing entry found in the cache");
+    }
+
+    #[test]
+    fn test_cache_wrap() {
+        let c = FastCache::new(BUCKETS_COUNT * (CHUNK_SIZE as f64 * 1.5) as usize);
+
+        let calls: u64 = 5_000_000;
+
+        let mut dst: Vec<u8> = vec![];
+        for i in 0 .. calls {
+            let k = make_buf("key", i);
+            let v = make_buf("value", i);
+            c.set(&k, &v);
+
+            dst.clear();
+            assert!(c.get(&k, &mut dst), "value not found for key: {}",  String::from_utf8_lossy(&k));
+
+            assert_eq!(v, dst,
+                       "unexpected value for key {}; got {}; want {}",
+                       String::from_utf8_lossy(&k),
+                       String::from_utf8_lossy(&v),
+                       String::from_utf8_lossy(&dst));
+        }
+
+        for i in 0 .. calls/10 {
+            let k = make_buf("key", i);
+            let v = make_buf("value", i);
+            dst.clear();
+            c.get(&k, &mut dst);
+            assert!(!dst.is_empty() && v != dst,
+                "unexpected value for key {}; got {}; want {}",
+                    String::from_utf8_lossy(&k),
+                    String::from_utf8_lossy(&dst),
+                    String::from_utf8_lossy(&v));
+        }
+
+        let mut s: Stats = Stats::default();
+        c.update_stats(&mut s);
+        let get_calls = (calls + calls/10) as u64;
+        assert_eq!(s.get_calls, get_calls, "unexpected number of get_calls; got {}; want {}", s.get_calls, get_calls);
+
+        assert_eq!(s.set_calls, calls, "unexpected number of set_calls; got {}; want {}", s.set_calls, calls);
+
+        assert!(s.misses == 0 || s.misses >= (calls/10) as u64,
+                "unexpected number of misses; got {}; it should be between 0 and {}", s.misses, calls/10);
+
+        assert_ne!(s.collisions, 0, "unexpected number of collisions; got {}; want 0", s.collisions);
+
+        assert!(s.entries_count < (calls/5) as u64,
+                "unexpected number of items; got {}; cannot be smaller than {}", s.entries_count, calls/5);
+
+        assert!(s.bytes_size < 1024,
+                "unexpected BytesSize; got {}; cannot be smaller than {}", s.bytes_size, 1024);
+
+        assert!(s.max_bytes_size < 32*1024*1024,
+                "unexpected max_bytes_size; got {}; cannot be smaller than {}", s.max_bytes_size, 32*1024*1024)
+    }
+
+
+    fn make_buf(prefix: &str, i: u64) -> Vec<u8> {
+        Vec::from(format!("{}-{}", prefix, i).as_bytes())
+    }
+
+    #[test]
+    fn test_cache_del() {
+        let c = FastCache::new(1024);
+
+        let mut dst: Vec<u8> = vec![];
+        for i in 0 .. 100 {
+            dst.clear();
+            let k = make_buf("key", i);
+            let v = make_buf("value", i);
+            c.set(&k, &v);
+            c.get(&k, &mut dst);
+
+            assert_eq!(dst, v,
+                       "unexpected value for key {}; got {}; want {}",
+                       String::from_utf8_lossy(&k),
+                       String::from_utf8_lossy(&v),
+                       String::from_utf8_lossy(&dst));
+
+            c.del(&k);
+            dst.clear();
+            assert!(!c.get(&k, &mut dst) && dst.is_empty(),
+                    "unexpected non-empty value got for key {}: {}",
+                    String::from_utf8_lossy(&k),
+                    String::from_utf8_lossy(&dst))
+        }
+    }
+
+    #[test]
+    fn test_cache_big_key_value() {
+        let c = FastCache::new(BIG_CACHE_SIZE_MIN);
+
+        // Both key and value exceed 64Kb
+        let k = [0_u8; 90*1024];
+        let v = [0_u8; 100*1024];
+        c.set(&k, &v);
+
+        let mut dst: Vec<u8> = Vec::with_capacity(100 * 1024);
+        c.get(&k, &mut dst);
+        assert!(dst.is_empty(), "unexpected non-empty value for key {}: {}",
+                 String::from_utf8_lossy(&k),
+                 String::from_utf8_lossy(&dst));
+
+        // len(key) + value.len() > 64Kb
+        let k = [0_u8; 40*1024];
+        let v = [0_u8; 40*1024];
+
+        dst.clear();
+        c.set(&k, &v);
+        c.get(&k, &mut dst);
+        assert!(dst.is_empty(), "unexpected non-empty value got for key {}: {}",
+                String::from_utf8_lossy(&k),
+                String::from_utf8_lossy(&dst));
+    }
+
+    #[test]
+    fn test_cache_set_get_serial() {
+        let items_count= 10000;
+        let mut c = FastCache::new(30 * items_count);
+        test_cache_get_set(&mut c, items_count)
+    }
+
+    #[test]
+    fn test_cache_get_set_concurrent() {
+        const ITEMS_COUNT: usize = 10000;
+        const GOROUTINES: usize = 10;
+
+        let mut c = FastCache::new(30 * ITEMS_COUNT * GOROUTINES);
+
+        // todo: Rayon
+        (0 ..GOROUTINES).for_each(|_| {
+            test_cache_get_set(&mut c, ITEMS_COUNT)
+        })
+    }
+
+    fn test_cache_get_set(c: &mut FastCache, items_count: usize) {
+        let mut vv: Vec<u8> = vec![];
+        for i in 0 ..items_count {
+            let k = make_buf("key", i as u64);
+            let v = make_buf("value", i as u64);
+            c.set(&k, &v);
+            vv.clear();
+
+            c.get(&k, &mut vv);
+            assert_eq!(vv, v, "unexpected value for key {} after insertion; got {}; want {}",
+                       String::from_utf8_lossy(&k),
+                       String::from_utf8_lossy(&vv),
+                       String::from_utf8_lossy(&v));
+        }
+        let mut misses = 0;
+        for i in 0 ..items_count {
+            let k = make_buf("key", i as u64);
+            let v_expected = make_buf("value", i as u64);
+            c.get(&k, &mut vv);
+            if vv != v_expected {
+                assert!(!vv.is_empty(),
+                        "unexpected value for key {} after all insertions; got {}; want {}",
+                        String::from_utf8_lossy(&k),
+                        String::from_utf8_lossy(&vv),
+                        String::from_utf8_lossy(&v_expected));
+                misses += 1;
+            }
+        }
+
+        assert!(misses >= items_count /100, "too many cache misses; got {}; want less than {}", misses, items_count /100);
+    }
+
+    const VALUES_COUNT: usize = 10;
+
+    macro_rules! test_value_size {
+        ($name: ident, $value_size: expr) => {
+            #[test]
+            fn $name() {
+                let mut c = FastCache::new(256 * 1024 * 1024);
+                for seed in 0 .. 3 {
+                    test_set_get_big(&mut c, $value_size, VALUES_COUNT, seed)
+                }
+            }
+        }
+    }
+
+    test_value_size!(test_values_1, 1);
+    test_value_size!(test_values_100, 100);
+    test_value_size!(test_values_65535, 1 << (16 - 1));
+    test_value_size!(test_values_65536, 1 << 16);
+    test_value_size!(test_values_65537, 1 << (16 + 1));
+
+    test_value_size!(test_values_131071, 1 << (17 - 1));
+    test_value_size!(test_values_131072, 1 << 17);
+    test_value_size!(test_values_131073, 1 << (17 + 1));
+    test_value_size!(test_values_524288, 1 << 19);
+
+
+    fn test_set_get_big(c: &mut FastCache, value_size: usize, values_count: usize, seed: u8) {
+        let mut m: HashMap<String, Vec<u8>> = HashMap::new();
+
+        let mut buf: Vec<u8> = vec![];
+        for i in 0 .. values_count {
+            let key = make_buf("key", i as u64);
+            let value = create_value(value_size, seed);
+            let key1 = key.clone();
+            c.set_big(&key, &value);
+            m.insert(String::from_utf8(key).expect("invalid utf8 sequence"), value.clone());
+
+            buf.clear();
+            assert!(c.get_big(&key1, &mut buf) && buf == value,
+                    "seed={}; unexpected value obtained for key={}; got value.len()={}; want value.len()={}",
+                    seed, String::from_utf8_lossy(&key1), buf.len(), value.len())
+        }
+
+        let mut s = Stats::default();
+        c.update_stats(&mut s);
+        assert!(s.set_big_calls >= values_count as u64, "expecting set_big_calls >= {}; got {}", values_count, s.set_big_calls);
+        assert!(s.get_big_calls >= values_count as u64, "expecting get_big_calls >= {}; got {}", values_count, s.get_big_calls);
+
+        // Verify that values still exist
+        for (key, value) in m.iter() {
+            buf.clear();
+            c.get_big(key.as_bytes(), &mut buf);
+            assert!(c.get_big(key.as_byte_slice(), &mut buf) && buf == *value,
+                    "seed={}; unexpected value obtained for key={}; got value.len()={}; want value.len()={}",
+                    seed, key, buf.len(), value.len())
+        }
+    }
+
+    fn create_value(size: usize, seed: u8) -> Vec<u8> {
+        let mut buf: Vec<u8> = Vec::with_capacity(size);
+        for i in 0 .. size {
+            buf.push((i as u8) + seed)
+        }
+        buf
+    }
+
+    #[test]
+    fn test_generation_overflow() {
+        // These two keys has to the same bucket (100), so we can push the
+        // generations up much faster.  The keys and values are sized so that
+        // every time we push them into the cache they will completely fill the
+        // bucket
+        const KEY1: [u8; 1] = [26_u8];
+        const KEY2: [u8; 1] = [8_u8];
+
+        let mut c = FastCache::new(BIG_CACHE_SIZE_MIN); // each bucket has 64 *1024 bytes capacity
+
+        // Initial generation is 1
+        test_gen_val(&mut c, 1);
+
+        let big_val1 = [1_u8; (32*1024)-(KEY1.len()+4)];
+        let big_val2 = [2_u8; (32*1024)-(KEY2.len()+5)];
+
+        // Do some initial Set/Get demonstrate that this works
+        for i in 0 .. 10 {
+            c.set(&KEY1, &big_val1);
+            c.set(&KEY2, &big_val2);
+            get_val(&mut c, &KEY1, &big_val1);
+            get_val(&mut c, &KEY2, &big_val2);
+            test_gen_val(&mut c, (1+i) as u64)
+        }
+
+        // This is a hack to simulate calling Set 2^24-3 times
+        // Actually doing this takes ~24 seconds, making the test slow
+        {
+            let inner = c.buckets.get(100).unwrap().inner.write();
+            inner.unwrap().gen = (1 << 24) - 2;
+            // c.buckets[100].gen == 16,777,215
+        }
+
+        // Set/Get still works
+        c.set(&KEY1, &big_val1);
+        c.set(&KEY2, &big_val2);
+
+        get_val(&mut c, &KEY1, &big_val1);
+        get_val(&mut c, &KEY2, &big_val2);
+
+        test_gen_val(&mut c, (1<<24)-1);
+
+        // After the next Set operations
+        // c.buckets[100].gen == 16,777,216
+
+        // This set creates an index where `idx | (b.gen << bucketSizeBits)` == 0
+        // The value is in the cache but is unreadable by Get
+        c.set(&KEY1, &big_val1);
+
+        // The Set above overflowed the bucket's generation. This means that
+        // key2 is still in the cache, but can't get read because key2 has a
+        // _very large_ generation value and appears to be from the future
+        get_val(&mut c, &KEY2, &big_val2);
+
+        // This Set creates an index where `(b.gen << bucketSizeBits)>>bucketSizeBits)==0`
+        // The value is in the cache but is unreadable by Get
+        c.set(&KEY2, &big_val2);
+
+        // Ensure generations are working as we expect
+        // NB: Here we skip the 2^24 generation, because the bucket carefully
+        // avoids `generation==0`
+        test_gen_val(&mut c, (1<<24)+1);
+
+        get_val(&mut c, &KEY1, &big_val1);
+        get_val(&mut c, &KEY2, &big_val2);
+
+        // Do it a few more times to show that this bucket is now unusable
+        for i in 0 .. 10 {
+            c.set(&KEY1, &big_val1);
+            c.set(&KEY2, &big_val2);
+            get_val(&mut c, &KEY1, &big_val1);
+            get_val(&mut c, &KEY2, &big_val2);
+            test_gen_val(&mut c, (1<<24)+2+i)
+        }
+    }
+
+    fn get_val(c: &mut FastCache, key: &[u8], expected: &[u8]) {
+        let mut dst: Vec<u8> = vec![];
+        assert!(c.get(key, &mut dst) && dst == expected,
+                   "Expected value ({}) was not returned from the cache, instead got {}",
+                String::from_utf8_lossy(&expected[0..10]),
+                String::from_utf8_lossy(&dst));
+    }
+
+    fn test_gen_val(c: &mut FastCache, expected: u64) {
+        let actual = c.buckets.get(100).unwrap().get_gen();
+        // Ensure generations are working as we expect
+        assert_eq!(actual, expected, "Expected generation to be {} found {} instead", expected, actual)
+    }
 }

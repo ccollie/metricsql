@@ -55,14 +55,14 @@ pub fn is_float64_ones(a: &[f64]) -> bool {
 }
 
 pub fn append_int64_data(dst: &mut Vec<i64>, count: usize, src: &[i64]) {
-    let mut items = count;
-    while items > 0 {
+    let mut item_count = count;
+    while item_count > 0 {
         let mut n = src.len();
-        if n > items {
-            n = items
+        if n > item_count {
+            n = item_count
         }
         dst.extend_from_slice(&src[0..n]);
-        items -= n
+        item_count -= n
     }
 }
 

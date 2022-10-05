@@ -8,7 +8,7 @@ pub(crate) struct HashMapFunctionRegistry<K, P, R>
         K: Eq + Hash,
         P: ?Sized + Send + Sync,
 {
-    hash: HashMap<K, Box<dyn FunctionImplementation<P, R>>>
+    hash: HashMap<K, Box<dyn FunctionImplementation<P, R, Output=R>>>
 }
 
 impl <K, P: ?Sized + Send + Sync, R>HashMapFunctionRegistry<K, P, R>
@@ -24,7 +24,7 @@ impl <K, P: ?Sized + Send + Sync, R> FunctionRegistry<K, P, R> for HashMapFuncti
     where
         K: Eq + Hash
 {
-    fn into_vec(self) -> Vec<(K, Box<dyn FunctionImplementation<P, R>>)> {
+    fn into_vec(self) -> Vec<(K, Box<dyn FunctionImplementation<P, R, Output=R>>)> {
         todo!()
     }
 
@@ -32,15 +32,17 @@ impl <K, P: ?Sized + Send + Sync, R> FunctionRegistry<K, P, R> for HashMapFuncti
         self.hash.remove(key);
     }
 
-    fn insert(&mut self, key: K, item: Box<dyn FunctionImplementation<P, R>>) {
+    fn insert(&mut self, key: K, item: Box<dyn FunctionImplementation<P, R, Output=R>>) {
         self.hash.insert(key, item);
     }
 
-    fn contains_key<Q: ?Sized>(&self, _key: &Q) -> bool where K: Borrow<Q>, Q: Eq + Hash {
-        todo!()
+    fn contains_key<Q: ?Sized>(&self, key: &Q) -> bool where K: Borrow<Q>, Q: Eq + Hash {
+        self.hash.contains_key(key)
     }
 
-    fn get<Q: ?Sized>(&self, key: &Q) -> Option<&Box<dyn FunctionImplementation<P, R>>> where K: Borrow<Q>, Q: Eq + Hash {
+    fn get<Q: ?Sized>(&self, key: &Q) -> Option<&Box<dyn FunctionImplementation<P, R, Output=R>>>
+        where K: Borrow<Q>, Q: Eq + Hash
+    {
         self.hash.get(key)
     }
 

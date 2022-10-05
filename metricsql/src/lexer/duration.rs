@@ -1,4 +1,20 @@
-use crate::parser::ParseError;
+use crate::parser::{ParseError, ParseResult};
+
+/// positive_duration_value returns positive duration in milliseconds for the given s
+/// and the given step.
+///
+/// Duration in s may be combined, i.e. 2h5m or 2h-5m.
+///
+/// Error is returned if the duration in s is negative.
+pub fn positive_duration_value(s: &str, step: i64) -> Result<i64, ParseError> {
+    let d = duration_value(s, step)?;
+    if d < 0 {
+        return Err(ParseError::InvalidDuration(
+            format!("duration cannot be negative; got {}", s)
+        ));
+    }
+    return Ok(d)
+}
 
 /// duration_value returns the duration in milliseconds for the given s
 /// and the given step.
@@ -6,8 +22,8 @@ use crate::parser::ParseError;
 /// Duration in s may be combined, i.e. 2h5m, -2h5m or 2h-5m.
 ///
 /// The returned duration value can be negative.
-pub fn duration_value(s: &str, step: i64) -> Result<i64, ParseError> {
-    fn scan_value(s: &str, step: i64) -> Result<i64, ParseError> {
+pub fn duration_value(s: &str, step: i64) -> ParseResult<i64> {
+    fn scan_value(s: &str, step: i64) -> ParseResult<i64> {
         let mut is_minus = false;
         let mut cursor: &str = s;
         let mut d = 0.0;
@@ -80,6 +96,7 @@ pub fn parse_single_duration(s: &str, &step: &i64) -> Result<f64, ParseError> {
 // scan_duration scans duration, which must start with positive num.
 //
 // I.e. 123h, 3h5m or 3.4d-35.66s
+#[allow(dead_code)]
 pub fn scan_duration(s: &str) -> i32 {
     // The first part must be non-negative
     let mut n = scan_single_duration(s, false);
@@ -87,6 +104,8 @@ pub fn scan_duration(s: &str) -> i32 {
         return -1;
     }
 
+    // todo: duration segments should go from courser to finer grain
+    // i.e. we should forbid something like 25s2d
     let mut cursor: &str = &s[n as usize..];
     let mut i = n;
     loop {
@@ -161,4 +180,101 @@ fn scan_single_duration(s: &str, can_be_negative: bool) -> i32 {
 
 fn is_decimal_char(ch: char) -> bool {
     ('0'..='9').contains(&ch)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::lexer::duration::positive_duration_value;
+    use crate::lexer::duration_value;
+
+    const MS: i64 = 1;
+    const SECOND: i64 = 1000 * MS;
+    const MINUTE: i64 = 60 * SECOND;
+    const HOUR: i64 = 60 * MINUTE;
+    const DAY: i64 = 24 * HOUR;
+    const WEEK: i64 = 7 * DAY;
+    const YEAR: i64 = 365 * DAY;
+
+    #[test]
+    fn test_duration_success() {
+        fn f(s: &str, step: i64, expected: i64) {
+            let d = duration_value(s, step).unwrap();
+            assert_eq!(d, expected, "unexpected duration; got {}; want {}", d, expected)
+        }
+
+        // Integer durations
+        f("123ms", 42, 123);
+        f("-123ms", 42, -123);
+        f("123s", 42, 123*1000);
+        f("-123s", 42, -123*1000);
+        f("123m", 42, 123 * MINUTE);
+        f("1h", 42, 1 * HOUR);
+        f("2d", 42, 2 * DAY);
+        f("3w", 42, 3 * WEEK);
+        f("4y", 42, 4 * YEAR);
+        f("1i", 42*1000, 42 * 1000);
+        f("3i", 42, 3*42);
+        f("-3i", 42, -3*42);
+        f("1m34s24ms", 42, 94024);
+        f("1m-34s24ms", 42, 25976);
+        f("-1m34s24ms", 42, -94024);
+        f("-1m-34s24ms", 42, -94024);
+
+        // Float durations
+        f("34.54ms", 42, 34);
+        f("-34.34ms", 42, -34);
+        f("0.234s", 42, 234);
+        f("-0.234s", 42, -234);
+        f("1.5s", 42, (1.5 * SECOND as f64) as i64);
+        f("1.5m", 42, (1.5 * MINUTE as f64) as i64);
+        f("1.2h", 42, (1.2 * HOUR as f64) as i64);
+        f("1.1d", 42, (1.1 * DAY as f64) as i64);
+        f("1.1w", 42, (1.1 * WEEK as f64) as i64);
+        f("1.3y", 42, (1.3 * YEAR as f64).floor() as i64);
+        f("-1.3y", 42, (-1.3 * YEAR as f64).floor() as i64);
+        f("0.1i", 12340, (0.1 * 12340.0) as i64);
+        f("1.5m3.4s2.4ms", 42, 93402);
+        f("-1.5m3.4s2.4ms", 42, -93402);
+
+        // Floating-point durations without suffix.
+        f("123", 45, 123000);
+        f("1.23", 45, 1230);
+        f("-0.56", 12, -560);
+        f("-.523e2", 21, -52300)
+    }
+
+    #[test]
+    fn test_duration_error() {
+        fn f(s: &str) {
+            let d = duration_value(s, 42).unwrap();
+            assert_eq!(d, 0, "expecting zero duration; got {}", d)
+        }
+        f("");
+        f("foo");
+        f("m");
+        f("1.23mm");
+        f("123q");
+        f("-123q")
+    }
+
+    #[test]
+    fn test_positive_duration_error() {
+        fn f(s: &str) {
+            match positive_duration_value(s, 42) {
+                Ok(_) => panic!("Expecting an error for duration {}", s),
+                _ => {}
+            }
+        }
+        f("");
+        f("foo");
+        f("m");
+        f("1.23mm");
+        f("123q");
+        f("-123s");
+
+        // Too big duration
+        f("10000000000y")
+    }
+
+
 }

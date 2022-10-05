@@ -5,7 +5,7 @@ use regex::Regex;
 
 use crate::error::{Error, Result};
 
-const NAME_LABEL: &str = "__name__";
+pub const NAME_LABEL: &str = "__name__";
 
 pub type LabelName = String;
 

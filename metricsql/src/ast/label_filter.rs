@@ -4,7 +4,7 @@ use crate::parser::{compile_regexp, ParseError};
 use enquote::enquote;
 use std::fmt;
 
-const NAME_LABEL: &str = "__name__";
+pub const NAME_LABEL: &str = "__name__";
 
 pub type LabelName = String;
 

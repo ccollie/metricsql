@@ -1,9 +1,11 @@
 use std::collections::HashSet;
+use std::ops::Deref;
 use std::sync::Arc;
+use std::string::String;
 
 use chrono::Utc;
 
-use lib::{get_pooled_buffer, round_to_decimal_digits};
+use lib::{round_to_decimal_digits};
 use metricsql::ast::Expression;
 
 use crate::context::Context;
@@ -14,56 +16,48 @@ use crate::search::QueryResult;
 use crate::timeseries::Timeseries;
 
 pub fn parse_promql_with_cache(ctx: &mut Context, q: &str) -> RuntimeResult<Arc<ParseCacheValue>> {
-    let cached = ctx.parse_cache.parse(q);
-    if let Some(err) = &cached.err {
-        return Err(RuntimeError::ParseError(err.clone()))
-    }
-    return Ok(cached)
+    ctx.parse_promql(q)
 }
 
 /// executes q for the given config.
-pub fn exec(env: &mut Context,
+pub fn exec(context: &Context,
             ec: &mut EvalConfig,
             q: &str,
             is_first_point_only: bool) -> RuntimeResult<Vec<QueryResult>> {
 
-    if env.query_stats.enabled() {
-        let start_time = Utc::now();
+    let start_time = Utc::now();
+    if context.config.stats_enabled && context.query_stats.is_enabled() {
         defer! {
-            env.query_stats.register_query(q, ec.end - ec.start, start_time)
+            context.query_stats.register_query(q, ec.end - ec.start, start_time)
         }
     }
 
     ec.validate()?;
 
-    let parsed = env.parse_cache.parse(q);
-    match (&parsed.err, &parsed.evaluator, &parsed.expr, &parsed.has_subquery) {
-        (Some(err), None, None, _) => {
-            return Err(RuntimeError::ParseError(err.clone()))
-        },
-        (None, Some(evaluator), Some(expr), has_subquery) => {
-            let qid = env.active_queries.add(ec, q);
+    let parsed = context.parse_promql(q)?;
+    match (&parsed.evaluator, &parsed.expr, &parsed.has_subquery) {
+        (Some(evaluator), Some(expr), has_subquery) => {
 
             if *has_subquery {
                 ec.ensure_timestamps()?;
             }
 
-            let rv = evaluator.eval(env, ec);
-            match rv {
-                Err(e) => {
-                    env.active_queries.remove(qid);
-                    return Err(e)
-                },
-                _ => {}
+            let ctx = Arc::new(context);
+            let qid = context.active_queries.register_with_start(ec, q, start_time.timestamp());
+            let rv = evaluator.eval(&ctx, ec);
+            context.active_queries.remove(qid);
+
+            if let Err(e) = rv {
+                return Err(e);
             }
 
-            let mut rv = rv.unwrap();
+            let mut rv = rv.unwrap().into_instant_vector(ec)?;
             if is_first_point_only {
                 if rv[0].timestamps.len() > 0 {
                     let timestamps = Arc::new(vec![rv[0].timestamps[0]]);
                     // Remove all the points except the first one from every time series.
                     for ts in rv.iter_mut() {
-                        ts.values.resize(1, 0.0);
+                        ts.values.resize(1, f64::NAN);
                         ts.timestamps = Arc::clone(&timestamps);
                     }
                 }
@@ -102,22 +96,33 @@ fn may_sort_results(e: &Expression, _tss: &[Timeseries]) -> bool {
     }
 }
 
-pub(crate) fn timeseries_to_result(tss: &mut Vec<Timeseries>, may_sort: bool) -> RuntimeResult<Vec<QueryResult>> {
-    remove_empty_series(tss);
+pub(crate) fn timeseries_to_result(tss: &mut [Timeseries], may_sort: bool) -> RuntimeResult<Vec<QueryResult>> {
     let mut result: Vec<QueryResult> = Vec::with_capacity(tss.len());
     let mut m: HashSet<String> = HashSet::with_capacity(tss.len());
-    let mut bb = get_pooled_buffer(256);
 
-    for (i, ts) in tss.iter_mut().enumerate() {
-        let key = ts.metric_name.marshal_to_string(&mut bb);
-        if m.contains(key.as_ref()) {
+    let timestamps = tss[0].timestamps.deref();
+
+    for ts in tss.iter() {
+        if ts.is_all_nans() {
+            continue;
+        }
+
+        let key = ts.metric_name.to_string();
+
+        if m.contains(&key) {
             return Err(RuntimeError::from(format!("duplicate output timeseries: {}", ts.metric_name)));
         }
-        m.insert(key.to_string());
-        result[i].metric_name.copy_from(&ts.metric_name);
-        result[i].values = ts.values.into();
-        result[i].timestamps.extend_from_slice(&ts.timestamps);
-        bb.clear();
+        m.insert(key);
+        let res = QueryResult {
+            metric_name: ts.metric_name.clone(),  // todo(perf) into vs clone/take
+            values: ts.values.clone(), // todo(perf) .into vs clone/take
+            timestamps: timestamps.clone(), // todo: declare field as Rc<Vec<i64>>
+            rows_processed: 0,
+            worker_id: 0,
+            last_reset_time: 0
+        };
+
+        result.push(res);
     }
 
     if may_sort {

@@ -1,27 +1,23 @@
 // todo: have config flag for wasm
-use std::sync::{Arc, Mutex};
+use std::sync::{Mutex};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-
-struct Inner {
-    usage: usize
-}
 
 #[derive(Default)]
 pub struct MemoryLimiter {
     // todo; use AtomicUsize
-    inner: Arc<Mutex<usize>>,
+    inner: Mutex<usize>,
     pub max_size: usize
 }
 
 impl MemoryLimiter {
     pub fn new(max_size: usize) -> Self {
         MemoryLimiter {
-            inner: Arc::new(Mutex::new(0)),
+            inner: Mutex::new(0),
             max_size,
         }
     }
 
-    pub fn get(&mut self, n: usize) -> bool {
+    pub fn get(&self, n: usize) -> bool {
         // read() will only block when `producer_thread` is holding a write lock
         if let Ok(mut usage) = self.inner.lock() {
             if n <= self.max_size && self.max_size-n >= *usage {
@@ -35,9 +31,10 @@ impl MemoryLimiter {
         }
     }
 
-    pub fn put(&mut self, n: usize) -> RuntimeResult<()> {
+    pub fn put(&self, n: usize) -> RuntimeResult<()> {
         let mut inner = self.inner.lock().unwrap();
         if n > *inner {
+            // todo: better error enum
             return Err(RuntimeError::from(format!("MemoryLimiter: n={} cannot exceed {}", n, *inner)));
         }
         *inner -= n;

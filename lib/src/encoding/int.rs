@@ -3,12 +3,12 @@ use byte_pool::{Block, BytePool};
 use integer_encoding::{FixedInt, VarInt};
 use once_cell::sync::Lazy;
 
-/// unmarshal_uint16 returns unmarshaled: u32 from src.
+/// unmarshal_uint16 returns unmarshalled: u32 from src.
 pub fn unmarshal_uint16(src: &[u8]) -> Result<(u16, &[u8])> {
     unmarshal_var_int::<u16>(src)
 }
 
-/// unmarshal_uint32 returns unmarshaled: u32 from src.
+/// unmarshal_uint32 returns unmarshalled: u32 from src.
 pub fn unmarshal_uint32(src: &[u8]) -> Result<(u32, &[u8])> {
     unmarshal_var_int::<u32>(src)
 }
@@ -27,7 +27,7 @@ pub fn marshal_var_int<T: VarInt>(dst: &mut Vec<u8>, v: T) {
     dst.extend_from_slice(&buf[0..size]);
 }
 
-/// unmarshal_int16 returns unmarshaled int16 from src.
+/// unmarshal_int16 returns unmarshalled int16 from src.
 pub fn unmarshal_int16(src: &[u8]) -> Result<(i16, &[u8])> {
     unmarshal_var_int::<i16>(src)
 }
@@ -41,12 +41,12 @@ pub fn marshal_int64(dst: &mut Vec<u8>, v: i64) {
 
 /// marshal_fixed_int appends marshaled v to dst and returns the result.
 pub fn marshal_fixed_int<T: FixedInt>(dst: &mut Vec<u8>, v: T) {
-    let mut buf = [0_u8; 10];
-    v.encode_fixed(&mut buf);
+    let mut buf = [0_u8; 16];
+    v.encode_fixed(&mut buf[..T::REQUIRED_SPACE]);
     dst.extend_from_slice(&buf[0..T::REQUIRED_SPACE]);
 }
 
-/// unmarshal_int64 returns unmarshaled int64 from src.
+/// unmarshal_int64 returns unmarshalled int64 from src.
 pub fn unmarshal_fixed_int<T: FixedInt>(src: &[u8]) -> Result<(T, &[u8])> {
     if src.len() < T::REQUIRED_SPACE {
         return Err(Error::new(format!(
@@ -58,7 +58,7 @@ pub fn unmarshal_fixed_int<T: FixedInt>(src: &[u8]) -> Result<(T, &[u8])> {
     Ok((T::decode_fixed(src), &src[T::REQUIRED_SPACE..]))
 }
 
-/// unmarshal_var returns unmarshaled int from src.
+/// unmarshal_var returns unmarshalled int from src.
 pub fn unmarshal_var_int<T: VarInt>(src: &[u8]) -> Result<(T, &[u8])> {
     match T::decode_var(src) {
         Some((v, ofs)) => Ok((v, &src[ofs..])),
@@ -66,7 +66,7 @@ pub fn unmarshal_var_int<T: VarInt>(src: &[u8]) -> Result<(T, &[u8])> {
     }
 }
 
-/// unmarshal_var_int64 returns unmarshaled int64 from src and returns
+/// unmarshal_var_int64 returns unmarshalled int64 from src and returns
 /// the remaining tail from src.
 pub fn unmarshal_var_int64(src: &[u8]) -> Result<(i64, &[u8])> {
     unmarshal_var_int::<i64>(src)
@@ -123,7 +123,7 @@ pub fn unmarshal_varint_slice<'a, T: VarInt>(dst: &mut [T], src: &'a [u8]) -> Re
     Ok(&src[ofs..])
 }
 
-/// unmarshal_bytes returns unmarshaled bytes from src.
+/// unmarshal_bytes returns unmarshalled bytes from src.
 pub fn unmarshal_bytes(src: &[u8]) -> Result<(&[u8], &[u8])> {
     match unmarshal_var_int::<usize>(src) {
         Ok((n, _)) => {

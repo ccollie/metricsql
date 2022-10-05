@@ -15,10 +15,10 @@ pub(crate) fn marshal_int64_nearest_delta2(
     precision_bits: u8,
 ) -> Result<i64, Error> {
     if src.len() < 2 {
-        panic!(
+        return Err(Error::from(format!(
             "BUG: src must contain at least 2 items; got {} items",
             src.len()
-        )
+        )));
     }
     check_precision_bits(precision_bits)?;
 
@@ -63,10 +63,10 @@ pub(crate) fn unmarshal_int64_nearest_delta2(
     items_count: usize,
 ) -> Result<(), Error> {
     if items_count < 2 {
-        panic!(
+        return Err(Error::from(format!(
             "BUG: items_count must be greater than 1; got {}",
-            items_count
-        )
+            src.len()
+        )));
     }
 
     let is = get_int64s(items_count - 1);

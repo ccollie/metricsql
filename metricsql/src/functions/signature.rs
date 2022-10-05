@@ -200,7 +200,7 @@ impl Signature {
                 (types.clone(), types.len())
             }
             TypeSignature::Any(count) => {
-                (vec![DataType::Series; *count], *count) // TODO:: !!!! have a Datatype::Any
+                (vec![DataType::InstantVector; *count], *count) // TODO:: !!!! have a Datatype::Any
             }
         }
     }

@@ -1,15 +1,14 @@
-pub use eval::*;
-pub use traits::*;
-
 mod aggregate;
-mod binaryop;
+mod binary_op;
 mod rollup;
 mod eval;
 mod duration;
-mod number;
+mod scalar;
 mod function;
 mod traits;
 mod string;
-mod arg_list;
-mod pool;
+pub mod arg_list;
+mod instant_vector;
 
+pub use eval::*;
+pub use traits::*;

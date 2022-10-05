@@ -23,7 +23,7 @@ pub const STALE_NAN_BITS: u64 = 0x7ff0000000000002;
 
 /// using Lazy because of the following error
 /// error: `core::f64::<impl f64>::from_bits` is not yet stable as a const fn
-pub static STALE_NAN: Lazy<f64> = Lazy::new(|| f64::from_bits(0x7ff0000000000002));
+pub static STALE_NAN: Lazy<f64> = Lazy::new(|| f64::from_bits(STALE_NAN_BITS));
 
 pub(crate) const V_MAX: i64 = 1 << (63 - 3);
 pub(crate) const V_MIN: i64 = (-1 << 63) + 1;
@@ -142,7 +142,7 @@ pub fn append_float_to_decimal(dst: &mut Vec<i64>, src: &[f64]) -> i16 {
         return 0;
     }
 
-    // TODO: IMPORTANT - use pool
+    // todo(perf): use pool
     // let mut vaev = VAE_BUF_POOL.pull();
     //vaev.reserve(src.len());
     let mut vaev = VaeBuf::new(src.len());

@@ -5,12 +5,6 @@ use tinyvec::TinyVec;
 
 use lib::get_float64s;
 
-pub(crate) fn less_with_nans(a: f64, b: f64) -> bool {
-    if a.is_nan() {
-        return !b.is_nan();
-    }
-    return a < b;
-}
 
 /// mode_no_nans returns mode for a.
 ///
@@ -69,7 +63,7 @@ pub fn get_first_non_nan_index(values: &[f64]) -> usize {
 
 pub fn skip_trailing_nans(values: &[f64]) -> &[f64] {
     let mut i = values.len() - 1;
-    while i >= 0 && values[i].is_nan() {
+    while i > 0 && values[i].is_nan() {
         i -= 1;
     }
     return &values[0..i + 1];
@@ -78,7 +72,7 @@ pub fn skip_trailing_nans(values: &[f64]) -> &[f64] {
 #[inline]
 pub fn get_last_non_nan_index(values: &[f64]) -> usize {
     let mut i = values.len() - 1;
-    while i >= 0 && values[i].is_nan() {
+    while i > 0 && values[i].is_nan() {
         i -= 1;
     }
     i
@@ -99,7 +93,7 @@ pub fn quantiles(qs: &mut [f64], phis: &[f64], origin_values: &[f64]) {
     quantiles_sorted(qs, phis, a)
 }
 
-/// calculates the given phi from origin_values without modifying originValues
+/// calculates the given phi from origin_values without modifying origin_values
 pub fn quantile(phi: f64, origin_values: &[f64]) -> f64 {
     // todo: smallvec
     let mut block = get_float64s(origin_values.len());

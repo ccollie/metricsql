@@ -1,4 +1,5 @@
 use crate::ast::BinaryOp;
+use crate::parser::{ParseError, ParseResult};
 
 /// Eq returns true of left == right.
 #[inline]
@@ -67,6 +68,7 @@ pub fn mul(left: f64, right: f64) -> f64 {
 }
 
 /// Div returns left / right
+/// Todo: protect against div by zero
 #[inline]
 pub fn div(left: f64, right: f64) -> f64 {
     left / right
@@ -85,6 +87,7 @@ pub fn pow(left: f64, right: f64) -> f64 {
 }
 
 /// atan2 returns atan2(left, right)
+#[inline]
 pub fn atan2(left: f64, right: f64) -> f64 {
     left.atan2(right)
 }
@@ -143,5 +146,17 @@ pub fn eval_binary_op(left: f64, right: f64, op: BinaryOp, is_bool: bool) -> f64
         If => if_(left, right),
         IfNot => ifnot(left, right),
         _ => panic!("unexpected non-comparison op: {:?}", op),
+    }
+}
+
+pub fn string_compare(a: &str, b: &str, op: BinaryOp) -> ParseResult<bool> {
+    match op {
+        BinaryOp::Eql => Ok(a == b),
+        BinaryOp::Neq => Ok(a != b),
+        BinaryOp::Lt => Ok(a < b),
+        BinaryOp::Gt => Ok(a > b),
+        BinaryOp::Lte => Ok(a <= b),
+        BinaryOp::Gte => Ok(a >= b),
+        _ => Err(ParseError::General(format!("unexpected operator {} in string comparison", op))),
     }
 }

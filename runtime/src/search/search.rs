@@ -1,15 +1,15 @@
-use lockfree_object_pool::LinearObjectPool;
+use lockfree_object_pool::{LinearObjectPool, LinearReusable};
 use once_cell::sync::OnceCell;
 use std::fmt;
 use std::fmt::Display;
 use std::ops::Range;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use std::sync::{Arc};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use metricsql::ast::LabelFilter;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::search::Deadline;
-use crate::{MetricName};
+use crate::{MetricName, Timeseries};
 use crate::traits::{Timestamp, TimestampTrait};
 
 pub type TimeRange = Range<Timestamp>;
@@ -41,7 +41,7 @@ impl Search {
 /// SearchQuery is used for sending search queries to external data sources.
 #[derive(Default, Debug, Clone)]
 pub struct SearchQuery {
-    // The time range for searching time series
+    /// The time range for searching time series
     pub min_timestamp: Timestamp,
     pub max_timestamp: Timestamp,
 
@@ -102,9 +102,11 @@ pub struct QueryResult {
     /// Values are sorted by Timestamps.
     pub values: Vec<f64>,
     pub timestamps: Vec<i64>,
-    rows_processed: usize,
+    pub(crate) rows_processed: usize,
     /// Internal only
-    worker_id: u64
+    pub(crate) worker_id: u64,
+
+    pub(crate) last_reset_time: Timestamp
 }
 
 impl QueryResult {
@@ -114,7 +116,8 @@ impl QueryResult {
             values: vec![],
             timestamps: vec![],
             rows_processed: 0,
-            worker_id: 0
+            worker_id: 0,
+            last_reset_time: 0
         }
     }
 
@@ -124,10 +127,19 @@ impl QueryResult {
             values: Vec::with_capacity(cap),
             timestamps: Vec::with_capacity(cap),
             rows_processed: 0,
-            worker_id: 0
+            worker_id: 0,
+            last_reset_time: 0
         }
     }
-    
+
+    pub fn into_timeseries(mut self) -> Timeseries {
+        Timeseries {
+            metric_name: std::mem::take(&mut self.metric_name),
+            values: std::mem::take(&mut self.values),
+            timestamps: Arc::new(std::mem::take(&mut self.timestamps))
+        }
+    }
+
     pub fn reset(&mut self) {
         self.metric_name.reset();
         self.values.clear();
@@ -151,13 +163,13 @@ impl QueryResult {
 
 
 /// Results holds results returned from ProcessSearchQuery.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct QueryResults {
     pub tr: TimeRange,
     pub deadline: Deadline,
     pub series: Vec<QueryResult>,
     pub sr: Search,
-    pub must_stop: Arc<AtomicBool>,
+    signal: Arc<AtomicU32>
 }
 
 pub(crate) type SearchParallelFn = fn(rs: &mut QueryResult, worker_id: u64) -> RuntimeResult<()>;
@@ -169,7 +181,20 @@ impl Default for QueryResults {
             deadline: Deadline::default(),
             series: vec![],
             sr: Search::default(),
-            must_stop: Arc::from(AtomicBool::new(false))
+            signal: Arc::new(AtomicU32::new(0_u32))
+        }
+    }
+}
+
+impl Clone for QueryResults {
+    fn clone(&self) -> Self {
+        let signal_value = self.signal.load(Ordering::Relaxed);
+        QueryResults {
+            tr: self.tr.clone(),
+            deadline: self.deadline.clone(),
+            series: self.series.clone(),
+            sr: self.sr.clone(),
+            signal: Arc::new(AtomicU32::new(signal_value))
         }
     }
 }
@@ -188,15 +213,19 @@ impl QueryResults {
         return self.deadline.exceeded();
     }
 
-    fn should_stop(&mut self) -> bool {
-        if self.must_stop.load(Ordering::Relaxed) {
+    pub fn should_stop(&mut self) -> bool {
+        if self.signal.fetch_add(0, Ordering::Relaxed) != 0 {
             return true
         }
         if self.deadline_exceeded() {
-            self.must_stop.store(true, Ordering::SeqCst);
+            self.signal.store(2, Ordering::SeqCst);
             return true;
         }
         return false;
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.signal.fetch_add(0, Ordering::Relaxed) == 1
     }
 
     /// run_parallel runs f in parallel for all the results from rss.
@@ -205,22 +234,23 @@ impl QueryResults {
     /// Data processing is immediately stopped if f returns an error.
     ///
     /// rss becomes unusable after the call to run_parallel.
-    pub(crate) fn run_parallel<F>(&mut self, f: F) -> RuntimeResult<()>
-    where F: FnMut(&mut QueryResult, u64) -> RuntimeResult<()> + Send + Sync
+    pub(crate) fn run_parallel<C: Sync + Send, F>(&mut self, ctx: &mut C, f: F) -> RuntimeResult<()>
+    where F: Fn(Arc<&mut C>, &mut QueryResult, u64) -> RuntimeResult<()> + Send + Sync
     {
-
         let mut id = 0;
         for ts in self.series.iter_mut() {
             ts.worker_id = id;
             id += 1;
         }
 
-        // todo: fetch all ts from storage
-
-        let must_stop = self.must_stop.clone();
+        let must_stop = AtomicBool::new(false);
         let deadline = &self.deadline;
+        let sharable_ctx = Arc::new(ctx);
 
-        self.series.into_par_iter().try_for_each(move |mut rs| {
+        self.series
+            .par_iter_mut()
+            .filter(|rs| rs.timestamps.len() > 0)
+            .try_for_each(|mut rs| {
 
             if must_stop.load(Ordering::Relaxed) {
                 return Err(RuntimeError::TaskCancelledError("Search".to_string()));
@@ -231,59 +261,14 @@ impl QueryResults {
                 return Err(RuntimeError::deadline_exceeded("todo!!"));
             }
 
-            if rs.timestamps.len() > 0 {
-                let worker_id = rs.worker_id;
-                f(&mut rs, worker_id)
-            } else {
-                Ok(())
-            }
+            let worker_id = rs.worker_id;
+            f(Arc::clone(&sharable_ctx), &mut rs, worker_id)
         })
 
     }
 
-    /// run_parallel runs f in parallel for all the results from rss.
-    ///
-    /// f shouldn't hold references to rs after returning.
-    /// Data processing is immediately stopped if f returns an error.
-    ///
-    /// rss becomes unusable after the call to run_parallel.
-    pub(crate) fn run_parallel2<F, C: Sync + Send>(&mut self, f: F, ctx: &mut C) -> RuntimeResult<()>
-        where F: Fn(&mut C, &mut QueryResult, u64) -> RuntimeResult<()> + Send + Sync
-    {
-        // todo: fetch all ts from storage
-
-        let must_stop = self.must_stop.clone();
-        let deadline = &self.deadline;
-        let mut err: Option<RuntimeError> = None;
-
-        rayon::scope(|s| {
-            let mut ctx = ctx;
-            let mut i = 0;
-            for rs in self.series.iter_mut() {
-               if rs.timestamps.len() > 0 {
-                   s.spawn(&mut move |_| {
-                       match f(&mut ctx, rs, i) {
-                           Err(e) => {
-                               err = Some(e);
-                               must_stop.store(true, Ordering::Relaxed);
-                           }
-                           _ => {}
-                       }
-                   });
-               }
-               i += 1;
-           }
-        });
-
-        match err {
-            None => Ok(()),
-            Some(err) => Err(err)
-        }
-
-    }
-
     pub fn cancel(&mut self) {
-        self.must_stop.store(true, Ordering::Relaxed);
+        self.signal.store(1, Ordering::Relaxed);
     }
 }
 
@@ -303,44 +288,29 @@ pub fn remove_empty_values_and_timeseries(tss: &mut Vec<QueryResult>) {
 }
 
 
-pub(crate) fn get_pooled_result() -> &'static mut QueryResult{
-    let mut entry = get_result_pool().pull();
-    &mut entry.rs
+pub(crate) fn get_pooled_result<'a>() -> LinearReusable<'a, QueryResult> {
+    get_result_pool().pull()
 }
 
-#[derive(Debug)]
-struct ResultPoolEntry {
-    rs: QueryResult,
-    last_reset_time: Timestamp
-}
-
-impl ResultPoolEntry {
-    fn new() -> Self {
-        ResultPoolEntry {
-            rs: QueryResult::new(),
-            last_reset_time: Timestamp::now()
-        }
-    }
-
-    fn reset(&mut self) {
-        let current_time = Timestamp::now();
-        let len = self.rs.values.len();
-        let cap = self.rs.values.capacity();
-        self.rs.reset();
-        if cap > 1024*1024 && 4 * len < cap && current_time - self.last_reset_time > 100 {
-            // Reset r.rs in order to preserve memory usage after processing big time series with
-            // millions of rows.
-            self.rs.shrink(1024);
-        }
-    }
-}
-
-
-fn get_result_pool() -> &'static LinearObjectPool<ResultPoolEntry> {
-    static INSTANCE: OnceCell<LinearObjectPool<ResultPoolEntry>> = OnceCell::new();
+fn get_result_pool() -> &'static LinearObjectPool<QueryResult> {
+    static INSTANCE: OnceCell<LinearObjectPool<QueryResult>> = OnceCell::new();
     INSTANCE.get_or_init(|| {
-        LinearObjectPool::<ResultPoolEntry>::new(
-            ||  ResultPoolEntry::new(),
-            |v| { v.reset() })
+        LinearObjectPool::<QueryResult>::new(
+            ||  {
+                let mut res = QueryResult::new();
+                res.last_reset_time = Timestamp::now();
+                res
+            },
+            |v| {
+                let current_time = Timestamp::now();
+                let len = v.values.len();
+                let cap = v.values.capacity();
+                v.reset();
+                if cap > 1024*1024 && 4 * len < cap && current_time - v.last_reset_time > 150 {
+                    // Reset r.rs in order to preserve memory usage after processing big time series with
+                    // millions of rows.
+                    v.shrink(1024);
+                }
+            })
     })
 }

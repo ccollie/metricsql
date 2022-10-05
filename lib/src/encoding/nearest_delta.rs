@@ -18,10 +18,10 @@ pub fn marshal_int64_nearest_delta(
     precision_bits: u8,
 ) -> Result<i64, Error> {
     if src.is_empty() {
-        panic!(
+        return Err(Error::from(format!(
             "BUG: src must contain at least 1 item; got {} items",
             src.len()
-        )
+        )))
     }
     check_precision_bits(precision_bits)?;
 
@@ -71,10 +71,10 @@ pub(crate) fn unmarshal_int64_nearest_delta(
     items_count: usize,
 ) -> Result<(), Error> {
     if items_count < 1 {
-        panic!(
+        return Err(Error::from(format!(
             "BUG: items_count must be greater than 0; got {}",
             items_count
-        )
+        )))
     }
 
     match decompress_quantile_auto::<i64>(src) {

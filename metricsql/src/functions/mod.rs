@@ -17,7 +17,9 @@ mod rollup;
 mod signature;
 mod transform;
 
-pub static MAX_ARG_COUNT: usize = 32;
+/// Maximum number of arguments permitted in a rollup function. This really only applies
+/// to variadic functions like `aggr_over_time` and `quantiles_over_time`
+const MAX_ARG_COUNT: usize = 32;
 
 #[derive(Debug, Clone, Hash)]
 pub struct WithExprFunction {
@@ -25,7 +27,6 @@ pub struct WithExprFunction {
     //sig: Signature
 }
 
-// todo: change name to BuiltinFunction ?
 #[derive(Debug, Clone, Hash, PartialEq)]
 pub enum BuiltinFunction {
     Aggregate(AggregateFunction),

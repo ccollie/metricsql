@@ -4,7 +4,7 @@ mod number;
 mod tokens;
 mod utils;
 
-pub(crate) use duration::{duration_value, parse_single_duration, scan_duration};
+pub(crate) use duration::{duration_value};
 pub use number::parse_float;
 pub(crate) use lexer::*;
 pub use tokens::*;

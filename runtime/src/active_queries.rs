@@ -37,11 +37,11 @@ impl ActiveQueries {
         }
     }
 
-    pub(crate) fn add(&mut self, ec: &EvalConfig, q: &str) -> u64 {
-        self.add_ex(ec, q, Timestamp::now())
+    pub(crate) fn register(&self, ec: &EvalConfig, q: &str) -> u64 {
+        self.register_with_start(ec, q, Timestamp::now())
     }
 
-    pub(crate) fn add_ex(&mut self, ec: &EvalConfig, q: &str, start_time: Timestamp) -> u64 {
+    pub(crate) fn register_with_start(&self, ec: &EvalConfig, q: &str, start_time: Timestamp) -> u64 {
         let mut inner = self.inner.write().unwrap();
         let qid = inner.id + 1;
         inner.id = qid;
@@ -67,7 +67,7 @@ impl ActiveQueries {
         qid
     }
 
-    pub(crate) fn remove(&mut self, qid: u64) {
+    pub(crate) fn remove(&self, qid: u64) {
         let mut inner = self.inner.write().unwrap();
         inner.data.remove(&qid);
     }
@@ -77,7 +77,6 @@ impl ActiveQueries {
         let mut entries = inner.data.values()
             .map(|x| x.clone())
             .collect::<Vec<_>>();
-
 
         entries.sort_by(|a, b| a.start_time.cmp(&b.start_time));
 
