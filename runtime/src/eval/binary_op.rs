@@ -1,32 +1,33 @@
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
-use std::ops::Deref;
+use std::sync::Arc;
 
 use regex::escape;
 
 use metricsql::ast::*;
-use metricsql::functions::Volatility;
+use metricsql::functions::{DataType, Volatility};
 use metricsql::optimizer::{
-    can_pushdown_op_filters,
     pushdown_binary_op_filters,
     trim_filters_by_group_modifier
 };
 
 use crate::binary_op::{BinaryOpFn, BinaryOpFuncArg, get_binary_op_handler};
 use crate::context::Context;
-use crate::eval::{create_evaluator, ExprEvaluator};
+use crate::eval::{create_evaluator, eval_number, ExprEvaluator};
 use crate::eval::traits::Evaluator;
 use crate::EvalConfig;
+use crate::functions::types::AnyValue;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::timeseries::Timeseries;
 
-pub(super) struct BinaryOpEvaluator {
+pub struct BinaryOpEvaluator {
     expr: BinaryOpExpr,
     lhs: Box<ExprEvaluator>,
     rhs: Box<ExprEvaluator>,
-    handler: Box<dyn BinaryOpFn>,
+    handler: Arc<dyn BinaryOpFn<Output=RuntimeResult<Vec<Timeseries>>>>,
     can_pushdown_filters: bool,
-    can_pushdown_op_filters: bool
+    both_scalar: bool,
+    return_type: DataType
 }
 
 impl BinaryOpEvaluator {
@@ -34,15 +35,20 @@ impl BinaryOpEvaluator {
         let lhs = Box::new( create_evaluator(&expr.left)? );
         let rhs = Box::new(create_evaluator(&expr.right)? );
         let can_pushdown_filters = can_pushdown_common_filters(expr);
-        let pushdown_op_filters = can_pushdown_op_filters(&expr.right);
         let handler = get_binary_op_handler(expr.op);
+        let rv = expr.return_value();
+        let return_type = DataType::try_from(rv).unwrap_or(DataType::InstantVector);
+
+        let both_scalar = both_operands_are_scalar(&expr);
+
         Ok(Self {
             lhs,
             rhs,
             expr: expr.clone(),
-            handler: Box::new( handler.deref() ),
+            handler,
             can_pushdown_filters,
-            can_pushdown_op_filters: pushdown_op_filters
+            both_scalar,
+            return_type
         })
     }
 
@@ -50,18 +56,34 @@ impl BinaryOpEvaluator {
         Volatility::Volatile
     }
 
-    fn eval_args(&self, ctx: &mut Context, ec: &EvalConfig) -> RuntimeResult<(Vec<Timeseries>, Vec<Timeseries>)> {
+    fn eval_args<'a>(&'a self, ctx: &Arc<&Context>, ec: &EvalConfig, swap: bool) -> RuntimeResult<(AnyValue, AnyValue)> {
 
-        // todo: don't parallelize if both sides are scalar
+        let (first, second, right_expr) = if swap {
+            (&self.rhs, &self.lhs, &self.expr.right)
+        } else {
+            (&self.lhs, &self.rhs, &self.expr.left)
+        };
+
         if !self.can_pushdown_filters {
+
+            // todo: not sure this is needed. create_evaluator should already optimize this
+            // to a single scalar
+            if self.both_scalar {
+                // avoid multi-threading in simple case
+                let left = first.eval(ctx, ec)?;
+                let right = second.eval(ctx, ec)?;
+                return Ok((left, right));
+            }
+
             // Execute both sides in parallel, since it is impossible to push down common filters
             // from exprFirst to exprSecond.
             // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/2886
 
-            // todo: we need to clone ec
+            // todo(perf): both sides here should be scalar, so rayon is probably overkill
+            let mut ctx_clone = Arc::clone(ctx);
             return match rayon::join(
-                || self.lhs.eval(ctx, ec),
-                || self.rhs.eval(ctx, ec),
+                || first.eval(ctx, ec),
+                || second.eval(&mut ctx_clone, ec),
             ) {
                 (Ok(first), Ok(second)) => Ok((first, second)),
                 (Err(err), _) => Err(err),
@@ -74,8 +96,9 @@ impl BinaryOpEvaluator {
         // 1) execute the expr_first
         // 2) get common label filters for series returned at step 1
         // 3) push down the found common label filters to expr_second. This filters out unneeded series
-        //    during expr_second execution instead of spending compute resources on extracting and processing these series
-        //    before they are dropped later when matching time series according to https://prometheus.io/docs/prometheus/latest/querying/operators/#vector-matching
+        //    during expr_second execution instead of spending compute resources on extracting and
+        //    processing these series before they are dropped later when matching time series according to
+        //    https://prometheus.io/docs/prometheus/latest/querying/operators/#vector-matching
         // 4) execute the expr_second with possible additional filters found at step 3
         //
         // Typical use cases:
@@ -92,60 +115,94 @@ impl BinaryOpEvaluator {
         //
         // - Queries, which get additional labels from `info` metrics.
         //   See https://www.robustperception.io/exposing-the-software-version-to-prometheus
-        let tss_first = self.lhs.eval(ctx, ec)?;
-
-        let mut lfs = get_common_label_filters(&tss_first[0..]);
-        trim_filters_by_group_modifier(&mut lfs, &self.expr);
-        let sec = pushdown_binary_op_filters(&self.expr.right, &mut lfs);
+        //
+        // Invariant: self.lhs and self.rhs are both DataType::InstantVector
+        let mut first = first.eval(ctx, ec)?;
+        let sec = self.pushdown_filters(&mut first, &right_expr, &ec)?;
         return match sec {
             Cow::Borrowed(_) => {
                 // if it hasn't been modified, default to existing evaluator
-                let tss_second = self.rhs.eval(ctx, ec)?;
-                Ok((tss_first, tss_second))
+                let other = second.eval(ctx, ec)?;
+                Ok((first, other))
             },
             Cow::Owned(expr) => {
-                // todo !!!!: use parse cache
+                // todo(perf) !!!!: use parser cache ?
                 let evaluator = create_evaluator(&expr)?;
-                let tss_second = evaluator.eval(ctx, ec)?;
-                Ok((tss_first, tss_second))
+                let second = evaluator.eval(ctx, ec)?;
+                Ok((first, second))
             }
         }
+    }
+
+    #[inline]
+    fn pushdown_filters<'a>(&self, first: &mut AnyValue, dest: &'a Expression, ec: &EvalConfig) -> RuntimeResult<Cow<'a, Expression>> {
+        let tss_first = first.as_instant_vec(ec)?;
+        let mut lfs = get_common_label_filters(&tss_first[0..]);
+        trim_filters_by_group_modifier(&mut lfs, &self.expr);
+        let sec = pushdown_binary_op_filters(&dest, &mut lfs);
+        Ok(sec)
     }
 
 }
 
 impl Evaluator for BinaryOpEvaluator {
     /// Evaluates and returns the result.
-    fn eval(&self, ctx: &mut Context, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
-        let mut tss_left: Vec<Timeseries> = vec![];
-        let mut tss_right: Vec<Timeseries> = vec![];
+    fn eval(&self, ctx: &Arc<&Context>, ec: &EvalConfig) -> RuntimeResult<AnyValue> {
+        // Determine if we should fetch right-side series at first, since it usually contains
+        // lower number of time series for `and` and `if` operator.
+        // This should produce more specific label filters for the left side of the query.
+        // This, in turn, should reduce the time to select series for the left side of the query.
+        let swap = self.expr.op == BinaryOp::And || self.expr.op == BinaryOp::If;
 
-        if self.expr.op == BinaryOp::And || self.expr.op == BinaryOp::If {
-            // Fetch right-side series at first, since it usually contains
-            // lower number of time series for `and` and `if` operator.
-            // This should produce more specific label filters for the left side of the query.
-            // This, in turn, should reduce the time to select series for the left side of the query.
-            (tss_right, tss_left) = self.eval_args(ctx, ec)?
+        let (left, right) = self.eval_args(ctx, ec, swap)?;
+        let left_series = to_vector(ec, left)?;
+        let right_series = to_vector(ec, right)?;
+
+        let mut bfa = if swap {
+            BinaryOpFuncArg::new(right_series,&self.expr, left_series)
         } else {
-            (tss_left, tss_right) = self.eval_args(ctx, ec)?
-        }
-
-        let mut bfa = BinaryOpFuncArg {
-            be: self.expr.clone(),
-            left: std::mem::take(&mut tss_left),
-            right: std::mem::take(&mut tss_right),
+            BinaryOpFuncArg::new(left_series,&self.expr, right_series)
         };
 
         match (self.handler)(&mut bfa) {
             Err(err) => Err(RuntimeError::from(
                 format!("cannot evaluate {}: {:?}", &self.expr, err)
             )),
-            Ok(v) => Ok(v)
+            Ok(v) => Ok(AnyValue::InstantVector(v))
         }
+    }
+
+    fn return_type(&self) -> DataType {
+        self.return_type
+    }
+}
+
+fn to_vector(ec: &EvalConfig, value: AnyValue) -> RuntimeResult<Vec<Timeseries>> {
+    match value {
+        AnyValue::InstantVector(val) => Ok(val.into()), // todo: use std::mem::takee ??
+        AnyValue::Scalar(n) => Ok(eval_number(ec, n)),
+        _ => unreachable!("Bug: binary_op. Unexpected {} operand", value.data_type_name())
+    }
+}
+
+fn both_operands_are_scalar(be: &BinaryOpExpr) -> bool {
+    match (&be.left.return_value(), &be.right.return_value()) {
+        (ReturnValue::Scalar, ReturnValue::Scalar) => true,
+        _ => false
+    }
+}
+
+fn both_operands_are_vectors(be: &BinaryOpExpr) -> bool {
+    match (&be.left.return_value(), &be.right.return_value()) {
+        (ReturnValue::InstantVector, ReturnValue::InstantVector) => true,
+        _ => false
     }
 }
 
 fn can_pushdown_common_filters(be: &BinaryOpExpr) -> bool {
+    if !both_operands_are_vectors(&be) {
+        return false
+    }
     match be.op {
         BinaryOp::Or | BinaryOp::Default => false,
         _=> {
@@ -217,6 +274,7 @@ fn get_common_label_filters(tss: &[Timeseries]) -> Vec<LabelFilter> {
 
         lfs.push(lf);
     }
+    // todo(perf): does this need to be sorted ?
     lfs.sort_by(|a, b| a.label.cmp(&b.label));
     lfs
 }

@@ -20,29 +20,37 @@ extern crate tinyvec;
 #[cfg(feature = "xxh64")]
 extern crate xxhash_rust;
 
-pub use eval::{create_evaluator, EvalConfig, get_timestamps};
+mod active_queries;
+mod binary_op;
+mod cache;
+mod context;
+mod eval;
+mod exec;
+mod functions;
+mod histogram;
+mod metric_name;
+mod parser_cache;
+mod search;
+mod query_stats;
+mod runtime_error;
+mod timeseries;
+mod traits;
+mod utils;
+mod query;
+#[cfg(test)]
+mod exec_test;
+
+pub use active_queries::*;
+pub use cache::*;
+pub use eval::{EvalConfig, get_timestamps};
 pub use exec::*;
 pub use lib::*;
 pub use metric_name::*;
 pub use timeseries::*;
-
-mod timeseries;
-mod exec;
-mod binary_op;
-mod utils;
-mod metric_name;
-mod parser_cache;
-mod active_queries;
-mod cache;
-mod query_stats;
-mod dedup;
-mod runtime_error;
-mod eval;
-mod search;
-mod histogram;
-
-pub mod traits;
-pub mod functions;
-pub mod context;
-pub mod parser;
-
+pub use context::*;
+pub use parser_cache::*;
+pub use runtime_error::*;
+pub use search::*;
+pub use query::*;
+pub use query_stats::*;
+pub use traits::*;

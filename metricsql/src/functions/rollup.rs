@@ -185,24 +185,24 @@ impl RollupFunction {
             | RollupFunction::PredictLinear
             | RollupFunction::ShareGtOverTime
             | RollupFunction::ShareLeOverTime => {
-                Signature::exact(vec![DataType::Series, DataType::Float], Volatility::Immutable)
+                Signature::exact(vec![DataType::RangeVector, DataType::Scalar], Volatility::Immutable)
             },
             RollupFunction::HoeffdingBoundLower |
             RollupFunction::HoeffdingBoundUpper => {
-                Signature::exact(vec![DataType::Float, DataType::Series], Volatility::Immutable)
+                Signature::exact(vec![DataType::Scalar, DataType::RangeVector], Volatility::Immutable)
             },
             RollupFunction::HoltWinters => {
-                Signature::exact(vec![DataType::Series, DataType::Float, DataType::Float], Volatility::Immutable)
+                Signature::exact(vec![DataType::RangeVector, DataType::Scalar, DataType::Scalar], Volatility::Immutable)
             },
             RollupFunction::AggrOverTime |
             RollupFunction::QuantilesOverTime => {
                 let mut quantile_types: Vec<DataType> = vec![DataType::Vector; MAX_ARG_COUNT];
-                quantile_types.insert(0, DataType::Series);
+                quantile_types.insert(0, DataType::RangeVector);
                 Signature::variadic_min(quantile_types, 3, Volatility::Volatile)
             }
             _ => {
                 // default
-                Signature::uniform(1, DataType::Series, Volatility::Immutable)
+                Signature::uniform(1, DataType::RangeVector, Volatility::Immutable)
             }
         }      
     }
@@ -360,7 +360,7 @@ pub fn get_rollup_arg_idx_for_optimization(func: RollupFunction, arg_count: usiz
     }
 }
 
-/// Determines if a given rollup function converts a range vector to an instance vector
+/// Determines if a given rollup function converts a range vector to an instant vector
 ///
 /// Note that `_over_time` functions do not affect labels, unlike their regular
 /// counterparts

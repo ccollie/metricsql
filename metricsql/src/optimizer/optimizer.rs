@@ -189,7 +189,7 @@ pub fn trim_filters_by_aggr_modifier(lfs: &mut Vec<LabelFilter>, afe: &AggrFuncE
     }
 }
 
-/// trims lfs by the specified be.group_modifier.Op (e.g. on() or ignoring()).
+/// trims lfs by the specified be.group_modifier.op (e.g. on() or ignoring()).
 ///
 /// The following cases are possible:
 /// - It returns lfs as is if be doesn't contain any group modifier
@@ -197,9 +197,7 @@ pub fn trim_filters_by_aggr_modifier(lfs: &mut Vec<LabelFilter>, afe: &AggrFuncE
 /// - It drops filters specified inside ignoring()
 pub fn trim_filters_by_group_modifier(lfs: &mut Vec<LabelFilter>, be: &BinaryOpExpr) {
     match &be.group_modifier {
-        None => {
-
-        }
+        None => {}
         Some(modifier) => match modifier.op {
             GroupModifierOp::On => filter_label_filters_on(lfs, &modifier.labels),
             GroupModifierOp::Ignoring => filter_label_filters_ignoring(lfs, &modifier.labels),
@@ -355,4 +353,284 @@ fn filter_label_filters_ignoring(lfs: &mut Vec<LabelFilter>, args: &[String]) {
         let m: HashSet<&String> = HashSet::from_iter(args.iter());
         lfs.retain(|x| !m.contains(&x.label))
     }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use crate::ast::MetricExpr;
+    use crate::optimizer::{get_common_label_filters, optimize, pushdown_binary_op_filters};
+    use crate::parser::parse;
+
+    #[test_case("{}", "{}")]
+    #[test_case("foo", "{}")]
+    #[test_case(r#"{__name__="foo"}"#, "{}")]
+    #[test_case(r#"{__name__=~"bar"}"#, "{}")]
+    #[test_case(r#"{__name__=~"a|b",x="y"}"#, r#"{x="y"}"#)]
+    #[test_case(r#"foo{c!="d",a="b"}"#, r#"{c!="d", a="b"}"#)]
+    #[test_case("1+foo", "{}")]
+    #[test_case(r#"foo + bar{a="b"}"#, r#"{a="b"}"#)]
+    #[test_case(r#"foo + bar / baz{a="b"}"#, r#"{a="b"}"#)]
+    #[test_case(r#"foo{x!="y"} + bar / baz{a="b"}"#, r#"{x!="y", a="b"}"#)]
+    #[test_case(r#"foo{x!="y"} + bar{x=~"a|b",q!~"we|rt"} / baz{a="b"}"#, r#"{x!="y", x=~"a|b", q!~"we|rt", a="b"}"#)]
+    #[test_case(r#"{a="b"} + on() {c="d"}"#, r#"{}"#)]
+    #[test_case(r#"{a="b"} + on() group_left() {c="d"}"#, r#"{a="b"}"#)]
+    #[test_case(r#"{a="b"} + on(a) group_left() {c="d"}"#, r#"{a="b"}"#)]
+    #[test_case(r#"{a="b"} + on(c) group_left() {c="d"}"#, r#"{a="b", c="d"}"#)]
+    #[test_case(r#"{a="b"} + on(a,c) group_left() {c="d"}"#, r#"{a="b", c="d"}"#)]
+    #[test_case(r#"{a="b"} + on(d) group_left() {c="d"}"#, r#"{a="b"}"#)]
+    #[test_case(r#"{a="b"} + on() group_right(s) {c="d"}"#, r#"{c="d"}"#)]
+    #[test_case(r#"{a="b"} + On(a) groUp_right() {c="d"}"#, r#"{a="b", c="d"}"#)]
+    #[test_case(r#"{a="b"} + on(c) group_right() {c="d"}"#, r#"{c="d"}"#)]
+    #[test_case(r#"{a="b"} + on(a,c) group_right() {c="d"}"#, r#"{a="b", c="d"}"#)]
+    #[test_case(r#"{a="b"} + on(d) group_right() {c="d"}"#, r#"{c="d"}"#)]
+    #[test_case(r#"{a="b"} or {c="d"}"#, r#"{}"#)]
+    #[test_case(r#"{a="b",x="y"} or {x="y",c="d"}"#, r#"{x="y"}"#)]
+    #[test_case(r#"{a="b",x="y"} Or on() {x="y",c="d"}"#, r#"{}"#)]
+    #[test_case(r#"{a="b",x="y"} Or on(a) {x="y",c="d"}"#, r#"{}"#)]
+    #[test_case(r#"{a="b",x="y"} Or on(x) {x="y",c="d"}"#, r#"{x="y"}"#)]
+    #[test_case(r#"{a="b",x="y"} Or oN(x,y) {x="y",c="d"}"#, r#"{x="y"}"#)]
+    #[test_case(r#"{a="b",x="y"} Or on(y) {x="y",c="d"}"#, r#"{}"#)]
+    #[test_case(r#"(foo{a="b"} + bar{c="d"}) or (baz{x="y"} <= x{a="b"})"#, r#"{a="b"}"#)]
+    #[test_case(r#"{a="b"} unless {c="d"}"#, r#"{a="b"}"#)]
+    #[test_case(r#"{a="b"} unless on() {c="d"}"#, r#"{}"#)]
+    #[test_case(r#"{a="b"} unLess on(a) {c="d"}"#, r#"{a="b"}"#)]
+    #[test_case(r#"{a="b"} unLEss on(c) {c="d"}"#, r#"{}"#)]
+    #[test_case(r#"{a="b"} unless on(a,c) {c="d"}"#, r#"{a="b"}"#)]
+    #[test_case(r#"{a="b"} Unless on(x) {c="d"}"#, r#"{}"#)]
+    fn test_get_common_label_filters(q: &str, result_expected: &str) {
+        let e = parse(q)?;
+        let lfs = get_common_label_filters(&e);
+        let me = MetricExpr{
+            label_filters: lfs,
+            label_filter_exprs: vec![],
+            span: Default::default()
+        };
+        let result = me.to_string().as_str();
+        assert_eq!(result, result_expected,
+            "unexpected result for get_common_label_filters({});\ngot\n{}\nwant\n{}", q, result, result_expected);
+    }
+
+    #[test_case("foo", "{}","foo")]
+    #[test_case("foo", r#"{a="b"}"#, r#"foo{a="b"}"#)]
+    #[test_case(r#"foo + bar{x="y"}"#, r#"{c="d",a="b"}"#, r#"foo{a="b", c="d"} + bar{a="b", c="d", x="y"}"#)]
+    #[test_case("sum(x)", r#"{a="b"}"#, "sum(x)")]
+    #[test_case("foo or bar", r#"{a="b"}"#, r#"foo{a="b"} or bar{a="b"}"#)]
+    #[test_case("foo or on(x) bar", r#"{a="b"}"#, r#"foo or on (x) bar"#)]
+    #[test_case("foo == on(x) group_LEft bar", r#"{a="b"}"#, "foo == on (x) group_left () bar")]
+    #[test_case(r#"foo{x="y"} > ignoRIng(x) group_left(abc) bar"#, r#"{a="b"}"#, r#"foo{a="b", x="y"} > ignoring (x) group_left (abc) bar{a="b"}"#)]
+    #[test_case(r#"foo{x="y"} >bool ignoring(x) group_right(abc,def) bar"#, r#"{a="b"}"#, r#"foo{a="b", x="y"} > bool ignoring (x) group_right (abc, def) bar{a="b"}"#)]
+    #[test_case("foo * ignoring(x) bar", r#"{a="b"}"#, r#"foo{a="b"} * ignoring (x) bar{a="b"}"#)]
+    #[test_case(r#"foo{f1!~"x"} UNLEss bar{f2=~"y.+"}"#, r#"{a="b",x=~"y"}"#,
+    r#"foo{a="b", f1!~"x", x=~"y"} unless bar{a="b", f2=~"y.+", x=~"y"}"#)]
+    #[test_case("a / sum(x)", r#"{a="b",c=~"foo|bar"}"#, r#"a{a="b", c=~"foo|bar"} / sum(x)"#)]
+    #[test_case(r#"round(rate(x[5m] offset -1h)) + 123 / {a="b"}"#, r#"{x!="y"}"#,
+    r#"round(rate(x{x!="y"}[5m] offset -1h)) + (123 / {a="b", x!="y"})"#)]
+    #[test_case("scalar(foo)+bar", r#"{a="b"}"#, r#"scalar(foo) + bar{a="b"}"#)]
+    #[test_case("vector(foo)", r#"{a="b"}"#, "vector(foo)")]
+    #[test_case(r#"{a="b"} + on() group_left() {c="d"}"#, r#"{a="b"}"#, r#"{a="b"} + on () group_left () {c="d"}"#)]
+    fn test_pushdown_binary_op_filters(q: &str, filters: &str, result_expected: &str) {
+        let e = parse(q).unwrap();
+        let s_orig = format!("{}", e);
+        match parse(filters) {
+            Ok(filtersExpr) => {
+                match filtersExpr {
+                    MetricExpr(me) => {
+                        let result_expr = pushdown_binary_op_filters(&e, me.label_filters);
+                        let result = format!("{}", result_expr);
+                        assert_eq!(result, result_expected,
+                                   "unexpected result for pushdown_binary_op_filters({}, {});\ngot\n{}\nwant\n{}", q, filters, result, result_expected);
+                        // Verify that the original e didn't change after pushdown_binary_op_filters() call
+                        let s = e.to_string();
+                        assert_eq!(s, s_orig, "the original expression has been changed;\ngot\n{}\nwant\n{}", s, s_orig)
+                    },
+                    _ => {
+                        panic!("filters={} must be a metrics expression; got {}", filters, filtersExpr)
+                    }
+                }
+            }
+            Err(e) => {
+                panic!("cannot parse filters {}: {}", filters, err)
+            }
+        }
+    }
+
+    fn test_optimize(q: &str, expected: &str) {
+        let e = parse(q)?;
+        let s_orig = e.to_string();
+        let e_optimized = optimize(&e);
+        let q_optimized = e_optimized.to_string();
+        assert_eq!(q_optimized, expected,
+                   "unexpected q_optimized;\ngot\n{}\nwant\n{}", q_optimized, expected);
+        // Make sure the the original e didn't change after Optimize() call
+        let s = e.to_string().as_str();
+        assert_eq!(s, s_orig, 
+            "the original expression has been changed;\ngot\n{}\nwant\n{}", s, sOrig)
+    }
+
+    // common binary expressions
+    #[test_case("a + b", "a + b")]
+    #[test_case(r#"foo{label1="value1"} == bar"#, r#"foo{label1="value1"} == bar{label1="value1"}"#)]
+    #[test_case(r#"foo{label1="value1"} == bar{label2="value2"}"#, r#"foo{label1="value1", label2="value2"} == bar{label1="value1", label2="value2"}"#)]
+    #[test_case(r#"foo + bar{b=~"a.*", a!="ss"}"#, r#"foo{a!="ss", b=~"a.*"} + bar{a!="ss", b=~"a.*"}"#)]
+    #[test_case(r#"foo{bar="1"} / 234"#, r#"foo{bar="1"} / 234"#)]
+    #[test_case(r#"foo{bar="1"} / foo{bar="1"}"#, r#"foo{bar="1"} / foo{bar="1"}"#)]
+    #[test_case(r#"123 + foo{bar!~"xx"}"#, r#"123 + foo{bar!~"xx"}"#)]
+    #[test_case(r#"foo or bar{x="y"}"#, r#"foo or bar{x="y"}"#)]
+    #[test_case(r#"foo{x="y"} * on() baz{a="b"}"#, r#"foo{x="y"} * on () baz{a="b"}"#)]
+    #[test_case(r#"foo{x="y"} * on(a) baz{a="b"}"#, r#"foo{a="b", x="y"} * on (a) baz{a="b"}"#)]
+    #[test_case(r#"foo{x="y"} * on(bar) baz{a="b"}"#, r#"foo{x="y"} * on (bar) baz{a="b"}"#)]
+    #[test_case(r#"foo{x="y"} * on(x,a,bar) baz{a="b"}"#, r#"foo{a="b", x="y"} * on (x, a, bar) baz{a="b", x="y"}"#)]
+    #[test_case(r#"foo{x="y"} * ignoring() baz{a="b"}"#, r#"foo{a="b", x="y"} * ignoring () baz{a="b", x="y"}"#)]
+    #[test_case(r#"foo{x="y"} * ignoring(a) baz{a="b"}"#, r#"foo{x="y"} * ignoring (a) baz{a="b", x="y"}"#)]
+    #[test_case(r#"foo{x="y"} * ignoring(bar) baz{a="b"}"#, r#"foo{a="b", x="y"} * ignoring (bar) baz{a="b", x="y"}"#)]
+    #[test_case(r#"foo{x="y"} * ignoring(x,a,bar) baz{a="b"}"#, r#"foo{x="y"} * ignoring (x, a, bar) baz{a="b"}"#)]
+    #[test_case(r#"foo{x="y"} * ignoring() group_left(foo,bar) baz{a="b"}"#, r#"foo{a="b", x="y"} * ignoring () group_left (foo, bar) baz{a="b", x="y"}"#)]
+    #[test_case(r#"foo{x="y"} * on(a) group_left baz{a="b"}"#, r#"foo{a="b", x="y"} * on (a) group_left () baz{a="b"}"#)]
+    #[test_case(r#"foo{x="y"} * on(a) group_right(x, y) baz{a="b"}"#, r#"foo{a="b", x="y"} * on (a) group_right (x, y) baz{a="b"}"#)]
+    #[test_case(r#"f(foo, bar{baz=~"sdf"} + aa{baz=~"axx", aa="b"})"#, r#"f(foo, bar{aa="b", baz=~"axx", baz=~"sdf"} + aa{aa="b", baz=~"axx", baz=~"sdf"})"#)]
+    #[test_case(r#"sum(foo, bar{baz=~"sdf"} + aa{baz=~"axx", aa="b"})"#, r#"sum(foo, bar{aa="b", baz=~"axx", baz=~"sdf"} + aa{aa="b", baz=~"axx", baz=~"sdf"})"#)]
+    #[test_case(r#"foo AND bar{baz="aa"}"#, r#"foo{baz="aa"} and bar{baz="aa"}"#)]
+    #[test_case(r#"{x="y",__name__="a"} + {a="b"}"#, r#"a{a="b", x="y"} + {a="b", x="y"}"#)]
+    #[test_case(r#"{x="y",__name__=~"a|b"} + {a="b"}"#, r#"{__name__=~"a|b", a="b", x="y"} + {a="b", x="y"}"#)]
+    #[test_case(r#"a{x="y",__name__=~"a|b"} + {a="b"}"#, r#"a{__name__=~"a|b", a="b", x="y"} + {a="b", x="y"}"#)]
+    #[test_case(r#"{a="b"} + ({c="d"} * on() group_left() {e="f"})"#, r#"{a="b", c="d"} + ({c="d"} * on () group_left () {e="f"})"#)]
+    #[test_case(r#"{a="b"} + ({c="d"} * on(a) group_left() {e="f"})"#, r#"{a="b", c="d"} + ({a="b", c="d"} * on (a) group_left () {a="b", e="f"})"#)]
+    #[test_case(r#"{a="b"} + ({c="d"} * on(c) group_left() {e="f"})"#, r#"{a="b", c="d"} + ({c="d"} * on (c) group_left () {c="d", e="f"})"#)]
+    #[test_case(r#"{a="b"} + ({c="d"} * on(e) group_left() {e="f"})"#, r#"{a="b", c="d", e="f"} + ({c="d", e="f"} * on (e) group_left () {e="f"})"#)]
+    #[test_case(r#"{a="b"} + ({c="d"} * on(x) group_left() {e="f"})"#, r#"{a="b", c="d"} + ({c="d"} * on (x) group_left () {e="f"})"#)]
+    #[test_case(r#"{a="b"} + ({c="d"} * on() group_right() {e="f"})"#, r#"{a="b", e="f"} + ({c="d"} * on () group_right () {e="f"})"#)]
+    #[test_case(r#"{a="b"} + ({c="d"} * on(a) group_right() {e="f"})"#, r#"{a="b", e="f"} + ({a="b", c="d"} * on (a) group_right () {a="b", e="f"})"#)]
+    #[test_case(r#"{a="b"} + ({c="d"} * on(c) group_right() {e="f"})"#, r#"{a="b", c="d", e="f"} + ({c="d"} * on (c) group_right () {c="d", e="f"})"#)]
+    #[test_case(r#"{a="b"} + ({c="d"} * on(e) group_right() {e="f"})"#, r#"{a="b", e="f"} + ({c="d", e="f"} * on (e) group_right () {e="f"})"#)]
+    #[test_case(r#"{a="b"} + ({c="d"} * on(x) group_right() {e="f"})"#, r#"{a="b", e="f"} + ({c="d"} * on (x) group_right () {e="f"})"#)]
+    fn common_binary_expressions(q: &str, expected: &str) {
+        test_optimize(q, expected)
+    }
+
+    // specially handled binary expressions
+    #[test_case(r#"foo{a="b"} or bar{x="y"}"#, r#"foo{a="b"} or bar{x="y"}"#)]
+    #[test_case(r#"(foo{a="b"} + bar{c="d"}) or (baz{x="y"} <= x{a="b"})"#, r#"(foo{a="b", c="d"} + bar{a="b", c="d"}) or (baz{a="b", x="y"} <= x{a="b", x="y"})"#)]
+    #[test_case(r#"(foo{a="b"} + bar{c="d"}) or on(x) (baz{x="y"} <= x{a="b"})"#, r#"(foo{a="b", c="d"} + bar{a="b", c="d"}) or on (x) (baz{a="b", x="y"} <= x{a="b", x="y"})"#)]
+    #[test_case(r#"foo + (bar or baz{a="b"})"#, r#"foo + (bar or baz{a="b"})"#)]
+    #[test_case(r#"foo + (bar{a="b"} or baz{a="b"})"#, r#"foo{a="b"} + (bar{a="b"} or baz{a="b"})"#)]
+    #[test_case(r#"foo + (bar{a="b",c="d"} or baz{a="b"})"#, r#"foo{a="b"} + (bar{a="b", c="d"} or baz{a="b"})"#)]
+    #[test_case(r#"foo{a="b"} + (bar OR baz{x="y"})"#, r#"foo{a="b"} + (bar{a="b"} or baz{a="b", x="y"})"#)]
+    #[test_case(r#"foo{a="b"} + (bar{x="y",z="456"} OR baz{x="y",z="123"})"#, r#"foo{a="b", x="y"} + (bar{a="b", x="y", z="456"} or baz{a="b", x="y", z="123"})"#)]
+    #[test_case(r#"foo{a="b"} unless bar{c="d"}"#, r#"foo{a="b"} unless bar{a="b", c="d"}"#)]
+    #[test_case(r#"foo{a="b"} unless on() bar{c="d"}"#, r#"foo{a="b"} unless on () bar{c="d"}"#)]
+    #[test_case(r#"foo + (bar{x="y"} unless baz{a="b"})"#, r#"foo{x="y"} + (bar{x="y"} unless baz{a="b", x="y"})"#)]
+    #[test_case(r#"foo + (bar{x="y"} unless on() baz{a="b"})"#, r#"foo + (bar{x="y"} unless on () baz{a="b"})"#)]
+    #[test_case(r#"foo{a="b"} + (bar UNLESS baz{x="y"})"#, r#"foo{a="b"} + (bar{a="b"} unless baz{a="b", x="y"})"#)]
+    #[test_case(r#"foo{a="b"} + (bar{x="y"} unLESS baz)"#, r#"foo{a="b", x="y"} + (bar{a="b", x="y"} unless baz{a="b", x="y"})"#)]
+    fn special_binary_expressions(q: &str, expected: &str) {
+        test_optimize(q, expected)
+    }
+
+
+    // aggregate fns
+    #[test_case(r#"sum(foo{bar="baz"}) / a{b="c"}"#, r#"sum(foo{bar="baz"}) / a{b="c"}"#)]
+    #[test_case(r#"sum(foo{bar="baz"}) by () / a{b="c"}"#, r#"sum(foo{bar="baz"}) by () / a{b="c"}"#)]
+    #[test_case(r#"sum(foo{bar="baz"}) by (bar) / a{b="c"}"#, r#"sum(foo{bar="baz"}) by (bar) / a{b="c", bar="baz"}"#)]
+    #[test_case(r#"sum(foo{bar="baz"}) by (b) / a{b="c"}"#, r#"sum(foo{b="c", bar="baz"}) by (b) / a{b="c"}"#)]
+    #[test_case(r#"sum(foo{bar="baz"}) by (x) / a{b="c"}"#, r#"sum(foo{bar="baz"}) by (x) / a{b="c"}"#)]
+    #[test_case(r#"sum(foo{bar="baz"}) by (bar,b) / a{b="c"}"#, r#"sum(foo{b="c", bar="baz"}) by (bar, b) / a{b="c", bar="baz"}"#)]
+    #[test_case(r#"sum(foo{bar="baz"}) without () / a{b="c"}"#, r#"sum(foo{b="c", bar="baz"}) without () / a{b="c", bar="baz"}"#)]
+    #[test_case(r#"sum(foo{bar="baz"}) without (bar) / a{b="c"}"#, r#"sum(foo{b="c", bar="baz"}) without (bar) / a{b="c"}"#)]
+    #[test_case(r#"sum(foo{bar="baz"}) without (b) / a{b="c"}"#, r#"sum(foo{bar="baz"}) without (b) / a{b="c", bar="baz"}"#)]
+    #[test_case(r#"sum(foo{bar="baz"}) without (x) / a{b="c"}"#, r#"sum(foo{b="c", bar="baz"}) without (x) / a{b="c", bar="baz"}"#)]
+    #[test_case(r#"sum(foo{bar="baz"}) without (bar,b) / a{b="c"}"#, r#"sum(foo{bar="baz"}) without (bar, b) / a{b="c"}"#)]
+    #[test_case(r#"sum(foo, bar) by (a) + baz{a="b"}"#, r#"sum(foo{a="b"}, bar) by (a) + baz{a="b"}"#)]
+    #[test_case(r#"topk(3, foo) by (baz,x) + bar{baz="a"}"#, r#"topk(3, foo{baz="a"}) by (baz, x) + bar{baz="a"}"#)]
+    #[test_case(r#"topk(a, foo) without (x,y) + bar{baz="a"}"#, r#"topk(a, foo{baz="a"}) without (x, y) + bar{baz="a"}"#)]
+    #[test_case(r#"a{b="c"} + quantiles("foo", 0.1, 0.2, bar{x="y"}) by (b, x, y)"#, r#"a{b="c", x="y"} + quantiles("foo", 0.1, 0.2, bar{b="c", x="y"}) by (b, x, y)"#)]
+    #[test_case(r#"count_values("foo", bar{baz="a"}) by (bar,b) + a{b="c"}"#, r#"count_values("foo", bar{baz="a"}) by (bar, b) + a{b="c"}"#)]
+    fn aggregate_functions(q: &str, expected: &str) {
+        test_optimize(q, expected)
+    }
+
+
+    // unknown fn
+    #[test_case(r#"f(foo) + bar{baz="a"}"#, r#"f(foo) + bar{baz="a"}"#)]
+    #[test_case(r#"f(a,b,foo{a="b"} / bar) + baz{x="y"}"#, r#"f(a, b, foo{a="b"} / bar{a="b"}) + baz{x="y"}"#)]
+    fn unknown_function(q: &str, expected: &str) {
+        test_optimize(q, expected)
+    }
+
+
+    // transform fns
+    #[test_case(r#"round(foo{bar="baz"}) + sqrt(a{z=~"c"})"#, r#"round(foo{bar="baz", z=~"c"}) + sqrt(a{bar="baz", z=~"c"})"#)]
+    #[test_case(r#"foo{bar="baz"} + SQRT(a{z=~"c"})"#, r#"foo{bar="baz", z=~"c"} + SQRT(a{bar="baz", z=~"c"})"#)]
+    #[test_case(r#"round({__name__="foo"}) + bar"#, r#"round(foo) + bar"#)]
+    #[test_case(r#"round({__name__=~"foo|bar"}) + baz"#, r#"round({__name__=~"foo|bar"}) + baz"#)]
+    #[test_case(r#"round({__name__=~"foo|bar",a="b"}) + baz"#, r#"round({__name__=~"foo|bar", a="b"}) + baz{a="b"}"#)]
+    #[test_case(r#"round({__name__=~"foo|bar",a="b"}) + sqrt(baz)"#, r#"round({__name__=~"foo|bar", a="b"}) + sqrt(baz{a="b"})"#)]
+    #[test_case(r#"round(foo) + {__name__="bar",x="y"}"#, r#"round(foo{x="y"}) + bar{x="y"}"#)]
+    #[test_case(r#"absent(foo{bar="baz"}) + sqrt(a{z=~"c"})"#, r#"absent(foo{bar="baz"}) + sqrt(a{z=~"c"})"#)]
+    #[test_case(r#"ABSENT(foo{bar="baz"}) + sqrt(a{z=~"c"})"#, r#"ABSENT(foo{bar="baz"}) + sqrt(a{z=~"c"})"#)]
+    #[test_case(r#"label_set(foo{bar="baz"}, "xx", "y") + a{x="y"}"#, r#"label_set(foo{bar="baz"}, "xx", "y") + a{x="y"}"#)]
+    #[test_case(r#"now() + foo{bar="baz"} + x{y="x"}"#, r#"(now() + foo{bar="baz", y="x"}) + x{bar="baz", y="x"}"#)]
+    #[test_case(r#"limit_offset(5, 10, {x="y"}) if {a="b"}"#, r#"limit_offset(5, 10, {a="b", x="y"}) if {a="b", x="y"}"#)]
+    #[test_case(r#"buckets_limit(aa, {x="y"}) if {a="b"}"#, r#"buckets_limit(aa, {a="b", x="y"}) if {a="b", x="y"}"#)]
+    #[test_case(r#"histogram_quantiles("q", 0.1, 0.9, {x="y"}) - {a="b"}"#, r#"histogram_quantiles("q", 0.1, 0.9, {a="b", x="y"}) - {a="b", x="y"}"#)]
+    #[test_case(r#"histogram_quantiles("q", 0.1, 0.9, sum(rate({x="y"}[5m])) by (le)) - {a="b"}"#, r#"histogram_quantiles("q", 0.1, 0.9, sum(rate({x="y"}[5m])) by (le)) - {a="b"}"#)]
+    #[test_case(r#"histogram_quantiles("q", 0.1, 0.9, sum(rate({x="y"}[5m])) by (le,x)) - {a="b"}"#, r#"histogram_quantiles("q", 0.1, 0.9, sum(rate({x="y"}[5m])) by (le, x)) - {a="b", x="y"}"#)]
+    #[test_case(r#"histogram_quantiles("q", 0.1, 0.9, sum(rate({x="y"}[5m])) by (le,x,a)) - {a="b"}"#, r#"histogram_quantiles("q", 0.1, 0.9, sum(rate({a="b", x="y"}[5m])) by (le, x, a)) - {a="b", x="y"}"#)]
+    #[test_case(r#"vector(foo) + bar{a="b"}"#, r#"vector(foo) + bar{a="b"}"#)]
+    #[test_case(r#"vector(foo{x="y"} + a) + bar{a="b"}"#, r#"vector(foo{x="y"} + a{x="y"}) + bar{a="b"}"#)]
+    fn transform_functions(q: &str, expected: &str) {
+        test_optimize(q, expected)
+    }
+
+
+    // multilevel transform fns
+    #[test_case(r#"round(sqrt(foo)) + bar"#, r#"round(sqrt(foo)) + bar"#)]
+    #[test_case(r#"round(sqrt(foo)) + bar{b="a"}"#, r#"round(sqrt(foo{b="a"})) + bar{b="a"}"#)]
+    #[test_case(r#"round(sqrt(foo{a="b"})) + bar{x="y"}"#, r#"round(sqrt(foo{a="b", x="y"})) + bar{a="b", x="y"}"#)]
+    fn multilevel_transform_functions(q: &str, expected: &str) {
+        test_optimize(q, expected)
+    }
+
+
+    // rollup fns
+    #[test_case(r#"RATE(foo[5m]) / rate(baz{a="b"}) + increase(x{y="z"} offset 5i)"#, r#"(RATE(foo{a="b", y="z"}[5m]) / rate(baz{a="b", y="z"})) + increase(x{a="b", y="z"} offset 5i)"#)]
+    #[test_case(r#"sum(rate(foo[5m])) / rate(baz{a="b"})"#, r#"sum(rate(foo[5m])) / rate(baz{a="b"})"#)]
+    #[test_case(r#"sum(rate(foo[5m])) by (a) / rate(baz{a="b"})"#, r#"sum(rate(foo{a="b"}[5m])) by (a) / rate(baz{a="b"})"#)]
+    #[test_case(r#"rate({__name__="foo"}) + rate({__name__="bar",x="y"}) - rate({__name__=~"baz"})"#, r#"(rate(foo{x="y"}) + rate(bar{x="y"})) - rate({__name__=~"baz", x="y"})"#)]
+    #[test_case(r#"rate({__name__=~"foo|bar", x="y"}) + rate(baz)"#, r#"rate({__name__=~"foo|bar", x="y"}) + rate(baz{x="y"})"#)]
+    #[test_case(r#"absent_over_time(foo{x="y"}[5m]) + bar{a="b"}"#, r#"absent_over_time(foo{x="y"}[5m]) + bar{a="b"}"#)]
+    #[test_case(r#"{x="y"} + quantile_over_time(0.5, {a="b"})"#, r#"{a="b", x="y"} + quantile_over_time(0.5, {a="b", x="y"})"#)]
+    #[test_case(r#"quantiles_over_time("quantile", 0.1, 0.9, foo{x="y"}[5m] offset 4h) + bar{a!="b"}"#, r#"quantiles_over_time("quantile", 0.1, 0.9, foo{a!="b", x="y"}[5m] offset 4h) + bar{a!="b", x="y"}"#)]
+    fn rollup_functions(q: &str, expected: &str) {
+        test_optimize(q, expected)
+    }
+
+    // @ modifier
+    #[test_case(r#"foo @ end() + bar{baz="a"}"#, r#"foo{baz="a"} @ end() + bar{baz="a"}"#)]
+    #[test_case(r#"sum(foo @ end()) + bar{baz="a"}"#, r#"sum(foo @ end()) + bar{baz="a"}"#)]
+    #[test_case(r#"foo @ (bar{a="b"} + baz{x="y"})"#, r#"foo @ (bar{a="b", x="y"} + baz{a="b", x="y"})"#)]
+    fn at_modifier(q: &str, expected: &str) {
+        test_optimize(q, expected)
+    }
+
+    // subqueries
+    #[test_case(r#"rate(avg_over_time(foo[5m:])) + bar{baz="a"}"#, r#"rate(avg_over_time(foo{baz="a"}[5m:])) + bar{baz="a"}"#)]
+    #[test_case(r#"rate(sum(foo[5m:])) + bar{baz="a"}"#, r#"rate(sum(foo[5m:])) + bar{baz="a"}"#)]
+    #[test_case(r#"rate(sum(foo[5m:]) by (baz)) + bar{baz="a"}"#, r#"rate(sum(foo{baz="a"}[5m:]) by (baz)) + bar{baz="a"}"#)]
+    fn subqueries(q: &str, expected: &str) {
+        test_optimize(q, expected)
+    }
+
+
+    // binary ops with constants or scalars
+    #[test_case(r#"100 * foo / bar{baz="a"}"#, r#"(100 * foo{baz="a"}) / bar{baz="a"}"#)]
+    #[test_case(r#"foo * 100 / bar{baz="a"}"#, r#"(foo{baz="a"} * 100) / bar{baz="a"}"#)]
+    #[test_case(r#"foo / bar{baz="a"} * 100"#, r#"(foo{baz="a"} / bar{baz="a"}) * 100"#)]
+    #[test_case(r#"scalar(x) * foo / bar{baz="a"}"#, r#"(scalar(x) * foo{baz="a"}) / bar{baz="a"}"#)]
+    #[test_case(r#"SCALAR(x) * foo / bar{baz="a"}"#, r#"(SCALAR(x) * foo{baz="a"}) / bar{baz="a"}"#)]
+    #[test_case(r#"100 * on(foo) bar{baz="z"} + a"#, r#"(100 * on (foo) bar{baz="z"}) + a"#)]
+    fn binary_ops_with_constants_or_scalars(q: &str, expected: &str) {
+        test_optimize(q, expected)
+    }
+
 }

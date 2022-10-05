@@ -9,3 +9,8 @@ mod parser;
 mod regexp_cache;
 mod utils;
 
+// tests
+mod parser_example_test;
+mod parser_test;
+mod simplify;
+

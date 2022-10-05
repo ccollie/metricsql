@@ -1,7 +1,8 @@
 use std::collections::HashSet;
-use std::ops::Deref;
+use std::ops::{Deref};
 
 use enquote::unquote;
+use text_size::{TextRange, TextSize};
 
 use crate::ast::*;
 use crate::lexer::{is_string_prefix, quote};
@@ -40,11 +41,20 @@ fn expand_binary(e: &BinaryOpExpr, was: &[WithArgExpr]) -> ParseResult<Expressio
     if e.op == BinaryOp::Add {
         return match (left, right) {
             (Expression::String(left), Expression::String(right)) => {
-                let expr = StringExpr::new(format!("{}{}", left.s, right.s));
+                let concat = format!("{}{}", left.s, right.s);
+                let span = TextRange::at(left.span.start(), TextSize::from(concat.len() as u32));
+                let expr = StringExpr::new(concat, span);
                 Ok(Expression::String(expr))
+            },
+            (Expression::Number(left), Expression::Number(right)) => {
+                let sum = left.value + right.value;
+                let text = format!("{}", sum);
+                let span = TextRange::at(left.span.start(), TextSize::from(text.len() as u32));
+                let num = NumberExpr::new(sum, span);
+                Ok(Expression::Number(num))
             }
             _ => Err(ParseError::General(
-                "+ operator can only be used with string arguments".to_string(),
+                "+ operator can only be used with string or number arguments".to_string(),
             )),
         };
     }
@@ -60,8 +70,9 @@ fn expand_binary(e: &BinaryOpExpr, was: &[WithArgExpr]) -> ParseResult<Expressio
         join_modifier_args = expand_modifier_args(was, &modifier.labels)?;
     }
 
-    let mut be = BinaryOpExpr::new(e.op, left, right);
+    let mut be = BinaryOpExpr::new(e.op, left, right)?;
     be.bool_modifier = e.bool_modifier;
+    be.span = e.span;
 
     if let Some(ref mut group_mod) = be.group_modifier {
         group_mod.labels = group_modifier_args;
@@ -85,7 +96,7 @@ fn expand_function(func: &FuncExpr, was: &[WithArgExpr]) -> ParseResult<Expressi
             Ok(expr)
         }
         None => {
-            let fe = FuncExpr::new(&func.name(), args)?;
+            let fe = FuncExpr::new(&func.name(), args, func.span.clone())?;
             Ok(Expression::Function(fe))
         }
     }
@@ -132,6 +143,9 @@ fn expand_string(e: &StringExpr, was: &[WithArgExpr]) -> ParseResult<StringExpr>
         // Already expanded. Copying should be cheap
         return Ok(e.clone());
     }
+    let start = e.span.start();
+
+    // todo(perf): preallocate string capacity
     let mut b: String = String::new();
     for token in e.tokens.as_ref().unwrap() {
         if is_string_prefix(token) {
@@ -163,7 +177,8 @@ fn expand_string(e: &StringExpr, was: &[WithArgExpr]) -> ParseResult<StringExpr>
         b.push_str(e_new.s.as_str());
     }
 
-    Ok(StringExpr::new(b))
+    let span = TextRange::at(start, TextSize::from(b.len() as u32));
+    Ok(StringExpr::new(b, span))
 }
 
 fn expand_rollup(rollup: &RollupExpr, was: &[WithArgExpr]) -> ParseResult<Expression> {

@@ -19,5 +19,4 @@ pub mod utils {
 }
 pub mod optimizer;
 pub mod parser;
-mod types;
 pub mod functions;

@@ -1,8 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::ops::{Add, Sub};
-use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::ops::{Sub};
+use std::sync::{RwLock};
 use chrono::Duration;
 use chrono::prelude::Utc;
 use chrono::prelude::DateTime;
@@ -23,7 +22,7 @@ pub struct QueryStatRecord {
 }
 
 impl QueryStatRecord {
-    fn matches(&self, current_time: DateTime<Utc>, max_lifetime: Duration) -> bool {
+    pub(crate) fn matches(&self, current_time: DateTime<Utc>, max_lifetime: Duration) -> bool {
         if self.key.query.len() == 0 {
             return false
         }
@@ -88,7 +87,7 @@ struct Inner {
 
 /// QueryStatsTracker holds statistics for queries
 pub struct QueryStatsTracker {
-    inner: Arc<Mutex<Inner>>,
+    inner: RwLock<Inner>,
     config: QueryStatsConfig
 }
 
@@ -106,16 +105,19 @@ impl QueryStatsTracker {
         };
 
         QueryStatsTracker {
-            inner: Arc::new(Mutex::new(inner)),
+            inner: RwLock::new(inner),
             config: config.clone()
         }
     }
 
-    pub(crate) fn enabled(&self) -> bool {
+    pub(crate) fn is_enabled(&self) -> bool {
         self.config.last_queries_count > 0
     }
 
-    pub(crate) fn register_query(&mut self, query: &str, time_range_msecs: i64, start_time: DateTime<Utc>) {
+    /// Registers the query on the given time_range_msecs, which has been started at start_time.
+    ///
+    /// register_query must be called when the query is finished.
+    pub(crate) fn register_query(&self, query: &str, time_range_msecs: i64, start_time: DateTime<Utc>) {
         let register_time = Utc::now();
         let duration = register_time.sub(start_time);
         if duration.cmp(&self.config.min_query_duration) == Ordering::Less {
@@ -133,7 +135,7 @@ impl QueryStatsTracker {
         };
 
         {
-            let mut qst = self.inner.lock().unwrap();
+            let mut qst = self.inner.write().unwrap();
             let mut idx = qst.next_idx;
             let len = qst.data.len();
             if idx >= len {
@@ -145,12 +147,12 @@ impl QueryStatsTracker {
         }
     }
 
-    fn get_top_by_count(self, top_n: usize, max_lifetime: Duration) -> Vec<QueryStatByCount> {
+    pub fn get_top_by_count(&self, top_n: usize, max_lifetime: Duration) -> Vec<QueryStatByCount> {
         let current_time = Utc::now();
 
         let mut m: HashMap<&QueryStatKey, u64> = HashMap::new();
-        let qst = self.inner.lock().unwrap();
-        qst.data.iter().for_each(|r|  {
+        let qst = self.inner.read().unwrap();
+        qst.data.iter().for_each(|r: &QueryStatRecord|  {
             if r.matches(current_time, max_lifetime) {
                 let entry = m.entry(&r.key).or_insert(0);
                 *entry += 1;
@@ -173,7 +175,7 @@ impl QueryStatsTracker {
         return a;
     }
 
-    fn get_top_by_avg_duration(self, top_n: usize, max_lifetime: Duration) -> Vec<QueryStatByDuration> {
+    pub fn get_top_by_avg_duration(&self, top_n: usize, max_lifetime: Duration) -> Vec<QueryStatByDuration> {
         let current_time = Utc::now();
 
         #[derive(Hash, Copy, Clone)]
@@ -184,9 +186,9 @@ impl QueryStatsTracker {
 
         let mut m: HashMap<&QueryStatKey, CountSum> = HashMap::new();
 
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.read().unwrap();
 
-        inner.data.iter().for_each(|r| {
+        inner.data.iter().for_each(|r: &QueryStatRecord| {
             if r.matches(current_time, max_lifetime) {
                 let k = &r.key;
                 let mut ks = m.entry(k)
@@ -196,7 +198,7 @@ impl QueryStatsTracker {
                     });
 
                 ks.count += 1;
-                ks.sum.add(r.duration);
+                ks.sum = ks.sum + r.duration;
             }
         });
 
@@ -217,7 +219,7 @@ impl QueryStatsTracker {
         return a;
     }
 
-    fn get_top_by_sum_duration(&mut self, top_n: usize, max_lifetime: Duration) -> Vec<QueryStatByDuration> {
+    pub fn get_top_by_sum_duration(&self, top_n: usize, max_lifetime: Duration) -> Vec<QueryStatByDuration> {
         let current_time = Utc::now();
 
         #[derive(Hash, Clone)]
@@ -228,8 +230,8 @@ impl QueryStatsTracker {
 
         let mut m: HashMap<&QueryStatKey, CountDuration> = HashMap::new();
 
-        let qst = self.inner.lock().unwrap();
-        qst.data.iter().for_each(|r| {
+        let qst = self.inner.read().unwrap();
+        qst.data.iter().for_each(|r: &QueryStatRecord| {
             if r.matches(current_time, max_lifetime) {
                 let kd = m.entry(&r.key).or_insert(
                     CountDuration{
@@ -237,8 +239,8 @@ impl QueryStatsTracker {
                         sum: Duration::milliseconds(0)
                     }
                 );
-                kd.count +=1;
-                kd.sum.add(r.duration);
+                kd.count += 1;
+                kd.sum = kd.sum + r.duration;
             }
         });
 
@@ -256,15 +258,5 @@ impl QueryStatsTracker {
             a.resize(top_n, QueryStatByDuration::default());
         }
         return a;
-    }
-}
-
-pub fn systemtime_to_timestamp(time: SystemTime) -> u64 {
-    match time.duration_since(UNIX_EPOCH) {
-        Ok(duration) => duration.as_secs() * 1000 + u64::from(duration.subsec_nanos()) / 1_000_000,
-        Err(e) => panic!(
-            "SystemTime before UNIX EPOCH! Difference: {:?}",
-            e.duration()
-        ),
     }
 }

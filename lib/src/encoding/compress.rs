@@ -21,7 +21,7 @@ pub fn compress_lz4(src: &[u8]) -> Vec<u8> {
 }
 
 /// Compress all bytes of `input` into `output`.
-/// output should be preallocated with a size of `lz4_get_maximum_output_size`.
+/// output should be pre-allocated with a size of `lz4_get_maximum_output_size`.
 ///
 /// Returns the number of bytes written (compressed) into `output`.
 #[inline]

@@ -1,22 +1,24 @@
 use std::ops::Deref;
+use std::sync::Arc;
 
 use metricsql::ast::{AggregateModifier, AggrFuncExpr, Expression, FuncExpr, MetricExpr};
-use metricsql::functions::{AggregateFunction, BuiltinFunction, RollupFunction, Signature, Volatility};
+use metricsql::functions::{AggregateFunction, BuiltinFunction, RollupFunction, Volatility};
 
-use crate::{EvalConfig, Timeseries};
+use crate::{EvalConfig};
 use crate::context::Context;
 use crate::eval::arg_list::ArgList;
-use crate::eval::rollup::{compile_rollup_func_args, RollupEvaluator};
+use crate::eval::rollup::{compile_rollup_func_args, IncrementalAggrFuncOptions, RollupEvaluator};
 use crate::functions::{
     aggregate::{
         AggrFn,
         AggrFuncArg,
-        get_incremental_aggr_func_callbacks,
-        IncrementalAggrFuncContext
+        get_incremental_aggr_func_callbacks
     },
 };
 use crate::functions::aggregate::get_aggr_func;
+use crate::functions::types::AnyValue;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
+use crate::utils::num_cpus;
 
 use super::{Evaluator, ExprEvaluator};
 
@@ -29,7 +31,6 @@ pub(super) fn create_aggr_evaluator(ae: &AggrFuncExpr) -> RuntimeResult<ExprEval
                     // over Expression::MetricExpr.
                     // The optimized path saves RAM for aggregates over big number of time series.
                     let (args, re) = compile_rollup_func_args(&fe)?;
-                    let iafc = IncrementalAggrFuncContext::new(ae, callbacks);
                     let expr = Expression::Aggregation(ae.clone());
                     let func = get_rollup_function(&fe)?;
 
@@ -40,7 +41,12 @@ pub(super) fn create_aggr_evaluator(ae: &AggrFuncExpr) -> RuntimeResult<ExprEval
                         args
                     )?;
 
-                    res.iafc = Some(iafc);
+                    res.timeseries_limit = get_timeseries_limit(ae)?;
+                    res.is_incr_aggregate = true;
+                    res.incremental_aggr_opts = Some(IncrementalAggrFuncOptions {
+                        callbacks,
+                    });
+
                     return Ok(ExprEvaluator::Rollup(res))
                 },
                 _ => {}
@@ -53,44 +59,46 @@ pub(super) fn create_aggr_evaluator(ae: &AggrFuncExpr) -> RuntimeResult<ExprEval
 }
 
 
-pub(crate) struct AggregateEvaluator {
+pub struct AggregateEvaluator {
     pub expr: String,
     pub function: AggregateFunction,
-    signature: Signature,
-    handler: Box<dyn AggrFn + 'static>,
     args: ArgList,
     /// optional modifier such as `by (...)` or `without (...)`.
     modifier: Option<AggregateModifier>,
-    limit: usize,
+    /// Max number of timeseries to return
+    pub limit: usize,
+    handler: Arc<dyn AggrFn + 'static>,
 }
 
 impl AggregateEvaluator {
     pub fn new(ae: &AggrFuncExpr) -> RuntimeResult<Self> {
-        let handler = get_aggr_func(&ae.function);
+        let handler = get_aggr_func(&ae.function)?;
         let function = ae.function;
         let signature = function.signature();
         let args = ArgList::new(&signature, &ae.args)?;
-        let limit = ae.limit;
 
         Ok(Self {
-            handler: Box::new(handler),
+            handler,
             args,
             function,
-            signature,
             modifier: ae.modifier.clone(),
-            limit,
+            limit: ae.limit,
             expr: ae.to_string()
         })
+    }
+
+    pub fn is_idempotent(&self) -> bool {
+        self.volatility() != Volatility::Volatile && self.args.all_const()
     }
 }
 
 impl Evaluator for AggregateEvaluator {
-    fn eval(&self, ctx: &mut Context, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
+    fn eval(&self, ctx: &Arc<&Context>, ec: &EvalConfig) -> RuntimeResult<AnyValue> {
         let args = self.args.eval(ctx, ec)?;
         //todo: use tinyvec for args
         let mut afa = AggrFuncArg::new(ec, args,  &self.modifier, self.limit);
         match (self.handler)(&mut afa) {
-            Ok(res) => Ok(res),
+            Ok(res) => Ok(AnyValue::InstantVector(res)),
             Err(e) => {
                 let res = format!("cannot evaluate {}: {:?}", self.expr, e);
                 Err(RuntimeError::General(res))
@@ -126,7 +134,8 @@ fn try_get_arg_rollup_func_with_metric_expr(ae: &AggrFuncExpr) -> RuntimeResult<
             name
         };
 
-        match FuncExpr::from_single_arg(func_name, expr.clone()) {
+        let span = me.span.clone();
+        match FuncExpr::from_single_arg(func_name, expr.clone(), span) {
             Err(e) => {
                 Err(RuntimeError::General(
                     format!("Error creating function {}: {:?}", func_name, e)
@@ -203,4 +212,19 @@ fn get_rollup_function(fe: &FuncExpr) -> RuntimeResult<RollupFunction> {
             Err( RuntimeError::General("Bug: cant extract rollup from function".to_string()))
         }
     }
+}
+
+pub(super) fn get_timeseries_limit(aggr_expr: &AggrFuncExpr) -> RuntimeResult<usize> {
+    // Incremental aggregates require holding only GOMAXPROCS timeseries in memory.
+    let timeseries_len = usize::from(num_cpus()?);
+    let res = if aggr_expr.limit > 0 {
+        // There is an explicit limit on the number of output time series.
+        timeseries_len * aggr_expr.limit
+    } else {
+        // Increase the number of timeseries for non-empty group list: `aggr() by (something)`,
+        // since each group can have own set of time series in memory.
+        timeseries_len * 1000
+    };
+
+    Ok(res)
 }

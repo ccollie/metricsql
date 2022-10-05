@@ -60,15 +60,3 @@ pub fn bit_len64(v: u64) -> usize {
 pub fn leading_zeros64(x: u64) -> usize {
     64 - bit_len64(x)
 }
-
-pub fn next_power_of2(n: usize) -> usize {
-    let mut v = n - 1;
-    v |= v >> 1;
-    v |= v >> 2;
-    v |= v >> 4;
-    v |= v >> 8;
-    v |= v >> 16;
-    v |= v >> 32;
-    v += 1;
-    v
-}

@@ -64,13 +64,13 @@ impl TimestampTrait for Timestamp {
 
 
 // async ???
-pub trait SeriesDataSource {
+pub trait MetricDataProvider: Sync + Send {
     fn search(&self, sq: &SearchQuery, deadline: &Deadline) -> RuntimeResult<QueryResults>;
 }
 
-pub struct NullSeriesDataSource{}
+pub struct NullMetricDataProvider {}
 
-impl SeriesDataSource for NullSeriesDataSource {
+impl MetricDataProvider for NullMetricDataProvider {
     fn search(&self, _sq: &SearchQuery, _deadline: &Deadline) -> RuntimeResult<QueryResults> {
         let qr = QueryResults::new();
         Ok(qr)

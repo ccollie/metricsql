@@ -29,7 +29,7 @@ pub enum MarshalType {
     /// Const is used for marshaling time series containing only a single constant.
     Const = 2,
 
-    /// NearestDelta is used instead of MarshalTypeZSTDNearestDelta
+    /// NearestDelta is used instead of Lz4NearestDelta
     /// if compression doesn't help.
     NearestDelta = 3,
 
@@ -167,7 +167,7 @@ pub fn marshal_int64_array(
     use MarshalType::*;
 
     if a.is_empty() {
-        panic!("BUG: a must contain at least one item");
+        return Err(Error::from("BUG: a must contain at least one item"));
     }
 
     if is_const(a) {
@@ -214,7 +214,7 @@ pub fn marshal_int64_array(
         mt = match mt {
             Lz4NearestDelta2 => NearestDelta2,
             Lz4NearestDelta => NearestDelta,
-            _ => panic!("BUG: unexpected mt={}", mt),
+            _ => return Err(Error::from(format!("BUG: unexpected mt={}", mt))),
         };
         dst.extend(bb.as_slice());
     };

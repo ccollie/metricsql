@@ -1,14 +1,13 @@
-use std::borrow::Cow;
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::collections::btree_map::Iter;
 use std::fmt;
 use std::fmt::Display;
-use std::ops::{Deref, DerefMut};
+use std::hash::{Hash};
+use std::ops::{Deref};
 
 use enquote::enquote;
-use lockfree_object_pool::{LinearObjectPool, LinearReusable};
-use once_cell::sync::Lazy;
+use xxhash_rust::xxh3::Xxh3;
 
 use lib::{unmarshal_string_fast, unmarshal_var_int};
 use metricsql::ast::{AggregateModifier, AggregateModifierOp};
@@ -21,7 +20,7 @@ use crate::runtime_error::{RuntimeError, RuntimeResult};
 /// Longer names are truncated.
 pub const MAX_LABEL_NAME_LEN: usize = 256;
 
-pub const NAME_LABEL: &str = "__name__";
+pub const METRIC_NAME_LABEL: &str = "__name__";
 
 /// Tag represents a (key, value) tag for metric.
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -45,14 +44,14 @@ impl PartialOrd for Tag {
 pub struct MetricName {
     pub metric_group: String,
     // todo: Consider https://crates.io/crates/btree-slab or heapless btree to minimize allocations
-    _items: BTreeMap<String, String>,
+    items: BTreeMap<String, String>,
 }
 
 impl MetricName {
     pub fn new(name: &str) -> Self {
         MetricName {
             metric_group: name.to_string(),
-            _items: BTreeMap::new(),
+            items: BTreeMap::new(),
         }
     }
 
@@ -60,53 +59,57 @@ impl MetricName {
         self.metric_group = "".to_string();
     }
 
-    pub fn get_tag_count(&self) -> usize {
-        self._items.len()
+    pub fn tag_count(&self) -> usize {
+        self.items.len()
     }
 
     pub fn copy_from(&mut self, other: &MetricName) {
         self.metric_group = other.metric_group.clone();
         // todo: can we make this more efficient ?
-        self._items.clear();
-        self._items.clone_from(&other._items);
+        self.items.clear();
+        self.items.clone_from(&other.items);
     }
 
     /// Reset resets the mn.
     pub fn reset(&mut self) {
         self.metric_group = "".to_string();
-        self._items.clear();
+        self.items.clear();
+    }
+
+    pub fn set_metric_group(&mut self, value: &str) {
+        self.metric_group = value.to_string();
     }
 
     /// adds new tag to mn with the given key and value.
-    pub fn add_tag(&mut self, key: &str, value: &str) {
-        if key == NAME_LABEL {
+    pub fn set_tag(&mut self, key: &str, value: &str) {
+        if key == METRIC_NAME_LABEL {
             self.metric_group = value.to_string();
             return;
         }
-        self._items.insert(key.to_string(), value.to_string());
+        self.items.insert(key.to_string(), value.to_string());
     }
 
     /// removes a tag with the given tagKey
     pub fn remove_tag(&mut self, key: &str) {
-        if key == NAME_LABEL {
+        if key == METRIC_NAME_LABEL {
             self.reset_metric_group();
             return;
         }
-        self._items.remove(key);
+        self.items.remove(key);
     }
 
     /// replaces a tag value
     pub fn replace_tag(&mut self, key: &str, value: &str) {
-        if key == NAME_LABEL {
+        if key == METRIC_NAME_LABEL {
             self.metric_group = value.to_string();
             return;
         }
-        self._items.insert(key.to_string(), value.to_string());
+        self.items.insert(key.to_string(), value.to_string());
     }
 
     // todo: rewrite to pass references
     pub fn get_tags(&self) -> Vec<Tag> {
-        self._items.iter().map(|(k, v)| {
+        self.items.iter().map(|(k, v)| {
             Tag {
                 key: k.to_string(),
                 value: v.to_string(),
@@ -114,49 +117,53 @@ impl MetricName {
         }).collect()
     }
 
-    pub fn for_each_tag<F>(&self, f: F) -> ()
+    pub fn for_each_tag<F>(&self, mut f: F) -> ()
     where F: FnMut(&String, &String) -> () {
         if self.metric_group.len() > 0 {
-            f(&NAME_LABEL.to_string(), &self.metric_group);
+            f(&METRIC_NAME_LABEL.to_string(), &self.metric_group);
         }
-        self._items.iter().for_each(|(k,v)| f(k, v))
+        self.items.iter().for_each(|(k,v)| f(k, v))
     }
 
     pub fn has_tag(&self, key: &str) -> bool {
-        self._items.contains_key(key)
+        self.items.contains_key(key)
     }
 
     /// returns tag value for the given tagKey.
     pub fn get_tag_value(&self, key: &str) -> Option<&String> {
-        if key == NAME_LABEL {
+        if key == METRIC_NAME_LABEL {
             return Some(&self.metric_group);
         }
-        self._items.get(key)
+        self.items.get(key)
     }
 
     pub fn get_tag_value_mut(&mut self, key: &str) -> Option<&mut String> {
-        if key == NAME_LABEL {
+        if key == METRIC_NAME_LABEL {
             return Some(&mut self.metric_group);
         }
-        self._items.get_mut(key)
+        self.items.get_mut(key)
     }
 
-    /// removes all the tags not included to on_tags.
-    pub fn remove_tags_on(&mut self, on_tags: &[String]) {
-        let set: HashSet<&String> = HashSet::from_iter(on_tags);
-        if set.contains(&NAME_LABEL.to_string()) {
+    /// removes all the tags not included in on_tags.
+    pub fn remove_tags_except(&mut self, tags: &[String]) {
+        let set: HashSet<&String> = HashSet::from_iter(tags);
+        if set.contains(&METRIC_NAME_LABEL.to_string()) {
             self.reset_metric_group()
         }
-        self._items.retain(|k, _| set.contains(k));
+        self.items.retain(|k, _| set.contains(k));
+    }
+
+    pub fn remove_tags_on(&mut self, on_tags: &[String]) {
+        self.remove_tags_except(on_tags)
     }
 
     /// removes all the tags included in ignoring_tags.
-    pub fn remove_tags_ignoring(&mut self, ignoring_tags: &[String]) {
+    pub fn remove_tags(&mut self, ignoring_tags: &[String]) {
         for tag in ignoring_tags {
-            if tag == NAME_LABEL {
-                self.metric_group = "".to_string();
+            if tag == METRIC_NAME_LABEL {
+                self.reset_metric_group();
             } else {
-                self._items.remove(tag);
+                self.items.remove(tag);
             }
         }
     }
@@ -164,14 +171,14 @@ impl MetricName {
     /// sets tags from src with keys matching add_tags.
     pub(crate) fn set_tags(&mut self, add_tags: &[String], src: &mut MetricName) {
         for tag_name in add_tags {
-            if tag_name == NAME_LABEL {
+            if tag_name == METRIC_NAME_LABEL {
                 self.metric_group = tag_name.clone();
                 continue;
             }
 
             match src.get_tag_value(tag_name) {
                 Some(tag_value) => {
-                    let _ = self._items.insert(tag_name.to_string(), tag_value.to_string());
+                    let _ = self.items.insert(tag_name.to_string(), tag_value.to_string());
                 },
                 None => {
                     self.remove_tag(tag_name);
@@ -183,9 +190,9 @@ impl MetricName {
     pub fn append_tags_to_string(&self, dst: &mut Vec<u8>) {
         dst.extend_from_slice("{{".as_bytes());
 
-        let len = &self._items.len();
+        let len = &self.items.len();
         let mut i = 0;
-        for (k, v) in &self._items {
+        for (k, v) in &self.items {
             dst.extend_from_slice(format!("{}={}", k, enquote('"', &v)).as_bytes());
             if i + 1 < *len {
                 dst.extend_from_slice(", ".as_bytes())
@@ -197,7 +204,7 @@ impl MetricName {
     }
 
     pub(crate) fn marshal_tags_fast(&self, dst: &mut Vec<u8>) {
-        for (k, v) in &self._items {
+        for (k, v) in &self.items {
             marshal_bytes_fast(dst, k.as_bytes());
             marshal_bytes_fast(dst, v.as_bytes());
         }
@@ -208,12 +215,6 @@ impl MetricName {
         self.marshal_tags_fast(dst);
     }
 
-
-    // internal only
-    pub(crate) fn marshal_to_string<'a>(&self, buf: &'a mut Vec<u8>) -> Cow<'a, str> {
-        self.marshal(buf);
-        String::from_utf8_lossy(&buf)
-    }
 
     /// unmarshal mn from src, so mn members hold references to src.
     ///
@@ -282,20 +283,20 @@ impl MetricName {
                 }
             }
 
-            self.add_tag(&key, &val);
+            self.set_tag(&key, &val);
         }
 
         Ok(src)
     }
 
     pub fn iter(&self) -> Iter<'_, String, String> {
-        self._items.iter()
+        self.items.iter()
     }
 
     pub(crate) fn serialized_size(&self) -> usize {
         let mut n = 2 + self.metric_group.len();
         n += 2; // Length of tags.
-        for (k,v) in self._items.iter() {
+        for (k,v) in self.items.iter() {
             n += 2 + k.len();
             n += 2 + v.len();
         }
@@ -313,23 +314,67 @@ impl MetricName {
 
         match group_op {
             AggregateModifierOp::By => {
-                self.remove_tags_on(labels);
+                self.remove_tags_except(labels);
             }
             AggregateModifierOp::Without => {
-                self.remove_tags_ignoring(labels);
+                self.remove_tags(labels);
                 // Reset metric group as Prometheus does on `aggr(...) without (...)` call.
                 self.reset_metric_group();
             }
         }
     }
+
+    pub(crate) fn count_label_values(&self, hm: &mut HashMap<String, HashMap<String, usize>>) {
+       // duplication, I know
+        let label_counts = hm.entry(METRIC_NAME_LABEL.to_string())
+            .or_insert_with(|| HashMap::new());
+        *label_counts.entry(self.metric_group.to_string()).or_insert(0) += 1;
+        for entry in self.items.iter() {
+            count_label_value(hm, entry.0, entry.1);
+       }
+    }
+
+    pub fn fast_hash(&self) -> u64 {
+        let mut hasher: Xxh3 = Xxh3::new();
+        hasher.update(self.metric_group.as_bytes());
+        for (k, v) in self.items.iter() {
+            hasher.update(k.as_bytes());
+            hasher.update(v.as_bytes());
+        }
+        hasher.digest()
+    }
+
+    pub fn to_string(&self) -> String {
+        // todo(perf): preallocate result buf
+        let mut result = String::new();
+        result.push_str(&self.metric_group);
+        result.push_str("{{");
+        let len = self.items.len();
+        let mut i = 0;
+        for (k, v) in self.items.iter() {
+            result.push_str(format!("{}={}", k, enquote('"', &v)).as_str());
+            if i < len - 1 {
+                result.push_str(",");
+            }
+            i += 1;
+        }
+        result.push_str("}}");
+        result
+    }
+}
+
+fn count_label_value(hm: &mut HashMap<String, HashMap<String, usize>>, label: &String, value: &String) {
+    let label_counts = hm.entry(label.to_string())
+        .or_insert_with(|| HashMap::new());
+    *label_counts.entry(value.to_string()).or_insert(0) += 1;
 }
 
 impl Display for MetricName {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}{{", self.metric_group)?;
-        let len = self._items.len();
+        let len = self.items.len();
         let mut i = 0;
-        for (k, v) in self._items.iter() {
+        for (k, v) in self.items.iter() {
             write!(f, "{}={}", k, enquote('"', &v))?;
             if i < len - 1 {
                 write!(f, ",")?;
@@ -348,10 +393,10 @@ impl PartialOrd for MetricName {
         }
         // Metric names for a and b match. Compare tags.
         // Tags must be already sorted by the caller, so just compare them.
-        let ats = &self._items;
-        let bts = &other._items;
-        let mut b_iter = other._items.iter();
-        for (a_key, a_value) in self._items.iter() {
+        let ats = &self.items;
+        let bts = &other.items;
+        let mut b_iter = other.items.iter();
+        for (a_key, a_value) in self.items.iter() {
             let bt = &b_iter.next();
             if bt.is_none() {
                 // a contains more tags than b and all the previous tags were identical,
@@ -368,15 +413,4 @@ impl PartialOrd for MetricName {
         }
         return Some(ats.len().cmp(&bts.len()));
     }
-}
-
-static METRICNAME_POOL: Lazy<LinearObjectPool<MetricName>> = Lazy::new(||{
-    LinearObjectPool::<MetricName>::new(
-        || MetricName::default(),
-        |v| { v.reset(); }
-    )
-});
-
-pub(crate) fn get_pooled_metric_name() -> &'static MetricName {
-    LinearReusable::deref_mut(&mut METRICNAME_POOL.pull())
 }

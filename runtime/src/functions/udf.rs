@@ -19,7 +19,7 @@ pub(crate) struct Udf<P, R>
     /// be passed with the slice / vec of values (either scalar or array)
     /// with the exception of zero param function, where a singular element vec
     /// will be passed.
-    pub fun: Box<dyn FunctionImplementation<P, R>>,
+    pub fun: Box<dyn FunctionImplementation<P, R, Output=R>>,
 }
 
 impl <P: ?Sized + Send + Sync, R>Debug for Udf<P, R>
@@ -69,10 +69,10 @@ impl <P: ?Sized , R>Udf<P, R>
         }
     }
 
-    fn create_basic(name: &str, arg_count: usize, f: impl FunctionImplementation<P, R>) -> Self {
+    fn create_basic(name: &str, arg_count: usize, f: impl FunctionImplementation<P, R> + 'static) -> Self {
         let mut types: Vec<DataType> = Vec::with_capacity(arg_count);
-        types.push(DataType::Series);
-        types.resize(arg_count,DataType::Vector);
+        types.push(DataType::InstantVector);
+        types.resize(arg_count,DataType::Scalar);
 
         let sig: Signature = Signature::exact(types, Volatility::Immutable);
         Self::new(name, sig, f)

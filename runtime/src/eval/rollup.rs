@@ -1,15 +1,14 @@
+use std::borrow::Cow;
 use std::cell::RefCell;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
-use once_cell::sync::Lazy;
 use rayon::prelude::IntoParallelRefIterator;
-use tinyvec::*;
 
 use lib::is_stale_nan;
 use metricsql::ast::*;
-use metricsql::functions::{BuiltinFunction, DataType, RollupFunction, Signature, Volatility};
+use metricsql::functions::{BuiltinFunction, DataType, RollupFunction, Volatility};
 
 use crate::{EvalConfig, get_timeseries, get_timestamps, MetricName};
 use crate::cache::rollup_result_cache::merge_timeseries;
@@ -22,35 +21,42 @@ use crate::eval::{
     validate_max_points_per_timeseries,
 };
 use crate::eval::arg_list::ArgList;
-use crate::functions::aggregate::IncrementalAggrFuncContext;
-use crate::functions::rollup::{eval_prefuncs, get_rollup_configs, get_rollup_function_factory,
-                               MAX_SILENCE_INTERVAL, rollup_func_keeps_metric_name, RollupConfig,
-                               RollupHandlerEnum, RollupHandlerFactory, TimeseriesMap};
+use crate::functions::aggregate::{IncrementalAggrFuncCallbacks, IncrementalAggrFuncContext};
+use crate::functions::rollup::{
+    eval_prefuncs, get_rollup_configs, get_rollup_function_factory,
+    MAX_SILENCE_INTERVAL, rollup_func_keeps_metric_name, rollup_func_requires_config,
+    RollupConfig, RollupHandlerEnum, RollupHandlerFactory, TimeseriesMap
+};
 use crate::functions::transform::get_absent_timeseries;
+use crate::functions::types::AnyValue;
 use crate::rayon::iter::ParallelIterator;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::search::{join_tag_filterss, QueryResult, QueryResults, SearchQuery};
 use crate::timeseries::Timeseries;
 use crate::traits::Timestamp;
-use crate::utils::{memory_limit, MemoryLimiter, num_cpus};
 
 use super::traits::Evaluator;
 
-pub(super) struct RollupEvaluator {
-    func: RollupFunction,
-    signature: Signature,
-    pub expr: Expression,
-    pub re: RollupExpr,
-    pub evaluator: Box<ExprEvaluator>,
-    pub args: ArgList,
-    pub at: Option<Box<ExprEvaluator>>,
-    pub iafc: Option<IncrementalAggrFuncContext>,
-    nrf: RollupHandlerFactory,
-    keep_metric_names: bool,
+pub(crate) struct IncrementalAggrFuncOptions {
+    pub callbacks: &'static IncrementalAggrFuncCallbacks,
 }
 
-type SmallValueVec = TinyVec<[f64; 32]>;
-type SmallTimestampVec = TinyVec<[f64; 32]>;
+pub struct RollupEvaluator {
+    func: RollupFunction,
+    /// Source expression
+    expr: Expression,
+    re: RollupExpr,
+    /// Evaluator representing the expression being rolled up
+    evaluator: Box<ExprEvaluator>,
+    args: ArgList,
+    at: Option<Box<ExprEvaluator>>,
+    pub(super) incremental_aggr_opts: Option<IncrementalAggrFuncOptions>,
+    nrf: RollupHandlerFactory,
+    keep_metric_names: bool,
+    /// Max number of timeseries to return
+    pub(super) timeseries_limit: usize,
+    pub(super) is_incr_aggregate: bool
+}
 
 // Init metric
 // describe_counter!("vm_rollup_result_cache_full_hits_total", "number of full request cache hits");
@@ -61,8 +67,9 @@ type SmallTimestampVec = TinyVec<[f64; 32]>;
 // let rollupResultCacheMiss        = register_counter!("vm_rollup_result_cache_miss_total");
 
 impl Evaluator for RollupEvaluator {
-    fn eval(&self, ctx: &mut Context, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
-        self.eval_rollup(ctx, ec)
+    fn eval(&self, ctx: &Arc<&Context>, ec: &EvalConfig) -> RuntimeResult<AnyValue> {
+        let res = self.eval_rollup(ctx, ec)?;
+        Ok(AnyValue::InstantVector(res))
     }
 
     fn volatility(&self) -> Volatility {
@@ -71,10 +78,10 @@ impl Evaluator for RollupEvaluator {
     
     fn return_type(&self) -> DataType {
         if self.at.is_some() {
-            DataType::Series
+            DataType::InstantVector
         } else {
             // todo: check rollup to see
-            DataType::Matrix
+            DataType::RangeVector
         }
     }
 }
@@ -124,6 +131,7 @@ impl RollupEvaluator {
             Expression::Function(expr.clone()),
             args
         )?;
+
         res.evaluator = Box::new(evaluator);
         Ok(res)
     }
@@ -150,29 +158,50 @@ impl RollupEvaluator {
         let keep_metric_names = get_keep_metric_names(&expr);
         let nrf = get_rollup_function_factory(func);
         let evaluator = Box::new(create_evaluator(&expr)?);
-        let arg_list = ArgList::from(&signature, args);
+        let args = ArgList::from(&signature, args);
 
         let res = RollupEvaluator {
             func,
-            signature,
             expr,
             re: re.clone(),
             evaluator,
-            args: arg_list,
+            args,
             at,
-            iafc: None,
+            incremental_aggr_opts: None,
             nrf,
             keep_metric_names,
+            timeseries_limit: 0,
+            is_incr_aggregate: false
         };
 
         Ok(res)
     }
 
+    /// Some rollup functions require config, hence in rollup_fns we
+    /// first obtain a factory which configures the final function used
+    /// to process the rollup. For example `hoeffding_bound_upper(phi, series_selector[d])`,
+    /// where `phi` is used to adjust the runtime behaviour of the function.
+    ///
+    /// However the majority of functions simply take a vector and process the
+    /// rollup, so for those cases we perform a small optimization by calling the factory
+    /// and storing the result.
+    /// 
+    ///  It is also possible to optimize in cases where the non-selector inputs are all scalar
+    ///  or string (meaning constant), meaning the result of the factory call is essentially
+    ///  idempotent
+    fn get_rollup_handler(func: &RollupFunction, arg_list: &mut ArgList, _factory: RollupHandlerFactory) -> Option<RollupHandlerEnum> {
+        if rollup_func_requires_config(func) {
+            if !arg_list.all_const() {
+                return None
+            }
+        }
+        None
+    }
+
     // expr may contain:
     // -: RollupFunc(m) if iafc is None
     // - aggrFunc(rollupFunc(m)) if iafc isn't None
-    fn eval_rollup(&self, ctx: &mut Context, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
-        // todo: tinyvec
+    fn eval_rollup(&self, ctx: &Arc<&Context>, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
         // todo(perf): if function is not volatile and the non metric args are const, we can store
         // the results of the nrf call since the result won't change, hence sparing the call to eval
         // the arg list. For ex `quantile(0.95, latency{func="make-widget"})`. We know which is
@@ -192,26 +221,39 @@ impl RollupEvaluator {
         // expand single-point tss to the original time range.
         let timestamps = ec.timestamps();
         for ts in tss.iter_mut() {
-            let v = ts.values[0];
             ts.timestamps = Arc::clone(&timestamps);
-            ts.values = vec![v; timestamps.len()];
+            ts.values = vec![ts.values[0]; timestamps.len()];
         }
+
         return Ok(tss);
     }
 
     #[inline]
-    fn get_at_timestamp(&self, ctx: &mut Context, ec: &EvalConfig, evaluator: &ExprEvaluator) -> RuntimeResult<i64> {
+    fn get_at_timestamp(&self, ctx: &Arc<&Context>, ec: &EvalConfig, evaluator: &ExprEvaluator) -> RuntimeResult<i64> {
         match evaluator.eval(ctx, ec) {
             Err(err) => {
                 let msg = format!("cannot evaluate `@` modifier: {:?}", err);
                 return Err(RuntimeError::from(msg));
             }
-            Ok(ref tss_at) => {
-                if tss_at.len() != 1 {
-                    let msg = format!("`@` modifier must return a single series; it returns {} series instead", tss_at.len());
-                    return Err(RuntimeError::from(msg));
+            Ok(tss_at) => {
+                match tss_at {
+                    AnyValue::InstantVector(v) => {
+                        if v.len() != 1 {
+                            let msg = format!("`@` modifier must return a single series; it returns {} series instead", v.len());
+                            return Err(RuntimeError::from(msg));
+                        }
+                        let ts = v.get(0).unwrap();
+                        if ts.values.len() > 1 {
+                            let msg = format!("`@` modifier must return a single value; it returns {} series instead", ts.values.len());
+                            return Err(RuntimeError::from(msg));
+                        }
+                        Ok((ts.values[0] * 1000_f64) as i64)
+                    }
+                    _ => {
+                        let val = tss_at.get_int()?;
+                        Ok(val * 1000_i64)
+                    }
                 }
-                Ok((tss_at[0].values[0] * 1000_f64) as i64)
             }
         }
     }
@@ -248,42 +290,43 @@ impl RollupEvaluator {
         }
     }
 
-    fn eval_without_at(&self, ctx: &mut Context, ec: &EvalConfig, rollup_func: &RollupHandlerEnum) -> RuntimeResult<Vec<Timeseries>> {
+    #[inline]
+    fn adjust_eval_range<'a>(&self, ec: &'a EvalConfig) -> RuntimeResult<(i64, Cow<'a, EvalConfig>)> {
+        let offset: i64 = self.get_offset(ec.step);
 
-        let mut offset: i64 = self.get_offset(ec.step);
-        let mut ec_new = if offset != 0 {
-            let mut with_offset = ec.copy_no_timestamps();
-            with_offset.start -= offset;
-            with_offset.end -= offset;
-            with_offset.ensure_timestamps()?;
-            with_offset.into()
-            // There is no need in calling adjust_start_end() on ec_new if ec_new.may_cache is set to true,
-            // since the time range alignment has been already performed by the caller,
-            // so cache hit rate should be quite good.
-            // See also https://github.com/VictoriaMetrics/VictoriaMetrics/issues/976
-        } else {
-            ec
-        };
-
+        let mut adjustment = 0 - offset;
         if self.func == RollupFunction::RollupCandlestick {
             // Automatically apply `offset -step` to `rollup_candlestick` function
             // in order to obtain expected OHLC results.
             // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/309#issuecomment-582113462
-            let step = ec_new.step;
-            let mut for_candlestick = ec_new.copy_no_timestamps();
-            for_candlestick.start += step;
-            for_candlestick.end += step;
-            offset = offset - step;
-            for_candlestick.ensure_timestamps()?;
-            ec_new = for_candlestick.into();
+            adjustment += ec.step
         }
+
+        if adjustment != 0 {
+            let mut result = ec.copy_no_timestamps();
+            result.start += adjustment;
+            result.end += adjustment;
+            result.ensure_timestamps()?;
+            // There is no need in calling adjust_start_end() on ec_new if ec_new.may_cache is set to true,
+            // since the time range alignment has been already performed by the caller,
+            // so cache hit rate should be quite good.
+            // See also https://github.com/VictoriaMetrics/VictoriaMetrics/issues/976
+            Ok((offset, Cow::Owned(result)))
+        } else {
+            Ok((offset, Cow::Borrowed(ec)))
+        }
+    }
+
+    fn eval_without_at(&self, ctx: &Arc<&Context>, ec: &EvalConfig, rollup_func: &RollupHandlerEnum) -> RuntimeResult<Vec<Timeseries>> {
+
+        let (offset, ec_new) = self.adjust_eval_range(ec)?;
 
         let mut rvs = match &*self.re.expr {
             Expression::MetricExpression(me) => {
                 self.eval_with_metric_expr(ctx, &ec_new, me, rollup_func)?
             }
             _ => {
-                if self.iafc.is_some() {
+                if self.is_incr_aggregate {
                     let msg = format!("BUG: iafc must be None for rollup {} over subquery {}", self.func, &self.re);
                     return Err(RuntimeError::from(msg));
                 }
@@ -298,10 +341,7 @@ impl RollupEvaluator {
         if offset != 0 && rvs.len() > 0 {
             // Make a copy of timestamps, since they may be used in other values.
             let src_timestamps = &rvs[0].timestamps;
-            let mut dst_timestamps: Vec<i64> = Vec::with_capacity(src_timestamps.len());
-            for i in 0..dst_timestamps.len() {
-                dst_timestamps[i] += offset;
-            }
+            let dst_timestamps = src_timestamps.iter().map(|x| x + offset).collect();
             let shared = Arc::new(dst_timestamps);
             for ts in rvs.iter_mut() {
                 ts.timestamps = Arc::clone(&shared);
@@ -312,7 +352,7 @@ impl RollupEvaluator {
     }
 
     fn eval_with_subquery(&self,
-                          ctx: &mut Context,
+                          ctx: &Arc<&Context>,
                           ec: &EvalConfig,
                           rollup_func: &RollupHandlerEnum) -> RuntimeResult<Vec<Timeseries>> {
         // TODO: determine whether to use rollup result cache here.
@@ -329,12 +369,15 @@ impl RollupEvaluator {
         // unconditionally align start and end args to step for subquery as Prometheus does.
         (ec_sq.start, ec_sq.end) = align_start_end(ec_sq.start, ec_sq.end, ec_sq.step);
         let tss_sq = self.evaluator.eval(ctx, &ec_sq)?;
+
+        let tss_sq = tss_sq.as_instant_vec(&ec)?;
         if tss_sq.len() == 0 {
             return Ok(vec![]);
         }
 
         let shared_timestamps = ec.timestamps();
-        let (mut rcs, pre_funcs) = get_rollup_configs(
+        let min_staleness_interval = ctx.config.min_staleness_interval.num_milliseconds() as usize;
+        let (rcs, pre_funcs) = get_rollup_configs(
             &self.func,
             rollup_func,
             &self.expr,
@@ -343,22 +386,23 @@ impl RollupEvaluator {
             ec.step,
             window,
             ec.max_points_per_series,
+            min_staleness_interval,
             ec.lookback_delta,
             &shared_timestamps)?;
 
         let keep_metric_names = self.keep_metric_names;
         let func = self.func;
 
-        do_parallel(&tss_sq, move |ts_sq: &Timeseries, values: &mut [f64], timestamps: &[i64]| -> RuntimeResult<Vec<Timeseries>> {
+        do_parallel(&tss_sq,  move |ts_sq: &Timeseries, values: &mut [f64], timestamps: &[i64]| -> RuntimeResult<Vec<Timeseries>> {
 
             let mut res: Vec<Timeseries> = Vec::with_capacity(ts_sq.len());
 
             eval_prefuncs(&pre_funcs, values, timestamps);
-            for rc in rcs.iter_mut() {
+            for rc in rcs.iter() {
                 match new_timeseries_map(&func, keep_metric_names, &shared_timestamps, &ts_sq.metric_name) {
                     Some(tsm) => {
-                        rc.do_timeseries_map(tsm, values, timestamps)?;
-                        tsm.borrow_mut().append_timeseries_to(&mut res);
+                        rc.do_timeseries_map(&tsm, values, timestamps)?;
+                        tsm.as_ref().borrow_mut().append_timeseries_to(&mut res);
                         continue;
                     }
                     _ => {}
@@ -382,56 +426,10 @@ impl RollupEvaluator {
         })
     }
 
-    fn eval_with_incremental_aggregate<F>(&self,
-                                       iafc: &mut IncrementalAggrFuncContext,
-                                       rss: &mut QueryResults,
-                                       rcs: &mut Vec<RollupConfig>,
-                                       pre_func: F,
-                                       shared_timestamps: &Arc<Vec<i64>>) -> RuntimeResult<Vec<Timeseries>>
-    where F: Fn(&mut [f64], &[i64]) -> () + Send + Sync
-    {
-
-        let keep_metric_names = self.keep_metric_names;
-        let func = self.func;
-
-        rss.run_parallel(move |rs: &mut QueryResult, worker_id: u64| {
-            drop_stale_nans(&func, &mut rs.values, &mut rs.timestamps);
-            pre_func(&mut rs.values, &rs.timestamps);
-            let mut ts = get_timeseries();
-
-            for rc in rcs.iter_mut() {
-                match new_timeseries_map(&func, keep_metric_names, &shared_timestamps, &rs.metric_name) {
-                    Some(tsm) => {
-                        rc.do_timeseries_map(tsm, &rs.values, &rs.timestamps)?;
-                        for mut ts in tsm.borrow_mut().values_mut() {
-                            iafc.update_timeseries(&mut ts, worker_id)?;
-                        }
-                        continue;
-                    }
-                    _ => {}
-                }
-
-                ts.reset();
-                do_rollup_for_timeseries(keep_metric_names,
-                                         rc,
-                                         &mut ts,
-                                         &rs.metric_name,
-                                         &rs.values,
-                                         &rs.timestamps,
-                                         &shared_timestamps)?;
-
-                // todo: return result rather than unwrap
-                iafc.update_timeseries(&mut ts, worker_id).unwrap();
-            }
-            Ok(())
-        })?;
-
-        Ok(iafc.finalize_timeseries())
-    }
 
     fn eval_with_metric_expr(
         &self,
-        ctx: &mut Context,
+        ctx: &Arc<&Context>,
         ec: &EvalConfig,
         me: &MetricExpr,
         rollup_func: &RollupHandlerEnum,
@@ -443,8 +441,14 @@ impl RollupEvaluator {
         }
 
         // Search for partial results in cache.
-        let (tss_cached, start) = ctx.rollup_result_cache.get(ec, &self.expr, window)?;
-        let tss_cached = tss_cached.unwrap();
+
+        let tss_cached: Vec<Timeseries>;
+        let start: i64;
+        {
+            let (cached, _start) = ctx.rollup_result_cache.get(ec, &self.expr, window)?;
+            tss_cached = cached.unwrap();
+            start = _start;
+        }
 
         if start > ec.end {
             // The result is fully cached.
@@ -464,7 +468,8 @@ impl RollupEvaluator {
             get_timestamps(start, ec.end, ec.step, ec.max_points_per_series)?
         );
 
-        let (mut rcs, pre_funcs) = get_rollup_configs(
+        let min_staleness_interval = ctx.config.min_staleness_interval.num_milliseconds() as usize;
+        let (rcs, pre_funcs) = get_rollup_configs(
             &self.func,
             rollup_func,
             &self.expr,
@@ -473,6 +478,7 @@ impl RollupEvaluator {
             ec.step,
             window,
             ec.max_points_per_series,
+            min_staleness_interval,
             ec.lookback_delta,
             &shared_timestamps)?;
 
@@ -481,7 +487,7 @@ impl RollupEvaluator {
         };
 
         // Fetch the remaining part of the result.
-        let tfs = vec![me.label_filters];
+        let tfs = vec![me.label_filters.clone()];
         let tfss = join_tag_filterss(&tfs, &ec.enforced_tag_filterss);
         let mut min_timestamp = start - MAX_SILENCE_INTERVAL;
         if window > ec.step {
@@ -491,47 +497,74 @@ impl RollupEvaluator {
         }
         let filters = tfss.to_vec();
         let sq = SearchQuery::new(min_timestamp, ec.end, filters, ec.max_series);
-        let mut rss = ctx.series_data.search(&sq, &ec.deadline)?;
+        let mut rss = ctx.process_search_query(&sq, &ec.deadline)?;
         let rss_len = rss.len();
         if rss_len == 0 {
-            &rss.cancel();
-            let mut dst: Vec<Timeseries> = Vec::with_capacity(tss_cached.len());
-            let tss = merge_timeseries(&tss_cached, &mut dst, start, ec)?;
+            rss.cancel();
+            let dst: Vec<Timeseries> = vec![];
+            let tss = merge_timeseries(tss_cached, dst, start, ec)?;
             return Ok(tss);
         }
 
+        let rollup_memory_size = self.reserve_rollup_memory(ctx, ec, &mut rss, rcs.len())?;
+
+        // Evaluate rollup
+        // shadow timestamps
+        let shared_timestamps = Arc::new(shared_timestamps);
+        let tss = match &self.expr {
+            Expression::Aggregation(ae) => {
+                self.eval_with_incremental_aggregate(
+                    &ae,
+                    &mut rss,
+                    rcs,
+                    pre_func,
+                    &shared_timestamps)
+            },
+            _ => {
+                self.eval_no_incremental_aggregate(
+                    &mut rss,
+                    rcs,
+                    pre_func,
+                    &shared_timestamps,
+                    ec.no_stale_markers)
+            }
+        };
+
+        match tss {
+            Ok(v) => {
+                let res = merge_timeseries(tss_cached, v, start, ec)?;
+                ctx.rollup_result_cache.release_memory(rollup_memory_size)?;
+                ctx.rollup_result_cache.put(ec, &self.expr, window, &res)?;
+                Ok(res)
+            }
+            Err(e) => {
+                ctx.rollup_result_cache.release_memory(rollup_memory_size)?;
+                Err(e)
+            }
+        }
+    }
+
+    fn reserve_rollup_memory(&self, ctx: &Arc<&Context>, ec: &EvalConfig, rss: &mut QueryResults, rcs_len: usize) -> RuntimeResult<usize> {
         // Verify timeseries fit available memory after the rollup.
         // Take into account points from tss_cached.
         let points_per_timeseries = 1 + (ec.end - ec.start) / ec.step;
-        let mut timeseries_len = rss_len;
 
-        let iafc: &IncrementalAggrFuncContext;
-
-        match &self.iafc {
-            Some(ctx) => {
-                iafc = ctx;
-                // Incremental aggregates require holding only GOMAXPROCS timeseries in memory.
-                timeseries_len = usize::from(num_cpus()?);
-                if iafc.modifier.is_some() {
-                    if iafc.limit > 0 {
-                        // There is an explicit limit on the number of output time series.
-                        timeseries_len *= iafc.limit
-                    } else {
-                        // Increase the number of timeseries for non-empty group list: `aggr() by (something)`,
-                        // since each group can have own set of time series in memory.
-                        timeseries_len *= 1000
-                    }
-                }
-                // The maximum number of output time series is limited by rss_len.
-                if timeseries_len > rss_len {
-                    timeseries_len = rss_len
-                }
+        let rss_len = rss.len();
+        let timeseries_len = if self.timeseries_limit > 0 {
+            // The maximum number of output time series is limited by rss_len.
+            if self.timeseries_limit > rss_len {
+                rss_len
+            } else {
+                self.timeseries_limit
             }
-            _ => {}
-        }
+        } else {
+            rss_len
+        };
 
-        let rollup_points = mul_no_overflow(points_per_timeseries, (timeseries_len * rcs.len()) as i64);
+        let rollup_points = mul_no_overflow(points_per_timeseries, (timeseries_len * rcs_len) as i64);
         let rollup_memory_size = mul_no_overflow(rollup_points, 16) as usize;
+
+        let memory_limit = ctx.rollup_result_cache.memory_limit();
 
         if !ctx.rollup_result_cache.reserve_memory(rollup_memory_size) {
             rss.cancel();
@@ -540,9 +573,9 @@ impl RollupEvaluator {
                                   possible solutions are: reducing the number of matching time series; switching to node with more RAM; \n
                                   increasing -memory.allowedPercent; increasing `step` query arg ({})",
                               rollup_points,
-                              timeseries_len * rcs.len(),
+                              timeseries_len * rcs_len,
                               points_per_timeseries,
-                              ctx.rollup_result_cache.memory_limiter.max_size,
+                              memory_limit,
                               rollup_memory_size as u64,
                               ec.step as f64 / 1e3
             );
@@ -550,42 +583,78 @@ impl RollupEvaluator {
             return Err(RuntimeError::from(msg));
         }
 
-        defer! {
-            ctx.rollup_result_cache.release_memory(rollup_memory_size);
+        Ok(rollup_memory_size)
+    }
+
+    fn eval_with_incremental_aggregate<F>(&self,
+                                          ae: &AggrFuncExpr,
+                                          rss: &mut QueryResults,
+                                          rcs: Vec<RollupConfig>,
+                                          pre_func: F,
+                                          shared_timestamps: &Arc<Vec<i64>>) -> RuntimeResult<Vec<Timeseries>>
+        where F: Fn(&mut [f64], &[i64]) -> () + Send + Sync
+    {
+
+        struct Context<'a> {
+            func: &'a RollupFunction,
+            keep_metric_names: bool,
+            iafc: Mutex<IncrementalAggrFuncContext<'a>>,
+            rcs: Vec<RollupConfig>,
+            timestamps: &'a Arc<Vec<i64>>
         }
 
-        // Evaluate rollup
-        // shadow timestamps
-        let shared_timestamps = Arc::new(shared_timestamps);
-        let mut tss: Vec<Timeseries>;
-        if let Some(mut iafc) = &self.iafc {
-            tss = self.eval_with_incremental_aggregate(
-                &mut iafc,
-                &mut rss,
-                &mut rcs,
-                pre_func,
-                &shared_timestamps)?;
-        } else {
-            tss = self.eval_no_incremental_aggregate(
-                &mut rss,
-                &mut rcs,
-                pre_func,
-                &shared_timestamps,
-                ec.no_stale_markers
-            )?;
-        }
+        let callbacks = self.incremental_aggr_opts.as_ref().unwrap().callbacks;
+        let iafc = Mutex::new(IncrementalAggrFuncContext::new(ae, callbacks));
 
-        let res = merge_timeseries(&tss_cached, &mut tss, start, ec)?;
-        ctx.rollup_result_cache.put(ec, &self.expr, window, &res)?;
+        let mut ctx = Context {
+            keep_metric_names: self.keep_metric_names,
+            func: &self.func,
+            iafc,
+            rcs,
+            timestamps: &shared_timestamps
+        };
 
+        rss.run_parallel(&mut ctx,  |ctx: Arc<&mut Context>, rs: &mut QueryResult, worker_id: u64| {
+            drop_stale_nans(&ctx.func, &mut rs.values, &mut rs.timestamps);
+            pre_func(&mut rs.values, &rs.timestamps);
 
-        Ok(res)
+            for rc in ctx.rcs.iter() {
+                match new_timeseries_map(&ctx.func, ctx.keep_metric_names, &ctx.timestamps, &rs.metric_name) {
+                    Some(tsm) => {
+                        rc.do_timeseries_map(&tsm, &rs.values, &rs.timestamps)?;
+                        let mut iafc = ctx.iafc.lock().unwrap();
+                        for ts in tsm.as_ref().borrow_mut().values_mut() {
+                            iafc.update_timeseries(ts, worker_id)?;
+                        }
+                        continue;
+                    }
+                    _ => {}
+                }
+
+                let mut ts = get_timeseries();
+                do_rollup_for_timeseries(ctx.keep_metric_names,
+                                         rc,
+                                         &mut ts,
+                                         &rs.metric_name,
+                                         &rs.values,
+                                         &rs.timestamps,
+                                         &ctx.timestamps)?;
+
+                // todo: return result rather than unwrap
+                let mut iafc = ctx.iafc.lock().unwrap();
+                iafc.update_timeseries(&mut ts, worker_id).unwrap();
+            }
+            Ok(())
+        })?;
+
+        let mut iafc = ctx.iafc.lock().unwrap();
+        Ok(iafc.finalize_timeseries())
     }
 
     fn eval_no_incremental_aggregate<F>(
         &self,
         rss: &mut QueryResults,
-        rcs: &mut Vec<RollupConfig>,
+        rcs: Vec<RollupConfig>,
         pre_func: F,
         shared_timestamps: &Arc<Vec<Timestamp>>,
         no_stale_markers: bool,
@@ -593,39 +662,51 @@ impl RollupEvaluator {
         where F: Fn(&mut [f64], &[i64]) -> () + Send + Sync
     {
 
-        let tss_lock: Arc<Mutex<Vec<Timeseries>>> = Arc::new(Mutex::new(
-            Vec::with_capacity(rss.len() * rcs.len())
-        ));
+        struct TaskCtx<'a> {
+            series: Arc<Mutex<Vec<Timeseries>>>,
+            keep_metric_names: bool,
+            func: RollupFunction,
+            rcs: Vec<RollupConfig>,
+            timestamps: &'a Arc<Vec<i64>>,
+            no_stale_markers: bool
+        }
 
-        let keep_metric_names = self.keep_metric_names;
+        let series =  Arc::new(Mutex::new(Vec::with_capacity(rss.len() * rcs.len())));
+        let mut ctx = TaskCtx {
+            series: Arc::clone(&series),
+            keep_metric_names: self.keep_metric_names,
+            func: self.func,
+            rcs,
+            no_stale_markers,
+            timestamps: shared_timestamps
+        };
 
         // todo: tinyvec
-        let func = self.func;
 
-        rss.run_parallel(move |rs: &mut QueryResult, _: u64| {
-            if !no_stale_markers {
-                drop_stale_nans(&func, &mut rs.values, &mut rs.timestamps);
+        rss.run_parallel(&mut ctx,   |ctx: Arc<&mut TaskCtx>, rs: &mut QueryResult, _: u64| {
+            if !ctx.no_stale_markers {
+                drop_stale_nans(&ctx.func, &mut rs.values, &mut rs.timestamps);
             }
             pre_func(&mut rs.values, &rs.timestamps);
-            for rc in rcs.iter_mut() {
-                match new_timeseries_map(&func, keep_metric_names, shared_timestamps, &rs.metric_name) {
+            for rc in ctx.rcs.iter() {
+                match new_timeseries_map(&ctx.func, ctx.keep_metric_names, &ctx.timestamps, &rs.metric_name) {
                     Some(tsm) => {
-                        rc.do_timeseries_map(tsm, &rs.values, &rs.timestamps)?;
-                        let mut _tss = tss_lock.lock().unwrap().deref_mut();
-                        tsm.borrow_mut().append_timeseries_to( _tss);
+                        rc.do_timeseries_map(&tsm, &rs.values, &rs.timestamps)?;
+                        let mut tss = ctx.series.lock().unwrap();
+                        tsm.as_ref().borrow_mut().append_timeseries_to( &mut tss);
                     }
                     _ => {
                         let mut ts: Timeseries = Timeseries::default();
                         do_rollup_for_timeseries(
-                            keep_metric_names,
+                            ctx.keep_metric_names,
                             rc,
                             &mut ts,
                             &rs.metric_name,
                             &rs.values,
                             &rs.timestamps,
-                            shared_timestamps)?;
-                        let mut _tss = tss_lock.lock().unwrap();
-                        _tss.push(ts);
+                            ctx.timestamps)?;
+                        let mut tss = ctx.series.lock().unwrap();
+                        tss.push(ts);
                     }
                 }
             }
@@ -633,7 +714,7 @@ impl RollupEvaluator {
         })?;
 
         // https://users.rust-lang.org/t/how-to-move-the-content-of-mutex-wrapped-by-arc/10259/7
-        let res = Arc::try_unwrap(tss_lock).unwrap().into_inner().unwrap();
+        let res = Arc::try_unwrap(series).unwrap().into_inner().unwrap();
 
         Ok(res)
     }
@@ -653,7 +734,7 @@ fn new_timeseries_map(
     }
 }
 
-pub(super) fn compile_rollup_func_args(fe: &FuncExpr) -> RuntimeResult<(Vec<ExprEvaluator>, &'_ RollupExpr)> {
+pub(super) fn compile_rollup_func_args(fe: &FuncExpr) -> RuntimeResult<(Vec<ExprEvaluator>, RollupExpr)> {
     let rollup_arg_idx = fe.get_arg_idx_for_optimization();
     if rollup_arg_idx.is_none() {
         let err = format!("Bug: can't find source arg for rollup function {}. Expr: {}",
@@ -661,15 +742,7 @@ pub(super) fn compile_rollup_func_args(fe: &FuncExpr) -> RuntimeResult<(Vec<Expr
         return Err(RuntimeError::ArgumentError(err));
     }
 
-    let mut re: RollupExpr = RollupExpr {
-        expr: Box::new(Expression::from("")),
-        window: None,
-        offset: None,
-        step: None,
-        inherit_step: false,
-        at: None,
-        span: None
-    };
+    let mut re: RollupExpr = RollupExpr::new(Expression::from(""));
 
     let arg_idx = rollup_arg_idx.unwrap();
 
@@ -677,13 +750,13 @@ pub(super) fn compile_rollup_func_args(fe: &FuncExpr) -> RuntimeResult<(Vec<Expr
     for (i, arg) in fe.args.iter().enumerate() {
         if i == arg_idx {
             re = get_rollup_expr_arg(arg)?;
-            args[i] = create_evaluator(&Expression::Rollup(re))?;
+            args.push( create_evaluator(&Expression::Rollup(re.clone()))? );
             continue;
         }
-        args[i] = create_evaluator(&*arg)?;
+        args.push( create_evaluator(&*arg)? );
     }
 
-    return Ok((args, &re));
+    return Ok((args, re));
 }
 
 // todo: COW. This has a lot of clones
@@ -771,19 +844,13 @@ fn get_keep_metric_names(expr: &Expression) -> bool {
     }
 }
 
-struct SubQueryTaskParams<'a> {
-    ts_sq: &'a Timeseries,
-    values: &'a mut [f64],
-    timestamps: &'a mut [i64],
-    timeseries: Arc<Mutex<Vec<Timeseries>>>
-}
 
-fn do_parallel<F>(tss: &Vec<Timeseries>, mut f: F) -> RuntimeResult<Vec<Timeseries>>
-    where F: FnMut(&Timeseries, &mut [f64], &[i64]) -> RuntimeResult<Vec<Timeseries>> + Send + Sync
+fn do_parallel<F>(tss: &Vec<Timeseries>, f: F) -> RuntimeResult<Vec<Timeseries>>
+    where F: Fn(&Timeseries, &mut [f64], &[i64]) -> RuntimeResult<Vec<Timeseries>> + Send + Sync
 {
     let res = tss.par_iter().map(|ts| {
         let len = ts.values.len();
-        // todo: use object pool for these
+        // todo(perf): use object pool for these
         let mut values: Vec<f64> = Vec::with_capacity(len);
         let mut timestamps: Vec<i64> = Vec::with_capacity(len);
 
@@ -792,7 +859,7 @@ fn do_parallel<F>(tss: &Vec<Timeseries>, mut f: F) -> RuntimeResult<Vec<Timeseri
         f(ts, &mut values, &mut timestamps)
     }).collect::<Vec<_>>();
 
-    // todo(perf) - figure size of result to prealloc return buf
+    // todo(perf) - figure size of result to preallocate return buf
     let mut series: Vec<Timeseries> = Vec::with_capacity(tss.len());
     for r in res.into_iter() {
         match r {
@@ -811,6 +878,7 @@ fn remove_nan_values(dst_values: &mut Vec<f64>, dst_timestamps: &mut Vec<i64>, v
             has_nan = true
         }
     }
+
     if !has_nan {
         // Fast path - no NaNs.
         dst_values.extend_from_slice(&values);
@@ -848,13 +916,8 @@ fn remove_nan_values_in_place(values: &mut Vec<f64>, timestamps: &mut Vec<i64>) 
     timestamps.truncate(k);
 }
 
-pub(crate) static ROLLUP_MEMORY_LIMITER: Lazy<MemoryLimiter> = Lazy::new(|| {
-    MemoryLimiter::new((memory_limit().unwrap() / 4) as usize) // todo: move calc out
-});
-
-
 fn do_rollup_for_timeseries(keep_metric_names: bool,
-                            rc: &mut RollupConfig,
+                            rc: &RollupConfig,
                             ts_dst: &mut Timeseries,
                             mn_src: &MetricName,
                             values_src: &[f64],
@@ -863,7 +926,7 @@ fn do_rollup_for_timeseries(keep_metric_names: bool,
 
     ts_dst.metric_name.copy_from(mn_src);
     if rc.tag_value.len() > 0 {
-        ts_dst.metric_name.add_tag("rollup", &rc.tag_value)
+        ts_dst.metric_name.set_tag("rollup", &rc.tag_value)
     }
     if !keep_metric_names {
         ts_dst.metric_name.reset_metric_group();

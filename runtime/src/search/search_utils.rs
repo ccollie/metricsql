@@ -11,15 +11,9 @@ use metricsql::parser::parse;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::traits::{Timestamp, TimestampTrait};
 
-pub(crate) fn round_to_seconds(ms: i64) -> i64 {
-     ms - &ms % 1000
-}
-
 /// These values prevent from overflow when storing msec-precision time in int64.
-const MIN_TIME_MSECS: i64  = 0; // use 0 instead of `int64(-1<<63) / 1e6` because the storage engine doesn't actually support negative time
-const MAX_TIME_MSECS: i64 = ((1 << 63 - 1) as f64 / 1e6) as i64;
-const MAX_DURATION_MSECS: i64 = 100 * 365 * 24 * 3600 * 1000;
-
+const MIN_TIME_MSECS: i64  = 0;
+pub const MAX_DURATION_MSECS: i64 = 100 * 365 * 24 * 3600 * 1000;
 
 /// Deadline contains deadline with the corresponding timeout for pretty error messages.
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -31,18 +25,26 @@ pub struct Deadline {
 
 impl Deadline {
     /// Returns a deadline for the given timeout.
-    pub fn new(timeout: Duration) -> Self {
-        Deadline::new_ex(Timestamp::now(), timeout)
+    pub fn new(timeout: Duration) -> RuntimeResult<Self> {
+        Deadline::with_start_time(Timestamp::now(), timeout)
     }
 
-    /// Returns a deadline for the given timeout.
-    pub fn new_ex(start_time: Timestamp, timeout: Duration) -> Self {
-        return Deadline {
-            deadline: start_time.add(timeout.num_milliseconds()),
-            timeout,
+    /// Returns a deadline for the given start time and timeout.
+    pub fn with_start_time<T>(start_time: T, timeout: Duration) -> RuntimeResult<Self>
+    where T: Into<Timestamp>
+    {
+        let millis = timeout.num_milliseconds();
+        if millis > MAX_DURATION_MSECS {
+            return Err( RuntimeError::ArgumentError(format!("Timeout value too large: {}", timeout)));
         }
+        if millis < MIN_TIME_MSECS {
+            return Err( RuntimeError::ArgumentError(format!("Negative timeouts are not supported. Got {}", timeout)));
+        }
+        return Ok(Deadline {
+            deadline: start_time.into().add(timeout.num_milliseconds()),
+            timeout,
+        })
     }
-
 
     /// returns true if deadline is exceeded.
     pub fn exceeded(&self) -> bool {
@@ -52,7 +54,28 @@ impl Deadline {
 
 impl Default for Deadline {
     fn default() -> Self {
-        Self::new(Duration::milliseconds(0))
+        let start = Timestamp::now();
+        let timeout = Duration::seconds(10);    // todo: constant
+        Deadline {
+            deadline: start.add(timeout.num_milliseconds()),
+            timeout
+        }
+    }
+}
+impl TryFrom<Duration> for Deadline {
+    type Error = RuntimeError;
+
+    fn try_from(timeout: Duration) -> Result<Self, Self::Error> {
+        Deadline::new(timeout)
+    }
+}
+
+impl TryFrom<i64> for Deadline {
+    type Error = RuntimeError;
+
+    fn try_from(value: i64) -> Result<Self, Self::Error> {
+        let timeout = Duration::milliseconds(value);
+        Deadline::new(timeout)
     }
 }
 

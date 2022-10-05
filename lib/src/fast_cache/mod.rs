@@ -1,6 +1,6 @@
 mod fast_cache;
 
-
+pub use fast_cache::*;
 
 pub fn compare<T: Ord>(a: &[T], b: &[T]) -> std::cmp::Ordering {
     let mut p1 = a.iter();

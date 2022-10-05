@@ -1,5 +1,6 @@
+use std::sync::Arc;
 use metricsql::ast::FuncExpr;
-use metricsql::functions::{BuiltinFunction, Signature, TransformFunction, Volatility};
+use metricsql::functions::{BuiltinFunction, DataType, Volatility};
 
 use crate::context::Context;
 use crate::eval::ExprEvaluator;
@@ -8,10 +9,14 @@ use crate::eval::rollup::RollupEvaluator;
 use crate::eval::traits::Evaluator;
 use crate::EvalConfig;
 use crate::functions::{
-    transform::{get_transform_func, TransformFn, TransformFuncArg}
+    transform::{
+        get_transform_func,
+        TransformFuncArg
+    }
 };
+use crate::functions::transform::TransformFnImplementation;
+use crate::functions::types::AnyValue;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::timeseries::Timeseries;
 
 pub(super) fn create_function_evaluator(fe: &FuncExpr) -> RuntimeResult<ExprEvaluator> {
     if fe.is_rollup() {
@@ -22,33 +27,34 @@ pub(super) fn create_function_evaluator(fe: &FuncExpr) -> RuntimeResult<ExprEval
     }
 }
 
-pub(super) struct TransformEvaluator {
+pub struct TransformEvaluator {
     fe: FuncExpr,
-    function: TransformFunction,
-    /// function signature. Copied here to avoid per-call allocation
-    signature: Signature,
-    handler: Box<dyn TransformFn + 'static>,
+    handler: TransformFnImplementation,
     args: ArgList,
     keep_metric_names: bool,
+    return_type: DataType,
 }
 
 impl TransformEvaluator {
     pub fn new(fe: &FuncExpr) -> RuntimeResult<Self> {
         match fe.function {
             BuiltinFunction::Transform(function) => {
-                let func = get_transform_func(function)?;
+                let handler = get_transform_func(function)?;
                 let signature = function.signature();
 
                 // todo: validate count
                 let args = ArgList::new(&signature, &fe.args)?;
                 let keep_metric_names = fe.keep_metric_names || function.keep_metric_name();
+
+                let rv = fe.return_value();
+                let return_type = DataType::try_from(rv).unwrap_or(DataType::RangeVector);
+
                 Ok(Self {
-                    handler: Box::new(func),   // looks sketchy
+                    handler,
                     args,
-                    function,
-                    signature,
                     fe: fe.clone(),
-                    keep_metric_names
+                    keep_metric_names,
+                    return_type
                 })
             },
             _ => {
@@ -59,20 +65,27 @@ impl TransformEvaluator {
             }
         }
     }
+
+    pub fn is_idempotent(&self) -> bool {
+        self.volatility() != Volatility::Volatile && self.args.all_const()
+    }
 }
 
 impl Evaluator for TransformEvaluator {
-    fn eval(&self, ctx: &mut Context, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
-        // todo: tinyvec
+    fn eval(&self, ctx: &Arc<&Context>, ec: &EvalConfig) -> RuntimeResult<AnyValue> {
         let args = self.args.eval(ctx, ec)?;
-        let mut tfa = TransformFuncArg::new(ec, &self.fe, &args, self.keep_metric_names);
+        let mut tfa = TransformFuncArg::new(ec, &self.fe, args, self.keep_metric_names);
         match (self.handler)(&mut tfa) {
-            Err(err) => Err(RuntimeError::from(format!("cannot evaluate {}: {}", self.fe, err))),
-            Ok(v) => Ok(v)
+            Err(err) => Err(RuntimeError::from(format!("cannot evaluate {}: {:?}", self.fe, err))),
+            Ok(v) => Ok(AnyValue::InstantVector(v))
         }
     }
 
     fn volatility(&self) -> Volatility {
         self.args.volatility
+    }
+
+    fn return_type(&self) -> DataType {
+        self.return_type
     }
 }

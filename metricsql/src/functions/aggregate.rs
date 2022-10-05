@@ -213,18 +213,18 @@ pub fn aggregate_function_signature(fun: &AggregateFunction) -> Signature {
     AggregateFunction::Sum2 |
     AggregateFunction::ZScore |
     AggregateFunction::Count => {
-      Signature::exact(vec![DataType::Series], Volatility::Stable)
+      Signature::exact(vec![DataType::InstantVector], Volatility::Stable)
     }
     AggregateFunction::CountValues => {
-      Signature::exact(vec![DataType::String, DataType::Series], Volatility::Stable)
+      Signature::exact(vec![DataType::String, DataType::InstantVector], Volatility::Stable)
     }
     AggregateFunction::Topk |
     AggregateFunction::Limitk |
     AggregateFunction::Outliersk => {
-      Signature::exact(vec![DataType::Int, DataType::Series], Volatility::Stable)
+      Signature::exact(vec![DataType::Scalar, DataType::InstantVector], Volatility::Stable)
     }
     AggregateFunction::OutliersMAD => {
-      Signature::exact(vec![DataType::Float, DataType::Series], Volatility::Stable)
+      Signature::exact(vec![DataType::Scalar, DataType::InstantVector], Volatility::Stable)
     }
     AggregateFunction::TopkMin |
     AggregateFunction::TopkMax |
@@ -236,23 +236,23 @@ pub fn aggregate_function_signature(fun: &AggregateFunction) -> Signature {
     AggregateFunction::BottomkLast |
     AggregateFunction::BottomkMedian => {
       Signature::variadic_min(vec![
-        DataType::Int,
-        DataType::Series,
-        DataType::String
+          DataType::Scalar,
+          DataType::InstantVector,
+          DataType::String
       ], 2, Volatility::Stable)
     }
     AggregateFunction::Quantile => {
-      Signature::exact(vec![DataType::Float, DataType::Series], Volatility::Stable)
+      Signature::exact(vec![DataType::Scalar, DataType::InstantVector], Volatility::Stable)
     }
     AggregateFunction::Quantiles => {
       // todo:
-      let mut quantile_types: Vec<DataType> = vec![DataType::Float; MAX_ARG_COUNT];
+      let mut quantile_types: Vec<DataType> = vec![DataType::Scalar; MAX_ARG_COUNT];
       quantile_types.insert(0, DataType::String);
-      quantile_types.push(DataType::Series);
+      quantile_types.push(DataType::InstantVector);
       Signature::variadic_min(quantile_types, 3, Volatility::Volatile)
     }
     _ => {
-      Signature::exact(vec![DataType::Series], Volatility::Stable)
+      Signature::exact(vec![DataType::InstantVector], Volatility::Stable)
     }
   }
 }
@@ -260,6 +260,7 @@ pub fn aggregate_function_signature(fun: &AggregateFunction) -> Signature {
 
 pub fn get_aggregate_arg_idx_for_optimization(func: AggregateFunction, arg_count: usize) -> Option<usize> {
   use AggregateFunction::*;
+  // todo: just examine the signature and return the position containing a vector
   match func {
     Bottomk | BottomkAvg | BottomkMax | BottomkMedian | BottomkLast | BottomkMin | Limitk |
     Outliersk | OutliersMAD | Quantile | Topk | TopkAvg | TopkMax | TopkMedian | TopkLast | TopkMin => Some(1),

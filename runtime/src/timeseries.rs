@@ -1,4 +1,3 @@
-use std::borrow::BorrowMut;
 use std::fmt::Debug;
 use std::sync::Arc;
 
@@ -39,13 +38,12 @@ impl Timeseries {
 
     pub fn copy_from_metric_name(src: &Timeseries) -> Self {
         let ts = Timeseries {
-            timestamps: src.timestamps.clone(),
+            timestamps: Arc::clone(&src.timestamps),
             metric_name: src.metric_name.clone(),
             values: src.values.clone(),
         };
         ts
     }
-
 
     pub fn with_shared_timestamps(timestamps: &Arc<Vec<i64>>, values: &[f64]) -> Self {
         Timeseries {
@@ -68,6 +66,10 @@ impl Timeseries {
             values: src.values.clone(),
             timestamps: Arc::clone(&src.timestamps),
         }
+    }
+
+    pub fn is_all_nans(&self) -> bool {
+        self.values.iter().all(|v| v.is_nan())
     }
 
     pub fn len(&self) -> usize {
@@ -166,7 +168,7 @@ impl Timeseries {
 
     #[inline]
     pub fn tag_count(&self) -> usize {
-        self.metric_name.get_tag_count()
+        self.metric_name.tag_count()
     }
 }
 
@@ -441,6 +443,7 @@ fn timeseries_pool() -> &'static LinearObjectPool<TimeseriesPoolEntry> {
     })
 }
 
-pub(crate) fn get_timeseries() -> &'static mut Timeseries {
-    timeseries_pool().pull().timeseries.borrow_mut()
+pub(crate) fn get_timeseries() -> Timeseries {
+    // timeseries_pool().pull().timeseries.borrow_mut()
+    Timeseries::default()
 }
