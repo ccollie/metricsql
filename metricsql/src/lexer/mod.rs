@@ -4,6 +4,9 @@ mod number;
 mod tokens;
 mod utils;
 
+#[cfg(test)]
+mod lexer_tests;
+
 pub(crate) use duration::{duration_value};
 pub use number::parse_float;
 pub(crate) use lexer::*;

@@ -1,10 +1,10 @@
 #[cfg(test)]
 mod tests {
-	use crate::lexer::duration;
+	use crate::lexer::{duration, Lexer};
 
 	#[test]
 	fn test_is_special_integer_prefix() {
-		fn f(s: String, expected: bool) {
+		fn f(s: &str, expected: bool) {
 			let result = is_special_integer_prefix(s);
 			assert_eq!(result, expected, "unexpected result for is_special_integer_prefix({}); got {}; want {}", s, result, expected)
 		}
@@ -75,7 +75,7 @@ mod tests {
 				Err(_) => break,
 				_=> {}
 			}
-			if isEOF(lex.Token) {
+			if lex.is_eof() {
 				panic!("expecting error during parse")
 			}
 		}
