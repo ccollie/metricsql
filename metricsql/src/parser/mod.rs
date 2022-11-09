@@ -8,9 +8,12 @@ mod parse_error;
 mod parser;
 mod regexp_cache;
 mod utils;
+mod simplify;
 
 // tests
+#[cfg(test)]
 mod parser_example_test;
+#[cfg(test)]
 mod parser_test;
-mod simplify;
+
 

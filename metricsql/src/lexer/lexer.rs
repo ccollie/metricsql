@@ -34,6 +34,10 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    pub fn is_eof(&self) -> bool {
+        self.done
+    }
+
     fn read_token(&mut self) -> Option<Token<'a>> {
         if self.done {
             return None;
