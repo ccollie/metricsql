@@ -2,6 +2,7 @@ use std::borrow::{Cow};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use once_cell::sync::Lazy;
+use regex::internal::Input;
 
 use lib::get_pooled_buffer;
 use metricsql::ast::{
