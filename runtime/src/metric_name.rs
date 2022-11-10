@@ -9,10 +9,10 @@ use std::ops::{Deref};
 use enquote::enquote;
 use xxhash_rust::xxh3::Xxh3;
 
-use lib::{unmarshal_string_fast, unmarshal_var_int};
+use lib::{marshal_string_fast, unmarshal_string_fast, unmarshal_var_int};
 use metricsql::ast::{AggregateModifier, AggregateModifierOp};
 
-use crate::{marshal_bytes_fast, marshal_string_fast, unmarshal_bytes_fast};
+use crate::{marshal_bytes_fast, unmarshal_bytes_fast};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 
 /// The maximum length of label name.

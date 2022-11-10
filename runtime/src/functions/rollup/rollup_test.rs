@@ -1,0 +1,1063 @@
+#[cfg(test)]
+mod tests {
+    const NAN: f64 = f64::NAN;
+    const INF: f64 = f64::INFINITY;
+    const TEST_VALUES: [f64; 12]  = [123.0, 34.0, 44.0, 21.0, 54.0, 34.0, 99.0, 12.0, 44.0, 32.0, 34.0, 34.0];
+    const TEST_TIMESTAMPS: [i64; 12] = [5, 15, 24, 36, 49, 60, 78, 80, 97, 115, 120, 130];
+
+    use crate::functions::rollup::{get_rollup_function_factory_by_name, RollupConfig, RollupFuncArg, RollupHandlerEnum};
+    use crate::functions::rollup::rollup_fns::{delta_values, deriv_values, linear_regression, remove_counter_resets, 
+                                               rollup_avg, rollup_changes, rollup_changes_prometheus, rollup_count, 
+                                               rollup_default, rollup_delta, rollup_delta_prometheus, rollup_deriv_fast, 
+                                               rollup_deriv_slow, rollup_distinct, rollup_first, rollup_idelta, rollup_ideriv, 
+                                               rollup_integrate, rollup_lag, rollup_last, rollup_lifetime, rollup_max, rollup_min, 
+                                               rollup_mode_over_time, rollup_rate_over_sum, rollup_resets, rollup_scrape_interval, 
+                                               rollup_stddev, rollup_sum, rollup_zscore_over_time};
+    use crate::functions::types::AnyValue;
+    use crate::Timeseries;
+
+    #[test]
+    fn test_rollup_ideriv_duplicate_timestamps() {
+        let mut rfa = RollupFuncArg::default();
+        rfa.prev_value = 0.0;
+        rfa.prev_timestamp = 0;
+        rfa.values = vec![1_f64, 2, 3, 4, 5];
+        rfa.timestamps = vec![100, 100, 200, 300, 300];
+        rfa.real_prev_value = 0.0;
+        rfa.real_next_value = 0.0;
+
+        let n = rollup_ideriv(&mut rfa);
+        assert_eq!(n, 20, "unexpected value; got {}; want {}", n, 20);
+
+        let mut rfs = RollupFuncArg::default();
+        rfs.values = vec![1_f64, 2, 3, 4, 5];
+        rfs.timestamps = vec![100, 100, 300, 300, 300];
+        let n = rollup_ideriv(&mut rfa);
+        assert_eq!(n, 15_f64, "unexpected value; got {}; want {}", n, 15);
+
+        let mut rfs = RollupFuncArg::default();
+        rfs.prev_value = NAN;
+        let n = rollup_ideriv(&mut rfa);
+        if !n.is_nan() {
+            t.Fatalf("unexpected value; got %v; want %v", n, NAN)
+        }
+
+        let mut rfs = RollupFuncArg::default();
+        rfs.prev_value = NAN;
+        rfs.values = vec![15.0];
+        rfs.timestamps = vec![100];
+
+        let n = rollup_ideriv(&mut rfa);
+        assert!(n.is_nan(), "unexpected value; got {}; want {}", n, NAN);
+
+        let mut rfs = RollupFuncArg::default();
+        rfs.prev_timestamp = 90;
+        rfs.prev_value = 10_f64;
+        rfs.values = vec![15_f64];
+        rfs.timestamps = vec![100];
+
+        let n = rollup_ideriv(&mut rfa);
+        assert_eq!(n, 500, "unexpected value; got %v; want %v", n, 500);
+
+        let mut rfs = RollupFuncArg::default();
+        rfs.prev_timestamp = 100;
+        rfs.prev_value = 10_f64;
+        rfs.values = vec![15_f64];
+        rfs.timestamps = vec![100];
+
+        let n = rollup_ideriv(&mut rfa);
+        assert_eq!(n, INF, "unexpected value; got {}; want {}", n, INF);
+
+        let mut rfs = RollupFuncArg::default();
+        rfs.prev_timestamp = 100;
+        rfs.prev_value = 10_f64;
+        rfs.values = vec![15_f64, 20];
+        rfs.timestamps = vec![100, 100];
+
+        let n = rollup_ideriv(&mut rfa);
+        assert_eq!(n, INF, "unexpected value; got %v; want %v", n, INF);
+    }
+
+    #[test]
+    fn test_remove_counter_resets() {
+        remove_counter_resets(nil);
+
+        let mut values= Vec::from(TEST_VALUES);
+        remove_counter_resets(&mut values);
+        let values_expected: Vec<f64> = vec![123_f64, 157.0, 167.0, 188.0, 221.0, 255.0, 320.0, 332.0, 364.0, 396.0, 398.0, 398.0];
+        test_rows_equal(&values, &TEST_TIMESTAMPS, &values_expected, &TEST_TIMESTAMPS);
+
+        // removeCounterResets doesn't expect negative values, so it doesn't work properly with them.
+        let mut values: Vec<f64> = vec![-100_f64, -200.0, -300.0, -400.0];
+        remove_counter_resets(&mut values);
+        let values_expected = vec![-100_f64, -300.0, -600.0, -1000.0];
+        let timestamps_expected: Vec<i64> = vec![0, 1, 2, 3];
+        test_rows_equal(&values, timestamps_expected, values_expected, &timestamps_expected);
+
+        // verify how partial counter reset is handled.
+        // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/2787
+        let mut values = vec![100_f64, 95.0, 120.0, 119.0, 139.0, 50.0];
+        remove_counter_resets(&mut values);
+        let values_expected = vec![100_f64, 100.0, 125.0, 125.0, 145.0, 195.0];
+        let timestamps_expected = vec![0_i64, 1, 2, 3, 4, 5];
+        test_rows_equal(&values, timestamps_expected, values_expected, &timestamps_expected)
+    }
+
+    #[test]
+    fn test_delta_values() {
+        delta_values(nil);
+        let mut values: Vec<f64> = vec![123_f64];
+        delta_values(&mut values);
+        let values_expected: Vec<f64> = vec![0_f64];
+        test_rows_equal(&values, &TEST_TIMESTAMPS[0..1], values_expected, &TEST_TIMESTAMPS[0..1]);
+
+        values.extend_from_slice(&TEST_VALUES);
+        delta_values(&mut values);
+        let values_expected: Vec<f64> = vec![-89_f64, 10.0, -23.0, 33.0, -20.0, 65.0, -87.0, 32.0, -12.0, 2.0, 0.0, 0.0];
+        test_rows_equal(&values, TEST_TIMESTAMPS, values_expected, TEST_TIMESTAMPS);
+
+        // remove counter resets
+        values.extend_from_slice(&TEST_VALUES);
+        remove_counter_resets(&mut values);
+        delta_values(&mut values);
+
+        let values_expected = vec![34_f64, 10.0, 21.0, 33.0, 34.0, 65.0, 12.0, 32.0, 32.0, 2.0, 0.0, 0.0];
+        test_rows_equal(&values, TEST_TIMESTAMPS, values_expected, TEST_TIMESTAMPS)
+    }
+
+    #[test]
+    fn test_deriv_values() {
+        deriv_values(nil, nil);
+
+        let mut values: Vec<f64> = vec![123_f64];
+        deriv_values(&mut values, &TEST_TIMESTAMPS[0..1]);
+        let values_expected: Vec<f64> = vec![0_f64];
+        test_rows_equal(&values, &TEST_VALUES[0..1], values_expected, &TEST_TIMESTAMPS[0..1]);
+
+        values.extend_from_slice(&TEST_VALUES);
+        deriv_values(&mut values, &TEST_TIMESTAMPS);
+        let mut values_expected = vec![-8900, 1111.111111111111, -1916.6666666666665, 2538.4615384615386, -1818.1818181818182, 3611.1111111111113,
+                                       -43500, 1882.3529411764705, -666.6666666666667, 400, 0, 0];
+        test_rows_equal(&values, testTimestamps, values_expected, testTimestamps);
+
+        // remove counter resets
+        values.extend_from_slice(testValues);
+        remove_counter_resets(&mut values);
+        deriv_values(&mut values, &TEST_TIMESTAMPS);
+        let mut values_expected = vec![3400_f64, 1111.111111111111, 1750, 2538.4615384615386, 3090.909090909091, 3611.1111111111113,
+                                       6000, 1882.3529411764705, 1777.7777777777778, 400, 0, 0];
+        test_rows_equal(&values, testTimestamps, values_expected, testTimestamps);
+
+        // duplicate timestamps
+        let mut values = vec![1_f64, 2, 3, 4, 5, 6, 7];
+        let timestamps = vec![100, 100, 200, 200, 300, 400, 400];
+        deriv_values(&mut values, &timestamps);
+        values_expected = vec![0_f64, 20, 20, 20, 10, 10, 10];
+        test_rows_equal(&values, &timestamps, values_expected, &timestamps);
+    }
+
+    fn test_rollup_func(func_name: &str, args: Vec<AnyValue>, expected: f64) {
+        let nrf = get_rollup_function_factory_by_name(func_name).unwrap();
+        let rf = nrf(&args)?;
+        let mut rfa = RollupFuncArg::default();
+        rfa.prev_value = NAN;
+        rfa.prev_timestamp = 0;
+        rfa.values.extend_from_slice(&TEST_VALUES);
+        rfa.timestamps.extend_from_slice(&TEST_TIMESTAMPS);
+        rfa.window = rfa.timestamps[rfa.timestamps.len() - 1] - &rfa.timestamps[0];
+        if rollupFuncsRemoveCounterResets[func_name] {
+            remove_counter_resets(&mut rfa.values)
+        }
+        for i in 0..5 {
+            let v = rf(&mut rfa);
+            if expected.is_nan() {
+                assert!(v.is_nan(), "unexpected value; got {}; want {}", v, expected)
+            }
+            let eps = (v - &expected).abs();
+            assert!(eps <= 1e-14, "unexpected value; got {}; want {}", v, expected);
+        }
+    }
+
+    #[test]
+    fn test_rollup_duration_over_time() {
+        let f = |max_interval: f64, expected: f64| {
+            let max_intervals = AnyValue::from(max_interval);
+            let args = vec![AnyValue::from(0), max_intervals];
+            test_rollup_func("duration_over_time", args,  expected)
+        };
+
+        f(-123.0, 0.0);
+        f(0.0, 0.0);
+        f(0.001, 0.0);
+        f(0.005, 0.007);
+        f(0.01, 0.036);
+        f(0.02, 0.125);
+        f(1.0, 0.125);
+        f(100.0, 0.125)
+    }
+
+    #[test]
+    fn test_rollup_share_le_over_time() {
+        let f = |le: f64, expected: f64| {
+            let les = AnyValue::from(le);
+            let args = vec![AnyValue::from(0), les];
+            test_rollup_func("share_le_over_time", args, expected)
+        };
+
+        f(-123_f64, 0.0);
+        f(0_f64, 0.0);
+        f(10_f64, 0.0);
+        f(12_f64, 0.08333333333333333);
+        f(30_f64, 0.16666666666666666);
+        f(50_f64, 0.75);
+        f(100_f64, 0.9166666666666666);
+        f(123_f64, 1_f64);
+        f(1000_f64, 1_f64)
+    }
+
+
+    #[test]
+    fn test_rollup_share_gt_over_time() {
+        let f = |gt: f64, v_expected: f64| {
+            let gts = AnyValue::from(gt);
+            let args = vec![AnyValue::from(0), gts];
+            test_rollup_func("share_gt_over_time", args, v_expected)
+        };
+
+        f(-123_f64, 1_f64);
+        f(0_f64, 1_f64);
+        f(10_f64, 1_f64);
+        f(12_f64, 0.9166666666666666);
+        f(30_f64, 0.8333333333333334);
+        f(50_f64, 0.25);
+        f(100_f64, 0.08333333333333333);
+        f(123_f64, 0_f64);
+        f(1000_f64, 0_f64)
+    }
+
+    #[test]
+    fn test_rollup_count_le_over_time() {
+        let f = |le: f64, expected: f64| {
+            let le_param = AnyValue::from(le);
+            let args = vec![AnyValue::from(0), le_param];
+            test_rollup_func("count_le_over_time", args, expected);
+        };
+
+        f(-123.0, 0.0);
+        f(0.0, 0.0);
+        f(10.0, 0.0);
+        f(12.0, 1.0);
+        f(30.0, 2.0);
+        f(50.0, 9.0);
+        f(100.0, 11.0);
+        f(123.0, 12.0);
+        f(1000.0, 12.0)
+    }
+
+    #[test]
+    fn test_rollup_count_gt_over_time() {
+        let f = |gt: f64, expected: f64| {
+            let gt_param = AnyValue::from(gt);
+            let args = vec![AnyValue::from(0), gt_param];
+            test_rollup_func("count_gt_over_time", args, expected)
+        };
+
+        f(-123_f64, 12_f64);
+        f(0_f64, 12_f64);
+        f(10_f64, 12_f64);
+        f(12_f64, 11_f64);
+        f(30_f64, 10_f64);
+        f(50_f64, 3_f64);
+        f(100_f64, 1_f64);
+        f(123_f64, 0_f64);
+        f(1000_f64, 0_f64)
+    }
+
+    #[test]
+    fn test_rollup_count_eq_over_time() {
+        let f = |eq: f64, v_expected: f64| {
+            let eqs = AnyValue::from(eq);
+            let args = vec![AnyValue::from(0), eqs];
+            test_rollup_func("count_eq_over_time", args, v_expected)
+        };
+
+        f(-123.0, 0.0);
+        f(0.0, 0.0);
+        f(34.0, 4.0);
+        f(123.0, 1.0);
+        f(12.0, 1.0)
+    }
+
+    #[test]
+    fn test_rollup_count_ne_over_time() {
+        let f = |ne: f64, expected: f64| {
+            let nes = AnyValue::from(ne);
+            let args = vec![AnyValue::from(0), nes];
+            test_rollup_func("count_ne_over_time", args, expected)
+        };
+
+        f(-123.0, 12.0);
+        f(0.0, 12.0);
+        f(34.0, 8.0);
+        f(123.0, 11.0);
+        f(12.0, 11.0);
+    }
+
+    #[test]
+    fn test_rollup_quantile_over_time() {
+        let f = |phi: f64, expected: f64| {
+            let phis = AnyValue::from(phi);
+            let args = vec![phis, AnyValue::from(0)];
+            test_rollup_func("quantile_over_time", args, expected)
+        };
+
+        f(-123.0, f64::NEG_INFINITY);
+        f(-0.5, f64::NEG_INFINITY);
+        f(0.0, 12.0);
+        f(0.1, 22.1);
+        f(0.5, 34.0);
+        f(0.9, 94.50000000000001);
+        f(1.0, 123.0);
+        f(234.0, f64::INFINITY)
+    }
+
+    #[test]
+    fn test_rollup_predict_linear() {
+        let f = |sec: f64, v_expected: f64| {
+            let secs = AnyValue::from(sec);
+            let me = metricsql.MetricExpr;
+            let args = vec![AnyValue::from(0), secs];
+            test_rollup_func("predict_linear", args, expected)
+        };
+
+        f(0e-3, 65.07405077267295);
+        f(50e-3, 51.7311206569699);
+        f(100e-3, 38.38819054126685);
+        f(200e-3, 11.702330309860756)
+    }
+
+    #[test]
+    fn test_linear_regression() {
+        let f = |values: &[f64], timestamps: &[i64], exp_v: f64, exp_k: f64| {
+            let mut rfa = RollupFuncArg::default();
+            rfa.values = Vec::from(values);
+            rfa.timestamps = Vec::from(timestamps);
+            rfa.curr_timestamp = &timestamps[0] + 100;
+            let (v, k) = linear_regression(&mut rfa);
+            compare_values(&[v], &[exp_v]).unwrap();
+            compare_values(vec![k], vec![exp_k]);
+        };
+
+        f(&[1.0], &[1], f64::NAN, f64::NAN);
+        f(&[1.0, 2.0], &[100, 300], 1.5, 5.0);
+        f(&[2.0, 4.0, 6.0, 8.0, 10.0], &[100, 200, 300, 400, 500], 4.0, 20.0);
+    }
+
+    #[test]
+    fn test_rollup_holt_winters() {
+        let f = |sf: f64, tf: f64, expected: f64| {
+            let sf_param = AnyValue::from(sf);
+            let tf_param = AnyValue::from(tf);
+            let args = vec![AnyValue::from(0), sf_param, tf_param];
+            test_rollup_func("holt_winters", args, expected)
+        };
+
+        f(-1.0, 0.5, NAN);
+        f(0.0, 0.5, NAN);
+        f(1.0, 0.5, NAN);
+        f(2.0, 0.5, NAN);
+        f(0.5, -1.0, NAN);
+        f(0.5, 0.0, NAN);
+        f(0.5, 1.0, NAN);
+        f(0.5, 2.0, NAN);
+        f(0.5, 0.5, 34.97794532775879);
+        f(0.1, 0.5, -131.30529492371622);
+        f(0.1, 0.1, -397.3307790780296);
+        f(0.5, 0.1, -5.791530520284198);
+        f(0.5, 0.9, 25.498906408926757);
+        f(0.9, 0.9, 33.99637566941818)
+    }
+
+    #[test]
+    fn test_rollup_hoeffding_bound_lower() {
+        let f = |phi: f64, expected: f64| {
+            let phis = AnyValue::from(phi);
+            let args = vec![phis, AnyValue::from(0)];
+            test_rollup_func("hoeffding_bound_lower", args, expected)
+        };
+
+        f(0.5, 28.21949401521037);
+        f(-1.0, 47.083333333333336);
+        f(0.0, 47.083333333333336);
+        f(1.0, -INF);
+        f(2.0, -INF);
+        f(0.1, 39.72878000047643);
+        f(0.9, 12.701803086472331)
+    }
+
+    #[test]
+    fn test_rollup_hoeffding_bound_upper() {
+        let f = |phi: f64, expected: f64| {
+            let phis = AnyValue::from(phi);
+            let args = vec![phis, AnyValue::from(0)];
+            test_rollup_func("hoeffding_bound_upper", args, expected)
+        };
+
+        f(0.5, 65.9471726514563);
+        f(-1.0, 47.083333333333336);
+        f(0.0, 47.083333333333336);
+        f(1.0, INF);
+        f(2.0, INF);
+        f(0.1, 54.43788666619024);
+        f(0.9, 81.46486358019433)
+    }
+
+    #[test]
+    fn test_rollup_new_rollup_func_success() {
+        let f = |func_name: &str, expected: f64| {
+            let args = vec![AnyValue::from(0)];
+            test_rollup_func(func_name, args, expected)
+        };
+
+        f("default_rollup", 34_f64);
+        f("changes", 11_f64);
+        f("changes_prometheus", 10_f64);
+        f("delta", 34_f64);
+        f("delta_prometheus", -89_f64);
+        f("deriv", -266.85860231406093);
+        f("deriv_fast", -712_f64);
+        f("idelta", 0_f64);
+        f("increase", 398_f64);
+        f("increase_prometheus", 275_f64);
+        f("irate", 0_f64);
+        f("rate", 2200_f64);
+        f("resets", 5_f64);
+        f("range_over_time", 111_f64);
+        f("avg_over_time", 47.083333333333336);
+        f("min_over_time", 12_f64);
+        f("max_over_time", 123_f64);
+        f("tmin_over_time", 0.08);
+        f("tmax_over_time", 0.005);
+        f("tfirst_over_time", 0.005);
+        f("tlast_change_over_time", 0.12);
+        f("tlast_over_time", 0.13);
+        f("sum_over_time", 565.0);
+        f("sum2_over_time", 37951_f64);
+        f("geomean_over_time", 39.33466603189148);
+        f("count_over_time", 12_f64);
+        f("stale_samples_over_time", 0_f64);
+        f("stddev_over_time", 30.752935722554287);
+        f("stdvar_over_time", 945.7430555555555);
+        f("first_over_time", 123_f64);
+        f("last_over_time", 34_f64);
+        f("integrate", 0.817);
+        f("distinct_over_time", 8_f64);
+        f("ideriv", 0_f64);
+        f("decreases_over_time", 5_f64);
+        f("increases_over_time", 5_f64);
+        f("increase_pure", 398_f64);
+        f("ascent_over_time", 142_f64);
+        f("descent_over_time", 231_f64);
+        f("zscore_over_time", -0.4254336383156416);
+        f("timestamp", 0.13);
+        f("timestamp_with_name", 0.13);
+        f("mode_over_time", 34_f64);
+        f("rate_over_sum", 4520_f64)
+    }
+
+    #[test]
+    fn test_rollup_new_rollup_func_error() {
+        let nrf = get_rollup_function_factory_by_name("non-existing-func");
+        assert!(nrf.is_err(), "expecting nil func; got {:?}", nrf);
+
+        let f = |func_name: &str, args: &[AnyValue]| {
+            let nrf = get_rollup_function_factory_by_name(func_name).unwrap();
+            let args = Vec::from(args);
+            let rf = (nrf)(&args)?;
+            if rf != nil {
+                t.Fatalf("expecting nil rf; got %p", rf)
+            }
+        };
+
+        // Invalid number of args
+        f("default_rollup", &[]);
+        f("holt_winters", &[]);
+        f("predict_linear", &[]);
+        f("quantile_over_time", &[]);
+        f("quantiles_over_time", &[]);
+
+        // Invalid arg type
+        let scalar_ts = AnyValue::from( Timeseries::new(vec![123], vec![321_f64]));
+        let me = AnyValue::from(0);
+        let _123 = AnyValue::from(123);
+        let _321 = AnyValue::from(321);
+        f("holt_winters", &[_123.clone(), _123.clone(), _123.clone()]);
+        f("holt_winters", &[me, _123.clone(), _321.clone()]);
+        f("holt_winters", &[me.clone(), scalarTs,_321.clone()]);
+        f("predict_linear", &[_123.clone(), _123.clone()]);
+        f("predict_linear", &[me.clone(), _123.clone()]);
+        f("quantile_over_time", &[_123.clone(), _123.clone()]);
+        f("quantiles_over_time", &[_123.clone(), _123.clone()]);
+    }
+
+    // todo: macro ??
+    fn test_rollup(rc: &mut RollupConfig, values_expected: &[f64], timestamps_expected: &[i64]) {
+        rc.max_points_per_series = 10000;
+        rc.ensure_timestamps().unwrap();
+        let mut values: Vec<f64> = vec![];
+        let samples_scanned = rc.exec(&mut values, &TEST_VALUES, &TEST_TIMESTAMPS);
+        assert_ne!(samples_scanned, 0, "expecting non-zero samples_scanned from rollupConfig.co");
+        test_rows_equal(&values, &rc.timestamps, &values_expected, &timestamps_expected)
+    }
+
+    #[test]
+    fn test_rollup_no_window_no_points() {
+
+        fn before_start() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
+            rc.start = 0;
+            rc.end = 4;
+            rc.step = 1;
+            rc.window = 0;
+            test_rollup(&mut rc, &[NAN, NAN, NAN, NAN, NAN], &[0, 1, 2, 3, 4]);
+       }
+
+        #[test]
+        fn after_end() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_delta);
+            rc.start =  120;
+            rc.end =148;
+            rc.step = 4;
+            rc.window = 0;
+            test_rollup(&mut rc, &[2_f64, 0, 0, 0, NAN, NAN, NAN, NAN],
+                        &[120, 124, 128, 132, 136, 140, 144, 148])
+        }
+    }
+
+    #[test]
+    fn test_rollup_window_no_points() {
+
+        fn before_start() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
+            rc.start = 0;
+            rc.end = 4;
+            rc.step = 1;
+            rc.window = 3;
+            test_rollup(&mut rc, &[NAN, NAN, NAN, NAN, NAN], &[0, 1, 2, 3, 4]);
+        }
+
+        fn after_end() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
+            rc.start =  161;
+            rc.end = 191;
+            rc.step = 10;
+            rc.window = 3;
+            test_rollup(&mut rc, &[NAN, NAN, NAN, NAN], &[161, 171, 181, 191]);
+        }
+    }
+
+    #[test]
+    fn test_rollup_no_window_partial_points() {
+
+        #[test]
+        fn before_start() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
+            rc.start = 0;
+            rc.end =25;
+            rc.step = 5;
+            rc.window = 0;
+            test_rollup(&mut rc, &[NAN, 123.0, NAN, 34.0, NAN, 44.0], &[0, 5, 10, 15, 20, 25]);
+        }
+
+        #[test]
+        fn after_end() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
+            rc.start =  100;
+            rc.end = 160;
+            rc.step = 20;
+            rc.window = 0;
+            rc.max_points_per_series = 10000;
+            test_rollup(&mut rc, &[44_f64, 32.0, 34.0, NAN], &[100, 120, 140, 160]);
+        }
+
+        fn middle() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
+            rc.start = -50;
+            rc.end =150;
+            rc.step = 50;
+            rc.window = 0;
+            test_rollup(&mut rc, &[NAN, NAN, 123.0, 34.0, 32.0], &[-50, 0, 50, 100, 150]);
+        }
+    }
+
+    #[test]
+    fn test_rollup_window_partial_points() {
+        fn before_start() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_last);
+            rc.start = 0;
+            rc.end = 20;
+            rc.step = 5;
+            rc.window = 8;
+            test_rollup(&mut rc, &[NAN, 123_f64, 123_f64, 34_f64, 34_f64], &[0, 5, 10, 15, 20]);
+        }
+
+        fn after_end() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_last);
+            rc.start = 100;
+            rc.end = 160;
+            rc.step = 20;
+            rc.window = 18;
+            test_rollup(&mut rc, &[44_f64, 34_f64, 34_f64, NAN], &[100, 120, 140, 160]);
+        }
+
+        #[test]
+        fn middle() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_last);
+            rc.start = 0;
+            rc.end = 150;
+            rc.step = 50;
+            rc.window = 19;
+            test_rollup(&mut rc, &[NAN, 54_f64, 44_f64, NAN], &[0, 50, 100, 150]);
+        }
+    }
+
+    #[test]
+    fn test_rollup_funcs_lookback_delta() {
+        fn one() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
+            rc.start = 80;
+            rc.end = 140;
+            rc.step = 10;
+            rc.lookback_delta = 1;
+            test_rollup(&mut rc, &[99_f64, NAN, 44.0, NAN, 32.0, 34.0, NAN], 
+                        &[80, 90, 100, 110, 120, 130, 140]);
+        }
+
+        fn seven() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
+            rc.start = 80;
+            rc.end = 140;
+            rc.step = 10;
+            rc.lookback_delta = 7;
+            test_rollup(&mut rc, &[99_f64, NAN, 44.0, NAN, 32.0, 34.0, NAN], 
+                        &[80, 90, 100, 110, 120, 130, 140]);
+        }
+
+        fn eight() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
+            rc.start = 80;
+            rc.end = 140;
+            rc.step = 10;
+            rc.lookback_delta = 0;
+            test_rollup(&mut rc, &[99_f64, NAN, 44, NAN, 32, 34, NAN], &[80, 90, 100, 110, 120, 130, 140]);
+        }
+    }
+
+    #[test]
+    fn test_rollup_funcs_no_window() {
+        fn first() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
+            rc.start = 0;
+            rc.end = 160;
+            rc.step = 40;
+            rc.window = 0;
+            test_rollup(&mut rc, &[NAN, 123, 54, 44, 34], &[0, 40, 80, 120, 160]);
+        }
+
+        #[test]
+        fn count() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_count);
+            rc.start = 0;
+            rc.end = 160;
+            rc.step = 40;
+            rc.window = 0;
+            test_rollup(&mut rc, &[NAN, 4, 4, 3, 1], &[0, 40, 80, 120, 160]);
+        }
+
+        #[test]
+        fn min() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_min);
+            rc.start = 0;
+            rc.end = 160;
+            rc.step = 40;
+            rc.window = 0;
+            test_rollup(&mut rc, &[NAN, 21.0, 12.0, 32.0, 34.0], &[0, 40, 80, 120, 160]);
+        }
+
+        #[test]
+        fn max() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_max);
+            rc.start = 0;
+            rc.end = 160;
+            rc.step = 40;
+            rc.window = 0;
+            test_rollup(&mut rc, &[NAN, 123.0, 99.0, 44.0, 34.0], &[0, 40, 80, 120, 160]);
+        }
+
+        #[test]
+        fn sum() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_sum);
+            rc.start = 0;
+            rc.end = 160;
+            rc.step = 40;
+            rc.window = 0;
+            rc.max_points_per_series = 10000;
+            test_rollup(&mut rc, &[NAN, 222.0, 199.0, 110.0, 34.0], &[0, 40, 80, 120, 160]);
+        }
+
+        #[test]
+        fn delta() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_sum);
+            rc.start = 0;
+            rc.end = 160;
+            rc.step = 40;
+            rc.window = 0;
+            test_rollup(&mut rc, &[NAN, 21.0, -9.0, 22.0, 0.0], &[0, 40, 80, 120, 160]);
+        }
+
+        #[test]
+        fn delta_prometheus() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_delta_prometheus);
+            rc.start = 0;
+            rc.end = 160;
+            rc.step = 40;
+            rc.window = 0;
+            test_rollup(&mut rc, &[NAN, -102.0, -42.0, -10.0, NAN], &[0, 40, 80, 120, 160]);
+        }
+
+        #[test]
+        fn idelta() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_idelta);
+            rc.start = 10;
+            rc.end = 130;
+            rc.step = 40;
+            rc.window = 0;
+            test_rollup(&mut rc, &[123_f64, 33.0, -87.0, 0.0], &[10, 50, 90, 130]);
+        }
+
+        #[test]
+        fn lag() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_lag);
+            rc.start = 0;
+            rc.end = 160;
+            rc.step = 40;
+            rc.window = 0;
+            test_rollup(&mut rc, &[NAN, 0.004, 0.0, 0.0, 0.03], &[0, 40, 80, 120, 160]);
+        }
+
+        #[test]
+        fn lifetime_1() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_lifetime);
+            rc.start = 0;
+            rc.end = 160;
+            rc.step = 40;
+            rc.window = 0;
+            test_rollup(&mut rc, &[NAN, 0.031, 0.044, 0.04, 0.01], &[0, 40, 80, 120, 160]);
+        }
+
+        #[test]
+        fn lifetime_2() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_lifetime);
+            rc.start = 0;
+            rc.end = 160;
+            rc.step = 40;
+            rc.window = 200;
+            test_rollup(&mut rc, &[NAN, 0.031, 0.075, 0.115, 0.125], &[0, 40, 80, 120, 160]);
+        }
+
+        #[test]
+        fn scrape_interval_1() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_scrape_interval);
+            rc.start = 0;
+            rc.end = 160;
+            rc.step = 40;
+            rc.window = 0;
+            test_rollup(&mut rc, &[NAN, 0.010333333333333333, 0.011, 0.013333333333333334, 0.01], &[0, 40, 80, 120, 160]);
+        }
+
+        #[test]
+        fn scrape_interval_2() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_scrape_interval);
+            rc.start = 0;
+            rc.end = 160;
+            rc.step = 40;
+            rc.window = 80;
+            test_rollup(&mut rc, &[NAN, 0.010333333333333333, 0.010714285714285714, 0.012, 0.0125], &[0, 40, 80, 120, 160]);
+        }
+
+        #[test]
+        fn changes() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_changes);
+            rc.start = 0;
+            rc.end = 160;
+            rc.step = 40;
+            rc.window = 0;
+            test_rollup(&mut rc, &[NAN, 4, 4, 3, 0], &[0, 40, 80, 120, 160]);
+        }
+
+        #[test]
+        fn changes_prometheus() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_changes_prometheus);
+            rc.start = 0;
+            rc.end = 160;
+            rc.step = 40;
+            rc.window = 0;
+            test_rollup(&mut rc, &[NAN, 3, 3, 2, 0], &[0, 40, 80, 120, 160]);
+        }
+
+        #[test]
+        fn changes_small_window() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_changes);
+            rc.start = 0;
+            rc.end = 45;
+            rc.step = 9;
+            rc.window = 9;
+            test_rollup(&mut rc, &[NAN, 1, 1, 1, 1, 0], &[0, 9, 18, 27, 36, 45]);
+        }
+
+        #[test]
+        fn resets() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_resets);
+            rc.start = 0;
+            rc.end = 160;
+            rc.step = 40;
+            rc.window = 0;
+            test_rollup(&mut rc, &[NAN, 2, 2, 1, 0], &[0, 40, 80, 120, 160]);
+        }
+
+        #[test]
+        fn avg() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_avg);
+            rc.start = 0;
+            rc.end = 160;
+            rc.step = 40;
+            rc.window = 0;
+            test_rollup(&mut rc, &[NAN, 55.5, 49.75, 36.666666666666664, 34], &[0, 40, 80, 120, 160]);
+        }
+
+        #[test]
+        fn deriv() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_deriv_slow);
+            rc.start = 0;
+            rc.end = 160;
+            rc.step = 40;
+            rc.window = 0;
+            test_rollup(&mut rc,
+                        &[NAN, -2879.310344827588, 127.87627310448904, -496.5831435079728, 0],
+                        &[0, 40, 80, 120, 160]);
+        }
+
+        #[test]
+        fn deriv_fast() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_deriv_fast);
+            rc.start = 0;
+            rc.end = 20;
+            rc.step = 4;
+            rc.window = 0;
+            test_rollup(&mut rc, &[NAN, NAN, NAN, 0, -8900, 0], &[0, 4, 8, 12, 16, 20]);
+        }
+
+        #[test]
+        fn ideriv() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_ideriv);
+            rc.start = 0;
+            rc.end = 160;
+            rc.step = 40;
+            rc.window = 0;
+            test_rollup(&mut rc, &[NAN, -1916.6666666666665, -43500, 400, 0], &[0, 40, 80, 120, 160]);
+        }
+
+        #[test]
+        fn stddev() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_stddev);
+            rc.start = 0;
+            rc.end = 160;
+            rc.step = 40;
+            rc.window = 0;
+            test_rollup(&mut rc, &[NAN, 39.81519810323691, 32.080952292598795, 5.2493385826745405, 0], &[0, 40, 80, 120, 160]);
+        }
+
+        #[test]
+        fn integrate() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_integrate);
+            rc.start = 0;
+            rc.end = 160;
+            rc.step = 40;
+            rc.window = 0;
+            test_rollup(&mut rc, &[NAN, 2.148, 1.593, 1.156, 1.36], &[0, 40, 80, 120, 160]);
+        }
+
+        #[test]
+        fn distinct_over_time_1() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_distinct);
+            rc.start = 0;
+            rc.end = 160;
+            rc.step = 40;
+            rc.window = 0;
+            test_rollup(&mut rc, &[NAN, 4.0, 4.0, 3.0, 1.0], &[0, 40, 80, 120, 160]);
+        }
+
+        #[test]
+        fn distinct_over_time_2() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_distinct);
+            rc.start = 0;
+            rc.end = 160;
+            rc.step = 40;
+            rc.window = 80;
+            test_rollup(&mut rc, &[NAN, 4.0, 7.0, 6.0, 3.0], &[0, 40, 80, 120, 160]);
+        }
+
+        #[test]
+        fn mode_over_time() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_mode_over_time);
+            rc.start = 0;
+            rc.end = 160;
+            rc.step = 40;
+            rc.window = 80;
+            test_rollup(&mut rc, &[NAN, 21, 34, 34, 34], &[0, 40, 80, 120, 160]);
+        }
+
+        #[test]
+        fn rate_over_sum() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_rate_over_sum);
+            rc.start = 0;
+            rc.end = 160;
+            rc.step = 40;
+            rc.window = 80;
+            test_rollup(&mut rc, &[NAN, 2775.0, 5262.5, 3862.5, 1800], &[0, 40, 80, 120, 160]);
+        }
+
+        #[test]
+        fn zscore_over_time() {
+            let mut rc = RollupConfig::default();
+            rc.handler = RollupHandlerEnum::Wrapped(rollup_zscore_over_time);
+            rc.start = 0;
+            rc.end = 160;
+            rc.step = 40;
+            rc.window = 80;
+            test_rollup(&mut rc, &[NAN, -0.86650328627136, -1.1200838283548589, -0.40035755084856683, NAN], &[0, 40, 80, 120, 160]);
+        }
+
+        // todo: call all fns
+    }
+
+    #[test]
+    fn test_rollup_big_number_of_values() {
+        const SRC_VALUES_COUNT: i64 = 10000;
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandlerEnum::Wrapped(rollup_default);
+        rc.end = SRC_VALUES_COUNT;
+        rc.step = SRC_VALUES_COUNT / 5;
+        rc.window = SRC_VALUES_COUNT / 4;
+        rc.max_points_per_series = 10000;
+        rc.ensure_timestamps().unwrap();
+        let mut src_values: Vec<f64> = Vec::with_capacity(SRC_VALUES_COUNT as usize);
+        let mut src_timestamps: Vec<i64> = Vec::with_capacity(SRC_VALUES_COUNT as usize);
+        for i in 0..SRC_VALUES_COUNT {
+            src_values.push(&i as f64);
+            src_timestamps.push(&i / 2)
+        }
+        let mut values: Vec<f64> = vec![];
+        let samples_scanned = rc.exec(&mut values, &src_values, &src_timestamps)?;
+        assert_ne!(samples_scanned, 0, "expecting non-zero samples_scanned from rollupConfig.co");
+        let values_expected: Vec<f64> = vec![1_f64, 4001, 8001, 9999, NAN, NAN];
+        let timestamps_expected: Vec<i64> = vec![0, 2000, 4000, 6000, 8000, 10000];
+        test_rows_equal(&values, &rc.timestamps, &values_expected, &timestamps_expected);
+    }
+
+    #[test]
+    fn test_rollup_delta() {
+        let f = |prev_value: f64, real_prev_value: f64, real_next_value: f64, values: &[f64], result_expected: f64| {
+            let mut rfa = RollupFuncArg::default();
+            rfa.prev_value = prev_value;
+            rfa.values = Vec::from(values);
+            rfa.real_prev_value = real_prev_value;
+            rfa.real_next_value = real_next_value;
+            let result = rollup_delta(&mut rfa);
+            if result.is_nan() {
+                assert!(result_expected.is_nan(), "unexpected result; got {}; want {}", result, result_expected);
+                return
+            }
+            assert_eq!(result, result_expected, "unexpected result; got %v; want %v", result, result_expected);
+        };
+
+        f(NAN, NAN, NAN, &[], NAN);
+
+        // Small initial value
+        f(NAN, NAN, NAN, &[1.0], 1_f64);
+        f(NAN, NAN, NAN, &[10.0], 0_f64);
+        f(NAN, NAN, NAN, &[100.0], 0_f64);
+        f(NAN, NAN, NAN, &[1.0, 2.0, 3.0], 3_f64);
+        f(1_f64, NAN, NAN, &[1.0, 2.0, 3.0], 2_f64);
+        f(NAN, NAN, NAN, &[5.0, 6.0, 8.0], 8_f64);
+        f(2_f64, NAN, NAN, &[5.0, 6.0, 8.0], 6.0);
+
+        f(NAN, NAN, NAN, &[100.0, 100.0], 0.0);
+
+        // Big initial value with zero delta after that.
+        f(NAN, NAN, NAN, &[1000.0], 0.0);
+        f(NAN, NAN, NAN, &[1000.0, 1000.0], 0.0);
+
+        // Big initial value with small delta after that.
+        f(NAN, NAN, NAN, &[1000.0, 1001.0, 1002.0], 2_f64);
+
+        // Non-NAN real_prev_value
+        f(NAN, 900.0, NAN, &[1000.0], 100_f64);
+        f(NAN, 1000.0, NAN, &[1000.0], 0_f64);
+        f(NAN, 1100.0, NAN, &[1000.0], -100_f64);
+        f(NAN, 900.0, NAN, &[1000.0, 1001.0, 1002.0], 102_f64);
+
+        // Small delta between realNextValue and values
+        f(NAN, NAN, 990.0, &[1000.0], 0_f64);
+        f(NAN, NAN, 1005.0, &[1000.0], 0_f64);
+
+        // Big delta between relaNextValue and values
+        f(NAN, NAN, 800.0, &[1000.0], 1000_f64);
+        f(NAN, NAN, 1300.0, &[1000.0], 1000_f64);
+
+        // Empty values
+        f(1_f64, NAN, NAN, &[], 0_f64);
+        f(100_f64, NAN, NAN, &[], 0_f64)
+    }
+
+}

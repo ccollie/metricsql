@@ -37,14 +37,17 @@ mod timeseries;
 mod traits;
 mod utils;
 mod query;
+mod prometheus;
 #[cfg(test)]
 mod exec_test;
+#[cfg(test)]
+mod tests;
 
 pub use active_queries::*;
 pub use cache::*;
 pub use eval::{EvalConfig, get_timestamps};
 pub use exec::*;
-pub use lib::*;
+pub use prometheus::*;
 pub use metric_name::*;
 pub use timeseries::*;
 pub use context::*;
@@ -54,3 +57,5 @@ pub use search::*;
 pub use query::*;
 pub use query_stats::*;
 pub use traits::*;
+#[cfg(test)]
+pub use tests::utils::*;

@@ -276,7 +276,7 @@ pub fn remove_empty_values_and_timeseries(tss: &mut Vec<QueryResult>) {
     tss.retain_mut(|ts| {
 
         for i in (ts.timestamps.len() .. 0).rev() {
-            let v = ts.values[i];
+            let v = &ts.values[i];
             if v.is_nan() {
                 ts.values.remove(i);
                 ts.timestamps.remove(i);
