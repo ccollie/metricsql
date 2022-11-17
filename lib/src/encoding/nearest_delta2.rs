@@ -9,6 +9,8 @@ use crate::unmarshal_var_int;
 ///
 /// precision_bits must be in the range [1...64], where 1 means 50% precision,
 /// while 64 means 100% precision, i.e. lossless encoding.
+///
+/// Return the first value
 pub(crate) fn marshal_int64_nearest_delta2(
     dst: &mut Vec<u8>,
     src: &[i64],
@@ -81,7 +83,7 @@ pub(crate) fn unmarshal_int64_nearest_delta2(
             if !tail.is_empty() {
                 return Err(
                     Error::from(
-                        format!("unexpected tail left after unmarshaling {} items from {} bytes; tail size={}; src={:?}; tail={:?}",
+                        format!("unexpected tail left after unmarshalling {} items from {} bytes; tail size={}; src={:?}; tail={:?}",
                         items_count, src.len(), tail.len(), src, tail)));
             }
             let mut v = first_value;

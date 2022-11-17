@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::task::Context;
 use clone_dyn::clone_dyn;
 use crate::eval::arg_list::ArgList;
-use crate::EvalConfig;
+use crate::{EvalConfig, RuntimeResult};
 
 use crate::functions::rollup::TimeseriesMap;
 use crate::functions::types::AnyValue;
@@ -172,4 +172,4 @@ impl RollupHandler for RollupHandlerEnum {
     }
 }
 
-pub(crate) type RollupHandlerFactory = fn(&Vec<AnyValue>) -> RollupHandlerEnum;
+pub(crate) type RollupHandlerFactory = fn(&Vec<AnyValue>) -> RuntimeResult<RollupHandlerEnum>;

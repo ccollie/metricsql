@@ -120,7 +120,7 @@ impl ArgCountError {
         self.max
     }
 
-    /// Return the location at which the error occured
+    /// Return the location at which the error occurred
     pub fn pos(&self) -> Option<usize> {
         self.pos
     }
@@ -139,79 +139,5 @@ impl Display for ArgCountError {
         }
 
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::ops::Range as StdRange;
-
-    use crate::lexer::TokenKind;
-
-    use super::*;
-
-    fn check(
-        expected: Vec<TokenKind>,
-        found: Option<TokenKind>,
-        range: StdRange<u32>,
-        output: &str,
-    ) {
-        let error = RuntimeError {
-            expected,
-            found,
-            range: {
-                let start = range.start.into();
-                let end = range.end.into();
-                TextRange::new(start, end)
-            },
-            context: "".to_string()
-        };
-
-        assert_eq!(format!("{}", error), output);
-    }
-
-    #[test]
-    fn one_expected_did_find() {
-        check(
-            vec![TokenKind::Equals],
-            Some(TokenKind::Ident),
-            10..20,
-            "error at 10..20: expected ‘=’, but found identifier",
-        );
-    }
-
-    #[test]
-    fn one_expected_did_not_find() {
-        check(
-            vec![TokenKind::RParen],
-            None,
-            5..6,
-            "error at 5..6: expected ‘)’",
-        );
-    }
-
-    #[test]
-    fn two_expected_did_find() {
-        check(
-            vec![TokenKind::Plus, TokenKind::Minus],
-            Some(TokenKind::Equals),
-            0..1,
-            "error at 0..1: expected ‘+’ or ‘-’, but found ‘=’",
-        );
-    }
-
-    #[test]
-    fn multiple_expected_did_find() {
-        check(
-            vec![
-                TokenKind::Number,
-                TokenKind::Ident,
-                TokenKind::Minus,
-                TokenKind::LParen,
-            ],
-            Some(TokenKind::LetKw),
-            100..105,
-            "error at 100..105: expected number, identifier, ‘-’ or ‘(’, but found ‘let’",
-        );
     }
 }

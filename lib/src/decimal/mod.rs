@@ -31,19 +31,79 @@ pub(crate) const CONVERSION_PRECISION: f64 = 1e12;
 
 #[inline]
 pub fn is_special_value(v: i64) -> bool {
-    v > V_MAX || v < V_MIN
+    !(V_MIN..=V_MAX).contains(&v)
 }
 
 #[inline]
 pub fn is_special_value_f64(v: f64) -> bool {
     let x = v as i64;
-    x > V_MAX || x < V_MIN
+    !(V_MIN..=V_MAX).contains(&x)
 }
 
 /// is_stale_nan returns true if f represents Prometheus staleness mark.
 #[inline]
 pub fn is_stale_nan(f: f64) -> bool {
     f.to_bits() == STALE_NAN_BITS
+}
+
+
+/// CalibrateScale calibrates a and b with the corresponding exponents ae, be
+/// and returns the resulting exponent e.
+pub fn calibrate_scale(a: &mut [i64], ae: i16, b: &mut [i64], be: i16) -> i16 {
+    if ae == be {
+        // Fast path - exponents are equal.
+        return ae
+    }
+    if a.is_empty() {
+        return be
+    }
+    if b.is_empty() {
+        return ae
+    }
+    if ae < be {
+        calibrate_internal(b, be, a, ae)
+    } else {
+        calibrate_internal(a, ae, b, be)
+    }
+}
+
+fn calibrate_internal(a: &mut [i64], ae: i16, b: &mut [i64], be: i16) -> i16 {
+    let mut up_exp = ae - be;
+    let mut down_exp: i16 = 0;
+    for v in a.iter() {
+        let max_up_exp = max_up_exponent(*v);
+        if up_exp - max_up_exp > down_exp {
+            down_exp = up_exp - max_up_exp
+        }
+    }
+    up_exp -= down_exp;
+    for v in a.iter_mut() {
+        if is_special_value(*v) {
+            // Do not take into account special values.
+            continue
+        }
+        let mut adj_exp = up_exp;
+        while adj_exp > 0 {
+            *v = *v * 10;
+            adj_exp -= 1;
+        }
+    }
+
+    if down_exp > 0 {
+        for v in b.iter_mut() {
+            if is_special_value(*v) {
+                // Do not take into account special values.
+                continue
+            }
+            let mut adj_exp = down_exp;
+            while adj_exp > 0 {
+                *v /= 10;
+                adj_exp -= 1;
+            }
+        }
+    }
+
+    be + down_exp
 }
 
 /// round_to_decimal_digits rounds f to the given number of decimal digits after the point.
@@ -275,6 +335,27 @@ pub fn max_up_exponent(v: i64) -> i16 {
     }
 }
 
+/// to_floatt returns f=v*10^e.
+pub fn to_float(v: i64, e: i16) -> f64 {
+    if is_special_value(v) {
+        if v == V_INF_POS {
+            return f64::INFINITY
+        }
+        if v == V_INF_NEG {
+            return f64::NEG_INFINITY;
+        }
+        return *STALE_NAN;
+    }
+    let f = v as f64;
+    // increase conversion precision for negative exponents by dividing by e10
+    if e < 0 {
+        return f / -e.pow(10) as f64;
+    }
+
+    f * e.pow(10) as f64
+}
+
+
 /// from_float converts f to v*10^e.
 ///
 /// It tries minimizing v.
@@ -358,7 +439,7 @@ fn positive_float_to_decimal_slow(f: f64) -> (i64, i16) {
     let mut prec = CONVERSION_PRECISION;
 
     let mut f = f;
-    if f > 1e6 || f < 1e-6 {
+    if !(1e-6..=1e6).contains(&f) {
         // Normalize f, so it is in the small range suitable
         // for the next loop.
         if f > 1e6 {
@@ -405,3 +486,7 @@ fn positive_float_to_decimal_slow(f: f64) -> (i64, i16) {
     scale += 1;
     (u as i64, scale)
 }
+
+
+// #[cfg(test)]
+// mod decimal_test;

@@ -5,17 +5,17 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
-enquote = "1.1.0"
+enquote = { workspace = true }
 logos = "0.12.1"
 once_cell = { workspace = true }
-regex= "1.6.0"
-text-size = "1.1.0"
+regex = {  workspace = true }
+text-size = { workspace = true }
 thiserror = { workspace = true }
 phf = { workspace = true }
 lib={ path = "../lib" }
 
 [dev-dependencies]
-test-case = "2.2.1"
+test-case = "2.2.2"
 
 [lib]
 name="metricsql"

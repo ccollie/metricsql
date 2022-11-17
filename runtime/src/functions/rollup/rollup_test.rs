@@ -5,32 +5,30 @@ mod tests {
     const TEST_VALUES: [f64; 12]  = [123.0, 34.0, 44.0, 21.0, 54.0, 34.0, 99.0, 12.0, 44.0, 32.0, 34.0, 34.0];
     const TEST_TIMESTAMPS: [i64; 12] = [5, 15, 24, 36, 49, 60, 78, 80, 97, 115, 120, 130];
 
-    use crate::functions::rollup::{get_rollup_function_factory_by_name, RollupConfig, RollupFuncArg, RollupHandlerEnum};
-    use crate::functions::rollup::rollup_fns::{delta_values, deriv_values, linear_regression, remove_counter_resets, 
-                                               rollup_avg, rollup_changes, rollup_changes_prometheus, rollup_count, 
-                                               rollup_default, rollup_delta, rollup_delta_prometheus, rollup_deriv_fast, 
-                                               rollup_deriv_slow, rollup_distinct, rollup_first, rollup_idelta, rollup_ideriv, 
-                                               rollup_integrate, rollup_lag, rollup_last, rollup_lifetime, rollup_max, rollup_min, 
-                                               rollup_mode_over_time, rollup_rate_over_sum, rollup_resets, rollup_scrape_interval, 
+    use std::str::FromStr;
+    use metricsql::functions::RollupFunction;
+    use crate::functions::rollup::{get_rollup_function_factory_by_name, RollupConfig, RollupFuncArg, RollupHandler, RollupHandlerEnum};
+    use crate::functions::rollup::rollup_fns::{delta_values, deriv_values, linear_regression, remove_counter_resets,
+                                               rollup_avg, rollup_changes, rollup_changes_prometheus, rollup_count,
+                                               rollup_default, rollup_delta, rollup_delta_prometheus, rollup_deriv_fast,
+                                               rollup_deriv_slow, rollup_distinct, rollup_first, rollup_idelta, rollup_ideriv,
+                                               rollup_integrate, rollup_lag, rollup_last, rollup_lifetime, rollup_max, rollup_min,
+                                               rollup_mode_over_time, rollup_rate_over_sum, rollup_resets, rollup_scrape_interval,
                                                rollup_stddev, rollup_sum, rollup_zscore_over_time};
     use crate::functions::types::AnyValue;
-    use crate::Timeseries;
+    use crate::{compare_values, test_rows_equal, compare_floats, Timeseries};
 
     #[test]
     fn test_rollup_ideriv_duplicate_timestamps() {
         let mut rfa = RollupFuncArg::default();
-        rfa.prev_value = 0.0;
-        rfa.prev_timestamp = 0;
-        rfa.values = vec![1_f64, 2, 3, 4, 5];
+        rfa.values = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         rfa.timestamps = vec![100, 100, 200, 300, 300];
-        rfa.real_prev_value = 0.0;
-        rfa.real_next_value = 0.0;
 
         let n = rollup_ideriv(&mut rfa);
-        assert_eq!(n, 20, "unexpected value; got {}; want {}", n, 20);
+        assert_eq!(n, 20_f64, "unexpected value; got {}; want {}", n, 20);
 
         let mut rfs = RollupFuncArg::default();
-        rfs.values = vec![1_f64, 2, 3, 4, 5];
+        rfs.values = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         rfs.timestamps = vec![100, 100, 300, 300, 300];
         let n = rollup_ideriv(&mut rfa);
         assert_eq!(n, 15_f64, "unexpected value; got {}; want {}", n, 15);
@@ -38,9 +36,7 @@ mod tests {
         let mut rfs = RollupFuncArg::default();
         rfs.prev_value = NAN;
         let n = rollup_ideriv(&mut rfa);
-        if !n.is_nan() {
-            t.Fatalf("unexpected value; got %v; want %v", n, NAN)
-        }
+        assert!(n.is_nan(), "unexpected value; got {}; want {}", n, NAN);
 
         let mut rfs = RollupFuncArg::default();
         rfs.prev_value = NAN;
@@ -57,7 +53,7 @@ mod tests {
         rfs.timestamps = vec![100];
 
         let n = rollup_ideriv(&mut rfa);
-        assert_eq!(n, 500, "unexpected value; got %v; want %v", n, 500);
+        assert_eq!(n, 500_f64, "unexpected value; got {}; want {}", n, 500);
 
         let mut rfs = RollupFuncArg::default();
         rfs.prev_timestamp = 100;
@@ -66,33 +62,31 @@ mod tests {
         rfs.timestamps = vec![100];
 
         let n = rollup_ideriv(&mut rfa);
-        assert_eq!(n, INF, "unexpected value; got {}; want {}", n, INF);
+        assert!(compare_floats(INF, n), "unexpected value; got {}; want {}", n, INF);
 
         let mut rfs = RollupFuncArg::default();
         rfs.prev_timestamp = 100;
         rfs.prev_value = 10_f64;
-        rfs.values = vec![15_f64, 20];
+        rfs.values = vec![15_f64, 20_f64];
         rfs.timestamps = vec![100, 100];
 
         let n = rollup_ideriv(&mut rfa);
-        assert_eq!(n, INF, "unexpected value; got %v; want %v", n, INF);
+        assert!(compare_floats(INF, n), "unexpected value; got {}; want {}", n, INF);
     }
 
     #[test]
     fn test_remove_counter_resets() {
-        remove_counter_resets(nil);
-
         let mut values= Vec::from(TEST_VALUES);
         remove_counter_resets(&mut values);
         let values_expected: Vec<f64> = vec![123_f64, 157.0, 167.0, 188.0, 221.0, 255.0, 320.0, 332.0, 364.0, 396.0, 398.0, 398.0];
         test_rows_equal(&values, &TEST_TIMESTAMPS, &values_expected, &TEST_TIMESTAMPS);
 
         // removeCounterResets doesn't expect negative values, so it doesn't work properly with them.
-        let mut values: Vec<f64> = vec![-100_f64, -200.0, -300.0, -400.0];
+        let mut values: Vec<f64> = vec![-100.0, -200.0, -300.0, -400.0];
         remove_counter_resets(&mut values);
-        let values_expected = vec![-100_f64, -300.0, -600.0, -1000.0];
+        let values_expected = vec![-100.0, -300.0, -600.0, -1000.0];
         let timestamps_expected: Vec<i64> = vec![0, 1, 2, 3];
-        test_rows_equal(&values, timestamps_expected, values_expected, &timestamps_expected);
+        test_rows_equal(&values, &timestamps_expected, &values_expected, &timestamps_expected);
 
         // verify how partial counter reset is handled.
         // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/2787
@@ -100,21 +94,20 @@ mod tests {
         remove_counter_resets(&mut values);
         let values_expected = vec![100_f64, 100.0, 125.0, 125.0, 145.0, 195.0];
         let timestamps_expected = vec![0_i64, 1, 2, 3, 4, 5];
-        test_rows_equal(&values, timestamps_expected, values_expected, &timestamps_expected)
+        test_rows_equal(&values, &timestamps_expected, &values_expected, &timestamps_expected)
     }
 
     #[test]
     fn test_delta_values() {
-        delta_values(nil);
         let mut values: Vec<f64> = vec![123_f64];
         delta_values(&mut values);
         let values_expected: Vec<f64> = vec![0_f64];
-        test_rows_equal(&values, &TEST_TIMESTAMPS[0..1], values_expected, &TEST_TIMESTAMPS[0..1]);
+        test_rows_equal(&values, &TEST_TIMESTAMPS[0..1], &values_expected, &TEST_TIMESTAMPS[0..1]);
 
         values.extend_from_slice(&TEST_VALUES);
         delta_values(&mut values);
         let values_expected: Vec<f64> = vec![-89_f64, 10.0, -23.0, 33.0, -20.0, 65.0, -87.0, 32.0, -12.0, 2.0, 0.0, 0.0];
-        test_rows_equal(&values, TEST_TIMESTAMPS, values_expected, TEST_TIMESTAMPS);
+        test_rows_equal(&values, &TEST_TIMESTAMPS, &values_expected, &TEST_TIMESTAMPS);
 
         // remove counter resets
         values.extend_from_slice(&TEST_VALUES);
@@ -122,60 +115,56 @@ mod tests {
         delta_values(&mut values);
 
         let values_expected = vec![34_f64, 10.0, 21.0, 33.0, 34.0, 65.0, 12.0, 32.0, 32.0, 2.0, 0.0, 0.0];
-        test_rows_equal(&values, TEST_TIMESTAMPS, values_expected, TEST_TIMESTAMPS)
+        test_rows_equal(&values, &TEST_TIMESTAMPS, &values_expected, &TEST_TIMESTAMPS)
     }
 
     #[test]
     fn test_deriv_values() {
-        deriv_values(nil, nil);
-
         let mut values: Vec<f64> = vec![123_f64];
         deriv_values(&mut values, &TEST_TIMESTAMPS[0..1]);
         let values_expected: Vec<f64> = vec![0_f64];
-        test_rows_equal(&values, &TEST_VALUES[0..1], values_expected, &TEST_TIMESTAMPS[0..1]);
+        test_rows_equal(&values, &TEST_TIMESTAMPS[0..1], &values_expected, &TEST_TIMESTAMPS[0..1]);
 
         values.extend_from_slice(&TEST_VALUES);
         deriv_values(&mut values, &TEST_TIMESTAMPS);
-        let mut values_expected = vec![-8900, 1111.111111111111, -1916.6666666666665, 2538.4615384615386, -1818.1818181818182, 3611.1111111111113,
-                                       -43500, 1882.3529411764705, -666.6666666666667, 400, 0, 0];
-        test_rows_equal(&values, testTimestamps, values_expected, testTimestamps);
+        let values_expected: Vec<f64> = vec![-8900.0, 1111.111111111111, -1916.6666666666665, 2538.4615384615386,
+                                                 -1818.1818181818182, 3611.1111111111113, -43500.0,
+                                                 1882.3529411764705, -666.6666666666667, 400.0, 0.0, 0.0];
+        test_rows_equal(&values, &TEST_TIMESTAMPS, &values_expected, &TEST_TIMESTAMPS);
 
         // remove counter resets
-        values.extend_from_slice(testValues);
+        values.extend_from_slice(&TEST_VALUES);
         remove_counter_resets(&mut values);
         deriv_values(&mut values, &TEST_TIMESTAMPS);
-        let mut values_expected = vec![3400_f64, 1111.111111111111, 1750, 2538.4615384615386, 3090.909090909091, 3611.1111111111113,
-                                       6000, 1882.3529411764705, 1777.7777777777778, 400, 0, 0];
-        test_rows_equal(&values, testTimestamps, values_expected, testTimestamps);
+        let mut values_expected = vec![3400_f64, 1111.111111111111, 1750.0, 2538.4615384615386, 3090.909090909091, 3611.1111111111113,
+                                       6000.0, 1882.3529411764705, 1777.7777777777778, 400.0, 0.0, 0.0];
+        test_rows_equal(&values, &TEST_TIMESTAMPS, &values_expected, &TEST_TIMESTAMPS);
 
         // duplicate timestamps
-        let mut values = vec![1_f64, 2, 3, 4, 5, 6, 7];
+        let mut values = vec![1_f64, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0];
         let timestamps = vec![100, 100, 200, 200, 300, 400, 400];
         deriv_values(&mut values, &timestamps);
-        values_expected = vec![0_f64, 20, 20, 20, 10, 10, 10];
-        test_rows_equal(&values, &timestamps, values_expected, &timestamps);
+        values_expected = vec![0_f64, 20.0, 20.0, 20.0, 10.0, 10.0, 10.0];
+        test_rows_equal(&values, &timestamps, &values_expected, &timestamps);
     }
 
     fn test_rollup_func(func_name: &str, args: Vec<AnyValue>, expected: f64) {
+        let func = RollupFunction::from_str(func_name).unwrap();
         let nrf = get_rollup_function_factory_by_name(func_name).unwrap();
-        let rf = nrf(&args)?;
+        let rf = nrf(&args).unwrap();
         let mut rfa = RollupFuncArg::default();
         rfa.prev_value = NAN;
         rfa.prev_timestamp = 0;
         rfa.values.extend_from_slice(&TEST_VALUES);
         rfa.timestamps.extend_from_slice(&TEST_TIMESTAMPS);
         rfa.window = rfa.timestamps[rfa.timestamps.len() - 1] - &rfa.timestamps[0];
-        if rollupFuncsRemoveCounterResets[func_name] {
+        if func.should_remove_counter_resets() {
             remove_counter_resets(&mut rfa.values)
         }
-        for i in 0..5 {
-            let v = rf(&mut rfa);
-            if expected.is_nan() {
-                assert!(v.is_nan(), "unexpected value; got {}; want {}", v, expected)
-            }
-            let eps = (v - &expected).abs();
-            assert!(eps <= 1e-14, "unexpected value; got {}; want {}", v, expected);
-        }
+        (0..5).for_each(|_| {
+            let v = rf.eval(&mut rfa);
+            assert!(compare_floats(expected, v), "unexpected value; got {}; want {}", v, expected);
+        });
     }
 
     #[test]
@@ -323,9 +312,8 @@ mod tests {
 
     #[test]
     fn test_rollup_predict_linear() {
-        let f = |sec: f64, v_expected: f64| {
+        let f = |sec: f64, expected: f64| {
             let secs = AnyValue::from(sec);
-            let me = metricsql.MetricExpr;
             let args = vec![AnyValue::from(0), secs];
             test_rollup_func("predict_linear", args, expected)
         };
@@ -345,7 +333,7 @@ mod tests {
             rfa.curr_timestamp = &timestamps[0] + 100;
             let (v, k) = linear_regression(&mut rfa);
             compare_values(&[v], &[exp_v]).unwrap();
-            compare_values(vec![k], vec![exp_k]);
+            compare_values(&vec![k], &vec![exp_k]).unwrap();
         };
 
         f(&[1.0], &[1], f64::NAN, f64::NAN);
@@ -389,8 +377,8 @@ mod tests {
         f(0.5, 28.21949401521037);
         f(-1.0, 47.083333333333336);
         f(0.0, 47.083333333333336);
-        f(1.0, -INF);
-        f(2.0, -INF);
+        f(1.0, f64::NEG_INFINITY);
+        f(2.0, f64::NEG_INFINITY);
         f(0.1, 39.72878000047643);
         f(0.9, 12.701803086472331)
     }
@@ -468,15 +456,15 @@ mod tests {
     #[test]
     fn test_rollup_new_rollup_func_error() {
         let nrf = get_rollup_function_factory_by_name("non-existing-func");
-        assert!(nrf.is_err(), "expecting nil func; got {:?}", nrf);
+        assert!(nrf.is_err(), "expecting err; got a factory function");
 
         let f = |func_name: &str, args: &[AnyValue]| {
             let nrf = get_rollup_function_factory_by_name(func_name).unwrap();
             let args = Vec::from(args);
-            let rf = (nrf)(&args)?;
-            if rf != nil {
-                t.Fatalf("expecting nil rf; got %p", rf)
-            }
+            let rf = (nrf)(&args);
+            // if rf != nil {
+            //     panic!("expecting nil rf; got {}", rf)
+            // }
         };
 
         // Invalid number of args
@@ -487,13 +475,13 @@ mod tests {
         f("quantiles_over_time", &[]);
 
         // Invalid arg type
-        let scalar_ts = AnyValue::from( Timeseries::new(vec![123], vec![321_f64]));
+        let scalar_ts = AnyValue::InstantVector( vec![Timeseries::new(vec![123], vec![321_f64])]);
         let me = AnyValue::from(0);
         let _123 = AnyValue::from(123);
         let _321 = AnyValue::from(321);
         f("holt_winters", &[_123.clone(), _123.clone(), _123.clone()]);
-        f("holt_winters", &[me, _123.clone(), _321.clone()]);
-        f("holt_winters", &[me.clone(), scalarTs,_321.clone()]);
+        f("holt_winters", &[me.clone(), _123.clone(), _321.clone()]);
+        f("holt_winters", &[me.clone(), scalar_ts,_321.clone()]);
         f("predict_linear", &[_123.clone(), _123.clone()]);
         f("predict_linear", &[me.clone(), _123.clone()]);
         f("quantile_over_time", &[_123.clone(), _123.clone()]);
@@ -505,8 +493,8 @@ mod tests {
         rc.max_points_per_series = 10000;
         rc.ensure_timestamps().unwrap();
         let mut values: Vec<f64> = vec![];
-        let samples_scanned = rc.exec(&mut values, &TEST_VALUES, &TEST_TIMESTAMPS);
-        assert_ne!(samples_scanned, 0, "expecting non-zero samples_scanned from rollupConfig.co");
+        let samples_scanned = rc.exec(&mut values, &TEST_VALUES, &TEST_TIMESTAMPS).unwrap();
+        assert_ne!(samples_scanned, 0, "expecting non-zero samples_scanned from rollupConfig.exec");
         test_rows_equal(&values, &rc.timestamps, &values_expected, &timestamps_expected)
     }
 
@@ -528,10 +516,10 @@ mod tests {
             let mut rc = RollupConfig::default();
             rc.handler = RollupHandlerEnum::Wrapped(rollup_delta);
             rc.start =  120;
-            rc.end =148;
+            rc.end = 148;
             rc.step = 4;
             rc.window = 0;
-            test_rollup(&mut rc, &[2_f64, 0, 0, 0, NAN, NAN, NAN, NAN],
+            test_rollup(&mut rc, &[2_f64, 0.0, 0.0, 0.0, NAN, NAN, NAN, NAN],
                         &[120, 124, 128, 132, 136, 140, 144, 148])
         }
     }
@@ -640,7 +628,7 @@ mod tests {
             rc.end = 140;
             rc.step = 10;
             rc.lookback_delta = 1;
-            test_rollup(&mut rc, &[99_f64, NAN, 44.0, NAN, 32.0, 34.0, NAN], 
+            test_rollup(&mut rc, &[99_f64, NAN, 44.0, NAN, 32.0, 34.0, NAN],
                         &[80, 90, 100, 110, 120, 130, 140]);
         }
 
@@ -651,7 +639,7 @@ mod tests {
             rc.end = 140;
             rc.step = 10;
             rc.lookback_delta = 7;
-            test_rollup(&mut rc, &[99_f64, NAN, 44.0, NAN, 32.0, 34.0, NAN], 
+            test_rollup(&mut rc, &[99_f64, NAN, 44.0, NAN, 32.0, 34.0, NAN],
                         &[80, 90, 100, 110, 120, 130, 140]);
         }
 
@@ -662,7 +650,7 @@ mod tests {
             rc.end = 140;
             rc.step = 10;
             rc.lookback_delta = 0;
-            test_rollup(&mut rc, &[99_f64, NAN, 44, NAN, 32, 34, NAN], &[80, 90, 100, 110, 120, 130, 140]);
+            test_rollup(&mut rc, &[99_f64, NAN, 44.0, NAN, 32.0, 34.0, NAN], &[80, 90, 100, 110, 120, 130, 140]);
         }
     }
 
@@ -675,7 +663,7 @@ mod tests {
             rc.end = 160;
             rc.step = 40;
             rc.window = 0;
-            test_rollup(&mut rc, &[NAN, 123, 54, 44, 34], &[0, 40, 80, 120, 160]);
+            test_rollup(&mut rc, &[NAN, 123.0, 54.0, 44.0, 34.0], &[0, 40, 80, 120, 160]);
         }
 
         #[test]
@@ -686,7 +674,7 @@ mod tests {
             rc.end = 160;
             rc.step = 40;
             rc.window = 0;
-            test_rollup(&mut rc, &[NAN, 4, 4, 3, 1], &[0, 40, 80, 120, 160]);
+            test_rollup(&mut rc, &[NAN, 4.0, 4.0, 3.0, 1.0], &[0, 40, 80, 120, 160]);
         }
 
         #[test]
@@ -819,7 +807,7 @@ mod tests {
             rc.end = 160;
             rc.step = 40;
             rc.window = 0;
-            test_rollup(&mut rc, &[NAN, 4, 4, 3, 0], &[0, 40, 80, 120, 160]);
+            test_rollup(&mut rc, &[NAN, 4.0, 4.0, 3.0, 0.0], &[0, 40, 80, 120, 160]);
         }
 
         #[test]
@@ -830,7 +818,7 @@ mod tests {
             rc.end = 160;
             rc.step = 40;
             rc.window = 0;
-            test_rollup(&mut rc, &[NAN, 3, 3, 2, 0], &[0, 40, 80, 120, 160]);
+            test_rollup(&mut rc, &[NAN, 3.0, 3.0, 2.0, 0.0], &[0, 40, 80, 120, 160]);
         }
 
         #[test]
@@ -841,7 +829,7 @@ mod tests {
             rc.end = 45;
             rc.step = 9;
             rc.window = 9;
-            test_rollup(&mut rc, &[NAN, 1, 1, 1, 1, 0], &[0, 9, 18, 27, 36, 45]);
+            test_rollup(&mut rc, &[NAN, 1.0, 1.0, 1.0, 1.0, 0.0], &[0, 9, 18, 27, 36, 45]);
         }
 
         #[test]
@@ -852,7 +840,7 @@ mod tests {
             rc.end = 160;
             rc.step = 40;
             rc.window = 0;
-            test_rollup(&mut rc, &[NAN, 2, 2, 1, 0], &[0, 40, 80, 120, 160]);
+            test_rollup(&mut rc, &[NAN, 2.0, 2.0, 1.0, 0.0], &[0, 40, 80, 120, 160]);
         }
 
         #[test]
@@ -863,7 +851,7 @@ mod tests {
             rc.end = 160;
             rc.step = 40;
             rc.window = 0;
-            test_rollup(&mut rc, &[NAN, 55.5, 49.75, 36.666666666666664, 34], &[0, 40, 80, 120, 160]);
+            test_rollup(&mut rc, &[NAN, 55.5, 49.75, 36.666666666666664, 34.0], &[0, 40, 80, 120, 160]);
         }
 
         #[test]
@@ -875,7 +863,7 @@ mod tests {
             rc.step = 40;
             rc.window = 0;
             test_rollup(&mut rc,
-                        &[NAN, -2879.310344827588, 127.87627310448904, -496.5831435079728, 0],
+                        &[NAN, -2879.310344827588, 127.87627310448904, -496.5831435079728, 0.0],
                         &[0, 40, 80, 120, 160]);
         }
 
@@ -887,7 +875,7 @@ mod tests {
             rc.end = 20;
             rc.step = 4;
             rc.window = 0;
-            test_rollup(&mut rc, &[NAN, NAN, NAN, 0, -8900, 0], &[0, 4, 8, 12, 16, 20]);
+            test_rollup(&mut rc, &[NAN, NAN, NAN, 0.0, -8900.0, 0.0], &[0, 4, 8, 12, 16, 20]);
         }
 
         #[test]
@@ -898,7 +886,7 @@ mod tests {
             rc.end = 160;
             rc.step = 40;
             rc.window = 0;
-            test_rollup(&mut rc, &[NAN, -1916.6666666666665, -43500, 400, 0], &[0, 40, 80, 120, 160]);
+            test_rollup(&mut rc, &[NAN, -1916.6666666666665, -43500.0, 400.0, 0.0], &[0, 40, 80, 120, 160]);
         }
 
         #[test]
@@ -909,7 +897,7 @@ mod tests {
             rc.end = 160;
             rc.step = 40;
             rc.window = 0;
-            test_rollup(&mut rc, &[NAN, 39.81519810323691, 32.080952292598795, 5.2493385826745405, 0], &[0, 40, 80, 120, 160]);
+            test_rollup(&mut rc, &[NAN, 39.81519810323691, 32.080952292598795, 5.2493385826745405, 0.0], &[0, 40, 80, 120, 160]);
         }
 
         #[test]
@@ -953,7 +941,7 @@ mod tests {
             rc.end = 160;
             rc.step = 40;
             rc.window = 80;
-            test_rollup(&mut rc, &[NAN, 21, 34, 34, 34], &[0, 40, 80, 120, 160]);
+            test_rollup(&mut rc, &[NAN, 21.0, 34.0, 34.0, 34.0], &[0, 40, 80, 120, 160]);
         }
 
         #[test]
@@ -964,7 +952,7 @@ mod tests {
             rc.end = 160;
             rc.step = 40;
             rc.window = 80;
-            test_rollup(&mut rc, &[NAN, 2775.0, 5262.5, 3862.5, 1800], &[0, 40, 80, 120, 160]);
+            test_rollup(&mut rc, &[NAN, 2775.0, 5262.5, 3862.5, 1800.0], &[0, 40, 80, 120, 160]);
         }
 
         #[test]
@@ -994,13 +982,13 @@ mod tests {
         let mut src_values: Vec<f64> = Vec::with_capacity(SRC_VALUES_COUNT as usize);
         let mut src_timestamps: Vec<i64> = Vec::with_capacity(SRC_VALUES_COUNT as usize);
         for i in 0..SRC_VALUES_COUNT {
-            src_values.push(&i as f64);
-            src_timestamps.push(&i / 2)
+            src_values.push(i as f64);
+            src_timestamps.push(i / 2)
         }
         let mut values: Vec<f64> = vec![];
-        let samples_scanned = rc.exec(&mut values, &src_values, &src_timestamps)?;
+        let samples_scanned = rc.exec(&mut values, &src_values, &src_timestamps).unwrap();
         assert_ne!(samples_scanned, 0, "expecting non-zero samples_scanned from rollupConfig.co");
-        let values_expected: Vec<f64> = vec![1_f64, 4001, 8001, 9999, NAN, NAN];
+        let values_expected: Vec<f64> = vec![1_f64, 4001.0, 8001.0, 9999.0, NAN, NAN];
         let timestamps_expected: Vec<i64> = vec![0, 2000, 4000, 6000, 8000, 10000];
         test_rows_equal(&values, &rc.timestamps, &values_expected, &timestamps_expected);
     }
@@ -1018,7 +1006,7 @@ mod tests {
                 assert!(result_expected.is_nan(), "unexpected result; got {}; want {}", result, result_expected);
                 return
             }
-            assert_eq!(result, result_expected, "unexpected result; got %v; want %v", result, result_expected);
+            assert_eq!(result, result_expected, "unexpected result; got {}; want {}", result, result_expected);
         };
 
         f(NAN, NAN, NAN, &[], NAN);

@@ -2,8 +2,12 @@
 mod tests {
     use std::sync::Arc;
     use metricsql::ast::{AggrFuncExpr, Expression, ExpressionNode, FuncExpr, LabelFilter, LabelFilterOp, MetricExpr};
+    use metricsql::functions::AggregateFunction;
     use crate::cache::rollup_result_cache::{merge_timeseries, RollupResultCache};
-    use crate::{EvalConfig, MetricName, Timeseries};
+    use crate::{EvalConfig, MetricName, test_timeseries_equal, Timeseries};
+    use text_size::{TextRange};
+
+    const nan: f64 = f64::NAN;
 
     struct TestContext {
         fe: Expression,
@@ -20,21 +24,21 @@ mod tests {
         ec.end = 2000;
         ec.step = 200;
         ec.max_points_per_series = 1e4 as usize;
-        ec.may_cache = true;
+        ec.set_caching(true);
 
         let mut me = MetricExpr::default();
         me.label_filters = vec![LabelFilter::new(LabelFilterOp::Equal, "aaa", "xxx").unwrap()];
 
-        let fe = FuncExpr::create("foo", &[me.cast()], TextRange::default())?;
+        let fe = FuncExpr::create("foo", &[me.cast()], TextRange::default()).unwrap();
 
-        let ae = AggrfnExpr::new(AggregationFunction::Sum);
-        ae.args.push(fe);
+        let mut ae = AggrFuncExpr::new(&AggregateFunction::Sum);
+        ae.args.push(Box::new(fe.clone().cast()));
 
         let cache = RollupResultCache::default();
 
         TestContext {
             ec,
-            ae,
+            ae: ae.cast(),
             fe: fe.cast(),
             cache,
             window
@@ -52,21 +56,21 @@ mod tests {
     // Try obtaining an empty value.
     #[test]
     fn test_empty() {
-        let TestContext { mut cache, ec, fe, window, .. } = setup();
-        let (tss, new_start) = cache.get(&ec, &fe, window);
+        let TestContext { cache, ec, fe, window, .. } = setup();
+        let (tss, new_start) = cache.get(&ec, &fe, window).unwrap();
         assert_eq!(new_start, ec.start, "unexpected new_start; got {}; want {}", new_start, ec.start);
 
-        assert_eq!(tss.len(), 0, "got {} timeseries, while expecting zero", tss.len());
+        expect_empty(tss);
     }
 
     // Store timeseries overlapping with start
     #[test]
-    fn test_start_overlap_no_ae() {
-        let TestContext { mut cache, ec, fe, window, .. } = setup();
+    fn start_overlap_no_ae() {
+        let TestContext { cache, ec, fe, window, .. } = setup();
         let tss = vec![create_ts(&[800, 1000, 1200], &[0_f64, 1_f64, 2_f64])];
 
-        cache.put(&ec, &fe, window, &tss)?;
-        let (tss, new_start) = cache.get(&ec, &fe, window)?;
+        cache.put(&ec, &fe, window, &tss).expect("error putting to cache");
+        let (tss, new_start) = cache.get(&ec, &fe, window).unwrap();
         assert_eq!(new_start, 1400, "unexpected new_start; got {}; want {}", new_start, 1400);
 
         let tss_expected = vec![
@@ -78,13 +82,16 @@ mod tests {
     }
 
     #[test]
-    fn test_start_overlap_with_ae() {
+    fn start_overlap_with_ae() {
         let tss = vec![
             create_ts(&[800, 1000, 1200], &[0_f64, 1_f64, 2_f64])
         ];
 
-        let TestContext { mut cache, ec, ae, window, .. } = setup();
-        let (tss, new_start) = cache.get(&ec, &ae, window)?;
+        let TestContext { cache, ec, ae, window, .. } = setup();
+
+        cache.put(&ec, &ae, window, &tss).expect("error putting to cache");
+
+        let (tss, new_start) = cache.get(&ec, &ae, window).unwrap();
         assert_eq!(new_start, 1400, "unexpected new_start; got {}; want {}", new_start, 1400);
 
         let tss_expected = vec![
@@ -102,12 +109,14 @@ mod tests {
             create_ts(&[1800, 2000, 2200, 2400], &[333_f64, 0_f64, 1_f64, 2_f64])
         ];
 
-        let TestContext { mut cache, ec, fe, window, .. } = setup();
-        let (tss, new_start) = cache.get(&ec, &fe, window);
+        let TestContext { cache, ec, fe, window, .. } = setup();
+
+        cache.put(&ec, &fe, window, &tss).expect("error putting to cache");
+
+        let (tss, new_start) = cache.get(&ec, &fe, window).unwrap();
 
         assert_eq!(new_start, 1000, "unexpected new_start; got {}; want {}", new_start, 1000);
-
-        assert_eq!(tss.len(), 0, "got {} timeseries, while expecting zero", tss.len());
+        expect_empty(tss);
     }
 
     // Store timeseries covered by [start ... end]
@@ -117,12 +126,13 @@ mod tests {
             create_ts(&[1200, 1400, 1600], &[0_f64, 1_f64, 2_f64])
         ];
 
-        let TestContext { mut cache, ec, fe, window, .. } = setup();
-        let (tss, new_start) = cache.get(&ec, &fe, window);
+        let TestContext { cache, ec, fe, window, .. } = setup();
+        cache.put(&ec, &fe, window, &tss).expect("error putting to cache");
+
+        let (tss, new_start) = cache.get(&ec, &fe, window).unwrap();
 
         assert_eq!(new_start, 1000, "unexpected new_start; got {}; want {}", new_start, 1000);
-
-        assert_eq!(tss.len(), 0, "got {} timeseries, while expecting zero", tss.len());
+        expect_empty(tss);
     }
 
     // Store timeseries below start
@@ -130,11 +140,13 @@ mod tests {
     fn before_start() {
         let tss = vec![create_ts(&[200, 400, 600], &[0_f64, 1_f64, 2_f64]) ];
 
-        let TestContext { mut cache, ec, fe, window, .. } = setup();
-        let (tss, new_start) = cache.get(&ec, &fe, window);
+        let TestContext { cache, ec, fe, window, .. } = setup();
+        cache.put(&ec, &fe, window, &tss).expect("error putting to cache");
+
+        let (tss, new_start) = cache.get(&ec, &fe, window).unwrap();
 
         assert_eq!(new_start, 1000, "unexpected new_start; got {}; want {}", new_start, 1000);
-        assert_eq!(tss.len(), 0, "got {} timeseries, while expecting zero", tss.len());
+        expect_empty(tss);
     }
 
     // Store timeseries after end
@@ -144,11 +156,13 @@ mod tests {
             create_ts(&[2200, 2400, 2600], &[0_f64, 1_f64, 2_f64])
         ];
 
-        let TestContext { mut cache, ec, fe, window, .. } = setup();
-        let (tss, new_start) = cache.get(&ec, &fe, window);
+        let TestContext { cache, ec, fe, window, .. } = setup();
+        cache.put(&ec, &fe, window, &tss).expect("error putting to cache");
+
+        let (tss, new_start) = cache.get(&ec, &fe, window).unwrap();
 
         assert_eq!(new_start, 1000, "unexpected new_start; got {}; want {}", new_start, 1000);
-        assert_eq!(tss.len(), 0, "got {} timeseries, while expecting zero", tss.len());
+        expect_empty(tss);
     }
 
     // Store timeseries bigger than the interval [start ... end]
@@ -159,8 +173,10 @@ mod tests {
                       &[0_f64, 1_f64, 2_f64, 3_f64, 4_f64, 5_f64, 6_f64, 7_f64])
         ];
 
-        let TestContext { mut cache, ec, fe, window, .. } = setup();
-        let (tss, new_start) = cache.get(&ec, &fe, window);
+        let TestContext { cache, ec, fe, window, .. } = setup();
+        cache.put(&ec, &fe, window, &tss).expect("error putting to cache");
+
+        let (tss, new_start) = cache.get(&ec, &fe, window).unwrap();
 
         assert_eq!(new_start, 2200, "unexpected new_start; got {}; want {}", new_start, 2200);
 
@@ -169,19 +185,22 @@ mod tests {
                       &[1_f64, 2_f64, 3_f64, 4_f64, 5_f64, 6_f64])
         ];
 
-        testTimeseriesEqual(tss, tss_expected)
+        test_timeseries_equal(tss.unwrap().as_slice(), &tss_expected)
     }
 
     // Store timeseries matching the interval [start ... end]
     #[test]
-    fn test_start_end_match() {
-        let mut tss = vec![
+    fn start_end_match() {
+        let tss = vec![
             create_ts(&[1000, 1200, 1400, 1600, 1800, 2000],
                       &[1_f64, 2_f64, 3_f64, 4_f64, 5_f64, 6_f64])
         ];
 
-        let TestContext { mut cache, ec, fe, window, .. } = setup();
-        let (tss, new_start) = cache.get(&ec, &fe, window);
+        let TestContext { cache, ec, fe, window, .. } = setup();
+
+        cache.put(&ec, &fe, window, &tss).expect("error putting to cache");
+
+        let (tss, new_start) = cache.get(&ec, &fe, window).unwrap();
 
         assert_eq!(new_start, 2200, "unexpected new_start; got {}; want {}", new_start, 2200);
 
@@ -189,25 +208,30 @@ mod tests {
             create_ts(&[1000, 1200, 1400, 1600, 1800, 2000], &[1_f64, 2_f64, 3_f64, 4_f64, 5_f64, 6_f64])
         ];
 
-        testTimeseriesEqual(tss, tss_expected)
+        let series = tss.unwrap();
+        test_timeseries_equal(&series, &tss_expected)
     }
 
     // Store big timeseries, so their marshaled size exceeds 64Kb.
     #[test]
     fn big_timeseries() {
         let mut tss: Vec<Timeseries> = vec![];
-        (0..1000).for_each(|| {
+        (0..1000).for_each(|_| {
             let ts = create_ts(&[1000, 1200, 1400, 1600, 1800, 2000],
                                &[1_f64, 2_f64, 3_f64, 4_f64, 5_f64, 6_f64]);
             tss.push(ts);
         });
 
-        let TestContext { mut cache, ec, fe, window, .. } = setup();
-        let (tss, new_start) = cache.get(&ec, &fe, window);
+        let TestContext { cache, ec, fe, window, .. } = setup();
+
+        cache.put(&ec, &fe, window, &tss).expect("error putting to cache");
+
+        let (tss_result, new_start) = cache.get(&ec, &fe, window).unwrap();
 
         assert_eq!(new_start, 2200, "unexpected new_start; got {}; want {}", new_start, 2200);
 
-        testTimeseriesEqual(tss_result, tss)
+        let tss_result = tss_result.unwrap();
+        test_timeseries_equal(&tss_result, &tss)
     }
 
     // Store multiple time series
@@ -225,13 +249,13 @@ mod tests {
             create_ts(&[1200, 1400, 1600], &[0_f64, 1_f64, 2_f64])
         ];
 
-        let TestContext { mut cache, ec, fe, window, .. } = setup();
+        let TestContext { cache, ec, fe, window, .. } = setup();
 
-        cache.put(&ec, &fe, window, &tss1)?;
-        cache.put(&ec, &fe, window, &tss2)?;
-        cache.put(&ec, &fe, window, &tss3)?;
+        cache.put(&ec, &fe, window, &tss1).expect("error putting value in cache");
+        cache.put(&ec, &fe, window, &tss2).expect("error putting value in cache");
+        cache.put(&ec, &fe, window, &tss3).expect("error putting value in cache");
 
-        let (tss, new_start) = cache.get(&ec, &fe, window)?;
+        let (tss, new_start) = cache.get(&ec, &fe, window).unwrap();
         assert_eq!(new_start, 1400, "unexpected new_start; got {}; want {}", new_start, 1400);
 
         let tss_expected = vec![
@@ -261,6 +285,11 @@ mod tests {
         }
     }
 
+    fn expect_empty(tss: Option<Vec<Timeseries>>) {
+        let res = tss.unwrap_or(vec![]);
+        assert_eq!(res.len(), 0, "got {} timeseries, while expecting zero", res.len());
+    }
+
 
     #[test]
     fn merge_bstart_eq_ec_start() {
@@ -270,7 +299,7 @@ mod tests {
         ];
 
         let MergeTestContext { ec, .. } = setup_merge();
-        let tss = merge_timeseries(a, b, 1000, &ec)?;
+        let tss = merge_timeseries(a, b, 1000, &ec).expect("unable to merge timeseries");
         let tss_expected = vec![
             create_ts(&[1000, 1200, 1400, 1600, 1800, 2000], &[1_f64, 2_f64, 3_f64, 4_f64, 5_f64, 6_f64])
         ];
@@ -286,7 +315,7 @@ mod tests {
         ];
 
         let MergeTestContext { ec, bstart } = setup_merge();
-        let tss = merge_timeseries(a, b, bstart, &ec)?;
+        let tss = merge_timeseries(a, b, bstart, &ec).expect("unable to merge timeseries");
         let tss_expected = vec![
             create_ts(&[1000, 1200, 1400, 1600, 1800, 2000], &[nan, nan, 3_f64, 4_f64, 5_f64, 6_f64])
         ];
@@ -303,7 +332,7 @@ mod tests {
         let b = vec![ Timeseries::default() ];
 
         let MergeTestContext { ec, bstart } = setup_merge();
-        let tss = merge_timeseries(a, b, bstart, &ec)?;
+        let tss = merge_timeseries(a, b, bstart, &ec).expect("unable to merge timeseries");
 
         let tss_expected = vec![
             create_ts(&[1000, 1200, 1400, 1600, 1800, 2000], &[2_f64, 1_f64, nan, nan, nan, nan])
@@ -323,7 +352,7 @@ mod tests {
         ];
 
         let MergeTestContext { ec, bstart } = setup_merge();
-        let tss = merge_timeseries(a, b, bstart, &ec)?;
+        let tss = merge_timeseries(a, b, bstart, &ec).expect("unable to merge timeseries");
         let tss_expected = vec![
             create_ts(&[1000, 1200, 1400, 1600, 1800, 2000], &[2_f64, 1_f64, 3_f64, 4_f64, 5_f64, 6_f64])
         ];
@@ -337,16 +366,16 @@ mod tests {
             create_ts(&[1000, 1200], &[2_f64, 1_f64])
         ];
 
-        a.get_mut(0).metric_name.metric_group = "bar".to_string();
+        a.get_mut(0).unwrap().metric_name.metric_group = "bar".to_string();
 
         let mut b = vec![
             create_ts(&[1400, 1600, 1800, 2000], &[3_f64, 4_f64, 5_f64, 6_f64])
         ];
 
-        b.get_mut(0).metric_name.metric_group = "foo".to_string();
+        b.get_mut(0).unwrap().metric_name.metric_group = "foo".to_string();
 
         let MergeTestContext { ec, bstart } = setup_merge();
-        let tss = merge_timeseries(a, b, bstart, &ec)?;
+        let tss = merge_timeseries(a, b, bstart, &ec).expect("unable to merge timeseries");
 
         let mut foo = Timeseries::default();
         foo.metric_name.metric_group = "foo".to_string();
@@ -364,14 +393,4 @@ mod tests {
         test_timeseries_equal(&tss, &tss_expected)
     }
 
-    fn test_timeseries_equal(tss: &[Timeseries], tss_expected: &[Timeseries]) {
-        assert_eq!(tss.len(), tss_expected.len(), "unexpected timeseries count; got {}; want {}",
-                   tss.len(), tss_expected.len());
-
-        for (i, ts) in tss.iter().enumerate() {
-            let ts_expected = &tss_expected[i];
-            testMetricNamesEqual(&ts.metric_name, &ts_expected.metric_name, i);
-            testRowsEqual(ts.values, ts.timestamps, ts_expected.values, ts_expected.timestamps)
-        }
-    }
 }

@@ -14,11 +14,12 @@ chrono = { worspace = true }
 once_cell = { workspace = true }
 byte-pool = "0.2.3"
 lockfree-object-pool = "0.1.3"
-q_compress = "0.11.1"
+q_compress = "0.11.3"
 byte-slice-cast = "1.2.1"
 integer-encoding = "3.0.4"
 lz4_flex = "0.9.5"
-rand = "0.8.5"
+rand = { workspace = true }
+rand_distr = { workspace = true }
 instant = "0.1.12"
-tinyvec = "1.6.0"
+tinyvec = { workspace = true }
 xxhash-rust = { workspace = true }

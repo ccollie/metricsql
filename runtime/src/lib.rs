@@ -19,6 +19,7 @@ extern crate scopeguard;
 extern crate tinyvec;
 #[cfg(feature = "xxh64")]
 extern crate xxhash_rust;
+extern crate text_size;
 
 mod active_queries;
 mod binary_op;
@@ -38,10 +39,6 @@ mod traits;
 mod utils;
 mod query;
 mod prometheus;
-#[cfg(test)]
-mod exec_test;
-#[cfg(test)]
-mod tests;
 
 pub use active_queries::*;
 pub use cache::*;
@@ -57,5 +54,12 @@ pub use search::*;
 pub use query::*;
 pub use query_stats::*;
 pub use traits::*;
+
+#[cfg(test)]
+mod exec_test;
+#[cfg(test)]
+mod tests;
+#[cfg(test)]
+mod timeseries_test;
 #[cfg(test)]
 pub use tests::utils::*;

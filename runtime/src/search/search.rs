@@ -9,10 +9,34 @@ use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use metricsql::ast::LabelFilter;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::search::Deadline;
-use crate::{MetricName, Timeseries};
+use crate::{Context, MetricName, Timeseries};
 use crate::traits::{Timestamp, TimestampTrait};
 
 pub type TimeRange = Range<Timestamp>;
+
+// async ???
+pub trait MetricDataProvider: Sync + Send {
+    fn search(&self, sq: &SearchQuery, deadline: &Deadline) -> RuntimeResult<QueryResults>;
+}
+
+pub struct NullMetricDataProvider {}
+
+impl MetricDataProvider for NullMetricDataProvider {
+    fn search(&self, _sq: &SearchQuery, _deadline: &Deadline) -> RuntimeResult<QueryResults> {
+        let qr = QueryResults::new();
+        Ok(qr)
+    }
+}
+
+// QueryableFunc is an adapter to allow the use of ordinary functions as
+// MetricDataProvider. It follows the idea of http.HandlerFunc.
+pub type QueryableFunc = fn(ctx: &Context, sq: &SearchQuery) -> RuntimeResult<QueryResults>;
+
+// Querier calls f() with the given parameters.
+// fn (f QueryableFunc) Querier(ctx: &Context, mint: i64, maxt: i64) (Querier, error) {
+// return f(ctx, mint, maxt)
+// }
+
 
 /// Search is a search for time series.
 #[derive(Debug, Clone, Default)]
@@ -25,8 +49,6 @@ pub struct Search {
 
     /// deadline in unix timestamp seconds for the current search.
     pub deadline: u64, // todo: Duration
-
-    need_closing: bool,
 }
 
 impl Search {
@@ -34,7 +56,6 @@ impl Search {
         self.tr = TimeRange{ start: Timestamp::now(), end: i64::MAX };
         self.tfss = vec![];
         self.deadline = 0;
-        self.need_closing = false;
     }
 }
 
@@ -267,7 +288,7 @@ impl QueryResults {
 
     }
 
-    pub fn cancel(&mut self) {
+    pub fn cancel(&self) {
         self.signal.store(1, Ordering::Relaxed);
     }
 }

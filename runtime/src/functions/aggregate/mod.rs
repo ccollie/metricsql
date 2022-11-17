@@ -13,3 +13,8 @@ pub(self) mod aggr_fns;
 mod aggr_incremental;
 mod accumulator;
 
+#[cfg(test)]
+mod aggr_incremental_test;
+#[cfg(test)]
+mod aggr_test;
+

@@ -249,7 +249,8 @@ impl TokenKind {
     pub fn is_error_token(&self) -> bool {
         use TokenKind::*;
         matches!(self,
-            ErrorNumJunkAfterDecimalPoint
+            ErrorInvalidToken
+            | ErrorNumJunkAfterDecimalPoint
             | ErrorStringMissingQuotes
             | ErrorNumJunkAfterExponent
             | ErrorNumJunkAfterExponentSign

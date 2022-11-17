@@ -45,8 +45,6 @@ const MAX_SUB_VALUE_LEN: usize = CHUNK_SIZE - 16 - 4 - 1;
 /// - 1 byte is implementation detail of fastcache
 const MAX_KEY_LEN: usize = CHUNK_SIZE - 16 - 4 - 1;
 
-const MIN_CACHE_SIZE: usize = 4 * 1024 * 1024;
-
 const BIG_CACHE_SIZE_MIN: usize = 32 * 1024 * 1024;
 const SMALL_CACHE_SIZE_MIN: usize = 4 * 1024 * 1024;
 
@@ -680,6 +678,7 @@ impl Bucket {
         s.max_bytes_size += (inner.chunks.len() * CHUNK_SIZE) as u64;
     }
 
+    #[cfg(test)]
     pub(self) fn get_gen(&self) -> u64 {
         let inner = self.inner.read().unwrap();
         inner.gen

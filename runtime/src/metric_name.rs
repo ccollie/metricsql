@@ -10,7 +10,7 @@ use enquote::enquote;
 use xxhash_rust::xxh3::Xxh3;
 
 use lib::{marshal_string_fast, unmarshal_string_fast, unmarshal_var_int};
-use metricsql::ast::{AggregateModifier, AggregateModifierOp};
+use metricsql::ast::{AggregateModifier, AggregateModifierOp, GroupModifier, GroupModifierOp};
 
 use crate::{marshal_bytes_fast, unmarshal_bytes_fast};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
@@ -21,6 +21,9 @@ use crate::runtime_error::{RuntimeError, RuntimeResult};
 pub const MAX_LABEL_NAME_LEN: usize = 256;
 
 pub const METRIC_NAME_LABEL: &str = "__name__";
+
+const LABEL_SEP: u8 = 0xfe;
+const SEPS: &[u8; 1] = b"\xff";
 
 /// Tag represents a (key, value) tag for metric.
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -53,6 +56,20 @@ impl MetricName {
             metric_group: name.to_string(),
             items: BTreeMap::new(),
         }
+    }
+
+    /// from_strings creates new labels from pairs of strings.
+    pub fn from_strings(ss: &[&str]) -> RuntimeResult<Self> {
+        if ss.len() %2 != 0 {
+            return Err(RuntimeError::from("invalid number of strings"));
+        }
+
+        let mut res = MetricName::default();
+        for i in (0 .. ss.len()).step_by(2) {
+            res.set_tag(ss[i], ss[i+1]);
+        }
+
+        Ok(res)
     }
 
     pub fn reset_metric_group(&mut self) {
@@ -157,6 +174,17 @@ impl MetricName {
         self.remove_tags_except(on_tags)
     }
 
+    pub fn update_tags_by_group_modifier(&mut self, modifier: &GroupModifier) {
+        match modifier.op {
+            GroupModifierOp::On => {
+                self.remove_tags_except(&modifier.labels);
+            },
+            GroupModifierOp::Ignoring => {
+                self.remove_tags(&modifier.labels);
+            },
+        }
+    }
+    
     /// removes all the tags included in ignoring_tags.
     pub fn remove_tags(&mut self, ignoring_tags: &[String]) {
         for tag in ignoring_tags {
@@ -201,6 +229,10 @@ impl MetricName {
         }
         // ??????????????
         dst.extend_from_slice('}'.to_string().as_bytes());
+    }
+
+    pub(crate) fn get_bytes(&self, dst: &mut Vec<u8>) {
+
     }
 
     pub(crate) fn marshal_tags_fast(&self, dst: &mut Vec<u8>) {

@@ -3,12 +3,11 @@ use chrono::{Duration};
 
 use crate::active_queries::ActiveQueries;
 use crate::cache::rollup_result_cache::RollupResultCache;
-use crate::{ActiveQueryEntry};
+use crate::{ActiveQueryEntry, MetricDataProvider, NullMetricDataProvider};
 use crate::parser_cache::{ParseCache, ParseCacheValue};
 use crate::query_stats::query_stats::QueryStatsTracker;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::search::{Deadline, QueryResults, SearchQuery};
-use crate::traits::{NullMetricDataProvider, MetricDataProvider};
 
 const DEFAULT_MAX_QUERY_LEN: usize = 16 * 1024;
 const DEFAULT_MAX_UNIQUE_TIMESERIES: usize = 1000;

@@ -178,9 +178,9 @@ struct CommonParams {
     filterss: Vec<Vec<LabelFilter>>
 }
 
-// Query handler for `Instant Queries`
-//
-// See https://prometheus.io/docs/prometheus/latest/querying/api/#instant-queries
+/// Query handler for `Instant Queries`
+///
+/// See https://prometheus.io/docs/prometheus/latest/querying/api/#instant-queries
 pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<QueryResult>> {
 
     let ct = Timestamp::now();
@@ -215,14 +215,14 @@ pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<Query
 
             // Fetch the remaining part of the result.
             let base_filters = vec![filters.clone()];  // can we avoid cloning ???
-            let tfss = join_tag_filterss(&base_filters, &params.enforced_tag_filterss);
+            let tfs_list = join_tag_filterss(&base_filters, &params.enforced_tag_filterss);
 
             let cp = CommonParams{
                 deadline: params.deadline,
                 start,
                 end,
                 current_timestamp: ct,
-                filterss: tfss.to_vec()
+                filterss: tfs_list.to_vec()
             };
 
             return match export_handler(context, cp) {
@@ -311,9 +311,9 @@ fn export_handler(ctx: &Context, cp: CommonParams) -> RuntimeResult<QueryResults
     ctx.process_search_query(&sq, &cp.deadline)
 }
 
-// query_range processes a range vector request
-//
-// See https://prometheus.io/docs/prometheus/latest/querying/api/#range-queries
+/// query_range processes a range vector request
+///
+/// See https://prometheus.io/docs/prometheus/latest/querying/api/#range-queries
 pub fn query_range(ctx: &Context, params: &QueryParams) -> RuntimeResult<Vec<QueryResult>> {
 
     let ct = Timestamp::now();
@@ -386,8 +386,12 @@ fn query_range_handler(ctx: &Context, ct: Timestamp, params: &QueryParams) -> Ru
 /// with the previous point values, since these points may contain incomplete values.
 fn adjust_last_points(tss: &mut Vec<QueryResult>, start: Timestamp, end: Timestamp)  {
     for ts in tss.iter_mut() {
-        let mut j = ts.timestamps.len() - 1;
-        if j >= 0 && ts.timestamps[j] > end {
+        let n = ts.timestamps.len();
+        if n <= 1 {
+            continue;
+        }
+        let mut j = n - 1;
+        if ts.timestamps[j] > end {
             // It looks like the `offset` is used in the query, which shifts time range beyond the `end`.
             // Leave such a time series as is, since it is unclear which points may be incomplete in it.
             // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/625

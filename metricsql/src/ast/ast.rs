@@ -1,13 +1,15 @@
 use std::{fmt, iter};
-use std::fmt::Display;
+use std::borrow::Cow;
+use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
+use std::str::FromStr;
 use std::string::{String, ToString};
 use text_size::{TextRange, TextSize};
 
 use lib::hash_f64;
 
-use crate::ast::{BinaryOp, LabelFilterOp};
+use crate::ast::{BinaryOp};
 use crate::ast::expression_kind::ExpressionKind;
 use crate::ast::label_filter::{LabelFilter, LabelFilterExpr};
 use crate::ast::LabelFilterOp::Equal;
@@ -202,16 +204,16 @@ impl Expression {
 
     pub fn span(&self) -> TextRange {
         match self {
-            Expression::Duration(de) => de.span.clone(),
-            Expression::Number(num) => num.span.clone(),
-            Expression::String(se) => se.span.clone(),
-            Expression::Parens(pe) => pe.span.clone(),
-            Expression::Function(fe) => fe.span.clone(),
-            Expression::Aggregation(ae) => ae.span.clone(),
-            Expression::BinaryOperator(be) => be.span.clone(),
-            Expression::With(we) => we.span.clone(),
-            Expression::Rollup(re) => re.span.clone(),
-            Expression::MetricExpression(me) => me.span.clone()
+            Expression::Duration(de) => de.span,
+            Expression::Number(num) => num.span,
+            Expression::String(se) => se.span,
+            Expression::Parens(pe) => pe.span,
+            Expression::Function(fe) => fe.span,
+            Expression::Aggregation(ae) => ae.span,
+            Expression::BinaryOperator(be) => be.span,
+            Expression::With(we) => we.span,
+            Expression::Rollup(re) => re.span,
+            Expression::MetricExpression(me) => me.span
         }
     }
 }
@@ -249,7 +251,7 @@ impl ExpressionNode for Expression {
 }
 
 impl Display for Expression {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
             Expression::Duration(d) => write!(f, "{}", d)?,
             Expression::Number(n) => write!(f, "{}", n)?,
@@ -295,7 +297,21 @@ impl From<&str> for Expression {
         Expression::String (StringExpr::from(s))
     }
 }
-// todo: integrate cheecks from
+
+impl From<Vec<BExpression>> for Expression {
+    fn from(list: Vec<BExpression>) -> Self {
+        Expression::Parens(ParensExpr::new(list))
+    }
+}
+
+impl From<Vec<Expression>> for Expression {
+    fn from(list: Vec<Expression>) -> Self {
+        let items = list.into_iter().map(|x| Box::new(x)).collect::<Vec<BExpression>>();
+        Expression::Parens(ParensExpr::new(items))
+    }
+}
+
+// todo: integrate checks from
 // https://github.com/prometheus/prometheus/blob/fa6e05903fd3ce52e374a6e1bf4eb98c9f1f45a7/promql/parser/parse.go#L436
 
 /// StringExpr represents string expression.
@@ -388,7 +404,7 @@ impl ExpressionNode for StringExpr {
 }
 
 impl Display for StringExpr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "{}", enquote::enquote('"', &*self.s))?;
         Ok(())
     }
@@ -459,7 +475,7 @@ impl ExpressionNode for NumberExpr {
 }
 
 impl Display for NumberExpr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         if self.value.is_nan() {
             write!(f, "NaN")?;
         } else if self.value.is_finite() {
@@ -487,7 +503,7 @@ pub enum GroupModifierOp {
 }
 
 impl Display for GroupModifierOp {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         use GroupModifierOp::*;
         match self {
             On => write!(f, "on")?,
@@ -523,26 +539,26 @@ pub struct GroupModifier {
     /// A list of labels to which the operator is applied
     pub labels: Vec<String>,
 
-    pub span: Option<TextRange>,
+    pub span: TextRange,
 }
 
 impl GroupModifier {
-    pub fn new(op: GroupModifierOp, labels: Vec<String>) -> Self {
+    pub fn new(op: GroupModifierOp, labels: Vec<String>, span: TextRange) -> Self {
         GroupModifier {
             op,
             labels,
-            span: None,
+            span,
         }
     }
 
     /// Creates a GroupModifier cause with the On operator
-    pub fn on(labels: Vec<String>) -> Self {
-        GroupModifier::new(GroupModifierOp::On, labels)
+    pub fn on(labels: Vec<String>, span: TextRange) -> Self {
+        GroupModifier::new(GroupModifierOp::On, labels, span)
     }
 
     /// Creates a GroupModifier clause using the Ignoring operator
-    pub fn ignoring(labels: Vec<String>) -> Self {
-        GroupModifier::new(GroupModifierOp::Ignoring, labels)
+    pub fn ignoring(labels: Vec<String>, span: TextRange) -> Self {
+        GroupModifier::new(GroupModifierOp::Ignoring, labels, span)
     }
 
     /// Replaces this GroupModifier's operator
@@ -558,30 +574,52 @@ impl GroupModifier {
     }
 
     /// Replaces this GroupModifier's labels with the given set
-    pub fn set_labels(mut self, labels: Vec<String>) -> Self {
+    pub fn set_labels(&mut self, labels: Vec<String>) -> &mut Self {
         self.labels = labels;
         self
     }
 
     /// Clears this GroupModifier's set of labels
-    pub fn clear_labels(mut self) -> Self {
+    pub fn clear_labels(&mut self) -> &mut Self {
         self.labels.clear();
         self
     }
 
-    pub fn span<S: Into<TextRange>>(mut self, span: S) -> Self {
-        self.span = Some(span.into());
+    pub fn span<S: Into<TextRange>>(&mut self, span: S) -> &mut Self {
+        self.span = span.into();
         self
     }
 }
 
 impl Display for GroupModifier {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "{}", self.op)?;
         if !self.labels.is_empty() {
             write!(f, " ")?;
             write_list(&self.labels, f, false)?;
         }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Copy, Hash)]
+pub enum VectorMatchCardinality {
+    OneToOne,
+    OneToMany,
+    ManyToOne,
+    ManyToMany
+}
+
+impl Display for VectorMatchCardinality {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        use VectorMatchCardinality::*;
+        let str = match self {
+            OneToOne => "one-to-one",
+            OneToMany => "one-to-many",
+            ManyToOne => "many-to-one",
+            ManyToMany => "many-to-many",
+        };
+        write!(f, "{}", str)?;
         Ok(())
     }
 }
@@ -593,7 +631,7 @@ pub enum JoinModifierOp {
 }
 
 impl Display for JoinModifierOp {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         use JoinModifierOp::*;
         match self {
             GroupLeft => write!(f, "group_left")?,
@@ -620,7 +658,7 @@ impl TryFrom<&str> for JoinModifierOp {
     }
 }
 
-/// A GroupModifier clause's nested grouping clause
+/// A JoinModifier clause's nested grouping clause
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct JoinModifier {
     /// The GroupModifier group's operator type (left or right)
@@ -630,7 +668,10 @@ pub struct JoinModifier {
     /// group_left(foo) copies the label `foo` from the right hand side
     pub labels: Vec<String>,
 
-    pub span: Option<TextRange>,
+    /// The cardinality of the two Vectors.
+    pub cardinality: VectorMatchCardinality,
+
+    pub span: TextRange,
 }
 
 impl JoinModifier {
@@ -638,7 +679,8 @@ impl JoinModifier {
         JoinModifier {
             op,
             labels: vec![],
-            span: None,
+            cardinality: VectorMatchCardinality::OneToOne,
+            span: TextRange::default(),
         }
     }
 
@@ -676,14 +718,14 @@ impl JoinModifier {
         self
     }
 
-    pub fn span<S: Into<TextRange>>(mut self, span: S) -> Self {
-        self.span = Some(span.into());
+    pub fn span<S: Into<TextRange>>(&mut self, span: S) -> &mut Self {
+        self.span = span.into();
         self
     }
 }
 
 impl Display for JoinModifier {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "{}", self.op)?;
         if !self.labels.is_empty() {
             write!(f, " ")?;
@@ -700,7 +742,7 @@ pub struct BinaryOpExpr {
     pub op: BinaryOp,
 
     /// bool_modifier indicates whether `bool` modifier is present.
-    /// For example, `foo >bool bar`.
+    /// For example, `foo > bool bar`.
     pub bool_modifier: bool,
 
     /// group_modifier contains modifier such as "on" or "ignoring".
@@ -749,10 +791,14 @@ impl BinaryOpExpr {
         BinaryOpExpr::new(BinaryOp::Sub, lhs, expr)
     }
 
-    pub fn group_modifier_op_or_default(&self) -> GroupModifierOp {
+    pub fn get_group_modifier_or_default(&self) -> (GroupModifierOp, Cow<Vec<String>>) {
         match &self.group_modifier {
-            None => GroupModifierOp::Ignoring,
-            Some(modifier) => modifier.op,
+            None => {
+                (GroupModifierOp::Ignoring, Cow::Owned::<Vec<String>>(vec![]))
+            },
+            Some(modifier) => {
+                (modifier.op, Cow::Borrowed(&modifier.labels))
+            }
         }
     }
 
@@ -760,15 +806,22 @@ impl BinaryOpExpr {
     /// like Prometheus does. For instance, `0.5 < foo` must be converted to `foo > 0.5`
     /// in order to return valid values for `foo` that are bigger than 0.5.
     pub fn adjust_comparison_op(&mut self) -> bool {
+        if self.should_adjust_comparison_op() {
+            self.op = self.op.get_reverse_cmp();
+            std::mem::swap(&mut self.left, &mut self.right);
+            return true;
+        }
+        return false
+    }
+
+    pub fn should_adjust_comparison_op(&self) -> bool {
         if !self.op.is_comparison() {
             return false
         }
+
         if Expression::is_number(&self.right) || !Expression::is_scalar(&self.left) {
             return false
         }
-
-        self.op = self.op.get_reverse_cmp();
-        std::mem::swap(&mut self.left, &mut self.right);
         true
     }
 
@@ -809,7 +862,7 @@ impl BinaryOpExpr {
 }
 
 impl Display for BinaryOpExpr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         // Op is the operation itself, i.e. `+`, `-`, `*`, etc.
         match &*self.left {
             Expression::BinaryOperator(be) => {
@@ -852,7 +905,24 @@ impl ExpressionNode for BinaryOpExpr {
     }
 }
 
-/// FuncExpr represents MetricsQL function such as `foo(...)`
+// Gets vector matching cardinality. Assumes both operands are InstantVector
+pub fn get_vector_matching_cardinality(binary_node: &BinaryOpExpr) -> VectorMatchCardinality {
+    let mut card = VectorMatchCardinality::OneToOne;
+    if let Some(join_modifier) = &binary_node.join_modifier {
+        let group_left = join_modifier.op == JoinModifierOp::GroupLeft;
+        if group_left {
+            card = VectorMatchCardinality::ManyToOne
+        } else {
+            card = VectorMatchCardinality::OneToMany
+        }
+    };
+    if binary_node.op.is_set_operator() && card == VectorMatchCardinality::OneToOne {
+        card = VectorMatchCardinality::ManyToMany;
+    }
+    return card
+}
+
+/// FuncExpr represents MetricsQL function such as `rate(...)`
 #[derive(Debug, Clone, Hash)]
 pub struct FuncExpr {
     pub function: BuiltinFunction,
@@ -983,7 +1053,7 @@ impl FuncExpr {
 }
 
 impl Display for FuncExpr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "{}", self.name())?;
         write_expression_list(&self.args, f)?;
         if self.keep_metric_names {
@@ -1101,7 +1171,7 @@ impl RollupExpr {
 }
 
 impl Display for RollupExpr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let need_parent = match *self.expr {
             Expression::Rollup(..) => false,
             Expression::BinaryOperator(..) => true,
@@ -1213,7 +1283,7 @@ impl DurationExpr {
 }
 
 impl Display for DurationExpr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "{}", self.s)?;
         Ok(())
     }
@@ -1249,7 +1319,7 @@ impl WithExpr {
 }
 
 impl Display for WithExpr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "WITH (")?;
         for (i, was) in self.was.iter().enumerate() {
             if (i + 1) < self.was.len() {
@@ -1292,7 +1362,7 @@ impl WithArgExpr {
 }
 
 impl Display for WithArgExpr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "{}", escape_ident(&self.name))?;
         write_list(&self.args, f, !self.args.is_empty())?;
         write!(f, " = ")?;
@@ -1309,7 +1379,7 @@ pub enum AggregateModifierOp {
 }
 
 impl Display for AggregateModifierOp {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         use AggregateModifierOp::*;
         match self {
             By => write!(f, "by")?,
@@ -1384,7 +1454,7 @@ impl AggregateModifier {
 }
 
 impl Display for AggregateModifier {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         // Op is the operation itself, i.e. `+`, `-`, `*`, etc.
         write!(f, "{}", self.op)?;
         write_labels(&self.args, f)?;
@@ -1431,6 +1501,11 @@ impl AggrFuncExpr {
         }
     }
 
+    pub fn from_name(name: &str) -> Result<Self, ParseError> {
+        let function = AggregateFunction::from_str(name)?;
+        Ok(Self::new(&function))
+    }
+
     pub fn with_modifier(mut self, modifier: AggregateModifier) -> Self {
         self.modifier = Some(modifier);
         self
@@ -1459,7 +1534,6 @@ impl AggrFuncExpr {
     }
 
     pub fn return_value(&self) -> ReturnValue {
-
         ReturnValue::InstantVector
     }
 
@@ -1478,7 +1552,7 @@ impl AggrFuncExpr {
 }
 
 impl Display for AggrFuncExpr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "{}", self.function)?;
         let args_len = self.args.len();
         if args_len > 0 {
@@ -1519,7 +1593,7 @@ pub struct MetricExpr {
 
 impl MetricExpr {
     pub fn new<S: Into<String>>(name: S) -> MetricExpr {
-        let name_filter = LabelFilter::new(LabelFilterOp::Equal, "__name__", name).unwrap();
+        let name_filter = LabelFilter::new(Equal, "__name__", name).unwrap();
         MetricExpr {
             label_filters: vec![name_filter],
             label_filter_exprs: vec![],
@@ -1527,6 +1601,14 @@ impl MetricExpr {
         }
     }
 
+    pub fn with_filters(filters: Vec<LabelFilter>) -> Self {
+        MetricExpr {
+            label_filters: filters,
+            label_filter_exprs: vec![],
+            span: Default::default()
+        }    
+    }
+    
     pub fn is_empty(&self) -> bool {
         self.label_filters.len() == 0 && self.label_filter_exprs.len() == 0
     }
@@ -1545,16 +1627,10 @@ impl MetricExpr {
         self.label_filters.len() == 1
     }
 
-    pub fn metric_group(&self) -> Option<&str> {
-        if self.label_filters.is_empty() {
-            None
-        } else {
-            let filter = &self.label_filters[0];
-            if filter.label == "__name__" {
-                Some(&filter.value)
-            } else {
-                None
-            }
+    pub fn name(&mut self) -> Option<&str> {
+        match self.label_filters.iter().find(|filter| filter.label == "__name__" ) {
+            Some(f) => Some(&f.value),
+            None => None
         }
     }
 
@@ -1580,7 +1656,7 @@ impl MetricExpr {
 }
 
 impl Display for MetricExpr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let mut lfs: &[LabelFilter] = &self.label_filters;
         if !lfs.is_empty() {
             let lf = &lfs[0];
@@ -1658,7 +1734,7 @@ impl ParensExpr {
 }
 
 impl Display for ParensExpr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write_expression_list(&self.expressions, f)?;
         Ok(())
     }
@@ -1674,7 +1750,7 @@ impl ExpressionNode for ParensExpr {
     }
 }
 
-fn write_labels(labels: &[String], f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+fn write_labels(labels: &[String], f: &mut Formatter) -> Result<(), fmt::Error> {
     if !labels.is_empty() {
         write!(f, "(")?;
         for (i, label) in labels.iter().enumerate() {
@@ -1688,7 +1764,7 @@ fn write_labels(labels: &[String], f: &mut fmt::Formatter) -> Result<(), fmt::Er
     Ok(())
 }
 
-fn write_expression_list(exprs: &[BExpression], f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+fn write_expression_list(exprs: &[BExpression], f: &mut Formatter) -> Result<(), fmt::Error> {
     let mut items: Vec<String> = Vec::with_capacity(exprs.len());
     for expr in exprs {
         items.push(format!("{}", expr));
@@ -1699,7 +1775,7 @@ fn write_expression_list(exprs: &[BExpression], f: &mut fmt::Formatter) -> Resul
 
 fn write_list(
     values: &Vec<String>,
-    f: &mut fmt::Formatter,
+    f: &mut Formatter,
     use_parens: bool,
 ) -> Result<(), fmt::Error> {
     if use_parens {

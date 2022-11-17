@@ -2,7 +2,6 @@ use std::borrow::{Cow};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use once_cell::sync::Lazy;
-use regex::internal::Input;
 
 use lib::get_pooled_buffer;
 use metricsql::ast::{
@@ -37,6 +36,8 @@ pub(crate) trait BinaryOpFn: Fn(&mut BinaryOpFuncArg) -> RuntimeResult<Vec<Times
 
 impl<T> BinaryOpFn for T where T: Fn(&mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> + Send + Sync {}
 
+pub(crate) type BinaryOpFnImplementation = Arc<dyn BinaryOpFn<Output=RuntimeResult<Vec<Timeseries>>>>;
+
 type TimeseriesHashMap = HashMap<String, Vec<Timeseries>>;
 
 macro_rules! boxed {
@@ -60,10 +61,10 @@ macro_rules! comp_func {
 }
 
 
-static HANDLER_MAP: Lazy<RwLock<HashMap<BinaryOp, Arc<dyn BinaryOpFn>>>> = Lazy::new(|| {
+static HANDLER_MAP: Lazy<RwLock<HashMap<BinaryOp, BinaryOpFnImplementation>>> = Lazy::new(|| {
     use BinaryOp::*;
 
-    let mut m: HashMap<BinaryOp, Arc<dyn BinaryOpFn>> = HashMap::with_capacity(14);
+    let mut m: HashMap<BinaryOp, BinaryOpFnImplementation> = HashMap::with_capacity(14);
 
     m.insert(Add,   arith_func!(metricsql::binaryop::plus));
     m.insert(Sub,   arith_func!(metricsql::binaryop::minus));
@@ -97,7 +98,7 @@ static HANDLER_MAP: Lazy<RwLock<HashMap<BinaryOp, Arc<dyn BinaryOpFn>>>> = Lazy:
 });
 
 
-pub(crate) fn get_binary_op_handler(op: BinaryOp) -> Arc<dyn BinaryOpFn> {
+pub(crate) fn get_binary_op_handler(op: BinaryOp) -> BinaryOpFnImplementation {
     let map = HANDLER_MAP.read().unwrap();
     map.get(&op).unwrap().clone()
 }
@@ -227,8 +228,6 @@ fn adjust_binary_op_tags<'a>(bfa: &'a mut BinaryOpFuncArg)
     // Slow path: `vector op vector` or `a op {on|ignoring} {group_left|group_right} b`
     let (mut m_left, mut m_right) = create_timeseries_map_by_tag_set(bfa);
 
-    let (group_op, group_tags) = get_modifier_or_default(bfa.be);
-
     let mut rvs_left: Vec<Timeseries> = Vec::with_capacity(1);
     let mut rvs_right: Vec<Timeseries> = Vec::with_capacity(1);
 
@@ -265,13 +264,9 @@ fn adjust_binary_op_tags<'a>(bfa: &'a mut BinaryOpFuncArg)
                 ensure_single_timeseries("right", &bfa.be, &mut tss_right)?;
                 let mut ts_left = &mut tss_left[0];
                 reset_metric_group_if_required(&bfa.be, &mut ts_left);
-                match group_op {
-                    GroupModifierOp::On => {
-                        ts_left.metric_name.remove_tags_except(&group_tags)
-                    },
-                    GroupModifierOp::Ignoring => {
-                        ts_left.metric_name.remove_tags(&group_tags)
-                    }
+
+                if let Some(modifier) = &bfa.be.group_modifier {
+                    ts_left.metric_name.update_tags_by_group_modifier(modifier);
                 }
 
                 rvs_left.push(std::mem::take(&mut ts_left));
@@ -510,6 +505,7 @@ fn binary_op_default(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>
         let items = m_right.into_values().flatten().collect();
         return Ok(items)
     }
+
     let mut rvs: Vec<Timeseries> = Vec::with_capacity( m_left.len() );
     for (k, mut tss_left) in m_left.iter_mut() {
         match series_by_key(&m_right, &k) {
@@ -634,34 +630,20 @@ fn add_left_nans_if_no_right_nans(tss_left: &mut Vec<Timeseries>, tss_right: &Ve
 }
 
 fn create_timeseries_map_by_tag_set(bfa: &mut BinaryOpFuncArg) -> (TimeseriesHashMap, TimeseriesHashMap) {
-    let (group_op, group_tags) = get_modifier_or_default(&bfa.be);
 
     let get_tags_map = |arg: &mut Vec<Timeseries>| -> TimeseriesHashMap {
-        // todo(perf): tinyvec
-        let mut bb = get_pooled_buffer(512);
-
         let mut m = TimeseriesHashMap::with_capacity(arg.len());
         for ts in arg.into_iter() {
             let mut mn = ts.metric_name.clone();
             mn.reset_metric_group();
-            match group_op {
-                GroupModifierOp::On => {
-                    mn.remove_tags_on(&group_tags);
-                },
-                GroupModifierOp::Ignoring => {
-                    mn.remove_tags(&group_tags);
-                },
+            if let Some(modifier) = &bfa.be.group_modifier {
+                mn.update_tags_by_group_modifier(modifier);
             }
-            {
-                mn.marshal(&mut bb);
-                let key = String::from_utf8_lossy(&bb).to_string();
+            let key = mn.to_string(); // mn.to_canonical_string()
 
-                m.entry(key)
-                    .or_insert(vec![])
-                    .push(std::mem::take(ts));
-
-                bb.clear();
-            }
+            m.entry(key)
+                .or_insert(vec![])
+                .push(std::mem::take(ts));
         }
 
         return m

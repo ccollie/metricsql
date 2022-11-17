@@ -1,5 +1,5 @@
 use std::{fmt};
-use std::fmt::Display;
+use std::fmt::{Display, Formatter};
 use text_size::{TextRange, TextSize};
 use thiserror::Error;
 
@@ -13,6 +13,8 @@ pub enum ParseError {
     ArgumentError(String),
     #[error(transparent)]
     InvalidToken(InvalidTokenError),
+    #[error(transparent)]
+    Unexpected(ParseErr), // TODO !!!!!!
     #[error("Duplicate argument `{0}`")]
     DuplicateArgument(String),
     #[error("Unexpected end of text")]
@@ -35,6 +37,52 @@ pub enum ParseError {
     InvalidFunction(String),
     #[error("{0}")]
     InvalidExpression(String),
+}
+
+/// ParseErr wraps a parsing error with line and position context.
+#[derive(Debug, PartialEq, Clone, Error)]
+pub struct ParseErr {
+    pub range: TextRange,
+    pub err: String,
+    pub query: String,
+    /// line_offset is an additional line offset to be added. Only used inside unit tests.
+    pub line_offset: usize
+}
+
+impl ParseErr {
+    pub fn new(msg: &str, query: &str, range: TextRange) -> Self {
+        Self {
+            range,
+            err: msg.to_string(),
+            query: query.to_string(),
+            line_offset: 0
+        }
+    }
+}
+
+impl Display for ParseErr {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let pos: usize = usize::from(self.range.start());
+        let mut last_line_break = 0;
+        let mut line = self.line_offset + 1;
+
+        let position_str: String;
+
+        if pos > self.query.len() {
+            position_str = "invalid position:".to_string()
+        } else {
+            for (i, c) in self.query[0..pos].chars().enumerate() {
+                if c == '\n' {
+                    last_line_break = i;
+                    line += 1;
+                }
+            }
+            let col = pos - last_line_break;
+            position_str = format!("{}:{}:", line, col).to_string()
+        }
+        write!(f, "{} parse error: {}", position_str, self.err)?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, PartialEq, Clone, Error)]

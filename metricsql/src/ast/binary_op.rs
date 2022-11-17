@@ -118,7 +118,7 @@ impl BinaryOp {
     }
 
     #[inline]
-    pub fn is_binary_op_logical_set(&self) -> bool {
+    pub fn is_set_operator(&self) -> bool {
         use BinaryOp::*;
         matches!(self, And | Or | Unless)
     }
@@ -169,4 +169,53 @@ impl fmt::Display for BinaryOp {
 
 pub fn is_binary_op(op: &str) -> bool {
     BINARY_OPS_MAP.contains_key(op.to_lowercase().as_str())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::ast::{BinaryOp, is_binary_op};
+
+    fn get_binop(s: &str) -> BinaryOp {
+        BinaryOp::try_from(s).expect(format!("invalid binop: {}", s).as_str())
+    }
+
+    fn test_is_binary_op_success() {
+        let f = |s: &str| {
+            assert!(is_binary_op(s), "expecting valid binaryOp: {}", s)
+        };
+
+        f("and");
+        f("AND");
+        f("unless");
+        f("unleSS");
+        f("==");
+        f("!=");
+        f(">=");
+        f("<=");
+        f("or");
+        f("Or");
+        f("+");
+        f("-");
+        f("*");
+        f("/");
+        f("%");
+        f("atan2");
+        f("^");
+        f(">");
+        f("<");
+    }
+
+    #[test]
+    fn test_is_binary_op_error() {
+        let f = |s: &str| {
+            assert!(!is_binary_op(s), "unexpected valid binaryOp: {}", s);
+        };
+
+        f("foobar");
+        f("=~");
+        f("!~");
+        f("=");
+        f("<==");
+        f("234");
+    }
 }

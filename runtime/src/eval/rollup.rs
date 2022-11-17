@@ -206,7 +206,7 @@ impl RollupEvaluator {
         // the results of the nrf call since the result won't change, hence sparing the call to eval
         // the arg list. For ex `quantile(0.95, latency{func="make-widget"})`. We know which is
         let params = self.args.eval(ctx, ec)?;
-        let rf = (self.nrf)(&params);
+        let rf = (self.nrf)(&params)?;
 
         if self.at.is_none() {
             return self.eval_without_at(ctx, ec, &rf);
@@ -532,10 +532,17 @@ impl RollupEvaluator {
 
         match tss {
             Ok(v) => {
-                let res = merge_timeseries(tss_cached, v, start, ec)?;
-                ctx.rollup_result_cache.release_memory(rollup_memory_size)?;
-                ctx.rollup_result_cache.put(ec, &self.expr, window, &res)?;
-                Ok(res)
+                match merge_timeseries(tss_cached, v, start, ec) {
+                    Ok(res) => {
+                        ctx.rollup_result_cache.release_memory(rollup_memory_size)?;
+                        ctx.rollup_result_cache.put(ec, &self.expr, window, &res)?;
+                        Ok(res)
+                    },
+                    Err(err) => {
+                        ctx.rollup_result_cache.release_memory(rollup_memory_size)?;
+                        Err(err)
+                    }
+                }
             }
             Err(e) => {
                 ctx.rollup_result_cache.release_memory(rollup_memory_size)?;
@@ -544,7 +551,7 @@ impl RollupEvaluator {
         }
     }
 
-    fn reserve_rollup_memory(&self, ctx: &Arc<&Context>, ec: &EvalConfig, rss: &mut QueryResults, rcs_len: usize) -> RuntimeResult<usize> {
+    fn reserve_rollup_memory(&self, ctx: &Arc<&Context>, ec: &EvalConfig, rss: &QueryResults, rcs_len: usize) -> RuntimeResult<usize> {
         // Verify timeseries fit available memory after the rollup.
         // Take into account points from tss_cached.
         let points_per_timeseries = 1 + (ec.end - ec.start) / ec.step;
@@ -622,7 +629,7 @@ impl RollupEvaluator {
                 match new_timeseries_map(&ctx.func, ctx.keep_metric_names, &ctx.timestamps, &rs.metric_name) {
                     Some(tsm) => {
                         rc.do_timeseries_map(&tsm, &rs.values, &rs.timestamps)?;
-                        let mut iafc = ctx.iafc.lock().unwrap();
+                        let iafc = ctx.iafc.lock().unwrap();
                         for ts in tsm.as_ref().borrow_mut().values_mut() {
                             iafc.update_timeseries(ts, worker_id)?;
                         }
@@ -641,7 +648,7 @@ impl RollupEvaluator {
                                          &ctx.timestamps)?;
 
                 // todo: return result rather than unwrap
-                let mut iafc = ctx.iafc.lock().unwrap();
+                let iafc = ctx.iafc.lock().unwrap();
                 iafc.update_timeseries(&mut ts, worker_id).unwrap();
             }
             Ok(())

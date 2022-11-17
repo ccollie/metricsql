@@ -104,7 +104,7 @@ impl<'a> IncrementalAggrFuncContext<'a> {
         }
     }
 
-    pub fn update_timeseries(&mut self, ts_orig: &mut Timeseries, worker_id: u64) -> RuntimeResult<()> {
+    pub fn update_timeseries(&self, ts_orig: &mut Timeseries, worker_id: u64) -> RuntimeResult<()> {
         let mut im = self.context_map.write().unwrap();
         let m = im.entry(worker_id).or_default();
 
