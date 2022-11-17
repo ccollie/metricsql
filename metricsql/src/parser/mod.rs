@@ -15,5 +15,7 @@ mod simplify;
 mod parser_example_test;
 #[cfg(test)]
 mod parser_test;
+#[cfg(test)]
+mod expand_with_test;
 
 

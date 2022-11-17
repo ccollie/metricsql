@@ -79,7 +79,8 @@ impl BinaryOpEvaluator {
             // from exprFirst to exprSecond.
             // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/2886
 
-            // todo(perf): both sides here should be scalar, so rayon is probably overkill
+            // todo(perf): make sure both sides are instant vectors, otherwise parallelism may not
+            // be worth the effort
             let mut ctx_clone = Arc::clone(ctx);
             return match rayon::join(
                 || first.eval(ctx, ec),
@@ -126,7 +127,7 @@ impl BinaryOpEvaluator {
                 Ok((first, other))
             },
             Cow::Owned(expr) => {
-                // todo(perf) !!!!: use parser cache ?
+                // todo(perf) !!!!: use ctx.parser_cache ?
                 let evaluator = create_evaluator(&expr)?;
                 let second = evaluator.eval(ctx, ec)?;
                 Ok((first, second))
@@ -206,11 +207,10 @@ fn can_pushdown_common_filters(be: &BinaryOpExpr) -> bool {
     match be.op {
         BinaryOp::Or | BinaryOp::Default => false,
         _=> {
-            if is_aggr_func_without_grouping(&be.left) ||
-                is_aggr_func_without_grouping(&be.right) {
-                return false
-            }
-            return true
+            return !(
+                is_aggr_func_without_grouping(&be.left) ||
+                is_aggr_func_without_grouping(&be.right)
+            );
         }
     }
 }
@@ -228,7 +228,7 @@ fn is_aggr_func_without_grouping(e: &Expression) -> bool {
     }
 }
 
-fn get_common_label_filters(tss: &[Timeseries]) -> Vec<LabelFilter> {
+pub(super) fn get_common_label_filters(tss: &[Timeseries]) -> Vec<LabelFilter> {
     let mut m: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for ts in tss.iter() {
         for (key, value) in ts.metric_name.iter() {

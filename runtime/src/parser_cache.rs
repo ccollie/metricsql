@@ -1,7 +1,6 @@
 use std::borrow::{Cow};
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU64, Ordering};
-
 use lru_time_cache::LruCache;
 
 use metricsql::ast::Expression;
@@ -122,6 +121,8 @@ impl ParseCache {
     }
 }
 
+
+// todo: put in optimize phase
 // todo: put in optimize phase
 pub(crate) fn adjust_cmp_ops(e: &mut Expression) {
     visit_all(e, |expr: &mut Expression|

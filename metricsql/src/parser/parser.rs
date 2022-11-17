@@ -50,10 +50,9 @@ impl<'a> Parser<'a> {
         if self.is_eof() {
             return None
         }
-        let token = self.tokens.get(self.cursor)?;
-        self.cursor += 1;
 
-        Some(token)
+        self.cursor += 1;
+        self.tokens.get(self.cursor)
     }
 
     fn prev_token(&mut self) -> Option<&Token<'a>> {
@@ -74,7 +73,13 @@ impl<'a> Parser<'a> {
 
     pub(crate) fn current_token(&self) -> ParseResult<&Token<'a>> {
         match self.tokens.get(self.cursor) {
-            Some(t) => Ok(t),
+            Some(t) => {
+                if t.kind.is_error_token() {
+                    let error_msg = format!("{}: {}", t.kind, t.text);
+                    return Err(ParseError::General(error_msg.to_string()));
+                }
+                Ok(t)
+            },
             None => Err(ParseError::UnexpectedEOF)
         }
     }
@@ -84,7 +89,20 @@ impl<'a> Parser<'a> {
     }
 
     pub(crate) fn last_token_range(&self) -> Option<TextRange> {
-        self.tokens.get(self.cursor).map(|Token { span, .. }| *span)
+        let index = if self.is_eof() {
+            self.tokens.len() - 1
+        } else {
+            self.cursor
+        };
+        self.tokens.get(index).map(|Token { span, .. }| *span)
+    }
+
+    fn update_span(&self, span: &mut TextRange) -> bool {
+        if let Some(end_span) = self.last_token_range() {
+            span.intersect(end_span);
+            return true;
+        }
+        false
     }
 
     pub fn parse_expression(&mut self) -> ParseResult<Expression> {
@@ -144,7 +162,7 @@ impl<'a> Parser<'a> {
         } else {
             // If we’re at the end of the input we use the range of the very last token in the
             // input.
-            (None, self.last_token_range().unwrap())
+            (None, self.last_token_range().unwrap_or_default())
         };
 
         let inner = InvalidTokenError::new(expected, found, &range);
@@ -152,50 +170,49 @@ impl<'a> Parser<'a> {
         ParseError::InvalidToken(inner)
     }
 
-    fn parse_arg_list(&mut self, need_parens: bool) -> ParseResult<Vec<BExpression>> {
-        if need_parens {
-            self.expect(TokenKind::LeftParen)?;
-        }
-
-        let args = self
-            .parse_comma_separated(Parser::parse_expression)?
-            .into_iter()
-            .map(Box::new)
-            .collect::<_>();
-
-        if need_parens {
-            self.expect(TokenKind::RightParen)?;
-        }
-
-        Ok(args)
+    fn parse_arg_list(&mut self) -> ParseResult<Vec<BExpression>> {
+        use TokenKind::*;
+        self.expect(LeftParen)?;
+        self.parse_comma_separated(&[RightParen], |p| {
+                Ok(Box::new(p.parse_expression()?))
+            })
     }
 
     fn parse_ident_list(&mut self) -> ParseResult<Vec<String>> {
         use TokenKind::*;
 
         self.expect(LeftParen)?;
-
-        let idents = self.parse_comma_separated(|parser| {
+        self.parse_comma_separated(&[RightParen],|parser| {
             let tok = parser.expect_token(Ident)?;
             Ok(unescape_ident(tok.text))
-        });
+        })
 
-        self.expect(RightParen)?;
-
-        idents
     }
 
     /// Parse a comma-separated list of 1+ items accepted by `F`
-    pub fn parse_comma_separated<T, F>(&mut self, mut f: F) -> ParseResult<Vec<T>>
+    pub fn parse_comma_separated<T, F>(&mut self, stop_tokens: &[TokenKind], mut f: F) -> ParseResult<Vec<T>>
     where
         F: FnMut(&mut Parser<'a>) -> ParseResult<T>,
     {
-        let mut values = Vec::with_capacity(1);
+        let mut values = Vec::with_capacity(4);
         loop {
+            if self.at_set(stop_tokens) {
+                self.bump();
+                break
+            }
             let item = f(self)?;
             values.push(item);
-            if !self.consume_token(&TokenKind::Comma) {
+            let kind = self.peek_kind();
+            if kind == TokenKind::Comma {
+                self.bump();
+                continue
+            } else if stop_tokens.contains(&kind) {
+                self.bump();
                 break;
+            } else {
+                let mut expected = Vec::from(stop_tokens);
+                expected.insert(0, TokenKind::Comma);
+                return Err(self.token_error(&expected));
             }
         }
         Ok(values)
@@ -235,18 +252,8 @@ impl<'a> Parser<'a> {
         tok.expect("BUG: invalid index out of bounds").kind
     }
 
-    fn expect_one_of_kind(&mut self, expected: &[TokenKind]) -> ParseResult<TokenKind> {
-        let kind = self.peek_kind();
-        if expected.contains(&kind) {
-            self.cursor += 1;
-            Ok(kind)
-        } else {
-            Err(self.token_error(expected))
-        }
-    }
-
     fn parse_single_expr(&mut self) -> ParseResult<Expression> {
-        if self.consume_token(&TokenKind::With) && self.at(TokenKind::LeftParen) {
+        if self.at(TokenKind::With) {
             let with = parse_with_expr(self)?;
             return Ok(Expression::With(with));
         }
@@ -453,19 +460,19 @@ fn parse_function<'a>(p: &mut Parser<'a>, name: &str) -> ParseResult<Expression>
 }
 
 fn parse_func_expr(p: &mut Parser) -> ParseResult<Expression> {
-    let span = p.last_token_range();
     let token = p.expect_token(TokenKind::Ident)?;
     let name = unescape_ident(token.text);
+    let mut span= token.span;
 
     let args = parse_arg_list_expr(p)?;
 
     let mut keep_metric_names = false;
     if p.at(TokenKind::KeepMetricNames) {
         keep_metric_names = true;
+        p.update_span(&mut span);
         p.bump();
     }
 
-    let span = update_range(p, span)?;
     let mut fe = FuncExpr::new(&name, args, span)?;
     fe.keep_metric_names = keep_metric_names;
 
@@ -476,6 +483,7 @@ fn parse_func_expr(p: &mut Parser) -> ParseResult<Expression> {
 
 fn parse_aggr_func_expr(p: &mut Parser) -> ParseResult<Expression> {
     let tok = p.current_token()?;
+    let mut span = tok.span;
 
     let func: AggregateFunction = AggregateFunction::from_str(tok.text)?;
 
@@ -486,7 +494,7 @@ fn parse_aggr_func_expr(p: &mut Parser) -> ParseResult<Expression> {
     }
 
     fn handle_args(p: &mut Parser, ae: &mut AggrFuncExpr) -> ParseResult<()> {
-        ae.args = p.parse_arg_list(false)?;
+        ae.args = p.parse_arg_list()?;
 
         validate_args(&BuiltinFunction::Aggregate(ae.function), &ae.args)?;
         let kind = p.peek_kind();
@@ -502,8 +510,6 @@ fn parse_aggr_func_expr(p: &mut Parser) -> ParseResult<Expression> {
         Ok(())
     }
 
-    let start= tok.span.clone();
-
     let mut ae: AggrFuncExpr = AggrFuncExpr::new(&func);
     p.bump();
 
@@ -513,7 +519,8 @@ fn parse_aggr_func_expr(p: &mut Parser) -> ParseResult<Expression> {
         _=> return Err(p.token_error(&[TokenKind::Ident, TokenKind::LeftParen])),
     }
 
-    ae.span = p.last_token_range().unwrap().intersect(start).unwrap();
+    p.update_span(&mut span);
+    ae.span = span;
 
     Ok(Expression::Aggregation(ae))
 }
@@ -521,7 +528,7 @@ fn parse_aggr_func_expr(p: &mut Parser) -> ParseResult<Expression> {
 fn parse_expression(p: &mut Parser) -> ParseResult<Expression> {
     let mut e = p.parse_single_expr()?;
 
-    let start = p.last_token_range();
+    let start = e.span();
 
     loop {
         if p.at_end() {
@@ -554,7 +561,7 @@ fn parse_expression(p: &mut Parser) -> ParseResult<Expression> {
             // join modifier
             let token = p.current_token()?;
             if [TokenKind::GroupLeft, TokenKind::GroupRight].contains(&token.kind) {
-                if operator.is_binary_op_logical_set() {
+                if operator.is_set_operator() {
                     let msg = format!("modifier {} cannot be applied to {}", token.text, operator);
                     return Err(ParseError::General(msg));
                 }
@@ -564,8 +571,8 @@ fn parse_expression(p: &mut Parser) -> ParseResult<Expression> {
         }
 
         let right = p.parse_single_expr()?;
+        let span = start.cover(right.span());
 
-        let span = update_range(p, start)?;
         let mut be = BinaryOpExpr::new(operator, e, right)?;
         be.group_modifier = group_modifier;
         be.join_modifier = join_modifier;
@@ -574,7 +581,6 @@ fn parse_expression(p: &mut Parser) -> ParseResult<Expression> {
 
         e = balance_binary_op(&be);
     }
-
 
     Ok(e)
 }
@@ -610,13 +616,7 @@ fn parse_single_expr_without_rollup_suffix(p: &mut Parser) -> ParseResult<Expres
             Err(e) => Err(e),
         },
         Ident => parse_ident_expr(p),
-        Inf | NaN | Number => {
-            let value = parse_number(p)?;
-            let tok = p.current_token()?;
-            let span = tok.span.clone();
-            let num = NumberExpr::new(value, span);
-            Ok(Expression::Number(num))
-        },
+        Inf | NaN | Number => parse_number_expr(p),
         Duration => match p.parse_positive_duration() {
             Ok(s) => Ok(Expression::Duration(s)),
             Err(e) => Err(e),
@@ -628,15 +628,7 @@ fn parse_single_expr_without_rollup_suffix(p: &mut Parser) -> ParseResult<Expres
             p.bump();
             p.parse_single_expr()
         },
-        OpMinus => {
-            let span_start = p.last_token_range();
-            // Unary minus. Substitute `-expr` with `0 - expr`
-            p.bump();
-            let e = p.parse_single_expr()?;
-            let span = update_range(p, span_start)?;
-            let b = BinaryOpExpr::new_unary_minus(e, span)?;
-            Ok(Expression::BinaryOperator(b))
-        }
+        OpMinus => parse_unary_minus_expr(p),
         _ => {
             let valid: [TokenKind; 9] = [
                 LiteralString,
@@ -659,25 +651,42 @@ fn parse_number(p: &mut Parser) -> ParseResult<f64> {
     parse_float(tok.text)
 }
 
+fn parse_number_expr(p: &mut Parser) -> ParseResult<Expression> {
+    let tok = p.expect_one_of(&[TokenKind::Number, TokenKind::NaN, TokenKind::Inf])?;
+    let value = parse_float(tok.text)?;
+    Ok(Expression::Number(NumberExpr::new(value, tok.span)))
+}
+
 fn parse_group_modifier(p: &mut Parser) -> Result<GroupModifier, ParseError> {
+    let tok = p.current_token()?;
+    let mut span: TextRange = tok.span;
+
     let op: GroupModifierOp;
-    match p.peek_kind() {
+
+    match tok.kind {
         TokenKind::Ignoring => op = GroupModifierOp::Ignoring,
         TokenKind::On => op = GroupModifierOp::On,
         _ => {
             return Err(p.token_error(&[TokenKind::Ignoring, TokenKind::On]));
         }
     }
+
     p.bump();
 
     let args = p.parse_ident_list()?;
-    let res = GroupModifier::new(op, args);
+    let mut res = GroupModifier::new(op, args, span);
+    if p.update_span(&mut span) {
+        res.span(span);
+    }
 
     Ok(res)
 }
 
 fn parse_join_modifier(p: &mut Parser) -> ParseResult<JoinModifier> {
-    let op = match p.peek_kind() {
+    let tok = p.current_token()?;
+    let mut span: TextRange = tok.span;
+
+    let op = match tok.kind {
         TokenKind::GroupLeft => JoinModifierOp::GroupLeft,
         TokenKind::GroupRight => JoinModifierOp::GroupRight,
         _ => {
@@ -690,11 +699,13 @@ fn parse_join_modifier(p: &mut Parser) -> ParseResult<JoinModifier> {
     let mut res = JoinModifier::new(op);
     if !p.at(TokenKind::LeftParen) {
         // join modifier may miss ident list.
-        Ok(res)
     } else {
         res.labels = p.parse_ident_list()?;
-        Ok(res)
     }
+    if p.update_span(&mut span) {
+        res.span(span);
+    }
+    Ok(res)
 }
 
 fn parse_aggregate_modifier(p: &mut Parser) -> ParseResult<AggregateModifier> {
@@ -725,7 +736,7 @@ fn parse_ident_expr(p: &mut Parser) -> ParseResult<Expression> {
 
     let tok = tok.unwrap();
 
-    // todo: the following weirdness is to avoid issues with borrowing later
+    // the following weirdness is to avoid issues with borrowing later
     let is_ident = tok.kind == Ident;
     let name = {
         if is_ident {
@@ -780,10 +791,21 @@ fn parse_ident_expr(p: &mut Parser) -> ParseResult<Expression> {
     }
 }
 
+pub(crate) fn parse_unary_minus_expr(p: &mut Parser) -> ParseResult<Expression> {
+    // assert(p.at(TokenKind::Minus)
+    let mut span = p.last_token_range().unwrap();
+    // Unary minus. Substitute `-expr` with `0 - expr`
+    p.bump();
+    let e = p.parse_single_expr()?;
+    span = span.cover(e.span());
+    let b = BinaryOpExpr::new_unary_minus(e, span)?;
+    Ok(Expression::BinaryOperator(b))
+}
+
 pub(crate) fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expression> {
     let mut me= MetricExpr::default();
 
-    let start = p.last_token_range();
+    let mut span = p.last_token_range().unwrap();
     if p.at(TokenKind::Ident) {
         let tok = p.current_token()?;
 
@@ -806,7 +828,8 @@ pub(crate) fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expression> {
         }
     }
     me.label_filter_exprs = parse_label_filters(p)?;
-    me.span = update_range(p, start)?;
+    p.update_span(&mut span);
+    me.span = span;
     Ok(Expression::MetricExpression(me))
 }
 
@@ -849,39 +872,18 @@ fn parse_rollup_expr(p: &mut Parser, e: Expression) -> ParseResult<Expression> {
 }
 
 fn parse_parens_expr(p: &mut Parser) -> ParseResult<Expression> {
-    let exprs = p.parse_arg_list(true)?;
-    Ok(Expression::Parens(ParensExpr::new(exprs)))
+    let list = p.parse_arg_list()?;
+    Ok(Expression::from(list))
 }
 
 fn parse_arg_list_expr(p: &mut Parser) -> ParseResult<Vec<BExpression>> {
     use TokenKind::*;
 
     p.expect(LeftParen)?;
-    let mut args: Vec<BExpression> = Vec::with_capacity(1);
-
-    loop {
-        if p.at(RightParen) {
-            p.bump();
-            break;
-        }
+    p.parse_comma_separated(&[RightParen], |p| {
         let expr = p.parse_expression()?;
-        args.push(Box::new(expr));
-        match p.peek_kind() {
-            Comma => {
-                p.bump();
-                continue
-            },
-            RightParen => {
-                p.bump();
-                break
-            },
-            _ => {
-                return Err(p.token_error(&[RightParen, Comma]));
-            }
-        }
-    }
-
-    return Ok(args);
+        Ok(Box::new(expr))
+    })
 }
 
 /// parses `WITH (withArgExpr...) expr`.
@@ -896,13 +898,12 @@ fn parse_with_expr(p: &mut Parser) -> ParseResult<WithExpr> {
     let was_in_with = p.parsing_with;
     p.parsing_with = true;
 
-    let was = p.parse_comma_separated(Parser::parse_with_arg_expr)?;
+    let was = p.parse_comma_separated(&[RightParen], Parser::parse_with_arg_expr)?;
 
     if !was_in_with {
         p.parsing_with = false
     }
 
-    p.expect(RightParen)?;
 
     // end:
     check_duplicate_with_arg_names(&was)?;
@@ -947,11 +948,10 @@ fn parse_window_and_step(
 
 fn parse_string_expr(p: &mut Parser) -> ParseResult<StringExpr> {
     use TokenKind::*;
-    let mut tokens = Vec::with_capacity(1);
 
+    let mut tokens = Vec::with_capacity(1);
     let mut tok = p.current_token()?;
-    let start = Some(tok.span);
-    let mut found_eof = false;
+    let mut span = tok.span;
 
     loop {
         match tok.kind {
@@ -962,13 +962,20 @@ fn parse_string_expr(p: &mut Parser) -> ParseResult<StringExpr> {
                     let slice = tok.text.slice(1 .. tok.text.len() - 1);
                     tokens.push( slice.unwrap().to_string() ); // ??
                 }
+                span = span.cover(tok.span)
             }
             Ident => {
                 tokens.push(tok.text.to_string() );
+                span = span.cover(tok.span)
             }
             _ => {
-                found_eof = true;
-                break;
+                // todo: better err
+                return Err( ParseError::InvalidToken(InvalidTokenError{
+                    expected: vec![LiteralString],
+                    found: Some(tok.kind),
+                    range: tok.span,
+                    context: "string expr".to_string()
+                }));
             }
         }
 
@@ -978,13 +985,11 @@ fn parse_string_expr(p: &mut Parser) -> ParseResult<StringExpr> {
                     break;
                 }
             },
-            None => {
-                found_eof = true;
-                break
-            }
+            None => break
         };
 
         // composite StringExpr like `"s1" + "s2"`, `"s" + m()` or `"s" + m{}` or `"s" + unknownToken`.
+
         if let Some(t) = p.next_token() {
             tok = t;
 
@@ -994,17 +999,14 @@ fn parse_string_expr(p: &mut Parser) -> ParseResult<StringExpr> {
             }
 
             if tok.kind != Ident {
-                p.back();
                 // "s" + unknownToken
-                break;
+                p.back();
+                break
             }
 
             // Look after ident
             match p.next_token() {
-                None => {
-                    found_eof = true;
-                    break
-                },
+                None => break,
                 Some(t) => {
                     tok = t;
                     if tok.kind == LeftParen || tok.kind == LeftBrace {
@@ -1017,7 +1019,6 @@ fn parse_string_expr(p: &mut Parser) -> ParseResult<StringExpr> {
             }
 
         } else {
-            found_eof = true;
             break;
         }
 
@@ -1025,45 +1026,15 @@ fn parse_string_expr(p: &mut Parser) -> ParseResult<StringExpr> {
         tok = p.prev_token().unwrap();
     }
 
-    if found_eof {
-        let msg = format!("stringExpr: unexpected end of expression");
-        return Err(ParseError::General(msg));
-    }
-
-    let span = update_range(p, start)?;
-    let se = StringExpr::from_tokens(tokens, span);
-
-    Ok(se)
+    Ok( StringExpr::from_tokens(tokens, span) )
 }
 
 pub(crate) fn parse_label_filters(p: &mut Parser) -> ParseResult<Vec<LabelFilterExpr>> {
     use TokenKind::*;
     p.expect(LeftBrace)?;
-    let mut lfes: Vec<LabelFilterExpr> = Vec::with_capacity(2);
-
-    loop {
-        if p.at(RightBrace) {
-            p.bump();
-            break;
-        }
-        let expr = p.parse_label_filter_expr()?;
-        lfes.push(expr);
-        match p.peek_kind() {
-            Comma => {
-                p.bump();
-                continue
-            },
-            RightBrace => {
-                p.bump();
-                break
-            },
-            _ => {
-                return Err(p.token_error(&[RightBrace, Comma]));
-            }
-        }
-    }
-
-    Ok(lfes)
+    p.parse_comma_separated(&[RightBrace], |p| {
+        p.parse_label_filter_expr()
+    })
 }
 
 fn must_parse_with_arg_expr(s: &str) -> ParseResult<WithArgExpr> {
@@ -1169,6 +1140,14 @@ pub(crate) fn validate_args(func: &BuiltinFunction, args: &[BExpression]) -> Par
         validate_return_type(arg.return_value(), expected, i)?
     }
     Ok(())
+}
+
+fn is_one_of(tok: Option<Token>, set: &[TokenKind]) -> bool {
+    if let Some(token) = tok {
+        set.contains(&token.kind)
+    } else {
+        false
+    }
 }
 
 fn update_range(p: &Parser, start: Option<TextRange>) -> ParseResult<TextRange> {

@@ -37,7 +37,7 @@ impl ReturnValue {
     /// operator, false if not.
     pub fn is_operator_valid(&self) -> bool {
         match self {
-            ReturnValue::Scalar | ReturnValue::InstantVector => true,
+            ReturnValue::Scalar | ReturnValue::String | ReturnValue::InstantVector => true,
             _ => false
         }
     }

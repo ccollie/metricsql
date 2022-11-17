@@ -1,5 +1,3 @@
-use crate::runtime_error::RuntimeResult;
-use crate::search::{Deadline, QueryResults, SearchQuery};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use chrono::prelude::*;
 
@@ -59,20 +57,5 @@ impl TimestampTrait for Timestamp {
     fn to_string_millis(&self) -> String {
         let ts = NaiveDateTime::from_timestamp(self / 1000, 0);
         ts.format("%Y-%m-%dT%H:%M:%S%.3f").to_string()
-    }
-}
-
-
-// async ???
-pub trait MetricDataProvider: Sync + Send {
-    fn search(&self, sq: &SearchQuery, deadline: &Deadline) -> RuntimeResult<QueryResults>;
-}
-
-pub struct NullMetricDataProvider {}
-
-impl MetricDataProvider for NullMetricDataProvider {
-    fn search(&self, _sq: &SearchQuery, _deadline: &Deadline) -> RuntimeResult<QueryResults> {
-        let qr = QueryResults::new();
-        Ok(qr)
     }
 }

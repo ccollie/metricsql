@@ -16,7 +16,7 @@
 // under the License.
 
 //! Signature module contains foundational types that are used to represent signatures, types,
-//! and return types of functions in DataFusion.
+//! and return types of functions in metrix.
 use std::borrow::{Borrow, Cow};
 use std::hash::{Hash};
 use std::str::FromStr;
@@ -30,7 +30,7 @@ use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::{EvalConfig, Timeseries};
 
 pub enum AnyValue {
-    RangeVector(Vec<Vec<Timeseries>>),
+    RangeVector(Vec<Timeseries>),
     InstantVector(Vec<Timeseries>),
     Vector(Vec<f64>),
     Scalar(f64),
@@ -38,6 +38,11 @@ pub enum AnyValue {
 }
 
 impl AnyValue {
+
+    pub fn nan() -> Self {
+        AnyValue::Scalar(f64::NAN)
+    }
+
     pub fn is_numeric(&self) -> bool {
         match self {
             AnyValue::Scalar(_) => true,
@@ -65,7 +70,7 @@ impl AnyValue {
         }
     }
 
-    pub fn get_matrix(&self) -> &Vec<Vec<Timeseries>> {
+    pub fn get_matrix(&self) -> &Vec<Timeseries> {
         match self {
             AnyValue::RangeVector(val) => val,
             _ => panic!("BUG: range selection value expected ")
@@ -74,6 +79,7 @@ impl AnyValue {
 
     pub fn get_scalar(&self) -> RuntimeResult<f64> {
         match self {
+            AnyValue::Scalar(val) => Ok(*val),
             AnyValue::InstantVector(series) => {
                 let ts = get_single_timeseries(series)?;
                 if ts.values.len() != 1 {
@@ -89,7 +95,6 @@ impl AnyValue {
                 }
                 Ok(vec[0])
             },
-            AnyValue::Scalar(val) => Ok(*val),
             _ => {
                 return Err(RuntimeError::TypeCastError(
                     format!("{} cannot be converted to a scalar", self.data_type())
@@ -122,6 +127,13 @@ impl AnyValue {
     pub fn get_instant_vector(&self) -> RuntimeResult<Vec<Timeseries>> {
         match self {
             AnyValue::InstantVector(val) => Ok(val.clone()), // ????
+            _ => panic!("BUG: invalid series parameter")
+        }
+    }
+
+    pub fn get_range_vector(&self) -> RuntimeResult<Vec<Timeseries>> {
+        match self {
+            AnyValue::RangeVector(val) => Ok(val.clone()), // ????
             _ => panic!("BUG: invalid series parameter")
         }
     }
@@ -238,6 +250,32 @@ fn get_single_timeseries(series: &Vec<Timeseries>) -> RuntimeResult<&Timeseries>
     Ok(&series[0])
 }
 
+pub fn get_scalar_param_value(param: &AnyValue, func_name: &str, param_name: &str) -> RuntimeResult<f64> {
+    match param {
+        AnyValue::Scalar(val) => Ok(*val),
+        _ => {
+            let msg = format!(
+                "expected scalar arg for parameter \"{}\" of function {}; Got {}",
+                param_name, func_name, param.data_type_name()
+            );
+            return Err(RuntimeError::TypeCastError(msg))
+        }
+    }
+}
+
+#[inline]
+pub fn get_string_param_value(param: &AnyValue, func_name: &str, param_name: &str) -> RuntimeResult<String> {
+    match param {
+        AnyValue::String(val) => Ok(val.clone()),
+        _ => {
+            let msg = format!(
+                "expected string arg for parameter \"{}\" of function {}; Got {}",
+                param_name, func_name, param.data_type_name()
+            );
+            return Err(RuntimeError::TypeCastError(msg))
+        }
+    }
+}
 
 #[clone_dyn]
 pub trait FunctionImplementation<P: ?Sized, R>: Fn(&mut P) -> R

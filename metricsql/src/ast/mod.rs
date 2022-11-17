@@ -5,6 +5,8 @@ mod label_filter;
 mod labels;
 mod return_type;
 mod misc;
+pub mod expr_rewriter;
+pub mod expr_visitor;
 
 pub use ast::*;
 pub use binary_op::*;

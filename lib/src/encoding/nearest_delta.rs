@@ -77,6 +77,7 @@ pub(crate) fn unmarshal_int64_nearest_delta(
         )))
     }
 
+    // todo: use explicit config
     match decompress_quantile_auto::<i64>(src) {
         Err(err) => Err(Error::from(format!(
             "cannot unmarshal nearest delta from {} bytes; src={:?}: {}",

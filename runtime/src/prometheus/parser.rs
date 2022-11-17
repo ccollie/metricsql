@@ -1,15 +1,26 @@
 use std::borrow::Cow;
+use std::ops::Deref;
+use std::slice::Iter;
 
 use metricsql::utils::parse_float;
 
 use crate::{RuntimeError, RuntimeResult};
 
-// Rows contains parsed Prometheus rows.
+/// Rows contains parsed Prometheus rows.
+#[derive(Default, Clone)]
 pub struct Rows {
     pub rows: Vec<Row>,
 }
 
 impl Rows {
+    pub fn new(s: &str) -> RuntimeResult<Self> {
+        let mut res = Self {
+            rows: vec![]
+        };
+        res.unmarshal(s)?;
+        Ok(res)
+    }
+    
     /// Reset resets rs.
     pub fn reset(&mut self) {
         self.rows.clear();
@@ -24,8 +35,27 @@ impl Rows {
         let no_escapes = s.find('\\').is_none();
         unmarshal_rows(&mut self.rows, s, no_escapes)
     }
+    
+    pub fn iter(&self) -> Iter<'_, Row> {
+        self.rows.iter()
+    }
 }
 
+impl TryFrom<&str> for Rows {
+    type Error = RuntimeError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Rows::new(value)
+    }
+}
+
+impl Deref for Rows {
+    type Target = Vec<Row>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.rows
+    }
+}
 
 /// Row is a single Prometheus row.
 #[derive(Default, Clone)]
@@ -285,8 +315,8 @@ fn unmarshal_tags<'a>(dst: &mut Vec<Tag>, s: &'a str, no_escapes: bool) -> Runti
 /// Tag is a Prometheus tag.
 #[derive(Default, Clone)]
 pub struct Tag {
-    key: String,
-    value: String,
+    pub key: String,
+    pub value: String,
 }
 
 impl Tag {

@@ -1,38 +1,45 @@
 #[cfg(test)]
 mod tests {
-    use crate::{Tag, Timeseries};
+    use std::sync::Arc;
+    use crate::{Timeseries};
+    use crate::functions::transform::transform_fns::{fix_broken_buckets, LeTimeseries};
     use crate::functions::transform::vmrange_buckets_to_le;
     use crate::prometheus::*;
 
+    const NAN: f64 = f64::NAN;
 
-    fn check_broken_buckets<T>(values: T, expected: T)
-    where T: Into<Vec<f64>>
+    fn check_broken_buckets(values: &[f64], expected: &[f64])
     {
-        let values = values.into();
-        let mut xss = Vec::with_capacity(values.len());
-        for (i, v) in values.iter().enumerate() {
-            let mut ts = Timeseries::new(vec![1000], vec![*v]);
+        let values = Vec::from(values);
+        let mut xss: Vec<LeTimeseries> = Vec::with_capacity(values.len());
+        for v in values.iter() {
+            let ts = LeTimeseries {
+                le: 0.0,
+                ts: Timeseries::new(vec![1000], vec![*v])
+            };
             xss.push(ts);
         }
-        fix_broken_buckets(0, xss);
-        let result = Vec::with_capacity(values.len());
-        for (i, xs) in xss.iter().enumerate() {
-            result[i] = xs.ts.values[0];
-        }
-        let expected_result = expected.into();
-        assert_eq!(expected_result, result,
-            "unexpected result for values={}\ngot\n{}\nwant\n{}", values, result, expected_result)
+
+        fix_broken_buckets(0, &mut xss);
+
+        let result = xss.iter()
+            .map(|xs| xs.ts.values[0])
+            .collect::<Vec<f64>>();
+
+        assert_eq!(expected, &result,
+            "unexpected result for values={:?}\ngot\n{:?}\nwant\n{:?}", values, result, expected)
     }
+
     #[test]
     fn test_fix_broken_buckets() {
         check_broken_buckets(&[], &[]);
-        check_broken_buckets( &[1], &[1]);
-        check_broken_buckets(&[1, 2], &[1, 2]);
-        check_broken_buckets(&[2, 1], &[1, 1]);
-        check_broken_buckets(&[1, 2, 3, nan, nan], &[1, 2, 3, 3, 3]);
-        check_broken_buckets(&[5, 1, 2, 3, nan], &[1, 1, 2, 3, 3]);
-        check_broken_buckets(&[1, 5, 2, nan, 6, 3], &[1, 2, 2, 3, 3, 3]);
-        check_broken_buckets(&[5, 10, 4, 3], &[3, 3, 3, 3]);
+        check_broken_buckets( &[1.0], &[1.0]);
+        check_broken_buckets(&[1.0, 2.0], &[1.0, 2.0]);
+        check_broken_buckets(&[2.0, 1.0], &[1.0, 1.0]);
+        check_broken_buckets(&[1.0, 2.0, 3.0, NAN, NAN], &[1.0, 2.0, 3.0, 3.0, 3.0]);
+        check_broken_buckets(&[5.0, 1.0, 2.0, 3.0, NAN], &[1.0, 1.0, 2.0, 3.0, 3.0]);
+        check_broken_buckets(&[1.0, 5.0, 2.0, NAN, 6.0, 3.0], &[1.0, 2.0, 2.0, 3.0, 3.0, 3.0]);
+        check_broken_buckets(&[5.0, 10.0, 4.0, 3.0], &[3.0, 3.0, 3.0, 3.0]);
     }
 
     #[test]
@@ -41,9 +48,8 @@ mod tests {
             let tss = prom_metrics_to_timeseries(buckets);
             let result = vmrange_buckets_to_le(tss);
             let result_buckets = timeseries_to_prom_metrics(&result);
-            if !reflect.DeepEqual(result_buckets, buckets_expected) {
-                t.Errorf("unexpected vmrangeBucketsToLE(); got\n{:?}\nwant\n{}", result_buckets, buckets_expected)
-            }
+            assert_eq!(result_buckets, buckets_expected,
+                       "unexpected vmrange_buckets_to_le(); got\n{:?}\nwant\n{}", result_buckets, buckets_expected);
         };
 
         // A single non-empty vmrange bucket
@@ -181,21 +187,18 @@ mod tests {
 }
 
     fn prom_metrics_to_timeseries(s: &str) -> Vec<Timeseries> {
-        let rows = prometheus::Rows::defauult();
-        rows.unmarshal(s).expect(format!("cannot parse {}", s));
+        let mut rows = Rows::default();
+        rows.unmarshal(s).expect(&*format!("cannot parse {}", s));
         let mut tss: Vec<Timeseries> = vec![];
-        for row in rows.Rows.iter() {
-            let mut tags: Vec<Tag> = vec![];
-            for tag in row.Tags {
-                tags.push( Tag{
-                    key: tag.key.as_bytes(),
-                    value: tag.value.as_bytes(),
-                })
-            }
+
+        for row in rows.iter() {
             let mut ts: Timeseries = Timeseries::default();
-            ts.metric_name.metric_group = row.metric;
-            ts.metric_name.tags = tags;
-            ts.timestamps.push(row.timestamp/1000);
+            ts.metric_name.metric_group = row.metric.clone();
+            for tag in row.tags.iter() {
+                ts.metric_name.set_tag(&tag.key, &tag.value)
+            }
+            let timestamps = vec![row.timestamp/1000];
+            ts.timestamps = Arc::new(timestamps);
             ts.values.push(row.value);
             tss.push(ts);
         }
@@ -203,17 +206,17 @@ mod tests {
     }
 
 
-fn timeseries_to_prom_metrics(tss: &[Timeseries]) -> String {
-    let mut a: Vec<String> = vec![];
-    for ts in tss.iter() {
-        let metric_name = ts.metric_name.to_string();
-        for i in 0 .. ts.timestamps.len() {
-            let line = format!("{} {} {}", metric_name, ts.values[i], ts.timestamps[i]);
-            a.push(linee);
+    fn timeseries_to_prom_metrics(tss: &[Timeseries]) -> String {
+        let mut a: Vec<String> = vec![];
+        for ts in tss.iter() {
+            let metric_name = ts.metric_name.to_string();
+            for i in 0 .. ts.timestamps.len() {
+                let line = format!("{} {} {}", metric_name, ts.values[i], ts.timestamps[i]);
+                a.push(line);
+            }
         }
+        return a.join("\n")
     }
-    return a.join("\n")
-}
 
 
 }

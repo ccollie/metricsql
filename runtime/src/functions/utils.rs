@@ -43,15 +43,6 @@ pub fn mode_no_nans(mut prev_value: f64, a: &mut Vec<f64>) -> f64 {
     return mode;
 }
 
-
-pub fn skip_leading_nans(values: &[f64]) -> &[f64] {
-    let mut i = 0;
-    while i < values.len() && values[i].is_nan() {
-        i += 1;
-    }
-    return &values[i..];
-}
-
 #[inline]
 pub fn get_first_non_nan_index(values: &[f64]) -> usize {
     let mut i = 0;

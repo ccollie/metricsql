@@ -119,7 +119,7 @@ impl Timeseries {
 
     /// marshaled_fast_size_no_timestamps returns the size of marshaled ts
     /// returned from marshal_fast_no_timestamps.
-    fn marshaled_fast_size_no_timestamps(&self) -> usize {
+    pub fn marshaled_fast_size_no_timestamps(&self) -> usize {
         let mut n = self.metric_name.serialized_size();
         n += 8 * self.values.len();
         return n
@@ -276,7 +276,7 @@ where T: Clone + byte_slice_cast::FromByteSlice
 /// unmarshal_fast_no_timestamps unmarshals ts from src, so ts members reference src.
 ///
 /// It is expected that ts.timestamps is already unmarshaled.
-pub(crate) fn unmarshal_fast_no_timestamps<'a>(ts: &'a mut Timeseries, src: &'a [u8]) -> RuntimeResult<&'a [u8]> {
+pub(crate) fn unmarshal_fast_no_timestamps<'a>(ts: &mut Timeseries, src: &'a [u8]) -> RuntimeResult<&'a [u8]> {
     // ts members point to src, so they cannot be re-used.
 
     let tail;

@@ -4,7 +4,6 @@ use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use effective_limits::memory_limit;
 use once_cell::sync::Lazy;
 /// import commonly used items from the prelude:
 use rand::prelude::*;
@@ -26,7 +25,7 @@ use crate::cache::default_result_cache_storage::DefaultResultCacheStorage;
 use crate::cache::traits::RollupResultCacheStorage;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::traits::{Timestamp, TimestampTrait};
-use crate::utils::MemoryLimiter;
+use crate::utils::{memory_limit, MemoryLimiter};
 
 /// The maximum duration since the current time for response data, which is always queried from the
 /// original raw data, without using the response cache. Increase this value if you see gaps in responses
