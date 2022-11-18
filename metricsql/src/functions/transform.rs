@@ -92,6 +92,7 @@ pub enum TransformFunction {
     RangeSum,
     RemoveResets,
     Round,
+    Ru,
     RunningAvg,
     RunningMax,
     RunningMin,
@@ -202,6 +203,7 @@ impl Display for TransformFunction {
             RangeSum => "range_sum",
             RemoveResets => "remove_resets",
             Round => "round",
+            Ru => "ru",
             RunningAvg => "running_avg",
             RunningMax => "running_max",
             RunningMin => "running_min",
@@ -312,6 +314,7 @@ static REVERSE_MAP: phf::Map<&'static str, TransformFunction> = phf_map! {
 "range_sum" => TransformFunction::RunningSum,
 "remove_resets" => TransformFunction::RemoveResets,
 "round" => TransformFunction::Round,
+"ru" => TransformFunction::Ru,
 "running_avg" => TransformFunction::RunningAvg,
 "running_max" => TransformFunction::RunningMax,
 "running_min" => TransformFunction::RunningMin,
@@ -379,6 +382,7 @@ impl TransformFunction {
             RangeMin |
             RangeQuantile |
             Round |
+            Ru |
             RunningAvg |
             SmoothExponential)
     }
@@ -394,7 +398,7 @@ impl TransformFunction {
             SortByLabelNumericDesc
         )
     }
-    
+
     pub fn manipulates_labels(&self) -> bool {
         use TransformFunction::*;
         matches!(self, 
@@ -505,6 +509,9 @@ impl TransformFunction {
             Round => {
                 Signature::exact(vec![DataType::InstantVector, DataType::Scalar], Volatility::Stable)
             }
+            Ru => {
+                Signature::exact(vec![DataType::RangeVector, DataType::RangeVector], Volatility::Stable)
+            }
             SmoothExponential => {
                 Signature::exact(vec![DataType::InstantVector, DataType::Scalar], Volatility::Stable)
             }
@@ -550,7 +557,7 @@ impl TransformFunction {
 
 pub fn get_transform_arg_idx_for_optimization(func: TransformFunction, arg_count: usize) -> Option<usize> {
     if func.manipulates_labels() {
-        return None
+        return None;
     }
 
     use TransformFunction::*;

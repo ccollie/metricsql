@@ -1,8 +1,8 @@
-use crate::ast::StringExpr;
 use crate::lexer::{escape_ident, quote};
 use crate::parser::{compile_regexp, ParseError};
 use enquote::enquote;
 use std::fmt;
+use crate::ast::StringExpr;
 
 pub const NAME_LABEL: &str = "__name__";
 

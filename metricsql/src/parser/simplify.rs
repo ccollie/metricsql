@@ -1,4 +1,4 @@
-use crate::ast::{BExpression, BinaryOp, Expression, FuncExpr, ParensExpr, ExpressionNode};
+use crate::ast::{BExpression, Expression, FuncExpr, ParensExpr, ExpressionNode, BinaryOp};
 use crate::binaryop::{eval_binary_op, string_compare};
 use crate::parser::{ParseResult};
 

@@ -17,7 +17,7 @@
 
 //! Expression visitor
 
-use crate::ast::{AggrFuncExpr, BinaryOpExpr, DurationExpr, Expression, FuncExpr, ParensExpr, RollupExpr, WithExpr};
+use super::{AggrFuncExpr, BinaryOpExpr, DurationExpr, Expression, FuncExpr, ParensExpr, RollupExpr, WithExpr};
 use crate::parser::ParseResult;
 
 /// Controls how the visitor recursion should proceed.

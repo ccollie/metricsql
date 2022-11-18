@@ -10,7 +10,7 @@ mod tests {
         let f = |q: &str, filters: &str, result_expected: &str| {
             let e = parse(q).expect(format!("unexpected error in Parse({})", q).as_str());
             let orig = e.to_string();
-            let mut filters_expr = parse(filters).expect(format!("cannot parse filters {}", filters).as_str());
+            let filters_expr = parse(filters).expect(format!("cannot parse filters {}", filters).as_str());
             match filters_expr {
                 MetricExpression(mut me) => {
                     let result_expr = pushdown_binary_op_filters(&e, &mut me.label_filters);
@@ -94,12 +94,13 @@ mod tests {
 
     #[test]
     fn test_optimize() {
-        let f = |q, qOptimizedExpected: &str| {
+        let f = |q, optimized_expected: &str| {
             let e = parse(q).expect(format!("unexpected error in parse({})", q).as_str());
             let orig = e.to_string();
-            let eOptimized = optimize(&e);
-            let qOptimized = eOptimized.to_string();
-            assert_eq!(qOptimized, qOptimizedExpected, "unexpected qOptimized;\ngot\n{}\nwant\n{}", qOptimized, qOptimizedExpected);
+            let e_optimized = optimize(&e);
+            let q_optimized = e_optimized.to_string();
+            assert_eq!(q_optimized, optimized_expected, "unexpected q_optimized;\ngot\n{}\nwant\n{}",
+                       q_optimized, optimized_expected);
             // Make sure the the original e didn't change after Optimize() call
             let s = e.to_string();
             assert_eq!(s, orig, "the original expression has been changed;\ngot\n{}\nwant\n{}", s, orig);

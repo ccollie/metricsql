@@ -50,7 +50,7 @@ pub fn quote(str: &str) -> String {
 mod tests {
     use crate::lexer::unescape_ident;
 
-    #[inline]
+    #[test]
     fn test_unescape_ident() {
         fn f(s: &str, expected: &str) {
             let result = unescape_ident(s);

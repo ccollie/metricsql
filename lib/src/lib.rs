@@ -33,3 +33,6 @@ pub use random::*;
 pub use time::*;
 pub use fast_cache::*;
 pub use dedup::{ deduplicate_samples, deduplicate_samples_during_merge };
+
+#[cfg(test)]
+pub(crate) mod tests;

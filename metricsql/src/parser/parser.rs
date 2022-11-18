@@ -9,6 +9,7 @@ use once_cell::sync::OnceCell;
 use text_size::{TextRange};
 
 use crate::ast::*;
+use crate::ast::BinaryOp;
 use crate::functions::{AggregateFunction, BuiltinFunction, DataType};
 use crate::lexer::{Lexer, parse_float, quote, Token, TokenKind, unescape_ident};
 use crate::parser::expand_with::expand_with_expr;
@@ -1140,14 +1141,6 @@ pub(crate) fn validate_args(func: &BuiltinFunction, args: &[BExpression]) -> Par
         validate_return_type(arg.return_value(), expected, i)?
     }
     Ok(())
-}
-
-fn is_one_of(tok: Option<Token>, set: &[TokenKind]) -> bool {
-    if let Some(token) = tok {
-        set.contains(&token.kind)
-    } else {
-        false
-    }
 }
 
 fn update_range(p: &Parser, start: Option<TextRange>) -> ParseResult<TextRange> {

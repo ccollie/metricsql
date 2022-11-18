@@ -4,7 +4,7 @@ mod tests {
     use crate::encoding::nearest_delta;
     use crate::encoding::nearest_delta2::{marshal_int64_nearest_delta2, unmarshal_int64_nearest_delta2};
     use crate::{get_trailing_zeros, rand_nextf64};
-    use crate::error::Error;
+    use crate::tests::utils::check_precision_bits;
 
     #[test]
     fn test_marshal_int64nearest_delta2() {
@@ -228,7 +228,7 @@ mod tests {
         let mut va: Vec<i64> = Vec::with_capacity(1024);
         for _ in 0 .. 1024 {
             // ??????
-            v += 10_i64.checked_mul(rng.gen_range(1..i64::MAX)); // todo: handle overflow
+            v += 10_i64.checked_mul(rng.gen_range(1..i64::MAX)).unwrap_or(0); // todo: handle overflow
             va.push(v)
         }
         check_marshal_unmarshal_int64_nearest_delta2(&va, 2);
@@ -287,38 +287,5 @@ mod tests {
             }
         }
     }
-
-    fn check_precision_bits(a: &[i64], b: &[i64], precision_bits: u8) -> Result<(), Error> {
-        if a.len() != b.len() {
-            let msg = format!("different-sized arrays: {} vs {}", a.len(), b.len());
-            return Err(Error::new(msg));
-        }
-        let mut i = 0;
-        for (i, av) in a.iter().enumerate() {
-            let mut av: i64 = *av;
-            let mut bv = b[i];
-            if av < bv {
-                let (av, bv) = (bv, av);
-            }
-            let eps = av - bv;
-            if eps == 0 {
-                continue
-            }
-            if av < 0 {
-                av = -av
-            }
-            let mut pbe = 1_u8;
-            while eps < av {
-                av >>= 1;
-                pbe += 1;
-            }
-            if pbe < precision_bits {
-                let msg = format!("too low precision_bits for\na={:?}\nb={:?}\ngot {}; expecting {}; compared values: {} vs {}, eps={}",
-                                  a, b, pbe, precision_bits, a[i], b[i], eps);
-                return Err(Error::new(msg.as_str()));
-            }
-        }
-
-        Ok(())
-    }
+    
 }
