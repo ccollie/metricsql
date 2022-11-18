@@ -107,7 +107,6 @@ pub fn get_common_label_filters(e: &Expression) -> Vec<LabelFilter> {
             }
         }
         BinaryOperator(e) => {
-            use BinaryOp::*;
 
             let mut lfs_left = get_common_label_filters(&e.left);
             let mut lfs_right = get_common_label_filters(&e.right);

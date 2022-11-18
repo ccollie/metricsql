@@ -16,7 +16,7 @@
 // under the License.
 
 //! Expression rewriter
-use crate::ast::{
+use super::{
     AggrFuncExpr, BExpression, BinaryOpExpr, Expression, FuncExpr,
     ParensExpr, RollupExpr, WithArgExpr, WithExpr
 };

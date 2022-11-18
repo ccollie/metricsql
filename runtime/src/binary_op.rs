@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use once_cell::sync::Lazy;
 
-use lib::get_pooled_buffer;
 use metricsql::ast::{
     BinaryOp,
     BinaryOpExpr,
@@ -12,6 +11,7 @@ use metricsql::ast::{
     JoinModifier,
     JoinModifierOp
 };
+
 
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::timeseries::Timeseries;
@@ -419,15 +419,15 @@ pub fn merge_non_overlapping_timeseries(dst: &mut Timeseries, src: &Timeseries) 
         }
         if !dst.values[i].is_nan() {
             overlaps += 1;
-            // Allow up to two overlapping datapoints, which can appear due to staleness algorithm,
-            // which can add a few datapoints in the end of time series.
+            // Allow up to two overlapping data points, which can appear due to staleness algorithm,
+            // which can add a few data points in the end of time series.
             if overlaps > 2 {
                 return false
             }
         }
     }
 
-    // do not merge time series with too small number of datapoints.
+    // do not merge time series with too small number of data points.
     // This can be the case during evaluation of instant queries (alerting or recording rules).
     // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/1141
     if src.values.len() <= 2 && dst.values.len() <= 2 {

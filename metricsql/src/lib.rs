@@ -17,6 +17,7 @@ pub mod utils {
 
     use crate::lexer;
 }
+
 pub mod optimizer;
 pub mod parser;
 pub mod functions;

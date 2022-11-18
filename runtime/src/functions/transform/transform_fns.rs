@@ -2,7 +2,7 @@ use std::borrow::{Cow};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::default::Default;
-use std::ops::{Deref, DerefMut};
+use std::ops::{Deref};
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 
@@ -161,6 +161,7 @@ static HANDLER_MAP: Lazy<RwLock<HashMap<TransformFunction,
     m.insert(RangeSum, boxed!(new_transform_func_range(running_sum)));
     m.insert(RemoveResets, boxed!(transform_remove_resets));
     m.insert(Round, boxed!(transform_round));
+    m.insert(Ru, boxed!(transform_range_ru));
     m.insert(RunningAvg, boxed!(new_transform_func_running(running_avg)));
     m.insert(RunningMax, boxed!(new_transform_func_running(running_max)));
     m.insert(RunningMin, boxed!(new_transform_func_running(running_min)));
@@ -1259,7 +1260,7 @@ fn transform_range_ru(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeserie
             for (free_ts, max_ts) in free_series.iter_mut().zip(max_series) {
                 // calculate utilization and store in `free`
                 for (free_value, max_value) in free_ts.values.iter_mut().zip(max_ts.values) {
-                    *free_value = ru(*free_value, *max_value)
+                    *free_value = ru(*free_value, max_value)
                 }
             }
 
@@ -1514,7 +1515,7 @@ fn smooth_exponential(values: &mut Vec<f64>, sfs: &Vec<f64>) {
     }
 
     let mut avg = values[start];
-    i += 1;
+    start += 1;
 
     for j in start .. len {
         let v = values[j];

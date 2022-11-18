@@ -118,7 +118,7 @@ pub fn ifnot(left: f64, right: f64) -> f64 {
 }
 
 pub fn eval_binary_op(left: f64, right: f64, op: BinaryOp, is_bool: bool) -> f64 {
-    use BinaryOp::*;
+    use crate::ast::BinaryOp::*;
 
     fn fixup_comparison(left: f64, right: f64, cf: fn(left: f64, right: f64) -> bool) -> f64 {
         if cf(left, right) {

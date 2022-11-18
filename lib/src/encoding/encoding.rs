@@ -20,7 +20,7 @@ use crate::error::{Error, Result};
 const MIN_COMPRESSIBLE_BLOCK_SIZE: usize = 128;
 
 /// MarshalType is the type used for the marshaling.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialOrd, PartialEq, Copy)]
 pub enum MarshalType {
     /// DeltaConst is used for marshaling constantly changed
     /// time series with constant delta.
@@ -468,7 +468,7 @@ pub fn is_gauge(a: &[i64]) -> bool {
         // Counter values cannot be negative.
         return true;
     }
-    for i in 1..=a.len() - 1 {
+    for i in 1 .. a.len() {
         let v = a[i];
         if v < v_prev {
             if v < 0 {

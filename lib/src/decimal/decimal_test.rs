@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::{append_decimal_to_float, append_float_to_decimal, calibrate_scale, from_float, is_stale_nan, max_up_exponent, positive_float_to_decimal, round_to_decimal_digits, STALE_NAN, STALE_NAN_BITS, to_float};
-    use crate::decimal::{CONVERSION_PRECISION, V_INF_NEG, V_INF_POS, V_MAX, V_MIN};
+    use crate::decimal::{CONVERSION_PRECISION, F_INF_NEG, F_INF_POS, V_INF_NEG, V_INF_POS, V_MAX, V_MIN};
 
     #[test]
     fn test_round_to_decimal_digits() {
@@ -134,14 +134,20 @@ mod tests {
         check_append_decimal_to_float(&[874957, 1130435], -11, &[8.74957e-6, 1.130435e-5]);
         check_append_decimal_to_float(&[874957, 1130435], -12, &[8.74957e-7, 1.130435e-6]);
         check_append_decimal_to_float(&[874957, 1130435], -13, &[8.74957e-8, 1.130435e-7]);
-        check_append_decimal_to_float(&[V_MAX, V_MIN, 1, 2], 4, &[V_MAX * 1e4, V_MIN * 1e4, 1e4, 2e4]);
-        check_append_decimal_to_float(&[V_MAX, V_MIN, 1, 2], -4, &[V_MAX * 1e-4, V_MIN * 1e-4, 1e-4, 2e-4]);
-        check_append_decimal_to_float(&[V_INF_POS, V_INF_NEG, 1, 2], 0, &[infPos, infNeg, 1, 2]);
-        check_append_decimal_to_float(&[V_INF_POS, V_INF_NEG, 1, 2], 4, &[infPos, infNeg, 1e4, 2e4]);
-        check_append_decimal_to_float(&[V_INF_POS, V_INF_NEG, 1, 2], -4, &[infPos, infNeg, 1e-4, 2e-4]);
+
+        check_append_decimal_to_float(&[V_MAX, V_MIN, 1, 2], 4,
+                                      &[V_MAX as f64 * 1e4, V_MIN as f64 * 1e4, 1e4, 2e4]);
+
+        check_append_decimal_to_float(&[V_MAX, V_MIN, 1, 2], -4,
+                                      &[V_MAX as f64 * 1e-4, V_MIN as f64 * 1e-4, 1e-4, 2e-4]);
+
+        check_append_decimal_to_float(&[V_INF_POS, V_INF_NEG, 1, 2], 0, &[F_INF_POS,  F_INF_NEG, 1.0, 2.0]);
+        check_append_decimal_to_float(&[V_INF_POS, V_INF_NEG, 1, 2], 4, &[F_INF_POS, F_INF_NEG, 1e4, 2e4]);
+        check_append_decimal_to_float(&[V_INF_POS, V_INF_NEG, 1, 2], -4, &[F_INF_POS, F_INF_NEG, 1e-4, 2e-4]);
         check_append_decimal_to_float(&[1234, vStaleNaN, 1, 2], 0, &[1234, StaleNaN, 1, 2]);
-        check_append_decimal_to_float(&[V_INF_POS, vStaleNaN, V_MIN, 2], 4, &[infPos, StaleNaN, V_MIN * 1e4, 2e4]);
-        check_append_decimal_to_float(&[V_INF_POS, vStaleNaN, V_MIN, 2], -4, &[infPos, StaleNaN, V_MIN * 1e-4, 2e-4]);
+
+        check_append_decimal_to_float(&[V_INF_POS, vStaleNaN, V_MIN, 2], 4, &[F_INF_POS, StaleNaN, V_MIN as f64 * 1e4, 2e4]);
+        check_append_decimal_to_float(&[V_INF_POS, vStaleNaN, V_MIN, 2], -4, &[F_INF_POS, StaleNaN, V_MIN as f64 * 1e-4, 2e-4]);
     }
 
     fn check_append_decimal_to_float(va: &[i64], e: i16, expected: &[f64]) {
@@ -183,22 +189,24 @@ mod tests {
         check_calibrate_scale(&[1, 0, 2], &[5, -3], 0, 1, &[1, 0, 2], &[50, -30], 0);
         check_calibrate_scale(&[-1, 2], &[5, 6, 3], 2, -1, &[-1000, 2000], &[5, 6, 3], -1);
         check_calibrate_scale(&[123, -456, 94], &[-9, 4, -3, 45], -3, -3, &[123, -456, 94], &[-9, 4, -3, 45], -3);
-        check_calibrate_scale(&[1e18, 1, 0], &[3, 456], 0, -2, &[1e18, 1, 0], &[0, 4], 0);
-        check_calibrate_scale(&[12345, 678], &[12, -1e17, -3], -3, 0, &[123, 6], &[120, -1e18, -30], -1);
+        check_calibrate_scale(&[1e18 as i64, 1, 0], &[3, 456], 0, -2, &[1e18 as i64, 1, 0], &[0, 4], 0);
+        check_calibrate_scale(&[12345, 678], &[12, -1e17 as i64, -3], -3, 0, &[123, 6], &[120, -1e18 as i64, -30], -1);
         check_calibrate_scale(&[1, 2], &[], 12, 34, &[1, 2], &[], 12);
         check_calibrate_scale(&[], &[3, 1], 12, 34, &[], &[3, 1], 34);
-        check_calibrate_scale(&[923], &[2, 3], 100, -100, &[923e15], &[0, 0], 85);
+
+        check_calibrate_scale(&[923], &[2, 3], 100, -100, &[923e15 as i64], &[0, 0], 85);
+
         check_calibrate_scale(&[923], &[2, 3], -100, 100, &[0], &[2e18, 3e18], 82);
         check_calibrate_scale(&[123, 456, 789, 135], &[], -12, -10, &[123, 456, 789, 135], &[], -12);
         check_calibrate_scale(&[123, 456, 789, 135], &[], -10, -12, &[123, 456, 789, 135], &[], -10);
 
         check_calibrate_scale(&[V_INF_POS, 1200], &[500, 100], 0, 0, &[V_INF_POS, 1200], &[500, 100], 0);
-        check_calibrate_scale(&[V_INF_POS, 1200], &[500, 100], 0, 2, &[V_INF_POS, 1200], &[500e2, 100e2], 0);
-        check_calibrate_scale(&[V_INF_POS, 1200], &[500, 100], 0, -2, &[V_INF_POS, 12e4], &[500, 100], -2);
-        check_calibrate_scale(&[V_INF_POS, 1200], &[3500, 100], 0, -3, &[V_INF_POS, 12e5], &[3500, 100], -3);
-        check_calibrate_scale(&[V_INF_POS, 1200], &[35, 1], 0, 40, &[V_INF_POS, 0], &[35e17 as i64], 1e17 as i64]], 23);
+        check_calibrate_scale(&[V_INF_POS, 1200], &[500, 100], 0, 2, &[V_INF_POS, 1200], &[50000, 10000], 0);
+        check_calibrate_scale(&[V_INF_POS, 1200], &[500, 100], 0, -2, &[V_INF_POS, 120000], &[500, 100], -2);
+        check_calibrate_scale(&[V_INF_POS, 1200], &[3500, 100], 0, -3, &[V_INF_POS, 1200000], &[3500, 100], -3);
+        check_calibrate_scale(&[V_INF_POS, 1200], &[35, 1], 0, 40, &[V_INF_POS, 0], &[35e17 as i64], &[1e17 as i64], 23);
         check_calibrate_scale(&[V_INF_POS, 1200], &[35, 1], 40, 0, &[V_INF_POS, 12e17 as i64], &[0, 0], 25);
-        check_calibrate_scale(&[V_INF_NEG, 1200], &[35, 1], 35, -5, &[V_INF_NEG, 12e17 as i64]], &[0, 0], 20);
+        check_calibrate_scale(&[V_INF_NEG, 1200], &[35, 1], 35, -5, &[V_INF_NEG, 12e17 as i64], &[0, 0], 20);
         check_calibrate_scale(&[V_MAX, V_MIN, 123], &[100], 0, 3, &[V_MAX, V_MIN, 123], &[100_000], 0);
         check_calibrate_scale(&[V_MAX, V_MIN, 123], &[100], 3, 0, &[V_MAX, V_MIN, 123], &[0], 3);
         check_calibrate_scale(&[V_MAX, V_MIN, 123], &[100], 0, 30, &[92233, -92233, 0], &[100e16], 14);
@@ -336,7 +344,8 @@ mod tests {
         check_append_to_decimal(&[0], &[0], 0);
         check_append_to_decimal(&[infPos, infNeg, 123], &[V_INF_POS, V_INF_NEG, 123], 0);
         check_append_to_decimal(&[infPos, infNeg, 123, 1e-4, 1e32], &[V_INF_POS, V_INF_NEG, 0, 0, 1000000000000000000], 14);
-        check_append_to_decimal(&[StaleNaN, infNeg, 123, 1e-4, 1e32], &[*STALE_NAN, V_INF_NEG, 0, 0, 1000000000000000000_f64], 14);
+        check_append_to_decimal(&[StaleNaN, infNeg, 123, 1e-4, 1e32],
+                                &[*STALE_NAN, V_INF_NEG, 0.0, 0.0, 1000000000000000000_f64], 14);
         check_append_to_decimal(&[0, -0, 1, -1, 12345678, -123456789], &[0, 0, 1, -1, 12345678, -123456789], 0);
 
         // upExp
@@ -355,14 +364,14 @@ mod tests {
         assert_eq!(da, daExpected,
                    "unexpected da for fa={:?}; got\n{:?}; expecting\n{:?}", fa, da, daExpected);
 
-        let daPrefix = [1, 2, 3];
-        let mut da: Vec<i64> = Vec::from(daPrefix);
+        let da_prefix = [1, 2, 3];
+        let mut da: Vec<i64> = Vec::from(da_prefix);
         let e = append_float_to_decimal(&mut da, fa);
-        let new_prefix = &da[0 .. daPrefix.len()];
-        let suffix = &da[daPrefix.len() .. ];
+        let new_prefix = &da[0 .. da_prefix.len()];
+        let suffix = &da[da_prefix.len() .. ];
         assert_eq!(e, eExpected, "unexpected e for fa={:?}; got {}; expecting {}", fa, e, eExpected);
-        assert_eq!(new_prefix, daPrefix,
-                   "unexpected daPrefix for fa={:?}; got\n{:?}; expecting\n{:?}", fa, new_prefix, daPrefix);
+        assert_eq!(new_prefix, da_prefix,
+                   "unexpected da_prefix for fa={:?}; got\n{:?}; expecting\n{:?}", fa, new_prefix, da_prefix);
         assert_eq!(suffix, daExpected,
                    "unexpected da for fa={:?}; got\n{:?}; expecting\n{:?}", fa, suffix, daExpected);
     }
@@ -406,10 +415,10 @@ mod tests {
         f(f64::INFINITY, V_INF_POS, 0);
         f(f64::NEG_INFINITY, V_INF_NEG, 0);
         f(StaleNaN, vStaleNaN, 0);
-        f(V_INF_POS, 9223372036854775, 3);
-        f(V_INF_NEG, -9223372036854775, 3);
-        f(V_MAX, 9223372036854775, 3);
-        f(V_MIN, -9223372036854775, 3);
+        f(V_INF_POS as f64, 9223372036854775, 3);
+        f(V_INF_NEG as f64, -9223372036854775, 3);
+        f(V_MAX as f64, 9223372036854775, 3);
+        f(V_MIN as f64, -9223372036854775, 3);
         f(1<<63-1, 9223372036854775, 3);
         f(-1<<63, -9223372036854775, 3);
 
@@ -422,15 +431,15 @@ mod tests {
     fn test_float_to_decimal_roundtrip() {
         let f = |f: f64| {
             let (v, e) = from_float(f);
-            let fNew = to_float(v, e);
-            if !equal_float(f, fNew) {
-                panic!("unexpected fNew for v={}, e={}; got {}; expecting {}", v, e, fNew, f);
+            let f_new = to_float(v, e);
+            if !equal_float(f, f_new) {
+                panic!("unexpected f_new for v={}, e={}; got {}; expecting {}", v, e, f_new, f);
             }
 
             let (v, e) = from_float(-f);
             let fNew = to_float(v, e);
             if !equal_float(-f, fNew) {
-                panic!("unexpected fNew for v={}, e={}; got {}; expecting {}", v, e, fNew, -f);
+                panic!("unexpected f_new for v={}, e={}; got {}; expecting {}", v, e, fNew, -f);
             }
         };
 
