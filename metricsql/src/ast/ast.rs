@@ -1,16 +1,14 @@
 use std::{fmt, iter};
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash};
-use std::str::FromStr;
-use std::string::{String, ToString};
-use text_size::{TextRange};
-use crate::ast::BinaryOpExpr;
+use std::string::{String};
+use crate::ast::{AggrFuncExpr, BinaryOpExpr};
 
 use crate::ast::duration::DurationExpr;
 use crate::ast::expression_kind::ExpressionKind;
 use crate::ast::function::FuncExpr;
 use crate::ast::label_filter::{LabelFilter};
-use crate::ast::misc::{write_expression_list, write_labels};
+use crate::ast::misc::{write_expression_list};
 use crate::ast::number::NumberExpr;
 use crate::ast::return_type::ReturnValue;
 use crate::ast::rollup::RollupExpr;
@@ -18,11 +16,10 @@ use crate::ast::selector::MetricExpr;
 use crate::ast::string::StringExpr;
 use crate::ast::with::WithExpr;
 use crate::functions::{
-   AggregateFunction,
-   get_aggregate_arg_idx_for_optimization,
    TransformFunction
 };
-use crate::parser::{ParseError};
+use crate::lexer::TextSpan;
+use serde::{Serialize, Deserialize};
 
 /// Expression Trait. Useful for cases where match is not ergonomic
 pub trait ExpressionNode {
@@ -33,7 +30,7 @@ pub trait ExpressionNode {
 /// A root expression node.
 ///
 /// These are all valid root expression ast.
-#[derive(Clone, Debug, Hash)]
+#[derive(Clone, Debug, Hash, Serialize, Deserialize)]
 pub enum Expression {
     Duration(DurationExpr),
 
@@ -198,7 +195,7 @@ impl Expression {
         }
     }
 
-    pub fn span(&self) -> TextRange {
+    pub fn span(&self) -> TextSpan {
         match self {
             Expression::Duration(de) => de.span,
             Expression::Number(num) => num.span,
@@ -296,14 +293,14 @@ impl From<&str> for Expression {
 
 impl From<Vec<BExpression>> for Expression {
     fn from(list: Vec<BExpression>) -> Self {
-        Expression::Parens(ParensExpr::new(list))
+        Expression::Parens(ParensExpr::new(list, TextSpan::default()))
     }
 }
 
 impl From<Vec<Expression>> for Expression {
     fn from(list: Vec<Expression>) -> Self {
         let items = list.into_iter().map(|x| Box::new(x)).collect::<Vec<BExpression>>();
-        Expression::Parens(ParensExpr::new(items))
+        Expression::Parens(ParensExpr::new(items, TextSpan::default()))
     }
 }
 
@@ -311,226 +308,18 @@ impl From<Vec<Expression>> for Expression {
 // https://github.com/prometheus/prometheus/blob/fa6e05903fd3ce52e374a6e1bf4eb98c9f1f45a7/promql/parser/parse.go#L436
 
 
-#[derive(Default, Debug, Clone, PartialEq, Eq, Hash)]
-pub enum AggregateModifierOp {
-    #[default]
-    By,
-    Without,
-}
-
-impl Display for AggregateModifierOp {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        use AggregateModifierOp::*;
-        match self {
-            By => write!(f, "by")?,
-            Without => write!(f, "without")?,
-        }
-        Ok(())
-    }
-}
-
-impl TryFrom<&str> for AggregateModifierOp {
-    type Error = ParseError;
-
-    fn try_from(op: &str) -> Result<Self, Self::Error> {
-        use AggregateModifierOp::*;
-
-        match op.to_lowercase().as_str() {
-            "by" => Ok(By),
-            "without" => Ok(Without),
-            _ => Err(ParseError::General(format!(
-                "Unknown aggregate modifier op: {}",
-                op
-            ))),
-        }
-    }
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct AggregateModifier {
-    /// The modifier operation.
-    pub op: AggregateModifierOp,
-    /// Modifier args from parens.
-    pub args: Vec<String>,
-    pub span: Option<TextRange>,
-}
-
-impl AggregateModifier {
-    pub fn new(op: AggregateModifierOp, args: Vec<String>) -> Self {
-        AggregateModifier {
-            op,
-            args,
-            span: None,
-        }
-    }
-
-    /// Creates a new AggregateModifier with the Left op
-    pub fn by() -> Self {
-        AggregateModifier::new(AggregateModifierOp::By, vec![])
-    }
-
-    /// Creates a new AggregateModifier with the Right op
-    pub fn without() -> Self {
-        AggregateModifier::new(AggregateModifierOp::Without, vec![])
-    }
-
-    /// Replaces this AggregateModifier's operator
-    pub fn op(mut self, op: AggregateModifierOp) -> Self {
-        self.op = op;
-        self
-    }
-
-    /// Adds a label key to this AggregateModifier
-    pub fn arg<S: Into<String>>(mut self, arg: S) -> Self {
-        self.args.push(arg.into());
-        self
-    }
-
-    /// Replaces this AggregateModifier's args with the given set
-    pub fn args(mut self, args: &[&str]) -> Self {
-        self.args = args.iter().map(|l| (*l).to_string()).collect();
-        self
-    }
-}
-
-impl Display for AggregateModifier {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        // Op is the operation itself, i.e. `+`, `-`, `*`, etc.
-        write!(f, "{}", self.op)?;
-        write_labels(&self.args, f)?;
-        Ok(())
-    }
-}
-
-/// AggrFuncExpr represents aggregate function such as `sum(...) by (...)`
-#[derive(Debug, Clone, Hash)]
-pub struct AggrFuncExpr {
-    /// the aggregation function enum
-    pub function: AggregateFunction,
-
-    /// name is the function name.
-    pub name: String,
-
-    /// function args.
-    pub args: Vec<BExpression>,
-
-    /// optional modifier such as `by (...)` or `without (...)`.
-    pub modifier: Option<AggregateModifier>,
-
-    /// optional limit for the number of output time series.
-    /// This is MetricsQL extension.
-    ///
-    /// Example: `sum(...) by (...) limit 10` would return maximum 10 time series.
-    pub limit: usize,
-
-    pub keep_metric_names: bool,
-
-    pub span: TextRange,
-}
-
-impl AggrFuncExpr {
-    pub fn new(function: &AggregateFunction) -> AggrFuncExpr {
-        AggrFuncExpr {
-            function: *function,
-            name: function.to_string(),
-            args: vec![],
-            modifier: None,
-            limit: 0,
-            keep_metric_names: false,
-            span: TextRange::default(),
-        }
-    }
-
-    pub fn from_name(name: &str) -> Result<Self, ParseError> {
-        let function = AggregateFunction::from_str(name)?;
-        Ok(Self::new(&function))
-    }
-
-    pub fn with_modifier(mut self, modifier: AggregateModifier) -> Self {
-        self.modifier = Some(modifier);
-        self
-    }
-
-    pub fn with_args(mut self, args: &[BExpression]) -> Self {
-        self.args = args.to_vec();
-        self.set_keep_metric_names();
-        self
-    }
-
-    fn set_keep_metric_names(&mut self) {
-        // Extract: RollupFunc(...) from aggrFunc(rollupFunc(...)).
-        // This case is possible when optimized aggrfn calculations are used
-        // such as `sum(rate(...))`
-        if self.args.len() != 1 {
-            self.keep_metric_names = false;
-            return;
-        }
-        match &*self.args[0] {
-            Expression::Function(fe) => {
-                self.keep_metric_names = fe.keep_metric_names;
-            }
-            _ => self.keep_metric_names = false,
-        }
-    }
-
-    pub fn return_value(&self) -> ReturnValue {
-        ReturnValue::InstantVector
-    }
-
-    pub fn get_arg_idx_for_optimization(&self) -> Option<usize> {
-        get_aggregate_arg_idx_for_optimization(self.function, self.args.len())
-    }
-
-    pub fn get_arg_for_optimization(&self) -> Option<&'_ BExpression> {
-        match self.get_arg_idx_for_optimization() {
-            None => None,
-            Some(idx) => {
-                Some(&self.args[idx])
-            }
-        }
-    }
-}
-
-impl Display for AggrFuncExpr {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{}", self.function)?;
-        let args_len = self.args.len();
-        if args_len > 0 {
-            write_expression_list(&self.args, f)?;
-        }
-        if let Some(modifier) = &self.modifier {
-            write!(f, "{}", modifier)?;
-        }
-        if self.limit > 0 {
-            write!(f, " limit {}", self.limit)?;
-        }
-        Ok(())
-    }
-}
-
-impl ExpressionNode for AggrFuncExpr {
-    fn cast(self) -> Expression {
-        Expression::Aggregation(self)
-    }
-
-    fn kind(&self) -> ExpressionKind {
-        ExpressionKind::Aggregate
-    }
-}
-
-
 /// Expression(s) explicitly grouped in parens
-#[derive(Default, Debug, Clone, Hash)]
+#[derive(Default, Debug, Clone, Hash, Serialize, Deserialize)]
 pub struct ParensExpr {
     pub expressions: Vec<BExpression>,
-    pub span: TextRange,
+    pub span: TextSpan,
 }
 
 impl ParensExpr {
-    pub fn new(expressions: Vec<BExpression>) -> Self {
+    pub fn new<S: Into<TextSpan>>(expressions: Vec<BExpression>, span: S) -> Self {
         ParensExpr {
             expressions,
-            span: TextRange::default(),
+            span: span.into(),
         }
     }
 

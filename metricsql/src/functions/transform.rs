@@ -9,11 +9,12 @@ use crate::functions::MAX_ARG_COUNT;
 use crate::functions::signature::{Signature, Volatility};
 
 use super::data_type::DataType;
+use serde::{Serialize, Deserialize};
 
-// TODO: tfu, ttf, ru
+// TODO: ttf
 
 /// Transform functions calculate transformations over rollup results.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Hash, Serialize, Deserialize)]
 pub enum TransformFunction {
     Abs,
     Absent,
@@ -85,6 +86,7 @@ pub enum TransformFunction {
     RangeLast,
     RangeLinearRegression,
     RangeMax,
+    RangeMedian,
     RangeMin,
     RangeQuantile,
     RangeStdDev,
@@ -196,6 +198,7 @@ impl Display for TransformFunction {
             RangeLast => "range_last",
             RangeLinearRegression => "range_linear_regression",
             RangeMax => "range_max",
+            RangeMedian => "range_median",
             RangeMin => "range_min",
             RangeQuantile => "range_quantile",
             RangeStdDev => "range_stddev",
@@ -307,6 +310,7 @@ static REVERSE_MAP: phf::Map<&'static str, TransformFunction> = phf_map! {
 "range_linear_regression" => TransformFunction::RangeLinearRegression,
 "range_last" => TransformFunction::RangeLast,
 "range_max" => TransformFunction::RunningMax,
+"range_median" => TransformFunction::RangeMedian,
 "range_min" => TransformFunction::RunningMin,
 "range_quantile" => TransformFunction::RangeQuantile,
 "range_stddev" => TransformFunction::RangeStdDev,
@@ -379,6 +383,7 @@ impl TransformFunction {
             RangeFirst |
             RangeLast |
             RangeMax |
+            RangeMedian |
             RangeMin |
             RangeQuantile |
             Round |

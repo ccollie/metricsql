@@ -1,17 +1,17 @@
 use std::fmt;
 use std::fmt::{Display, Formatter};
-use text_size::TextRange;
 use crate::ast::{Expression, ExpressionNode, ReturnValue};
 use crate::ast::expression_kind::ExpressionKind;
-use crate::lexer::duration_value;
+use crate::lexer::{duration_value, TextSpan};
 use crate::parser::ParseError;
+use serde::{Serialize, Deserialize};
 
-/// DurationExpr contains the duration
-#[derive(Default, Debug, Clone, PartialEq, Eq, Hash)]
+/// DurationExpr contains a duration
+#[derive(Default, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct DurationExpr {
-    pub s: String,
-    pub span: TextRange,
-    pub const_value: i64,
+    pub text: String,
+    pub span: TextSpan,
+    pub value: i64,
     pub requires_step: bool,
 }
 
@@ -24,35 +24,35 @@ impl TryFrom<&str> for DurationExpr {
         let requires_step: bool = last_ch == 'i' || last_ch == 'I';
 
         Ok(Self {
-            s: s.to_string(),
-            const_value,
+            text: s.to_string(),
+            value: const_value,
             requires_step,
-            span: TextRange::default(),
+            span: TextSpan::default(),
         })
     }
 }
 
 impl DurationExpr {
-    pub fn new(s: &str, span: TextRange) -> DurationExpr {
-        let last_ch: char = s.chars().rev().next().unwrap();
+    pub fn new<S: Into<TextSpan>>(text: &str, span: S) -> DurationExpr {
+        let last_ch: char = text.chars().rev().next().unwrap();
         let requires_step: bool = last_ch == 'i' || last_ch == 'I';
         // todo: the following is icky
-        let const_value = duration_value(s, 1).unwrap_or(0);
+        let const_value = duration_value(text, 1).unwrap_or(0);
 
         DurationExpr {
-            s: s.to_string(),
-            const_value,
+            text: text.to_string(),
+            value: const_value,
             requires_step,
-            span,
+            span: span.into(),
         }
     }
 
     /// Duration returns the duration from de in milliseconds.
     pub fn duration(&self, step: i64) -> i64 {
         if self.requires_step {
-            self.const_value * step
+            self.value * step
         } else {
-            self.const_value
+            self.value
         }
     }
 
@@ -63,7 +63,7 @@ impl DurationExpr {
 
 impl Display for DurationExpr {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{}", self.s)?;
+        write!(f, "{}", self.text)?;
         Ok(())
     }
 }

@@ -1,15 +1,16 @@
 use std::borrow::Cow;
 use std::fmt;
 use std::fmt::{Display, Formatter};
-use text_size::TextRange;
 use crate::ast::{BExpression, Expression, ExpressionNode, NumberExpr, ReturnValue};
 use crate::ast::expression_kind::ExpressionKind;
 use crate::ast::misc::{write_labels, write_list};
 use crate::ast::operator::BinaryOp;
+use crate::lexer::TextSpan;
 use crate::parser::{ParseError, ParseResult};
+use serde::{Serialize, Deserialize};
 
 // See https://prometheus.io/docs/prometheus/latest/querying/operators/#vector-matching
-#[derive(Debug, Clone, PartialEq, Eq, Copy, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Copy, Hash, Serialize, Deserialize)]
 pub enum GroupModifierOp {
     On,
     Ignoring,
@@ -44,7 +45,7 @@ impl TryFrom<&str> for GroupModifierOp {
 }
 
 /// An operator matching clause
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize, Deserialize)]
 pub struct GroupModifier {
     /// Action applied to a list of vectors; whether `on (…)` or `ignored(…)` is used after the operator.
     pub op: GroupModifierOp,
@@ -52,25 +53,25 @@ pub struct GroupModifier {
     /// A list of labels to which the operator is applied
     pub labels: Vec<String>,
 
-    pub span: TextRange,
+    pub span: TextSpan,
 }
 
 impl GroupModifier {
-    pub fn new(op: GroupModifierOp, labels: Vec<String>, span: TextRange) -> Self {
+    pub fn new<S: Into<TextSpan>>(op: GroupModifierOp, labels: Vec<String>, span: S) -> Self {
         GroupModifier {
             op,
             labels,
-            span,
+            span: span.into(),
         }
     }
 
     /// Creates a GroupModifier cause with the On operator
-    pub fn on(labels: Vec<String>, span: TextRange) -> Self {
+    pub fn on(labels: Vec<String>, span: TextSpan) -> Self {
         GroupModifier::new(GroupModifierOp::On, labels, span)
     }
 
     /// Creates a GroupModifier clause using the Ignoring operator
-    pub fn ignoring(labels: Vec<String>, span: TextRange) -> Self {
+    pub fn ignoring(labels: Vec<String>, span: TextSpan) -> Self {
         GroupModifier::new(GroupModifierOp::Ignoring, labels, span)
     }
 
@@ -98,7 +99,7 @@ impl GroupModifier {
         self
     }
 
-    pub fn span<S: Into<TextRange>>(&mut self, span: S) -> &mut Self {
+    pub fn span<S: Into<TextSpan>>(&mut self, span: S) -> &mut Self {
         self.span = span.into();
         self
     }
@@ -115,7 +116,7 @@ impl Display for GroupModifier {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Copy, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Copy, Hash, Serialize, Deserialize)]
 pub enum VectorMatchCardinality {
     OneToOne,
     OneToMany,
@@ -137,7 +138,7 @@ impl Display for VectorMatchCardinality {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Copy, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Copy, Hash, Serialize, Deserialize)]
 pub enum JoinModifierOp {
     GroupLeft,
     GroupRight,
@@ -172,7 +173,7 @@ impl TryFrom<&str> for JoinModifierOp {
 }
 
 /// A JoinModifier clause's nested grouping clause
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize, Deserialize)]
 pub struct JoinModifier {
     /// The GroupModifier group's operator type (left or right)
     pub op: JoinModifierOp,
@@ -184,7 +185,7 @@ pub struct JoinModifier {
     /// The cardinality of the two Vectors.
     pub cardinality: VectorMatchCardinality,
 
-    pub span: TextRange,
+    pub span: TextSpan,
 }
 
 impl JoinModifier {
@@ -193,7 +194,7 @@ impl JoinModifier {
             op,
             labels: vec![],
             cardinality: VectorMatchCardinality::OneToOne,
-            span: TextRange::default(),
+            span: TextSpan::default(),
         }
     }
 
@@ -231,7 +232,7 @@ impl JoinModifier {
         self
     }
 
-    pub fn span<S: Into<TextRange>>(&mut self, span: S) -> &mut Self {
+    pub fn span<S: Into<TextSpan>>(&mut self, span: S) -> &mut Self {
         self.span = span.into();
         self
     }
@@ -249,7 +250,7 @@ impl Display for JoinModifier {
 }
 
 /// BinaryOpExpr represents a binary operation.
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
 pub struct BinaryOpExpr {
     /// Op is the operation itself, i.e. `+`, `-`, `*`, etc.
     pub op: BinaryOp,
@@ -270,7 +271,7 @@ pub struct BinaryOpExpr {
     /// right contains right arg for the `left op right` expression.
     pub right: BExpression,
 
-    pub span: TextRange,
+    pub span: TextSpan,
 }
 
 impl BinaryOpExpr {
@@ -282,7 +283,7 @@ impl BinaryOpExpr {
             join_modifier: None,
             group_modifier: None,
             bool_modifier: false,
-            span: TextRange::default(),
+            span: TextSpan::default(),
         };
 
         // ensure we have a operands are valid for the operator
@@ -298,7 +299,7 @@ impl BinaryOpExpr {
     }
 
     /// Unary minus. Substitute `-expr` with `0 - expr`
-    pub fn new_unary_minus(e: impl ExpressionNode, span: TextRange) -> ParseResult<Self> {
+    pub fn new_unary_minus<S: Into<TextSpan>>(e: impl ExpressionNode, span: S) -> ParseResult<Self> {
         let expr = Expression::cast(e);
         let lhs = Expression::Number(NumberExpr::new(0.0, span));
         BinaryOpExpr::new(BinaryOp::Sub, lhs, expr)

@@ -102,10 +102,10 @@ pub(super) fn simplify_constants(expr: &Expression) -> ParseResult<Expression> {
                 }
                 (Expression::String(left), Expression::String(right)) => {
                     if be.op == BinaryOp::Add {
-                        let val = format!("{}{}", left.s, right.s);
+                        let val = format!("{}{}", left.value, right.value);
                         return Ok(Expression::from(val))
                     }
-                    let n = if string_compare(&left.s, &right.s, be.op)? {
+                    let n = if string_compare(&left.value, &right.value, be.op)? {
                         1.0
                     } else if !be.bool_modifier {
                         f64::NAN

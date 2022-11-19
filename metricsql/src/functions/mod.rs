@@ -17,17 +17,19 @@ mod rollup;
 mod signature;
 mod transform;
 
+use serde::{Serialize, Deserialize};
+
 /// Maximum number of arguments permitted in a rollup function. This really only applies
 /// to variadic functions like `aggr_over_time` and `quantiles_over_time`
 const MAX_ARG_COUNT: usize = 32;
 
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
 pub struct WithExprFunction {
     name: String,
     //sig: Signature
 }
 
-#[derive(Debug, Clone, Hash, PartialEq)]
+#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
 pub enum BuiltinFunction {
     Aggregate(AggregateFunction),
     Rollup(RollupFunction),

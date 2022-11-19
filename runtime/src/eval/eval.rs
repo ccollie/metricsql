@@ -120,7 +120,7 @@ pub fn create_evaluator(expr: &Expression) -> RuntimeResult<ExprEvaluator> {
             if de.requires_step {
                 Ok(ExprEvaluator::Duration(DurationEvaluator::new(de)))
             } else {
-                Ok(ExprEvaluator::from(de.const_value ))
+                Ok(ExprEvaluator::from(de.value))
             }
         },
         Expression::With(_) => {
@@ -140,10 +140,10 @@ fn create_evaluator_from_binop(be: &BinaryOpExpr) -> RuntimeResult<ExprEvaluator
         }
         (Expression::String(lhs), Expression::String(rhs)) => {
             if be.op == BinaryOp::Add {
-                let val = format!("{}{}", lhs.s, rhs.s);
+                let val = format!("{}{}", lhs.value, rhs.value);
                 return Ok(ExprEvaluator::from(val))
             }
-            let n = match string_compare(&lhs.s, &rhs.s, be.op) {
+            let n = match string_compare(&lhs.value, &rhs.value, be.op) {
                 Ok(v) => {
                     if v {
                         1.0

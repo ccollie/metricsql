@@ -16,7 +16,9 @@ mod with;
 mod rollup;
 mod binary_op;
 mod operator;
+mod aggregation;
 
+pub use aggregation::*;
 pub use ast::*;
 pub use binary_op::*;
 pub use string::*;

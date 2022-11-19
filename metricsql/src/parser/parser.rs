@@ -6,12 +6,11 @@ use std::str::FromStr;
 use logos::Source;
 
 use once_cell::sync::OnceCell;
-use text_size::{TextRange};
 
 use crate::ast::*;
 use crate::ast::BinaryOp;
 use crate::functions::{AggregateFunction, BuiltinFunction, DataType};
-use crate::lexer::{Lexer, parse_float, quote, Token, TokenKind, unescape_ident};
+use crate::lexer::{Lexer, parse_float, quote, TextSpan, Token, TokenKind, unescape_ident};
 use crate::parser::expand_with::expand_with_expr;
 use crate::parser::parse_error::{InvalidTokenError, ParseError};
 use crate::parser::ParseResult;
@@ -89,7 +88,7 @@ impl<'a> Parser<'a> {
         self.cursor >= self.tokens.len()
     }
 
-    pub(crate) fn last_token_range(&self) -> Option<TextRange> {
+    pub(crate) fn last_token_range(&self) -> Option<TextSpan> {
         let index = if self.is_eof() {
             self.tokens.len() - 1
         } else {
@@ -98,9 +97,9 @@ impl<'a> Parser<'a> {
         self.tokens.get(index).map(|Token { span, .. }| *span)
     }
 
-    fn update_span(&self, span: &mut TextRange) -> bool {
+    fn update_span(&self, span: &mut TextSpan) -> bool {
         if let Some(end_span) = self.last_token_range() {
-            span.intersect(end_span);
+            span.intersect_with(end_span);
             return true;
         }
         false
@@ -166,7 +165,7 @@ impl<'a> Parser<'a> {
             (None, self.last_token_range().unwrap_or_default())
         };
 
-        let inner = InvalidTokenError::new(expected, found, &range);
+        let inner = InvalidTokenError::new(expected, found, range);
 
         ParseError::InvalidToken(inner)
     }
@@ -310,7 +309,7 @@ impl<'a> Parser<'a> {
         let duration = self.parse_duration()?;
         let val = duration.duration(1);
         if val < 0 {
-            Err(ParseError::InvalidDuration(duration.s))
+            Err(ParseError::InvalidDuration(duration.text))
         } else {
             Ok(duration)
         }
@@ -420,22 +419,18 @@ pub fn expand_with_exprs(q: &str) -> Result<String, ParseError> {
     Ok(format!("{}", e))
 }
 
-static DEFAULT_EXPRS: [&str; 4] = [
-    // ru - resource utilization
-    "ru(freev, maxv) = clamp_min(maxv - clamp_min(freev, 0), 0) / clamp_min(maxv, 0) * 100",
+static DEFAULT_EXPRS: [&str; 1] = [
     // ttf - time to fuckup
     "ttf(freev) = smooth_exponential(
         clamp_max(clamp_max(-freev, 0) / clamp_max(deriv_fast(freev), 0), 365*24*3600),
         clamp_max(step()/300, 1)
     )",
-    "median_over_time(m) = quantile_over_time(0.5, m)",
-    "range_median(q) = range_quantile(0.5, q)"
 ];
 
-fn get_default_with_arg_exprs() -> &'static [WithArgExpr; 4] {
-    static INSTANCE: OnceCell<[WithArgExpr; 4]> = OnceCell::new();
+fn get_default_with_arg_exprs() -> &'static [WithArgExpr; 1] {
+    static INSTANCE: OnceCell<[WithArgExpr; 1]> = OnceCell::new();
     INSTANCE.get_or_init(|| {
-        let was: [WithArgExpr; 4] =
+        let was: [WithArgExpr; 1] =
             DEFAULT_EXPRS.map(|expr| {
                 let res = must_parse_with_arg_expr(expr);
                 res.unwrap()
@@ -660,7 +655,7 @@ fn parse_number_expr(p: &mut Parser) -> ParseResult<Expression> {
 
 fn parse_group_modifier(p: &mut Parser) -> Result<GroupModifier, ParseError> {
     let tok = p.current_token()?;
-    let mut span: TextRange = tok.span;
+    let mut span: TextSpan = tok.span;
 
     let op: GroupModifierOp;
 
@@ -685,7 +680,7 @@ fn parse_group_modifier(p: &mut Parser) -> Result<GroupModifier, ParseError> {
 
 fn parse_join_modifier(p: &mut Parser) -> ParseResult<JoinModifier> {
     let tok = p.current_token()?;
-    let mut span: TextRange = tok.span;
+    let mut span: TextSpan = tok.span;
 
     let op = match tok.kind {
         TokenKind::GroupLeft => JoinModifierOp::GroupLeft,
@@ -812,7 +807,7 @@ pub(crate) fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expression> {
 
         let tokens = vec![quote(&unescape_ident(tok.text))];
         let value = StringExpr {
-            s: "".to_string(),
+            value: "".to_string(),
             tokens: Some(tokens),
             span: tok.span.clone()
         };
@@ -836,8 +831,6 @@ pub(crate) fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expression> {
 
 fn parse_rollup_expr(p: &mut Parser, e: Expression) -> ParseResult<Expression> {
     let mut re = RollupExpr::new(e);
-    let tok = p.current_token()?;
-    let start = Some(tok.span);
 
     let mut at: Option<Expression> = None;
     if p.at(TokenKind::LeftBracket) {
@@ -867,7 +860,7 @@ fn parse_rollup_expr(p: &mut Parser, e: Expression) -> ParseResult<Expression> {
         re.at = Some(Box::new(v))
     }
 
-    re.span = update_range(p, start)?;
+    p.update_span(&mut re.span);
 
     Ok(Expression::Rollup(re))
 }
@@ -891,7 +884,7 @@ fn parse_arg_list_expr(p: &mut Parser) -> ParseResult<Vec<BExpression>> {
 fn parse_with_expr(p: &mut Parser) -> ParseResult<WithExpr> {
     use TokenKind::*;
 
-    let start = p.last_token_range();
+    let mut span = p.last_token_range().unwrap();
 
     p.expect(With)?;
     p.expect(LeftParen)?;
@@ -910,7 +903,7 @@ fn parse_with_expr(p: &mut Parser) -> ParseResult<WithExpr> {
     check_duplicate_with_arg_names(&was)?;
 
     let expr = parse_expression(p)?;
-    let span = update_range(p, start)?;
+    p.update_span(&mut span);
     Ok(WithExpr::new(expr, was, span))
 }
 
@@ -1141,18 +1134,6 @@ pub(crate) fn validate_args(func: &BuiltinFunction, args: &[BExpression]) -> Par
         validate_return_type(arg.return_value(), expected, i)?
     }
     Ok(())
-}
-
-fn update_range(p: &Parser, start: Option<TextRange>) -> ParseResult<TextRange> {
-    // Note: if we've made it thus far, start is Some
-    let start = start.unwrap();
-    let token = p.current_token()?;
-    match start.intersect(token.span) {
-        None => {
-            Err(ParseError::General("Bug: error fetching range".to_string()))
-        }
-        Some(span) => Ok(span)
-    }
 }
 
 

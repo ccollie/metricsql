@@ -1,8 +1,9 @@
-use std::fmt;
+use std::{fmt};
 use std::fmt::Formatter;
-use text_size::TextRange;
 use crate::ast::{BExpression, DurationExpr};
+use crate::lexer::TextSpan;
 use crate::utils::escape_ident;
+
 
 /// A Subquery which converts an instant vector to a range vector by repeatedly
 /// evaluating it at set intervals into the relative past
@@ -14,7 +15,7 @@ pub struct Subquery {
     /// Optional step size. If unset, uses the global/query default at runtime.
     pub resolution: Option<DurationExpr>,
 
-    pub span: Option<TextRange>
+    pub span: Option<TextSpan>
 }
 
 impl Subquery {
@@ -36,7 +37,7 @@ impl Subquery {
         self
     }
 
-    pub fn span<S: Into<TextRange>>(mut self, span: S) -> Self {
+    pub fn span<S: Into<TextSpan>>(mut self, span: S) -> Self {
         self.span = Some(span.into());
         self
     }

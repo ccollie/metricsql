@@ -1,23 +1,27 @@
 use std::fmt;
 use std::fmt::{Display, Formatter};
-use text_size::TextRange;
-use crate::ast::{Expression, ExpressionNode, LabelFilter, LabelFilterExpr, LabelFilterOp, ReturnValue};
+use crate::ast::{
+    Expression, ExpressionNode, LabelFilter,
+    LabelFilterExpr, LabelFilterOp, ReturnValue
+};
 use crate::ast::expression_kind::ExpressionKind;
+use crate::lexer::TextSpan;
 use crate::utils::escape_ident;
-
+use serde::{Serialize, Deserialize};
 
 // todo: MetricExpr => Selector
 /// MetricExpr represents MetricsQL metric with optional filters, i.e. `foo{...}`.
-#[derive(Debug, Clone, PartialEq, Hash)]
+#[derive(Debug, Clone, PartialEq, Hash, Serialize, Deserialize)]
 pub struct MetricExpr {
     /// LabelFilters contains a list of label filters from curly braces.
     /// Filter or metric name must be the first if present.
     pub label_filters: Vec<LabelFilter>,
 
     /// label_filters must be expanded to LabelFilters by expand_with_expr.
+    #[serde(skip)]
     pub(crate) label_filter_exprs: Vec<LabelFilterExpr>,
 
-    pub span: TextRange,
+    pub span: TextSpan,
 }
 
 impl MetricExpr {
@@ -26,7 +30,7 @@ impl MetricExpr {
         MetricExpr {
             label_filters: vec![name_filter],
             label_filter_exprs: vec![],
-            span: TextRange::default(),
+            span: TextSpan::default(),
         }
     }
 
@@ -115,7 +119,7 @@ impl Default for MetricExpr {
         Self {
             label_filters: vec![],
             label_filter_exprs: vec![],
-            span: TextRange::default()
+            span: TextSpan::default()
         }
     }
 }

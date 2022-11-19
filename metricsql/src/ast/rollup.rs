@@ -1,11 +1,12 @@
 use std::fmt;
 use std::fmt::{Display, Formatter};
-use text_size::TextRange;
 use crate::ast::{BExpression, Expression, ExpressionNode, ReturnValue};
 use crate::ast::duration::DurationExpr;
 use crate::ast::expression_kind::ExpressionKind;
+use crate::lexer::TextSpan;
+use serde::{Serialize, Deserialize};
 
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
 /// RollupExpr represents an MetricsQL expression which contains at least `offset` or `[...]` part.
 pub struct RollupExpr {
     /// The expression for the rollup. Usually it is MetricExpr, but may be arbitrary expr
@@ -38,7 +39,7 @@ pub struct RollupExpr {
     /// See https://prometheus.io/docs/prometheus/latest/querying/basics/#modifier
     pub at: Option<BExpression>,
 
-    pub span: TextRange,
+    pub span: TextSpan,
 }
 
 impl RollupExpr {

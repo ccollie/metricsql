@@ -5,6 +5,7 @@ extern crate logos;
 extern crate once_cell;
 extern crate phf;
 extern crate regex;
+extern crate serde;
 extern crate thiserror;
 
 pub mod error;

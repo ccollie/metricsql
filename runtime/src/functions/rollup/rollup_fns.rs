@@ -393,7 +393,7 @@ pub(crate) fn get_rollup_aggr_funcs(expr: &Expression) -> RuntimeResult<Vec<Roll
                 let arg = &fe_.args[i];
                 match arg.deref() {
                     Expression::String(se) => {
-                        let name = &se.s;
+                        let name = &se.value;
                         match get_aggr_func_by_name(name) {
                             Err(_) => {
                                 let msg = format!("{} cannot be used in `aggr_over_time` function; expecting quoted aggregate function name", name);
@@ -497,7 +497,7 @@ pub(crate) fn get_rollup_configs<'a>(
         lookback_delta,
         timestamps: Arc::clone(&shared_timestamps),
         is_default_rollup,
-        max_points_per_series: max_points_per_series,
+        max_points_per_series,
         min_staleness_interval,
         samples_scanned_per_call
     };
@@ -1107,7 +1107,7 @@ fn new_rollup_share_le(args: &Vec<AnyValue>) -> RuntimeResult<RollupHandlerEnum>
 
 fn count_filter_le(values: &[f64], le: f64) -> i32 {
     let mut n = 0;
-    for v in values {
+    for v in values.iter() {
         if *v <= le {
             n += 1;
         }
@@ -1122,7 +1122,7 @@ fn new_rollup_share_gt(args: &Vec<AnyValue>) -> RuntimeResult<RollupHandlerEnum>
 #[inline]
 fn count_filter_gt(values: &[f64], gt: f64) -> i32 {
     let mut n = 0;
-    for v in values {
+    for v in values.iter() {
         if *v > gt {
             n += 1;
         }
@@ -1133,7 +1133,7 @@ fn count_filter_gt(values: &[f64], gt: f64) -> i32 {
 #[inline]
 fn count_filter_eq(values: &[f64], eq: f64) -> i32 {
     let mut n = 0;
-    for v in values {
+    for v in values.iter() {
         if *v == eq {
             n += 1;
         }
@@ -1311,6 +1311,7 @@ fn new_rollup_quantile(args: &Vec<AnyValue>) -> RuntimeResult<RollupHandlerEnum>
 
     Ok(RollupHandlerEnum::General(rf))
 }
+
 
 pub(super) fn rollup_histogram(rfa: &mut RollupFuncArg) -> f64 {
     let tsm = rfa.tsm.as_ref().unwrap();
