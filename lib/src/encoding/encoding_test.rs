@@ -79,7 +79,7 @@ mod tests {
     }
 
     fn _ensure_non_decreasing_sequence(values: &[i64], min: i64, max: i64, expected: &[i64]) {
-        let mut values = values;
+        let mut values = Vec::from(values);
         ensure_non_decreasing_sequence(&mut values, min, max);
         assert_eq!(values, expected, "unexpected a; got\n{:?}; expecting\n{:?}", values, expected);
     }
@@ -94,7 +94,7 @@ mod tests {
 
         let mut v: i64 = 0;
 
-        for i in 0 .. 8*1024 {
+        for _ in 0 .. 8*1024 {
             v += (30e3 * get_rand_normal() * 5e2) as i64;
             timestamps.push(v);
         }
@@ -120,7 +120,7 @@ mod tests {
         let mut values: Vec<i64> = vec![];
         let mut v: i64 = 0;
         
-        for i in 0 .. 8*1024 {
+        for _ in 0 .. 8*1024 {
             v += (get_rand_normal() * 1e2) as i64;
             values.push(v)
         }

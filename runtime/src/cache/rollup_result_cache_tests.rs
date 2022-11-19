@@ -5,7 +5,6 @@ mod tests {
     use metricsql::functions::AggregateFunction;
     use crate::cache::rollup_result_cache::{merge_timeseries, RollupResultCache};
     use crate::{EvalConfig, MetricName, test_timeseries_equal, Timeseries};
-    use text_size::{TextRange};
 
     const nan: f64 = f64::NAN;
 
@@ -29,7 +28,7 @@ mod tests {
         let mut me = MetricExpr::default();
         me.label_filters = vec![LabelFilter::new(LabelFilterOp::Equal, "aaa", "xxx").unwrap()];
 
-        let fe = FuncExpr::create("foo", &[me.cast()], TextRange::default()).unwrap();
+        let fe = FuncExpr::create("foo", &[me.cast()], TextSpan::default()).unwrap();
 
         let mut ae = AggrFuncExpr::new(&AggregateFunction::Sum);
         ae.args.push(Box::new(fe.clone().cast()));

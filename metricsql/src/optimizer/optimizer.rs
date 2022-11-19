@@ -3,8 +3,9 @@ use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::iter::FromIterator;
 use std::vec::Vec;
+use crate::ast::{AggregateModifierOp, AggrFuncExpr, BExpression, BinaryOp, BinaryOpExpr,
+                 Expression, GroupModifierOp, JoinModifierOp, LabelFilter};
 
-use crate::ast::*;
 
 /// Optimize optimizes e in order to improve its performance.
 ///
@@ -111,7 +112,7 @@ pub fn get_common_label_filters(e: &Expression) -> Vec<LabelFilter> {
             let mut lfs_left = get_common_label_filters(&e.left);
             let mut lfs_right = get_common_label_filters(&e.right);
             match e.op {
-                Or => {
+                BinaryOp::Or => {
                     // {fCommon, f1} or {fCommon, f2} -> {fCommon}
                     // {fCommon, f1} or on() {fCommon, f2} -> {}
                     // {fCommon, f1} or on(fCommon) {fCommon, f2} -> {fCommon}
@@ -122,7 +123,7 @@ pub fn get_common_label_filters(e: &Expression) -> Vec<LabelFilter> {
                     trim_filters_by_group_modifier(&mut lfs_left, e);
                     lfs_left
                 }
-                Unless => {
+                BinaryOp::Unless => {
                     // {f1} unless {f2} -> {f1}
                     // {f1} unless on() {f2} -> {}
                     // {f1} unless on(f1) {f2} -> {f1}

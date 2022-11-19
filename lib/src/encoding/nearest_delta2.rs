@@ -11,7 +11,7 @@ use crate::unmarshal_var_int;
 /// while 64 means 100% precision, i.e. lossless encoding.
 ///
 /// Return the first value
-pub(crate) fn marshal_int64_nearest_delta2(
+pub fn marshal_int64_nearest_delta2(
     dst: &mut Vec<u8>,
     src: &[i64],
     precision_bits: u8,
@@ -29,7 +29,14 @@ pub(crate) fn marshal_int64_nearest_delta2(
     marshal_var_int(dst, d1);
     let mut v = src[1];
     let src = &src[2..];
-    let mut is = get_int64s(src.len());
+
+    let block_len = if src.len() < 64 {
+        64
+    } else {
+        src.len()
+    };
+
+    let mut is = get_int64s(block_len);
     if precision_bits == 64 {
         // Fast path.
         for next in src {
@@ -58,7 +65,7 @@ pub(crate) fn marshal_int64_nearest_delta2(
 /// appends the result to dst and returns the appended result.
 ///
 /// first_value must be the value returned from marshal_int64nearest_delta2.
-pub(crate) fn unmarshal_int64_nearest_delta2(
+pub fn unmarshal_int64_nearest_delta2(
     dst: &mut Vec<i64>,
     src: &[u8],
     first_value: i64,

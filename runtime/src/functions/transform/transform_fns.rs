@@ -154,6 +154,7 @@ static HANDLER_MAP: Lazy<RwLock<HashMap<TransformFunction,
     m.insert(RangeFirst, boxed!(transform_range_first));
     m.insert(RangeLast, boxed!(transform_range_last));
     m.insert(RangeMax, boxed!(new_transform_func_range(running_max)));
+    m.insert(RangeMedian, boxed!(transform_range_median));
     m.insert(RangeMin, boxed!(new_transform_func_range(running_min)));
     m.insert(RangeQuantile, boxed!(transform_range_quantile));
     m.insert(RangeStdDev, boxed!(transform_range_stddev));
@@ -1425,6 +1426,17 @@ fn transform_range_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
     }
 
     let mut series = get_series(tfa, 1)?;
+    range_quantile(phi, &mut series);
+    Ok(series)
+}
+
+fn transform_range_median(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    let mut series = get_series(tfa, 1)?;
+    range_quantile(0.5, &mut series);
+    Ok(series)
+}
+
+fn range_quantile(phi: f64, series: &mut Vec<Timeseries>) {
     let mut values = get_float64s(series.len()).to_vec();
 
     for ts in series.iter_mut() {
@@ -1443,8 +1455,7 @@ fn transform_range_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
         }
     }
 
-    set_last_values(&mut series);
-    Ok(series)
+    set_last_values(series);
 }
 
 fn transform_range_first(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {

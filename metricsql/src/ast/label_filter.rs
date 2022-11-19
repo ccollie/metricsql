@@ -3,6 +3,7 @@ use crate::parser::{compile_regexp, ParseError};
 use enquote::enquote;
 use std::fmt;
 use crate::ast::StringExpr;
+use serde::{Serialize, Deserialize};
 
 pub const NAME_LABEL: &str = "__name__";
 
@@ -10,7 +11,7 @@ pub type LabelName = String;
 
 pub type LabelValue = String;
 
-#[derive(Default, Debug, Clone, PartialEq, Eq, Copy, Hash)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, Copy, Hash, Serialize, Deserialize)]
 pub enum LabelFilterOp {
     #[default]
     Equal,
@@ -58,7 +59,7 @@ impl fmt::Display for LabelFilterOp {
 }
 
 /// LabelFilter represents MetricsQL label filter like `foo="bar"`.
-#[derive(Default, Debug, Clone, Eq, Hash)]
+#[derive(Default, Debug, Clone, Eq, Hash, Serialize, Deserialize)]
 pub struct LabelFilter {
     pub op: LabelFilterOp,
 
@@ -157,7 +158,7 @@ impl fmt::Display for LabelFilter {
 /// labelFilterExpr represents `foo <op> "bar"` expression, where <op> is `=`, `!=`, `=~` or `!~`.
 ///
 /// This type isn't exported.
-#[derive(Default, Debug, Clone, PartialEq, Hash)]
+#[derive(Default, Debug, Clone, PartialEq, Hash, Serialize, Deserialize)]
 pub(crate) struct LabelFilterExpr {
     pub label: String,
     pub value: StringExpr,
@@ -200,7 +201,7 @@ impl fmt::Display for LabelFilterExpr {
             "{}{}{}",
             escape_ident(&self.label),
             self.op,
-            enquote('\"', &self.value.s)
+            enquote('\"', &self.value.value)
         )?;
         Ok(())
     }

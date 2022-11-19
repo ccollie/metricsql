@@ -1,14 +1,15 @@
 use std::fmt;
 use std::fmt::{Display, Formatter};
-use text_size::TextRange;
 use crate::ast::{BExpression, Expression, ExpressionNode, ReturnValue};
 use crate::ast::expression_kind::ExpressionKind;
 use crate::ast::misc::write_expression_list;
 use crate::functions::{BuiltinFunction, is_rollup_aggregation_over_time};
+use crate::lexer::TextSpan;
 use crate::parser::{ParseError, ParseResult};
+use serde::{Serialize, Deserialize};
 
 /// FuncExpr represents MetricsQL function such as `rate(...)`
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
 pub struct FuncExpr {
     pub function: BuiltinFunction,
 
@@ -20,14 +21,15 @@ pub struct FuncExpr {
 
     pub is_scalar: bool,
 
-    pub span: TextRange,
+    pub span: TextSpan,
 
     /// internal only name parsed in WITH expression
+
     pub(crate) with_name: String,
 }
 
 impl FuncExpr {
-    pub fn new(name: &str, args: Vec<BExpression>, span: TextRange) -> ParseResult<Self> {
+    pub fn new<S: Into<TextSpan>>(name: &str, args: Vec<BExpression>, span: S) -> ParseResult<Self> {
         // time() returns scalar in PromQL - see https://prometheus.io/docs/prometheus/latest/querying/functions/#time
         let lower = name.to_lowercase();
         let function = BuiltinFunction::new(name)?;
@@ -37,7 +39,7 @@ impl FuncExpr {
             function,
             args,
             keep_metric_names: false,
-            span,
+            span: span.into(),
             is_scalar,
             with_name: "".to_string()
         };
@@ -62,12 +64,12 @@ impl FuncExpr {
         FuncExpr::from_single_arg("default_rollup", arg, span)
     }
 
-    pub fn from_single_arg(name: &str, arg: Expression, span: TextRange) -> ParseResult<Self> {
+    pub fn from_single_arg<S: Into<TextSpan>>(name: &str, arg: Expression, span: S) -> ParseResult<Self> {
         let args = vec![Box::new(arg)];
         FuncExpr::new(name, args, span)
     }
 
-    pub fn create(name: &str, args: &[Expression], span: TextRange) -> ParseResult<Self> {
+    pub fn create<S: Into<TextSpan>>(name: &str, args: &[Expression], span: S) -> ParseResult<Self> {
         let params =
             Vec::from(args).into_iter().map(Box::new).collect();
         FuncExpr::new(name, params, span)
@@ -104,6 +106,8 @@ impl FuncExpr {
                 if is_rollup_aggregation_over_time(rf) {
                     match kind {
                         ReturnValue::RangeVector => ReturnValue::InstantVector,
+                        // ???
+                        ReturnValue::InstantVector => ReturnValue::InstantVector,
                         _ => {
                             // invalid arg
                             ReturnValue::unknown(

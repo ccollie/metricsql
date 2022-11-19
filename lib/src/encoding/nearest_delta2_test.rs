@@ -6,6 +6,8 @@ mod tests {
     use crate::{get_trailing_zeros, rand_nextf64};
     use crate::tests::utils::check_precision_bits;
 
+    // src: https://github.com/VictoriaMetrics/VictoriaMetrics/blob/master/lib/encoding/nearest_delta2_test.go
+
     #[test]
     fn test_marshal_int64nearest_delta2() {
         check_marshal_i64_nearest_delta2(&[0, 0], 4, 0, "00");
@@ -27,7 +29,9 @@ mod tests {
     fn check_marshal_i64_nearest_delta2(va: &[i64], precision_bits: u8, first_value_expected: i64, b_expected: &str) {
         let mut b: Vec<u8> = vec![];
 
-        let first_value = marshal_int64_nearest_delta2(&mut b, va, precision_bits).expect("marshal int64 nearest delta1");
+        let first_value = marshal_int64_nearest_delta2(&mut b, va, precision_bits)
+            .expect("marshal int64 nearest delta1");
+
         assert_eq!(first_value, first_value_expected,
                    "unexpected first_value for va={:?}, precision_bits={}; got {}; want {}", va, precision_bits, first_value, first_value_expected);
 
@@ -136,7 +140,8 @@ mod tests {
         check_nearest_delta(1234e12 as i64 as i64, 1235e12 as i64 as i64, 10, 0, 41);
         check_nearest_delta(1234e12 as i64 as i64, 1235e12 as i64 as i64, 35, -999999995904, 16);
 
-        check_nearest_delta((1<<63)-1, 0, 1, (1<<63)-1, 2);
+        // changed from 1 << 63 - 1 because of overflow
+        check_nearest_delta((1_i64<<62)-1, 0, 1, (1_i64<<62)-1, 2);
     }
 
     fn check_nearest_delta(next: i64, prev: i64, precision_bits: u8, d_expected: i64, trailing_zero_bits_expected: u8) {

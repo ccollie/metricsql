@@ -1,9 +1,8 @@
 use std::{fmt};
 use std::fmt::{Display, Formatter};
-use text_size::{TextRange, TextSize};
 use thiserror::Error;
 
-use crate::lexer::{Token, TokenKind};
+use crate::lexer::{TextSpan, Token, TokenKind};
 
 pub type ParseResult<T> = Result<T, ParseError>;
 
@@ -42,7 +41,7 @@ pub enum ParseError {
 /// ParseErr wraps a parsing error with line and position context.
 #[derive(Debug, PartialEq, Clone, Error)]
 pub struct ParseErr {
-    pub range: TextRange,
+    pub range: TextSpan,
     pub err: String,
     pub query: String,
     /// line_offset is an additional line offset to be added. Only used inside unit tests.
@@ -50,9 +49,9 @@ pub struct ParseErr {
 }
 
 impl ParseErr {
-    pub fn new(msg: &str, query: &str, range: TextRange) -> Self {
+    pub fn new<S: Into<TextSpan>>(msg: &str, query: &str, range: S) -> Self {
         Self {
-            range,
+            range: range.into(),
             err: msg.to_string(),
             query: query.to_string(),
             line_offset: 0
@@ -62,7 +61,7 @@ impl ParseErr {
 
 impl Display for ParseErr {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let pos: usize = usize::from(self.range.start());
+        let pos: usize = self.range.start;
         let mut last_line_break = 0;
         let mut line = self.line_offset + 1;
 
@@ -89,16 +88,16 @@ impl Display for ParseErr {
 pub struct InvalidTokenError {
     pub(super) expected: Vec<TokenKind>,
     pub(super) found: Option<TokenKind>,
-    pub(super) range: TextRange,
+    pub(super) range: TextSpan,
     pub(super) context: String,
 }
 
 impl InvalidTokenError {
-    pub fn new(expected: &[TokenKind], found: Option<TokenKind>, range: &TextRange) -> Self {
+    pub fn new<S: Into<TextSpan>>(expected: &[TokenKind], found: Option<TokenKind>, range: S) -> Self {
         Self {
             expected: Vec::from(expected),
             found,
-            range: range.clone(),
+            range: range.into(),
             context: "".to_string(),
         }
     }
@@ -115,20 +114,20 @@ impl Display for InvalidTokenError {
         }
         if self.found.is_none() {
             write!(f,"unexpected end of stream")?;
-            if self.range.start() > TextSize::from(0) {
+            if self.range.start > 0 {
                 write!(
                     f,
                     " at {}..{}",
-                    u32::from(self.range.start()),
-                    u32::from(self.range.end()),
+                    self.range.start,
+                    self.range.end,
                 )?;
             }
         } else {
             write!(
                 f,
                 "error at {}..{}",
-                u32::from(self.range.start()),
-                u32::from(self.range.end()),
+                self.range.start,
+                self.range.end,
             )?;
         }
 
@@ -185,7 +184,7 @@ impl ArgCountError {
     /// * `min` - Smallest allowed number of arguments
     /// * `max` - Largest allowed number of arguments
     pub fn new_with_token(token: &Token, signature: &str, min: usize, max: usize) -> Self {
-        Self::new_with_index(Some(usize::from(token.span.start())), signature, min, max)
+        Self::new_with_index(Some(usize::from(token.span.start)), signature, min, max)
     }
 
     /// Create a new instance of the error at a specific position
@@ -249,20 +248,20 @@ impl Display for ArgCountError {
 mod tests {
     use std::ops::Range;
     use text_size::TextSize;
-    use crate::lexer::TokenKind;
+    use crate::lexer::{TextSpan, TokenKind};
 
     use super::*;
 
     fn check(
         expected: Vec<TokenKind>,
         found: Option<TokenKind>,
-        range: Range<u32>,
+        range: Range<usize>,
         output: &str,
     ) {
         let error = InvalidTokenError {
             expected,
             found,
-            range: TextRange::new( TextSize::from(range.start), TextSize::from(range.end)),
+            range: TextSpan::new(range.start, range.end),
             context: "".to_string(),
         };
 

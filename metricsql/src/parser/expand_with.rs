@@ -2,10 +2,9 @@ use std::collections::HashSet;
 use std::ops::{Deref};
 
 use enquote::unquote;
-use text_size::{TextRange, TextSize};
 
 use crate::ast::*;
-use crate::lexer::{is_string_prefix, quote};
+use crate::lexer::{is_string_prefix, quote, TextSpan};
 use crate::parser::{ArgCountError, ParseError, ParseResult};
 
 pub(crate) fn expand_with_expr(was: &[WithArgExpr], expr: &Expression) -> ParseResult<Expression> {
@@ -41,15 +40,15 @@ fn expand_binary(e: &BinaryOpExpr, was: &[WithArgExpr]) -> ParseResult<Expressio
     if e.op == BinaryOp::Add {
         return match (left, right) {
             (Expression::String(left), Expression::String(right)) => {
-                let concat = format!("{}{}", left.s, right.s);
-                let span = TextRange::at(left.span.start(), TextSize::from(concat.len() as u32));
+                let concat = format!("{}{}", left.value, right.value);
+                let span = TextSpan::at(left.span.start, concat.len());
                 let expr = StringExpr::new(concat, span);
                 Ok(Expression::String(expr))
             },
             (Expression::Number(left), Expression::Number(right)) => {
                 let sum = left.value + right.value;
                 let text = format!("{}", sum);
-                let span = TextRange::at(left.span.start(), TextSize::from(text.len() as u32));
+                let span = TextSpan::at(left.span.start, text.len());
                 let num = NumberExpr::new(sum, span);
                 Ok(Expression::Number(num))
             }
@@ -83,7 +82,7 @@ fn expand_binary(e: &BinaryOpExpr, was: &[WithArgExpr]) -> ParseResult<Expressio
     }
 
     let args = vec![Box::new(Expression::BinaryOperator(be))];
-    Ok(Expression::Parens(ParensExpr::new(args)))
+    Ok(Expression::Parens(ParensExpr::new(args, e.span)))
 }
 
 fn expand_function(func: &FuncExpr, was: &[WithArgExpr]) -> ParseResult<Expression> {
@@ -130,12 +129,14 @@ fn expand_aggregation(aggregate: &AggrFuncExpr, was: &[WithArgExpr]) -> ParseRes
 
 fn expand_parens_expr(parens: &ParensExpr, was: &[WithArgExpr]) -> ParseResult<Expression> {
     let mut result: Vec<BExpression> = Vec::with_capacity(parens.expressions.len());
+    let mut span = was[0].expr.span();
     for e in parens.expressions.iter() {
         let expr = expand_with_expr(was, e)?;
+        span = span.cover(expr.span());
         result.push(Box::new(expr));
     }
 
-    Ok(Expression::Parens(ParensExpr::new(result)))
+    Ok(Expression::Parens(ParensExpr::new(result, span)))
 }
 
 fn expand_string(e: &StringExpr, was: &[WithArgExpr]) -> ParseResult<StringExpr> {
@@ -143,7 +144,7 @@ fn expand_string(e: &StringExpr, was: &[WithArgExpr]) -> ParseResult<StringExpr>
         // Already expanded. Copying should be cheap
         return Ok(e.clone());
     }
-    let start = e.span.start();
+    let start = e.span.start;
 
     // todo(perf): preallocate string capacity
     let mut b: String = String::new();
@@ -174,10 +175,10 @@ fn expand_string(e: &StringExpr, was: &[WithArgExpr]) -> ParseResult<StringExpr>
             return Err(ParseError::WithExprExpansionError(msg));
         }
 
-        b.push_str(e_new.s.as_str());
+        b.push_str(e_new.value.as_str());
     }
 
-    let span = TextRange::at(start, TextSize::from(b.len() as u32));
+    let span = TextSpan::at(start, b.len());
     Ok(StringExpr::new(b, span))
 }
 

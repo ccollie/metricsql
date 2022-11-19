@@ -1,8 +1,9 @@
 use crate::parser::ParseError;
 use phf::phf_map;
 use std::fmt;
+use serde::{Serialize, Deserialize};
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BinaryOp {
     Add,
     And,

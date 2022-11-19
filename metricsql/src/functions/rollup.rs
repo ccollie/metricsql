@@ -7,9 +7,10 @@ use crate::functions::data_type::DataType;
 use crate::functions::MAX_ARG_COUNT;
 use crate::functions::signature::{Signature, Volatility};
 use crate::parser::ParseError;
+use serde::{Serialize, Deserialize};
 
 /// Built-in Rollup Functions
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Hash, Serialize, Deserialize)]
 pub enum RollupFunction {
     AbsentOverTime,
     AggrOverTime,
