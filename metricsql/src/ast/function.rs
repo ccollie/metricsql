@@ -24,7 +24,7 @@ pub struct FuncExpr {
     pub span: TextSpan,
 
     /// internal only name parsed in WITH expression
-
+    #[serde(skip)]
     pub(crate) with_name: String,
 }
 

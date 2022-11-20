@@ -5,7 +5,7 @@ use metricsql::functions::{DataType, Signature, Volatility};
 
 use crate::context::Context;
 use crate::eval::aggregate::{AggregateEvaluator, create_aggr_evaluator};
-use crate::eval::binary_op::BinaryOpEvaluator;
+use crate::eval::binary::BinaryEvaluator;
 use crate::eval::duration::DurationEvaluator;
 use crate::eval::function::{create_function_evaluator, TransformEvaluator};
 use crate::eval::instant_vector::InstantVectorEvaluator;
@@ -23,7 +23,7 @@ use super::traits::{Evaluator, NullEvaluator};
 pub enum ExprEvaluator {
     Null(NullEvaluator),
     Aggregate(AggregateEvaluator),
-    BinaryOp(BinaryOpEvaluator),
+    BinaryOp(BinaryEvaluator),
     Duration(DurationEvaluator),
     Function(TransformEvaluator),
     Number(ScalarEvaluator),
@@ -159,7 +159,7 @@ fn create_evaluator_from_binop(be: &BinaryOpExpr) -> RuntimeResult<ExprEvaluator
             Ok(ExprEvaluator::from(n))
         }
         _ => {
-            Ok(ExprEvaluator::BinaryOp(BinaryOpEvaluator::new(be)?))
+            Ok(ExprEvaluator::BinaryOp(BinaryEvaluator::new(be)?))
         },
     }
 }

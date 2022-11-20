@@ -7,7 +7,6 @@ extern crate enquote;
 extern crate integer_encoding;
 extern crate lockfree_object_pool;
 extern crate lru_time_cache;
-extern crate metrics;
 extern crate once_cell;
 extern crate phf;
 extern crate rand_distr;
@@ -19,10 +18,8 @@ extern crate scopeguard;
 extern crate tinyvec;
 #[cfg(feature = "xxh64")]
 extern crate xxhash_rust;
-extern crate text_size;
 
 mod active_queries;
-mod binary_op;
 mod cache;
 mod context;
 mod eval;

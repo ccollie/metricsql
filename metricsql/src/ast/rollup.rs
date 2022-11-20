@@ -121,11 +121,11 @@ impl Display for RollupExpr {
 
         if self.window.is_some() || self.inherit_step || self.step.is_some() {
             write!(f, "[")?;
-            if self.window.is_some() {
-                write!(f, "{:?}", self.window.as_ref().unwrap())?;
+            if let Some(win) = &self.window {
+                write!(f, "{}", win)?;
             }
-            if self.step.is_some() {
-                write!(f, ":{}", self.step.as_ref().unwrap())?;
+            if let Some(step) = &self.step {
+                write!(f, ":{}", step)?;
             } else if self.inherit_step {
                 write!(f, ":")?;
             }

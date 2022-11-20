@@ -247,7 +247,6 @@ impl Display for ArgCountError {
 #[cfg(test)]
 mod tests {
     use std::ops::Range;
-    use text_size::TextSize;
     use crate::lexer::{TextSpan, TokenKind};
 
     use super::*;

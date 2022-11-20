@@ -13,7 +13,7 @@ use crate::functions::{AggregateFunction, BuiltinFunction, DataType};
 use crate::lexer::{Lexer, parse_float, quote, TextSpan, Token, TokenKind, unescape_ident};
 use crate::parser::expand_with::expand_with_expr;
 use crate::parser::parse_error::{InvalidTokenError, ParseError};
-use crate::parser::ParseResult;
+use crate::parser::{ParseErr, ParseResult};
 use crate::parser::simplify::simplify_expr;
 
 /// parser parses MetricsQL expression.
@@ -24,6 +24,7 @@ use crate::parser::simplify::simplify_expr;
 /// post-conditions for all parser.parse* funcs:
 /// - self.lex.token should point to the next token after the parsed token.
 pub struct Parser<'a> {
+    input: &'a str,
     tokens: Vec<Token<'a>>,
     cursor: usize,
     parsing_with: bool,
@@ -33,6 +34,7 @@ impl<'a> Parser<'a> {
     pub(crate) fn from_tokens(tokens: Vec<Token<'a>>) -> Self {
         let tokens: Vec<_> = tokens.into_iter().filter(|x| !x.kind.is_trivia()).collect();
         Self {
+            input: "",
             cursor: 0,
             tokens,
             parsing_with: false,
@@ -43,7 +45,9 @@ impl<'a> Parser<'a> {
         let lexer = Lexer::new(input);
         let tokens = lexer.collect();
 
-        Parser::from_tokens(tokens)
+        let mut parser = Parser::from_tokens(tokens);
+        parser.input = input;
+        parser
     }
 
     fn next_token(&mut self) -> Option<&Token<'a>> {
@@ -123,24 +127,8 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Consume the next token if it matches the expected token, otherwise return false
-    pub fn consume_token(&mut self, expected: &TokenKind) -> bool {
-        if self.at(*expected) {
-            self.bump();
-            true
-        } else {
-            false
-        }
-    }
-
     fn expect_token(&mut self, kind: TokenKind) -> ParseResult<&Token<'a>> {
-        if self.at(kind) {
-            self.cursor += 1;
-            let tok = self.tokens.get(self.cursor - 1).unwrap();
-            Ok(tok)
-        } else {
-            Err(self.token_error(&[kind]))
-        }
+        self.expect_one_of(&[kind])
     }
 
     fn expect_one_of(&mut self, kinds: &[TokenKind]) -> ParseResult<&Token<'a>> {
@@ -281,23 +269,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_duration(&mut self) -> ParseResult<DurationExpr> {
-        let tok = self.current_token()?;
-        let span = tok.span;
-        match tok.kind {
-            TokenKind::Duration => Ok(DurationExpr::new(tok.text, span)),
-            TokenKind::Number => {
-                // default to seconds if no unit is specified
-                Ok(DurationExpr::new(format!("{}s", tok.text).as_str(), span))
-            },
-            _ => {
-                return Err(
-                    self.token_error(&[TokenKind::Number, TokenKind::Duration]),
-                )
-            },
-        }
-    }
-
     /// positive_duration_value returns positive duration in milliseconds for the given s
     /// and the given step.
     ///
@@ -306,7 +277,7 @@ impl<'a> Parser<'a> {
     /// Error is returned if the duration in s is negative.
     pub fn parse_positive_duration(&mut self) -> ParseResult<DurationExpr> {
         // Verify the duration in seconds without explicit suffix.
-        let duration = self.parse_duration()?;
+        let duration = parse_duration(self)?;
         let val = duration.duration(1);
         if val < 0 {
             Err(ParseError::InvalidDuration(duration.text))
@@ -317,9 +288,8 @@ impl<'a> Parser<'a> {
 
     fn parse_limit(&mut self) -> ParseResult<usize> {
         self.expect(TokenKind::Limit)?;
-
         let v = parse_number(self)?;
-        if v < 0.0 || v.is_nan() {
+        if v < 0.0 || !v.is_finite() {
             // invalid value
             let msg = format!("LIMIT should be a positive integer. Found {} ", v);
             return Err(ParseError::General(msg));
@@ -369,31 +339,22 @@ impl<'a> Parser<'a> {
         let token = self.expect_token(Ident)?;
         let label = unescape_ident(token.text);
 
-        let op: LabelFilterOp;
+        let op_token = self.expect_one_of(&[Equal, OpNotEqual, RegexEqual, RegexNotEqual])?;
 
-        match self.next_token() {
-            None => {
-                return Err(self.token_error(&[Equal, OpNotEqual, RegexEqual, RegexNotEqual]))
-            }
-            Some(t) => {
-                match t.kind {
-                    Equal => op = LabelFilterOp::Equal,
-                    OpNotEqual => op = LabelFilterOp::NotEqual,
-                    RegexEqual => op = LabelFilterOp::RegexEqual,
-                    RegexNotEqual => op = LabelFilterOp::RegexNotEqual,
-                    _ => {
-                        return Err(self.token_error(&[Equal, OpNotEqual, RegexEqual, RegexNotEqual]))
-                    }
-                }
-            }
-        }
+        let op = match op_token.kind {
+            Equal => LabelFilterOp::Equal,
+            OpNotEqual => LabelFilterOp::NotEqual,
+            RegexEqual => LabelFilterOp::RegexEqual,
+            RegexNotEqual => LabelFilterOp::RegexNotEqual,
+            _ => unreachable!()
+        };
 
         let se = parse_string_expr(self)?;
         Ok(LabelFilterExpr::new(label, se, op))
     }
 }
 
-pub fn parse(input: &str) -> Result<Expression, ParseError> {
+pub fn parse(input: &str) -> ParseResult<Expression> {
     let mut parser = Parser::new(input);
     let tok = parser.peek_kind();
     if tok == TokenKind::Eof {
@@ -472,7 +433,8 @@ fn parse_func_expr(p: &mut Parser) -> ParseResult<Expression> {
     let mut fe = FuncExpr::new(&name, args, span)?;
     fe.keep_metric_names = keep_metric_names;
 
-    validate_args(&fe.function, &fe.args)?;
+    // TODO: !!!! fix validate args
+    // validate_args(&fe.function, &fe.args)?;
 
     Ok(fe.cast())
 }
@@ -484,7 +446,6 @@ fn parse_aggr_func_expr(p: &mut Parser) -> ParseResult<Expression> {
     let func: AggregateFunction = AggregateFunction::from_str(tok.text)?;
 
     fn handle_prefix(p: &mut Parser, ae: &mut AggrFuncExpr) -> ParseResult<()> {
-        p.expect_one_of(&[TokenKind::By, TokenKind::Without])?;
         ae.modifier = Some(parse_aggregate_modifier(p)?);
         handle_args(p, ae)
     }
@@ -509,10 +470,17 @@ fn parse_aggr_func_expr(p: &mut Parser) -> ParseResult<Expression> {
     let mut ae: AggrFuncExpr = AggrFuncExpr::new(&func);
     p.bump();
 
-    match p.peek_kind() {
-        TokenKind::Ident => handle_prefix(p, &mut ae)?,
-        TokenKind::LeftParen => handle_args(p, &mut ae)?,
-        _=> return Err(p.token_error(&[TokenKind::Ident, TokenKind::LeftParen])),
+    let kind = p.peek_kind();
+    if kind.is_aggregate_modifier() {
+        handle_prefix(p, &mut ae)?;
+    } else if kind == TokenKind::LeftParen {
+        handle_args(p, &mut ae)?;
+    } else {
+        return Err(p.token_error(&[
+            TokenKind::By,
+            TokenKind::Without,
+            TokenKind::LeftParen
+        ]));
     }
 
     p.update_span(&mut span);
@@ -613,10 +581,7 @@ fn parse_single_expr_without_rollup_suffix(p: &mut Parser) -> ParseResult<Expres
         },
         Ident => parse_ident_expr(p),
         Inf | NaN | Number => parse_number_expr(p),
-        Duration => match p.parse_positive_duration() {
-            Ok(s) => Ok(Expression::Duration(s)),
-            Err(e) => Err(e),
-        },
+        Duration => parse_duration_expr(p),
         LeftBrace => parse_metric_expr(p),
         LeftParen => parse_parens_expr(p),
         OpPlus => {
@@ -626,18 +591,7 @@ fn parse_single_expr_without_rollup_suffix(p: &mut Parser) -> ParseResult<Expres
         },
         OpMinus => parse_unary_minus_expr(p),
         _ => {
-            let valid: [TokenKind; 9] = [
-                LiteralString,
-                Ident,
-                Number,
-                Inf,
-                NaN,
-                Duration,
-                LeftParen,
-                LeftBrace,
-                OpMinus,
-            ];
-            Err(p.token_error(&valid))
+            Err( unexpected(p, "", "expression", None) )
         }
     }
 }
@@ -653,64 +607,61 @@ fn parse_number_expr(p: &mut Parser) -> ParseResult<Expression> {
     Ok(Expression::Number(NumberExpr::new(value, tok.span)))
 }
 
-fn parse_group_modifier(p: &mut Parser) -> Result<GroupModifier, ParseError> {
-    let tok = p.current_token()?;
-    let mut span: TextSpan = tok.span;
-
-    let op: GroupModifierOp;
-
-    match tok.kind {
-        TokenKind::Ignoring => op = GroupModifierOp::Ignoring,
-        TokenKind::On => op = GroupModifierOp::On,
-        _ => {
-            return Err(p.token_error(&[TokenKind::Ignoring, TokenKind::On]));
-        }
+fn parse_duration(p: &mut Parser) -> ParseResult<DurationExpr> {
+    let tok = p.expect_one_of(&[TokenKind::Number, TokenKind::Duration])?;
+    return match tok.kind {
+        TokenKind::Duration => DurationExpr::new(tok.text, tok.span),
+        TokenKind::Number => {
+            // default to seconds if no unit is specified
+            DurationExpr::new(format!("{}s", tok.text).as_str(), tok.span)
+        },
+        _ => unreachable!()
     }
+}
 
-    p.bump();
+fn parse_duration_expr(p: &mut Parser) -> ParseResult<Expression> {
+    let duration = parse_duration(p)?;
+    Ok(Expression::Duration(duration))
+}
+
+fn parse_group_modifier(p: &mut Parser) -> Result<GroupModifier, ParseError> {
+    let tok = p.expect_one_of(&[TokenKind::Ignoring, TokenKind::On])?;
+
+    let op: GroupModifierOp = match tok.kind {
+        TokenKind::Ignoring => GroupModifierOp::Ignoring,
+        TokenKind::On => GroupModifierOp::On,
+        _ => unreachable!()
+    };
 
     let args = p.parse_ident_list()?;
-    let mut res = GroupModifier::new(op, args, span);
-    if p.update_span(&mut span) {
-        res.span(span);
-    }
-
-    Ok(res)
+    Ok(GroupModifier::new(op, args))
 }
 
 fn parse_join_modifier(p: &mut Parser) -> ParseResult<JoinModifier> {
-    let tok = p.current_token()?;
-    let mut span: TextSpan = tok.span;
+    let tok = p.expect_one_of(&[TokenKind::GroupLeft, TokenKind::GroupRight])?;
 
     let op = match tok.kind {
         TokenKind::GroupLeft => JoinModifierOp::GroupLeft,
         TokenKind::GroupRight => JoinModifierOp::GroupRight,
-        _ => {
-            return Err(p.token_error(&[TokenKind::GroupLeft, TokenKind::GroupRight]));
-        }
+        _ => unreachable!()
     };
-
-    p.bump();
 
     let mut res = JoinModifier::new(op);
     if !p.at(TokenKind::LeftParen) {
-        // join modifier may miss ident list.
+        // join modifier may ignore ident list.
     } else {
         res.labels = p.parse_ident_list()?;
     }
-    if p.update_span(&mut span) {
-        res.span(span);
-    }
+
     Ok(res)
 }
 
 fn parse_aggregate_modifier(p: &mut Parser) -> ParseResult<AggregateModifier> {
-    let op = match p.peek_kind() {
+    let tok = p.expect_one_of(&[TokenKind::By, TokenKind::Without])?;
+    let op = match tok.kind {
         TokenKind::By => AggregateModifierOp::By,
         TokenKind::Without => AggregateModifierOp::Without,
-        _ => {
-            return Err(p.token_error(&[TokenKind::By, TokenKind::Without]));
-        }
+        _ => unreachable!()
     };
 
     let args = p.parse_ident_list()?;
@@ -772,17 +723,7 @@ fn parse_ident_expr(p: &mut Parser) -> ParseResult<Expression> {
             parse_metric_expr(p)
         },
         _ => {
-            const VALID: [TokenKind; 8] = [
-                LeftParen,
-                Ident,
-                Offset,
-                LeftBrace,
-                LeftBracket,
-                RightParen,
-                Comma,
-                At,
-            ];
-            Err(p.token_error(&VALID))
+            Err(unexpected(p, "", "identifier", None))
         }
     }
 }
@@ -794,6 +735,14 @@ pub(crate) fn parse_unary_minus_expr(p: &mut Parser) -> ParseResult<Expression> 
     p.bump();
     let e = p.parse_single_expr()?;
     span = span.cover(e.span());
+    match e.return_value() {
+        ReturnValue::InstantVector |
+        ReturnValue::Scalar => {},
+        _ => {
+            let msg = format!("unary expression only allowed on expressions of type scalar or instant vector");
+            return Err(unexpected(p,"", &msg, Some(span)));
+        }
+    }
     let b = BinaryOpExpr::new_unary_minus(e, span)?;
     Ok(Expression::BinaryOperator(b))
 }
@@ -909,7 +858,7 @@ fn parse_with_expr(p: &mut Parser) -> ParseResult<WithExpr> {
 
 fn parse_offset(p: &mut Parser) -> ParseResult<DurationExpr> {
     p.expect(TokenKind::Offset)?;
-    p.parse_duration()
+    parse_duration(p)
 }
 
 fn parse_window_and_step(
@@ -944,7 +893,7 @@ fn parse_string_expr(p: &mut Parser) -> ParseResult<StringExpr> {
     use TokenKind::*;
 
     let mut tokens = Vec::with_capacity(1);
-    let mut tok = p.current_token()?;
+    let mut tok = p.expect_token(LiteralString)?;
     let mut span = tok.span;
 
     loop {
@@ -963,57 +912,41 @@ fn parse_string_expr(p: &mut Parser) -> ParseResult<StringExpr> {
                 span = span.cover(tok.span)
             }
             _ => {
-                // todo: better err
-                return Err( ParseError::InvalidToken(InvalidTokenError{
-                    expected: vec![LiteralString],
-                    found: Some(tok.kind),
-                    range: tok.span,
-                    context: "string expr".to_string()
-                }));
+                return Err(unexpected(p, "", "string literal", None))
             }
         }
 
-        match p.next_token() {
-            Some(t) => {
-                if t.kind != OpPlus {
-                    break;
-                }
-            },
-            None => break
-        };
-
         // composite StringExpr like `"s1" + "s2"`, `"s" + m()` or `"s" + m{}` or `"s" + unknownToken`.
 
-        if let Some(t) = p.next_token() {
-            tok = t;
+        tok = p.current_token()?;
 
-            if tok.kind == LiteralString {
-                // "s1" + "s2"
-                continue;
-            }
+        if tok.kind != OpPlus {
+            break;
+        }
 
-            if tok.kind != Ident {
-                // "s" + unknownToken
-                p.back();
-                break
-            }
+        if tok.kind == LiteralString {
+            // "s1" + "s2"
+            continue;
+        }
 
-            // Look after ident
-            match p.next_token() {
-                None => break,
-                Some(t) => {
-                    tok = t;
-                    if tok.kind == LeftParen || tok.kind == LeftBrace {
-                        p.back();
-                        p.back();
-                        // `"s" + m(` or `"s" + m{`
-                        break;
-                    }
+        if tok.kind != Ident {
+            // "s" + unknownToken
+            p.back();
+            break
+        }
+
+        // Look after ident
+        match p.next_token() {
+            None => break,
+            Some(t) => {
+                tok = t;
+                if tok.kind == LeftParen || tok.kind == LeftBrace {
+                    p.back();
+                    p.back();
+                    // `"s" + m(` or `"s" + m{`
+                    break;
                 }
             }
-
-        } else {
-            break;
         }
 
         // "s" + ident
@@ -1058,6 +991,8 @@ fn check_duplicate_with_arg_names(was: &[WithArgExpr]) -> ParseResult<()> {
 }
 
 pub(crate) fn validate_args(func: &BuiltinFunction, args: &[BExpression]) -> ParseResult<()> {
+    use ReturnValue::*;
+
     let expect = |actual: ReturnValue, expected: ReturnValue, index: usize| -> ParseResult<()> {
         // Note: we don't use == because we're blocked from deriving PartialEq on ReturnValue because
         // of the Unknown variant
@@ -1071,7 +1006,7 @@ pub(crate) fn validate_args(func: &BuiltinFunction, args: &[BExpression]) -> Par
 
     let validate_return_type = |return_type: ReturnValue, expected: DataType, index: usize| -> ParseResult<()> {
         match return_type {
-            ReturnValue::Unknown(u) => {
+            Unknown(u) => {
                 return Err(ParseError::ArgumentError(
                     format!("Bug: Cannot determine type of argument #{} to {}. {}", index, func, u.message)
                 ))
@@ -1080,14 +1015,14 @@ pub(crate) fn validate_args(func: &BuiltinFunction, args: &[BExpression]) -> Par
         }
         match expected {
             DataType::RangeVector => {
-                return expect(return_type, ReturnValue::RangeVector, index);
+                return expect(return_type, RangeVector, index);
             }
             DataType::InstantVector => {
-                return expect(return_type, ReturnValue::InstantVector, index);
+                return expect(return_type, InstantVector, index);
             }
             DataType::Vector => {
                 // ?? should we accept RangeVector and flatten ?
-                return expect(return_type, ReturnValue::InstantVector, index);
+                return expect(return_type, InstantVector, index);
             }
             DataType::Scalar => {
                 if !return_type.is_operator_valid() {
@@ -1097,7 +1032,7 @@ pub(crate) fn validate_args(func: &BuiltinFunction, args: &[BExpression]) -> Par
                 }
             }
             DataType::String => {
-                return expect(return_type, ReturnValue::String, index);
+                return expect(return_type, String, index);
             }
         }
         Ok(())
@@ -1136,6 +1071,40 @@ pub(crate) fn validate_args(func: &BuiltinFunction, args: &[BExpression]) -> Par
     Ok(())
 }
 
+
+/// unexpected creates a parser error complaining about an unexpected lexer item.
+/// The item that is presented as unexpected is always the last item produced
+/// by the lexer.
+fn unexpected(p: &mut Parser, context: &str, expected: &str, span: Option<TextSpan>) -> ParseError {
+    let mut err_msg: String = String::with_capacity(25 + context.len() + expected.len());
+
+    let span = span.unwrap_or_else(|| p.last_token_range().unwrap() );
+    err_msg.push_str("unexpected ");
+    let text = match p.current_token() {
+        Ok(t) => {
+            t.text
+        },
+        Err(_) => {
+            "EOF"
+        }
+    };
+
+    err_msg.push_str(text);
+
+    if !context.is_empty() {
+        err_msg.push_str(" in ");
+        err_msg.push_str(context)
+    }
+
+    if !expected.is_empty() {
+        err_msg.push_str(", expected ");
+        err_msg.push_str(expected)
+    }
+
+    ParseError::Unexpected(
+        ParseErr::new(&err_msg, p.input, span)
+    )
+}
 
 #[cfg(test)]
 mod tests {

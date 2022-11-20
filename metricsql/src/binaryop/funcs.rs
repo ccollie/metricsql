@@ -101,6 +101,7 @@ pub fn default(left: f64, right: f64) -> f64 {
 }
 
 /// If returns left if right is not NaN. Otherwise NaN is returned.
+#[inline]
 pub fn if_(left: f64, right: f64) -> f64 {
     if right.is_nan() {
         return f64::NAN;

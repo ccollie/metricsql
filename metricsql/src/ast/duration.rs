@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 use crate::ast::{Expression, ExpressionNode, ReturnValue};
 use crate::ast::expression_kind::ExpressionKind;
 use crate::lexer::{duration_value, TextSpan};
-use crate::parser::ParseError;
+use crate::parser::{ParseError, ParseResult};
 use serde::{Serialize, Deserialize};
 
 /// DurationExpr contains a duration
@@ -33,18 +33,18 @@ impl TryFrom<&str> for DurationExpr {
 }
 
 impl DurationExpr {
-    pub fn new<S: Into<TextSpan>>(text: &str, span: S) -> DurationExpr {
+    pub fn new<S: Into<TextSpan>>(text: &str, span: S) -> ParseResult<DurationExpr> {
         let last_ch: char = text.chars().rev().next().unwrap();
         let requires_step: bool = last_ch == 'i' || last_ch == 'I';
         // todo: the following is icky
-        let const_value = duration_value(text, 1).unwrap_or(0);
+        let const_value = duration_value(text, 1)?;
 
-        DurationExpr {
+        Ok(DurationExpr {
             text: text.to_string(),
             value: const_value,
             requires_step,
             span: span.into(),
-        }
+        })
     }
 
     /// Duration returns the duration from de in milliseconds.

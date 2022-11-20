@@ -2,22 +2,18 @@ use std::{fmt, iter};
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash};
 use std::string::{String};
-use crate::ast::{AggrFuncExpr, BinaryOpExpr};
+use crate::ast::{AggrFuncExpr, BinaryOpExpr, ParensExpr};
 
 use crate::ast::duration::DurationExpr;
 use crate::ast::expression_kind::ExpressionKind;
 use crate::ast::function::FuncExpr;
 use crate::ast::label_filter::{LabelFilter};
-use crate::ast::misc::{write_expression_list};
 use crate::ast::number::NumberExpr;
 use crate::ast::return_type::ReturnValue;
 use crate::ast::rollup::RollupExpr;
 use crate::ast::selector::MetricExpr;
 use crate::ast::string::StringExpr;
 use crate::ast::with::WithExpr;
-use crate::functions::{
-   TransformFunction
-};
 use crate::lexer::TextSpan;
 use serde::{Serialize, Deserialize};
 
@@ -166,6 +162,9 @@ impl Expression {
             Rollup(re) => {
                 re.for_subquery()
             }
+            With(we) => {
+                we.was.iter().any(|e| e.expr.contains_subquery())
+            }
             _ => false
         }
     }
@@ -179,12 +178,24 @@ impl Expression {
             Expression::Function(fe) => fe.return_value(),
             Expression::Aggregation(ae) => ae.return_value(),
             Expression::BinaryOperator(be) => be.return_value(),
-            Expression::With(_) => {
-                // Todo
-                ReturnValue::RangeVector
-            }
+            Expression::With(we) => we.return_value(),
             Expression::Rollup(re) => re.return_value(),
             Expression::MetricExpression(me) => me.return_value()
+        }
+    }
+
+    pub fn type_name(&self) -> &str {
+        match self {
+            Expression::Duration(_) => "duration",
+            Expression::Number(_) => "scalar",
+            Expression::String(_) => "string",
+            Expression::Parens(_) => "group",
+            Expression::Function(_) => "function",
+            Expression::Aggregation(_) => "aggregation",
+            Expression::BinaryOperator(_) => "operator",
+            Expression::With(_) => "with expression",
+            Expression::Rollup(_) => "rollup",
+            Expression::MetricExpression(_) => "selector"
         }
     }
 
@@ -306,54 +317,3 @@ impl From<Vec<Expression>> for Expression {
 
 // todo: integrate checks from
 // https://github.com/prometheus/prometheus/blob/fa6e05903fd3ce52e374a6e1bf4eb98c9f1f45a7/promql/parser/parse.go#L436
-
-
-/// Expression(s) explicitly grouped in parens
-#[derive(Default, Debug, Clone, Hash, Serialize, Deserialize)]
-pub struct ParensExpr {
-    pub expressions: Vec<BExpression>,
-    pub span: TextSpan,
-}
-
-impl ParensExpr {
-    pub fn new<S: Into<TextSpan>>(expressions: Vec<BExpression>, span: S) -> Self {
-        ParensExpr {
-            expressions,
-            span: span.into(),
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        self.expressions.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.expressions.is_empty()
-    }
-
-    pub fn return_value(&self) -> ReturnValue {
-        if self.expressions.len() == 1 {
-            return self.expressions[0].return_value();
-        }
-
-        // Treat as a function with empty name, i.e. union()
-        TransformFunction::Union.return_type()
-    }
-}
-
-impl Display for ParensExpr {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write_expression_list(&self.expressions, f)?;
-        Ok(())
-    }
-}
-
-impl ExpressionNode for ParensExpr {
-    fn cast(self) -> Expression {
-        Expression::Parens(self)
-    }
-
-    fn kind(&self) -> ExpressionKind {
-        ExpressionKind::Parens
-    }
-}

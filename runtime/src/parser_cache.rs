@@ -123,7 +123,6 @@ impl ParseCache {
 
 
 // todo: put in optimize phase
-// todo: put in optimize phase
 pub(crate) fn adjust_cmp_ops(e: &mut Expression) {
     visit_all(e, |expr: &mut Expression|
         {

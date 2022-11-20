@@ -136,25 +136,6 @@ mod tests {
     use test_case::test_case;
     use crate::lexer::{Lexer};
 
-    pub fn assert_lex<'a, Token>(
-        source: &'a Token::Source,
-        tokens: &[(Token, &'a <Token::Source as Source>::Slice, Range<usize>)],
-    ) where
-        Token: Logos<'a> + fmt::Debug + PartialEq,
-        Token::Extras: Default,
-    {
-        let mut lex = Token::lexer(source);
-
-        for tuple in tokens {
-            assert_eq!(
-                &(lex.next().expect("Unexpected end"), lex.slice(), lex.span()),
-                tuple
-            );
-        }
-
-        assert_eq!(lex.next(), None);
-    }
-
     macro_rules! test_tokens {
     ($src:expr, [$(
       $tok:expr
@@ -192,6 +173,11 @@ mod tests {
     fn whitespace() {
         // whitespace is skipped
         test_tokens!("  \t\n\r\r\n", []);
+    }
+
+    #[test]
+    fn negative_ints() {
+        test_tokens!("-1", [Number]);
     }
 
     #[test_case("@", At)]

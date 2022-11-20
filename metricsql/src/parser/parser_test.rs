@@ -1,11 +1,12 @@
 #[cfg(test)]
 mod tests {
+	use crate::ast::Expression;
 	use crate::parser::parse;
 
 	fn another(s: &str, expected: &str) {
 		let expr = parse(s).unwrap();
-		let res = format!("{}", expr);
-		assert_eq!(res, expected, "unexpected string constructed;\ngot\n{}\nwant\n{}", res, expected)
+		let res = expr.to_string();
+		assert_eq!(&res, expected, "unexpected string constructed;\ngot\n{}\nwant\n{}", res, expected)
 	}
 
 	fn same(s: &str) {
@@ -14,6 +15,32 @@ mod tests {
 	
 	#[test]
 	fn test_parse_number_expr() {
+		fn another(s: &str, expected: &str) {
+			let expected_val: f64 = expected.parse::<f64>().expect("parse f64");
+
+			let expr = match parse(s) {
+				Err(err) => {
+					panic!("Error parsing \"{}\": {:?}", s, err);
+				},
+				Ok(expr) => expr
+			};
+			match expr {
+				Expression::Number(ne) => {
+					let actual = ne.value;
+					assert_eq!(actual, expected_val, "error parsing number \"{}\", got {}, expected {}",
+							   s, actual, expected_val )
+				},
+				_ => {
+					panic!("Expected a number expression. Got {}", expr.type_name())
+				}
+			}
+
+		}
+
+		fn same(s: &str) {
+			another(s, s)
+		}
+
 		// numberExpr
 		same("1");
 		same("1.23");

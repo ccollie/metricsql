@@ -52,27 +52,24 @@ pub struct GroupModifier {
 
     /// A list of labels to which the operator is applied
     pub labels: Vec<String>,
-
-    pub span: TextSpan,
 }
 
 impl GroupModifier {
-    pub fn new<S: Into<TextSpan>>(op: GroupModifierOp, labels: Vec<String>, span: S) -> Self {
+    pub fn new(op: GroupModifierOp, labels: Vec<String>) -> Self {
         GroupModifier {
             op,
             labels,
-            span: span.into(),
         }
     }
 
     /// Creates a GroupModifier cause with the On operator
-    pub fn on(labels: Vec<String>, span: TextSpan) -> Self {
-        GroupModifier::new(GroupModifierOp::On, labels, span)
+    pub fn on(labels: Vec<String>) -> Self {
+        GroupModifier::new(GroupModifierOp::On, labels)
     }
 
     /// Creates a GroupModifier clause using the Ignoring operator
-    pub fn ignoring(labels: Vec<String>, span: TextSpan) -> Self {
-        GroupModifier::new(GroupModifierOp::Ignoring, labels, span)
+    pub fn ignoring(labels: Vec<String>) -> Self {
+        GroupModifier::new(GroupModifierOp::Ignoring, labels)
     }
 
     /// Replaces this GroupModifier's operator
@@ -96,11 +93,6 @@ impl GroupModifier {
     /// Clears this GroupModifier's set of labels
     pub fn clear_labels(&mut self) -> &mut Self {
         self.labels.clear();
-        self
-    }
-
-    pub fn span<S: Into<TextSpan>>(&mut self, span: S) -> &mut Self {
-        self.span = span.into();
         self
     }
 }
@@ -184,8 +176,6 @@ pub struct JoinModifier {
 
     /// The cardinality of the two Vectors.
     pub cardinality: VectorMatchCardinality,
-
-    pub span: TextSpan,
 }
 
 impl JoinModifier {
@@ -193,8 +183,7 @@ impl JoinModifier {
         JoinModifier {
             op,
             labels: vec![],
-            cardinality: VectorMatchCardinality::OneToOne,
-            span: TextSpan::default(),
+            cardinality: VectorMatchCardinality::OneToOne
         }
     }
 
@@ -229,11 +218,6 @@ impl JoinModifier {
     /// Clears this JoinModifier's set of labels
     pub fn clear_labels(mut self) -> Self {
         self.labels.clear();
-        self
-    }
-
-    pub fn span<S: Into<TextSpan>>(&mut self, span: S) -> &mut Self {
-        self.span = span.into();
         self
     }
 }
@@ -361,6 +345,7 @@ impl BinaryOpExpr {
 
         match (lhs_ret, rhs_ret) {
             (ReturnValue::Scalar, ReturnValue::Scalar) => ReturnValue::Scalar,
+            (ReturnValue::RangeVector, ReturnValue::RangeVector) => ReturnValue::RangeVector,
             (ReturnValue::String, ReturnValue::String) => {
                 if self.op != BinaryOp::Add {
                     return ReturnValue::unknown(
