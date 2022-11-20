@@ -6,8 +6,14 @@ use crate::ast::expression_kind::ExpressionKind;
 use crate::lexer::TextSpan;
 use serde::{Serialize, Deserialize};
 
+#[derive(Debug, Clone, Hash)]
+pub enum StringTokenType {
+    String(String),
+    Ident(String)
+}
+
 /// StringExpr represents string expression.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Hash, Serialize, Deserialize)]
 pub struct StringExpr {
     /// contains unquoted value for string expression.
     pub value: String,
@@ -16,7 +22,7 @@ pub struct StringExpr {
     /// They must be converted into S by expand_with_expr.
     // todo: SmallVec
     #[serde(skip)]
-    pub(crate) tokens: Option<Vec<String>>,
+    pub(crate) tokens: Vec<StringTokenType>,
     pub span: TextSpan
 }
 
@@ -24,17 +30,37 @@ impl StringExpr {
     pub fn new<S: Into<String>, TS: Into<TextSpan>>(s: S, span: TS) -> Self {
         StringExpr {
             value: s.into(),
-            tokens: None,
+            tokens: vec![],
             span: span.into()
         }
     }
 
-    pub fn from_tokens<TS: Into<TextSpan>>(tokens: Vec<String>, span: TS) -> Self {
+    pub fn from_string<TS: Into<TextSpan>>(tokens: Vec<String>, span: TS) -> Self {
+        let toks = tokens.iter()
+            .map(|x| StringTokenType::String(x.into()))
+            .collect::<Vec<StringTokenType>>();
+
         StringExpr {
             value: "".to_string(),
-            tokens: Some(tokens),
+            tokens: toks,
             span: span.into()
         }
+    }
+
+    pub fn from_tokens<TS: Into<TextSpan>>(tokens: Vec<StringTokenType>, span: TS) -> Self {
+        StringExpr {
+            value: "".to_string(),
+            tokens,
+            span: span.into()
+        }
+    }
+
+    pub fn add_string(&mut self, tok: &str) {
+        self.tokens.push(StringTokenType::String(tok.to_string()))
+    }
+
+    pub fn add_ident(&mut self, tok: &str) {
+        self.tokens.push(StringTokenType::Ident(tok.to_string()))
     }
 
     pub fn len(&self) -> usize {
@@ -55,14 +81,11 @@ impl StringExpr {
     }
 
     pub fn token_count(&self) -> usize {
-        match &self.tokens {
-            Some(v) => v.len(),
-            None => 0,
-        }
+        self.tokens.len()
     }
 
     pub(crate) fn is_expanded(&self) -> bool {
-        !self.value.is_empty() || self.token_count() > 0
+        !self.value.is_empty() || self.token_count() == 0
     }
 
     pub fn return_value(&self) -> ReturnValue {
