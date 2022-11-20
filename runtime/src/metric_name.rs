@@ -9,7 +9,7 @@ use std::ops::{Deref};
 use enquote::enquote;
 use xxhash_rust::xxh3::Xxh3;
 
-use lib::{marshal_string_fast, unmarshal_string_fast, unmarshal_var_int};
+use lib::{marshal_string_fast, now, unmarshal_string_fast, unmarshal_var_int};
 use metricsql::ast::{AggregateModifier, AggregateModifierOp, GroupModifier, GroupModifierOp};
 
 use crate::{marshal_bytes_fast, unmarshal_bytes_fast};
@@ -48,6 +48,7 @@ pub struct MetricName {
     pub metric_group: String,
     // todo: Consider https://crates.io/crates/btree-slab or heapless btree to minimize allocations
     items: BTreeMap<String, String>,
+    hash: Option<u64>
 }
 
 impl MetricName {
@@ -55,6 +56,7 @@ impl MetricName {
         MetricName {
             metric_group: name.to_string(),
             items: BTreeMap::new(),
+            hash: None
         }
     }
 
@@ -91,6 +93,7 @@ impl MetricName {
     pub fn reset(&mut self) {
         self.metric_group = "".to_string();
         self.items.clear();
+        self.hash = None;
     }
 
     pub fn set_metric_group(&mut self, value: &str) {
@@ -101,27 +104,30 @@ impl MetricName {
     pub fn set_tag(&mut self, key: &str, value: &str) {
         if key == METRIC_NAME_LABEL {
             self.metric_group = value.to_string();
-            return;
+        } else {
+            self.items.insert(key.to_string(), value.to_string());
         }
-        self.items.insert(key.to_string(), value.to_string());
+        self.hash = None;
     }
 
     /// removes a tag with the given tagKey
     pub fn remove_tag(&mut self, key: &str) {
         if key == METRIC_NAME_LABEL {
             self.reset_metric_group();
-            return;
+        } else {
+            self.items.remove(key);
         }
-        self.items.remove(key);
+        self.hash = None;
     }
 
     /// replaces a tag value
     pub fn replace_tag(&mut self, key: &str, value: &str) {
         if key == METRIC_NAME_LABEL {
             self.metric_group = value.to_string();
-            return;
+        } else {
+            self.items.insert(key.to_string(), value.to_string());
         }
-        self.items.insert(key.to_string(), value.to_string());
+        self.hash = None;
     }
 
     // todo: rewrite to pass references
@@ -168,6 +174,7 @@ impl MetricName {
             self.reset_metric_group()
         }
         self.items.retain(|k, _| set.contains(k));
+        self.hash = None;
     }
 
     pub fn remove_tags_on(&mut self, on_tags: &[String]) {
@@ -184,7 +191,7 @@ impl MetricName {
             },
         }
     }
-    
+
     /// removes all the tags included in ignoring_tags.
     pub fn remove_tags(&mut self, ignoring_tags: &[String]) {
         for tag in ignoring_tags {
@@ -194,6 +201,7 @@ impl MetricName {
                 self.items.remove(tag);
             }
         }
+        self.hash = None;
     }
 
     /// sets tags from src with keys matching add_tags.
@@ -213,6 +221,7 @@ impl MetricName {
                 }
             }
         }
+        self.hash = None;
     }
 
     pub fn append_tags_to_string(&self, dst: &mut Vec<u8>) {
@@ -229,10 +238,6 @@ impl MetricName {
         }
         // ??????????????
         dst.extend_from_slice('}'.to_string().as_bytes());
-    }
-
-    pub(crate) fn get_bytes(&self, dst: &mut Vec<u8>) {
-
     }
 
     pub(crate) fn marshal_tags_fast(&self, dst: &mut Vec<u8>) {
@@ -374,6 +379,14 @@ impl MetricName {
             hasher.update(v.as_bytes());
         }
         hasher.digest()
+    }
+
+    pub fn get_hash(&mut self) -> u64 {
+        self.hash.unwrap_or_else(|| {
+            let hash = self.fast_hash();
+            self.hash = Some(hash);
+            hash
+        })
     }
 
     pub fn to_string(&self) -> String {

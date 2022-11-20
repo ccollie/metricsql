@@ -1,4 +1,4 @@
-mod ast;
+mod expression;
 mod expression_kind;
 mod label_filter;
 mod labels;
@@ -17,12 +17,14 @@ mod rollup;
 mod binary_op;
 mod operator;
 mod aggregation;
+mod group;
 
 pub use aggregation::*;
-pub use ast::*;
+pub use expression::*;
 pub use binary_op::*;
 pub use string::*;
 pub use duration::*;
+pub use group::*;
 pub use number::*;
 pub use function::*;
 pub use rollup::*;

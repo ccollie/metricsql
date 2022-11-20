@@ -19,9 +19,9 @@ use metricsql::functions::TransformFunction;
 use metricsql::parser::compile_regexp;
 
 use crate::{METRIC_NAME_LABEL, MetricName, remove_empty_series, Timeseries};
-use crate::binary_op::merge_non_overlapping_timeseries;
 use crate::chrono_tz::Tz;
 use crate::eval::{eval_number, eval_time, EvalConfig};
+use crate::eval::binary_op::merge_non_overlapping_timeseries;
 use crate::functions::{quantile_sorted, skip_trailing_nans};
 use crate::functions::rollup::{linear_regression, stddev, stdvar};
 use crate::functions::transform::utils::{get_timezone_offset, ru};

@@ -25,36 +25,28 @@ struct parser {
     // of certain expressions its end position is stored here.
     last_closing: Pos,
 
-    yyParser: yyParserImpl,
-
     generatedParserResult: interface,
     parse_errors:          ParseErrors
 };
 
 
 
-type ParseErrors []ParseErr
+type ParseErrors = Vec<ParseErr>;
 
 // ParseExpr returns the expression parsed from the input.
-func ParseExpr(input: string) (expr Expr, err error) {
-p := newParser(input)
+fn ParseExpr(input: string) -> Result<Expression> {
+    let p = newParser(input)
+    parseResult := p.parseGenerated(START_EXPRESSION)
+    if parseResult != nil {
+        expr = parseResult.(Expr)
+    }
+    p.checkAST(expr);
 
-parseResult := p.parseGenerated(START_EXPRESSION)
+    if len(p.parseErrors) != 0 {
+        err = p.parseErrors
+    }
 
-if parseResult != nil {
-expr = parseResult.(Expr)
-}
-
-// Only typecheck when there are no syntax errors.
-if len(p.parseErrors) == 0 {
-p.checkAST(expr)
-}
-
-if len(p.parseErrors) != 0 {
-err = p.parseErrors
-}
-
-return expr, err
+    return expr
 }
 
 // SequenceValue is an omittable value in a sequence of time series values.
@@ -84,38 +76,7 @@ func (p *parser) addParseErr(range: TextRange, err: ParseError) {
     p.parseErrors = append(p.parseErrors, perr)
 }
 
-/// unexpected creates a parser error complaining about an unexpected lexer item.
-/// The item that is presented as unexpected is always the last item produced
-/// by the lexer.
-fn unexpected(p: &mut Parser, context: String, expected: String) -> String {
-    let errMsg: String = String::with_capacity(25 + context.len() + expected.len());
 
-    errMsg.push_str("unexpected ");
-    let text = match p.current_token() {
-        Some(t) => {
-            t.text
-        },
-        None => {
-            "EOF"
-        }
-    };
-
-    errMsg.push_str(text);
-
-    if !context.is_empty() {
-        errMsg.push_str(" in ");
-        errMsg.push_str(context)
-    }
-
-    if !expected.is_empty() {
-        errMsg.push_str(", expected ");
-        errMsg.push_str(expected)
-    }
-
-    return Err( ParseError::Unexpected(ParseErr{
-
-    }))
-}
 
 var errUnexpected = errors.New("unexpected error")
 
@@ -260,12 +221,12 @@ case *ParenExpr:
 p.checkAST(n.Expr)
 
 case *UnaryExpr:
-if n.op != ADD && n.op != SUB {
-p.addParseErrf(n.range(), "only + and - operators allowed for unary expressions")
-}
-if t := p.checkAST(n.Expr); t != ValueTypeScalar && t != ValueTypeVector {
-p.addParseErrf(n.range(), "unary expression only allowed on expressions of type scalar or instant vector, got %q", DocumentedType(t))
-}
+        if n.op != ADD && n.op != SUB {
+            p.addParseErrf(n.range(), "only + and - operators allowed for unary expressions")
+        }
+        if t := p.checkAST(n.Expr); t != ValueTypeScalar && t != ValueTypeVector {
+            p.addParseErrf(n.range(), "unary expression only allowed on expressions of type scalar or instant vector, got %q", DocumentedType(t))
+        }
 
 case *SubqueryExpr:
 ty := p.checkAST(n.Expr)

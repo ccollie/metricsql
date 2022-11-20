@@ -260,8 +260,14 @@ fn expand_metric_expr(e: &MetricExpr, was: &[WithArgExpr]) -> ParseResult<Expres
 
 fn expand_metric_labels(e: &MetricExpr, was: &[WithArgExpr]) -> ParseResult<MetricExpr> {
     let mut me: MetricExpr = MetricExpr::default();
+
+    if e.label_filters.len() > 0 {
+        // already expanded
+        return Ok(e.clone());   // todo: use COW to avoid this clone
+    }
+
     // Populate me.LabelFilters
-    for lfe in e.label_filter_exprs.iter() {
+    for lfe in e.label_filters.iter() {
         if !lfe.is_expanded() {
             // Expand lfe.label into Vec<LabelFilter>.
             let wa = get_with_arg_expr(was, &lfe.label);
@@ -310,6 +316,7 @@ fn expand_metric_labels(e: &MetricExpr, was: &[WithArgExpr]) -> ParseResult<Metr
         let lf = lfe_new.to_label_filter();
         me.label_filters.push(lf);
     }
+
     remove_duplicate_label_filters(&mut me.label_filters);
 
     Ok(me)

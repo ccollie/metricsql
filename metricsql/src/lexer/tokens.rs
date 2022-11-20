@@ -72,7 +72,7 @@ pub enum TokenKind {
     #[regex("0[xX](?&hex)")]
     #[regex("0[oO](?&octal)")]
     #[regex("0[bB](?&binary)")]
-    #[regex(r"(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?")]
+    #[regex(r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?")]
     Number,
 
     #[regex("[-|+]?[n|N][a|A][n|N]", priority = 5)]

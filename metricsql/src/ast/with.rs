@@ -1,6 +1,6 @@
 use std::fmt;
 use std::fmt::{Display, Formatter};
-use crate::ast::{BExpression, Expression, ExpressionNode};
+use crate::ast::{BExpression, Expression, ExpressionNode, ReturnValue};
 use crate::ast::expression_kind::ExpressionKind;
 use crate::lexer::TextSpan;
 use super::misc::write_list;
@@ -23,6 +23,10 @@ impl WithExpr {
             was,
             span: span.into(),
         }
+    }
+
+    pub fn return_value(&self) -> ReturnValue {
+        self.expr.return_value()
     }
 }
 
@@ -65,6 +69,10 @@ impl WithArgExpr {
             args,
             expr: Box::new(expr),
         }
+    }
+
+    pub fn return_value(&self) -> ReturnValue {
+        self.expr.return_value()
     }
 }
 

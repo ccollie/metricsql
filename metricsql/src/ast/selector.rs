@@ -83,7 +83,6 @@ impl MetricExpr {
     }
 
     pub fn return_value(&self) -> ReturnValue {
-        //??? TODO:: is this correct ?
         ReturnValue::InstantVector
     }
 }

@@ -41,6 +41,7 @@ impl MemoryLimiter {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn usage(&self) -> usize {
         *self.inner.lock().unwrap()
     }

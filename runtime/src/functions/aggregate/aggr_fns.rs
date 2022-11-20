@@ -201,12 +201,10 @@ fn aggr_func_ext(
     // Perform grouping.
     let mut series_by_name: HashMap<String, Vec<Timeseries>> = HashMap::new();
 
-    let mut bb = get_pooled_buffer(256);
-
     for mut ts in arg_orig.drain(0..) {
         ts.metric_name.remove_group_tags(modifier);
 
-        let key = ts.metric_name.to_string();
+        let key = ts.metric_name.to_string(); // to canonical_string
 
         let series_len = series_by_name.len();
 
@@ -222,13 +220,11 @@ fn aggr_func_ext(
             // TODO: is it ok to do ts.into()? Does it allocate ?
             group.push(ts);
         } else {
-            // question - does this need to be copied ? Although arg_orig is passed
+            // Todo(perf) - does this need to be copied ? Although arg_orig is passed
             // mutably, this fn is the only consumer
             let copy = Timeseries::copy_from_metric_name(&ts);
             group.push(copy);
         };
-
-        bb.clear();
     }
 
     let mut src_tss_count = 0;
