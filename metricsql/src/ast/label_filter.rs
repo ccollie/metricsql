@@ -155,14 +155,16 @@ impl fmt::Display for LabelFilter {
     }
 }
 
+
 /// labelFilterExpr represents `foo <op> "bar"` expression, where <op> is `=`, `!=`, `=~` or `!~`.
 ///
 /// This type isn't exported.
-#[derive(Default, Debug, Clone, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Hash, Serialize, Deserialize)]
 pub(crate) struct LabelFilterExpr {
     pub label: String,
     pub value: StringExpr,
     pub op: LabelFilterOp,
+    init: bool
 }
 
 impl LabelFilterExpr {
@@ -171,7 +173,12 @@ impl LabelFilterExpr {
             label: label.into(),
             value,
             op,
+            init: true
         }
+    }
+
+    pub(crate) fn is_init(&self) -> bool {
+        self.init
     }
 
     pub fn to_label_filter(&self) -> LabelFilter {
@@ -184,7 +191,7 @@ impl LabelFilterExpr {
         // }
         LabelFilter {
             label: self.label.to_string(),
-            value: self.value.to_string(),
+            value: self.value.value.to_string(),
             op: self.op,
         }
     }

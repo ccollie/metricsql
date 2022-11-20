@@ -3,8 +3,6 @@ use std::default::Default;
 use std::ops::Deref;
 use std::result::Result;
 use std::str::FromStr;
-use logos::Source;
-
 use once_cell::sync::OnceCell;
 
 use crate::ast::*;
@@ -269,7 +267,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// positive_duration_value returns positive duration in milliseconds for the given s
+    /// returns positive duration in milliseconds for the given s
     /// and the given step.
     ///
     /// Duration in s may be combined, i.e. 2h5m or 2h-5m.
@@ -609,14 +607,7 @@ fn parse_number_expr(p: &mut Parser) -> ParseResult<Expression> {
 
 fn parse_duration(p: &mut Parser) -> ParseResult<DurationExpr> {
     let tok = p.expect_one_of(&[TokenKind::Number, TokenKind::Duration])?;
-    return match tok.kind {
-        TokenKind::Duration => DurationExpr::new(tok.text, tok.span),
-        TokenKind::Number => {
-            // default to seconds if no unit is specified
-            DurationExpr::new(format!("{}s", tok.text).as_str(), tok.span)
-        },
-        _ => unreachable!()
-    }
+    DurationExpr::new(tok.text, tok.span)
 }
 
 fn parse_duration_expr(p: &mut Parser) -> ParseResult<Expression> {
@@ -754,17 +745,14 @@ pub(crate) fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expression> {
     if p.at(TokenKind::Ident) {
         let tok = p.current_token()?;
 
-        let tokens = vec![quote(&unescape_ident(tok.text))];
-        let value = StringExpr {
-            value: "".to_string(),
-            tokens: Some(tokens),
-            span: tok.span.clone()
-        };
-        let lfe = LabelFilterExpr {
-            label: NAME_LABEL.to_string(),
+        let token = quote(&unescape_ident(tok.text));
+        let mut value = StringExpr::new("", tok.span);
+        value.add_ident(&token);
+        let lfe = LabelFilterExpr::new(
+            NAME_LABEL.to_string(),
             value,
-            op: LabelFilterOp::Equal,
-        };
+            LabelFilterOp::Equal
+        );
         me.label_filter_exprs.push(lfe);
 
         p.bump();
@@ -892,7 +880,7 @@ fn parse_window_and_step(
 fn parse_string_expr(p: &mut Parser) -> ParseResult<StringExpr> {
     use TokenKind::*;
 
-    let mut tokens = Vec::with_capacity(1);
+    let mut tokens: Vec<StringTokenType> = Vec::with_capacity(1);
     let mut tok = p.expect_token(LiteralString)?;
     let mut span = tok.span;
 
@@ -900,15 +888,15 @@ fn parse_string_expr(p: &mut Parser) -> ParseResult<StringExpr> {
         match tok.kind {
             LiteralString => {
                 if tok.text.len() == 2 {
-                    tokens.push("".to_string());
+                    tokens.push(StringTokenType::String("".to_string()));
                 } else {
-                    let slice = tok.text.slice(1 .. tok.text.len() - 1);
-                    tokens.push( slice.unwrap().to_string() ); // ??
+                    let slice = &tok.text[1 .. tok.text.len() - 1];
+                    tokens.push(StringTokenType::String(slice.to_string()));
                 }
                 span = span.cover(tok.span)
             }
             Ident => {
-                tokens.push(tok.text.to_string() );
+                tokens.push(StringTokenType::Ident(tok.text.to_string()));
                 span = span.cover(tok.span)
             }
             _ => {
@@ -1105,6 +1093,7 @@ fn unexpected(p: &mut Parser, context: &str, expected: &str, span: Option<TextSp
         ParseErr::new(&err_msg, p.input, span)
     )
 }
+
 
 #[cfg(test)]
 mod tests {

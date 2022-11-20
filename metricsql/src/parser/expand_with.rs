@@ -148,22 +148,28 @@ fn expand_string(e: &StringExpr, was: &[WithArgExpr]) -> ParseResult<StringExpr>
 
     // todo(perf): preallocate string capacity
     let mut b: String = String::new();
-    for token in e.tokens.as_ref().unwrap() {
-        if is_string_prefix(token) {
-            let s = extract_string_value(token)?;
-            b.push_str(s.as_str());
-            continue;
-        }
-        let wa = get_with_arg_expr(was, token);
+
+    for token in e.tokens.iter() {
+        let mut ident: &str = "";
+
+        match token {
+            StringTokenType::String(v) => {
+                b.push_str(&v);
+                continue;
+            }
+            StringTokenType::Ident(v) => ident = v.as_str()
+        };
+
+        let wa = get_with_arg_expr(was, ident);
         if wa.is_none() {
-            let msg = format!("missing {} value inside StringExpr", token);
+            let msg = format!("missing {} value inside StringExpr", ident);
             return Err(ParseError::WithExprExpansionError(msg));
         }
         let wa = wa.unwrap();
         let e_new = match expand_with_expr_ext(was, wa, None)? {
             Expression::String(e) => e,
             _ => {
-                let msg = format!("{} is not a string expression", token);
+                let msg = format!("{} is not a string expression", ident);
                 return Err(ParseError::WithExprExpansionError(msg));
             }
         };
@@ -195,6 +201,7 @@ fn expand_rollup(rollup: &RollupExpr, was: &[WithArgExpr]) -> ParseResult<Expres
 
 fn expand_metric_expr(e: &MetricExpr, was: &[WithArgExpr]) -> ParseResult<Expression> {
     if !e.label_filters.is_empty() {
+        // todo: COW
         // Already expanded.
         return Ok(Expression::MetricExpression(e.clone()));
     }
@@ -259,16 +266,17 @@ fn expand_metric_expr(e: &MetricExpr, was: &[WithArgExpr]) -> ParseResult<Expres
 }
 
 fn expand_metric_labels(e: &MetricExpr, was: &[WithArgExpr]) -> ParseResult<MetricExpr> {
-    let mut me: MetricExpr = MetricExpr::default();
 
     if e.label_filters.len() > 0 {
         // already expanded
         return Ok(e.clone());   // todo: use COW to avoid this clone
     }
 
+    let mut me: MetricExpr = MetricExpr::default();
+
     // Populate me.LabelFilters
-    for lfe in e.label_filters.iter() {
-        if !lfe.is_expanded() {
+    for lfe in e.label_filter_exprs.iter() {
+        if !lfe.is_init() {
             // Expand lfe.label into Vec<LabelFilter>.
             let wa = get_with_arg_expr(was, &lfe.label);
             if wa.is_none() {
@@ -308,11 +316,7 @@ fn expand_metric_labels(e: &MetricExpr, was: &[WithArgExpr]) -> ParseResult<Metr
 
         // convert lfe to LabelFilter.
         let se = expand_string(&lfe.value, was)?;
-        let lfe_new = LabelFilterExpr {
-            label: lfe.label.clone(),
-            value: se,
-            op: lfe.op,
-        };
+        let lfe_new = LabelFilterExpr::new(lfe.label.clone(), se, lfe.op);
         let lf = lfe_new.to_label_filter();
         me.label_filters.push(lf);
     }
@@ -452,33 +456,22 @@ fn extract_string_value(token: &str) -> Result<String, ParseError> {
         return Err(ParseError::WithExprExpansionError(msg));
     }
 
-    let ch = token.chars().next().unwrap();
+    // at this point we have a valid quoted string. See tokens.rs
+    if token.len() == 2 {
+        return Ok("".to_string())
+    }
 
-    // See https://prometheus.io/docs/prometheus/latest/querying/basics/#string-literals
-    if ch == '\'' {
-        let msg = format!(
-            "StringExpr must contain only string literals; got {}",
-            token
-        );
-        if token.len() < 2 {
-            return Err(ParseError::WithExprExpansionError(msg));
-        }
-        let ch = token.chars().last().unwrap();
-        if ch != '\'' {
-            return Err(ParseError::WithExprExpansionError(msg));
-        }
-        let s = &token[1..token.len() - 1];
-        let _ = s.replace("\\'", "'").replace("\\\"", "\"");
-        return Ok(quote(s));
-    }
-    match unquote(token) {
-        Ok(res) => Ok(res),
-        Err(_) => {
-            Err(ParseError::WithExprExpansionError(
-                "Cannot extract string value".to_string(),
-            ))
-        }
-    }
+    let token = &token[1 .. token.len() - 1];
+
+    Ok(token.to_string())
+    // match unquote(token) {
+    //     Ok(res) => Ok(res),
+    //     Err(_) => {
+    //         Err(ParseError::WithExprExpansionError(
+    //             "Cannot extract string value".to_string(),
+    //         ))
+    //     }
+    // }
 }
 
 fn get_with_arg_expr<'a>(was: &'a [WithArgExpr], name: &'a str) -> Option<&'a WithArgExpr> {

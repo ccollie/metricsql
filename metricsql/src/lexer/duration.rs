@@ -33,8 +33,7 @@ pub fn duration_value(s: &str, step: i64) -> ParseResult<i64> {
             if n <= 0 {
                 return Err(ParseError::InvalidDuration(s.to_string()));
             }
-            let ds = &s[0..n as usize];
-            cursor = &cursor[n as usize..];
+            let ds = &cursor[0..n as usize];
             let mut d_local = parse_single_duration(ds, &step)?;
             if is_minus && (d_local > 0.0) {
                 d_local = -d_local
@@ -43,6 +42,11 @@ pub fn duration_value(s: &str, step: i64) -> ParseResult<i64> {
             if d_local < 0 as f64 {
                 is_minus = true
             }
+
+            if n > cursor.len() as i32 {
+                break
+            }
+            cursor = &cursor[n as usize..];
         }
         if d.abs() > (1_i64 << (62 - 1)) as f64 {
             let msg = format!("duration {} is too large", s);
@@ -55,9 +59,12 @@ pub fn duration_value(s: &str, step: i64) -> ParseResult<i64> {
         return Err(ParseError::General("duration cannot be empty".to_string()));
     }
     // Try parsing floating-point duration
-    match s.parse::<i64>() {
+    match s.parse::<f64>() {
         // Convert the duration to milliseconds.
-        Ok(d) => Ok(d * 1000),
+        Ok(d) => {
+            let val = (d * 1000_f64) as i64;
+            Ok(val)
+        },
         Err(_) => scan_value(s, step),
     }
 }
@@ -82,7 +89,7 @@ pub fn parse_single_duration(s: &str, &step: &i64) -> Result<f64, ParseError> {
         "d" => mp = 24.0 * 60.0 * 60.0,
         "w" => mp = 7.0 * 24.0 * 60.0 * 60.0,
         "y" => mp = 365.0 * 24.0 * 60.0 * 60.0,
-        "i" => mp = 1e3 * step as f64,
+        "i" => mp = (step as f64) / 1e3,
         _ => {
             return Err(ParseError::General(format!(
                 "invalid duration suffix in {}",
@@ -133,7 +140,7 @@ fn scan_single_duration(s: &str, can_be_negative: bool) -> i32 {
     let mut cursor = &s[i..];
     let mut curr: char = ch;
 
-    for (_k, ch) in cursor.chars().enumerate() {
+    for (_, ch) in cursor.chars().enumerate() {
         if !is_decimal_char(ch) {
             curr = ch;
             break;
@@ -164,10 +171,10 @@ fn scan_single_duration(s: &str, can_be_negative: bool) -> i32 {
         'm' => {
             if i + 1 < s.len() {
                 cursor = &s[i..];
-                curr = cursor.chars().next().unwrap();
+                curr = cursor.chars().nth(1).unwrap();
                 if curr == 's' {
                     // duration in ms
-                    i += 2;
+                    i += 1;
                 }
             }
             // duration in minutes
@@ -199,7 +206,7 @@ mod tests {
     fn test_duration_success() {
         fn f(s: &str, step: i64, expected: i64) {
             let d = duration_value(s, step).unwrap();
-            assert_eq!(d, expected, "unexpected duration; got {}; want {}", d, expected)
+            assert_eq!(d, expected, "unexpected duration; got {}; want {}; expr {}", d, expected, s)
         }
 
         // Integer durations
@@ -244,11 +251,25 @@ mod tests {
     }
 
     #[test]
+    fn test_complex() {
+        fn f(s: &str) {
+            let _ = duration_value(s, 1).unwrap();
+        }
+
+        f("5w4h-3.4m13.4ms");
+    }
+
+    #[test]
     fn test_duration_error() {
         fn f(s: &str) {
-            let d = duration_value(s, 42).unwrap();
-            assert_eq!(d, 0, "expecting zero duration; got {}", d)
+            match duration_value(s, 42) {
+                Ok(d) => {
+                    panic!("Expected error, got {} for expr {}", d, s)
+                },
+                _ => {}
+            }
         }
+
         f("");
         f("foo");
         f("m");
