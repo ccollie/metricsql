@@ -1,4 +1,4 @@
-use crate::lexer::{escape_ident, quote};
+use crate::lexer::{escape_ident, quote, TextSpan};
 use crate::parser::{compile_regexp, ParseError};
 use enquote::enquote;
 use std::fmt;
@@ -168,10 +168,19 @@ pub(crate) struct LabelFilterExpr {
 }
 
 impl LabelFilterExpr {
-    pub fn new<K: Into<String>>(label: K, value: StringExpr, op: LabelFilterOp) -> LabelFilterExpr {
+    pub fn new<K: Into<String>>(label: K, value: StringExpr, op: LabelFilterOp) -> Self {
         LabelFilterExpr {
             label: label.into(),
             value,
+            op,
+            init: true
+        }
+    }
+
+    pub fn new_tag<S: Into<String>, TS: Into<TextSpan>>(label: S, op: LabelFilterOp, value: S, span: TS) -> Self {
+        LabelFilterExpr {
+            label: label.into(),
+            value: StringExpr::new(value.into(), span.into()),
             op,
             init: true
         }

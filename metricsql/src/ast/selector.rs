@@ -46,6 +46,10 @@ impl MetricExpr {
         self.label_filters.len() == 0 && self.label_filter_exprs.len() == 0
     }
 
+    pub fn is_expanded(&self) -> bool {
+        !self.label_filters.is_empty()
+    }
+
     pub fn has_non_empty_metric_group(&self) -> bool {
         if self.label_filters.is_empty() {
             return false;
@@ -90,11 +94,13 @@ impl MetricExpr {
 impl Display for MetricExpr {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let mut lfs: &[LabelFilter] = &self.label_filters;
+        let mut name_written = false;
         if !lfs.is_empty() {
             let lf = &lfs[0];
             if lf.label == "__name__" && !lf.is_negative() && !lf.is_regexp() {
-                write!(f, "{}", escape_ident(&lf.label))?;
+                write!(f, "{}", escape_ident(&lf.value))?;
                 lfs = &lfs[1..];
+                name_written = true;
             }
         }
         if !lfs.is_empty() {
@@ -107,7 +113,9 @@ impl Display for MetricExpr {
             }
             write!(f, "}}")?;
         } else {
-            write!(f, "{{}}")?;
+            if !name_written {
+                write!(f, "{{}}")?;
+            }
         }
         Ok(())
     }

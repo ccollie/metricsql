@@ -128,10 +128,6 @@ impl<'a> Iterator for Lexer<'a> {
 
 #[cfg(test)]
 mod tests {
-    use std::fmt;
-    use std::ops::Range;
-    use std::default::Default;
-    use logos::Source;
     use super::{TokenKind::*, *};
     use test_case::test_case;
     use crate::lexer::{Lexer};
@@ -262,8 +258,6 @@ mod tests {
         test_tokens!("inf", [Inf]);
         test_tokens!("InF", [Inf]);
         test_tokens!("INF", [Inf]);
-        test_tokens!("-inf", [Inf]);
-        test_tokens!("+inf", [Inf]);
     }
 
     #[test]
@@ -271,8 +265,6 @@ mod tests {
         test_tokens!("nan", [NaN]);
         test_tokens!("nAN", [NaN]);
         test_tokens!("NAN", [NaN]);
-        test_tokens!("-nan", [NaN]);
-        test_tokens!("+nan", [NaN]);
     }
 
     #[test_case("1.+", ErrorNumJunkAfterDecimalPoint)]

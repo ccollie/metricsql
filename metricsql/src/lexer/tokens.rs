@@ -75,10 +75,10 @@ pub enum TokenKind {
     #[regex(r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?")]
     Number,
 
-    #[regex("[-|+]?[n|N][a|A][n|N]", priority = 5)]
+    #[token("NaN", ignore(ascii_case))]
     NaN,
 
-    #[regex("[-|+]?[i|I][n|N][f|F]")]
+    #[token("Inf", ignore(ascii_case))]
     Inf,
 
     #[regex(r"(?:0|[1-9][0-9]*)\.[^0-9]")]
@@ -246,6 +246,16 @@ impl TokenKind {
         matches!(self, By | Without)
     }
 
+    /// tokens that can function as identifiers in certain constructions (functions/metric names)
+    /// not a good idea, but we're matching the original
+    pub fn is_ident_like(&self) -> bool {
+        use TokenKind::*;
+        // keywords
+        matches!(self, By | Bool | Default | GroupLeft | GroupRight | Inf | NaN |
+            Ignoring | KeepMetricNames | Limit | On | Offset | With | Without |
+            OpAnd | OpAtan2 | OpIf | OpIfNot | OpOr | OpUnless)
+    }
+
     pub fn is_error_token(&self) -> bool {
         use TokenKind::*;
         matches!(self,
@@ -334,22 +344,4 @@ impl Display for TokenKind {
             Self::Eof => "<Eof>"
         })
     }
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Clone, PartialEq)]
-pub enum TokenCategory {
-    Invalid,
-    Empty,
-    EOF,
-
-    Integer(i64),
-    Str(String),
-    Number(f64),
-
-    Identifier(String),
-    Operator(TokenKind),
-    Keyword(TokenKind),
-
-    Unknown(String),
 }

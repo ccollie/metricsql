@@ -73,6 +73,7 @@ impl BinaryOp {
         match self {
             Default => 0,
             If | IfNot => 1,
+            // See https://prometheus.io/docs/prometheus/latest/querying/operators/#binary-operator-precedence
             Or => 10,
             And | Unless => 20,
             Eql | Gte | Gt | Lt | Lte | Neq => 30,

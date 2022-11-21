@@ -98,6 +98,7 @@ pub(super) fn simplify_constants(expr: &Expression) -> ParseResult<Expression> {
             match (left, right) {
                 (Expression::Number(ln), Expression::Number(rn)) => {
                     let n = eval_binary_op(ln.value, rn.value, be.op, be.bool_modifier);
+                    // TODO: construct a span covering left and right
                     Ok(Expression::from(n))
                 }
                 (Expression::String(left), Expression::String(right)) => {

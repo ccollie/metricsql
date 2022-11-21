@@ -12,7 +12,7 @@ pub fn check_precision_bits(a: &[i64], b: &[i64], precision_bits: u8) -> Result<
         let msg = format!("different-sized arrays: {} vs {}", a.len(), b.len());
         return Err(Error::new(msg));
     }
-    let mut i = 0;
+
     for (i, av) in a.iter().enumerate() {
         let mut av: i64 = *av;
         let mut bv = b[i];
@@ -58,9 +58,8 @@ pub fn ensure_marshal_unmarshal_int64_array(va: &[i64], precision_bits: u8, mt_e
     match mt {
         Lz4NearestDelta | Lz4NearestDelta2 |
         NearestDelta | NearestDelta2 => {
-            match check_precision_bits(va, &va_new, precision_bits) {
-                Err(err) => panic!("too low precision for va_new: {:?}", err),
-                _ => {}
+            if let Err(err) = check_precision_bits(va, &va_new, precision_bits) {
+                panic!("too low precision for va_new: {:?}", err)
             }
         },
         _ => {

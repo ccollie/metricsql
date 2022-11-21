@@ -32,7 +32,6 @@ use crate::{EvalConfig, Timeseries};
 pub enum AnyValue {
     RangeVector(Vec<Timeseries>),
     InstantVector(Vec<Timeseries>),
-    Vector(Vec<f64>),
     Scalar(f64),
     String(String),
 }
@@ -55,7 +54,6 @@ impl AnyValue {
             AnyValue::RangeVector(_) => DataType::RangeVector,
             AnyValue::Scalar(_) => DataType::Scalar,
             AnyValue::String(_) => DataType::String,
-            AnyValue::Vector(_) => DataType::Vector,
             AnyValue::InstantVector(_) => DataType::InstantVector
         }
     }
@@ -65,7 +63,6 @@ impl AnyValue {
             AnyValue::RangeVector(_) => "RangeVector",
             AnyValue::Scalar(_) => "Scalar",
             AnyValue::String(_) => "String",
-            AnyValue::Vector(_) => "Vector",
             AnyValue::InstantVector(_) => "InstantVector"
         }
     }
@@ -87,13 +84,6 @@ impl AnyValue {
                     return Err(RuntimeError::ArgumentError(msg))
                 }
                 Ok(ts.values[0])
-            },
-            AnyValue::Vector(vec) => {
-                if vec.len() != 1 {
-                    let msg = format!("expected a vector of size 1; got {}", vec.len());
-                    return Err(RuntimeError::ArgumentError(msg))
-                }
-                Ok(vec[0])
             },
             _ => {
                 return Err(RuntimeError::TypeCastError(
@@ -117,7 +107,14 @@ impl AnyValue {
 
     pub fn get_vector(&self) -> RuntimeResult<Vec<f64>> {
         match self {
-            AnyValue::Vector(val) => Ok(val.clone()),
+            AnyValue::InstantVector(val) => {
+                // TODO: into
+                Ok(val.values.clone())
+            }, // ????
+            AnyValue::RangeVector(val) => {
+                // TODO: into
+                Ok(val.values.clone())
+            }, // ????
             _ => Err(RuntimeError::InvalidNumber("vector parameter expected ".to_string()))
         }
     }
@@ -231,7 +228,6 @@ impl Clone for AnyValue {
             AnyValue::InstantVector(series) => {
                 AnyValue::InstantVector(series.clone())
             }
-            AnyValue::Vector(v) => AnyValue::Vector(v.clone()),
             AnyValue::Scalar(f) => AnyValue::Scalar(*f),
             AnyValue::String(s) => { AnyValue::String(s.clone()) }
         }
