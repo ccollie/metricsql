@@ -1,4 +1,5 @@
 use std::{fmt};
+use std::collections::HashSet;
 use std::fmt::Formatter;
 use crate::ast::{BExpression};
 use crate::utils::escape_ident;
@@ -47,3 +48,14 @@ pub(super) fn write_labels(labels: &[String], f: &mut Formatter) -> Result<(), f
     Ok(())
 }
 
+pub fn intersection(labels_a: &Vec<String>, labels_b: &Vec<String>) -> Vec<String> {
+    if labels_a.is_empty() || labels_b.is_empty() {
+        return vec![]
+    }
+    let unique_a: HashSet<String> = labels_a.clone().into_iter().collect();
+    let unique_b: HashSet<String> = labels_b.clone().into_iter().collect();
+    unique_a
+        .intersection(&unique_b)
+        .map(|i| i.clone())
+        .collect::<Vec<_>>()
+}

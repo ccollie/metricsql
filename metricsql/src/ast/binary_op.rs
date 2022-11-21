@@ -3,7 +3,7 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use crate::ast::{BExpression, Expression, ExpressionNode, NumberExpr, ReturnValue};
 use crate::ast::expression_kind::ExpressionKind;
-use crate::ast::misc::{write_labels, write_list};
+use crate::ast::misc::{intersection, write_labels, write_list};
 use crate::ast::operator::BinaryOp;
 use crate::lexer::TextSpan;
 use crate::parser::{ParseError, ParseResult};
@@ -366,18 +366,32 @@ impl BinaryOpExpr {
         }
         None
     }
+
+    pub fn validate_modifier_labels(&self) -> ParseResult<()> {
+        match (&self.group_modifier, &self.join_modifier) {
+            (Some(group_modifier), Some(join_modifier)) => {
+                if group_modifier.op == GroupModifierOp::On {
+                    let duplicates = intersection(&group_modifier.labels, &join_modifier.labels);
+                    if !duplicates.is_empty() {
+                        let msg = format!("labels ({}) must not occur in ON and GROUP clause at once", duplicates.join(", "));
+                        return Err(ParseError::General(msg))
+                    }
+                }
+            },
+            _ => {
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Display for BinaryOpExpr {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         // Op is the operation itself, i.e. `+`, `-`, `*`, etc.
-        match &*self.left {
-            Expression::BinaryOperator(be) => {
-                write!(f, "({})", *be)?;
-            }
-            _ => {
-                write!(f, "{}", *self.left)?;
-            }
+        if self.left.is_binary_op() {
+            write!(f, "({})", self.left)?;
+        } else {
+            write!(f, "{}", self.left)?;
         }
         write!(f, " {}", self.op)?;
         if self.bool_modifier {
@@ -390,13 +404,10 @@ impl Display for BinaryOpExpr {
             write!(f, " {}", modifier)?;
         }
         write!(f, " ")?;
-        match *self.right {
-            Expression::BinaryOperator(_) => {
-                write!(f, "({})", self.right)?;
-            }
-            _ => {
-                write!(f, "{}", self.right)?;
-            }
+        if self.right.is_binary_op() {
+            write!(f, "({})", self.right)?;
+        } else {
+            write!(f, "{}", self.right)?;
         }
         Ok(())
     }

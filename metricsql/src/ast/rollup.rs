@@ -135,8 +135,8 @@ impl Display for RollupExpr {
             write!(f, " offset {}", offset)?;
         }
         if let Some(at) = &self.at {
-            let parens_needed = self.kind() == ExpressionKind::Binop;
-            write!(f, "@")?;
+            let parens_needed = at.is_binary_op();
+            write!(f, " @ ")?;
             if parens_needed {
                 write!(f, "(")?;
             }

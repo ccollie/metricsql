@@ -9,8 +9,6 @@ use crate::parser::ParseError;
 pub enum DataType {
     RangeVector,
     InstantVector,
-    /// Vec<f64> (normally Timeseries::values)
-    Vector,
     /// A 64-bit floating point number.
     Scalar,
     /// An owned String
@@ -41,7 +39,6 @@ impl Display for DataType {
         let name = match self {
             DataType::RangeVector => "RangeVector",  // range vector
             DataType::InstantVector => "InstantVector",  // instant vector
-            DataType::Vector => "Vector",  // basically destructured instant vector
             DataType::String => "String",
             DataType::Scalar => "Scalar"
         };
@@ -70,7 +67,6 @@ impl FromStr for DataType {
         match s.to_lowercase().as_str() {
             "rangevector" => Ok(DataType::RangeVector),
             "instantvector" => Ok(DataType::InstantVector),
-            "vector" => Ok(DataType::Vector),
             "scalar" => Ok(DataType::Scalar),
             _ => Err(Error::new(format!("Invalid data type name: {}", s)))
         }

@@ -206,6 +206,13 @@ impl Expression {
         }
     }
 
+    pub fn is_binary_op(&self) -> bool {
+        match self {
+            Expression::BinaryOperator(_) => true,
+            _ => false
+        }
+    }
+
     pub fn span(&self) -> TextSpan {
         match self {
             Expression::Duration(de) => de.span,

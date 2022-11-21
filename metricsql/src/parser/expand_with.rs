@@ -1,10 +1,8 @@
 use std::collections::HashSet;
 use std::ops::{Deref};
 
-use enquote::unquote;
-
 use crate::ast::*;
-use crate::lexer::{is_string_prefix, quote, TextSpan};
+use crate::lexer::{TextSpan};
 use crate::parser::{ArgCountError, ParseError, ParseResult};
 
 pub(crate) fn expand_with_expr(was: &[WithArgExpr], expr: &Expression) -> ParseResult<Expression> {
@@ -38,23 +36,25 @@ fn expand_binary(e: &BinaryOpExpr, was: &[WithArgExpr]) -> ParseResult<Expressio
     let right = expand_with_expr(was, e.right.deref())?;
 
     if e.op == BinaryOp::Add {
-        return match (left, right) {
+        match (&left, &right) {
             (Expression::String(left), Expression::String(right)) => {
                 let concat = format!("{}{}", left.value, right.value);
                 let span = TextSpan::at(left.span.start, concat.len());
                 let expr = StringExpr::new(concat, span);
-                Ok(Expression::String(expr))
+                return Ok(Expression::String(expr))
             },
             (Expression::Number(left), Expression::Number(right)) => {
                 let sum = left.value + right.value;
                 let text = format!("{}", sum);
                 let span = TextSpan::at(left.span.start, text.len());
                 let num = NumberExpr::new(sum, span);
-                Ok(Expression::Number(num))
+                return Ok(Expression::Number(num))
             }
-            _ => Err(ParseError::General(
-                "+ operator can only be used with string or number arguments".to_string(),
-            )),
+            _ => {
+                // Err(ParseError::General(
+                //     "+ operator can only be used with string or number arguments".to_string(),
+                // ))
+            },
         };
     }
 
@@ -150,7 +150,7 @@ fn expand_string(e: &StringExpr, was: &[WithArgExpr]) -> ParseResult<StringExpr>
     let mut b: String = String::new();
 
     for token in e.tokens.iter() {
-        let mut ident: &str = "";
+        let ident: &str;
 
         match token {
             StringTokenType::String(v) => {
@@ -200,7 +200,7 @@ fn expand_rollup(rollup: &RollupExpr, was: &[WithArgExpr]) -> ParseResult<Expres
 }
 
 fn expand_metric_expr(e: &MetricExpr, was: &[WithArgExpr]) -> ParseResult<Expression> {
-    if !e.label_filters.is_empty() {
+    if e.is_expanded() {
         // todo: COW
         // Already expanded.
         return Ok(Expression::MetricExpression(e.clone()));
@@ -265,22 +265,22 @@ fn expand_metric_expr(e: &MetricExpr, was: &[WithArgExpr]) -> ParseResult<Expres
     }
 }
 
-fn expand_metric_labels(e: &MetricExpr, was: &[WithArgExpr]) -> ParseResult<MetricExpr> {
+fn expand_metric_labels(expr: &MetricExpr, was: &[WithArgExpr]) -> ParseResult<MetricExpr> {
 
-    if e.label_filters.len() > 0 {
+    if expr.label_filters.len() > 0 {
         // already expanded
-        return Ok(e.clone());   // todo: use COW to avoid this clone
+        return Ok(expr.clone());   // todo: use COW to avoid this clone
     }
 
     let mut me: MetricExpr = MetricExpr::default();
 
-    // Populate me.LabelFilters
-    for lfe in e.label_filter_exprs.iter() {
+    // Populate me.label_filters
+    for lfe in expr.label_filter_exprs.iter() {
         if !lfe.is_init() {
             // Expand lfe.label into Vec<LabelFilter>.
             let wa = get_with_arg_expr(was, &lfe.label);
             if wa.is_none() {
-                let msg = format!("missing {} value inside MetricExpr", lfe.label);
+                let msg = format!("missing {} MetricExpr", lfe.label);
                 return Err(ParseError::WithExprExpansionError(msg));
             }
 
@@ -288,7 +288,7 @@ fn expand_metric_labels(e: &MetricExpr, was: &[WithArgExpr]) -> ParseResult<Metr
             let e_new = expand_with_expr_ext(was, wa, None)?;
             let error_msg = format!(
                 "{} must be filters expression inside {}: got {}",
-                lfe.label, e, e_new
+                lfe.label, expr, e_new
             );
 
             match expand_with_expr_ext(was, wa, None)? {
@@ -321,6 +321,7 @@ fn expand_metric_labels(e: &MetricExpr, was: &[WithArgExpr]) -> ParseResult<Metr
         me.label_filters.push(lf);
     }
 
+    me.label_filter_exprs.clear();
     remove_duplicate_label_filters(&mut me.label_filters);
 
     Ok(me)
@@ -445,33 +446,6 @@ fn expand_with_args(was: &[WithArgExpr], args: &Vec<BExpression>) -> Vec<BExpres
         res.push(Box::new(expanded));
     }
     res
-}
-
-fn extract_string_value(token: &str) -> Result<String, ParseError> {
-    if !is_string_prefix(token) {
-        let msg = format!(
-            "StringExpr must contain only string literals; got {}",
-            token
-        );
-        return Err(ParseError::WithExprExpansionError(msg));
-    }
-
-    // at this point we have a valid quoted string. See tokens.rs
-    if token.len() == 2 {
-        return Ok("".to_string())
-    }
-
-    let token = &token[1 .. token.len() - 1];
-
-    Ok(token.to_string())
-    // match unquote(token) {
-    //     Ok(res) => Ok(res),
-    //     Err(_) => {
-    //         Err(ParseError::WithExprExpansionError(
-    //             "Cannot extract string value".to_string(),
-    //         ))
-    //     }
-    // }
 }
 
 fn get_with_arg_expr<'a>(was: &'a [WithArgExpr], name: &'a str) -> Option<&'a WithArgExpr> {

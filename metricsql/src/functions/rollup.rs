@@ -176,34 +176,35 @@ impl RollupFunction {
 
     /// the signatures supported by the function `fun`.
     pub fn signature(&self) -> Signature {
+        use DataType::*;
+        use RollupFunction::*;
+        
         // note: the physical expression must accept the type returned by this function or the execution panics.
         match self {
-            RollupFunction::CountEqOverTime
-            | RollupFunction::CountLeOverTime
-            | RollupFunction::CountNeOverTime
-            | RollupFunction::CountGtOverTime
-            | RollupFunction::DurationOverTime
-            | RollupFunction::PredictLinear
-            | RollupFunction::ShareGtOverTime
-            | RollupFunction::ShareLeOverTime => {
-                Signature::exact(vec![DataType::RangeVector, DataType::Scalar], Volatility::Immutable)
+            CountEqOverTime
+            | CountLeOverTime
+            | CountNeOverTime
+            | CountGtOverTime
+            | DurationOverTime
+            | PredictLinear
+            | ShareGtOverTime
+            | ShareLeOverTime => {
+                Signature::exact(vec![RangeVector, Scalar], Volatility::Immutable)
             },
-            RollupFunction::HoeffdingBoundLower |
-            RollupFunction::HoeffdingBoundUpper => {
-                Signature::exact(vec![DataType::Scalar, DataType::RangeVector], Volatility::Immutable)
+            HoeffdingBoundLower | HoeffdingBoundUpper => {
+                Signature::exact(vec![Scalar, RangeVector], Volatility::Immutable)
             },
-            RollupFunction::HoltWinters => {
-                Signature::exact(vec![DataType::RangeVector, DataType::Scalar, DataType::Scalar], Volatility::Immutable)
+            HoltWinters => {
+                Signature::exact(vec![RangeVector, Scalar, Scalar], Volatility::Immutable)
             },
-            RollupFunction::AggrOverTime |
-            RollupFunction::QuantilesOverTime => {
-                let mut quantile_types: Vec<DataType> = vec![DataType::Vector; MAX_ARG_COUNT];
-                quantile_types.insert(0, DataType::RangeVector);
+            AggrOverTime | QuantilesOverTime => {
+                let mut quantile_types: Vec<DataType> = vec![RangeVector; MAX_ARG_COUNT];
+                quantile_types.insert(0, RangeVector);
                 Signature::variadic_min(quantile_types, 3, Volatility::Volatile)
             }
             _ => {
                 // default
-                Signature::uniform(1, DataType::RangeVector, Volatility::Immutable)
+                Signature::uniform(1, RangeVector, Volatility::Immutable)
             }
         }      
     }

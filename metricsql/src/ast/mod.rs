@@ -18,6 +18,7 @@ mod binary_op;
 mod operator;
 mod aggregation;
 mod group;
+pub mod utils;
 
 pub use aggregation::*;
 pub use expression::*;

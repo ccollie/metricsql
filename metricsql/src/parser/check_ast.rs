@@ -15,71 +15,10 @@
 use std::fmt::{Display, Formatter};
 use std::string::ParseError;
 
-struct parser {
-    lex: Lexer,
-
-    inject:    ItemType,
-    injecting: bool,
-
-    // Everytime an Item is lexed that could be the end
-    // of certain expressions its end position is stored here.
-    last_closing: Pos,
-
-    generatedParserResult: interface,
-    parse_errors:          ParseErrors
-};
-
-
-
-type ParseErrors = Vec<ParseErr>;
-
-// ParseExpr returns the expression parsed from the input.
-fn ParseExpr(input: string) -> Result<Expression> {
-    let p = newParser(input)
-    parseResult := p.parseGenerated(START_EXPRESSION)
-    if parseResult != nil {
-        expr = parseResult.(Expr)
-    }
-    p.checkAST(expr);
-
-    if len(p.parseErrors) != 0 {
-        err = p.parseErrors
-    }
-
-    return expr
-}
-
-// SequenceValue is an omittable value in a sequence of time series values.
-struct SequenceValue {
-    value: f64,
-    omitted: bool
-}
-
-
-struct SeriesDescription {
-    labels: Labels,
-    values: Vec<SequenceValue>
-}
-
 // addParseErrf formats the error and appends it to the list of parsing errors.
 fn addParseErrf<T: Display>(&mut self, range: TextRange, format: String, args: &[T]) {
 p.addParseErr(range, fmt.Errorf(format, args...))
 }
-
-// addParseErr appends the provided error to the list of parsing errors.
-func (p *parser) addParseErr(range: TextRange, err: ParseError) {
-    let perr = ParseErr{
-        range: range,
-        err,
-        query:         p.lex.input,
-    }
-    p.parseErrors = append(p.parseErrors, perr)
-}
-
-
-
-var errUnexpected = errors.New("unexpected error")
-
 
 // expectType checks the type of the node and raises an error if it
 // is not of the expected type.
@@ -91,151 +30,78 @@ fn expectType(p: &Parser, node: Node, want: ValueType, context: string) {
 }
 
 // checkAST checks the sanity of the provided AST. This includes type checking.
-fn checkAST(p: &Parser, node: Node) -> ValueType {
+fn checkAST(p: &mut Parser, node: &Expression) -> ReturnType {
+    match node {
+        Expression::Function(fe) => fe.return_value(),
+        Expression::Aggregation(ae) => ae.return_value(),
+        Expression::With(we) => we.return_value(),
+    }
     // For expressions the type is determined by their Type function.
     // Lists do not have a type but are not invalid either.
-    match n := node.(type) {
-        case Expressions:
-            typ = ValueTypeNone
-            case Expr:
-typ = n.Type()
-default:
-p.addParseErrf(node.range(), "unknown node type: %T", node)
-}
 
-// Recursively check correct typing for child nodes and raise
-// errors in case of bad typing.
-    match n {
-        case *EvalStmt:
-        let ty = p.checkAST(n.Expr)
-        if ty == ValueTypeNone {
-            p.addParseErrf(n.Expr.range(), "evaluation statement must have a valid expression type but got %s", DocumentedType(ty))
+    // Recursively check correct typing for child nodes and raise
+    // errors in case of bad typing.
+    match node {
+        Expression::String(s) => {
+            s.return_value()
         }
-
-        Expression::Parens(p) => {
-            for e in p.expressions.iter() {
-                let ty = p.checkAST(e)
-                if ty == ValueTypeNone {
-                    p.addParseErrf(e.range(), "expression must have a valid expression type but got {}", DocumentedType(ty))
-                }
-            }
+        Expression::Number(n) => {
+            n.return_value()
         }
-        Expression::BinaryExpr(be) => {
-            let lt = p.checkAST(n.left);
-            let rt = p.checkAST(n.right);
-
-            if (lt != Scalar && lt != InstantVector) ||
-                (rt != Scalar && rt != InstantVector) {
-                p.addParseErrf(n.left.range(), "binary expression must contain only scalar and instant vector types")
-            }
-
-            // opRange returns the range of the operator part of the BinaryExpr.
-            // This is made a function instead of a variable, so it is lazily evaluated on demand.
-            let opRange = |be: &BinaryOpExpr, r: TextRange| {
-                let mut start = r.start;
-                while start < src.len() {
-                    start += 1;
-                }
-                // Remove whitespace at the beginning and end of the range.
-                for r.start = be.left.span.end; isSpace(rune(p.lex.input[r.Start])); r.start += 1 {
-                }
-                for r.end = n.right.span.start - 1; isSpace(rune(p.lex.input[r.End])); r.End-- {
-                }
-                return
-            };
-
-            if be.bool_modifier && !be.op.is_comparison() {
-                p.addParseErrf(opRange(), "bool modifier can only be used on comparison operators")
-            }
-
-            if be.op.is_comparison() && !be.bool_modifier && rt == Scalar && lt == Scalar {
-                p.addParseErrf(opRange(), "comparisons between scalars must use BOOL modifier")
-            }
-
-            if be.op.is_set_operator() && be.cardinality == OneToOne {
-                be.cardinality = ManyToMany
-            }
-
-            match (self.group_modifier, self.label_modifier) {
-                (Some(group_modifier), Some(label_modifier)) => {
-                    if group_modifier.op == GroupModifierOp::On {
-                        let duplicates = intersection(&group_modifier.labels, &label_modifier.labels);
-                        if !duplicates.is_empty() {
-                            p.addParseErrf(opRange(), "labels {} must not occur in ON and GROUP clause at once", duplicates.join(", "))
-                        }
-                    }
-                },
-                _ => {
-                    //
+        Expression::Duration(d) => {
+            d.return_value()
+        }
+        // todo: With
+        Expression::Parens(pe) => {
+            for e in pe.expressions.iter() {
+                let ty = checkAST(p,e)?;
+                if ty == ReturnType::Unknown {
+                    p.addParseErrf(e.range(), "expression must have a valid expression type but got {:?}", ty)
                 }
             }
-
-
-            if (lt != InstantVector || rt != InstantVector) && be.join_modifier.is_some() {
-                p.addParseErrf(be.range(), "vector matching only allowed between instant vectors");
+            return Ok(pe.return_value())
+        }
+        Expression::BinaryExpr(be) => check_binary_expr(p, &be),
+        Expression::Function(fe) => {
+            let nargs = fe.args.len();
+            if n.Func.Variadic == 0 {
+                if nargs != fe.args.len() {
+                    p.addParseErrf(n.range(), "expected {} argument(s) in call to {}, got {}", 
+                                   nargs, fe.name, fe.args.len())
+                }
             } else {
-                // Both operands are Vectors.
-                if be.op.is_set_operator() {
-                    if be.VectorMatching.Card == CardOneToMany || be.VectorMatching.Card == CardManyToOne {
-                        p.addParseErrf(be.range(), "no grouping allowed for {} operation", be.op)
-                    }
-                    if be.cardinality != CardManyToMany {
-                        p.addParseErrf(be.range(), "set operations must always be many-to-many")
+                let na = nargs - 1;
+                if na > fe.args.len() {
+                    p.addParseErrf(n.range(), "expected at least {} argument(s) in call to {}, got {}",
+                                   na, fe.name, fe.args.len())
+                } else {
+                    let nargsmax = na + fe.Func.Variadic;
+                    if  n.Func.Variadic > 0 && nargsmax < fe.args.len() {
+                        p.addParseErrf(n.range(), "expected at most {} argument(s) in call to {}, got {}",
+                                       nargsmax, n.name, fe.args.len())
                     }
                 }
             }
-
-            if (lt == Scalar || rt == Scalar) && be.op.is_set_operator() {
-                p.addParseErrf(be.range(), "set operator {} not allowed in binary scalar expression", n.op)
+            for (i, arg) in fe.args.iter().enumerate() {
+                if i >= len(n.Func.ArgTypes) {
+                    if n.Func.Variadic == 0 {
+                        // This is not a vararg function so we should not check the
+                        // type of the extra arguments.
+                        break
+                    }
+                    i = len(n.Func.ArgTypes) - 1
+                }
+                p.expectType(arg, n.Func.ArgTypes[i], fmt.Sprintf("call to function %q", fe.name))
             }
         }
 
-case *Call:
-nargs := len(n.Func.ArgTypes)
-if n.Func.Variadic == 0 {
-if nargs != len(n.Args) {
-p.addParseErrf(n.range(), "expected %d argument(s) in call to %q, got %d", nargs, n.Func.Name, len(n.Args))
-}
-} else {
-na := nargs - 1
-if na > len(n.Args) {
-p.addParseErrf(n.range(), "expected at least %d argument(s) in call to %q, got %d", na, n.Func.Name, len(n.Args))
-} else if nargsmax := na + n.Func.Variadic; n.Func.Variadic > 0 && nargsmax < len(n.Args) {
-p.addParseErrf(n.range(), "expected at most %d argument(s) in call to %q, got %d", nargsmax, n.Func.Name, len(n.Args))
-}
-}
-
-for i, arg := range n.Args {
-if i >= len(n.Func.ArgTypes) {
-if n.Func.Variadic == 0 {
-// This is not a vararg function so we should not check the
-// type of the extra arguments.
-break
-}
-i = len(n.Func.ArgTypes) - 1
-}
-p.expectType(arg, n.Func.ArgTypes[i], fmt.Sprintf("call to function %q", n.Func.Name))
-}
-
-case *ParenExpr:
-p.checkAST(n.Expr)
-
-case *UnaryExpr:
-        if n.op != ADD && n.op != SUB {
-            p.addParseErrf(n.range(), "only + and - operators allowed for unary expressions")
+    Expression::Rollup(re) => {
+        let ty = checkAST(&mut p, &re.expr);
+        if ty != ValueTypeVector {
+            p.addParseErrf(n.range(), "subquery is only allowed on instant vector, got %s instead", ty)
         }
-        if t := p.checkAST(n.Expr); t != ValueTypeScalar && t != ValueTypeVector {
-            p.addParseErrf(n.range(), "unary expression only allowed on expressions of type scalar or instant vector, got %q", DocumentedType(t))
-        }
-
-case *SubqueryExpr:
-ty := p.checkAST(n.Expr)
-if ty != ValueTypeVector {
-p.addParseErrf(n.range(), "subquery is only allowed on instant vector, got %s instead", ty)
-}
-case *MatrixSelector:
-p.checkAST(n.VectorSelector)
-
+        // todo: window, at, offset
+    }
     Expression::MetricExpression(me) => {
         let name = me.name();
         // detect duplicate name
@@ -294,14 +160,77 @@ p.addParseErrf(e.range(), "offset may not be set multiple times")
 }
 
 
-pub fn intersection(labels_a: &Vec<String>, labels_b: &Vec<String>) -> Vec<String> {
-    if labels_a.is_empty() || labels_b.is_empty() {
-        return vec![]
+pub fn check_binary_expr(p: &mut Parser, be: &BinaryOpExpr) -> ParseResult<ReturnType> {
+    let lt = checkAST(p, &be.left);
+    let rt = checkAST(p, &be.right);
+
+    if (lt != Scalar && lt != InstantVector) ||
+        (rt != Scalar && rt != InstantVector) {
+        p.addParseErrf(n.left.range(), "binary expression must contain only scalar and instant vector types")
     }
-    let unique_a: HashSet<String> = labels_a.clone().into_iter().collect();
-    let unique_b: HashSet<String> = labels_b.clone().into_iter().collect();
-    unique_a
-        .intersection(&unique_b)
-        .map(|i| *i)
-        .collect::<Vec<_>>()
+
+    // opRange returns the range of the operator part of the BinaryExpr.
+    // This is made a function instead of a variable, so it is lazily evaluated on demand.
+    let opRange = |be: &BinaryOpExpr, r: TextRange| {
+        let mut start = r.start;
+        while start < src.len() {
+            start += 1;
+        }
+        // Remove whitespace at the beginning and end of the range.
+        for r.start = be.left.span.end; isSpace(rune(p.input[r.start])); r.start += 1 {
+        }
+        for r.end = n.right.span.start - 1; isSpace(rune(p.lex.input[r.end])); r.End-- {
+        }
+        return
+    };
+
+    if be.bool_modifier && !be.op.is_comparison() {
+        p.addParseErrf(opRange(), "bool modifier can only be used on comparison operators")
+    }
+
+    if be.op.is_comparison() && !be.bool_modifier && rt == Scalar && lt == Scalar {
+        p.addParseErrf(opRange(be), "comparisons between scalars must use BOOL modifier")
+    }
+
+    if be.op.is_set_operator() && be.cardinality == OneToOne {
+        be.cardinality = ManyToMany
+    }
+
+    match (be.group_modifier, be.join_modifier) {
+        (Some(group_modifier), Some(join_modifier)) => {
+            if group_modifier.op == GroupModifierOp::On {
+                let duplicates = intersection(&group_modifier.labels, &join_modifier.labels);
+                if !duplicates.is_empty() {
+                    let prefix = if duplicates.len() == 1 {
+                        format!("label {}", duplicates[0])
+                    } else {
+                        format!("labels ({})", duplicates.join(","))
+                    };
+                    p.addParseErrf(opRange(), "{} must not occur in ON and GROUP clause at once", prefix)
+                }
+            }
+        },
+        _ => {}
+    }
+
+
+    if (lt != InstantVector || rt != InstantVector) && be.join_modifier.is_some() {
+        p.addParseErrf(be.range(), "vector matching only allowed between instant vectors");
+    } else {
+        // Both operands are Vectors.
+        if be.op.is_set_operator() {
+            if be.VectorMatching.Card == CardOneToMany || be.VectorMatching.Card == CardManyToOne {
+                p.addParseErrf(be.range(), "no grouping allowed for {:?} operation", be.op)
+            }
+            if be.cardinality != CardManyToMany {
+                p.addParseErrf(be.range(), "set operations must always be many-to-many")
+            }
+        }
+    }
+
+    if (lt == Scalar || rt == Scalar) && be.op.is_set_operator() {
+        p.addParseErrf(be.range(), "set operator {} not allowed in binary scalar expression", n.op)
+    }
+
+
 }

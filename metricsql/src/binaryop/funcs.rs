@@ -118,15 +118,22 @@ pub fn ifnot(left: f64, right: f64) -> f64 {
     f64::NAN
 }
 
+
+
 pub fn eval_binary_op(left: f64, right: f64, op: BinaryOp, is_bool: bool) -> f64 {
     use crate::ast::BinaryOp::*;
 
-    fn fixup_comparison(left: f64, right: f64, cf: fn(left: f64, right: f64) -> bool) -> f64 {
-        if cf(left, right) {
-            1.0
-        } else {
-            0.0
+    fn fixup_comparison(left: f64, right: f64, is_bool: bool, cf: fn(left: f64, right: f64) -> bool) -> f64 {
+        if is_bool {
+            if cf(left, right) {
+                return 1.0
+            }
+            return 0.0
         }
+        if cf(left, right) {
+            return left
+        }
+        return f64::NAN
     }
 
     match op {
@@ -137,12 +144,12 @@ pub fn eval_binary_op(left: f64, right: f64, op: BinaryOp, is_bool: bool) -> f64
         Mod => mod_(left, right),
         Pow => pow(left, right),
         Atan2 => atan2(left, right),
-        Eql => fixup_comparison(left, right, eq),
-        Neq => fixup_comparison(left, right, neq),
-        Gt => fixup_comparison(left, right, gt),
-        Lt => fixup_comparison(left, right, lt),
-        Gte => fixup_comparison(left, right, gte),
-        Lte => fixup_comparison(left, right, lte),
+        Eql => fixup_comparison(left, right, is_bool,eq),
+        Neq => fixup_comparison(left, right, is_bool,neq),
+        Gt => fixup_comparison(left, right, is_bool,gt),
+        Lt => fixup_comparison(left, right, is_bool, lt),
+        Gte => fixup_comparison(left, right, is_bool,gte),
+        Lte => fixup_comparison(left, right, is_bool, lte),
         Default => default(left, right),
         If => if_(left, right),
         IfNot => ifnot(left, right),

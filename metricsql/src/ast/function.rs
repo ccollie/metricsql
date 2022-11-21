@@ -96,7 +96,8 @@ impl FuncExpr {
         let arg = self.get_arg_for_optimization();
 
         let kind = if arg.is_none() {
-            ReturnValue::RangeVector
+            // todo: does this depend on the function type (rollup, transform, aggregation)
+            ReturnValue::InstantVector
         } else {
             arg.unwrap().return_value()
         };

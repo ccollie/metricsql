@@ -45,10 +45,10 @@ pub enum TypeSignature {
     /// A function such as `concat` is `Variadic(vec![DataType::String, DataType::Float], 1)`
     Variadic(Vec<DataType>, usize),
     /// arbitrary number of arguments of an arbitrary but equal type, with possible minimum
-    // A function such as `array` is `VariadicEqual`
+    /// A function such as `array` is `VariadicEqual`
     VariadicEqual(DataType, usize),
     /// fixed number of arguments of an arbitrary type out of a list of valid types
-    // A function of one argument of f64 is `Uniform(1, Float)`
+    /// A function of one argument of f64 is `Uniform(1, Float)`
     Uniform(usize, DataType),
     /// exact number of arguments of an exact type
     Exact(Vec<DataType>),
@@ -131,6 +131,7 @@ impl Signature {
             volatility,
         }
     }
+
     /// variadic - Creates a variadic signature that represents an arbitrary number of arguments all from a type in common_types.
     pub fn variadic(common_types: Vec<DataType>, volatility: Volatility) -> Self {
         Self {
@@ -154,6 +155,7 @@ impl Signature {
             volatility,
         }
     }
+
     /// uniform - Creates a signature with a fixed number of arguments of the same type, which must be from valid_types.
     pub fn uniform(
         arg_count: usize,
@@ -165,6 +167,7 @@ impl Signature {
             volatility,
         }
     }
+
     /// exact - Creates a signature which must match the types in exact_types in order.
     pub fn exact(exact_types: Vec<DataType>, volatility: Volatility) -> Self {
         Signature {
@@ -172,6 +175,7 @@ impl Signature {
             volatility,
         }
     }
+
     /// any - Creates a signature which can a be made of any type but of a specified number
     pub fn any(arg_count: usize, volatility: Volatility) -> Self {
         Signature {

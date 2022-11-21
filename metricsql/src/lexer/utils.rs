@@ -1,14 +1,6 @@
 use enquote::{enquote, unescape};
 use std::str;
 
-pub fn is_string_prefix(s: &str) -> bool {
-    if s.is_empty() {
-        return false;
-    }
-    let ch = s.chars().next().unwrap();
-    matches!(ch, '"' | '\'' | '`')
-}
-
 #[inline]
 fn is_first_ident_char(ch: &char) -> bool {
     matches!(ch, 'A'..='Z' | 'a'..='z' | '_' | ':')

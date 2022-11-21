@@ -89,6 +89,10 @@ impl BuiltinFunction {
         self.type_name() == other.type_name()
     }
 
+    pub fn is_aggregate_func(name: &str) -> bool {
+        AggregateFunction::from_str(name).is_ok()
+    }
+
     pub fn sorts_results(&self) -> bool {
         use BuiltinFunction::*;
         match self {

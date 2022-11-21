@@ -80,7 +80,7 @@ impl ArgList {
 
 #[inline]
 fn should_parallelize(t: &DataType) -> bool {
-    !matches!(t, DataType::String | DataType::Scalar | DataType::Vector)
+    !matches!(t, DataType::String | DataType::Scalar )
 }
 
 /// Determines if we should parallelize parameter evaluation. We ignore "lightweight"

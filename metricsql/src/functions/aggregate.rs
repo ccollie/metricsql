@@ -195,57 +195,36 @@ impl FromStr for AggregateFunction {
 
 /// the signatures supported by the function `fun`.
 pub fn aggregate_function_signature(fun: &AggregateFunction) -> Signature {
+  use AggregateFunction::*;
   match fun {
-    AggregateFunction::Bottomk |
-    AggregateFunction::Sum |
-    AggregateFunction::Min |
-    AggregateFunction::Max |
-    AggregateFunction::Any |
-    AggregateFunction::Avg |
-    AggregateFunction::Distinct |
-    AggregateFunction::GeoMean |
-    AggregateFunction::Group |
-    AggregateFunction::Histogram |
-    AggregateFunction::MAD |
-    AggregateFunction::Median |
-    AggregateFunction::Mode |
-    AggregateFunction::StdDev |
-    AggregateFunction::StdVar |
-    AggregateFunction::Sum2 |
-    AggregateFunction::ZScore |
-    AggregateFunction::Count => {
+    Any | Avg | Bottomk | Count | Distinct |
+    GeoMean | Group | Histogram | MAD |
+    Min | Max | Median | Mode |
+    Sum | StdDev | StdVar | Sum2 | ZScore => {
       Signature::exact(vec![DataType::InstantVector], Volatility::Stable)
     }
-    AggregateFunction::CountValues => {
+    CountValues => {
       Signature::exact(vec![DataType::String, DataType::InstantVector], Volatility::Stable)
     }
-    AggregateFunction::Topk |
-    AggregateFunction::Limitk |
-    AggregateFunction::Outliersk => {
+    Topk | Limitk | Outliersk => {
       Signature::exact(vec![DataType::Scalar, DataType::InstantVector], Volatility::Stable)
     }
-    AggregateFunction::OutliersMAD => {
+    OutliersMAD => {
       Signature::exact(vec![DataType::Scalar, DataType::InstantVector], Volatility::Stable)
     }
-    AggregateFunction::TopkMin |
-    AggregateFunction::TopkMax |
-    AggregateFunction::TopkAvg |
-    AggregateFunction::TopkMedian |
-    AggregateFunction::BottomkMin |
-    AggregateFunction::BottomkMax |
-    AggregateFunction::BottomkAvg |
-    AggregateFunction::BottomkLast |
-    AggregateFunction::BottomkMedian => {
+    TopkMin | TopkMax | TopkAvg | TopkMedian |
+    BottomkMin | BottomkMax | BottomkAvg | BottomkLast |
+    BottomkMedian => {
       Signature::variadic_min(vec![
           DataType::Scalar,
           DataType::InstantVector,
           DataType::String
       ], 2, Volatility::Stable)
     }
-    AggregateFunction::Quantile => {
+    Quantile => {
       Signature::exact(vec![DataType::Scalar, DataType::InstantVector], Volatility::Stable)
     }
-    AggregateFunction::Quantiles => {
+    Quantiles => {
       // todo:
       let mut quantile_types: Vec<DataType> = vec![DataType::Scalar; MAX_ARG_COUNT];
       quantile_types.insert(0, DataType::String);
