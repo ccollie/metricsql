@@ -7,7 +7,7 @@ use lockfree_object_pool::LinearReusable;
 use once_cell::sync::Lazy;
 use tinyvec::*;
 
-use lib::{get_float64s, get_pooled_buffer};
+use lib::{get_float64s};
 use metricsql::ast::{AggregateModifier, AggregateModifierOp};
 use metricsql::functions::AggregateFunction;
 use crate::{EvalConfig, Timeseries};
@@ -654,7 +654,7 @@ fn aggr_func_count_values(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries
 
 fn new_aggr_func_topk(is_reverse: bool) -> impl AggrFn {
     move |afa: &mut AggrFuncArg| -> RuntimeResult<Vec<Timeseries>> {
-        let ks = afa.args[0].get_vector()?;
+        let ks = get_scalar(&afa, 0)?;
 
         let afe = |tss: &mut Vec<Timeseries>, _modifier: &Option<AggregateModifier>| -> Vec<Timeseries> {
             for n in 0..tss[0].values.len() {
@@ -683,7 +683,7 @@ fn new_aggr_func_topk(is_reverse: bool) -> impl AggrFn {
 fn new_aggr_func_range_topk(f: fn(values: &[f64]) -> f64, is_reverse: bool) -> impl AggrFn {
     return move |afa: &mut AggrFuncArg| -> RuntimeResult<Vec<Timeseries>> {
         let args_len = afa.args.len();
-        let ks: Vec<f64> = afa.args[0].get_vector()?;
+        let ks: Vec<f64> = get_scalar(&afa, 0)?;
 
         let remaining_sum_tag_name = if args_len == 3 {
             afa.args[2].get_string()?
@@ -887,7 +887,7 @@ fn last_value(values: &[f64]) -> f64 {
 }
 
 fn aggr_func_outliersk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let ks = afa.args[0].get_vector()?;
+    let ks = get_scalar(&afa, 0)?;
     let afe = |tss: &mut Vec<Timeseries>, _modifier: &Option<AggregateModifier>| {
         // Calculate medians for each point across tss.
         let medians = get_per_point_medians(tss);
@@ -980,11 +980,12 @@ fn aggr_func_quantiles(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> 
 }
 
 fn aggr_func_quantile(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let (left, orig) = afa.args.split_at_mut(1);
-    let phis = left[0].get_vector()?;
-    let afe = new_aggr_quantile_func(&phis);
-    let mut orig = orig[0].get_instant_vector()?;
-    return aggr_func_ext(afe, &mut orig, &afa.modifier, afa.limit, false);
+    // let (left, orig) = afa.args.split_at_mut(1);
+    // let phis = left[0].get_vector()?;
+    // let afe = new_aggr_quantile_func(&phis);
+    // let mut orig = orig[0].get_instant_vector()?;
+    // return aggr_func_ext(afe, &mut orig, &afa.modifier, afa.limit, false);
+    todo!()
 }
 
 fn aggr_func_median(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
@@ -1023,7 +1024,7 @@ fn aggr_func_mad(tss: &mut Vec<Timeseries>) {
 }
 
 fn aggr_func_outliers_mad(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let tolerances = afa.args[0].get_vector().unwrap();
+    let tolerances = get_scalar(&afa, 0)?;
 
     let afe = move |tss: &mut Vec<Timeseries>, _: &Option<AggregateModifier>| {
         // Calculate medians for each point across tss.
@@ -1098,4 +1099,45 @@ fn get_per_point_mads(tss: &Vec<Timeseries>, medians: &[f64]) -> Vec<f64> {
 
 fn get_series(tfa: &AggrFuncArg, arg_num: usize) -> RuntimeResult<Vec<Timeseries>> {
     Ok(tfa.args[arg_num].get_instant_vector()?)
+}
+
+// todo(perf) Cow
+fn get_scalar(tfa: &AggrFuncArg, arg_num: usize) -> RuntimeResult<Vec<f64>> {
+    let arg = &tfa.args[arg_num];
+    match arg {
+        AnyValue::RangeVector(val) => {
+            let values = val.iter().map(|ts| {
+                if ts.values.len() > 0 {
+                    ts.values[0]
+                } else {
+                    f64::NAN
+                }
+            }).collect();
+            return Ok(values);
+        }
+        AnyValue::InstantVector(val) => {
+            if val.len() != 1 {
+                let msg = format!("arg #{} must contain a single timeseries; got {} timeseries",
+                                  arg_num+1, val.len());
+                return Err(RuntimeError::ArgumentError(msg));
+            }
+            let mut res: Vec<f64> = Vec::with_capacity(val.len());
+            for ts in val.iter() {
+                let v = if ts.values.len() > 0 {
+                    ts.values[0]
+                } else {
+                    f64::NAN
+                };
+                res.push(v);
+            }
+            return Ok(res)
+        }, // ????
+        AnyValue::Scalar(n) => {
+            let len = tfa.ec.timestamps().len();
+            // todo: tinyvec
+            let values = vec![*n; len];
+            return Ok(values)
+        }
+        _ => return Err(RuntimeError::InvalidNumber("vector parameter expected ".to_string()))
+    };
 }

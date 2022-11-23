@@ -20,10 +20,11 @@ use lib::{
 };
 use metricsql::ast::{Expression, LabelFilter};
 
-use crate::{copy_timeseries_shallow, EvalConfig, marshal_timeseries_fast, Timeseries, unmarshal_timeseries_fast};
+use crate::{EvalConfig, marshal_timeseries_fast, Timeseries};
 use crate::cache::default_result_cache_storage::DefaultResultCacheStorage;
 use crate::cache::traits::RollupResultCacheStorage;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
+use crate::timeseries::{copy_timeseries_shallow, unmarshal_timeseries_fast};
 use crate::traits::{Timestamp, TimestampTrait};
 use crate::utils::{memory_limit, MemoryLimiter};
 

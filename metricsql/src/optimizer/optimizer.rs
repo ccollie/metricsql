@@ -85,7 +85,7 @@ fn optimize_args(args: &[BExpression]) -> Vec<BExpression> {
         .collect::<_>();
 }
 
-pub fn get_common_label_filters(e: &Expression) -> Vec<LabelFilter> {
+pub(super) fn get_common_label_filters(e: &Expression) -> Vec<LabelFilter> {
     use Expression::*;
 
     match e {

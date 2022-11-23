@@ -3257,6 +3257,15 @@ mod tests {
     }
 
     #[test]
+    fn range_normalize() {
+        let q = r#"range_normalize(time(),alias(-time(),"negative"))"#;
+        let r1 = make_result(&[0.0, 0.2, 0.4, 0.6, 0.8, 1.0]);
+        let mut r2 = make_result(&[1.0, 0.8, 0.6, 0.4, 0.2, 0.0]);
+        r2.metric_name.metric_group = "negative".to_string();
+        test_query(q, vec![r1, r2]);
+    }
+
+    #[test]
     fn range_first() {
         assert_result_eq("range_first(time())",&[1000_f64, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0]);
     }

@@ -6,6 +6,7 @@ use crate::cache::rollup_result_cache::RollupResultCache;
 use crate::{ActiveQueryEntry, MetricDataProvider, NullMetricDataProvider};
 use crate::parser_cache::{ParseCache, ParseCacheValue};
 use crate::query_stats::query_stats::QueryStatsTracker;
+use crate::query_tracer::Tracer;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::search::{Deadline, QueryResults, SearchQuery};
 
@@ -20,6 +21,7 @@ pub struct Context {
     pub rollup_result_cache: RollupResultCache,
     pub(crate) active_queries: ActiveQueries,
     pub query_stats: QueryStatsTracker,
+    pub query_tracer: Tracer,
     pub metric_data_provider: Arc<dyn MetricDataProvider + Send + Sync>, // mutex
 }
 
@@ -33,6 +35,9 @@ impl Context {
     }
 
     pub fn parse_promql(&self, q: &str) -> RuntimeResult<Arc<ParseCacheValue>> {
+        // if context.query_tracer.enabled {
+        //
+        // }
         let cached = self.parse_cache.parse(q);
         if let Some(err) = &cached.err {
             return Err(RuntimeError::ParseError(err.clone()))
@@ -53,6 +58,7 @@ impl Default for Context {
             rollup_result_cache: Default::default(),
             active_queries: ActiveQueries::new(),
             query_stats: Default::default(),
+            query_tracer: Tracer::new(true),
             metric_data_provider: Arc::new(NullMetricDataProvider {}),
         }
     }

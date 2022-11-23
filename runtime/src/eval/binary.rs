@@ -15,10 +15,11 @@ use crate::context::Context;
 use crate::eval::{create_evaluator, eval_number, ExprEvaluator};
 use crate::eval::binary_op::{BinaryOpFn, BinaryOpFuncArg, get_binary_op_handler};
 use crate::eval::traits::Evaluator;
-use crate::EvalConfig;
+use crate::{EvalConfig, metric_name, Timeseries};
 use crate::functions::types::AnyValue;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::timeseries::Timeseries;
+
+use metric_name::Tag;
 
 pub struct BinaryEvaluator {
     expr: BinaryOpExpr,
@@ -114,9 +115,15 @@ impl BinaryEvaluator {
         //
         // Invariant: self.lhs and self.rhs are both DataType::InstantVector
         let mut first = first.eval(ctx, ec)?;
-        // todo(perf) : if first.is_empty() && self.op in [And, If], the result will be empty,
-        // so no need to proceed further
+        // if first.is_empty() && self.op == Or, the result will be empty,
+        // since the "exprFirst op exprSecond" would return an empty result in any case.
         // https://github.com/VictoriaMetrics/VictoriaMetrics/issues/3349
+        if first.is_empty() && self.expr.op == BinaryOp::Or {
+            return Ok((
+                AnyValue::empty_vec(),
+                AnyValue::empty_vec()
+            ))
+        }
         let sec = self.pushdown_filters(&mut first, &right_expr, &ec)?;
         return match sec {
             Cow::Borrowed(_) => {
@@ -229,13 +236,13 @@ fn is_aggr_func_without_grouping(e: &Expression) -> bool {
 pub(super) fn get_common_label_filters(tss: &[Timeseries]) -> Vec<LabelFilter> {
     let mut m: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for ts in tss.iter() {
-        for (key, value) in ts.metric_name.iter() {
-            if let Some(set) = m.get_mut(key) {
-                set.insert(value.to_string());
+        for Tag{ key: k, value: v} in ts.metric_name.tags.iter() {
+            if let Some(set) = m.get_mut(k) {
+                set.insert(v.to_string());
             } else {
                 let mut s = BTreeSet::new();
-                s.insert(value.to_string());
-                m.insert(key.to_string(), s);
+                s.insert(v.to_string());
+                m.insert(k.to_string(), s);
             }
         }
     }

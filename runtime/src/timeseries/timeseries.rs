@@ -168,7 +168,7 @@ impl Timeseries {
 
     #[inline]
     pub fn tag_count(&self) -> usize {
-        self.metric_name.tag_count()
+        self.metric_name.tags.len()
     }
 }
 
@@ -233,7 +233,7 @@ pub fn unmarshal_fast_timestamps<'a>(src: &'a [u8], dst: &mut Vec<i64>) -> Runti
 }
 
 pub fn unmarshal_fast_values<'a, T>(src: &'a [u8], dst: &mut Vec<T>) -> RuntimeResult<&'a [u8]>
-where T: Clone + byte_slice_cast::FromByteSlice
+    where T: Clone + byte_slice_cast::FromByteSlice
 {
     if src.len() < 4 {
         return Err(RuntimeError::from(
@@ -347,7 +347,7 @@ pub(super) fn assert_identical_timestamps(tss: &[Timeseries], step: i64) -> Runt
     let ts_golden = &tss[0];
     if ts_golden.values.len() != ts_golden.timestamps.len() {
         let msg = format!("BUG: ts_golden.values.leen() must match ts_golden.timestamps.len(); got {} vs {}",
-                      ts_golden.values.len(), ts_golden.timestamps.len());
+                          ts_golden.values.len(), ts_golden.timestamps.len());
         return Err(RuntimeError::from(msg));
     }
     if ts_golden.timestamps.len() > 0 {
@@ -364,14 +364,14 @@ pub(super) fn assert_identical_timestamps(tss: &[Timeseries], step: i64) -> Runt
     for ts in tss.iter() {
         if ts.values.len() != ts_golden.values.len() {
             let msg = format!("BUG: unexpected ts.values.len(); got {}; want {}; ts.values={}",
-                          ts.values.len(),
-                          ts_golden.values.len(),
-                          ts.values.len());
+                              ts.values.len(),
+                              ts_golden.values.len(),
+                              ts.values.len());
             return Err(RuntimeError::from(msg));
         }
         if ts.timestamps.len() != ts_golden.timestamps.len() {
             let msg = format!("BUG: unexpected ts.timestamps.len(); got {}; want {};",
-                          ts.timestamps.len(), ts_golden.timestamps.len());
+                              ts.timestamps.len(), ts_golden.timestamps.len());
             return Err(RuntimeError::from(msg));
         }
         if ts.timestamps.len() == 0 {
@@ -384,7 +384,7 @@ pub(super) fn assert_identical_timestamps(tss: &[Timeseries], step: i64) -> Runt
         for i in 0 .. ts.timestamps.len() {
             if ts.timestamps[i] != ts_golden.timestamps[i] {
                 let msg = format!("BUG: timestamps mismatch at position {}; got {}; want {};",
-                              i, ts.timestamps[i], ts_golden.timestamps[i]);
+                                  i, ts.timestamps[i], ts_golden.timestamps[i]);
                 return Err(RuntimeError::from(msg));
             }
         }

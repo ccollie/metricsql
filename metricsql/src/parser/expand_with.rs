@@ -58,31 +58,24 @@ fn expand_binary(e: &BinaryOpExpr, was: &[WithArgExpr]) -> ParseResult<Expressio
         };
     }
 
-    let mut group_modifier_args: Vec<String> = vec![];
-    let mut join_modifier_args: Vec<String> = vec![];
-
-    if let Some(modifier) = &e.group_modifier {
-        group_modifier_args = expand_modifier_args(was, &modifier.labels)?;
-    }
-
-    if let Some(modifier) = &e.join_modifier {
-        join_modifier_args = expand_modifier_args(was, &modifier.labels)?;
-    }
-
     let mut be = BinaryOpExpr::new(e.op, left, right)?;
     be.bool_modifier = e.bool_modifier;
     be.span = e.span;
 
-    if let Some(ref mut group_mod) = be.group_modifier {
-        group_mod.labels = group_modifier_args;
+    if let Some(modifier) = &e.group_modifier {
+        let labels = expand_modifier_args(was, &modifier.labels)?;
+        be.group_modifier = Some( GroupModifier::new(modifier.op, labels) );
     }
 
-    if let Some(ref mut join_mod) = be.join_modifier {
-        join_mod.labels = join_modifier_args;
+    if let Some(ref modifier) = &e.join_modifier {
+        let labels = expand_modifier_args(was, &modifier.labels)?;
+        be.join_modifier = Some( JoinModifier::new(modifier.op, labels) );
     }
 
-    let args = vec![Box::new(Expression::BinaryOperator(be))];
-    Ok(Expression::Parens(ParensExpr::new(args, e.span)))
+    let bin_expr = Expression::BinaryOperator(be);
+    // let args = vec![Box::new(bin_expr)];
+    // Ok(Expression::Parens(ParensExpr::new(args, e.span)))
+    Ok(bin_expr)
 }
 
 fn expand_function(func: &FuncExpr, was: &[WithArgExpr]) -> ParseResult<Expression> {

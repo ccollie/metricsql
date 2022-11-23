@@ -198,7 +198,7 @@ fn parse_load(lines: &[String], i: usize) -> RuntimeResult<(usize, LoadCmd)> {
             i -= 1;
             break;
         };
-        metric, vals, err := parse_series_desc(&lines[i]);
+        let (metric, vals) = parse_series_desc(&lines[i]);
         if err != nil {
             let perr: ParseErr;
             if errors.As(err, &perr) {
@@ -213,7 +213,7 @@ fn parse_load(lines: &[String], i: usize) -> RuntimeResult<(usize, LoadCmd)> {
 
 fn parse_eval(t: &mut Test, lines: &[String], i: usize) -> RuntimeResult<(usize, EvalCmd)> {
     if !patEvalInstant.MatchString(lines[i]) {
-        return i, nil, raise(i, "invalid evaluation command. (eval[_fail|_ordered] instant [at <offset:duration>] <query>")
+        return raise(i, "invalid evaluation command. (eval[_fail|_ordered] instant [at <offset:duration>] <query>")
     }
     let parts = patEvalInstant.FindStringSubmatch(lines[i]);
     let mod_  = parts[1];
@@ -605,7 +605,7 @@ return nil
 
             Expression::MatrixSelector(me) => {
                     if vs: = n.VectorSelector.(*parser.VectorSelector);
-                    vs.Timestamp == nil {
+                    vs.Timestamp == 0 {
                         vs.timestamp = makeInt64Pointer(ts)
                     }
                 }

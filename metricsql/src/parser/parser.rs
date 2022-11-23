@@ -14,6 +14,7 @@ pub struct Parser<'a> {
     input: &'a str,
     tokens: Vec<Token<'a>>,
     cursor: usize,
+    kind: TokenKind,
     pub(super) parsing_with: bool,
 }
 
@@ -21,11 +22,18 @@ impl<'a> Parser<'a> {
     pub(crate) fn from_tokens(tokens: Vec<Token<'a>>) -> Self {
         let tokens: Vec<_> = tokens.into_iter().filter(|x| !x.kind.is_trivia()).collect();
 
+        let kind = if tokens.len() > 0 {
+            tokens[0].kind
+        } else {
+            TokenKind::Eof
+        };
+
         Self {
             input: "",
             cursor: 0,
             tokens,
             parsing_with: false,
+            kind
         }
     }
 
@@ -44,19 +52,29 @@ impl<'a> Parser<'a> {
         }
 
         self.cursor += 1;
-        self.tokens.get(self.cursor)
+        match self.tokens.get(self.cursor) {
+            Some(t) => {
+                self.kind = t.kind;
+                Some(t)
+            },
+            None => None
+        }
     }
 
     pub fn prev_token(&mut self) -> Option<&Token<'a>> {
         if self.cursor > 0 {
             self.cursor -= 1;
         }
-        if self.cursor == 0 {
-            return None;
+        match self.tokens.get(self.cursor) {
+            Some(t) => {
+                self.kind = t.kind;
+                Some(t)
+            },
+            None => {
+                self.kind = TokenKind::ErrorInvalidToken;
+                None
+            }
         }
-
-        let token = self.tokens.get(self.cursor)?;
-        Some(token)
     }
 
     pub fn peek_token(&self) -> Option<&Token<'a>> {
@@ -180,12 +198,20 @@ impl<'a> Parser<'a> {
     pub(super) fn bump(&mut self) {
         if self.cursor < self.tokens.len() {
             self.cursor += 1;
+            if self.cursor < self.tokens.len() {
+                self.kind = self.tokens[self.cursor].kind;
+            } else {
+                self.kind = TokenKind::Eof;
+            }
+        } else {
+            self.kind = TokenKind::Eof;
         }
     }
 
     pub(super) fn back(&mut self) -> &mut Self {
         if self.cursor > 0 {
             self.cursor -= 1;
+            self.kind = self.tokens[self.cursor].kind;
         }
         self
     }
@@ -207,6 +233,7 @@ impl<'a> Parser<'a> {
         if self.at_end() {
             return TokenKind::Eof
         }
+        // self.kind
         let tok = self.tokens.get(self.cursor);
         tok.expect("BUG: invalid index out of bounds").kind
     }

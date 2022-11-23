@@ -14,11 +14,28 @@ pub mod binaryop;
 mod lexer;
 
 pub mod utils {
-    pub use lexer::{escape_ident, parse_float, quote};
-
     use crate::lexer;
+    pub use lexer::{escape_ident, parse_float, quote};
 }
 
 pub mod optimizer;
 pub mod parser;
 pub mod functions;
+
+pub use lexer::TextSpan;
+
+pub mod prelude {
+    use crate::ast;
+    use crate::lexer;
+    use crate::binaryop;
+    use crate::functions;
+    use crate::parser;
+    use crate::optimizer;
+
+    pub use ast::*;
+    pub use binaryop::*;
+    pub use functions::*;
+    pub use lexer::TextSpan;
+    pub use optimizer::*;
+    pub use parser::*;
+}

@@ -19,6 +19,7 @@ mod operator;
 mod aggregation;
 mod group;
 pub mod utils;
+mod simplify;
 
 pub use aggregation::*;
 pub use expression::*;
@@ -34,3 +35,6 @@ pub use with::*;
 pub use label_filter::*;
 pub use return_type::*;
 pub use operator::*;
+
+pub(crate) use simplify::*;
+

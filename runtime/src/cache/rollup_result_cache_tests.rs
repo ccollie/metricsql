@@ -1,8 +1,19 @@
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
-    use metricsql::ast::{AggrFuncExpr, Expression, ExpressionNode, FuncExpr, LabelFilter, LabelFilterOp, MetricExpr};
+    use metricsql::ast::{
+        AggrFuncExpr,
+        Expression,
+        ExpressionNode,
+        FuncExpr,
+        LabelFilter,
+        LabelFilterOp,
+        MetricExpr
+    };
+
+
     use metricsql::functions::AggregateFunction;
+    use metricsql::TextSpan;
     use crate::cache::rollup_result_cache::{merge_timeseries, RollupResultCache};
     use crate::{EvalConfig, MetricName, test_timeseries_equal, Timeseries};
 

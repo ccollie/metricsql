@@ -279,6 +279,13 @@ impl Display for Expression {
     }
 }
 
+// crate private
+impl Default for Expression {
+    fn default() -> Self {
+        Expression::from(1.0)
+    }
+}
+
 impl From<f64> for Expression {
     fn from(v: f64) -> Self {
         Expression::Number(NumberExpr::from(v))

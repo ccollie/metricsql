@@ -3,9 +3,10 @@ use std::fmt::{Display, Formatter};
 
 #[derive(Logos, Debug, PartialEq, Copy, Clone)]
 #[logos(subpattern decimal = r"[0-9][_0-9]*")]
-#[logos(subpattern hex = r"[0-9a-fA-F][_0-9a-fA-F]*")]
-#[logos(subpattern octal = r"[0-7][_0-7]*")]
-#[logos(subpattern binary = r"[0-1][_0-1]*")]
+#[logos(subpattern hex = r"0[xX][0-9a-fA-F][_0-9a-fA-F]*")]
+#[logos(subpattern octal = r"0o?[_0-7]*")]
+#[logos(subpattern binary = r"0[bB][0-1][_0-1]*")]
+#[logos(subpattern float = r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?")]
 #[logos(subpattern exp = r"[eE][+-]?[0-9][_0-9]*")]
 #[logos(subpattern duration = r"(-?)(0|[1-9]\d*)(\.\d+)?(ms|s|m|h|d|w|y|i)+")]
 pub enum TokenKind {
@@ -22,7 +23,7 @@ pub enum TokenKind {
     By,
 
     #[token("default", ignore(ascii_case))]
-    Default,
+    OpDefault,
 
     #[token("group_left", ignore(ascii_case))]
     GroupLeft,
@@ -33,7 +34,7 @@ pub enum TokenKind {
     #[token("if", ignore(ascii_case))]
     OpIf,
 
-    #[token("ifnot", ignore(ascii_case))]
+    #[token("ifNot", ignore(ascii_case))]
     OpIfNot,
 
     #[token("ignoring", ignore(ascii_case))]
@@ -63,23 +64,22 @@ pub enum TokenKind {
     #[token("without", ignore(ascii_case))]
     Without,
 
-    #[regex("(?&duration)+", priority = 20)]
+    #[regex("(?&duration)+", priority = 5)]
     Duration,
 
-    #[regex(r"[_a-zA-Z][_a-zA-Z0-9:]*")]
-    Ident,
-
-    #[regex("0[xX](?&hex)")]
-    #[regex("0[oO](?&octal)")]
-    #[regex("0[bB](?&binary)")]
-    #[regex(r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?")]
+    #[token("nan", ignore(ascii_case))]
+    #[token("inf", ignore(ascii_case))]
+    #[regex("(?&hex)")]
+    #[regex("(?&octal)")]
+    #[regex("(?&binary)")]
+    #[regex("(?&float)")]
     Number,
 
-    #[token("NaN", ignore(ascii_case))]
-    NaN,
+    #[regex(r"[_a-zA-Z][_a-zA-Z0-9:\.]*")]
+    Ident,
 
-    #[token("Inf", ignore(ascii_case))]
-    Inf,
+    #[regex("(?&float)(?i)(kib|ki|kb|k|mib|mi|mb|m|gib|gi|gb|g|tib|ti|tb|t)", priority = 8)]
+    NumberWithUnit,
 
     #[regex(r"(?:0|[1-9][0-9]*)\.[^0-9]")]
     ErrorNumJunkAfterDecimalPoint,
@@ -211,7 +211,7 @@ impl TokenKind {
     pub fn is_operator(&self) -> bool {
         use TokenKind::*;
 
-        matches!(self, OpAtan2 | OpMul | OpDiv | OpIf | OpIfNot | OpMod | OpPlus | OpMinus | OpLessThan
+        matches!(self, OpAtan2 | OpMul | OpDiv | OpDefault | OpIf | OpIfNot | OpMod | OpPlus | OpMinus | OpLessThan
             | OpGreaterThan | OpLessThanOrEqual | OpGreaterThanOrEqual | OpEqual | OpNotEqual | OpPow
             | OpAnd | OpOr | OpUnless)
     }
@@ -251,7 +251,7 @@ impl TokenKind {
     pub fn is_ident_like(&self) -> bool {
         use TokenKind::*;
         // keywords
-        matches!(self, By | Bool | Default | GroupLeft | GroupRight | Inf | NaN |
+        matches!(self, By | Bool | OpDefault | GroupLeft | GroupRight |
             Ignoring | KeepMetricNames | Limit | On | Offset | With | Without |
             OpAnd | OpAtan2 | OpIf | OpIfNot | OpOr | OpUnless)
     }
@@ -275,11 +275,9 @@ impl Display for TokenKind {
             // keywords
             Self::By => "by",
             Self::Bool => "bool",
-            Self::Default => "default",
+            Self::OpDefault => "default",
             Self::GroupLeft => "group_left",
             Self::GroupRight => "group_right",
-            Self::Inf => "Inf",
-            Self::NaN => "NaN",
             Self::Ignoring => "ignoring",
             Self::KeepMetricNames => "keep_metric_names",
             Self::Limit => "limit",
@@ -291,6 +289,7 @@ impl Display for TokenKind {
             Self::Duration => "<duration>",
             Self::Ident => "<ident>",
             Self::Number => "<number>",
+            Self::NumberWithUnit => "<number><unit>",
             // symbols
             Self::At => "@",
             Self::LeftBrace => "{{",

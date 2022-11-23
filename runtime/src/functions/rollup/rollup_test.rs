@@ -327,11 +327,8 @@ mod tests {
     #[test]
     fn test_linear_regression() {
         let f = |values: &[f64], timestamps: &[i64], exp_v: f64, exp_k: f64| {
-            let mut rfa = RollupFuncArg::default();
-            rfa.values = Vec::from(values);
-            rfa.timestamps = Vec::from(timestamps);
-            rfa.curr_timestamp = &timestamps[0] + 100;
-            let (v, k) = linear_regression(&mut rfa);
+            let ts = &timestamps[0] + 100;
+            let (v, k) = linear_regression(values, timestamps,ts);
             compare_values(&[v], &[exp_v]).unwrap();
             compare_values(&vec![k], &vec![exp_k]).unwrap();
         };

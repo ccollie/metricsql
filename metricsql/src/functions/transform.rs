@@ -88,6 +88,7 @@ pub enum TransformFunction {
     RangeMax,
     RangeMedian,
     RangeMin,
+    RangeNormalize,
     RangeQuantile,
     RangeStdDev,
     RangeStdVar,
@@ -200,6 +201,7 @@ impl Display for TransformFunction {
             RangeMax => "range_max",
             RangeMedian => "range_median",
             RangeMin => "range_min",
+            RangeNormalize => "range_normalize",
             RangeQuantile => "range_quantile",
             RangeStdDev => "range_stddev",
             RangeStdVar => "range_stdvar",
@@ -312,6 +314,7 @@ static REVERSE_MAP: phf::Map<&'static str, TransformFunction> = phf_map! {
 "range_max" => TransformFunction::RunningMax,
 "range_median" => TransformFunction::RangeMedian,
 "range_min" => TransformFunction::RunningMin,
+"range_normalize" => TransformFunction::RangeNormalize,
 "range_quantile" => TransformFunction::RangeQuantile,
 "range_stddev" => TransformFunction::RangeStdDev,
 "range_stdvar" => TransformFunction::RangeStdVar,
@@ -385,6 +388,7 @@ impl TransformFunction {
             RangeMax |
             RangeMedian |
             RangeMin |
+            RangeNormalize |
             RangeQuantile |
             Round |
             Ru |
@@ -507,6 +511,9 @@ impl TransformFunction {
             RandExponential |
             RandNormal => {
                 Signature::variadic_min(vec![DataType::Scalar], 0, Volatility::Stable)
+            }
+            RangeNormalize => {
+                Signature::variadic_min(vec![DataType::InstantVector], 1, Volatility::Stable)
             }
             RangeQuantile => {
                 Signature::exact(vec![DataType::Scalar, DataType::InstantVector], Volatility::Stable)

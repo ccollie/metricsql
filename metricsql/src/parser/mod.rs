@@ -2,12 +2,12 @@ use once_cell::sync::OnceCell;
 pub use parse_error::*;
 pub use parser::*;
 pub use regexp_cache::compile_regexp;
-use crate::ast::{Expression, WithArgExpr};
+use crate::ast::{Expression, WithArgExpr, simplify_expr};
 use crate::lexer::TokenKind;
 use crate::parser::expand_with::expand_with_expr;
 use crate::parser::expr::parse_expression;
-use crate::parser::simplify::simplify_expr;
 use crate::parser::with_expr::{check_duplicate_with_arg_names, must_parse_with_arg_expr};
+use crate::prelude::simplify_constants;
 
 mod aggregation;
 mod expand_with;
@@ -16,7 +16,6 @@ mod function;
 mod regexp_cache;
 mod rollup;
 mod selector;
-mod simplify;
 mod with_expr;
 
 pub mod parse_error;
@@ -45,7 +44,7 @@ pub fn parse(input: &str) -> ParseResult<Expression> {
     }
     let was = get_default_with_arg_exprs();
     match expand_with_expr(was, &expr) {
-        Ok(expr) => simplify_expr(&expr),
+        Ok(expr) => simplify_constants(&expr),
         Err(e) => Err(e),
     }
 }

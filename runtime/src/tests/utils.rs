@@ -62,15 +62,12 @@ pub fn test_metric_names_equal(mn: &MetricName, expected: &MetricName, pos: usiz
                "unexpected MetricGroup at #{}; got {}; want {}; metricGot={}, metricExpected={}",
                pos, mn.metric_group, expected.metric_group, mn, expected);
 
-    assert_eq!(mn.tag_count(), expected.tag_count(),
+    assert_eq!(mn.tags.len(), expected.tags.len(),
                "unexpected tags count at #{}; got {}; want {}; metricGot={}, metricExpected={}",
-               pos, mn.tag_count(), expected.tag_count(), mn, expected);
+               pos, mn.tags.len(), expected.tags.len(), mn, expected);
 
-    let tags_a = mn.get_tags();
-    let tags_b = expected.get_tags();
-
-    for (i, tag) in tags_a.iter().enumerate() {
-        let tag_expected = &tags_b[i];
+    for (i, tag) in mn.tags.iter().enumerate() {
+        let tag_expected = &expected.tags[i];
         assert_eq!(tag.key, tag_expected.key,
                    "unexpected tag key at #{},{}; got {}; want {}; metricGot={}, metricExpected={}",
                    pos, i, tag.key, tag_expected.key, mn, expected);

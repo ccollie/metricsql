@@ -105,15 +105,15 @@ impl AnyValue {
         }
     }
 
-    pub fn get_vector(&self) -> RuntimeResult<Vec<f64>> {
+    pub fn get_vector(&self) -> RuntimeResult<Vec<Timeseries>> {
         match self {
             AnyValue::InstantVector(val) => {
                 // TODO: into
-                Ok(val.values.clone())
+                Ok(val.clone())
             }, // ????
             AnyValue::RangeVector(val) => {
                 // TODO: into
-                Ok(val.values.clone())
+                Ok(val.clone())
             }, // ????
             _ => Err(RuntimeError::InvalidNumber("vector parameter expected ".to_string()))
         }
@@ -184,6 +184,19 @@ impl AnyValue {
                 return Err(RuntimeError::TypeCastError(msg))
             }
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        match self {
+            AnyValue::InstantVector(val) => val.is_empty(), // ????
+            AnyValue::RangeVector(val) => val.is_empty(),
+            AnyValue::String(v) => v.is_empty(),
+            _ => false
+        }
+    }
+
+    pub fn empty_vec() -> Self {
+        AnyValue::InstantVector(vec![])
     }
 }
 

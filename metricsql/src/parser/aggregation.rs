@@ -6,6 +6,12 @@ use crate::parser::{ParseError, Parser, ParseResult};
 use super::expr::{parse_arg_list, parse_number};
 use super::function::validate_args;
 
+
+/// parse_aggr_func_expr parses an aggregation expression.
+///
+///		<aggr_op> (<Vector_expr>) [by|without <labels>] [limit <number>]
+///		<aggr_op> [by|without <labels>] (<Vector_expr>) [limit <number>]
+///
 pub(super) fn parse_aggr_func_expr(p: &mut Parser) -> ParseResult<Expression> {
     let tok = p.current_token()?;
     let mut span = tok.span;

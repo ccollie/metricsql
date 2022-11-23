@@ -99,11 +99,11 @@ impl GroupModifier {
 
 impl Display for GroupModifier {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{}", self.op)?;
+        write!(f, "{} (", self.op)?;
         if !self.labels.is_empty() {
-            write!(f, " ")?;
             write_list(&self.labels, f, false)?;
         }
+        write!(f, ")")?;
         Ok(())
     }
 }
@@ -179,22 +179,22 @@ pub struct JoinModifier {
 }
 
 impl JoinModifier {
-    pub fn new(op: JoinModifierOp) -> Self {
+    pub fn new(op: JoinModifierOp, labels: Vec<String>) -> Self {
         JoinModifier {
             op,
-            labels: vec![],
+            labels,
             cardinality: VectorMatchCardinality::OneToOne
         }
     }
 
     /// Creates a new JoinModifier with the Left op
     pub fn left() -> Self {
-        JoinModifier::new(JoinModifierOp::GroupLeft)
+        JoinModifier::new(JoinModifierOp::GroupLeft, vec![])
     }
 
     /// Creates a new JoinModifier with the Right op
     pub fn right() -> Self {
-        JoinModifier::new(JoinModifierOp::GroupRight)
+        JoinModifier::new(JoinModifierOp::GroupRight, vec![])
     }
 
     /// Replaces this JoinModifier's operator
@@ -224,11 +224,11 @@ impl JoinModifier {
 
 impl Display for JoinModifier {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{}", self.op)?;
+        write!(f, "{} (", self.op)?;
         if !self.labels.is_empty() {
-            write!(f, " ")?;
             write_labels(&self.labels, f)?;
         }
+        write!(f, ")")?;
         Ok(())
     }
 }

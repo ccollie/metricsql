@@ -677,7 +677,7 @@ fn is_scalar(arg: &[Timeseries]) -> bool {
     if mn.metric_group.len() > 0 {
         return false
     }
-    mn.tag_count() == 0
+    mn.tags.len() == 0
 }
 
 fn series_by_key<'a>(m: &'a TimeseriesHashMap, key: &'a str) -> Option<&'a Vec<Timeseries>> {

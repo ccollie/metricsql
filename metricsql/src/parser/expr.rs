@@ -1,29 +1,78 @@
 use std::str::FromStr;
-use crate::ast::{BExpression, BinaryOp, BinaryOpExpr, DurationExpr, Expression, GroupModifier, GroupModifierOp, JoinModifier, JoinModifierOp, NumberExpr, ReturnValue, StringExpr, StringTokenType};
+
+use crate::ast::{BExpression, BinaryOp, BinaryOpExpr, DurationExpr, Expression, GroupModifier,
+                 GroupModifierOp, JoinModifier, JoinModifierOp, NumberExpr, ReturnValue, StringExpr,
+                 StringTokenType};
 use crate::functions::AggregateFunction;
-use crate::lexer::{parse_float, TokenKind};
+use crate::lexer::{get_number_suffix, parse_float, parse_number_with_unit, TokenKind};
 use crate::parser::{ParseError, Parser, ParseResult};
 use crate::parser::parser::unexpected;
+use crate::TextSpan;
+
 use super::aggregation::parse_aggr_func_expr;
 use super::function::parse_function;
 use super::rollup::parse_rollup_expr;
 use super::selector::parse_metric_expr;
 use super::with_expr::parse_with_expr;
 
+fn parse_number_radix(str: &str, radix: u32) -> ParseResult<f64> {
+    match u64::from_str_radix(str, radix) {
+        Ok(n) => Ok(n as f64),
+        Err(_) => Err(ParseError::InvalidNumber(str.to_string())),
+    }
+}
+
+fn parse_number_radix_expr(p: &mut Parser, kind: TokenKind, radix: u32) -> ParseResult<Expression> {
+    let tok = p.expect_token(kind)?;
+    let value = parse_number_radix(tok.text, radix)?;
+    Ok(Expression::Number(
+        NumberExpr::new(value, tok.span)
+    ))
+}
 
 pub(super) fn parse_number(p: &mut Parser) -> ParseResult<f64> {
-    let tok = p.expect_one_of(&[TokenKind::Number, TokenKind::NaN, TokenKind::Inf])?;
-    parse_float(tok.text)
+    use TokenKind::*;
+    // there is a bit of ambiguity between a NumberWithUnit and a Duration in the
+    // case of tokens with the prefix 'm'. For example, does 60m mean 60 minutes or
+    // 60 million. We accept Duration here to deal with that special case
+    let token = p.current_token()?;
+    let kind = token.kind;
+
+    fn raise_error(p: &mut Parser, span: TextSpan) -> ParseResult<f64> {
+        return Err(unexpected(p, "expression", "number", Some(span) ))
+    }
+
+    let value = match kind {
+        Number => parse_float(token.text),
+        NumberWithUnit => parse_number_with_unit(token.text),
+        Duration => {
+            let suffix = get_number_suffix(token.text);
+            if let Some(suff) = suffix {
+                if suff.0 == "m" {
+                    return parse_number_with_unit(token.text);
+                }
+            }
+            return raise_error(p, token.span)
+        }
+        _ => return raise_error(p, token.span)
+    };
+
+    if value.is_ok() {
+        p.bump();
+    }
+
+    value
 }
 
 pub(super) fn parse_number_expr(p: &mut Parser) -> ParseResult<Expression> {
-    let tok = p.expect_one_of(&[TokenKind::Number, TokenKind::NaN, TokenKind::Inf])?;
-    let value = parse_float(tok.text)?;
-    Ok(Expression::Number(NumberExpr::new(value, tok.span)))
+    let span = p.last_token_range().unwrap();
+    let value = parse_number(p)?;
+    Ok(Expression::Number(NumberExpr::new(value, span)))
 }
 
 pub(super) fn parse_duration(p: &mut Parser) -> ParseResult<DurationExpr> {
-    let tok = p.expect_one_of(&[TokenKind::Number, TokenKind::Duration])?;
+    use TokenKind::*;
+    let tok = p.expect_one_of(&[Number, Duration, NumberWithUnit])?;
     DurationExpr::new(tok.text, tok.span)
 }
 
@@ -47,9 +96,6 @@ pub(super) fn parse_single_expr(p: &mut Parser) -> ParseResult<Expression> {
 
 pub(super) fn parse_expression(p: &mut Parser) -> ParseResult<Expression> {
     let mut left = parse_single_expr(p)?;
-
-    let start = left.span();
-
     loop {
         if p.at_end() {
             break;
@@ -91,53 +137,95 @@ pub(super) fn parse_expression(p: &mut Parser) -> ParseResult<Expression> {
         }
 
         let right = parse_single_expr(p)?;
-        let span = start.cover(right.span());
 
-        let mut be = BinaryOpExpr::new(operator, left, right)?;
-        be.group_modifier = group_modifier;
-        be.join_modifier = join_modifier;
-        be.bool_modifier = is_bool;
-        be.span = span;
-
-        // try to avoid an unnecessary clone
-        if should_balance_binary_op(&be) {
-            left = balance_binary_op(&be, false);
-        } else {
-            left = Expression::BinaryOperator(be)
-        }
+        left = balance(left, operator, right, group_modifier, join_modifier, is_bool)?;
     }
 
     Ok(left)
 }
 
 
-fn should_balance_binary_op(be: &BinaryOpExpr) -> bool {
-    match &be.left.as_ref() {
-        Expression::BinaryOperator(left) => {
-            let lp = left.op.precedence();
-            let rp = be.op.precedence();
-            if rp < lp || (rp == lp && !be.op.is_right_associative()) {
-                false
-            } else {
-                true
+// see https://github.com/influxdata/promql/blob/eb8f592be73d3164ad7a723b9f3d6a7f565ca780/parse.go#L425
+fn balance(lhs: Expression,
+           op: BinaryOp,
+           rhs: Expression,
+           group_modifier: Option<GroupModifier>,
+           join_modifier: Option<JoinModifier>,
+           return_bool: bool) -> ParseResult<Expression> {
+    use ReturnValue::*;
+
+    fn validate_scalar_op(
+        left: &Expression,
+        right: &Expression,
+        op: BinaryOp,
+        returns_bool: bool,
+        // todo: span
+    ) -> ParseResult<()> {
+        match (left.return_value(), right.return_value()) {
+            (Scalar, Scalar) => {
+                if op.is_comparison() && !returns_bool {
+                    // todo: better error, including position
+                    return Err(
+                        ParseError::General("comparisons between scalars must use BOOL modifier".to_string())
+                    );
+                }
             }
-        },
-        _ => false
+            _ => {}
+        }
+        Ok(())
     }
-}
 
-fn balance_binary_op(be: &BinaryOpExpr, first: bool) -> Expression {
-    if first || should_balance_binary_op(&be) {
-        let mut res = be.clone();
-        let temp = res.left;
-        res.left = res.right;
-        res.right = temp;
+    let span = lhs.span().cover(rhs.span());
 
-        // std::mem::swap(&mut res.left, &mut res.right);
-        let balanced = balance_binary_op(&res, false);
-        res.right = Box::new(balanced);
+    match &lhs {
+        Expression::BinaryOperator(lhs_be) => {
+            let precedence = lhs_be.op.precedence() as i16 - op.precedence() as i16;
+            if (precedence < 0) || (precedence == 0 && op.is_right_associative()) {
+                let right = lhs_be.right.as_ref().clone();
+                let balanced = balance(
+                    right,
+                    op,
+                    rhs,
+                    group_modifier,
+                    join_modifier,
+                    return_bool,
+                )?;
+
+                // validate_scalar_op(&lhs_be.left,
+                //                    &balanced,
+                //                    lhs_be.op,
+                //                    lhs_be.bool_modifier)?;
+
+                let expr = BinaryOpExpr {
+                    op: lhs_be.op,
+                    left: lhs_be.left.clone(),
+                    right: Box::new(balanced),
+                    join_modifier: lhs_be.join_modifier.clone(),
+                    group_modifier: lhs_be.group_modifier.clone(),
+                    bool_modifier: lhs_be.bool_modifier,
+                    span,
+                };
+                return Ok(
+                    Expression::BinaryOperator(expr)
+                );
+            }
+        }
+        _ => {}
     }
-    Expression::BinaryOperator(be.clone())
+
+    // validate_scalar_op(&lhs, &rhs, op, return_bool)?;
+
+    let expr = BinaryOpExpr {
+        op,
+        left: Box::new(lhs),
+        right: Box::new(rhs),
+        join_modifier,
+        group_modifier,
+        bool_modifier: return_bool,
+        span,
+    };
+
+    Ok(Expression::BinaryOperator(expr))
 }
 
 
@@ -163,14 +251,15 @@ fn parse_join_modifier(p: &mut Parser) -> ParseResult<JoinModifier> {
         _ => unreachable!()
     };
 
-    let mut res = JoinModifier::new(op);
-    if !p.at(TokenKind::LeftParen) {
-        // join modifier may ignore ident list.
-    } else {
-        res.labels = p.parse_ident_list()?;
-    }
 
-    Ok(res)
+    let labels = if !p.at(TokenKind::LeftParen) {
+        // join modifier may ignore ident list.
+        vec![]
+    } else {
+        p.parse_ident_list()?
+    };
+
+    Ok( JoinModifier::new(op, labels) )
 }
 
 pub(super) fn parse_single_expr_without_rollup_suffix(p: &mut Parser) -> ParseResult<Expression> {
@@ -182,14 +271,13 @@ pub(super) fn parse_single_expr_without_rollup_suffix(p: &mut Parser) -> ParseRe
             Err(e) => Err(e),
         },
         Ident => parse_ident_expr(p),
-        Inf | NaN | Number => parse_number_expr(p),
-        Duration => parse_duration_expr(p),
+        Number | NumberWithUnit | Duration => parse_number_expr(p),
         LeftBrace => parse_metric_expr(p),
         LeftParen => parse_parens_expr(p),
         OpPlus => parse_unary_plus_expr(p),
         OpMinus => parse_unary_minus_expr(p),
         _ => {
-            Err( unexpected(p, "", "expression", None) )
+            Err(unexpected(p, "", "expression", None))
         }
     }
 }
@@ -239,19 +327,22 @@ fn parse_unary_minus_expr(p: &mut Parser) -> ParseResult<Expression> {
             // handle special cases
             match e {
                 Expression::Number(n) => {
-                    let v = n.value;
+                    let mut v = n.value;
                     if v.is_finite() {
-                        return Ok(Expression::from(-v));
+                        v = -v;
                     } else if v == f64::INFINITY {
-                        return Ok(Expression::from(f64::NEG_INFINITY));
+                        v = f64::NEG_INFINITY;
+                    } else if v.is_nan() {
+                        v = f64::NAN;
                     }
-                },
+                    return Ok(Expression::Number(NumberExpr::new(v, span)));
+                }
                 _ => {}
             }
-        },
+        }
         _ => {
             let msg = format!("unary expression only allowed on expressions of type scalar or instant vector");
-            return Err(unexpected(p,"", &msg, Some(span)));
+            return Err(unexpected(p, "", &msg, Some(span)));
         }
     }
     // Substitute `-expr` with `0 - expr`
@@ -273,7 +364,7 @@ pub(super) fn parse_string_expr(p: &mut Parser) -> ParseResult<StringExpr> {
                 if tok.text.len() == 2 {
                     tokens.push(StringTokenType::String("".to_string()));
                 } else {
-                    let slice = &tok.text[1 .. tok.text.len() - 1];
+                    let slice = &tok.text[1..tok.text.len() - 1];
                     tokens.push(StringTokenType::String(slice.to_string()));
                 }
                 span = span.cover(tok.span)
@@ -284,7 +375,7 @@ pub(super) fn parse_string_expr(p: &mut Parser) -> ParseResult<StringExpr> {
                 ident_count += 1;
             }
             _ => {
-                return Err(unexpected(p, "", "string literal", None))
+                return Err(unexpected(p, "", "string literal", None));
             }
         }
 
@@ -304,7 +395,7 @@ pub(super) fn parse_string_expr(p: &mut Parser) -> ParseResult<StringExpr> {
         if tok.kind != Ident {
             // "s" + unknownToken
             p.back();
-            break
+            break;
         }
 
         // Look after ident
@@ -329,16 +420,16 @@ pub(super) fn parse_string_expr(p: &mut Parser) -> ParseResult<StringExpr> {
     if ident_count == 0 {
         let joined = tokens.iter().map(|x| {
             match x {
-               StringTokenType::String(s) => s,
-                _=> ""
+                StringTokenType::String(s) => s,
+                _ => ""
             }
         }).collect::<Vec<_>>()
             .join("");
 
-        return Ok( StringExpr::new(joined, span) )
+        return Ok(StringExpr::new(joined, span));
     }
 
-    Ok( StringExpr::from_tokens(tokens, span) )
+    Ok(StringExpr::from_tokens(tokens, span))
 }
 
 pub(super) fn parse_parens_expr(p: &mut Parser) -> ParseResult<Expression> {
@@ -348,7 +439,6 @@ pub(super) fn parse_parens_expr(p: &mut Parser) -> ParseResult<Expression> {
 
 pub(super) fn parse_arg_list(p: &mut Parser) -> ParseResult<Vec<BExpression>> {
     use TokenKind::*;
-
     p.expect(LeftParen)?;
     p.parse_comma_separated(&[RightParen], |p| {
         let expr = parse_expression(p)?;
@@ -367,8 +457,7 @@ fn parse_ident_expr(p: &mut Parser) -> ParseResult<Expression> {
 
     // Look into the next token in order to determine how to parse
     // the current expression.
-    let tok = p.current_token()?;
-    let kind = tok.kind;
+    let kind = p.peek_kind();
     match kind {
         Eof | Offset => {
             p.back();
@@ -377,19 +466,17 @@ fn parse_ident_expr(p: &mut Parser) -> ParseResult<Expression> {
         Ident => {
             p.back();
             if is_aggr_func(name) {
-                return parse_aggr_func_expr(p)
+                return parse_aggr_func_expr(p);
             }
             return parse_metric_expr(p);
         }
         LeftParen => {
             p.back();
-            // unwrap is safe here since LeftParen is the previous token
-            // clone is to stop holding on to p
-            return parse_function(p, name)
+            return parse_function(p, name);
         }
         LeftBrace | LeftBracket | RightParen | Comma | At => {
             p.back();
-            return parse_metric_expr(p)
+            return parse_metric_expr(p);
         }
         _ => {
             if kind.is_operator() {

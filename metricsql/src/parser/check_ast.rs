@@ -164,14 +164,31 @@ pub fn check_binary_expr(p: &mut Parser, be: &BinaryOpExpr) -> ParseResult<Retur
     let lt = checkAST(p, &be.left);
     let rt = checkAST(p, &be.right);
 
-    if (lt != Scalar && lt != InstantVector) ||
-        (rt != Scalar && rt != InstantVector) {
-        p.addParseErrf(n.left.range(), "binary expression must contain only scalar and instant vector types")
+    let mut both_vectors = false;
+
+    match (lt.return_value(), rt.return_value()) {
+        (Scalar, Scalar) => {
+            if be.op.is_comparison() && !be.bool_modifier {
+                p.addParseErrf(op_range(be), "comparisons between scalars must use BOOL modifier")
+            }
+        }
+        (InstantVector, InstantVector) => {
+            both_vectors = true;
+        },
+        (Scalar, InstantVector) => {
+
+        }
+        (InstantVector, Scalar) => {
+
+        },
+        _ => {
+            p.addParseErrf(n.left.range(), "binary expression must contain only scalar and instant vector types")
+        }
     }
 
-    // opRange returns the range of the operator part of the BinaryExpr.
+    // op_range returns the range of the operator part of the BinaryExpr.
     // This is made a function instead of a variable, so it is lazily evaluated on demand.
-    let opRange = |be: &BinaryOpExpr, r: TextRange| {
+    let op_range = |be: &BinaryOpExpr, r: TextRange| {
         let mut start = r.start;
         while start < src.len() {
             start += 1;
@@ -185,11 +202,7 @@ pub fn check_binary_expr(p: &mut Parser, be: &BinaryOpExpr) -> ParseResult<Retur
     };
 
     if be.bool_modifier && !be.op.is_comparison() {
-        p.addParseErrf(opRange(), "bool modifier can only be used on comparison operators")
-    }
-
-    if be.op.is_comparison() && !be.bool_modifier && rt == Scalar && lt == Scalar {
-        p.addParseErrf(opRange(be), "comparisons between scalars must use BOOL modifier")
+        p.addParseErrf(op_range(), "BOOL modifier can only be used on comparison operators")
     }
 
     if be.op.is_set_operator() && be.cardinality == OneToOne {
@@ -206,7 +219,7 @@ pub fn check_binary_expr(p: &mut Parser, be: &BinaryOpExpr) -> ParseResult<Retur
                     } else {
                         format!("labels ({})", duplicates.join(","))
                     };
-                    p.addParseErrf(opRange(), "{} must not occur in ON and GROUP clause at once", prefix)
+                    p.addParseErrf(op_range(), "{} must not occur in ON and GROUP clause at once", prefix)
                 }
             }
         },
@@ -214,12 +227,12 @@ pub fn check_binary_expr(p: &mut Parser, be: &BinaryOpExpr) -> ParseResult<Retur
     }
 
 
-    if (lt != InstantVector || rt != InstantVector) && be.join_modifier.is_some() {
+    if !both_vectors && be.join_modifier.is_some() {
         p.addParseErrf(be.range(), "vector matching only allowed between instant vectors");
     } else {
         // Both operands are Vectors.
         if be.op.is_set_operator() {
-            if be.VectorMatching.Card == CardOneToMany || be.VectorMatching.Card == CardManyToOne {
+            if be.cardinality == CardOneToMany || be.cardinality == CardManyToOne {
                 p.addParseErrf(be.range(), "no grouping allowed for {:?} operation", be.op)
             }
             if be.cardinality != CardManyToMany {
@@ -228,8 +241,10 @@ pub fn check_binary_expr(p: &mut Parser, be: &BinaryOpExpr) -> ParseResult<Retur
         }
     }
 
-    if (lt == Scalar || rt == Scalar) && be.op.is_set_operator() {
-        p.addParseErrf(be.range(), "set operator {} not allowed in binary scalar expression", n.op)
+    if !both_vectors {
+        if be.op.is_set_operator() {
+            p.addParseErrf(be.range(), "set operator {} not allowed in binary scalar expression", n.op)
+        }
     }
 
 

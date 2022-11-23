@@ -119,41 +119,42 @@ pub fn ifnot(left: f64, right: f64) -> f64 {
 }
 
 
-
-pub fn eval_binary_op(left: f64, right: f64, op: BinaryOp, is_bool: bool) -> f64 {
+pub(crate) fn eval_binary_op(left: f64, right: f64, op: BinaryOp, is_bool: bool) -> f64 {
     use crate::ast::BinaryOp::*;
 
-    fn fixup_comparison(left: f64, right: f64, is_bool: bool, cf: fn(left: f64, right: f64) -> bool) -> f64 {
-        if is_bool {
-            if cf(left, right) {
-                return 1.0
+    return if op.is_comparison() {
+        fn eval_cmp(left: f64, right: f64, is_bool: bool, cf: fn(left: f64, right: f64) -> bool) -> f64 {
+            if is_bool {
+                return if cf(left, right) { 1_f64 } else { 0_f64 };
             }
-            return 0.0
-        }
-        if cf(left, right) {
-            return left
-        }
-        return f64::NAN
-    }
+            return if cf(left, right) { left } else { f64::NAN }
+        };
 
-    match op {
-        Add => plus(left, right),
-        Sub => minus(left, right),
-        Mul => mul(left, right),
-        Div => div(left, right),
-        Mod => mod_(left, right),
-        Pow => pow(left, right),
-        Atan2 => atan2(left, right),
-        Eql => fixup_comparison(left, right, is_bool,eq),
-        Neq => fixup_comparison(left, right, is_bool,neq),
-        Gt => fixup_comparison(left, right, is_bool,gt),
-        Lt => fixup_comparison(left, right, is_bool, lt),
-        Gte => fixup_comparison(left, right, is_bool,gte),
-        Lte => fixup_comparison(left, right, is_bool, lte),
-        Default => default(left, right),
-        If => if_(left, right),
-        IfNot => ifnot(left, right),
-        _ => panic!("unexpected non-comparison op: {:?}", op),
+        match op {
+            Eql => eval_cmp(left, right, is_bool, eq),
+            Neq => eval_cmp(left, right, is_bool, neq),
+            Gt => eval_cmp(left, right, is_bool, gt),
+            Lt => eval_cmp(left, right, is_bool, lt),
+            Gte => eval_cmp(left, right, is_bool, gte),
+            Lte => eval_cmp(left, right, is_bool, lte),
+            _ => panic!("BUG: unexpected comparison binaryOp: {}", op)
+        }
+    } else {
+        match op {
+            Add => plus(left, right),
+            Sub => minus(left, right),
+            Mul => mul(left, right),
+            Div => div(left, right),
+            Mod => mod_(left, right),
+            Pow => pow(left, right),
+            Atan2 => atan2(left, right),
+            And | Or => left,
+            Unless => f64::NAN, // nothing to do
+            Default => default(left, right),
+            If => if_(left, right),
+            IfNot => ifnot(left, right),
+            _ => panic!("unexpected non-comparison op: {:?}", op),
+        }
     }
 }
 

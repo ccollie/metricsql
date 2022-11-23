@@ -22,7 +22,7 @@ use crate::{METRIC_NAME_LABEL, MetricName, remove_empty_series, Timeseries};
 use crate::chrono_tz::Tz;
 use crate::eval::{eval_number, eval_time, EvalConfig};
 use crate::eval::binary_op::merge_non_overlapping_timeseries;
-use crate::functions::{quantile_sorted, skip_trailing_nans};
+use crate::functions::{quantile_sorted};
 use crate::functions::rollup::{linear_regression, stddev, stdvar};
 use crate::functions::transform::utils::{get_timezone_offset, ru};
 use crate::functions::types::AnyValue;
@@ -156,6 +156,7 @@ static HANDLER_MAP: Lazy<RwLock<HashMap<TransformFunction,
     m.insert(RangeMax, boxed!(new_transform_func_range(running_max)));
     m.insert(RangeMedian, boxed!(transform_range_median));
     m.insert(RangeMin, boxed!(new_transform_func_range(running_min)));
+    m.insert(RangeNormalize, boxed!(transform_range_normalize));
     m.insert(RangeQuantile, boxed!(transform_range_quantile));
     m.insert(RangeStdDev, boxed!(transform_range_stddev));
     m.insert(RangeStdVar, boxed!(transform_range_stdvar));
@@ -401,7 +402,7 @@ fn transform_floor(v: f64) -> f64 {
 }
 
 fn transform_buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let limits = tfa.args[1].get_vector()?;
+    let limits = get_scalar(&tfa, 1)?;
 
     let mut limit: usize = 0;
     if limits.len() > 0 {
@@ -707,7 +708,7 @@ pub(crate) fn vmrange_buckets_to_le(tss: Vec<Timeseries>) -> Vec<Timeseries> {
 }
 
 fn transform_histogram_share(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let les: Vec<f64> = tfa.args[0].get_vector()?;
+    let les: Vec<f64> = get_scalar(&tfa, 0)?;
 
     // Convert buckets with `vmrange` labels to buckets with `le` labels.
     let series = get_series(tfa, 1)?;
@@ -910,6 +911,40 @@ fn stdvar_for_le_timeseries(i: usize, xss: &[LeTimeseries]) -> f64 {
     return stdvar;
 }
 
+
+fn transform_range_normalize(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    let mut rvs: Vec<Timeseries> = vec![];
+    for i in 0 .. tfa.args.len() {
+        let mut series =  get_series(tfa, i)?; // todo: get_matrix
+        for ts in series.iter_mut() {
+            let mut min = f64::INFINITY;
+            let mut max = f64::NEG_INFINITY;
+            for v in ts.values.iter() {
+                if v.is_nan() {
+                    continue;
+                }
+                if *v < min {
+                    min = *v
+                }
+                if *v > max {
+                    max = *v
+                }
+            }
+            let d = max - min;
+            if d == f64::INFINITY {
+                continue
+            }
+            for v in ts.values.iter_mut() {
+                *v = (*v - min) / d;
+            }
+            panic!("Handle this")
+            // rvs.push( std::mem::take(&mut ts))
+        }
+    }
+    Ok(rvs)
+}
+
+
 fn transform_range_linear_regression(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut series = get_series(tfa, 0)?; // todo: get_matrix
     for ts in series.iter_mut() {
@@ -1000,7 +1035,7 @@ fn transform_histogram_quantiles(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
 }
 
 fn transform_histogram_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let phis: Vec<f64> = tfa.args[0].get_vector()?;
+    let phis: Vec<f64> = get_scalar(&tfa, 0)?;
 
     // Convert buckets with `vmrange` labels to buckets with `le` labels.
     let series = get_series(tfa, 1)?;
@@ -1087,10 +1122,10 @@ fn transform_histogram_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec
 
         if bounds_label.len() > 0 {
             ts_lower = Timeseries::copy_from_shallow_timestamps(&xss[0].ts);
-            ts_lower.metric_name.replace_tag(&bounds_label, "lower");
+            ts_lower.metric_name.set_tag(&bounds_label, "lower");
 
             ts_upper = Timeseries::copy_from_shallow_timestamps(&xss[0].ts);
-            ts_upper.metric_name.replace_tag(&bounds_label, "upper");
+            ts_upper.metric_name.set_tag(&bounds_label, "upper");
         } else {
             ts_lower = Timeseries::default();
             ts_upper = Timeseries::default();
@@ -1256,7 +1291,7 @@ fn transform_range_ru(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeserie
         },
         _ => {
             let mut free_series = get_series(tfa, 0)?; // todo: get_range_vector
-            let mut max_series = get_series(tfa, 1)?; // todo: get_range_vector
+            let max_series = get_series(tfa, 1)?; // todo: get_range_vector
 
             for (free_ts, max_ts) in free_series.iter_mut().zip(max_series) {
                 // calculate utilization and store in `free`
@@ -1679,10 +1714,11 @@ fn transform_alias(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>>
 fn label_set(series: &mut Vec<Timeseries>, dst_labels: &[String], dst_values: &[String]) {
     for ts in series.iter_mut() {
         for (j, dst_label) in dst_labels.iter().enumerate() {
-            if dst_values[j].len() == 0 {
+            let value = &dst_values[j];
+            if value.len() == 0 {
                 ts.metric_name.remove_tag(&dst_label);
             } else {
-                ts.metric_name.replace_tag(dst_label, &dst_labels[j])
+                ts.metric_name.set_tag(dst_label, value)
             }
         }
     }
@@ -1715,7 +1751,7 @@ fn transform_label_value_func(
             if transformed.len() == 0 {
                 ts.metric_name.remove_tag(label);
             } else {
-                ts.metric_name.set_tag(label, &transformed);
+                ts.metric_name.set_tag(label, transformed);
             }
         }
     }
@@ -2717,7 +2753,7 @@ fn copy_timeseries_metric_names(tss: &Vec<Timeseries>, make_copy: bool) -> Cow<V
     return Cow::Owned(rvs);
 }
 
-fn get_tag_value(mn: &mut MetricName, dst_label: &str) -> String {
+fn get_tag_value(mn: &MetricName, dst_label: &str) -> String {
     match mn.get_tag_value(dst_label) {
         Some(val) => val.to_owned(),
         None => "".to_string()

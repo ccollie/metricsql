@@ -62,7 +62,7 @@ impl TimeseriesMap {
                 let values: Vec<f64> = Vec::with_capacity(1);
                 let mut ts = Timeseries::with_shared_timestamps(&timestamps, &values);
                 ts.metric_name.remove_tag(label_name);
-                ts.metric_name.set_tag(label_name, &value);
+                ts.metric_name.set_tag(label_name, value);
                 ts
             })
     }

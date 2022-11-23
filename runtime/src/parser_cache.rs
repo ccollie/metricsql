@@ -4,8 +4,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use lru_time_cache::LruCache;
 
 use metricsql::ast::Expression;
+use metricsql::ast::utils::visit_all;
 use metricsql::optimizer::optimize;
-use metricsql::parser::{ParseError, visit_all};
+use metricsql::parser::{ParseError};
 
 use crate::eval::{create_evaluator, ExprEvaluator};
 

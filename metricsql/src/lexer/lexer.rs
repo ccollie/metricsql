@@ -255,16 +255,28 @@ mod tests {
 
     #[test]
     fn number_inf() {
-        test_tokens!("inf", [Inf]);
-        test_tokens!("InF", [Inf]);
-        test_tokens!("INF", [Inf]);
+        test_tokens!("inf", [Number]);
+        test_tokens!("InF", [Number]);
+        test_tokens!("INF", [Number]);
     }
 
     #[test]
     fn number_nan() {
-        test_tokens!("nan", [NaN]);
-        test_tokens!("nAN", [NaN]);
-        test_tokens!("NAN", [NaN]);
+        test_tokens!("nan", [Number]);
+        test_tokens!("nAN", [Number]);
+        test_tokens!("NAN", [Number]);
+    }
+
+    #[test]
+    fn misc_numbers() {
+        // Numbers
+        let s = r"3+1.2-.23+4.5e5-78e-6+1.24e+45-NaN+Inf";
+        let expected = vec!["3", "+", "1.2", "-", ".23", "+", "4.5e5", "-", "78e-6", "+", "1.24e+45", "-", "NaN", "+", "Inf"];
+        test_success(s, &expected);
+
+        let s = "12.34 * 0X34 + 0b11 + 0O77";
+        let expected = vec!["12.34", "*", "0X34", "+", "0b11", "+", "0O77"];
+        test_success(s, &expected);
     }
 
     #[test_case("1.+", ErrorNumJunkAfterDecimalPoint)]
@@ -292,7 +304,7 @@ mod tests {
 
     #[test_case("by", By)]
     #[test_case("bool", Bool)]
-    #[test_case("default", Default)]
+    #[test_case("default", OpDefault)]
     #[test_case("group_left", GroupLeft)]
     #[test_case("group_right", GroupRight)]
     #[test_case("ignoring", Ignoring)]
@@ -340,6 +352,36 @@ mod tests {
     }
 
     #[test]
+    fn various_durations() {
+        // Various durations
+        test_success("m offset 123h", &["m", "offset", "123h"]);
+
+        let mut s = "m offset -1.23w-5h34.5m - 123";
+        let expected = vec!["m", "offset", "-", "1.23w-5h34.5m", "-", "123"];
+        test_success(s, &expected);
+    }
+
+    #[test_case("2k")]
+    #[test_case("2.3kb")]
+    #[test_case("3ki")]
+    #[test_case("4.5kib")]
+    #[test_case("2M")]
+    #[test_case("2.3MB")]
+    #[test_case("3mi")]
+    #[test_case("4.5Mib")]
+    #[test_case("2G")]
+    #[test_case("2.3gB")]
+    #[test_case("3Gi")]
+    #[test_case("4.5GiB")]
+    #[test_case("2T")]
+    #[test_case("2.3tb")]
+    #[test_case("3ti")]
+    #[test_case("-4.5TIB")]
+    fn number_with_unit(src: &str) {
+        test_tokens!(src, [NumberWithUnit]);
+    }
+
+    #[test]
     fn identifiers() {
         test_tokens!(
           "foo bar123",
@@ -363,9 +405,65 @@ mod tests {
     }
 
     #[test]
-    fn miscellaneeous() {
-        let mut expected: Vec<&str>;
+    fn metric_name() {
+        // Just metric name
+        test_success("metric", &["metric"]);
 
+        // Metric name with spec chars
+        test_success("foo.bar_", &["foo.bar_"]);
+    }
+
+    #[test]
+    fn metric_name_with_window() {
+        // Metric name with window
+        let s = "metric[5m]  ";
+        test_success(s, &["metric", "[", "5m", "]"]);
+    }
+
+    #[test]
+    fn metric_name_with_offset() {
+        // Metric name with offset
+        let s = "   metric offset 10d   ";
+        test_success(s, &["metric", "offset", "10d"]);
+    }
+
+    #[test]
+    fn metric_name_with_tag_filters() {
+        // Metric name with tag filters
+        let s = r#"  metric:12.34{a="foo", b != "bar", c=~ "x.+y", d !~ "zzz"}"#;
+        let expected = vec!["metric:12.34", "{", "a", "=", r#""foo""#, ",", "b",
+                        "!=", r#""bar""#, ",", "c", "=~", r#""x.+y""#, ",", "d", "!~", "zzz", "}"];
+
+        test_success(s, &expected);
+    }
+
+    #[test]
+    fn function_call() {
+        // fn call
+        let s = r#"sum  (  metric{x="y"  }  [5m] offset 10h)"#;
+        let expected = vec!["sum", "(", "metric", "{", "x", "=", "y", "}", "[", "5m", "]", "offset", "10h", ")"];
+        test_success(s, &expected);
+    }
+
+    #[test]
+    fn binary_op() {
+        // Binary op
+        let s = "a+b or c % d and e unless f";
+        let expected = vec!["a", "+", "b", "or", "c", "%", "d", "and", "e", "unless", "f"];
+        test_success(s, &expected);
+    }
+
+    #[test]
+    fn comments() {
+        let s = r"# comment # sdf
+		foobar # comment
+		baz
+		# yet another comment";
+        test_success(s, &["foobar", "baz"])
+    }
+
+    #[test]
+    fn strings() {
         // An empty string
         test_success("", &[]);
 
@@ -373,67 +471,17 @@ mod tests {
         let mut s = "  \n\t\r ";
         test_success(s, &[]);
 
-        // Just metric name
-        test_success("metric", &["metric"]);
-
-        // Metric name with spec chars
-        test_success(":foo.bar_", &[":foo.bar_"]);
-
-        // Metric name with window
-        s = "metric[5m]  ";
-        test_success(s, &["metric", "[", "5m", "]"]);
-
-        // Metric name with tag filters
-        s = r#"  metric:12.34{a="foo", b != "bar", c=~ "x.+y", d !~ "zzz"}"#;
-        expected = vec!["metric:12.34", "{", "a", "=", r#""foo""#, ",", "b",
-			"!=", r#""bar""#, ",", "c", "=~", r#""x.+y""#, ",", "d", "!~", "zzz", "}"];
-
-        test_success(s, &expected);
-
-        // Metric name with offset
-        s = "   metric offset 10d   ";
-        test_success(s, &["metric", "offset", "10d"]);
-
-        // fn call
-        s = r#"sum  (  metric{x="y"  }  [5m] offset 10h)"#;
-        expected = vec!["sum", "(", "metric", "{", "x", "=", "y", "}", "[", "5m", "]", "offset", "10h", ")"];
-        test_success(s, &expected);
-
-        // Binary op
-        s = "a+b or c % d and e unless f";
-        expected = vec!["a", "+", "b", "or", "c", "%", "d", "and", "e", "unless", "f"];
-        test_success(s, &expected);
-
-        // Numbers
-        s = r"3+1.2-.23+4.5e5-78e-6+1.24e+45-NaN+Inf";
-        expected = vec!["3", "+", "1.2", "-", ".23", "+", "4.5e5", "-", "78e-6", "+", "1.24e+45", "-", "NaN", "+", "Inf"];
-        test_success(s, &expected);
-
-        s = "12.34 * 0X34 + 0b11 + 0O77";
-        expected = vec!["12.34", "*", "0X34", "+", "0b11", "+", "0O77"];
-        test_success(s, &expected);
-
         // Strings
         let s = r#""''"#.to_owned() + "``" + r#"\\"  '\\'  "\"" '\''"\\\"\\""#;
-        expected = vec![r#""""#, "''", "``", r#"\\"", `'\\'", `"\""", `'\''" "\\\"\\"#];
+        let expected = vec![r#""""#, "''", "``", r#"\\"", `'\\'", `"\""", `'\''" "\\\"\\"#];
         test_success(&s, &expected);
+    }
 
-        // Various durations
-        test_success("m offset 123h", &["m", "offset", "123h"]);
-
-        let mut s = "m offset -1.23w-5h34.5m - 123";
-        expected = vec!["m", "offset", "-", "1.23w-5h34.5m", "-", "123"];
+    #[test]
+    fn miscellaneeous() {
+        let s = "   `foo\\\\\\`бар`  ";
+        let expected = vec!["`foo\\\\\\`бар`"];
         test_success(s, &expected);
-
-        s = "   `foo\\\\\\`бар`  ";
-        expected = vec!["`foo\\\\\\`бар`"];
-        test_success(s, &expected);
-
-        s = r"# comment # sdf
-		foobar # comment
-		baz
-		# yet another comment";
-        test_success(s, &["foobar", "baz"])
     }
 
     fn test_success(s: &str, expected_tokens: &[&str]) {

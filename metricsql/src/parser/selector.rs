@@ -3,6 +3,11 @@ use crate::lexer::{TokenKind, unescape_ident};
 use crate::parser::{Parser, ParseResult};
 use crate::parser::expr::parse_string_expr;
 
+/// parse_metric_expr parses a metric.
+///
+///		<label_set>
+///		<metric_identifier> [<label_set>]
+///
 pub fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expression> {
     let mut me= MetricExpr::default();
 
@@ -26,6 +31,10 @@ pub fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expression> {
     Ok(Expression::MetricExpression(me))
 }
 
+/// parse_label_filters parses a set of label matchers.
+///
+///		'{' [ <labelname> <match_op> <match_string>, ... ] '}'
+///
 fn parse_label_filters(p: &mut Parser) -> ParseResult<Vec<LabelFilterExpr>> {
     use TokenKind::*;
     p.expect(LeftBrace)?;

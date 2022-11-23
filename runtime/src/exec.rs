@@ -7,7 +7,8 @@ use chrono::Utc;
 
 use lib::{round_to_decimal_digits};
 use metricsql::ast::Expression;
-use metricsql::parser::visit_all;
+use metricsql::ast::utils::visit_all;
+
 
 use crate::context::Context;
 use crate::eval::{EvalConfig, Evaluator};
