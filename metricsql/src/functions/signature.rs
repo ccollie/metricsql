@@ -17,9 +17,11 @@
 
 //! Signature module contains foundational types that are used to represent signatures, types,
 //! and return types of functions in DataFusion.
-use crate::functions::data_type::DataType;
+use serde::{Deserialize, Serialize};
+
+use crate::common::ValueType;
 use crate::functions::MAX_ARG_COUNT;
-use crate::parser::ParseError;
+use crate::parser::{ParseError, ParseResult};
 
 ///A function's volatility, which defines the functions eligibility for certain optimizations
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
@@ -38,81 +40,77 @@ pub enum Volatility {
 }
 
 /// A function's type signature, which defines the function's supported argument types.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TypeSignature {
-    /// arbitrary number of arguments of an common type out of a list of valid types
+    /// arbitrary number of arguments of any common type out of a list of valid types
     /// second element is the min number of arguments
-    /// A function such as `concat` is `Variadic(vec![DataType::String, DataType::Float], 1)`
-    Variadic(Vec<DataType>, usize),
+    /// A function such as `concat` is `Variadic(vec![ValueType::String, ValueType::Float], 1)`
+    Variadic(Vec<ValueType>, usize),
     /// arbitrary number of arguments of an arbitrary but equal type, with possible minimum
     /// A function such as `array` is `VariadicEqual`
-    VariadicEqual(DataType, usize),
+    VariadicEqual(ValueType, usize),
+    /// arbitrary number of arguments of any type, with possible minimum
+    VariadicAny(usize),
     /// fixed number of arguments of an arbitrary type out of a list of valid types
-    /// A function of one argument of f64 is `Uniform(1, Float)`
-    Uniform(usize, DataType),
-    /// exact number of arguments of an exact type
-    Exact(Vec<DataType>),
+    /// A function of one argument of f64 is `Uniform(1, ValueType::Scalar)`
+    Uniform(usize, ValueType),
+    /// arguments of an exact type with an optional minimum
+    Exact(Vec<ValueType>, Option<usize>),
     /// fixed number of arguments of arbitrary types
-    Any(usize)
+    Any(usize),
 }
 
 impl TypeSignature {
     /// Validate argument counts matches the `signature`.
-    pub fn validate_arg_count(&self, name: &str, arg_len: usize) -> Result<(), ParseError> {
-
-        fn expect_arg_count(name: &str, arg_len: usize, expected: usize) -> Result<(), ParseError> {
+    pub fn validate_arg_count(&self, name: &str, arg_len: usize) -> ParseResult<()> {
+        fn expect_arg_count(name: &str, arg_len: usize, expected: usize) -> ParseResult<()> {
             if arg_len != expected {
                 return Err(ParseError::ArgumentError(format!(
-                    "The function {} expected {} arguments but received {}",
-                    name,
-                    expected,
-                    arg_len
+                    "The function {name}() expected {expected} arguments but received {arg_len}",
                 )));
             }
             Ok(())
         }
 
-        fn expect_min_args(name: &str, args_len: usize, min: usize) -> Result<(), ParseError> {
+        fn expect_min_args(name: &str, args_len: usize, min: usize) -> ParseResult<()> {
             if args_len < min {
                 return Err(ParseError::ArgumentError(format!(
-                    "The function {} expected a minimum of {} arguments but received {}",
-                    name,
-                    min,
-                    args_len
+                    "The function {name}() expected a minimum of {min} arguments but received {args_len}",
                 )));
             }
             Ok(())
         }
 
         return match self {
-            TypeSignature::VariadicEqual(_data_type_, min) => {
-                expect_min_args(name,arg_len, *min)
-            },
-            TypeSignature::Variadic(valid_types, min) => {
-                if valid_types.len() < *min || arg_len > valid_types.len() {
-                    return Err(ParseError::ArgumentError(format!(
-                        "The function {} expected between {} and {} argument, but received {}",
-                        name,
-                        min,
-                        valid_types.len(),
-                        arg_len
-                    )));
+            TypeSignature::Exact(valid_types, min) => {
+                let max = valid_types.len();
+                if let Some(min) = min {
+                    if !(*min..=max).contains(&arg_len) {
+                        return Err(ParseError::ArgumentError(format!(
+                            "The function {name}() expected between {min} and {max} arguments but received {arg_len}",
+                        )));
+                    }
+                    return Ok(());
                 }
-                Ok(())
-            },
-            TypeSignature::Uniform(number, _valid_type_) => {
-                expect_arg_count(name, arg_len, *number)
-            },
-            TypeSignature::Exact(valid_types) => {
-                expect_arg_count(name, arg_len, valid_types.len())
-            },
-            TypeSignature::Any(number) => {
-                expect_arg_count(name, arg_len, *number)
+                expect_arg_count(name, arg_len, max)
             }
+            TypeSignature::Any(min)
+            | TypeSignature::Uniform(min, _)
+            | TypeSignature::VariadicEqual(_, min)
+            | TypeSignature::Variadic(_, min)
+            | TypeSignature::VariadicAny(min) => expect_min_args(name, arg_len, *min),
+        };
+    }
+
+    pub fn is_variadic(&self) -> bool {
+        match self {
+            TypeSignature::Variadic(_, _) => true,
+            TypeSignature::VariadicEqual(_, _) => true,
+            TypeSignature::VariadicAny(_) => true,
+            _ => false,
         }
     }
 }
-
 
 ///The Signature of a function defines its supported input types as well as its volatility.
 #[derive(Debug, Clone, PartialEq, Hash)]
@@ -133,7 +131,7 @@ impl Signature {
     }
 
     /// variadic - Creates a variadic signature that represents an arbitrary number of arguments all from a type in common_types.
-    pub fn variadic(common_types: Vec<DataType>, volatility: Volatility) -> Self {
+    pub fn variadic(common_types: Vec<ValueType>, volatility: Volatility) -> Self {
         Self {
             type_signature: TypeSignature::Variadic(common_types, 0),
             volatility,
@@ -141,7 +139,7 @@ impl Signature {
     }
 
     /// variadic - Creates a variadic signature that represents an arbitrary number of arguments all from a type in common_types.
-    pub fn variadic_min(common_types: Vec<DataType>, min: usize, volatility: Volatility) -> Self {
+    pub fn variadic_min(common_types: Vec<ValueType>, min: usize, volatility: Volatility) -> Self {
         Self {
             type_signature: TypeSignature::Variadic(common_types, min),
             volatility,
@@ -149,7 +147,7 @@ impl Signature {
     }
 
     /// variadic_equal - Creates a variadic signature that represents an arbitrary number of arguments of the same type.
-    pub fn variadic_equal(valid_type: DataType, min: usize, volatility: Volatility) -> Self {
+    pub fn variadic_equal(valid_type: ValueType, min: usize, volatility: Volatility) -> Self {
         Self {
             type_signature: TypeSignature::VariadicEqual(valid_type, min),
             volatility,
@@ -157,11 +155,7 @@ impl Signature {
     }
 
     /// uniform - Creates a signature with a fixed number of arguments of the same type, which must be from valid_types.
-    pub fn uniform(
-        arg_count: usize,
-        valid_type: DataType,
-        volatility: Volatility,
-    ) -> Self {
+    pub fn uniform(arg_count: usize, valid_type: ValueType, volatility: Volatility) -> Self {
         Self {
             type_signature: TypeSignature::Uniform(arg_count, valid_type),
             volatility,
@@ -169,17 +163,40 @@ impl Signature {
     }
 
     /// exact - Creates a signature which must match the types in exact_types in order.
-    pub fn exact(exact_types: Vec<DataType>, volatility: Volatility) -> Self {
+    pub fn exact(exact_types: Vec<ValueType>, volatility: Volatility) -> Self {
         Signature {
-            type_signature: TypeSignature::Exact(exact_types),
+            type_signature: TypeSignature::Exact(exact_types, None),
             volatility,
         }
     }
 
-    /// any - Creates a signature which can a be made of any type but of a specified number
+    /// exact - Creates a signature which must match the types in exact_types in order, but with
+    /// an minimum number of args.
+    pub fn exact_with_min_args(
+        exact_types: Vec<ValueType>,
+        min: usize,
+        volatility: Volatility,
+    ) -> Self {
+        // todo: panic if out of range
+        let min_arg = min.clamp(0, exact_types.len());
+        Signature {
+            type_signature: TypeSignature::Exact(exact_types, Some(min_arg)),
+            volatility,
+        }
+    }
+
+    /// any - Creates a signature which can a be made of any type but of a fixed number
     pub fn any(arg_count: usize, volatility: Volatility) -> Self {
         Signature {
             type_signature: TypeSignature::Any(arg_count),
+            volatility,
+        }
+    }
+
+    /// variadic_any - creates a variadic signature that represents an arbitrary number of arguments of any type.
+    pub fn variadic_any(min_arg_count: usize, volatility: Volatility) -> Self {
+        Signature {
+            type_signature: TypeSignature::VariadicAny(min_arg_count),
             volatility,
         }
     }
@@ -189,23 +206,82 @@ impl Signature {
         self.type_signature.validate_arg_count(name, arg_len)
     }
 
-    pub fn expand_types(&self) -> (Vec<DataType>, usize) {  // todo: also return min count
+    pub fn expand_types(&self) -> (Vec<ValueType>, usize) {
+        // todo: also return min count
         match &self.type_signature {
-            TypeSignature::Variadic(types, min) => {
-                (types.clone(), *min)
-            }
-            TypeSignature::VariadicEqual(data_type, min) => {
-                (vec![*data_type;MAX_ARG_COUNT], *min)
-            }
-            TypeSignature::Uniform(count, data_type) => {
-                (vec![*data_type;MAX_ARG_COUNT], *count)
-            }
-            TypeSignature::Exact(types) => {
-                (types.clone(), types.len())
+            TypeSignature::Variadic(types, min) => (types.clone(), *min),
+            TypeSignature::VariadicEqual(data_type, min) => (vec![*data_type; MAX_ARG_COUNT], *min),
+            TypeSignature::Uniform(count, data_type) => (vec![*data_type; MAX_ARG_COUNT], *count),
+            TypeSignature::Exact(types, min) => (types.clone(), min.unwrap_or(types.len())),
+            TypeSignature::VariadicAny(min) => {
+                (vec![ValueType::InstantVector; MAX_ARG_COUNT], *min)
             }
             TypeSignature::Any(count) => {
-                (vec![DataType::InstantVector; *count], *count) // TODO:: !!!! have a Datatype::Any
+                (vec![ValueType::InstantVector; *count], *count) // TODO:: !!!! have a ValueType::Any
             }
+        }
+    }
+
+    pub fn types(&self) -> TypeIterator<'_> {
+        TypeIterator::new(self)
+    }
+}
+
+pub struct TypeIterator<'a> {
+    signature: &'a Signature,
+    arg_index: usize,
+}
+
+impl<'a> Iterator for TypeIterator<'a> {
+    type Item = ValueType;
+
+    fn next(&mut self) -> Option<ValueType> {
+        use TypeSignature::*;
+
+        match &self.signature.type_signature {
+            Variadic(types, _min) => {
+                if self.arg_index < types.len() {
+                    self.arg_index += 1;
+                    Some(types[self.arg_index - 1].clone())
+                } else {
+                    Some(types[types.len() - 1].clone())
+                }
+            }
+            VariadicEqual(data_type, _) => Some(*data_type),
+            Uniform(count, data_type) => {
+                if self.arg_index < *count {
+                    self.arg_index += 1;
+                    Some(*data_type)
+                } else {
+                    None
+                }
+            }
+            Exact(types, _) => {
+                if self.arg_index < types.len() {
+                    self.arg_index += 1;
+                    Some(types[self.arg_index - 1].clone())
+                } else {
+                    None
+                }
+            }
+            VariadicAny(count) | Any(count) => {
+                if self.arg_index < *count {
+                    self.arg_index += 1;
+                    // ?? TODO: !!!! have a ValueType::Any
+                    Some(ValueType::InstantVector)
+                } else {
+                    None
+                }
+            }
+        }
+    }
+}
+
+impl<'a> TypeIterator<'a> {
+    pub fn new(signature: &'a Signature) -> Self {
+        Self {
+            signature,
+            arg_index: 0,
         }
     }
 }

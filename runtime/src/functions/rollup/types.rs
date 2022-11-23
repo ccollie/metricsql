@@ -2,16 +2,14 @@ use std::cell::RefCell;
 use std::fmt::{Debug, Formatter};
 use std::rc::Rc;
 use std::sync::Arc;
-use std::task::Context;
+
 use clone_dyn::clone_dyn;
-use crate::eval::arg_list::ArgList;
-use crate::{EvalConfig, RuntimeResult};
 
 use crate::functions::rollup::TimeseriesMap;
-use crate::functions::types::AnyValue;
-use crate::traits::Timestamp;
+use crate::types::Timestamp;
+use crate::{EvalConfig, QueryValue, RuntimeResult};
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 pub struct RollupFuncArg {
     /// The value preceding values if it fits staleness interval.
     pub(super) prev_value: f64,
@@ -58,7 +56,6 @@ impl RollupFuncArg {
     }
 }
 
-
 pub(crate) type RollupFunc = fn(rfa: &mut RollupFuncArg) -> f64;
 
 #[clone_dyn]
@@ -71,20 +68,21 @@ pub trait RollupFn: Fn(&mut RollupFuncArg) -> f64 + Send + Sync {}
 impl<T> RollupFn for T where T: Fn(&mut RollupFuncArg) -> f64 + Send + Sync {}
 
 #[clone_dyn]
-pub(crate) trait NewRollupFn: Fn(&Vec<AnyValue>) -> Arc<dyn RollupFn> {}
+pub(crate) trait NewRollupFn:
+    Fn(&Vec<QueryValue>, &EvalConfig) -> Arc<dyn RollupFn>
+{
+}
 
-impl<T> NewRollupFn for T where T: Fn(&Vec<AnyValue>) -> Arc<dyn RollupFn> {}
+impl<T> NewRollupFn for T where T: Fn(&Vec<QueryValue>, &EvalConfig) -> Arc<dyn RollupFn> {}
 
 pub(crate) trait RollupHandler {
-    fn init(&mut self, _args: &[AnyValue]) {
-
-    }
+    fn init(&mut self, _args: &[QueryValue]) {}
     fn eval(&self, arg: &mut RollupFuncArg) -> f64;
 }
 
 impl<F> RollupHandler for F
-    where
-        F: Fn(&mut RollupFuncArg) -> f64 + Send + Sync,
+where
+    F: Fn(&mut RollupFuncArg) -> f64 + Send + Sync,
 {
     fn eval(&self, arg: &mut RollupFuncArg) -> f64 {
         self(arg)
@@ -121,40 +119,17 @@ impl RollupHandler for FakeRollupHandler {
     }
 }
 
-pub(crate) struct StandardRollupHandler {
-    rf: Arc<dyn RollupFn<Output=f64>>,
-    args: ArgList,
-    nrf: RollupHandlerFactory,
-}
-
-impl StandardRollupHandler {
-    pub fn eval(&self, _ctx: &Arc<&Context>, _ec: &EvalConfig) {
-        todo!()
-    }
-}
-
-impl RollupHandler for StandardRollupHandler {
-    fn init(&mut self, _args: &[AnyValue]) {
-        todo!()
-    }
-
-    fn eval(&self, _: &mut RollupFuncArg) -> f64 {
-        todo!()
-    }
-}
-
 #[derive(Clone)]
 pub(crate) enum RollupHandlerEnum {
     Wrapped(RollupFunc),
     Fake(&'static str),
-    General(Box<dyn RollupFn<Output=f64>>),
+    General(Box<dyn RollupFn<Output = f64>>),
 }
 
 impl RollupHandlerEnum {
     pub fn wrap(f: RollupFunc) -> Self {
         RollupHandlerEnum::Wrapped(f)
     }
-
     pub fn fake(name: &'static str) -> Self {
         RollupHandlerEnum::Fake(name)
     }
@@ -166,10 +141,11 @@ impl RollupHandler for RollupHandlerEnum {
             RollupHandlerEnum::Wrapped(wrapped) => wrapped(arg),
             RollupHandlerEnum::Fake(name) => {
                 panic!("BUG: {} shouldn't be called", name);
-            },
-            RollupHandlerEnum::General(df) => df(arg)
+            }
+            RollupHandlerEnum::General(df) => df(arg),
         }
     }
 }
 
-pub(crate) type RollupHandlerFactory = fn(&Vec<AnyValue>) -> RuntimeResult<RollupHandlerEnum>;
+pub(crate) type RollupHandlerFactory =
+    fn(&Vec<QueryValue>, &EvalConfig) -> RuntimeResult<RollupHandlerEnum>;

@@ -3,13 +3,13 @@ mod tests {
     use std::collections::BTreeMap;
     use std::sync::atomic::{AtomicU64, Ordering};
 
-    use rayon::iter::{IntoParallelRefMutIterator};
+    use rayon::iter::IntoParallelRefMutIterator;
+
+    use metricsql::ast::AggregationExpr;
+
+    use crate::functions::aggregate::IncrementalAggrFuncContext;
     use crate::rayon::iter::ParallelIterator;
-
-    use metricsql::ast::AggrFuncExpr;
-
     use crate::{compare_values, RuntimeError, RuntimeResult, Timeseries};
-    use crate::functions::aggregate::{get_incremental_aggr_func_callbacks, IncrementalAggrFuncContext};
 
     const NAN: f64 = f64::NAN;
 
@@ -21,11 +21,14 @@ mod tests {
         [7.0, NAN, 8.0, 9.0],
         [4.0, NAN, NAN, NAN],
         [2.0, NAN, 3.0, 2.0],
-        [0.0, NAN, 1.0, 1.0]
+        [0.0, NAN, 1.0, 1.0],
     ];
 
     fn copy_timeseries(source: &[Timeseries]) -> Vec<Timeseries> {
-        source.iter().map(|x| x.clone()).collect::<Vec<Timeseries>>()
+        source
+            .iter()
+            .map(|x| x.clone())
+            .collect::<Vec<Timeseries>>()
     }
 
     fn make_source_timeseries() -> Vec<Timeseries> {
@@ -39,19 +42,18 @@ mod tests {
 
     fn test_incremental(name: &str, values_expected: &[f64]) {
         let tss_src = make_source_timeseries();
-        let callbacks = get_incremental_aggr_func_callbacks(name).unwrap();
-        let ae = AggrFuncExpr::from_name(name)
+        let ae = AggregationExpr::from_name(name)
             .expect(format!("{} is an invalid aggregate function", name).as_str());
-        let tss_expected = [
-            Timeseries::new(DEFAULT_TIMESTAMPS.to_vec(), Vec::from(values_expected))
-        ];
+        let tss_expected = [Timeseries::new(
+            DEFAULT_TIMESTAMPS.to_vec(),
+            Vec::from(values_expected),
+        )];
 
         // run the test multiple times to make sure there are no side effects on concurrency
         (0..10).for_each(move |i| {
-            let mut iafc = IncrementalAggrFuncContext::new(&ae, callbacks);
+            let mut iafc = IncrementalAggrFuncContext::new(&ae).unwrap();
             let mut tss_src_copy = copy_timeseries(&tss_src);
-            match test_incremental_parallel_aggr(
-                &mut iafc, &mut tss_src_copy, &tss_expected) {
+            match test_incremental_parallel_aggr(&mut iafc, &mut tss_src_copy, &tss_expected) {
                 Err(err) => panic!("unexpected error on iteration {}: {:?}", i, err),
                 _ => {}
             }
@@ -100,44 +102,60 @@ mod tests {
         test_incremental("geomean", &values_expected)
     }
 
-    fn test_incremental_parallel_aggr(iafc: &mut IncrementalAggrFuncContext,
-                                      tss_src: &mut [Timeseries],
-                                      tss_expected: &[Timeseries]) -> RuntimeResult<()> {
+    fn test_incremental_parallel_aggr(
+        iafc: &mut IncrementalAggrFuncContext,
+        tss_src: &mut [Timeseries],
+        tss_expected: &[Timeseries],
+    ) -> RuntimeResult<()> {
         let worker_id: AtomicU64 = AtomicU64::new(1);
         tss_src.par_iter_mut().for_each(|ts| {
             let id = worker_id.fetch_add(1, Ordering::SeqCst);
             iafc.update_timeseries(ts, id).expect("TODO: panic message");
         });
-        let tss_actual = iafc.finalize_timeseries();
+        let tss_actual = iafc.finalize();
 
         match expect_timeseries_equal(&tss_actual, tss_expected) {
             Err(err) => {
-                let msg = format!("{:?}; tssActual={:?}, tss_expected={:?}",
-                                  err, tss_actual, tss_expected);
+                let msg = format!(
+                    "{:?}; tssActual={:?}, tss_expected={:?}",
+                    err, tss_actual, tss_expected
+                );
                 Err(RuntimeError::from(msg))
             }
-            _ => Ok(())
+            _ => Ok(()),
         }
     }
 
-    fn expect_timeseries_equal(actual: &[Timeseries], expected: &[Timeseries]) -> RuntimeResult<()> {
+    fn expect_timeseries_equal(
+        actual: &[Timeseries],
+        expected: &[Timeseries],
+    ) -> RuntimeResult<()> {
         if actual.len() != expected.len() {
-            let msg = format!("unexpected number of time series; got {}; want {}",
-                              actual.len(), expected.len());
+            let msg = format!(
+                "unexpected number of time series; got {}; want {}",
+                actual.len(),
+                expected.len()
+            );
             return Err(RuntimeError::from(msg));
         }
         let m_actual = timeseries_to_map(actual);
         let m_expected = timeseries_to_map(expected);
         if m_actual.len() != m_expected.len() {
-            let msg = format!("unexpected number of time series after converting to map; got {}; want {}",
-                              m_actual.len(), m_expected.len());
+            let msg = format!(
+                "unexpected number of time series after converting to map; got {}; want {}",
+                m_actual.len(),
+                m_expected.len()
+            );
             return Err(RuntimeError::from(msg));
         }
 
         for (k, ts_expected) in m_expected.iter() {
             let ts_actual = m_actual.get(k);
             if ts_actual.is_none() {
-                return Err(RuntimeError::from(format!("missing time series for key={}", k)));
+                return Err(RuntimeError::from(format!(
+                    "missing time series for key={}",
+                    k
+                )));
             }
             expect_ts_equal(&ts_actual.unwrap(), ts_expected)?;
         }
@@ -157,20 +175,24 @@ mod tests {
         let mn_actual = actual.metric_name.to_string();
         let mn_expected = expected.metric_name.to_string();
         if mn_actual != mn_expected {
-            return Err(RuntimeError::from(
-                format!("unexpected metric name; got {}; want {}", mn_actual, mn_expected)
-            ));
+            return Err(RuntimeError::from(format!(
+                "unexpected metric name; got {}; want {}",
+                mn_actual, mn_expected
+            )));
         }
         if actual.timestamps != expected.timestamps {
-            let msg = format!("unexpected timestamps; got {:?}; want {:?}",
-                              &actual.timestamps, &expected.timestamps);
+            let msg = format!(
+                "unexpected timestamps; got {:?}; want {:?}",
+                &actual.timestamps, &expected.timestamps
+            );
             return Err(RuntimeError::from(msg));
         }
         match compare_values(&actual.values, &expected.values) {
             Err(err) => {
-                let msg = format!("{:?}; actual {:?}; expected {:?}", err,
-                                  &actual.values,
-                                  &expected.values);
+                let msg = format!(
+                    "{:?}; actual {:?}; expected {:?}",
+                    err, &actual.values, &expected.values
+                );
                 return Err(RuntimeError::from(msg));
             }
             _ => {}

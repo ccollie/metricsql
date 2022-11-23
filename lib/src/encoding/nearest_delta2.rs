@@ -1,8 +1,8 @@
 use crate::encoding::encoding::check_precision_bits;
-use crate::encoding::int::{get_int64s, marshal_var_int, marshal_var_int_array};
-use crate::encoding::nearest_delta::{get_trailing_zeros, nearest_delta};
+use crate::encoding::int::{marshal_var_int, marshal_var_int_array};
+use crate::encoding::nearest_delta::{get_trailing_zeros, nearest_delta, unmarshal_varint_list};
 use crate::error::Error;
-use crate::unmarshal_var_int;
+use crate::get_pooled_vec_i64;
 
 /// marshal_int64_nearest_delta2 encodes src using `nearest delta2` encoding
 /// with the given precision_bits and appends the encoded value to dst.
@@ -30,13 +30,9 @@ pub fn marshal_int64_nearest_delta2(
     let mut v = src[1];
     let src = &src[2..];
 
-    let block_len = if src.len() < 64 {
-        64
-    } else {
-        src.len()
-    };
+    let block_len = if src.len() < 64 { 64 } else { src.len() };
 
-    let mut is = get_int64s(block_len);
+    let mut is = get_pooled_vec_i64(block_len);
     if precision_bits == 64 {
         // Fast path.
         for next in src {
@@ -61,7 +57,7 @@ pub fn marshal_int64_nearest_delta2(
     Ok(first_value)
 }
 
-/// unmarshal_int64nearest_delta2 decodes src using `nearest delta2` encoding,
+/// unmarshal_int64_nearest_delta2 decodes src using `nearest delta2` encoding,
 /// appends the result to dst and returns the appended result.
 ///
 /// first_value must be the value returned from marshal_int64nearest_delta2.
@@ -78,33 +74,19 @@ pub fn unmarshal_int64_nearest_delta2(
         )));
     }
 
-    let is = get_int64s(items_count - 1);
+    let mut is = get_pooled_vec_i64(items_count);
+    unmarshal_varint_list(&mut is, src, "nearest delta2")?;
 
-    return match unmarshal_var_int::<i64>(src) {
-        Err(err) => Err(Error::from(format!(
-            "cannot unmarshal nearest delta from {} bytes; {}",
-            src.len(),
-            err
-        ))),
-        Ok((_, tail)) => {
-            if !tail.is_empty() {
-                return Err(
-                    Error::from(
-                        format!("unexpected tail left after unmarshalling {} items from {} bytes; tail size={}; src={:?}; tail={:?}",
-                        items_count, src.len(), tail.len(), src, tail)));
-            }
-            let mut v = first_value;
-            let mut d1 = is[0];
-            dst.push(v);
-            v += d1;
-            dst.push(v);
-            for i in 1..is.len() {
-                let d2 = is[i];
-                d1 += d2;
-                v += d1;
-                dst.push(v)
-            }
-            Ok(())
-        }
-    };
+    let mut v = first_value;
+    let mut d1 = is[0];
+    dst.push(v);
+    v += d1;
+    dst.push(v);
+    for i in 1..is.len() {
+        let d2 = is[i];
+        d1 += d2;
+        v += d1;
+        dst.push(v)
+    }
+    Ok(())
 }

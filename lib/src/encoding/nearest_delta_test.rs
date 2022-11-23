@@ -28,28 +28,47 @@ mod tests {
         check_marshal_unmarshal_i64(&[-500, -600, -700, -800, -890], 8, -500, "c701c701c701af01");
     }
 
-    fn check_marshal_unmarshal_i64(va: &[i64], precision_bits: u8, first_value_expected: i64, b_expected: &str) {
+    fn check_marshal_unmarshal_i64(
+        va: &[i64],
+        precision_bits: u8,
+        first_value_expected: i64,
+        b_expected: &str,
+    ) {
         let mut b: Vec<u8> = vec![];
-        let first_value = marshal_int64_nearest_delta(&mut b, va, precision_bits).expect("marshal_int64_nearest_delta");
-        assert_eq!(first_value, first_value_expected, "unexpected first_value for va={:?}, precision_bits={}; got {}; want {}",
-                   va, precision_bits, first_value, first_value_expected);
+        let first_value = marshal_int64_nearest_delta(&mut b, va, precision_bits)
+            .expect("marshal_int64_nearest_delta");
+        assert_eq!(
+            first_value, first_value_expected,
+            "unexpected first_value for va={:?}, precision_bits={}; got {}; want {}",
+            va, precision_bits, first_value, first_value_expected
+        );
 
-        assert_eq!(&b, b_expected.as_bytes(),
-                   "invalid marshaled data for va={:?}, precision_bits={}; got\n{:?}; expecting\n{}",
-                   va, precision_bits, b, b_expected);
+        assert_eq!(
+            &b,
+            b_expected.as_bytes(),
+            "invalid marshaled data for va={:?}, precision_bits={}; got\n{:?}; expecting\n{}",
+            va,
+            precision_bits,
+            b,
+            b_expected
+        );
 
         let prefix = b"foobar".as_slice();
         let mut b: Vec<u8> = Vec::from(prefix);
         let first_value = marshal_int64_nearest_delta(&mut b, va, precision_bits)
             .expect("marshal_int64_nearest_delta");
-        assert_eq!(first_value, first_value_expected,
-                   "unexpected first_value for va={:?}, precision_bits={}; got {}; want {}",
-                   va, precision_bits, first_value, first_value_expected);
+        assert_eq!(
+            first_value, first_value_expected,
+            "unexpected first_value for va={:?}, precision_bits={}; got {}; want {}",
+            va, precision_bits, first_value, first_value_expected
+        );
 
         let new_prefix = &b[0..prefix.len()];
-        assert_eq!(new_prefix, prefix,
-                   "invalid prefix for va={:?}, precision_bits={}; got\n{:?}; expecting\n{:?}",
-                   va, precision_bits, new_prefix, prefix);
+        assert_eq!(
+            new_prefix, prefix,
+            "invalid prefix for va={:?}, precision_bits={}; got\n{:?}; expecting\n{:?}",
+            va, precision_bits, new_prefix, prefix
+        );
 
         let suffix = &b[prefix.len()..];
         assert_eq!(suffix, b_expected.as_bytes(),
@@ -64,7 +83,7 @@ mod tests {
             -6e12 as i64,
             -7e12 as i64,
             -8e12 as i64,
-            -8.9e12 as i64
+            -8.9e12 as i64,
         );
         let v = -5.6e12 as i64;
         check_int64_nearest_delta(&[0], 4);
@@ -156,29 +175,29 @@ mod tests {
 
     fn check_int64_nearest_delta(va: &[i64], precision_bits: u8) {
         let mut b: Vec<u8> = vec![];
+
         let first_value = marshal_int64_nearest_delta(&mut b, va, precision_bits)
             .expect("marshal_int64_nearest_delta");
 
         let mut va_new: Vec<i64> = vec![];
         match unmarshal_int64_nearest_delta(&mut va_new, &b, first_value, va.len()) {
             Err(err) => {
-                panic!("cannot unmarshal data for va={:?}, precision_bits={} from b={:?}: {:?}", va, precision_bits, b, err)
+                panic!(
+                    "cannot unmarshal data for va={:?}, precision_bits={} from b={:?}: {:?}",
+                    va, precision_bits, b, err
+                )
             }
             Ok(_) => {
-                match check_precision_bits(&va_new, va, precision_bits) {
-                    Err(err) => {
-                        panic!("too small precision_bits for va={:?}, precision_bits={}: {:?}, va_new=\n{:?}",
-                               va, precision_bits, err, va_new)
-                    }
-                    Ok(_) => {}
+                if let Err(err) = check_precision_bits(&va_new, va, precision_bits) {
+                    panic!("too small precision_bits for va={:?}, precision_bits={}: {:?}, va_new=\n{:?}",
+                           va, precision_bits, err, va_new)
                 }
             }
         }
 
-
         let va_prefix = [1, 2, 3, 4];
-        let mut vaNew: Vec<i64> = Vec::from(va_prefix);
-        match unmarshal_int64_nearest_delta(&mut vaNew, &b, first_value, va.len()) {
+        let mut va_new: Vec<i64> = Vec::from(va_prefix);
+        match unmarshal_int64_nearest_delta(&mut va_new, &b, first_value, va.len()) {
             Ok(_) => {}
             Err(err) => {
                 panic!("cannot unmarshal prefixed data for va={:?}, precision_bits={} from b={:?}: {:?}",
@@ -186,26 +205,26 @@ mod tests {
             }
         }
 
-        let prefix = &vaNew[0..va_prefix.len()];
-        assert_eq!(prefix, va_prefix,
-                   "unexpected prefix for va={:?}, precision_bits={}: got\n{:?}; expecting\n{:?}",
-                   va, precision_bits, prefix, va_prefix);
+        let prefix = &va_new[0..va_prefix.len()];
+        assert_eq!(
+            prefix, va_prefix,
+            "unexpected prefix for va={:?}, precision_bits={}: got\n{:?}; expecting\n{:?}",
+            va, precision_bits, prefix, va_prefix
+        );
 
-        let suffix = &vaNew[va_prefix.len()..];
-        match check_precision_bits(suffix, va, precision_bits) {
-            Err(err) => {
-                panic!("too small precision_bits for va={:?}, precision_bits={}: {:?}, va_new=\n{:?}",
-                       va, precision_bits, err, suffix)
-            }
-            _ => {}
+        let suffix = &va_new[va_prefix.len()..];
+        if let Err(err) = check_precision_bits(suffix, va, precision_bits) {
+            panic!(
+                "too small precision_bits for va={:?}, precision_bits={}: {:?}, va_new=\n{:?}",
+                va, precision_bits, err, suffix
+            )
         }
 
-        match check_precision_bits(&vaNew, va, precision_bits) {
-            Err(err) => {
-                panic!("too small precision_bits for va={:?}, precision_bits={}: {:?}, va_new=\n{:?}", va,
-                       precision_bits, err, vaNew)
-            }
-            Ok(_) => {}
+        if let Err(err) = check_precision_bits(&va_new, va, precision_bits) {
+            panic!(
+                "too small precision_bits for va={:?}, precision_bits={}: {:?}, va_new=\n{:?}",
+                va, precision_bits, err, va_new
+            )
         }
     }
 }

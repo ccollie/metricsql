@@ -1,138 +1,149 @@
-
 //! AggregateFunction module contains enum for available aggregation AggregateFunctions.
 
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 use phf::phf_map;
+use serde::{Deserialize, Serialize};
+use strum_macros::EnumIter;
 
-use crate::ast::ReturnValue;
-use crate::functions::data_type::DataType;
-use crate::functions::MAX_ARG_COUNT;
+use crate::common::ValueType;
 use crate::functions::signature::{Signature, Volatility};
+use crate::functions::MAX_ARG_COUNT;
 use crate::parser::ParseError;
-use serde::{Serialize, Deserialize};
 
 /// Aggregation AggregateFunctions
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Hash, EnumIter, Serialize, Deserialize)]
 pub enum AggregateFunction {
-  /// calculate sum over dimensions
-  Sum,
-  /// calculate minimum over dimensions
-  Min,
-  /// calculate maximum over dimensions
-  Max,
-  /// calculate the average over dimensions
-  Avg,
-  /// calculate population standard deviation over dimensions
-  StdDev,
-  /// calculate population standard variance over dimensions
-  StdVar,
-  /// count the number of elements in the vector
-  Count,
-  /// count the number of elements with the same value
-  CountValues,
-  /// smallest k elements by sample value
-  Bottomk,
-  /// largest k elements by sample value
-  Topk,
-  /// calculate φ-quantile (0 ≤ φ ≤ 1) over dimensions
-  Quantile,
-  Quantiles,
-  Group,
+    /// calculate sum over dimensions
+    Sum,
+    /// calculate minimum over dimensions
+    Min,
+    /// calculate maximum over dimensions
+    Max,
+    /// calculate the average over dimensions
+    Avg,
+    /// calculate population standard deviation over dimensions
+    StdDev,
+    /// calculate population standard variance over dimensions
+    StdVar,
+    /// count the number of elements in the vector
+    Count,
+    /// count the number of elements with the same value
+    CountValues,
+    /// smallest k elements by sample value
+    Bottomk,
+    /// largest k elements by sample value
+    Topk,
+    /// calculate φ-quantile (0 ≤ φ ≤ 1) over dimensions
+    Quantile,
+    Quantiles,
+    Group,
 
-  // PromQL extension funcs
-  Median,
-  MAD,
-  Limitk,
-  Distinct,
-  Sum2,
-  GeoMean,
-  Histogram,
-  TopkMin,
-  TopkMax,
-  TopkAvg,
-  TopkLast,
-  TopkMedian,
-  BottomkMin,
-  BottomkMax,
-  BottomkAvg,
-  BottomkLast,
-  BottomkMedian,
-  /// any(q) by (group_labels) returns a single series per group_labels out of time series returned by q.
-  /// See also group.
-  Any,
-  Outliersk,
-  OutliersMAD,
-  Mode,
-  ZScore
+    // PromQL extension funcs
+    Median,
+    MAD,
+    Limitk,
+    Distinct,
+    Sum2,
+    GeoMean,
+    Histogram,
+    TopkMin,
+    TopkMax,
+    TopkAvg,
+    TopkLast,
+    TopkMedian,
+    BottomkMin,
+    BottomkMax,
+    BottomkAvg,
+    BottomkLast,
+    BottomkMedian,
+    /// any(q) by (group_labels) returns a single series per group_labels out of time series returned by q.
+    /// See also group.
+    Any,
+    Outliersk,
+    OutliersMAD,
+    Mode,
+    Share,
+    ZScore,
 }
 
 impl AggregateFunction {
-  pub fn signature(&self) -> Signature {
-    aggregate_function_signature(self)
-  }
+    pub fn signature(&self) -> Signature {
+        aggregate_function_signature(self)
+    }
 
-  pub fn sorts_results(&self) -> bool {
-    use AggregateFunction::*;
-    matches!(self,
-        Topk | Bottomk | Outliersk |  TopkMax | TopkMin | TopkAvg |
-        TopkMedian | TopkLast | BottomkMax |
-        BottomkMin | BottomkAvg | BottomkMedian | BottomkLast
-    )
-  }
+    pub const fn may_sort_results(&self) -> bool {
+        use AggregateFunction::*;
+        matches!(
+            self,
+            Topk | Bottomk
+                | Outliersk
+                | TopkMax
+                | TopkMin
+                | TopkAvg
+                | TopkMedian
+                | TopkLast
+                | BottomkMax
+                | BottomkMin
+                | BottomkAvg
+                | BottomkMedian
+                | BottomkLast
+        )
+    }
 
-  pub fn name(&self) -> String {
-    self.to_string()
-  }
+    pub const fn name(&self) -> &'static str {
+        use AggregateFunction::*;
 
-  pub fn return_type(&self) -> ReturnValue {
-    ReturnValue::InstantVector
-  }
+        match self {
+            Sum => "sum",
+            Min => "min",
+            Max => "max",
+            Avg => "avg",
+            StdDev => "stddev",
+            StdVar => "stdvar",
+            Count => "count",
+            CountValues => "count_values",
+            Bottomk => "bottomk",
+            Topk => "topk",
+            Quantile => "quantile",
+            Quantiles => "quantiles",
+            Group => "group",
+            Median => "median",
+            MAD => "mad",
+            Limitk => "limitk",
+            Distinct => "distinct",
+            Sum2 => "sum2",
+            GeoMean => "geomean",
+            Histogram => "histogram",
+            TopkMin => "topk_min",
+            TopkMax => "topk_max",
+            TopkAvg => "topk_avg",
+            TopkLast => "topk_last",
+            TopkMedian => "topk_median",
+            BottomkMin => "bottomk_min",
+            BottomkMax => "bottomk_max",
+            BottomkAvg => "bottomk_avg",
+            BottomkLast => "bottomk_last",
+            BottomkMedian => "bottomk_median",
+            Any => "any",
+            Outliersk => "outliersk",
+            OutliersMAD => "outliers_mad",
+            Mode => "mode",
+            Share => "share",
+            ZScore => "score",
+        }
+    }
+
+    pub fn return_type(&self) -> ValueType {
+        ValueType::InstantVector
+    }
 }
 
 impl Display for AggregateFunction {
-  fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-    let display = match self {
-      AggregateFunction::Sum => "sum",
-      AggregateFunction::Min => "min",
-      AggregateFunction::Max => "max",
-      AggregateFunction::Avg => "avg",
-      AggregateFunction::StdDev => "stddev",
-      AggregateFunction::StdVar => "stdvar",
-      AggregateFunction::Count => "count",
-      AggregateFunction::CountValues => "count_values",
-      AggregateFunction::Bottomk => "bottomk",
-      AggregateFunction::Topk => "topk",
-      AggregateFunction::Quantile => "quantile",
-      AggregateFunction::Quantiles => "quantiles",
-      AggregateFunction::Group => "group",
-      AggregateFunction::Median => "median",
-      AggregateFunction::MAD => "mad",
-      AggregateFunction::Limitk => "limitk",
-      AggregateFunction::Distinct => "distinct",
-      AggregateFunction::Sum2 => "sum2",
-      AggregateFunction::GeoMean => "geomean",
-      AggregateFunction::Histogram => "histogram",
-      AggregateFunction::TopkMin => "topk_min",
-      AggregateFunction::TopkMax => "topk_max",
-      AggregateFunction::TopkAvg => "topk_avg",
-      AggregateFunction::TopkLast => "topk_last",
-      AggregateFunction::TopkMedian => "topk_median",
-      AggregateFunction::BottomkMin => "bottomk_min",
-      AggregateFunction::BottomkMax => "bottomk_max",
-      AggregateFunction::BottomkAvg => "bottomk_avg",
-      AggregateFunction::BottomkLast => "bottomk_last",
-      AggregateFunction::BottomkMedian => "bottomk_median",
-      AggregateFunction::Any => "any",
-      AggregateFunction::Outliersk => "outliersk",
-      AggregateFunction::OutliersMAD => "outliers_mad",
-      AggregateFunction::Mode => "mode",
-      AggregateFunction::ZScore => "score"
-    };
-
-    write!(f, "{}", display)
-  }
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name())
+    }
 }
 
 static FUNCTION_MAP: phf::Map<&'static str, AggregateFunction> = phf_map! {
@@ -172,80 +183,86 @@ static FUNCTION_MAP: phf::Map<&'static str, AggregateFunction> = phf_map! {
     "outliersk" =>       AggregateFunction::Outliersk,
     "outliers_mad" =>    AggregateFunction::OutliersMAD,
     "mode" =>            AggregateFunction::Mode,
+    "share" =>           AggregateFunction::Share,
     "zscore" =>          AggregateFunction::ZScore,
 };
 
 pub fn is_aggr_func(func: &str) -> bool {
-  FUNCTION_MAP.contains_key(&func.to_lowercase())
+    FUNCTION_MAP.contains_key(&func.to_lowercase())
 }
 
-
 impl FromStr for AggregateFunction {
-  type Err = ParseError;
+    type Err = ParseError;
 
-  fn from_str(s: &str) -> Result<Self, Self::Err> {
-    let lower = s.to_lowercase();
-    match FUNCTION_MAP.get(lower.as_str()) {
-      Some(op) => Ok(*op),
-      None => Err(ParseError::InvalidAggregateFunction(
-        format!("Invalid aggregation function: {}", s)))
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let lower = s.to_lowercase();
+        match FUNCTION_MAP.get(lower.as_str()) {
+            Some(op) => Ok(*op),
+            None => Err(ParseError::InvalidAggregateFunction(format!(
+                "Invalid aggregation function: {}",
+                s
+            ))),
+        }
     }
-  }
 }
 
 /// the signatures supported by the function `fun`.
 pub fn aggregate_function_signature(fun: &AggregateFunction) -> Signature {
-  use AggregateFunction::*;
-  match fun {
-    Any | Avg | Bottomk | Count | Distinct |
-    GeoMean | Group | Histogram | MAD |
-    Min | Max | Median | Mode |
-    Sum | StdDev | StdVar | Sum2 | ZScore => {
-      Signature::exact(vec![DataType::InstantVector], Volatility::Stable)
+    use AggregateFunction::*;
+    match fun {
+        CountValues => Signature::exact(
+            vec![ValueType::String, ValueType::InstantVector],
+            Volatility::Stable,
+        ),
+        Topk | Limitk | Outliersk => Signature::exact(
+            vec![ValueType::Scalar, ValueType::InstantVector],
+            Volatility::Stable,
+        ),
+        OutliersMAD => Signature::exact(
+            vec![ValueType::Scalar, ValueType::InstantVector],
+            Volatility::Stable,
+        ),
+        TopkMin | TopkMax | TopkAvg | TopkMedian | BottomkMin | BottomkMax | BottomkAvg
+        | BottomkLast | BottomkMedian => Signature::exact_with_min_args(
+            vec![
+                ValueType::Scalar,
+                ValueType::InstantVector,
+                ValueType::String,
+            ],
+            2,
+            Volatility::Stable,
+        ),
+        Quantile => Signature::exact(
+            vec![ValueType::Scalar, ValueType::InstantVector],
+            Volatility::Stable,
+        ),
+        Quantiles => {
+            // todo:
+            let mut quantile_types: Vec<ValueType> = vec![ValueType::Scalar; MAX_ARG_COUNT];
+            quantile_types.insert(0, ValueType::String);
+            quantile_types.push(ValueType::InstantVector);
+            Signature::variadic_min(quantile_types, 3, Volatility::Volatile)
+        }
+        _ => Signature::variadic_min(
+            vec![ValueType::InstantVector, ValueType::Scalar],
+            1,
+            Volatility::Stable,
+        ),
     }
-    CountValues => {
-      Signature::exact(vec![DataType::String, DataType::InstantVector], Volatility::Stable)
-    }
-    Topk | Limitk | Outliersk => {
-      Signature::exact(vec![DataType::Scalar, DataType::InstantVector], Volatility::Stable)
-    }
-    OutliersMAD => {
-      Signature::exact(vec![DataType::Scalar, DataType::InstantVector], Volatility::Stable)
-    }
-    TopkMin | TopkMax | TopkAvg | TopkMedian |
-    BottomkMin | BottomkMax | BottomkAvg | BottomkLast |
-    BottomkMedian => {
-      Signature::variadic_min(vec![
-          DataType::Scalar,
-          DataType::InstantVector,
-          DataType::String
-      ], 2, Volatility::Stable)
-    }
-    Quantile => {
-      Signature::exact(vec![DataType::Scalar, DataType::InstantVector], Volatility::Stable)
-    }
-    Quantiles => {
-      // todo:
-      let mut quantile_types: Vec<DataType> = vec![DataType::Scalar; MAX_ARG_COUNT];
-      quantile_types.insert(0, DataType::String);
-      quantile_types.push(DataType::InstantVector);
-      Signature::variadic_min(quantile_types, 3, Volatility::Volatile)
-    }
-    _ => {
-      Signature::exact(vec![DataType::InstantVector], Volatility::Stable)
-    }
-  }
 }
 
-
-pub fn get_aggregate_arg_idx_for_optimization(func: AggregateFunction, arg_count: usize) -> Option<usize> {
-  use AggregateFunction::*;
-  // todo: just examine the signature and return the position containing a vector
-  match func {
-    Bottomk | BottomkAvg | BottomkMax | BottomkMedian | BottomkLast | BottomkMin | Limitk |
-    Outliersk | OutliersMAD | Quantile | Topk | TopkAvg | TopkMax | TopkMedian | TopkLast | TopkMin => Some(1),
-    CountValues => None,
-    Quantiles => Some(arg_count - 1),
-    _ => Some(0)
-  }
+pub fn get_aggregate_arg_idx_for_optimization(
+    func: AggregateFunction,
+    arg_count: usize,
+) -> Option<usize> {
+    use AggregateFunction::*;
+    // todo: just examine the signature and return the position containing a vector
+    match func {
+        Bottomk | BottomkAvg | BottomkMax | BottomkMedian | BottomkLast | BottomkMin | Limitk
+        | Outliersk | OutliersMAD | Quantile | Topk | TopkAvg | TopkMax | TopkMedian | TopkLast
+        | TopkMin => Some(1),
+        CountValues => None,
+        Quantiles => Some(arg_count - 1),
+        _ => Some(0),
+    }
 }

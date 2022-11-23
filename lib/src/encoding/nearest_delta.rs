@@ -1,11 +1,6 @@
-use crate::bit_len64;
-use crate::encoding::{
-    compress::{compress_quantile, decompress_quantile_auto},
-    encoding::check_precision_bits,
-    int::get_int64s,
-};
+use crate::{bit_len64, get_pooled_vec_i64, marshal_var_int_array, unmarshal_var_int_vec};
+use crate::encoding::encoding::check_precision_bits;
 use crate::error::Error;
-use q_compress::CompressorConfig;
 
 /// marshal_int64_nearest_delta encodes src using `nearest delta` encoding
 /// with the given precision_bits and appends the encoded value to dst.
@@ -21,25 +16,23 @@ pub fn marshal_int64_nearest_delta(
         return Err(Error::from(format!(
             "BUG: src must contain at least 1 item; got {} items",
             src.len()
-        )))
+        )));
     }
     check_precision_bits(precision_bits)?;
 
     let first_value = src[0];
-    let compressed: Vec<u8>;
+    let mut is = get_pooled_vec_i64(src.len());
+    let mut v = first_value;
 
     if precision_bits == 64 {
         // Fast path.
-        let config = CompressorConfig::default()
-            .with_use_gcds(false)
-            .with_delta_encoding_order(1);
-
-        compressed = compress_quantile(src, config);
+        for next in src {
+            let d = next - v;
+            v += d;
+            is.push(d);
+        }
     } else {
         // Slower path.
-        let mut is = get_int64s(src.len());
-        let mut v = first_value;
-
         let mut trailing_zeros = get_trailing_zeros(v, precision_bits);
         is.push(v);
 
@@ -49,13 +42,9 @@ pub fn marshal_int64_nearest_delta(
             v += d;
             is.push(d);
         }
-
-        let config = CompressorConfig::default().with_use_gcds(false);
-
-        compressed = compress_quantile(&is, config);
     }
 
-    dst.extend_from_slice(&compressed);
+    marshal_var_int_array(dst, &is);
 
     Ok(first_value)
 }
@@ -74,27 +63,19 @@ pub(crate) fn unmarshal_int64_nearest_delta(
         return Err(Error::from(format!(
             "BUG: items_count must be greater than 0; got {}",
             items_count
-        )))
+        )));
     }
 
-    // todo: use explicit config
-    match decompress_quantile_auto::<i64>(src) {
-        Err(err) => Err(Error::from(format!(
-            "cannot unmarshal nearest delta from {} bytes; src={:?}: {}",
-            src.len(),
-            src,
-            err
-        ))),
-        Ok(uncompressed) => {
-            let mut v = first_value;
-            dst.push(v);
-            for d in uncompressed {
-                v += d;
-                dst.push(v);
-            }
-            Ok(())
-        }
+    let mut is = get_pooled_vec_i64(items_count);
+    unmarshal_varint_list(&mut is, src, "nearest delta")?;
+
+    let mut v = first_value;
+    dst.push(v);
+    for d in is.iter() {
+        v += d;
+        dst.push(v);
     }
+    Ok(())
 }
 
 /// nearest_delta returns the nearest value for (next-prev) with the given
@@ -165,8 +146,25 @@ pub fn get_trailing_zeros(n: i64, precision_bits: u8) -> usize {
         // There is no need in special case handling for v = -1<<63
     }
     let v_bits = bit_len64(v as u64);
-    if v_bits <= precision_bits as usize {
+    let precision_bits = precision_bits as usize;
+    if v_bits <= precision_bits {
         return 0;
     }
-    v_bits - precision_bits as usize
+    v_bits - precision_bits
+}
+
+pub(super) fn unmarshal_varint_list(dst: &mut Vec<i64>, src: &[u8], op: &str) -> Result<(), Error> {
+    let tail = unmarshal_var_int_vec(dst, usize::MAX, src)
+        .map_err(|err|
+            Error::from(format!("cannot unmarshal {op} from {} bytes; src={:?}: {err}", src.len(), src)))?;
+
+    if !tail.is_empty() {
+        let src_len = src.len();
+        let tail_len = tail.len();
+        return Err(Error::from(
+            format!("unexpected tail left after unmarshaling {op} from {src_len} bytes; tail size={tail_len}; src={:?}; tail={:?}",
+                    src, tail)));
+    }
+
+    Ok(())
 }

@@ -5,18 +5,24 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
+chrono = { workspace = true }
 enquote = { workspace = true }
-logos = "0.12.1"
-once_cell = { workspace = true }
-regex = {  workspace = true }
-serde = { workspace = true }
-thiserror = { workspace = true }
+logos = "0.13.0"
+logos-derive = "0.13.0"
+num-traits = { workspace = true }
 phf = { workspace = true }
-lib={ path = "../lib" }
+regex = { workspace = true }
+serde = { workspace = true }
+scopeguard = { workspace = true }
+strum = "0.25.0"
+strum_macros = "0.25.1"
+thiserror = { workspace = true }
+tinyvec = { workspace = true }
+xxhash-rust = { version = "0.8.6", features = ["xxh3", "xxh64"] }
+lib = { path = "../lib" }
 
 [dev-dependencies]
-test-case = "2.2.2"
+test-case = "3.1.0"
 
 [lib]
 name="metricsql"
-path="src/lib.rs"

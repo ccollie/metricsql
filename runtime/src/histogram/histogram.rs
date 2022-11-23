@@ -1,7 +1,7 @@
-use lockfree_object_pool::{LinearObjectPool, LinearReusable};
-use once_cell::sync::{Lazy, OnceCell};
 use std::fmt;
-use std::fmt::Display;
+use std::sync::OnceLock;
+
+use lockfree_object_pool::{LinearObjectPool, LinearReusable};
 
 const E10MIN: i32 = -9;
 const E10MAX: i32 = 18;
@@ -10,11 +10,9 @@ const DECIMAL_BUCKETS_COUNT: i32 = E10MAX - E10MIN;
 const BUCKETS_COUNT: usize = (DECIMAL_BUCKETS_COUNT * BUCKETS_PER_DECIMAL as i32) as usize;
 
 const LOWER_MIN: f64 = 1e-9;
-const UPPER_MAX: f64 = 1e18;
-const BUCKET_MULTIPLIER: f64 = 10_i32.pow((1 / BUCKETS_PER_DECIMAL) as u32) as f64;
 
-static LOWER_BUCKET_RANGE: Lazy<String> = Lazy::new(|| format!("0...{:.3}", LOWER_MIN));
-static UPPER_BUCKET_RANGE: Lazy<String> = Lazy::new(|| format!("{:.3}...+Inf", UPPER_MAX));
+static LOWER_BUCKET_RANGE: &str = "0...0.000";
+static UPPER_BUCKET_RANGE: &str = "1000000000000000000.000...+Inf";
 
 pub trait HistogramBucketVisitor {
     fn visit(vm_range: &str, count: u64);
@@ -53,8 +51,8 @@ pub struct Histogram {
     lower: u64,
     upper: u64,
     sum: f64,
-    decimal_buckets: Vec<Vec<u64>>,
-    values: Vec<f64>
+    decimal_buckets: Vec<[u64; BUCKETS_PER_DECIMAL]>,
+    values: Vec<f64>,
 }
 
 impl Histogram {
@@ -64,15 +62,15 @@ impl Histogram {
     }
 
     pub fn with_capacity(n: usize) -> Self {
-        let mut buckets: Vec<Vec<u64>> = Vec::with_capacity(n);
-        buckets.resize_with(n, || vec![0]);
+        let mut buckets: Vec<[u64; BUCKETS_PER_DECIMAL]> = Vec::with_capacity(n);
+        buckets.resize_with(n, || [0u64; BUCKETS_PER_DECIMAL]);
         Histogram {
             count: 0,
             lower: 0,
             upper: 0,
             sum: 0.0,
             decimal_buckets: buckets,
-            values: Vec::with_capacity(16)
+            values: Vec::with_capacity(16),
         }
         // reset
     }
@@ -80,9 +78,7 @@ impl Histogram {
     // Reset resets the histogram.
     pub fn reset(&mut self) {
         for bucket in self.decimal_buckets.iter_mut() {
-            for v in bucket {
-                *v = 0;
-            }
+            bucket.fill(0);
         }
         self.count = 0;
         self.lower = 0;
@@ -113,11 +109,14 @@ impl Histogram {
                 // according to Prometheus logic for `le`-based histograms.
                 idx -= 1;
             }
-            let decimal_bucket_idx = (idx / BUCKETS_PER_DECIMAL) as usize;
-            let offset = (idx % BUCKETS_PER_DECIMAL) as usize;
-
-            self.decimal_buckets[decimal_bucket_idx].reserve(BUCKETS_PER_DECIMAL);
-            self.decimal_buckets[bucket_idx as usize][offset] += 1;
+            let decimal_bucket_idx = idx / BUCKETS_PER_DECIMAL;
+            let offset = idx % BUCKETS_PER_DECIMAL;
+            if self.decimal_buckets.len() <= decimal_bucket_idx {
+                self.decimal_buckets
+                    .resize_with(decimal_bucket_idx + 1, || [0u64; BUCKETS_PER_DECIMAL]);
+            }
+            let bucket = &mut self.decimal_buckets[decimal_bucket_idx];
+            bucket[offset] += 1;
         }
     }
 
@@ -154,12 +153,39 @@ impl Histogram {
             histogram: self,
             index: 0,
             offset: 0,
-            stage: IterationStage::Lower,
+            lower_handled: false,
         }
     }
 
-    pub fn quantile(&self, phi: f64) -> f64 {
-        crate::functions::quantile(phi, &self.values)
+    /// visit_non_zero_buckets calls f for all buckets with non-zero counters.
+    ///
+    /// vmrange contains "<start>...<end>" string with bucket bounds. The lower bound
+    /// isn't included in the bucket, while the upper bound is included.
+    /// This is required to be compatible with Prometheus-style histogram buckets
+    /// with `le` (less or equal) labels.
+    pub fn visit_non_zero_buckets<'a, F>(&self, f: F)
+    where
+        F: Fn(&'a str, u64),
+    {
+        if self.lower > 0 {
+            f(LOWER_BUCKET_RANGE, self.lower)
+        }
+
+        let ranges = get_bucket_ranges();
+
+        for (decimal_bucket_idx, db) in self.decimal_buckets.iter().enumerate() {
+            for (offset, count) in db.iter().enumerate() {
+                if *count > 0u64 {
+                    let bucket_idx = decimal_bucket_idx * BUCKETS_PER_DECIMAL + offset;
+                    let vmrange = &ranges[bucket_idx];
+                    f(vmrange, *count)
+                }
+            }
+        }
+
+        if self.upper > 0 {
+            f(UPPER_BUCKET_RANGE, self.upper)
+        }
     }
 }
 
@@ -177,40 +203,23 @@ impl<'a> fmt::Debug for NonZeroBucket<'a> {
     }
 }
 
-#[derive(PartialEq, Clone, Debug)]
-enum IterationStage {
-    Lower,
-    Main,
-    Higher,
-    Done,
-}
-
-impl Display for IterationStage {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            IterationStage::Lower => write!(f, "Lower"),
-            IterationStage::Main => write!(f, "Main"),
-            IterationStage::Higher => write!(f, "Higher"),
-            IterationStage::Done => write!(f, "Done"),
-        }
-    }
-}
-
 /// An iterator over the non-zero buckets in a histogram.
 #[derive(Debug, Clone)]
 pub struct NonZeroBuckets<'a> {
     histogram: &'a Histogram,
     index: usize,
     offset: usize,
-    stage: IterationStage,
+    lower_handled: bool,
 }
 
 impl<'a> Iterator for NonZeroBuckets<'a> {
     type Item = NonZeroBucket<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.stage == IterationStage::Lower {
-            self.stage = IterationStage::Main;
+        let buckets = &self.histogram.decimal_buckets;
+
+        if !self.lower_handled {
+            self.lower_handled = true;
             if self.histogram.lower > 0 {
                 return Some(NonZeroBucket {
                     vm_range: &LOWER_BUCKET_RANGE,
@@ -219,45 +228,32 @@ impl<'a> Iterator for NonZeroBuckets<'a> {
             }
         }
 
-        if self.stage == IterationStage::Higher {
-            self.stage = IterationStage::Done;
-            if self.histogram.upper > 0 {
-                return Some(NonZeroBucket {
-                    vm_range: &UPPER_BUCKET_RANGE,
-                    count: self.histogram.upper,
-                });
-            }
-            return None;
-        }
-
-        let buckets = &self.histogram.decimal_buckets;
-
         let result = loop {
-            while self.index < buckets.len() && buckets[self.index].is_empty() {
-                self.index += 1;
-            }
-
-            if self.index >= buckets.len() {
-                self.stage = IterationStage::Done;
-                break None;
-            }
-
             let bucket = &buckets[self.index];
-
-            while self.offset < bucket.len() && bucket[self.offset] == 0 {
-                self.offset += 1
+            while self.offset < BUCKETS_PER_DECIMAL && bucket[self.offset] == 0 {
+                self.offset += 1;
             }
 
             if self.offset >= bucket.len() {
                 self.index += 1;
                 self.offset = 0;
+                if self.index >= buckets.len() {
+                    if self.histogram.upper > 0 {
+                        break Some(NonZeroBucket {
+                            vm_range: &UPPER_BUCKET_RANGE,
+                            count: self.histogram.upper,
+                        });
+                    }
+                    break None;
+                }
                 continue;
             }
 
             let bucket_idx = self.index * BUCKETS_PER_DECIMAL + self.offset;
-            let ranges = &*BUCKET_RANGES;
+            let ranges = get_bucket_ranges();
             let vm_range = &ranges[bucket_idx];
             let count = bucket[self.offset];
+            self.offset += 1;
 
             break Some(NonZeroBucket { vm_range, count });
         };
@@ -268,26 +264,38 @@ impl<'a> Iterator for NonZeroBuckets<'a> {
 
 #[inline]
 fn format_float(v: f64) -> String {
-    format!("{:.3}", v)
+    format!("{:.3e}", v)
 }
 
-static BUCKET_RANGES: Lazy<Vec<String>> = Lazy::new(|| {
+static BUCKET_RANGES: OnceLock<[String; BUCKETS_COUNT]> = OnceLock::new();
+
+fn create_bucket_ranges() -> [String; BUCKETS_COUNT] {
+    let bucket_multiplier: f64 = 10_f64.powf(1.0 / BUCKETS_PER_DECIMAL as f64);
     let mut ranges: Vec<String> = Vec::with_capacity(BUCKETS_COUNT);
     let mut v: f64 = LOWER_MIN;
     let mut start = format_float(v);
-    let mut i = 0;
-    while i < BUCKETS_COUNT {
-        v *= BUCKET_MULTIPLIER;
+
+    for _ in 0..BUCKETS_COUNT {
+        v *= bucket_multiplier;
         let end = format_float(v);
         ranges.push(format!("{}...{}", start, end).to_string());
         start = end;
-        i += 1;
     }
-    ranges
-});
+    ranges.try_into().unwrap_or_else(|v: Vec<String>| {
+        panic!(
+            "Expected a Vec of length {BUCKETS_COUNT} but it was {}",
+            v.len()
+        )
+    })
+}
+
+fn get_bucket_ranges() -> &'static [String; BUCKETS_COUNT] {
+    BUCKET_RANGES.get_or_init(create_bucket_ranges)
+}
 
 // todo: move to utils ?
 // todo - return slices instead
+#[allow(dead_code)]
 fn split_metric_name(name: &str) -> (&str, &str) {
     if let Some(index) = name.find('{') {
         if let Some(tailing_index) = name.find('}') {
@@ -316,7 +324,7 @@ fn add_tag(name: &str, tag: String) -> String {
 }
 
 fn get_pool() -> &'static LinearObjectPool<Histogram> {
-    static INSTANCE: OnceCell<LinearObjectPool<Histogram>> = OnceCell::new();
+    static INSTANCE: OnceLock<LinearObjectPool<Histogram>> = OnceLock::new();
     INSTANCE.get_or_init(|| LinearObjectPool::<Histogram>::new(Histogram::new, |v| v.reset()))
 }
 

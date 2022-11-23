@@ -5,11 +5,14 @@ mod tests {
     #[test]
     fn test_expand_with_exprs_success() {
         let f = |q: &str, expected: &str| {
-            for _ in 0 .. 3 {
+            for _ in 0..3 {
                 let expanded = expand_with_exprs(q)
                     .unwrap_or_else(|_| panic!("unexpected error when expanding {}", q));
-                assert_eq!(expanded, expected,
-                    "unexpected expanded expression for {};\ngot\n{}\nwant\n{}", q, expanded, expected)
+                assert_eq!(
+                    expanded, expected,
+                    "unexpected expanded expression for {};\ngot\n{}\nwant\n{}",
+                    q, expanded, expected
+                )
             }
         };
 
@@ -22,7 +25,7 @@ mod tests {
     #[test]
     fn test_expand_with_exprs_error() {
         let f = |q: &str| {
-            for _ in 0 .. 3 {
+            for _ in 0..3 {
                 let expanded = expand_with_exprs(q)
                     .unwrap_or_else(|_| panic!("unexpected error when expanding {}", q));
                 if expanded != "" {
@@ -34,5 +37,4 @@ mod tests {
         f("");
         f("  with (");
     }
-    
 }

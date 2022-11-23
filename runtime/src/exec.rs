@@ -1,33 +1,38 @@
 use std::collections::HashSet;
-use std::ops::Deref;
 use std::sync::Arc;
-use std::string::String;
+use std::vec;
 
 use chrono::Utc;
+use tracing::{field, info, trace_span, Span};
 
-use lib::{round_to_decimal_digits};
-use metricsql::ast::Expression;
-use metricsql::parser::visit_all;
+use lib::round_to_decimal_digits;
 
 use crate::context::Context;
-use crate::eval::{EvalConfig, Evaluator};
-use crate::functions::types::AnyValue;
+use crate::eval::{exec_expr, EvalConfig};
 use crate::parser_cache::ParseCacheValue;
+use crate::provider::QueryResult;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::search::QueryResult;
-use crate::timeseries::Timeseries;
+use crate::signature::Signature;
+use crate::types::Timeseries;
+use crate::{ParseCacheResult, QueryValue};
 
-pub fn parse_promql_with_cache(ctx: &mut Context, q: &str) -> RuntimeResult<Arc<ParseCacheValue>> {
-    ctx.parse_promql(q)
+pub(crate) fn parse_promql_internal(
+    context: &Arc<Context>,
+    query: &str,
+) -> RuntimeResult<Arc<ParseCacheValue>> {
+    let span = trace_span!("parse", cached = field::Empty).entered();
+    let (parsed, cached) = context.parse_promql(query)?;
+    span.record("cached", cached == ParseCacheResult::CacheHit);
+    Ok(parsed)
 }
 
 pub(crate) fn exec_internal(
-    context: &Context,
+    context: &Arc<Context>,
     ec: &mut EvalConfig,
-    q: &str) -> RuntimeResult<(AnyValue, Arc<ParseCacheValue>)> {
-
+    q: &str,
+) -> RuntimeResult<(QueryValue, Arc<ParseCacheValue>)> {
     let start_time = Utc::now();
-    if context.config.stats_enabled && context.query_stats.is_enabled() {
+    if context.stats_enabled() {
         defer! {
             context.query_stats.register_query(q, ec.end - ec.start, start_time)
         }
@@ -35,28 +40,76 @@ pub(crate) fn exec_internal(
 
     ec.validate()?;
 
-    let parsed = context.parse_promql(q)?;
-    match (&parsed.evaluator, &parsed.has_subquery) {
-        (Some(evaluator), has_subquery) => {
+    let parsed = parse_promql_internal(context, q)?;
 
+    match (&parsed.expr, &parsed.has_subquery) {
+        (Some(expr), has_subquery) => {
             if *has_subquery {
-                ec.ensure_timestamps()?;
+                let _ = ec.get_timestamps()?;
             }
 
             let ctx = Arc::new(context);
-            let qid = context.active_queries.register_with_start(ec, q, start_time.timestamp());
-            let rv = evaluator.eval(&ctx, ec);
-            match rv {
-                Ok(rv) => {
-                    context.active_queries.remove(qid);
-                    Ok((rv, Arc::clone(&parsed)))
-                },
-                Err(err) => {
-                    context.active_queries.remove(qid);
-                    return Err(err);
-                }
+            let qid = context
+                .active_queries
+                .register(ec, q, Some(start_time.timestamp()));
+
+            defer! {
+                context.active_queries.remove(qid);
             }
-        },
+
+            let is_tracing = ctx.trace_enabled();
+
+            let span = if is_tracing {
+                let mut query = q.to_string();
+                query.truncate(300);
+
+                trace_span!(
+                    "eval",
+                    query,
+                    may_cache = ec.may_cache(),
+                    start = ec.start,
+                    end = ec.end,
+                    series = field::Empty,
+                    points = field::Empty,
+                    points_per_series = field::Empty
+                )
+            } else {
+                Span::none()
+            }
+            .entered();
+
+            let rv = exec_expr(&ctx, ec, expr)?;
+
+            if is_tracing {
+                let ts_count: usize;
+                let series_count: usize;
+                match &rv {
+                    QueryValue::RangeVector(iv) | QueryValue::InstantVector(iv) => {
+                        series_count = iv.len();
+                        if series_count > 0 {
+                            ts_count = iv[0].timestamps.len();
+                        } else {
+                            ts_count = 0;
+                        }
+                    }
+                    _ => {
+                        ts_count = ec.data_points();
+                        series_count = 1;
+                    }
+                }
+                let mut points_per_series = 0;
+                if series_count > 0 {
+                    points_per_series = ts_count
+                }
+
+                let points_count = series_count * points_per_series;
+                span.record("series", series_count);
+                span.record("points", points_count);
+                span.record("points_per_series", points_per_series);
+            }
+
+            Ok((rv, Arc::clone(&parsed)))
+        }
         _ => {
             panic!("Bug: Invalid parse state")
         }
@@ -64,12 +117,20 @@ pub(crate) fn exec_internal(
 }
 
 /// executes q for the given config.
-pub fn exec(context: &Context,
-            ec: &mut EvalConfig,
-            q: &str,
-            is_first_point_only: bool) -> RuntimeResult<Vec<QueryResult>> {
-
+pub fn exec(
+    context: &Arc<Context>,
+    ec: &mut EvalConfig,
+    q: &str,
+    is_first_point_only: bool,
+) -> RuntimeResult<Vec<QueryResult>> {
     let (rv, parsed) = exec_internal(context, ec, q)?;
+
+    // we ignore empty timeseries
+    if let QueryValue::Scalar(val) = rv {
+        if val.is_nan() {
+            return Ok(vec![]);
+        }
+    }
 
     let mut rv = rv.into_instant_vector(ec)?;
     if is_first_point_only {
@@ -80,136 +141,76 @@ pub fn exec(context: &Context,
                 ts.values.resize(1, f64::NAN);
                 ts.timestamps = Arc::clone(&timestamps);
             }
+        } else {
+            return Ok(vec![]);
         }
     }
 
-    // at this point, parsed.expr is Some, but lets avoid unwrap in any case
-    let may_sort = if let Some(expr) = &parsed.expr {
-        may_sort_results(&expr, &rv)
-    } else {
-        false
-    };
-
-    let mut result = timeseries_to_result(&mut rv, may_sort)?;
+    let mut result = timeseries_to_result(&mut rv, parsed.sort_results)?;
 
     let n = ec.round_digits as u8;
     if n < 100 {
         for r in result.iter_mut() {
             for v in r.values.iter_mut() {
-                *v = round_to_decimal_digits(*v, n);
+                *v = round_to_decimal_digits(*v, n as i16);
             }
         }
     }
 
+    info!(
+        "sorted = {}, round_digits = {}",
+        parsed.sort_results, ec.round_digits
+    );
+
     Ok(result)
 }
 
-
-fn may_sort_results(e: &Expression, _tss: &[Timeseries]) -> bool {
-    return match e {
-        Expression::Function(fe) => {
-            !fe.function.sorts_results()
-        },
-        Expression::Aggregation(ae) => {
-            !ae.function.sorts_results()
-        },
-        _ => true
+pub(crate) fn timeseries_to_result(
+    tss: &mut Vec<Timeseries>,
+    may_sort: bool,
+) -> RuntimeResult<Vec<QueryResult>> {
+    remove_empty_series(tss);
+    if tss.is_empty() {
+        return Ok(vec![]);
     }
-}
 
-pub(crate) fn timeseries_to_result(tss: &mut [Timeseries], may_sort: bool) -> RuntimeResult<Vec<QueryResult>> {
     let mut result: Vec<QueryResult> = Vec::with_capacity(tss.len());
-    let mut m: HashSet<String> = HashSet::with_capacity(tss.len());
+    let mut m: HashSet<Signature> = HashSet::with_capacity(tss.len());
 
-    let timestamps = tss[0].timestamps.deref();
+    for ts in tss.iter_mut() {
+        ts.metric_name.sort_tags();
 
-    for ts in tss.iter() {
-        if ts.is_all_nans() {
-            continue;
+        let key = ts.metric_name.signature();
+
+        if m.insert(key) {
+            let res = QueryResult {
+                metric_name: ts.metric_name.clone(), // todo(perf) into vs clone/take
+                values: ts.values.clone(),           // perf) .into vs clone/take
+                timestamps: ts.timestamps.as_ref().clone(), // todo(perf): declare field as Rc<Vec<i64>>
+                rows_processed: 0,
+                worker_id: 0,
+            };
+
+            result.push(res);
+        } else {
+            return Err(RuntimeError::from(format!(
+                "duplicate output timeseries: {}",
+                ts.metric_name
+            )));
         }
-
-        let key = ts.metric_name.to_string();
-
-        if m.contains(&key) {
-            return Err(RuntimeError::from(format!("duplicate output timeseries: {}", ts.metric_name)));
-        }
-        m.insert(key);
-        let res = QueryResult {
-            metric_name: ts.metric_name.clone(),  // todo(perf) into vs clone/take
-            values: ts.values.clone(), // todo(perf) .into vs clone/take
-            timestamps: timestamps.clone(), // todo: declare field as Rc<Vec<i64>>
-            rows_processed: 0,
-            worker_id: 0,
-            last_reset_time: 0
-        };
-
-        result.push(res);
     }
 
     if may_sort {
-        result.sort_by(|a, b| {
-            a.metric_name.partial_cmp(&b.metric_name).unwrap()
-        })
+        result.sort_by(|a, b| a.metric_name.partial_cmp(&b.metric_name).unwrap())
     }
 
     Ok(result)
 }
 
-pub(crate) fn escape_dots(s: &str) -> String {
-
-    let dots_count =  s.matches('.').count();
-    if dots_count == 0 {
-        return s.to_string()
-    }
-
-    let should_escape = |s: &str, pos: usize| -> bool {
-        let len = s.len();
-        return if pos + 1 == len || pos + 1 < len {
-            let s = &s[pos + 1..];
-            let ch = s.chars().next().unwrap();
-            ch != '*' && ch != '+' && ch != '{'
-        } else {
-            false
-        }
-    };
-
-    let mut result = String::with_capacity(s.len() + 2 * dots_count);
-    let mut prev_ch: char = '\0';
-    for (i, ch) in s.chars().enumerate() {
-        if ch == '.' && (i == 0 || prev_ch != '\\') && should_escape(s, i) {
-            // Escape a dot if the following conditions are met:
-            // - if it isn't escaped already, i.e. if there is no `\` char before the dot.
-            // - if there is no regexp modifiers such as '+', '*' or '{' after the dot.
-            result.push('\\');
-            result.push('.')
-        } else {
-            result.push(ch);
-        }
-        prev_ch = ch;
-    }
-
-    result
-}
-
-pub(crate) fn escape_dots_in_regexp_label_filters(e: &mut Expression) {
-    visit_all(e, |expr: &mut Expression| {
-        match expr {
-            Expression::MetricExpression(me) => {
-                for f in me.label_filters.iter_mut() {
-                    if f.is_regexp() {
-                        f.value = escape_dots(&f.value);
-                    }
-                }
-            }
-            _ => {}
-        }
-    })
-}
-
-
 #[inline]
 pub(super) fn remove_empty_series(tss: &mut Vec<Timeseries>) {
-    tss.retain(|ts| {
-        !ts.values.iter().all(|v| v.is_nan())
-    });
+    if tss.is_empty() {
+        return;
+    }
+    tss.retain(|ts| !ts.is_all_nans());
 }

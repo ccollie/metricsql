@@ -21,8 +21,8 @@ const LEN8TAB: [usize; 256] = [
     0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08,
 ];
 
-// Len32 returns the minimum number of bits required to represent x; the result is 0 for x == 0.
-pub fn bit_len32(v: u32) -> usize {
+// bit_len32 returns the minimum number of bits required to represent x; the result is 0 for x == 0.
+pub const fn bit_len32(v: u32) -> usize {
     let mut n = 0;
     let mut x = v;
     if x >= 1 << 16 {
@@ -36,7 +36,7 @@ pub fn bit_len32(v: u32) -> usize {
     n + LEN8TAB[x as usize]
 }
 
-// Len64 returns the minimum number of bits required to represent x; the result is 0 for x == 0.
+/// bit_len64 returns the minimum number of bits required to represent x; the result is 0 for x == 0.
 pub fn bit_len64(v: u64) -> usize {
     let mut n = 0;
     let mut x = v;
@@ -53,10 +53,4 @@ pub fn bit_len64(v: u64) -> usize {
         n += 8;
     }
     n + LEN8TAB[x as usize]
-}
-
-// LeadingZeros64 returns the number of leading zero bits in x; the result is 64 for x == 0.
-#[inline]
-pub fn leading_zeros64(x: u64) -> usize {
-    64 - bit_len64(x)
 }
