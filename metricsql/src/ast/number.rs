@@ -3,7 +3,6 @@ use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use lib::hash_f64;
 use crate::ast::{Expression, ExpressionNode, ReturnValue};
-use crate::ast::expression_kind::ExpressionKind;
 use crate::lexer::TextSpan;
 use serde::{Serialize, Deserialize};
 
@@ -58,9 +57,6 @@ impl PartialEq for NumberExpr {
 impl ExpressionNode for NumberExpr {
     fn cast(self) -> Expression {
         Expression::Number(self)
-    }
-    fn kind(&self) -> ExpressionKind {
-        ExpressionKind::Number
     }
 }
 

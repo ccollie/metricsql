@@ -5,7 +5,6 @@ use std::string::{String};
 use crate::ast::{AggrFuncExpr, BinaryOpExpr, ParensExpr};
 
 use crate::ast::duration::DurationExpr;
-use crate::ast::expression_kind::ExpressionKind;
 use crate::ast::function::FuncExpr;
 use crate::ast::label_filter::{LabelFilter};
 use crate::ast::number::NumberExpr;
@@ -20,7 +19,6 @@ use serde::{Serialize, Deserialize};
 /// Expression Trait. Useful for cases where match is not ergonomic
 pub trait ExpressionNode {
     fn cast(self) -> Expression;
-    fn kind(&self) -> ExpressionKind;
 }
 
 /// A root expression node.
@@ -242,21 +240,6 @@ impl ExpressionNode for Expression {
             Expression::Aggregation(a) => a.cast(),
             Expression::Rollup(r) => r.cast(),
             Expression::With(w) => w.cast(),
-        }
-    }
-
-    fn kind(&self) -> ExpressionKind {
-        match self {
-            Expression::Duration(..) => ExpressionKind::Duration,
-            Expression::Number(..) => ExpressionKind::Number,
-            Expression::String(..) => ExpressionKind::String,
-            Expression::BinaryOperator(..) => ExpressionKind::Binop,
-            Expression::MetricExpression(..) => ExpressionKind::Metric,
-            Expression::Parens(..) => ExpressionKind::Parens,
-            Expression::Function(..) => ExpressionKind::Function,
-            Expression::Aggregation(..) => ExpressionKind::Aggregate,
-            Expression::Rollup(..) => ExpressionKind::Rollup,
-            Expression::With(..) => ExpressionKind::With,
         }
     }
 }

@@ -28,7 +28,7 @@ pub fn can_optimize(e: &Expression) -> bool {
         },
         Expression::Function(f) => f.args.iter().any(|x| can_optimize(x)),
         Expression::Aggregation(agg) => agg.args.iter().any(|x| can_optimize(x)),
-        Expression::BinaryOperator(..) => true,
+        Expression::BinaryOperator(be) => true,
         _ => false,
     }
 }
@@ -39,10 +39,23 @@ fn optimize_internal<'a>(e: &'a Expression) -> Cow<'a, Expression> {
     match e {
         Rollup(re) => {
             let mut res = re.clone();
-            if let Some(at) = res.at {
-                res.at = Some(optimize_boxed(&at));
+            // clone only if necessary
+            if let Some(at) = &re.at {
+                match optimize_internal(&at) {
+                    Cow::Owned(at_expr) => {
+                        res.at = Some(Box::new(at_expr));
+                    }
+                    _ => {}
+                }
             }
-            res.expr = optimize_boxed(&re.expr);
+            // clone re.expr only if necessary
+            match optimize_internal(&re.expr) {
+                Cow::Owned(expr) => {
+                    res.expr = Box::new(expr)
+                }
+                _ => {}
+            }
+
             Cow::Owned(Rollup(res))
         }
         Function(f) => {
@@ -56,15 +69,34 @@ fn optimize_internal<'a>(e: &'a Expression) -> Cow<'a, Expression> {
             Cow::Owned(Aggregation(res))
         }
         BinaryOperator(be) => {
-            let mut res = be.clone();
-            res.left = optimize_boxed(&be.left);
-            res.right = optimize_boxed(&be.right);
-            let mut expr = BinaryOperator(res);
-            let mut lfs = get_common_label_filters(&expr);
-            if !lfs.is_empty() {
-                pushdown_binary_op_filters_in_place(&mut expr, &mut lfs);
+
+            fn create_new_binop(be: &BinaryOpExpr, left: Expression, right: Expression) -> Cow<Expression> {
+                let mut res = be.clone();
+                res.left = Box::new(left);
+                res.right = Box::new(right);
+                let mut expr = BinaryOperator(res);
+                let mut lfs = get_common_label_filters(&expr);
+                if !lfs.is_empty() {
+                    pushdown_binary_op_filters_in_place(&mut expr, &mut lfs);
+                }
+
+                Cow::Owned(expr)
             }
-            Cow::Owned(expr)
+
+
+            // clone only if we have actually optimized a side
+            match (optimize_internal(&be.left), optimize_internal(&be.right)) {
+                (Cow::Owned(left), Cow::Owned(right)) => {
+                    create_new_binop(be, left, right)
+                }
+                (Cow::Borrowed(left), Cow::Owned(right)) => {
+                    create_new_binop(be, left.clone(), right)
+                }
+                (Cow::Owned(left), Cow::Borrowed(right)) => {
+                    create_new_binop(be, left, right.clone())
+                }
+                _ => Cow::Borrowed::<'a>(e)
+            }
         }
         _ => Cow::Borrowed::<'a>(e)
     }
@@ -310,7 +342,7 @@ pub fn intersect_label_filters(first: &mut Vec<LabelFilter>, second: &[LabelFilt
 }
 
 pub fn union_label_filters(a: &mut Vec<LabelFilter>, b: &Vec<LabelFilter>) {
-    //todo (perf) do we need to clone, or can we drain ?
+    // todo (perf) do we need to clone, or can we drain ?
     if a.is_empty() {
         a.append(&mut b.clone());
         return;
@@ -322,6 +354,7 @@ pub fn union_label_filters(a: &mut Vec<LabelFilter>, b: &Vec<LabelFilter>) {
     for label in b.iter() {
         let k = label.to_string();
         if !m.contains(&k) {
+            // todo: take from b, no alloc
             a.push(label.clone());
         }
     }
@@ -345,6 +378,8 @@ fn filter_label_filters_on(lfs: &mut Vec<LabelFilter>, args: &[String]) {
     if !args.is_empty() {
         let m: HashSet<&String> = HashSet::from_iter(args.iter());
         lfs.retain(|x| m.contains(&x.label))
+    } else {
+        lfs.clear()
     }
 }
 
@@ -454,7 +489,7 @@ mod tests {
         let e_optimized = optimize(&e);
         let q_optimized = e_optimized.to_string();
         assert_eq!(q_optimized, expected,
-                   "unexpected q_optimized;\ngot\n{}\nwant\n{}", q_optimized, expected);
+                   "unexpected q_optimized;\ngot\n{}\nwant\n{}\nq = {}", q_optimized, expected, q);
         // Make sure the the original e didn't change after Optimize() call
         let binding = e.to_string();
         let s = binding.as_str();
@@ -614,7 +649,6 @@ mod tests {
     fn subqueries(q: &str, expected: &str) {
         test_optimize(q, expected)
     }
-
 
     // binary ops with constants or scalars
     #[test_case(r#"200 * foo / bar{baz="a"}"#, r#"(200 * foo{baz="a"}) / bar{baz="a"}"#)]

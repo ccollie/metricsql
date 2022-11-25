@@ -2,7 +2,6 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::ops::Deref;
 use crate::ast::{Expression, ExpressionNode, ReturnValue};
-use crate::ast::expression_kind::ExpressionKind;
 use crate::lexer::TextSpan;
 use serde::{Serialize, Deserialize};
 
@@ -110,10 +109,6 @@ impl From<&str> for StringExpr {
 impl ExpressionNode for StringExpr {
     fn cast(self) -> Expression {
         Expression::String(self)
-    }
-
-    fn kind(&self) -> ExpressionKind {
-        ExpressionKind::String
     }
 }
 

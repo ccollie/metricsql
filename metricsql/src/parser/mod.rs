@@ -2,7 +2,7 @@ use once_cell::sync::OnceCell;
 pub use parse_error::*;
 pub use parser::*;
 pub use regexp_cache::compile_regexp;
-use crate::ast::{Expression, WithArgExpr, simplify_expr};
+use crate::ast::{Expression, WithArgExpr};
 use crate::lexer::TokenKind;
 use crate::parser::expand_with::expand_with_expr;
 use crate::parser::expr::parse_expression;

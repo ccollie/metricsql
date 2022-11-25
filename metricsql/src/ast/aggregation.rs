@@ -1,7 +1,6 @@
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
-use crate::ast::expression_kind::ExpressionKind;
 use crate::ast::{BExpression, Expression, ExpressionNode, ReturnValue};
 use crate::ast::misc::{write_expression_list, write_labels};
 use crate::functions::{AggregateFunction, get_aggregate_arg_idx_for_optimization};
@@ -209,10 +208,6 @@ impl Display for AggrFuncExpr {
 impl ExpressionNode for AggrFuncExpr {
     fn cast(self) -> Expression {
         Expression::Aggregation(self)
-    }
-
-    fn kind(&self) -> ExpressionKind {
-        ExpressionKind::Aggregate
     }
 }
 

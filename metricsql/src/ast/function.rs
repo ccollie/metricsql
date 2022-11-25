@@ -1,7 +1,6 @@
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use crate::ast::{BExpression, Expression, ExpressionNode, ReturnValue};
-use crate::ast::expression_kind::ExpressionKind;
 use crate::ast::misc::write_expression_list;
 use crate::functions::{BuiltinFunction, is_rollup_aggregation_over_time};
 use crate::lexer::TextSpan;
@@ -156,9 +155,5 @@ impl Display for FuncExpr {
 impl ExpressionNode for FuncExpr {
     fn cast(self) -> Expression {
         Expression::Function(self)
-    }
-
-    fn kind(&self) -> ExpressionKind {
-        ExpressionKind::Function
     }
 }

@@ -91,14 +91,14 @@ fn checkAST(p: &mut Parser, node: &Expression) -> ReturnType {
                     }
                     i = len(n.Func.ArgTypes) - 1
                 }
-                p.expectType(arg, n.Func.ArgTypes[i], fmt.Sprintf("call to function %q", fe.name))
+                p.expectType(arg, n.Func.ArgTypes[i], fmt.Sprintf("call to function {}", fe.name))
             }
         }
 
     Expression::Rollup(re) => {
         let ty = checkAST(&mut p, &re.expr);
         if ty != ValueTypeVector {
-            p.addParseErrf(n.range(), "subquery is only allowed on instant vector, got %s instead", ty)
+            p.addParseErrf(n.range(), "subquery is only allowed on instant vector, got {} instead", ty)
         }
         // todo: window, at, offset
     }
@@ -115,7 +115,7 @@ fn checkAST(p: &mut Parser, node: &Expression) -> ReturnType {
             // set outside the braces. This checks if the name has already been set
             // previously.
             for m in me.label_matchers.iter() {
-                if m.Name == labels.MetricName {
+                if m.name == labels.MetricName {
                     p.addParseErrf(n.range(), "metric name must not be set twice: {} or {}", n.name, m.value)
                 }
             }
@@ -129,7 +129,7 @@ fn checkAST(p: &mut Parser, node: &Expression) -> ReturnType {
         // implicit selection of all metrics (e.g. by a typo).
         let mut not_empty = false;
         for lm in n.label_matchers.iter() {
-            if lm != nil && !lm.Matches("") {
+            if !lm.Matches("") {
                 not_empty = true;
                 break
             }

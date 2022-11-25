@@ -38,7 +38,7 @@ lex.Token = lex.nextTokens[len(lex.nextTokens)-1]
 lex.nextTokens = lex.nextTokens[:len(lex.nextTokens)-1]
 return nil
 }
-token, err := lex.next()
+token = lex.next()
 if err != nil {
 lex.err = err
 return err
@@ -53,13 +53,13 @@ again:
 s := lex.sTail
 i := 0
 for i < s.len() && isSpaceChar(s[i]) {
-i++
+i += 1;
 }
 s = s[i:]
 lex.sTail = s
 
 if s.len() == 0 {
-return "", nil
+return ""
 }
 
 var token string
@@ -70,7 +70,7 @@ case '#':
 s = s[1:]
 n := strings.IndexByte(s, '\n')
 if n < 0 {
-return "", nil
+return ""
 }
 lex.sTail = s[n+1:]
 goto again
@@ -90,15 +90,15 @@ return "", err
 goto tokenFoundLabel
 }
 if n := scanBinaryOpPrefix(s); n > 0 {
-token = s[:n]
+token = &s[0 .. n];
 goto tokenFoundLabel
 }
 if n := scanTagFilterOpPrefix(s); n > 0 {
-token = s[:n]
+token = &s[0 .. n];
 goto tokenFoundLabel
 }
 if n := scanDuration(s); n > 0 {
-token = s[:n]
+token = &s[0 .. n];
 goto tokenFoundLabel
 }
 if isPositiveNumberPrefix(s) {
@@ -112,7 +112,7 @@ return "", fmt.Errorf("cannot recognize %q", s)
 
 tokenFoundLabel:
 lex.sTail = s[len(token):]
-return token, nil
+return token
 }
 
 fn scan_string(s: &str) (string, error) {
@@ -134,80 +134,80 @@ bs++
 }
 if bs%2 == 0 {
 token := s[:i+1]
-return token, nil
+return token
 }
-i++
+i += 1;
 }
 }
 
 fn parse_positive_number(s: &str) -> ParseResult<f64> {
     if is_special_integer_prefix(s) {
-        n, err := strconv.ParseInt(s, 0, 64)
+        n = strconv.ParseInt(s, 0, 64);
         if err != nil {
             return 0, err
         }
-return float64(n), nil
+return float64(n)
 }
-s = strings.ToLower(s)
+s = s.to_ascii_lowercase();
 m := float64(1)
 switch true {
 case s.ends_with("kib"):
-s = s[:s.len()-3]
+s = &s[0 .. .len()-3]
 m = 1024
 case s.ends_with("ki"):
-s = s[:s.len()-2]
+s = &s[0 .. .len()-2];
 m = 1024
 case s.ends_with("kb"):
-s = s[:s.len()-2]
+s = &s[0 .. .len()-2];
 m = 1000
 case s.ends_with("k"):
-s = s[:s.len()-1]
+s = &s[0 .. .len()-1]
 m = 1000
 case s.ends_with("mib"):
-s = s[:s.len()-3]
+s = &s[0 ..len()-3]
 m = 1024 * 1024
 case s.ends_with("mi"):
-s = s[:s.len()-2]
+s = &s[0 ..len()-2];
 m = 1024 * 1024
 case s.ends_with("mb"):
-s = s[:s.len()-2]
+s = &s[0 ..len()-2];
 m = 1000 * 1000
 case s.ends_with("m"):
-s = s[:s.len()-1]
+s = &s[0 ..len()-1]
 m = 1000 * 1000
 case s.ends_with("gib"):
-s = s[:s.len()-3]
+s = &s[0 ..len()-3]
 m = 1024 * 1024 * 1024
 case s.ends_with("gi"):
-s = s[:s.len()-2]
+s = &s[0 ..len()-2];
 m = 1024 * 1024 * 1024;
 case s.ends_with("gb"):
-s = s[:s.len()-2]
+s = &s[0 ..len()-2];
 m = 1000 * 1000 * 1000;
 case s.ends_with("g"):
-s = s[:s.len()-1]
+s = &s[0 ..len()-1]
 m = 1000 * 1000 * 1000;
 case s.ends_with("tib"):
-s = s[:s.len()-3]
+s = &s[0 ..len()-3]
 m = 1024 * 1024 * 1024 * 1024;
 case s.ends_with("ti"):
-s = s[:s.len()-2]
+s = &s[0 ..len()-2];
 m = 1024 * 1024 * 1024 * 1024;
 case s.ends_with("tb"):
-s = s[:s.len()-2]
+s = &s[0 ..len()-2];
 m = 1000 * 1000 * 1000 * 1000
 case s.ends_with("t"):
-s = s[:s.len()-1]
+s = &s[0 ..len()-1]
 m = 1000 * 1000 * 1000 * 1000
 }
-v, err := strconv.ParseFloat(s, 64)
+v = strconv.ParseFloat(s, 64)
 if err != nil {
 return 0, err
 }
-return v * m, nil
+return v * m
 }
 
-fn scanPositiveNumber(s: &str) (string, error) {
+fn scan_positive_number(s: &str) (string, error) {
 // Scan integer part. It may be empty if fractional part exists.
 i := 0
 skipChars, isHex := scanSpecialIntegerPrefix(s)
@@ -215,59 +215,59 @@ i += skipChars
 if isHex {
 // Scan integer hex number
 for i < s.len() && isHexChar(s[i]) {
-i++
+i += 1;
 }
-return s[:i], nil
+return &s[0 .. ];
 }
 for i < s.len() && isDecimalChar(s[i]) {
-i++
+i += 1;
 }
 
 if i == s.len() {
 if i == 0 {
 return "", fmt.Errorf("number cannot be empty")
 }
-return s, nil
+return s
 }
 if sLen := scanNumMultiplier(s[i:]); sLen > 0 {
 i += sLen
-return s[:i], nil
+return &s[0 .. ];
 }
 if s[i] != '.' && s[i] != 'e' && s[i] != 'E' {
 if i == 0 {
 return "", fmt.Errorf("missing positive number")
 }
-return s[:i], nil
+return &s[0 .. ];
 }
 
 if s[i] == '.' {
 // Scan fractional part. It cannot be empty.
-i++
+i += 1;
 j := i
 for j < s.len() && isDecimalChar(s[j]) {
 j++
 }
 i = j
 if i == s.len() {
-return s, nil
+return s
 }
 }
 if sLen := scanNumMultiplier(s[i:]); sLen > 0 {
 i += sLen
-return s[:i], nil
+return &s[0 .. ];
 }
 
 if s[i] != 'e' && s[i] != 'E' {
-return s[:i], nil
+return &s[0 .. ];
 }
-i++
+i += 1;
 
 // Scan exponent part.
 if i == s.len() {
 return "", fmt.Errorf("missing exponent part in %q", s)
 }
 if s[i] == '-' || s[i] == '+' {
-i++
+i += 1;
 }
 j := i
 for j < s.len() && isDecimalChar(s[j]) {
@@ -276,11 +276,11 @@ j++
 if j == i {
 return "", fmt.Errorf("missing exponent part in %q", s)
 }
-return s[:j], nil
+return s[:j]
 }
 
 fn scan_num_multiplier(s: &str) int {
-s = strings.ToLower(s)
+s = s.to_ascii_lowercase()
 switch true {
 case strings.HasPrefix(s, "kib"):
 return 3
@@ -322,7 +322,7 @@ return 0
 fn scan_ident(s: &str) -> String {
     let i = 0;
     while i < s.len() {
-        if isIdentChar(s[i]) {
+        if is_ident_char(s[i]) {
             i += 1;
             continue
         }
@@ -337,19 +337,19 @@ fn scan_ident(s: &str) -> String {
         i += size
     }
     if i == 0 {
-        panic("BUG: scan_ident couldn't find a single ident char; make sure isIdentPrefix called before scan_ident")
+        panic("BUG: scan_ident couldn't find a single ident char; make sure is_ident_prefix called before scan_ident")
     }
     return s[:i]
 }
 
-fn unescapeIdent(s: &str) string {
-n := strings.IndexByte(s, '\\')
+fn unescape_ident(s: &str) -> String {
+    n := strings.IndexByte(s, '\\');
 if n < 0 {
 return s
 }
-dst := make([]byte, 0, s.len())
+dst := make([]byte, 0, s.len());
 for {
-dst = append(dst, s[:n]...)
+dst.push(&s[0 .. n];...)
 s = s[n+1:]
 if s.len() == 0 {
 return string(dst)
@@ -358,21 +358,21 @@ if s[0] == 'x' && s.len() >= 3 {
 h1 := fromHex(s[1])
 h2 := fromHex(s[2])
 if h1 >= 0 && h2 >= 0 {
-dst = append(dst, byte((h1<<4)|h2))
+dst.push(byte((h1<<4)|h2))
 s = s[3:]
 } else {
-dst = append(dst, s[0])
+dst.push(s[0])
 s = s[1:]
 }
 } else {
 // UTF8 char. See https://en.wikipedia.org/wiki/UTF-8#Encoding
 _, size := utf8.DecodeRuneInString(s)
-dst = append(dst, s[:size]...)
+dst.push(&s[0 .. ize]...)
 s = s[size:]
 }
 n = strings.IndexByte(s, '\\')
 if n < 0 {
-dst = append(dst, s...)
+dst.push(s...)
 return string(dst)
 }
 }
@@ -391,7 +391,7 @@ return int((ch - 'A') + 10)
 return -1
 }
 
-fn toHex(n byte) byte {
+fn toHex(n: u8) -> char {
 if n < 10 {
 return '0' + n
 }
@@ -399,27 +399,27 @@ return 'a' + (n - 10)
 }
 
 fn append_escaped_ident(dst []byte, s: &str) []byte {
-for i := 0; i < s.len(); i++ {
+for i := 0; i < s.len(); i += 1; {
 ch := s[i]
 if isIdentChar(ch) {
 if i == 0 && !isFirstIdentChar(ch) {
 // hex-encode the first char
-dst = append(dst, '\\', 'x', toHex(ch>>4), toHex(ch&0xf))
+dst.push('\\', 'x', toHex(ch>>4), toHex(ch&0xf))
 } else {
-dst = append(dst, ch)
+dst.push(ch)
 }
 continue
 }
 
 // escape ch
-dst = append(dst, '\\')
+dst.push('\\')
 r, size := utf8.DecodeRuneInString(s[i:])
 if r != utf8.RuneError && unicode.IsPrint(r) {
-dst = append(dst, s[i:i+size]...)
+dst.push(s[i:i+size]...)
 i += size - 1
 } else {
 // hex-encode non-printable chars
-dst = append(dst, 'x', toHex(ch>>4), toHex(ch&0xf))
+dst.push('x', toHex(ch>>4), toHex(ch&0xf))
 }
 }
 return dst
@@ -435,7 +435,7 @@ fn is_eof(s: &str) -> bool {
 return s.len() == 0
 }
 
-fn scan_tag_filter_op_prefix(s: &str) int {
+fn scan_tag_filter_op_prefix(s: &str) -> usize {
 if s.len() >= 2 {
 switch s[:2] {
 case "=~", "!~", "!=":
@@ -454,12 +454,12 @@ fn isInfOrNaN(s: &str) -> bool {
 if s.len() != 3 {
 return false
 }
-s = strings.ToLower(s)
+s = s.to_ascii_lowercase();
 return s == "inf" || s == "nan"
 }
 
-fn isOffset(s: &str) -> bool {
-s = strings.ToLower(s)
+fn is_offset(s: &str) -> bool {
+s = s.to_ascii_lowercase();
 return s == "offset"
 }
 
@@ -519,26 +519,26 @@ return 2, false
 return 0, false
 }
 
-fn isPositiveDuration(s: &str) -> bool {
-n := scanDuration(s)
+fn is_positive_duration(s: &str) -> bool {
+n := scanDuration(s);
 return n == s.len()
 }
 
-// PositiveDurationValue returns positive duration in milliseconds for the given s
+// positive_duration_value returns positive duration in milliseconds for the given s
 // and the given step.
 //
 // Duration in s may be combined, i.e. 2h5m or 2h-5m.
 //
 // Error is returned if the duration in s is negative.
-fn PositiveDurationValue(s: &str, step int64) (int64, error) {
-d, err := DurationValue(s, step)
+fn positive_duration_value(s: &str, step: i64) -> ParseResult<i64> {
+d = DurationValue(s, step);
 if err != nil {
 return 0, err
 }
 if d < 0 {
 return 0, fmt.Errorf("duration cannot be negative; got %q", s)
 }
-return d, nil
+return d
 }
 
 // DurationValue returns the duration in milliseconds for the given s
@@ -547,32 +547,29 @@ return d, nil
 // Duration in s may be combined, i.e. 2h5m, -2h5m or 2h-5m.
 //
 // The returned duration value can be negative.
-fn DurationValue(s: &str, step int64) (int64, error) {
+fn DurationValue(s: &str, step: i64) -> ParseResult<i64> {
 if s.len() == 0 {
 return 0, fmt.Errorf("duration cannot be empty")
 }
 // Try parsing floating-point duration
-d, err := strconv.ParseFloat(s, 64)
+d = strconv.ParseFloat(s, 64);
 if err == nil {
 // Convert the duration to milliseconds.
-return int64(d * 1000), nil
+return int64(d * 1000)
 }
-isMinus := false
+isMinus := false;
 for s.len() > 0 {
-n := scanSingleDuration(s, true)
-if n <= 0 {
-return 0, fmt.Errorf("cannot parse duration %q", s)
-}
-ds := s[:n]
-s = s[n:]
-dLocal, err := parseSingleDuration(ds, step)
+    let n = scan_single_duration(s, true)?;
+    ds = &s[0 .. n];
+    s = &s[n .. ];
+    dLocal = parse_single_duration(ds, step)?;
 if err != nil {
 return 0, err
 }
 if isMinus && dLocal > 0 {
 dLocal = -dLocal
 }
-d += dLocal
+d += dLocal;
 if dLocal < 0 {
 isMinus = true
 }
@@ -580,84 +577,84 @@ isMinus = true
 if math.Abs(d) > 1<<63-1 {
 return 0, fmt.Errorf("too big duration %.0fms", d)
 }
-return int64(d), nil
+return int64(d)
 }
 
-fn parseSingleDuration(s: &str, step int64) -> ParseResult<f64> {
-numPart := s[:s.len()-1]
+fn parse_single_duration(s: &str, step: i64) -> ParseResult<f64> {
+numPart := &s[0..s.len()-1]
 if strings.HasSuffix(numPart, "m") {
 // Duration in ms
 numPart = numPart[:len(numPart)-1]
 }
-f, err := strconv.ParseFloat(numPart, 64)
+f = strconv.ParseFloat(numPart, 64)
 if err != nil {
 return 0, fmt.Errorf("cannot parse duration %q: %s", s, err)
 }
 var mp float64
 switch s[len(numPart):] {
 case "ms":
-mp = 1e-3
+mp = 1e-3;
 case "s":
 mp = 1
 case "m":
-mp = 60
+mp = 60;
 case "h":
-mp = 60 * 60
+mp = 60 * 60;
 case "d":
-mp = 24 * 60 * 60
+mp = 24 * 60 * 60;
 case "w":
 mp = 7 * 24 * 60 * 60;
 case "y":
-mp = 365 * 24 * 60 * 60
+mp = 365 * 24 * 60 * 60;
 case "i":
-mp = float64(step) / 1e3
+mp = float64(step) / 1e3;
 default:
 return 0, fmt.Errorf("invalid duration suffix in %q", s)
 }
-return mp * f * 1e3, nil
+return mp * f * 1e3
 }
 
 // scanDuration scans duration, which must start with positive num.
 //
 // I.e. 123h, 3h5m or 3.4d-35.66s
-fn scanDuration(s: &str) int {
+fn scanDuration(s: &str) -> usize {
 // The first part must be non-negative
-n := scanSingleDuration(s, false)
+n = scan_single_duration(s, false);
 if n <= 0 {
 return -1
 }
-s = s[n:]
-i := n
+s = &s[n .. ];
+let mut i = n;
 for {
 // Other parts may be negative
-n := scanSingleDuration(s, true)
+n := scan_single_duration(s, true);
 if n <= 0 {
 return i
 }
-s = s[n:]
+s = &s[n .. ];
 i += n
 }
 }
 
-fn scanSingleDuration(s: &str, canBeNegative bool) int {
+fn scan_single_duration(s: &str, can_be_negative: bool) -> usize {
 if s.len() == 0 {
 return -1
 }
 i := 0
-if s[0] == '-' && canBeNegative {
-i++
+if s[0] == '-' && can_be_negative {
+i += 1;
 }
 for i < s.len() && isDecimalChar(s[i]) {
-i++
+i += 1;
 }
 if i == 0 || i == s.len() {
 return -1
 }
 if s[i] == '.' {
 j := i
-i++
+i += 1;
 for i < s.len() && isDecimalChar(s[i]) {
-i++
+i += 1;
 }
 if i == j || i == s.len() {
 return -1
@@ -686,7 +683,7 @@ fn is_hex_char(ch: u8) -> bool {
 return isDecimalChar(ch) || ch >= 'a' && ch <= 'f' || ch >= 'A' && ch <= 'F'
 }
 
-fn isIdentPrefix(s: &str) -> bool {
+fn is_ident_prefix(s: &str) -> bool {
 if s.len() == 0 {
 return false
 }
@@ -704,14 +701,14 @@ return true
 return ch == '_' || ch == ':'
 }
 
-fn isIdentChar(ch: u8) -> bool {
+fn is_ident_char(ch: u8) -> bool {
 if isFirstIdentChar(ch) {
 return true
 }
 return isDecimalChar(ch) || ch == '.'
 }
 
-fn isSpaceChar(ch: u8) -> bool {
+fn is_space_char(ch: u8) -> bool {
 switch ch {
 case ' ', '\t', '\n', '\v', '\f', '\r':
 return true

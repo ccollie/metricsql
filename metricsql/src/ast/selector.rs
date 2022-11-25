@@ -4,7 +4,6 @@ use crate::ast::{
     Expression, ExpressionNode, LabelFilter,
     LabelFilterExpr, LabelFilterOp, ReturnValue
 };
-use crate::ast::expression_kind::ExpressionKind;
 use crate::lexer::TextSpan;
 use crate::utils::escape_ident;
 use serde::{Serialize, Deserialize};
@@ -134,8 +133,5 @@ impl Default for MetricExpr {
 impl ExpressionNode for MetricExpr {
     fn cast(self) -> Expression {
         Expression::MetricExpression(self)
-    }
-    fn kind(&self) -> ExpressionKind {
-        ExpressionKind::Metric
     }
 }

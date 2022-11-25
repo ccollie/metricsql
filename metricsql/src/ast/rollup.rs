@@ -2,7 +2,6 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use crate::ast::{BExpression, Expression, ExpressionNode, ReturnValue};
 use crate::ast::duration::DurationExpr;
-use crate::ast::expression_kind::ExpressionKind;
 use crate::lexer::TextSpan;
 use serde::{Serialize, Deserialize};
 
@@ -152,9 +151,5 @@ impl Display for RollupExpr {
 impl ExpressionNode for RollupExpr {
     fn cast(self) -> Expression {
         Expression::Rollup(self)
-    }
-
-    fn kind(&self) -> ExpressionKind {
-        ExpressionKind::Rollup
     }
 }

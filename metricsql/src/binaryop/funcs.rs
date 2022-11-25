@@ -119,7 +119,7 @@ pub fn ifnot(left: f64, right: f64) -> f64 {
 }
 
 
-pub(crate) fn eval_binary_op(left: f64, right: f64, op: BinaryOp, is_bool: bool) -> f64 {
+pub fn eval_binary_op(left: f64, right: f64, op: BinaryOp, is_bool: bool) -> f64 {
     use crate::ast::BinaryOp::*;
 
     return if op.is_comparison() {
@@ -128,7 +128,7 @@ pub(crate) fn eval_binary_op(left: f64, right: f64, op: BinaryOp, is_bool: bool)
                 return if cf(left, right) { 1_f64 } else { 0_f64 };
             }
             return if cf(left, right) { left } else { f64::NAN }
-        };
+        }
 
         match op {
             Eql => eval_cmp(left, right, is_bool, eq),

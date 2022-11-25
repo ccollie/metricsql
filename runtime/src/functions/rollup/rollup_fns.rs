@@ -373,7 +373,7 @@ pub(crate) fn get_rollup_aggr_funcs(expr: &Expression) -> RuntimeResult<Vec<Roll
 
     return match fe {
         None => {
-            let msg = format!("BUG: unexpected expression; want metricsql.FuncExpr; got {}; value: {}", expr.kind(), expr);
+            let msg = format!("BUG: unexpected expression; want metricsql.FuncExpr; got {}; value: {}", expr.type_name(), expr);
             Err(RuntimeError::from(msg))
         },
         Some(fe_) => {

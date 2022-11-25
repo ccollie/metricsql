@@ -1,7 +1,6 @@
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use crate::ast::{Expression, ExpressionNode, ReturnValue};
-use crate::ast::expression_kind::ExpressionKind;
 use crate::lexer::{duration_value, TextSpan};
 use crate::parser::{ParseError, ParseResult};
 use serde::{Serialize, Deserialize};
@@ -71,8 +70,5 @@ impl Display for DurationExpr {
 impl ExpressionNode for DurationExpr {
     fn cast(self) -> Expression {
         Expression::Duration(self)
-    }
-    fn kind(&self) -> ExpressionKind {
-        ExpressionKind::Duration
     }
 }

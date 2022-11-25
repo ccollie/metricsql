@@ -1,5 +1,4 @@
 mod expression;
-mod expression_kind;
 mod label_filter;
 mod labels;
 mod return_type;

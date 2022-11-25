@@ -1,7 +1,6 @@
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use crate::ast::{BExpression, Expression, ExpressionNode, ReturnValue};
-use crate::ast::expression_kind::ExpressionKind;
 use crate::lexer::TextSpan;
 use super::misc::write_list;
 use crate::utils::escape_ident;
@@ -48,9 +47,6 @@ impl Display for WithExpr {
 impl ExpressionNode for WithExpr {
     fn cast(self) -> Expression {
         Expression::With(self)
-    }
-    fn kind(&self) -> ExpressionKind {
-        ExpressionKind::With
     }
 }
 
