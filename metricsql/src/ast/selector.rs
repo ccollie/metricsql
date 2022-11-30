@@ -8,6 +8,7 @@ use crate::lexer::TextSpan;
 use crate::utils::escape_ident;
 use serde::{Serialize, Deserialize};
 
+
 // todo: MetricExpr => Selector
 /// MetricExpr represents MetricsQL metric with optional filters, i.e. `foo{...}`.
 #[derive(Debug, Clone, Hash, Serialize, Deserialize)]
@@ -57,13 +58,10 @@ impl MetricExpr {
     }
 
     pub fn is_only_metric_group(&self) -> bool {
-        if self.has_non_empty_metric_group() {
-            return false;
-        }
-        self.label_filters.len() == 1
+        self.label_filters.len() == 1 && self.name().is_some()
     }
 
-    pub fn name(&mut self) -> Option<&str> {
+    pub fn name(&self) -> Option<&str> {
         match self.label_filters.iter().find(|filter| filter.label == "__name__" ) {
             Some(f) => Some(&f.value),
             None => None
@@ -93,28 +91,24 @@ impl MetricExpr {
 impl Display for MetricExpr {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let mut lfs: &[LabelFilter] = &self.label_filters;
-        let mut name_written = false;
         if !lfs.is_empty() {
             let lf = &lfs[0];
             if lf.label == "__name__" && !lf.is_negative() && !lf.is_regexp() {
                 write!(f, "{}", escape_ident(&lf.value))?;
                 lfs = &lfs[1..];
-                name_written = true;
             }
         }
         if !lfs.is_empty() {
             write!(f, "{{")?;
             for (i, lf) in lfs.iter().enumerate() {
-                write!(f, "{}", lf)?;
-                if (i + 1) < lfs.len() {
+                if i > 0 {
                     write!(f, ", ")?;
                 }
+                write!(f, "{}", lf)?;
             }
             write!(f, "}}")?;
-        } else {
-            if !name_written {
-                write!(f, "{{}}")?;
-            }
+        } else if self.label_filters.len() == 0 {
+            write!(f, "{{}}")?;
         }
         Ok(())
     }

@@ -16,13 +16,13 @@ pub enum StringTokenType {
 pub struct StringExpr {
     /// contains unquoted value for string expression.
     pub value: String,
+    pub span: TextSpan,
 
     /// A composite string has non-empty tokens.
     /// They must be converted into S by expand_with_expr.
     // todo: SmallVec
     #[serde(skip)]
     pub(crate) tokens: Vec<StringTokenType>,
-    pub span: TextSpan
 }
 
 impl StringExpr {

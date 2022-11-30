@@ -359,7 +359,7 @@ impl FromStr for TransformFunction {
         match REVERSE_MAP.get(lower.as_str()) {
             Some(op) => Ok(*op),
             None => Err(Error::new(
-                format!("Invalid transform function: {}", s)))
+                format!("Unknown transform function: {}", s)))
         }
     }
 }

@@ -3,7 +3,6 @@ use crate::{
     append_float64_ones, append_float64_zeros, append_int64_ones, append_int64_zeros, frexp,
     is_float64_ones, is_float64_zeros, is_int64_ones, is_int64_zeros, isinf, LN10_F64,
 };
-use lockfree_object_pool::LinearObjectPool;
 use once_cell::sync::Lazy;
 use std::cmp::Ordering;
 
@@ -85,7 +84,7 @@ fn calibrate_internal(a: &mut [i64], ae: i16, b: &mut [i64], be: i16) -> i16 {
         }
         let mut adj_exp = up_exp;
         while adj_exp > 0 {
-            *v = *v * 10;
+            *v *= 10;
             adj_exp -= 1;
         }
     }
@@ -175,16 +174,6 @@ pub fn append_decimal_to_float(dst: &mut Vec<f64>, va: &[i64], e: i16) {
     }
 }
 
-static VAE_BUF_POOL: Lazy<LinearObjectPool<VaeBuf>> = Lazy::new(|| {
-    LinearObjectPool::<VaeBuf>::new(
-        || VaeBuf::new(5),
-        |v| {
-            v.va.clear();
-            v.ea.clear();
-            ()
-        },
-    )
-});
 
 /// append_float_to_decimal converts each item in src to v*10^e and appends
 /// each v to dst returning it as va.
@@ -281,12 +270,6 @@ impl VaeBuf {
     fn clear(mut self) -> Self {
         self.ea.clear();
         self.va.clear();
-        self
-    }
-
-    fn reserve(mut self, cap: usize) -> Self {
-        self.ea.reserve(cap);
-        self.ea.reserve(cap);
         self
     }
 }

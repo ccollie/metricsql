@@ -2,7 +2,7 @@ use std::str::FromStr;
 use crate::ast::{AggregateModifier, AggregateModifierOp, AggrFuncExpr, Expression};
 use crate::functions::{AggregateFunction, BuiltinFunction};
 use crate::lexer::TokenKind;
-use crate::parser::{ParseError, Parser, ParseResult};
+use crate::parser::{ParseErr, ParseError, Parser, ParseResult};
 use super::expr::{parse_arg_list, parse_number};
 use super::function::validate_args;
 
@@ -81,8 +81,9 @@ fn parse_limit(p: &mut Parser) -> ParseResult<usize> {
     let v = parse_number(p)?;
     if v < 0.0 || !v.is_finite() {
         // invalid value
-        let msg = format!("LIMIT should be a positive integer. Found {} ", v);
-        return Err(ParseError::General(msg));
+        let msg = format!("LIMIT should be a positive integer. Found {} ", v).to_string();
+        let err = ParseErr::new(&msg, p.input, p.last_token_range().unwrap());
+        return Err(ParseError::Unexpected(err));
     }
     Ok(v as usize)
 }

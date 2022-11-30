@@ -16,9 +16,17 @@
 // under the License.
 
 //! Expression rewriter
-use super::{
-    AggrFuncExpr, BExpression, BinaryOpExpr, Expression, FuncExpr,
-    ParensExpr, RollupExpr, WithArgExpr, WithExpr
+
+use crate::ast::{
+    AggrFuncExpr,
+    BExpression,
+    BinaryOpExpr,
+    Expression,
+    FuncExpr,
+    ParensExpr,
+    RollupExpr,
+    WithArgExpr,
+    WithExpr
 };
 use crate::parser::ParseResult;
 
@@ -118,6 +126,7 @@ impl ExprRewritable for Expression {
             },
             Expression::Function(FuncExpr {
                                      function,
+                                     name,
                                      args,
                                      keep_metric_names,
                                      is_scalar,
@@ -127,6 +136,7 @@ impl ExprRewritable for Expression {
                 Expression::Function(
                     FuncExpr {
                         function: function.clone(),
+                        name,
                         args: rewrite_vec(args, rewriter)?,
                         keep_metric_names,
                         is_scalar,

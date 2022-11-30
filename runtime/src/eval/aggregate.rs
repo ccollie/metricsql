@@ -1,4 +1,5 @@
 use std::ops::Deref;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use metricsql::ast::{AggregateModifier, AggrFuncExpr, Expression, FuncExpr, MetricExpr};
@@ -63,7 +64,7 @@ pub struct AggregateEvaluator {
     pub expr: String,
     pub function: AggregateFunction,
     args: ArgList,
-    /// optional modifier such as `by (...)` or `without (...)`.
+     /// optional modifier such as `by (...)` or `without (...)`.
     modifier: Option<AggregateModifier>,
     /// Max number of timeseries to return
     pub limit: usize,
@@ -72,8 +73,9 @@ pub struct AggregateEvaluator {
 
 impl AggregateEvaluator {
     pub fn new(ae: &AggrFuncExpr) -> RuntimeResult<Self> {
-        let handler = get_aggr_func(&ae.function)?;
-        let function = ae.function;
+        // todo: remove unwrap and return a Result
+        let function = AggregateFunction::from_str(&ae.name).unwrap();
+        let handler = get_aggr_func(&function)?;
         let signature = function.signature();
         let args = ArgList::new(&signature, &ae.args)?;
 
@@ -160,7 +162,8 @@ fn try_get_arg_rollup_func_with_metric_expr(ae: &AggrFuncExpr) -> RuntimeResult<
             }
         }
         Expression::Function(fe) => {
-            match fe.function {
+            let function = BuiltinFunction::from_str(&fe.name);
+            match function {
                 BuiltinFunction::Rollup(_) => {
                     match fe.get_arg_for_optimization() {
                         None => {
@@ -172,7 +175,7 @@ fn try_get_arg_rollup_func_with_metric_expr(ae: &AggrFuncExpr) -> RuntimeResult<
                         Some(arg) => {
                             match arg.deref() {
                                 Expression::MetricExpression(me) => {
-                                    create_func(me, e, &fe.name(), false)
+                                    create_func(me, e, &fe.name, false)
                                 },
                                 Expression::Rollup(re) => {
                                     match &*re.expr {
@@ -205,11 +208,15 @@ fn try_get_arg_rollup_func_with_metric_expr(ae: &AggrFuncExpr) -> RuntimeResult<
 
 
 fn get_rollup_function(fe: &FuncExpr) -> RuntimeResult<RollupFunction> {
-    match fe.function {
-        BuiltinFunction::Rollup(rf) => Ok(rf),
+    match RollupFunction::from_str(&fe.name) {
+        Ok(rf) => Ok(rf),
         _ => {
             // should not happen
-            Err( RuntimeError::General("Bug: cant extract rollup from function".to_string()))
+            Err(
+                RuntimeError::General(
+                    format!("Invalid rollup function \"{}\"", fe.name)
+                )
+            )
         }
     }
 }

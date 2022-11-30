@@ -223,11 +223,8 @@ impl JoinModifier {
 
 impl Display for JoinModifier {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{} (", self.op)?;
-        if !self.labels.is_empty() {
-            write_labels(&self.labels, f)?;
-        }
-        write!(f, ")")?;
+        write!(f, "{} ", self.op)?;
+        write_labels(&self.labels, f)?;
         Ok(())
     }
 }

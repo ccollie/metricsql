@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 
 #[derive(Logos, Debug, PartialEq, Copy, Clone)]
 #[logos(subpattern decimal = r"[0-9][_0-9]*")]
-#[logos(subpattern hex = r"0[xX][0-9a-fA-F][_0-9a-fA-F]*")]
+#[logos(subpattern hex = r"-?0[xX][0-9a-fA-F][_0-9a-fA-F]*")]
 #[logos(subpattern octal = r"0o?[_0-7]*")]
 #[logos(subpattern binary = r"0[bB][0-1][_0-1]*")]
 #[logos(subpattern float = r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?")]
@@ -166,8 +166,9 @@ pub enum TokenKind {
     RegexNotEqual,
 
     #[regex("'(?s:[^'\\\\]|\\\\.)*'")]
+    #[regex("`(?s:[^`\\\\]|\\\\.)*`")]
     #[regex("\"(?s:[^\"\\\\]|\\\\.)*\"")]
-    LiteralString,
+    StringLiteral,
 
     #[regex("\"(?s:[^\"\\\\]|\\\\.)*")]
     ErrorStringDoubleQuotedUnterminated,
@@ -324,7 +325,7 @@ impl Display for TokenKind {
             Self::RegexEqual => "=~",
             Self::RegexNotEqual => "!~",
             // strings
-            Self::LiteralString => "<string>",
+            Self::StringLiteral => "<string>",
             Self::Whitespace => "<ws>",
             Self::SingleLineHashComment => "<#comment>",
 

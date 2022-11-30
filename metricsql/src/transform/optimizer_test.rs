@@ -2,8 +2,8 @@
 mod tests {
     use crate::ast::{MetricExpr};
     use crate::ast::Expression::MetricExpression;
-    use crate::optimizer::{get_common_label_filters, optimize, pushdown_binary_op_filters};
     use crate::parser::parse;
+    use crate::transform::{get_common_label_filters, optimize, pushdown_binary_op_filters};
 
     #[test]
     fn test_pushdown_binary_op_filters() {
@@ -95,7 +95,7 @@ mod tests {
 
     #[test]
     fn test_single() {
-        validate_optimized(r#"foo @ end() + bar{baz="a"}"#,  r#"foo{baz="a"} @ end() + bar{baz="a"}"#);
+        validate_optimized(r#"sum(foo @ end()) + bar{baz="a"}"#,  r#"sum(foo @ end()) + bar{baz="a"}"#);
     }
 
     #[test]
@@ -120,7 +120,7 @@ mod tests {
         validate_optimized(r#"foo{x="y"} * ignoring() group_left(foo,bar) baz{a="b"}"#,  r#"foo{a="b", x="y"} * ignoring () group_left (foo, bar) baz{a="b", x="y"}"#);
         validate_optimized(r#"foo{x="y"} * on(a) group_left baz{a="b"}"#,  r#"foo{a="b", x="y"} * on (a) group_left () baz{a="b"}"#);
         validate_optimized(r#"foo{x="y"} * on(a) group_right(x, y) baz{a="b"}"#,  r#"foo{a="b", x="y"} * on (a) group_right (x, y) baz{a="b"}"#);
-        validate_optimized(r#"validate_optimized(foo, bar{baz=~"sdf"} + aa{baz=~"axx", aa="b"})"#,  r#"validate_optimized(foo, bar{aa="b", baz=~"axx", baz=~"sdf"} + aa{aa="b", baz=~"axx", baz=~"sdf"})"#);
+        validate_optimized(r#"f(foo, bar{baz=~"sdf"} + aa{baz=~"axx", aa="b"})"#,  r#"f(foo, bar{aa="b", baz=~"axx", baz=~"sdf"} + aa{aa="b", baz=~"axx", baz=~"sdf"})"#);
         validate_optimized(r#"sum(foo, bar{baz=~"sdf"} + aa{baz=~"axx", aa="b"})"#,  r#"sum(foo, bar{aa="b", baz=~"axx", baz=~"sdf"} + aa{aa="b", baz=~"axx", baz=~"sdf"})"#);
         validate_optimized(r#"foo AND bar{baz="aa"}"#,  r#"foo{baz="aa"} and bar{baz="aa"}"#);
         validate_optimized(r#"{x="y",__name__="a"} + {a="b"}"#,  r#"a{a="b", x="y"} + {a="b", x="y"}"#);
@@ -253,7 +253,7 @@ mod tests {
         validate_optimized(r#"foo * 100 / bar{baz="a"}"#,  r#"(foo{baz="a"} * 100) / bar{baz="a"}"#);
         validate_optimized(r#"foo / bar{baz="a"} * 100"#,  r#"(foo{baz="a"} / bar{baz="a"}) * 100"#);
         validate_optimized(r#"scalar(x) * foo / bar{baz="a"}"#,  r#"(scalar(x) * foo{baz="a"}) / bar{baz="a"}"#);
-        validate_optimized(r#"SCALAR(x) * foo / bar{baz="a"}"#,  r#"(SCALAR(x) * foo{baz="a"}) / bar{baz="a"}"#);
+       // validate_optimized(r#"SCALAR(x) * foo / bar{baz="a"}"#,  r#"(SCALAR(x) * foo{baz="a"}) / bar{baz="a"}"#);
         validate_optimized(r#"100 * on(foo) bar{baz="z"} + a"#,  r#"(100 * on (foo) bar{baz="z"}) + a"#);
     }
 

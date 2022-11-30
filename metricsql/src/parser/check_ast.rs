@@ -75,7 +75,7 @@ fn checkAST(p: &mut Parser, node: &Expression) -> ReturnType {
                     p.addParseErrf(n.range(), "expected at least {} argument(s) in call to {}, got {}",
                                    na, fe.name, fe.args.len())
                 } else {
-                    let nargsmax = na + fe.Func.Variadic;
+                    let nargsmax = na + fe.func.Variadic;
                     if  n.Func.Variadic > 0 && nargsmax < fe.args.len() {
                         p.addParseErrf(n.range(), "expected at most {} argument(s) in call to {}, got {}",
                                        nargsmax, n.name, fe.args.len())

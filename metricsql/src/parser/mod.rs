@@ -4,13 +4,11 @@ pub use parser::*;
 pub use regexp_cache::compile_regexp;
 use crate::ast::{Expression, WithArgExpr};
 use crate::lexer::TokenKind;
-use crate::parser::expand_with::expand_with_expr;
 use crate::parser::expr::parse_expression;
 use crate::parser::with_expr::{check_duplicate_with_arg_names, must_parse_with_arg_expr};
-use crate::prelude::simplify_constants;
+use crate::transform::{expand_with_expr, simplify_expr};
 
 mod aggregation;
-mod expand_with;
 mod expr;
 mod function;
 mod regexp_cache;
@@ -26,8 +24,6 @@ pub mod parser;
 mod parser_example_test;
 #[cfg(test)]
 mod parser_test;
-#[cfg(test)]
-mod expand_with_test;
 
 
 pub fn parse(input: &str) -> ParseResult<Expression> {
@@ -43,10 +39,8 @@ pub fn parse(input: &str) -> ParseResult<Expression> {
         return Err(ParseError::General(msg));
     }
     let was = get_default_with_arg_exprs();
-    match expand_with_expr(was, &expr) {
-        Ok(expr) => simplify_constants(&expr),
-        Err(e) => Err(e),
-    }
+    let res = expand_with_expr(&was, &expr)?.into_owned();
+    Ok(simplify_expr(res))
 }
 
 /// Expands WITH expressions inside q and returns the resulting
@@ -64,8 +58,8 @@ static DEFAULT_EXPRS: [&str; 1] = [
     )",
 ];
 
-fn get_default_with_arg_exprs() -> &'static [WithArgExpr; 1] {
-    static INSTANCE: OnceCell<[WithArgExpr; 1]> = OnceCell::new();
+fn get_default_with_arg_exprs() -> &'static Vec<WithArgExpr> {
+    static INSTANCE: OnceCell<Vec<WithArgExpr>> = OnceCell::new();
     INSTANCE.get_or_init(|| {
         let was: [WithArgExpr; 1] =
             DEFAULT_EXPRS.map(|expr| {
@@ -76,7 +70,7 @@ fn get_default_with_arg_exprs() -> &'static [WithArgExpr; 1] {
         if let Err(err) = check_duplicate_with_arg_names(&was) {
             panic!("BUG: {:?}", err)
         }
-        was
+        was.to_vec()
     })
 }
 

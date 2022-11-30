@@ -17,7 +17,7 @@ mod tests {
 
     fn show_func_expr(fe: &FuncExpr) {
         let arg = fe.args.get(0).expect("fe.args[0] should not be None");
-        println!("func: name={}, arg={}\n", fe.name(), arg);
+        println!("func: name={}, arg={}\n", fe.name, arg);
         match arg.deref() {
             Expression::Rollup(re) => show_rollup(re),
             _ => {

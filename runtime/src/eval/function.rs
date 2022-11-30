@@ -1,6 +1,8 @@
+use std::str::FromStr;
 use std::sync::Arc;
 use metricsql::ast::FuncExpr;
 use metricsql::functions::{BuiltinFunction, DataType, Volatility};
+use metricsql::prelude::TransformFunction;
 
 use crate::context::Context;
 use crate::eval::ExprEvaluator;
@@ -37,8 +39,8 @@ pub struct TransformEvaluator {
 
 impl TransformEvaluator {
     pub fn new(fe: &FuncExpr) -> RuntimeResult<Self> {
-        match fe.function {
-            BuiltinFunction::Transform(function) => {
+        match TransformFunction::from_str(&fe.name) {
+            Ok(function) => {
                 let handler = get_transform_func(function)?;
                 let signature = function.signature();
 
@@ -60,7 +62,7 @@ impl TransformEvaluator {
             _ => {
                 // todo: use a specific variant
                 return Err(RuntimeError::General(
-                    format!("Error constructing TransformEvaluator: {} is not a transform fn", fe.name())
+                    format!("Error constructing TransformEvaluator: {} is not a transform fn", fe.name)
                 ))
             }
         }

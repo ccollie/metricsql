@@ -93,7 +93,7 @@ impl AggregateModifier {
 impl Display for AggregateModifier {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         // Op is the operation itself, i.e. `+`, `-`, `*`, etc.
-        write!(f, "{}", self.op)?;
+        write!(f, "{} ", self.op)?;
         write_labels(&self.args, f)?;
         Ok(())
     }
@@ -196,7 +196,7 @@ impl Display for AggrFuncExpr {
             write_expression_list(&self.args, f)?;
         }
         if let Some(modifier) = &self.modifier {
-            write!(f, "{}", modifier)?;
+            write!(f, " {}", modifier)?;
         }
         if self.limit > 0 {
             write!(f, " limit {}", self.limit)?;

@@ -139,18 +139,9 @@ impl PartialEq for LabelFilter {
     }
 }
 
-// impl PartialOrd for LabelFilter {
-//     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-//         if self.label == other.label {
-//             return Some(self.value.cmp(&other.value));
-//         }
-//         Some(self.value.cmp(&other.value))
-//     }
-// }
-
 impl fmt::Display for LabelFilter {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.as_string())?;
+        write!(f, "{}{}{}", escape_ident(&self.label), self.op, quote(&self.value))?;
         Ok(())
     }
 }

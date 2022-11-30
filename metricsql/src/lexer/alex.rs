@@ -50,12 +50,12 @@ return nil
 fn (lex *lexer) next() (string, error) {
 again:
 // Skip whitespace
-s := lex.sTail
-i := 0
+s = lex.sTail
+i = 0
 for i < s.len() && isSpaceChar(s[i]) {
 i += 1;
 }
-s = s[i:]
+s = s[i .. ]
 lex.sTail = s
 
 if s.len() == 0 {
@@ -67,15 +67,15 @@ var err error
 switch s[0] {
 case '#':
 // Skip comment till the end of string
-s = s[1:]
-n := strings.IndexByte(s, '\n')
+s = s[1 .. ]
+n = strings.IndexByte(s, '\n')
 if n < 0 {
 return ""
 }
-lex.sTail = s[n+1:]
+lex.sTail = s[n+1 .. ]
 goto again
 case '{', '}', '[', ']', '(', ')', ',', '@':
-token = s[:1]
+token = s[0 .. 1]
 goto tokenFoundLabel
 }
 if isIdentPrefix(s) {
@@ -89,18 +89,21 @@ return "", err
 }
 goto tokenFoundLabel
 }
-if n := scanBinaryOpPrefix(s); n > 0 {
-token = &s[0 .. n];
-goto tokenFoundLabel
-}
-if n := scanTagFilterOpPrefix(s); n > 0 {
-token = &s[0 .. n];
-goto tokenFoundLabel
-}
-if n := scanDuration(s); n > 0 {
-token = &s[0 .. n];
-goto tokenFoundLabel
-}
+    let mut n = scanBinaryOpPrefix(s);
+    if n > 0 {
+        token = &s[0 .. n];
+        goto tokenFoundLabel
+    }
+    n = scanTagFilterOpPrefix(s); 
+    if n > 0 {
+        token = &s[0 .. n];
+        goto tokenFoundLabel
+    }
+    n = scanDuration(s); 
+    if n > 0 {
+        token = &s[0 .. n];
+        goto tokenFoundLabel
+    }
 if isPositiveNumberPrefix(s) {
 token, err = scanPositiveNumber(s)
 if err != nil {
@@ -111,7 +114,7 @@ goto tokenFoundLabel
 return "", fmt.Errorf("cannot recognize %q", s)
 
 tokenFoundLabel:
-lex.sTail = s[len(token):]
+lex.sTail = s[len(token) .. ]
 return token
 }
 
@@ -120,20 +123,20 @@ if s.len() < 2 {
 return "", fmt.Errorf("cannot find end of string in %q", s)
 }
 
-quote := s[0]
-i := 1
+quote = s[0]
+i = 1
 for {
-n := strings.IndexByte(s[i:], quote)
+n = strings.IndexByte(s[i .. ], quote)
 if n < 0 {
 return "", fmt.Errorf("cannot find closing quote %c for the string %q", quote, s)
 }
 i += n
-bs := 0
+bs = 0
 for bs < i && s[i-bs-1] == '\\' {
 bs++
 }
 if bs%2 == 0 {
-token := s[:i+1]
+token = s[0 .. i+1]
 return token
 }
 i += 1;
@@ -149,35 +152,35 @@ fn parse_positive_number(s: &str) -> ParseResult<f64> {
 return float64(n)
 }
 s = s.to_ascii_lowercase();
-m := float64(1)
+m = float64(1);
 switch true {
 case s.ends_with("kib"):
-s = &s[0 .. .len()-3]
-m = 1024
+s = &s[0 .. .len()-3];
+m = 1024;
 case s.ends_with("ki"):
 s = &s[0 .. .len()-2];
-m = 1024
+m = 1024;
 case s.ends_with("kb"):
 s = &s[0 .. .len()-2];
-m = 1000
+m = 1000;
 case s.ends_with("k"):
-s = &s[0 .. .len()-1]
-m = 1000
+s = &s[0 .. .len()-1];
+m = 1000;
 case s.ends_with("mib"):
-s = &s[0 ..len()-3]
-m = 1024 * 1024
+s = &s[0 ..len()-3];
+m = 1024 * 1024;
 case s.ends_with("mi"):
 s = &s[0 ..len()-2];
-m = 1024 * 1024
+m = 1024 * 1024;
 case s.ends_with("mb"):
 s = &s[0 ..len()-2];
-m = 1000 * 1000
+m = 1000 * 1000;
 case s.ends_with("m"):
-s = &s[0 ..len()-1]
-m = 1000 * 1000
+s = &s[0 ..len()-1];
+m = 1000 * 1000;
 case s.ends_with("gib"):
-s = &s[0 ..len()-3]
-m = 1024 * 1024 * 1024
+s = &s[0 ..len()-3];
+m = 1024 * 1024 * 1024;
 case s.ends_with("gi"):
 s = &s[0 ..len()-2];
 m = 1024 * 1024 * 1024;
@@ -185,43 +188,43 @@ case s.ends_with("gb"):
 s = &s[0 ..len()-2];
 m = 1000 * 1000 * 1000;
 case s.ends_with("g"):
-s = &s[0 ..len()-1]
+s = &s[0 ..len()-1];
 m = 1000 * 1000 * 1000;
 case s.ends_with("tib"):
-s = &s[0 ..len()-3]
+s = &s[0 ..len()-3];
 m = 1024 * 1024 * 1024 * 1024;
 case s.ends_with("ti"):
 s = &s[0 ..len()-2];
 m = 1024 * 1024 * 1024 * 1024;
 case s.ends_with("tb"):
 s = &s[0 ..len()-2];
-m = 1000 * 1000 * 1000 * 1000
+m = 1000 * 1000 * 1000 * 1000;
 case s.ends_with("t"):
-s = &s[0 ..len()-1]
+s = &s[0 ..len()-1];
 m = 1000 * 1000 * 1000 * 1000
 }
-v = strconv.ParseFloat(s, 64)
+v = strconv.ParseFloat(s, 64);
 if err != nil {
 return 0, err
 }
 return v * m
 }
 
-fn scan_positive_number(s: &str) (string, error) {
-// Scan integer part. It may be empty if fractional part exists.
-i := 0
-skipChars, isHex := scanSpecialIntegerPrefix(s)
-i += skipChars
-if isHex {
-// Scan integer hex number
-for i < s.len() && isHexChar(s[i]) {
-i += 1;
-}
-return &s[0 .. ];
-}
-for i < s.len() && isDecimalChar(s[i]) {
-i += 1;
-}
+fn scan_positive_number(s: &str) -> ParseRult<String>  {
+    // Scan integer part. It may be empty if fractional part exists.
+    let mut i = 0;
+    skipChars, isHex = scanSpecialIntegerPrefix(s);
+    i += skipChars;
+    if isHex {
+        // Scan integer hex number
+        while i < s.len() && isHexChar(s[i]) {
+            i += 1;
+        }
+        return &s[0 .. ];
+    }
+    while i < s.len() && isDecimalChar(s[i]) {
+        i += 1;
+    }
 
 if i == s.len() {
 if i == 0 {
@@ -229,38 +232,40 @@ return "", fmt.Errorf("number cannot be empty")
 }
 return s
 }
-if sLen := scanNumMultiplier(s[i:]); sLen > 0 {
-i += sLen
-return &s[0 .. ];
-}
-if s[i] != '.' && s[i] != 'e' && s[i] != 'E' {
-if i == 0 {
-return "", fmt.Errorf("missing positive number")
-}
-return &s[0 .. ];
-}
+if sLen = scanNumMultiplier(s[i .. ]); 
+    if sLen > 0 {
+        i += sLen;
+        return &s[0 .. ];
+    }
+    if s[i] != '.' && s[i] != 'e' && s[i] != 'E' {
+        if i == 0 {
+            return "", fmt.Errorf("missing positive number")
+        }
+        return &s[0 .. ];
+    }
 
 if s[i] == '.' {
 // Scan fractional part. It cannot be empty.
-i += 1;
-j := i
-for j < s.len() && isDecimalChar(s[j]) {
-j++
+    i += 1;
+    j = i;
+    while j < s.len() && isDecimalChar(s[j]) {
+        j += 1
+    }
+    i = j;
+    if i == s.len() {
+        return s
+    }
 }
-i = j
-if i == s.len() {
-return s
-}
-}
-if sLen := scanNumMultiplier(s[i:]); sLen > 0 {
-i += sLen
-return &s[0 .. ];
-}
+    sLen = scanNumMultiplier(s[i .. ]); 
+    if sLen > 0 {
+        i += sLen;
+        return &s[0 .. ];
+    }
 
-if s[i] != 'e' && s[i] != 'E' {
-return &s[0 .. ];
-}
-i += 1;
+    if s[i] != 'e' && s[i] != 'E' {
+        return &s[0 .. ];
+    }
+    i += 1;
 
 // Scan exponent part.
 if i == s.len() {
@@ -269,14 +274,14 @@ return "", fmt.Errorf("missing exponent part in %q", s)
 if s[i] == '-' || s[i] == '+' {
 i += 1;
 }
-j := i
-for j < s.len() && isDecimalChar(s[j]) {
-j++
+j = i;
+while j < s.len() && isDecimalChar(s[j]) {
+j += 1
 }
 if j == i {
 return "", fmt.Errorf("missing exponent part in %q", s)
 }
-return s[:j]
+return s[0 .. j]
 }
 
 fn scan_num_multiplier(s: &str) int {
@@ -333,44 +338,44 @@ fn scan_ident(s: &str) -> String {
 
         // Do not verify the next char, since it is escaped.
         // The next char may be encoded as multi-byte UTF8 sequence. See https://en.wikipedia.org/wiki/UTF-8#Encoding
-        _, size := utf8.DecodeRuneInString(s[i:])
+        _, size = utf8.DecodeRuneInString(s[i .. ])
         i += size
     }
     if i == 0 {
         panic("BUG: scan_ident couldn't find a single ident char; make sure is_ident_prefix called before scan_ident")
     }
-    return s[:i]
+    return s[0 .. i]
 }
 
 fn unescape_ident(s: &str) -> String {
-    n := strings.IndexByte(s, '\\');
+    n = strings.IndexByte(s, '\\');
 if n < 0 {
 return s
 }
-dst := make([]byte, 0, s.len());
+dst = make([]byte, 0, s.len());
 for {
-dst.push(&s[0 .. n];...)
-s = s[n+1:]
-if s.len() == 0 {
-return string(dst)
-}
-if s[0] == 'x' && s.len() >= 3 {
-h1 := fromHex(s[1])
-h2 := fromHex(s[2])
-if h1 >= 0 && h2 >= 0 {
-dst.push(byte((h1<<4)|h2))
-s = s[3:]
-} else {
-dst.push(s[0])
-s = s[1:]
+    dst.push(&s[0 .. n];...)
+    s = &s[n+1 .. ];
+    if s.len() == 0 {
+        return string(dst)
+    }
+    if s[0] == 'x' && s.len() >= 3 {
+        h1 = from_hex(s[1]);
+        h2 = from_hex(s[2]);
+        if h1 >= 0 && h2 >= 0 {
+            dst.push(byte((h1<<4)|h2));
+            s = s[3 .. ];
+        } else {
+dst.push(s[0]);
+s = s[1 .. ]
 }
 } else {
 // UTF8 char. See https://en.wikipedia.org/wiki/UTF-8#Encoding
-_, size := utf8.DecodeRuneInString(s)
+_, size = utf8.DecodeRuneInString(s);
 dst.push(&s[0 .. ize]...)
-s = s[size:]
+s = s[size .. ]
 }
-n = strings.IndexByte(s, '\\')
+n = strings.IndexByte(s, '\\');
 if n < 0 {
 dst.push(s...)
 return string(dst)
@@ -378,7 +383,7 @@ return string(dst)
 }
 }
 
-fn fromHex(ch: u8) int {
+fn from_hex(ch: u8) -> i32 {
 if ch >= '0' && ch <= '9' {
 return int(ch - '0')
 }
@@ -399,8 +404,8 @@ return 'a' + (n - 10)
 }
 
 fn append_escaped_ident(dst []byte, s: &str) []byte {
-for i := 0; i < s.len(); i += 1; {
-ch := s[i]
+for i = 0; i < s.len(); i += 1; {
+ch = s[i]
 if isIdentChar(ch) {
 if i == 0 && !isFirstIdentChar(ch) {
 // hex-encode the first char
@@ -413,7 +418,7 @@ continue
 
 // escape ch
 dst.push('\\')
-r, size := utf8.DecodeRuneInString(s[i:])
+r, size = utf8.DecodeRuneInString(s[i .. ])
 if r != utf8.RuneError && unicode.IsPrint(r) {
 dst.push(s[i:i+size]...)
 i += size - 1
@@ -428,7 +433,7 @@ return dst
 fn (lex *lexer) Prev() {
 lex.nextTokens = append(lex.nextTokens, lex.Token)
 lex.Token = lex.prevTokens[len(lex.prevTokens)-1]
-lex.prevTokens = lex.prevTokens[:len(lex.prevTokens)-1]
+lex.prevTokens = lex.prevTokens[0 .. len(lex.prevTokens)-1]
 }
 
 fn is_eof(s: &str) -> bool {
@@ -437,7 +442,7 @@ return s.len() == 0
 
 fn scan_tag_filter_op_prefix(s: &str) -> usize {
 if s.len() >= 2 {
-switch s[:2] {
+switch s[0 .. 2] {
 case "=~", "!~", "!=":
 return 2
 }
@@ -463,36 +468,23 @@ s = s.to_ascii_lowercase();
 return s == "offset"
 }
 
-fn isStringPrefix(s: &str) -> bool {
-if s.len() == 0 {
-return false
-}
-switch s[0] {
-// See https://prometheus.io/docs/prometheus/latest/querying/basics/#string-literals
-case '"', '\'', '`':
-return true
-default:
-return false
-}
-}
-
 fn is_positive_number_prefix(s: &str) -> bool {
-if s.len() == 0 {
-return false
-}
-if is_decimal_char(s[0]) {
-return true
-}
+    if s.len() == 0 {
+        return false
+    }
+    if is_decimal_char(s[0]) {
+        return true
+    }
 
-// Check for .234 numbers
-if s[0] != '.' || s.len() < 2 {
-return false
-}
-return is_decimal_char(s[1])
+    // Check for .234 numbers
+    if s[0] != '.' || s.len() < 2 {
+        return false
+    }
+    return is_decimal_char(s[1])
 }
 
 fn is_special_integer_prefix(s: &str) -> bool {
-skipChars, _ := scanSpecialIntegerPrefix(s)
+skipChars, _ = scanSpecialIntegerPrefix(s);
 return skipChars > 0
 }
 
@@ -500,7 +492,7 @@ fn scan_special_integer_prefix(s: &str) (skipChars int, isHex bool) {
 if s.len() < 1 || s[0] != '0' {
 return 0, false
 }
-s = strings.ToLower(s[1:])
+s = strings.ToLower(s[1 .. ])
 if s.len() == 0 {
 return 0, false
 }
@@ -520,8 +512,8 @@ return 0, false
 }
 
 fn is_positive_duration(s: &str) -> bool {
-n := scanDuration(s);
-return n == s.len()
+    let n = scan_duration(s);
+    return n == s.len()
 }
 
 // positive_duration_value returns positive duration in milliseconds for the given s
@@ -531,23 +523,20 @@ return n == s.len()
 //
 // Error is returned if the duration in s is negative.
 fn positive_duration_value(s: &str, step: i64) -> ParseResult<i64> {
-d = DurationValue(s, step);
-if err != nil {
-return 0, err
-}
-if d < 0 {
-return 0, fmt.Errorf("duration cannot be negative; got %q", s)
-}
-return d
+    let d = duration_value(s, step);
+    if d < 0 {
+        return 0, fmt.Errorf("duration cannot be negative; got %q", s)
+    }
+    return d
 }
 
-// DurationValue returns the duration in milliseconds for the given s
+// duration_value returns the duration in milliseconds for the given s
 // and the given step.
 //
 // Duration in s may be combined, i.e. 2h5m, -2h5m or 2h-5m.
 //
 // The returned duration value can be negative.
-fn DurationValue(s: &str, step: i64) -> ParseResult<i64> {
+fn duration_value(s: &str, step: i64) -> ParseResult<i64> {
 if s.len() == 0 {
 return 0, fmt.Errorf("duration cannot be empty")
 }
@@ -557,8 +546,8 @@ if err == nil {
 // Convert the duration to milliseconds.
 return int64(d * 1000)
 }
-isMinus := false;
-for s.len() > 0 {
+isMinus = false;
+while s.len() > 0 {
     let n = scan_single_duration(s, true)?;
     ds = &s[0 .. n];
     s = &s[n .. ];
@@ -581,17 +570,17 @@ return int64(d)
 }
 
 fn parse_single_duration(s: &str, step: i64) -> ParseResult<f64> {
-numPart := &s[0..s.len()-1]
+numPart = &s[0..s.len()-1];
 if strings.HasSuffix(numPart, "m") {
 // Duration in ms
-numPart = numPart[:len(numPart)-1]
+numPart = numPart[0 .. num_part.len()-1]
 }
-f = strconv.ParseFloat(numPart, 64)
+f = strconv.ParseFloat(numPart, 64);
 if err != nil {
 return 0, fmt.Errorf("cannot parse duration %q: %s", s, err)
 }
-var mp float64
-switch s[len(numPart):] {
+var mp float64;
+switch s[num_part.len() .. ] {
 case "ms":
 mp = 1e-3;
 case "s":
@@ -614,52 +603,52 @@ return 0, fmt.Errorf("invalid duration suffix in %q", s)
 return mp * f * 1e3
 }
 
-// scanDuration scans duration, which must start with positive num.
+// scan_duration scans duration, which must start with positive num.
 //
 // I.e. 123h, 3h5m or 3.4d-35.66s
-fn scanDuration(s: &str) -> usize {
-// The first part must be non-negative
-n = scan_single_duration(s, false);
-if n <= 0 {
-return -1
-}
-s = &s[n .. ];
-let mut i = n;
-for {
-// Other parts may be negative
-n := scan_single_duration(s, true);
-if n <= 0 {
-return i
-}
-s = &s[n .. ];
-i += n
-}
+fn scan_duration(s: &str) -> usize {
+    // The first part must be non-negative
+    let n = scan_single_duration(s, false);
+    if n <= 0 {
+        return -1
+    }
+    s = &s[n .. ];
+    let mut i = n;
+    loop {
+        // Other parts may be negative
+        n = scan_single_duration(s, true);
+        if n <= 0 {
+            return i
+        }
+        s = &s[n .. ];
+        i += n
+    }
 }
 
 fn scan_single_duration(s: &str, can_be_negative: bool) -> usize {
 if s.len() == 0 {
 return -1
 }
-i := 0
+let mut i = 0;
 if s[0] == '-' && can_be_negative {
 i += 1;
 }
-for i < s.len() && isDecimalChar(s[i]) {
+while i < s.len() && isDecimalChar(s[i]) {
 i += 1;
 }
 if i == 0 || i == s.len() {
 return -1
 }
-if s[i] == '.' {
-j := i
-i += 1;
-for i < s.len() && isDecimalChar(s[i]) {
-i += 1;
-}
-if i == j || i == s.len() {
-return -1
-}
-}
+    if s[i] == '.' {
+        j = i;
+        i += 1;
+        while i < s.len() && isDecimalChar(s[i]) {
+            i += 1;
+        }
+        if i == j || i == s.len() {
+            return -1
+        }
+    }
 switch s[i] {
 case 'm':
 if i+1 < s.len() && s[i+1] == 's' {

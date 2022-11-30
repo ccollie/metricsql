@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::ops::Deref;
 use std::rc::Rc;
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
 use rayon::prelude::IntoParallelRefIterator;
@@ -99,11 +100,11 @@ impl RollupEvaluator {
         // todo: tinyvec
 
         let func: RollupFunction;
-        match expr.function {
-            BuiltinFunction::Rollup(rf) => func = rf,
+        match RollupFunction::from_str(&expr.name) {
+            Ok(rf) => func = rf,
             _ => {
                 return Err( RuntimeError::UnknownFunction(
-                    format!("Expected a rollup function. Got {}", expr.function.name())
+                    format!("Expected a rollup function. Got {}", expr.name)
                 ))
             }
         }
@@ -745,7 +746,7 @@ pub(super) fn compile_rollup_func_args(fe: &FuncExpr) -> RuntimeResult<(Vec<Expr
     let rollup_arg_idx = fe.get_arg_idx_for_optimization();
     if rollup_arg_idx.is_none() {
         let err = format!("Bug: can't find source arg for rollup function {}. Expr: {}",
-                          fe.name(), fe);
+                          fe.name, fe);
         return Err(RuntimeError::ArgumentError(err));
     }
 
@@ -843,7 +844,7 @@ fn get_keep_metric_names(expr: &Expression) -> bool {
         }
         Expression::Function(fe) => {
             if fe.keep_metric_names {
-                return rollup_func_keeps_metric_name(&fe.name())
+                return rollup_func_keeps_metric_name(&fe.name)
             }
             false
         }

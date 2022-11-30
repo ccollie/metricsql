@@ -1,104 +1,135 @@
+use std::borrow::{BorrowMut, Cow};
 use std::collections::HashSet;
 use std::ops::{Deref};
 
 use crate::ast::*;
+use crate::binaryop::{eval_binary_op, string_compare};
 use crate::lexer::{TextSpan};
 use crate::parser::{ArgCountError, ParseError, ParseResult};
 
-pub(crate) fn expand_with_expr(was: &[WithArgExpr], expr: &Expression) -> ParseResult<Expression> {
+pub(crate) fn expand_with_expr<'a>(was: &Vec<WithArgExpr>,
+                                   expr: &'a Expression) -> ParseResult<Cow<'a, Expression>> {
+    let mut expr = expr;
+    expand_with_expr_internal(was, &mut expr)
+
+}
+
+
+pub(super) fn expand_with_expr_internal<'a>(was: &Vec<WithArgExpr>,
+                                            expr: &'a mut Expression) -> ParseResult<&'a mut Expression> {
     use Expression::*;
 
     match expr {
-        BinaryOperator(binary) => expand_binary(binary, was),
-        Function(function) => expand_function(function, was),
-        Aggregation(aggregation) => expand_aggregation(aggregation, was),
-        MetricExpression(metric) => expand_metric_expr(metric, was),
-        Rollup(rollup) => expand_rollup(rollup, was),
-        Parens(parens) => expand_parens_expr(parens, was),
-        String(str) => match expand_string(str, was) {
-            Err(e) => Err(e),
-            Ok(s) => Ok(String(s)),
+        BinaryOperator(_) => {
+            if let Some(mut exp) = expand_binary(expr, was)? {
+                return Ok(&mut exp);
+            }
+            return Ok(expr);
         },
+        Function(_) => expand_function(expr, was),
+        Aggregation(_) => expand_aggregation(expr, was),
+        MetricExpression(ref mut metric) => expand_metric_expr(expr, metric, was),
+        Rollup(rollup) => {
+            expand_rollup(rollup, was)?;
+            Ok(expr)
+        },
+        Parens(parens) => expand_parens_expr(expr, parens, was),
+        String(str) => expand_string(expr, str, was),
         With(with) => {
             let mut was_new: Vec<WithArgExpr> = Vec::with_capacity(was.len() + with.was.len());
             was_new.extend_from_slice(was);
             was_new.extend(with.was.clone());
-            //todo: find a better way. this is ridiculous
-            let expr = with.expr.clone();
-            expand_with_expr(&was_new, &expr)
+            return expand_with_expr_internal(&was_new, &mut with.expr)
         }
-        _ => Ok(expr.clone()),
+        _ => Ok(expr)
     }
 }
 
-fn expand_binary(e: &BinaryOpExpr, was: &[WithArgExpr]) -> ParseResult<Expression> {
-    let left = expand_with_expr(was, e.left.deref())?;
-    let right = expand_with_expr(was, e.right.deref())?;
+fn expand_binary(expr: &mut Expression,
+                 was: &Vec<WithArgExpr>) -> ParseResult<Option<Expression>> {
 
-    if e.op == BinaryOp::Add {
-        match (&left, &right) {
-            (Expression::String(left), Expression::String(right)) => {
-                let concat = format!("{}{}", left.value, right.value);
-                let span = TextSpan::at(left.span.start, concat.len());
-                let expr = StringExpr::new(concat, span);
-                return Ok(Expression::String(expr))
-            },
-            (Expression::Number(left), Expression::Number(right)) => {
-                let sum = left.value + right.value;
-                let text = format!("{}", sum);
-                let span = TextSpan::at(left.span.start, text.len());
-                let num = NumberExpr::new(sum, span);
-                return Ok(Expression::Number(num))
+    let mut be = match expr {
+        Expression::BinaryOperator(be) => be,
+        _ => unreachable!()
+    };
+
+    let left = expand_with_expr_internal(was, be.left.as_mut())?;
+    let right = expand_with_expr_internal(was, be.right.as_mut())?;
+
+    match (left, right) {
+        (Expression::Number(ln), Expression::Number(rn)) => {
+            let n = eval_binary_op(ln.value, rn.value, be.op, be.bool_modifier);
+            let expr = Expression::Number( NumberExpr::new(n, be.left.span()));
+            return Ok(Some(expr))
+        }
+        (Expression::String(left), Expression::String(right)) => {
+            if be.op == BinaryOp::Add {
+                let val = format!("{}{}", left.value, right.value);
+                let expr = Expression::from(val);
+                return Ok(Some(expr))
             }
-            _ => {
-                // Err(ParseError::General(
-                //     "+ operator can only be used with string or number arguments".to_string(),
-                // ))
-            },
-        };
+            if be.op.is_comparison() {
+                // Note:: the `or` branch should not be reached because of
+                // the comparison above
+                let n = if string_compare(&left.value, &right.value, be.op)
+                    .unwrap_or(false) {
+                    1.0
+                } else if !be.bool_modifier {
+                    f64::NAN
+                } else {
+                    0.0
+                };
+                let expr = Expression::from(n);
+                return Ok(Some(expr))
+            }
+        }
+        _ => {},
     }
 
-    let mut be = BinaryOpExpr::new(e.op, left, right)?;
-    be.bool_modifier = e.bool_modifier;
-    be.span = e.span;
 
-    if let Some(modifier) = &e.group_modifier {
+    if let Some(modifier) = &be.group_modifier {
         let labels = expand_modifier_args(was, &modifier.labels)?;
         be.group_modifier = Some( GroupModifier::new(modifier.op, labels) );
     }
 
-    if let Some(ref modifier) = &e.join_modifier {
+    if let Some(ref modifier) = &be.join_modifier {
         let labels = expand_modifier_args(was, &modifier.labels)?;
         be.join_modifier = Some( JoinModifier::new(modifier.op, labels) );
     }
 
-    let bin_expr = Expression::BinaryOperator(be);
-    // let args = vec![Box::new(bin_expr)];
-    // Ok(Expression::Parens(ParensExpr::new(args, e.span)))
-    Ok(bin_expr)
+    Ok(None)
 }
 
-fn expand_function(func: &FuncExpr, was: &[WithArgExpr]) -> ParseResult<Expression> {
-    let args = expand_with_args(was, &func.args);
+fn expand_function<'a>(expr: &'a mut Expression,
+                       was: &Vec<WithArgExpr>) -> ParseResult<&'a mut Expression> {
 
-    // TODO: !!!!!!! fill out impl of udf/withexpr on BuiltinFunction
+    let mut func = match expr {
+        Expression::Function(fe) => fe,
+        _ => unreachable!()
+    };
+
+    expand_with_args(was, &mut func.args)?;
+
     match get_with_arg_expr(was, &func.with_name) {
         Some(wa) => {
-            let expr = expand_with_expr_ext(was, wa, Some(&args))?;
-            Ok(expr)
+            return expand_with_expr_ext(expr, was, wa, Some(&func.args))
         }
-        None => {
-            let fe = FuncExpr::new(&func.name(), args, func.span.clone())?;
-            Ok(Expression::Function(fe))
-        }
+        None => Ok(expr)
     }
 }
 
-fn expand_aggregation(aggregate: &AggrFuncExpr, was: &[WithArgExpr]) -> ParseResult<Expression> {
-    let args = expand_with_args(was, &aggregate.args);
+fn expand_aggregation<'a>(expr: &'a mut Expression,
+                          was: &Vec<WithArgExpr>) -> ParseResult<&'a mut Expression> {
+
+    let mut aggregate = match expr {
+        Expression::Aggregation(fe) => fe,
+        _ => unreachable!()
+    };
+
+    expand_with_args(was, &mut aggregate.args)?;
     let wa = get_with_arg_expr(was, &aggregate.name);
     if let Some(wae) = wa {
-        return expand_with_expr_ext(was, wae, Some(&args));
+        return expand_with_expr_ext(expr, was, wae, Some(&aggregate.args));
     }
     let empty_vec = vec![];
 
@@ -110,32 +141,33 @@ fn expand_aggregation(aggregate: &AggrFuncExpr, was: &[WithArgExpr]) -> ParseRes
     match expand_modifier_args(was, mod_args) {
         Err(e) => Err(e),
         Ok(modifier_args) => {
-            let mut ae = aggregate.clone();
-            ae.args = args;
-            if let Some(ref mut modifier) = ae.modifier {
+            if let Some(ref mut modifier) = aggregate.modifier {
                 modifier.args = modifier_args;
             }
-            Ok(Expression::Aggregation(ae))
+            Ok(expr)
         }
     }
 }
 
-fn expand_parens_expr(parens: &ParensExpr, was: &[WithArgExpr]) -> ParseResult<Expression> {
-    let mut result: Vec<BExpression> = Vec::with_capacity(parens.expressions.len());
+fn expand_parens_expr<'a>(expr: &'a mut Expression,
+                          parens: &mut ParensExpr,
+                          was: &Vec<WithArgExpr>) -> ParseResult<&'a mut Expression> {
     let mut span = was[0].expr.span();
-    for e in parens.expressions.iter() {
-        let expr = expand_with_expr(was, e)?;
-        span = span.cover(expr.span());
-        result.push(Box::new(expr));
+    for e in parens.expressions.iter_mut() {
+        let expr = expand_with_expr_internal(was, e)?;
+        *e = Box::new(expr);
+        span = span.cover(e.span());
     }
 
-    Ok(Expression::Parens(ParensExpr::new(result, span)))
+    Ok(expr)
 }
 
-fn expand_string(e: &StringExpr, was: &[WithArgExpr]) -> ParseResult<StringExpr> {
+fn expand_string<'a>(expr: &'a mut Expression,
+                     e: &mut StringExpr,
+                     was: &Vec<WithArgExpr>) -> ParseResult<Cow<'a, Expression>> {
     if e.is_expanded() {
         // Already expanded. Copying should be cheap
-        return Ok(e.clone());
+        return Ok(Cow::Borrowed(expr));
     }
     let start = e.span.start;
 
@@ -159,7 +191,7 @@ fn expand_string(e: &StringExpr, was: &[WithArgExpr]) -> ParseResult<StringExpr>
             return Err(ParseError::WithExprExpansionError(msg));
         }
         let wa = wa.unwrap();
-        let e_new = match expand_with_expr_ext(was, wa, None)? {
+        let e_new = match expand_with_expr_ext(expr, was, wa, None)? {
             Expression::String(e) => e,
             _ => {
                 let msg = format!("{} is not a string expression", ident);
@@ -177,40 +209,46 @@ fn expand_string(e: &StringExpr, was: &[WithArgExpr]) -> ParseResult<StringExpr>
         b.push_str(e_new.value.as_str());
     }
 
-    let span = TextSpan::at(start, b.len());
-    Ok(StringExpr::new(b, span))
+    e.value = b;
+    e.span = TextSpan::at(start, b.len());
+
+    return Ok(Cow::Borrowed(expr));
 }
 
-fn expand_rollup(rollup: &RollupExpr, was: &[WithArgExpr]) -> ParseResult<Expression> {
-    let mut re = rollup.clone();
-    let e_new = expand_with_expr(was, &re.expr)?;
-    re.expr = BExpression::from(e_new);
-    if let Some(at) = &re.at {
-        let at = expand_with_expr(was, at)?;
-        re.at = Some(Box::new(at));
+fn expand_rollup(rollup: &mut RollupExpr, was: &Vec<WithArgExpr>) -> ParseResult<()> {
+
+    let expanded = expand_with_expr_internal(was, &mut rollup.expr.as_mut())?;
+    rollup.expr = Box::new(expanded);
+
+    if let Some(ref mut at) = rollup.at {
+        let val = expand_with_expr_internal(was, at.as_mut())?;
+        rollup.at = Some(Box::new(*val))
+
     }
-    Ok(Expression::Rollup(re))
+
+    Ok(())
 }
 
-fn expand_metric_expr(e: &MetricExpr, was: &[WithArgExpr]) -> ParseResult<Expression> {
-    if e.is_expanded() {
-        // todo: COW
+fn expand_metric_expr<'a>(expr: &'a mut Expression,
+                          me: &'a mut MetricExpr,
+                          was: &Vec<WithArgExpr>) -> ParseResult<&'a mut Expression> {
+    if me.is_expanded() {
         // Already expanded.
-        return Ok(Expression::MetricExpression(e.clone()));
+        return Ok(expr);
     }
-    let e = expand_metric_labels(e, was)?;
-    if !e.has_non_empty_metric_group() {
-        return Ok(Expression::MetricExpression(e));
+    expand_metric_labels(expr, me, was)?;
+    if !me.has_non_empty_metric_group() {
+        return Ok(expr);
     }
-    let k = &e.label_filters[0].value;
+    let k = &me.label_filters[0].value;
     let wa = get_with_arg_expr(was, k);
     if wa.is_none() {
-        return Ok(Expression::MetricExpression(e));
+        return Ok(expr);
     }
 
     let wa = wa.unwrap();
-    let mut e_new = expand_with_expr_ext(was, wa, None)?;
-    let re: Option<RollupExpr> = None;
+    let e_new = expand_with_expr_ext(expr, was, wa, None)?;
+    let re: Option<&mut RollupExpr> = None;
 
     let wme = match e_new {
         Expression::MetricExpression(ref mut me) => Some(me),
@@ -222,8 +260,8 @@ fn expand_metric_expr(e: &MetricExpr, was: &[WithArgExpr]) -> ParseResult<Expres
     };
 
     if wme.is_none() {
-        if !e.is_only_metric_group() {
-            let msg = format!("cannot expand {:?} to non-metric expression {}", e, wa);
+        if !me.is_only_metric_group() {
+            let msg = format!("cannot expand {:?} to non-metric expression {}", me, wa);
             return Err(ParseError::WithExprExpansionError(msg));
         }
         return Ok(e_new);
@@ -238,37 +276,34 @@ fn expand_metric_expr(e: &MetricExpr, was: &[WithArgExpr]) -> ParseResult<Expres
         return Err(ParseError::WithExprExpansionError(msg));
     }
 
-    let mut me = MetricExpr::default();
     let mut label_filters = wme.label_filters.clone(); // do we need the original ??
-    let other = e.label_filters[1..].to_vec();
+    let other = me.label_filters[1..].to_vec();
     for label in other {
         label_filters.push(label.clone());
     }
 
     remove_duplicate_label_filters(&mut label_filters);
-    me.label_filters = label_filters;
+
+    let new_me = MetricExpr::with_filters(label_filters);
 
     match re {
-        None => Ok(Expression::MetricExpression(me)),
-        Some(t) => {
-            let mut re_new = t;
-            re_new.set_expr(me);
-            Ok(Expression::Rollup(re_new))
+        None => Ok(expr),
+        Some(rollup) => {
+            rollup.expr = Box::new(Expression::MetricExpression(new_me));
+            Ok(rollup.borrow_mut())
         }
     }
 }
 
-fn expand_metric_labels(expr: &MetricExpr, was: &[WithArgExpr]) -> ParseResult<MetricExpr> {
+fn expand_metric_labels(expr: &mut Expression, me: &mut MetricExpr, was: &Vec<WithArgExpr>) -> ParseResult<()> {
 
-    if expr.label_filters.len() > 0 {
+    if me.label_filters.len() > 0 {
         // already expanded
-        return Ok(expr.clone());   // todo: use COW to avoid this clone
+        return Ok(());
     }
 
-    let mut me: MetricExpr = MetricExpr::default();
-
     // Populate me.label_filters
-    for lfe in expr.label_filter_exprs.iter() {
+    for lfe in me.label_filter_exprs.iter_mut() {
         if !lfe.is_init() {
             // Expand lfe.label into Vec<LabelFilter>.
             let wa = get_with_arg_expr(was, &lfe.label);
@@ -278,13 +313,13 @@ fn expand_metric_labels(expr: &MetricExpr, was: &[WithArgExpr]) -> ParseResult<M
             }
 
             let wa = wa.unwrap();
-            let e_new = expand_with_expr_ext(was, wa, None)?;
+            let e_new = expand_with_expr_ext(expr, was, wa, None)?;
             let error_msg = format!(
                 "{} must be filters expression inside {}: got {}",
-                lfe.label, expr, e_new
+                lfe.label, me, e_new
             );
 
-            match expand_with_expr_ext(was, wa, None)? {
+            match expand_with_expr_ext(expr, was, wa, None)? {
                 Expression::MetricExpression(wme) => {
                     if me.is_only_metric_group() {
                         return Err(ParseError::WithExprExpansionError(error_msg));
@@ -308,8 +343,11 @@ fn expand_metric_labels(expr: &MetricExpr, was: &[WithArgExpr]) -> ParseResult<M
         }
 
         // convert lfe to LabelFilter.
-        let se = expand_string(&lfe.value, was)?;
-        let lfe_new = LabelFilterExpr::new(lfe.label.clone(), se, lfe.op);
+        let se = expand_string(expr, &mut lfe.value, was)?;
+        let lfe_new = LabelFilterExpr::new_tag(
+            lfe.label.to_string(),
+            lfe.op,
+            se.to_string(), TextSpan::default());
         let lf = lfe_new.to_label_filter();
         me.label_filters.push(lf);
     }
@@ -317,16 +355,16 @@ fn expand_metric_labels(expr: &MetricExpr, was: &[WithArgExpr]) -> ParseResult<M
     me.label_filter_exprs.clear();
     remove_duplicate_label_filters(&mut me.label_filters);
 
-    Ok(me)
+    return Ok(());
 }
 
-fn expand_modifier_args(was: &[WithArgExpr], args: &[String]) -> Result<Vec<String>, ParseError> {
+fn expand_modifier_args(was: &Vec<WithArgExpr>, args: &[String]) -> Result<Vec<String>, ParseError> {
     if args.is_empty() {
         return Ok(vec![]);
     }
 
     let mut dst_args: Vec<String> = Vec::with_capacity(1);
-    for arg in args {
+    for arg in args.iter() {
         match get_with_arg_expr(was, arg) {
             None => {
                 // Leave the arg as is.
@@ -389,11 +427,11 @@ fn expand_modifier_args(was: &[WithArgExpr], args: &[String]) -> Result<Vec<Stri
     Ok(dst_args)
 }
 
-fn expand_with_expr_ext(
-    was: &[WithArgExpr],
-    wa: &WithArgExpr,
-    args: Option<&Vec<BExpression>>,
-) -> ParseResult<Expression> {
+fn expand_with_expr_ext<'a>(expr: &'a mut Expression,
+                            was: &Vec<WithArgExpr>,
+                            wa: &'a WithArgExpr,
+                            args: Option<&Vec<BExpression>>) -> ParseResult<&'a mut Expression> {
+
     let args_len = if let Some(expressions) = args {
         expressions.len()
     } else {
@@ -403,7 +441,7 @@ fn expand_with_expr_ext(
     if wa.args.len() != args_len {
         if args.is_none() {
             // Just return MetricExpr with the wa.name name.
-            let me = Expression::MetricExpression(MetricExpr::new(&wa.name));
+            let mut me = Expression::MetricExpression(MetricExpr::new(&wa.name)).borrow_mut();
             return Ok(me);
         }
         let err = ParseError::InvalidArgCount(ArgCountError::new(&*wa.name, args_len, args_len));
@@ -412,36 +450,40 @@ fn expand_with_expr_ext(
 
     let mut was_new: Vec<WithArgExpr> = Vec::with_capacity(was.len() + args_len);
     for wa_tmp in was.iter() {
-        let a: *const &WithArgExpr = &wa_tmp;
-        let b: *const &WithArgExpr = &wa;
-        if a == b {
+        // let a: *const &WithArgExpr = &wa_tmp;
+        // let b: *const &WithArgExpr = &wa;
+        // if a == b {
+        //     break;
+        // }
+        if wa_tmp.name == wa.name {
             break;
         }
         was_new.push(wa_tmp.clone());
     }
 
-    for (i, arg) in args.unwrap().iter().enumerate() {
-        let wae = WithArgExpr {
-            name: wa.args[i].clone(),
-            args: vec![],
-            expr: arg.clone(),
-        };
-        was_new.push(wae);
+    if let Some(args) = args {
+        for (i, arg) in args.iter().enumerate() {
+            let wae = WithArgExpr {
+                name: wa.args[i].clone(),
+                args: vec![],
+                expr: arg.clone(),
+            };
+            was_new.push(wae);
+        }
     }
 
-    expand_with_expr(&was_new, wa.expr.deref())
+    expand_with_expr_internal(&was_new, expr)
 }
 
-fn expand_with_args(was: &[WithArgExpr], args: &Vec<BExpression>) -> Vec<BExpression> {
-    let mut res: Vec<BExpression> = Vec::with_capacity(args.len());
-    for arg in args.iter() {
-        let expanded = expand_with_expr(was, arg).unwrap();
-        res.push(Box::new(expanded));
+fn expand_with_args(was: &Vec<WithArgExpr>, args: &mut Vec<BExpression>) -> ParseResult<()> {
+    for arg in args.iter_mut() {
+        let expanded = expand_with_expr_internal(was, arg)?;
+        *arg = Box::new(expanded);
     }
-    res
+    Ok(())
 }
 
-fn get_with_arg_expr<'a>(was: &'a [WithArgExpr], name: &'a str) -> Option<&'a WithArgExpr> {
+fn get_with_arg_expr<'a>(was: &Vec<WithArgExpr>, name: &'a str) -> Option<&'a WithArgExpr> {
     // Scan wes backwards, since certain expressions may override
     // previously defined expressions
     for i in was.iter().rev() {
@@ -453,11 +495,9 @@ fn get_with_arg_expr<'a>(was: &'a [WithArgExpr], name: &'a str) -> Option<&'a Wi
 }
 
 fn remove_duplicate_label_filters(lfs: &mut Vec<LabelFilter>) {
-    // Type inference lets us omit an explicit type signature (which
-    // would be `HashSet<String>` in this example).
     let mut set: HashSet<String> = HashSet::with_capacity(lfs.len());
     lfs.retain(|lf| {
-        let key = lf.label.to_string();
+        let key = lf.to_string();
         if set.contains(&key) {
             return false;
         }

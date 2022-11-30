@@ -10,6 +10,8 @@ use serde::{Serialize, Deserialize};
 /// FuncExpr represents MetricsQL function such as `rate(...)`
 #[derive(Debug, Clone, Hash, Serialize, Deserialize)]
 pub struct FuncExpr {
+    pub name: String,
+
     pub function: BuiltinFunction,
 
     /// Args contains function args.
@@ -31,11 +33,13 @@ impl FuncExpr {
     pub fn new<S: Into<TextSpan>>(name: &str, args: Vec<BExpression>, span: S) -> ParseResult<Self> {
         // time() returns scalar in PromQL - see https://prometheus.io/docs/prometheus/latest/querying/functions/#time
         let lower = name.to_lowercase();
-        let function = BuiltinFunction::new(name)?;
+        let fname = if name.is_empty() { "union" } else { name };
+        let function = BuiltinFunction::new(fname)?;
         let is_scalar = lower == "time"; // todo: what about now() and pi()
 
         let expr = FuncExpr {
             function,
+            name: name.to_string(),
             args,
             keep_metric_names: false,
             span: span.into(),
@@ -52,10 +56,6 @@ impl FuncExpr {
             }
             _ => Ok(expr)
         }
-    }
-
-    pub fn name(&self) -> String {
-        self.function.name()
     }
 
     pub fn default_rollup(arg: Expression) -> ParseResult<Self> {
@@ -143,7 +143,7 @@ impl FuncExpr {
 
 impl Display for FuncExpr {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{}", self.name())?;
+        write!(f, "{}", self.name)?;
         write_expression_list(&self.args, f)?;
         if self.keep_metric_names {
             write!(f, " keep_metric_names")?;

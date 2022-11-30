@@ -1,10 +1,23 @@
 use std::str::FromStr;
 
-use crate::ast::{BExpression, BinaryOp, BinaryOpExpr, DurationExpr, Expression, GroupModifier,
-                 GroupModifierOp, JoinModifier, JoinModifierOp, NumberExpr, ReturnValue, StringExpr,
-                 StringTokenType};
+use crate::ast::{
+    BExpression,
+    BinaryOp,
+    BinaryOpExpr,
+    DurationExpr,
+    Expression,
+    GroupModifier,
+    GroupModifierOp,
+    JoinModifier,
+    JoinModifierOp,
+    NumberExpr,
+    ReturnValue,
+    StringExpr,
+    StringTokenType
+};
+use crate::ast::Expression::BinaryOperator;
 use crate::functions::AggregateFunction;
-use crate::lexer::{get_number_suffix, parse_float, parse_number_with_unit, TokenKind};
+use crate::lexer::{extract_string_value, get_number_suffix, parse_float, parse_number_with_unit, TokenKind};
 use crate::parser::{ParseError, Parser, ParseResult};
 use crate::parser::parser::unexpected;
 use crate::TextSpan;
@@ -15,26 +28,9 @@ use super::rollup::parse_rollup_expr;
 use super::selector::parse_metric_expr;
 use super::with_expr::parse_with_expr;
 
-fn parse_number_radix(str: &str, radix: u32) -> ParseResult<f64> {
-    match u64::from_str_radix(str, radix) {
-        Ok(n) => Ok(n as f64),
-        Err(_) => Err(ParseError::InvalidNumber(str.to_string())),
-    }
-}
-
-fn parse_number_radix_expr(p: &mut Parser, kind: TokenKind, radix: u32) -> ParseResult<Expression> {
-    let tok = p.expect_token(kind)?;
-    let value = parse_number_radix(tok.text, radix)?;
-    Ok(Expression::Number(
-        NumberExpr::new(value, tok.span)
-    ))
-}
 
 pub(super) fn parse_number(p: &mut Parser) -> ParseResult<f64> {
     use TokenKind::*;
-    // there is a bit of ambiguity between a NumberWithUnit and a Duration in the
-    // case of tokens with the prefix 'm'. For example, does 60m mean 60 minutes or
-    // 60 million. We accept Duration here to deal with that special case
     let token = p.current_token()?;
     let kind = token.kind;
 
@@ -46,15 +42,20 @@ pub(super) fn parse_number(p: &mut Parser) -> ParseResult<f64> {
         Number => parse_float(token.text),
         NumberWithUnit => parse_number_with_unit(token.text),
         Duration => {
+            // there is a bit of ambiguity between a NumberWithUnit and a Duration in the
+            // case of tokens with the prefix 'm'. For example, does 60m mean 60 minutes or
+            // 60 million. We accept Duration here to deal with that special case
             let suffix = get_number_suffix(token.text);
-            if let Some(suff) = suffix {
-                if suff.0 == "m" {
+            if let Some(a_suffix) = suffix {
+                if a_suffix.0 == "m" {
                     return parse_number_with_unit(token.text);
                 }
             }
             return raise_error(p, token.span)
         }
-        _ => return raise_error(p, token.span)
+        _ => {
+            return raise_error(p, token.span)
+        }
     };
 
     if value.is_ok() {
@@ -178,7 +179,7 @@ fn balance(lhs: Expression,
     let span = lhs.span().cover(rhs.span());
 
     match &lhs {
-        Expression::BinaryOperator(lhs_be) => {
+        BinaryOperator(lhs_be) => {
             let precedence = lhs_be.op.precedence() as i16 - op.precedence() as i16;
             if (precedence < 0) || (precedence == 0 && op.is_right_associative()) {
                 let right = lhs_be.right.as_ref().clone();
@@ -206,7 +207,7 @@ fn balance(lhs: Expression,
                     span,
                 };
                 return Ok(
-                    Expression::BinaryOperator(expr)
+                    BinaryOperator(expr)
                 );
             }
         }
@@ -225,7 +226,7 @@ fn balance(lhs: Expression,
         span,
     };
 
-    Ok(Expression::BinaryOperator(expr))
+    Ok(BinaryOperator(expr))
 }
 
 
@@ -251,7 +252,6 @@ fn parse_join_modifier(p: &mut Parser) -> ParseResult<JoinModifier> {
         _ => unreachable!()
     };
 
-
     let labels = if !p.at(TokenKind::LeftParen) {
         // join modifier may ignore ident list.
         vec![]
@@ -266,12 +266,13 @@ pub(super) fn parse_single_expr_without_rollup_suffix(p: &mut Parser) -> ParseRe
     use TokenKind::*;
 
     match p.peek_kind() {
-        LiteralString => match parse_string_expr(p) {
+        StringLiteral => match parse_string_expr(p) {
             Ok(s) => Ok(Expression::String(s)),
             Err(e) => Err(e),
         },
         Ident => parse_ident_expr(p),
-        Number | NumberWithUnit | Duration => parse_number_expr(p),
+        Number | NumberWithUnit => parse_number_expr(p),
+        Duration => parse_duration_expr(p),
         LeftBrace => parse_metric_expr(p),
         LeftParen => parse_parens_expr(p),
         OpPlus => parse_unary_plus_expr(p),
@@ -319,54 +320,40 @@ fn parse_unary_minus_expr(p: &mut Parser) -> ParseResult<Expression> {
     // assert(p.at(TokenKind::Minus)
     let mut span = p.last_token_range().unwrap();
     p.bump();
-    let e = parse_single_expr(p)?;
-    span = span.cover(e.span());
-    match e.return_value() {
+    let expr = parse_single_expr(p)?;
+    span = span.cover(expr.span());
+
+    match expr.return_value() {
         ReturnValue::InstantVector |
-        ReturnValue::Scalar => {
-            // handle special cases
-            match e {
-                Expression::Number(n) => {
-                    let mut v = n.value;
-                    if v.is_finite() {
-                        v = -v;
-                    } else if v == f64::INFINITY {
-                        v = f64::NEG_INFINITY;
-                    } else if v.is_nan() {
-                        v = f64::NAN;
-                    }
-                    return Ok(Expression::Number(NumberExpr::new(v, span)));
-                }
-                _ => {}
-            }
-        }
+        ReturnValue::Scalar => {}
         _ => {
             let msg = format!("unary expression only allowed on expressions of type scalar or instant vector");
             return Err(unexpected(p, "", &msg, Some(span)));
         }
     }
-    // Substitute `-expr` with `0 - expr`
-    let b = BinaryOpExpr::new_unary_minus(e, span)?;
-    Ok(Expression::BinaryOperator(b))
+
+    /// Substitute `-expr` with `0 - expr`
+    let lhs = Expression::Number(NumberExpr::new(0.0, span));
+    let mut binop_expr = BinaryOpExpr::new(BinaryOp::Sub, lhs, expr)?;
+    binop_expr.span = span;
+    Ok(BinaryOperator(binop_expr))
 }
 
 pub(super) fn parse_string_expr(p: &mut Parser) -> ParseResult<StringExpr> {
     use TokenKind::*;
 
-    let mut tokens: Vec<StringTokenType> = Vec::with_capacity(1);
-    let mut tok = p.expect_token(LiteralString)?;
-    let mut span = tok.span;
     let mut ident_count = 0;
+    let mut tokens: Vec<StringTokenType> = Vec::with_capacity(1);
+    let mut span: TextSpan;
+    let mut tok = p.expect_one_of(&[StringLiteral, Ident])?;
 
     loop {
+        span = tok.span;
+
         match tok.kind {
-            LiteralString => {
-                if tok.text.len() == 2 {
-                    tokens.push(StringTokenType::String("".to_string()));
-                } else {
-                    let slice = &tok.text[1..tok.text.len() - 1];
-                    tokens.push(StringTokenType::String(slice.to_string()));
-                }
+            StringLiteral => {
+                let str = extract_string_value(tok.text)?;
+                tokens.push(StringTokenType::String(str));
                 span = span.cover(tok.span)
             }
             Ident => {
@@ -379,6 +366,11 @@ pub(super) fn parse_string_expr(p: &mut Parser) -> ParseResult<StringExpr> {
             }
         }
 
+
+        if p.at_end() {
+            break;
+        }
+
         // composite StringExpr like `"s1" + "s2"`, `"s" + m()` or `"s" + m{}` or `"s" + unknownToken`.
 
         tok = p.current_token()?;
@@ -387,7 +379,14 @@ pub(super) fn parse_string_expr(p: &mut Parser) -> ParseResult<StringExpr> {
             break;
         }
 
-        if tok.kind == LiteralString {
+        if let Some(token) = p.next_token() {
+            tok = token;
+        } else {
+            // todo: err
+            break
+        }
+
+        if tok.kind == StringLiteral {
             // "s1" + "s2"
             continue;
         }
@@ -416,7 +415,7 @@ pub(super) fn parse_string_expr(p: &mut Parser) -> ParseResult<StringExpr> {
         tok = p.prev_token().unwrap();
     }
 
-    // optimize if w have no idents
+    // optimize if we have no idents
     if ident_count == 0 {
         let joined = tokens.iter().map(|x| {
             match x {
@@ -453,6 +452,7 @@ fn parse_ident_expr(p: &mut Parser) -> ParseResult<Expression> {
     let tok = p.expect_token(Ident)?;
 
     // clone here to avoid issues with borrowing later
+    // todo: how to avoid this, since its only needed in the function case
     let name = tok.text.clone();
 
     // Look into the next token in order to determine how to parse

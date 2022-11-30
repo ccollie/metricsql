@@ -19,7 +19,12 @@ mod tests {
 	fn same(s: &str) {
 		another(s, s)
 	}
-	
+
+	#[test]
+	fn single_test() {
+		another("with (x = m offset 5h) x + x", "m offset 5h + m offset 5h");
+	}
+
 	#[test]
 	fn test_parse_number_expr() {
 		fn another(s: &str, expected: &str) {
@@ -34,7 +39,7 @@ mod tests {
 			match expr {
 				Expression::Number(ne) => {
 					let actual = ne.value;
-					let mut valid = if actual.is_nan() {
+					let valid = if actual.is_nan() {
 						expected_val.is_nan()
 					} else {
 						actual == expected_val
@@ -220,10 +225,10 @@ mod tests {
 	#[test]
 	fn test_parse_string_expr() {
 		// stringExpr
-		same(r#"""#);
-		same(r#""\n\t\r 12:{}[]()44"#);
-		another(r#"''"#, r#"""#);
-		another("``", r#"""#);
+		same(r#""""#);
+		same(r#""\n\t\r 12:{}[]()44""#);
+		another(r#"''"#, r#""""#);
+		another("``", "");
 		another(r#"   `foo\"b'ar`  "#, "\"foo\\\"b'ar\"");
 		another(r#"  'foo\'bar"BAZ'  "#, r#""foo'bar\"BAZ""#);
 	}
@@ -296,7 +301,7 @@ mod tests {
 
 	#[test]
 	fn testing() {
-		another("-1 ^ 0.5", "-1");
+		another("((foo, bar),(baz))", "((foo, bar), baz)");
 	}
 
 	#[test]
@@ -363,12 +368,12 @@ mod tests {
 		another("2+6 if 2>3 default NaN", "NaN");
 		another("42 if 3>2 if 2+2<5", "42");
 		another("42 if 3>2 if 2+2>=5", "NaN");
-		another("1+2 ifnot 2>3", "3");
-		another("1+4 ifnot 2<3", "NaN");
-		another("2+6 default 3 ifnot 2>3", "8");
-		another("2+6 ifnot 2>3 default NaN", "8");
-		another("42 if 3>2 ifnot 2+2<5", "NaN");
-		another("42 if 3>2 ifnot 2+2>=5", "42");
+		another("1+2 ifNot 2>3", "3");
+		another("1+4 ifNot 2<3", "NaN");
+		another("2+6 default 3 ifNot 2>3", "8");
+		another("2+6 ifNot 2>3 default NaN", "8");
+		another("42 if 3>2 ifNot 2+2<5", "NaN");
+		another("42 if 3>2 ifNot 2+2>=5", "42");
 		another(r#""foo" + "bar""#, r#""foobar""#);
 		another(r#""foo"=="bar""#, "NaN");
 		another(r#""foo"=="foo""#, "1");
@@ -512,8 +517,8 @@ mod tests {
 	}
 	
 	#[test]
-	fn test_nested_with_exprs() {
-		// Verify nested with exprs
+	fn test_nested_with_expressions() {
+		// Verify nested with expressions
 		another("with (f(x) = (with(x=y) x) + x) f(z)", "y + z");
 		another("with (x=foo) f(a, with (y=x) y)", "f(a, foo)");
 		another("with (x=foo) a * x + (with (y=x) y) / y", "(a * foo) + (foo / y)");
@@ -531,7 +536,7 @@ mod tests {
 	}
 	
 	#[test]
-	fn test_complex_with_exprs() {
+	fn test_complex_with_expressions() {
 		// complex withExpr
 		another(r#"WITH (
 			treshold = (0.9),

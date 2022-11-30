@@ -377,8 +377,8 @@ pub(crate) fn get_rollup_aggr_funcs(expr: &Expression) -> RuntimeResult<Vec<Roll
             Err(RuntimeError::from(msg))
         },
         Some(fe_) => {
-            if fe_.name() != "aggr_over_time" {
-                let msg = format!("BUG: unexpected function name: {}; want `aggr_over_time`", fe_.name());
+            if fe_.name != "aggr_over_time" {
+                let msg = format!("BUG: unexpected function name: `{}`; want `aggr_over_time`", fe_.name);
                 return Err(RuntimeError::from(msg));
             }
 

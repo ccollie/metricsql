@@ -18,9 +18,9 @@ pub mod utils {
     pub use lexer::{escape_ident, parse_float, quote};
 }
 
-pub mod optimizer;
 pub mod parser;
 pub mod functions;
+pub mod transform;
 
 pub use lexer::TextSpan;
 
@@ -30,12 +30,12 @@ pub mod prelude {
     use crate::binaryop;
     use crate::functions;
     use crate::parser;
-    use crate::optimizer;
+    use crate::transform;
 
     pub use ast::*;
     pub use binaryop::*;
     pub use functions::*;
     pub use lexer::TextSpan;
-    pub use optimizer::*;
     pub use parser::*;
+    pub use transform::*;
 }

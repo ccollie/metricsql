@@ -123,6 +123,7 @@ pub fn create_evaluator(expr: &Expression) -> RuntimeResult<ExprEvaluator> {
                 Ok(ExprEvaluator::from(de.value))
             }
         },
+        Expression::Parens(pe) => create_parens_evaluator(pe),
         Expression::With(_) => {
             panic!("unexpected WITH expression - {}: Should have been expanded during parsing", expr);
         }
@@ -130,6 +131,17 @@ pub fn create_evaluator(expr: &Expression) -> RuntimeResult<ExprEvaluator> {
             panic!("Bug: unexpected expression {}: ", expr);
         }
     }
+}
+
+fn create_parens_evaluator(expr: &ParensExpr) -> RuntimeResult<ExprEvaluator> {
+    if expr.len() == 1 {
+        let mut exp = expr;
+        let res = std::mem::take(exp.expressions[0].as_mut());
+        return create_evaluator(&res);
+    }
+    // Treat parensExpr as a function with empty name, i.e. union()
+    let fe = FuncExpr::new("union", expr.expressions.clone(), expr.span)?;
+    create_function_evaluator(&fe)
 }
 
 fn create_evaluator_from_binop(be: &BinaryOpExpr) -> RuntimeResult<ExprEvaluator> {

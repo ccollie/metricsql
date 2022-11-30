@@ -195,7 +195,7 @@ mod tests {
     #[test_case("and", OpAnd)]
     #[test_case("or", OpOr)]
     #[test_case("if", OpIf)]
-    #[test_case("ifnot", OpIfNot)]
+    #[test_case("ifNot", OpIfNot)]
     #[test_case("unless", OpUnless)]
     #[test_case("==", OpEqual)]
     #[test_case("!=", OpNotEqual)]
@@ -286,12 +286,12 @@ mod tests {
         test_tokens!(src, [tok]);
     }
 
-    #[test_case("\"hi\"", LiteralString; "double_1")]
-    #[test_case("\"hi\n\"", LiteralString; "double_2")]
-    #[test_case("\"hi\\\"\"", LiteralString; "double_3")]
-    #[test_case("'hi'", LiteralString; "single_1")]
-    #[test_case("'hi\n'", LiteralString; "single_2")]
-    #[test_case("'hi\\''", LiteralString; "single_3")]
+    #[test_case("\"hi\"", StringLiteral; "double_1")]
+    #[test_case("\"hi\n\"", StringLiteral; "double_2")]
+    #[test_case("\"hi\\\"\"", StringLiteral; "double_3")]
+    #[test_case("'hi'", StringLiteral; "single_1")]
+    #[test_case("'hi\n'", StringLiteral; "single_2")]
+    #[test_case("'hi\\''", StringLiteral; "single_3")]
     fn string(src: &str, tok: TokenKind) {
         test_tokens!(src, [tok]);
     }
@@ -356,7 +356,7 @@ mod tests {
         // Various durations
         test_success("m offset 123h", &["m", "offset", "123h"]);
 
-        let mut s = "m offset -1.23w-5h34.5m - 123";
+        let s = "m offset -1.23w-5h34.5m - 123";
         let expected = vec!["m", "offset", "-", "1.23w-5h34.5m", "-", "123"];
         test_success(s, &expected);
     }
@@ -468,7 +468,7 @@ mod tests {
         test_success("", &[]);
 
         // String with whitespace
-        let mut s = "  \n\t\r ";
+        let s = "  \n\t\r ";
         test_success(s, &[]);
 
         // Strings

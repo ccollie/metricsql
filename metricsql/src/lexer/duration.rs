@@ -1,5 +1,15 @@
 use crate::parser::{ParseError, ParseResult};
 
+
+static SECONDS_PER_MS: f64 = 1e-3;
+static SECONDS_PER_MINUTE: f64 = 60.0;
+static SECONDS_PER_HOUR: f64 = 60.0 * SECONDS_PER_MINUTE;
+static SECONDS_PER_DAY: f64 = 24.0 * SECONDS_PER_HOUR;
+static SECONDS_PER_WEEK: f64 = 7.0 * SECONDS_PER_DAY;
+static SECONDS_PER_YEAR: f64 = 365.0 * SECONDS_PER_DAY;
+
+
+
 /// positive_duration_value returns positive duration in milliseconds for the given s
 /// and the given step.
 ///
@@ -82,13 +92,13 @@ pub fn parse_single_duration(s: &str, &step: &i64) -> Result<f64, ParseError> {
     let mp: f64;
     let unit = &s[num_part.len()..];
     match unit {
-        "ms" => mp = 1e-3,
+        "ms" => mp = SECONDS_PER_MS,
         "s" => mp = 1.0_f64,
-        "m" => mp = 60.0_f64,
-        "h" => mp = (60.0 * 60.0) as f64,
-        "d" => mp = 24.0 * 60.0 * 60.0,
-        "w" => mp = 7.0 * 24.0 * 60.0 * 60.0,
-        "y" => mp = 365.0 * 24.0 * 60.0 * 60.0,
+        "m" => mp = SECONDS_PER_MINUTE,
+        "h" => mp = SECONDS_PER_HOUR,
+        "d" => mp = SECONDS_PER_DAY,
+        "w" => mp = SECONDS_PER_WEEK,
+        "y" => mp = SECONDS_PER_YEAR,
         "i" => mp = (step as f64) / 1e3,
         _ => {
             return Err(ParseError::General(format!(

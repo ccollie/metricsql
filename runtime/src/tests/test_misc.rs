@@ -114,7 +114,7 @@ impl Test {
                 },
                 _ => {
                     if cmd_str.starts_with("eval") {
-                        (i, cmd) = parse_eval(lines, i)?;
+                        (i, cmd) = parse_eval(lines, i, 0)?;
                     } else {
                         return raise(i, "invalid command {}", l)
                     }
@@ -136,7 +136,7 @@ impl Test {
         if let Some(cancel_ctx) = self.cancel_ctx {
             (cancel_ctx)()
         }
-        self.storage = teststorage.New(t);
+        self.storage = TestStorage.new(t);
         let opts = EngineOpts {
             MaxSamples: 10000,
             Timeout: 100 * time.Second,
@@ -220,7 +220,7 @@ fn parse_eval(t: &mut Test, lines: &[String], i: usize) -> RuntimeResult<(usize,
     let at   = parts[2];
     let expr = parts[3];
 
-    _, err = parser.ParseExpr(expr);
+    _, err = parser.parse(expr);
     if err != nil {
         let perr: ParseErr;
         if errors.As(err, &perr) {
@@ -233,7 +233,7 @@ fn parse_eval(t: &mut Test, lines: &[String], i: usize) -> RuntimeResult<(usize,
         return Err(err)
     }
 
-    offset, err := model.parse_duration(at);
+    offset = parse_duration(at);
     if err != nil {
         return raise(i, "invalid step definition {}: %s", parts[1], err)
     }
@@ -257,7 +257,7 @@ fn parse_eval(t: &mut Test, lines: &[String], i: usize) -> RuntimeResult<(usize,
             self.expect(0, nil, SequenceValue{Value: f})
             break
         }
-        metric, vals, err = parse_series_desc(defLine);
+        let (metric, vals) = parse_series_desc(defLine);
         if err != nil {
             let perr: ParseErr;
             if errors.As(err, &perr) {
@@ -272,7 +272,7 @@ fn parse_eval(t: &mut Test, lines: &[String], i: usize) -> RuntimeResult<(usize,
         }
         cmd.expect(j, metric, vals...)
     }
-    return Ok((i, cmd))
+    Ok((i, cmd))
 }
 
 // get_lines returns trimmed lines after removing the comments.
@@ -434,15 +434,15 @@ impl EvalCmd {
             let q = t.query_engine.new_instant_query(t.storage, nil, iq.expr, iq.eval_time)?;
 
             let res = q.exec(t.context);
-            if res.Err != nil {
+            if res.err.is_some() {
                 if cmd.fail {
                     continue
                 }
-                const msg = format!("error evaluating query {} (line {}): {:?}", iq.expr, cmd.line, res.Err);
+                const msg = format!("error evaluating query {} (line {}): {:?}", iq.expr, cmd.line, res.err);
                 return Err(RuntimeError::from(msg))
             }
 
-            if res.Err == nil && cmd.fail {
+            if res.err.is_some() && cmd.fail {
                 let msg = format!("expected error evaluating query {} (line {}) but got none", iq.expr, cmd.line);
                 return Err(RuntimeError::from(msg))
             }
@@ -459,10 +459,11 @@ impl EvalCmd {
                 iq.eval_time.Add(time.Minute),
                 time.Minute)
 
-            let rangeRes = q.exec(t.context);
+            let range_res = q.exec(t.context);
 
-            if rangeRes.Err != nil {
-                let msg = format!("error evaluating query {} (line {}) in range mode: {}", iq.expr, self.line, rangeRes.Err)
+            if range_res.err.is_some() {
+                let msg = format!("error evaluating query {} (line {}) in range mode: {}", 
+                    iq.expr, self.line, range_res.err)
                 return Err(RuntimeError::from(msg));
             }
 
@@ -470,7 +471,7 @@ impl EvalCmd {
                 // Ordering isn't defined for range queries.
                 continue
             }
-            let mat = rangeRes.Value.(Matrix)
+            let mat = range_res.Value.(Matrix)
 
             let vec = Vec::with_capacity(mat.len())
             for series in mat {
@@ -488,7 +489,7 @@ impl EvalCmd {
                 err = self.compare_result(vec)
             }
             if err != nil {
-                return fmt.Errorf("error in {} {} (line {}) range mode: {}", cmd, iq.expr, cmd.line, err)
+                return format!("error in {} {} (line {}) range mode: {}", cmd, iq.expr, cmd.line, err)
             }
 
         }
@@ -523,7 +524,7 @@ impl EvalCmd {
                     if !seen.contains(fp) {
                         fmt.Println("vector result", val.len(), ev.expr);
                         for ss in val.iter() {
-                            fmt.Println("    ", ss.metric, ss.point);
+                            fmt.println("    ", ss.metric, ss.point);
                         }
                         let metric = self.metrics.get(fp);
                         let msg = format!("expected metric {} with {:?} not found",
@@ -611,9 +612,10 @@ return nil
                 }
 
 
-            Expression::RollupExpr:
-            if n.Timestamp == nil {
-                n.Timestamp = makeInt64Pointer(ts)
+            Expression::RollupExpr(_) => {
+                    if n.Timestamp == nil {
+                        n.Timestamp = makeInt64Pointer(ts)
+                    }
             }
         },
     Expression::Function(fe) => {
@@ -630,12 +632,12 @@ return nil
     }
 
     let new_expr = expr.to_string(); // With all the @ eval_time set.
-    additionaleval_times = &[-10 * ts, 0, ts / 5, ts, 10 * ts];
+    let c = &[-10 * ts, 0, ts / 5, ts, 10 * ts];
     if ts == 0 {
-        additionaleval_times = [-1000, -ts, 1000];
+        additional_eval_times = [-1000, -ts, 1000];
     }
-    let test_cases = Vec::with_capacity(additionaleval_times.len());
-    for et in additionaleval_times.iter() {
+    let test_cases = Vec::with_capacity(additional_eval_times.len());
+    for et in additional_eval_times.iter() {
         test_cases.push(AtModifierTestCase{
             expr: new_expr,
             eval_time: timestamp.Time(et),

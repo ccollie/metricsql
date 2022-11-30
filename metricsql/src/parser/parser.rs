@@ -11,7 +11,7 @@ use crate::parser::{ParseErr, ParseResult};
 /// post-conditions for all parser.parse* funcs:
 /// - self.lex.token should point to the next token after the parsed token.
 pub struct Parser<'a> {
-    input: &'a str,
+    pub(super) input: &'a str,
     tokens: Vec<Token<'a>>,
     cursor: usize,
     kind: TokenKind,

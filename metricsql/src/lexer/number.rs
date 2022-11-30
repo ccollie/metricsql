@@ -1,9 +1,16 @@
 use crate::parser::{ParseError, ParseResult};
 
 #[inline]
-fn parse_with_radix(str: &str, radix: u32) -> Result<f64, ParseError> {
+fn parse_with_radix(str: &str, radix: u32, is_negative: bool) -> Result<f64, ParseError> {
     match u64::from_str_radix(str, radix) {
-        Ok(n) => Ok(n as f64),
+        Ok(n) => {
+            let value = if is_negative {
+                n as f64 * -1.0
+            } else {
+                n as f64
+            };
+            Ok(value)
+        },
         Err(_) => Err(ParseError::InvalidNumber(str.to_string())),
     }
 }
@@ -11,24 +18,39 @@ fn parse_with_radix(str: &str, radix: u32) -> Result<f64, ParseError> {
 // todo: rename
 pub fn parse_float(str: &str) -> Result<f64, ParseError> {
     let binding = str.to_ascii_lowercase();
-    let str = binding.as_str();
+    let mut str = binding.as_str();
+    let ch = str.chars().next().unwrap();
+    let is_negative = if ch == '-' {
+        str = &str[1..];
+        true
+    } else {
+        false
+    };
+
     if str.len() > 2 {
         let prefix = &str[0..2];
         match prefix {
-            "0b" => return parse_with_radix(&str[2..], 2),
-            "0o" => return parse_with_radix(&str[2..], 8),
-            "0x" => return parse_with_radix(&str[2..], 16),
+            "0b" => return parse_with_radix(&str[2..], 2, is_negative),
+            "0o" => return parse_with_radix(&str[2..], 8, is_negative),
+            "0x" => return parse_with_radix(&str[2..], 16, is_negative),
             _ => {}
         }
     }
-    match str {
+
+    let value = match str {
         "inf" => Ok(f64::INFINITY),
          "nan" => Ok(f64::NAN),
         _ => match str.parse::<f64>() {
             Ok(n) => Ok(n),
             Err(_) => Err(ParseError::InvalidNumber(str.to_string())),
         },
-    }
+    };
+
+    value.and_then(|x| if is_negative {
+        Ok(x * -1.0)
+    } else {
+        Ok(x)
+    })
 }
 
 type SuffixValue = (&'static str, usize);
