@@ -190,7 +190,7 @@ fn trim_filters_by_aggr_modifier(lfs: &mut Vec<LabelFilter>, afe: &AggrFuncExpr)
 /// - It returns lfs as is if be doesn't contain any group modifier
 /// - It returns only filters specified in on()
 /// - It drops filters specified inside ignoring()
-fn trim_filters_by_group_modifier(lfs: &mut Vec<LabelFilter>, be: &BinaryOpExpr) {
+pub fn trim_filters_by_group_modifier(lfs: &mut Vec<LabelFilter>, be: &BinaryOpExpr) {
     match &be.group_modifier {
         None => {}
         Some(modifier) => match modifier.op {

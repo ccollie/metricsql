@@ -39,7 +39,7 @@ pub fn parse(input: &str) -> ParseResult<Expression> {
         return Err(ParseError::General(msg));
     }
     let was = get_default_with_arg_exprs();
-    let res = expand_with_expr(&was, &expr)?.into_owned();
+    let res = expand_with_expr(&was, expr)?;
     Ok(simplify_expr(res))
 }
 

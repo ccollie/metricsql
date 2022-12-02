@@ -162,7 +162,12 @@ fn try_get_arg_rollup_func_with_metric_expr(ae: &AggrFuncExpr) -> RuntimeResult<
             }
         }
         Expression::Function(fe) => {
-            let function = BuiltinFunction::from_str(&fe.name);
+            let function: BuiltinFunction;
+            match BuiltinFunction::from_str(&fe.name) {
+                Err(_) => return Err(RuntimeError::UnknownFunction(fe.name.to_string())),
+                Ok(f) => function  = f
+            };
+
             match function {
                 BuiltinFunction::Rollup(_) => {
                     match fe.get_arg_for_optimization() {

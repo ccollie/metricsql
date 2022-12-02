@@ -9,7 +9,7 @@ use rayon::prelude::IntoParallelRefIterator;
 
 use lib::is_stale_nan;
 use metricsql::ast::*;
-use metricsql::functions::{BuiltinFunction, DataType, RollupFunction, Volatility};
+use metricsql::functions::{DataType, RollupFunction, Volatility};
 
 use crate::{EvalConfig, get_timeseries, get_timestamps, MetricName};
 use crate::cache::rollup_result_cache::merge_timeseries;

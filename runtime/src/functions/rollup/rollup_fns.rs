@@ -6,7 +6,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use lib::{get_float64s, is_stale_nan};
-use metricsql::ast::{Expression, ExpressionNode};
+use metricsql::ast::{Expression};
 use metricsql::functions::{can_adjust_window, RollupFunction};
 
 use crate::{get_timeseries, get_timestamps};

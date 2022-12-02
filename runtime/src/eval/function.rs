@@ -1,7 +1,7 @@
 use std::str::FromStr;
 use std::sync::Arc;
 use metricsql::ast::FuncExpr;
-use metricsql::functions::{BuiltinFunction, DataType, Volatility};
+use metricsql::functions::{DataType, Volatility};
 use metricsql::prelude::TransformFunction;
 
 use crate::context::Context;

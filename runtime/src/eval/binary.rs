@@ -6,9 +6,8 @@ use regex::escape;
 
 use metricsql::ast::*;
 use metricsql::functions::{DataType, Volatility};
-use metricsql::optimizer::{
-    pushdown_binary_op_filters,
-    trim_filters_by_group_modifier
+use metricsql::transform::{
+    pushdown_binary_op_filters
 };
 
 use crate::context::Context;
@@ -20,6 +19,7 @@ use crate::functions::types::AnyValue;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 
 use metric_name::Tag;
+use metricsql::prelude::trim_filters_by_group_modifier;
 
 pub struct BinaryEvaluator {
     expr: BinaryOpExpr,
