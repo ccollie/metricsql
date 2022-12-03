@@ -1,96 +1,105 @@
-use crate::lexer::{Lexer, TextSpan, Token, TokenKind, unescape_ident};
-use crate::parser::parse_error::{InvalidTokenError, ParseError};
-use crate::parser::{ParseErr, ParseResult};
+use logos::{Logos, Span};
+use crate::ast::{Expr, WithArgExpr};
+use crate::parser::expand_expr::expand_with_expr;
+use crate::parser::{invalid_token_error, ParseError, ParseResult, syntax_error};
+use crate::parser::tokens::Token;
+use crate::prelude::unescape_ident;
 
+
+/// A token of MetricSql source.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TokenWithLocation<'source> {
+    /// The kind of token.
+    pub kind: Token,
+    pub text: &'source str,
+    pub span: Span,
+}
+
+impl<'source> TokenWithLocation<'source> {
+    pub fn len(&self) -> usize {
+        self.text.len()
+    }
+}
 
 /// parser parses MetricsQL expression.
 ///
 /// preconditions for all parser.parse* funcs:
-/// - self.lex.token should point to the first token to parse.
+/// - self.tokens[self.cursor] should point to the first token to parse.
 ///
 /// post-conditions for all parser.parse* funcs:
-/// - self.lex.token should point to the next token after the parsed token.
+/// - self.token[self.cursor] should point to the next token after the parsed token.
 pub struct Parser<'a> {
-    pub(super) input: &'a str,
-    tokens: Vec<Token<'a>>,
-    cursor: usize,
-    kind: TokenKind,
-    pub(super) parsing_with: bool,
+    tokens: Vec<TokenWithLocation<'a>>,
+    pub(super) cursor: usize,
+    pub(super) template_parsing_depth: usize,
+    pub(super) needs_expansion: bool,
+    pub(super) with_stack: Vec<Vec<WithArgExpr>>,
 }
 
 impl<'a> Parser<'a> {
-    pub(crate) fn from_tokens(tokens: Vec<Token<'a>>) -> Self {
-        let tokens: Vec<_> = tokens.into_iter().filter(|x| !x.kind.is_trivia()).collect();
+    pub fn new(input: &'a str) -> ParseResult<Self> {
+        let mut lexer: logos::Lexer<'a, Token> = Token::lexer(input);
 
-        let kind = if tokens.len() > 0 {
-            tokens[0].kind
-        } else {
-            TokenKind::Eof
-        };
-
-        Self {
-            input: "",
-            cursor: 0,
-            tokens,
-            parsing_with: false,
-            kind
-        }
-    }
-
-    pub fn new(input: &'a str) -> Self {
-        let lexer = Lexer::new(input);
-        let tokens = lexer.collect();
-
-        let mut parser = Parser::from_tokens(tokens);
-        parser.input = input;
-        parser
-    }
-
-    pub fn next_token(&mut self) -> Option<&Token<'a>> {
-        if self.is_eof() {
-            return None
-        }
-
-        self.cursor += 1;
-        match self.tokens.get(self.cursor) {
-            Some(t) => {
-                self.kind = t.kind;
-                Some(t)
-            },
-            None => None
-        }
-    }
-
-    pub fn prev_token(&mut self) -> Option<&Token<'a>> {
-        if self.cursor > 0 {
-            self.cursor -= 1;
-        }
-        match self.tokens.get(self.cursor) {
-            Some(t) => {
-                self.kind = t.kind;
-                Some(t)
-            },
-            None => {
-                self.kind = TokenKind::ErrorInvalidToken;
-                None
+        let mut tokens = Vec::with_capacity(16); // todo: pre-size
+        loop {
+            match lexer.next() {
+                Some(tok) => {
+                    match tok {
+                        Ok(tok) => {
+                            tokens.push(TokenWithLocation {
+                                kind: tok,
+                                text: lexer.slice(),
+                                span: lexer.span(),
+                            });
+                        }
+                        Err(e) => return Err(e)
+                    }
+                }
+                _ => break,
             }
         }
+
+        Ok(Self {
+            cursor: 0,
+            tokens,
+            template_parsing_depth: 0,
+            needs_expansion: false,
+            with_stack: vec![],
+        })
     }
 
-    pub fn peek_token(&self) -> Option<&Token<'a>> {
+    // next
+    pub fn next(&mut self) -> Option<&TokenWithLocation<'a>> {
+        if self.is_eof() {
+            return None;
+        }
+        self.cursor += 1;
         self.tokens.get(self.cursor)
     }
 
-    pub(crate) fn current_token(&self) -> ParseResult<&Token<'a>> {
+    pub fn next_token(&mut self) -> Option<&TokenWithLocation<'a>> {
+        if self.is_eof() {
+            return None;
+        }
+        self.cursor += 1;
+        self.tokens.get(self.cursor)
+    }
+
+    pub fn prev_token(&mut self) -> Option<&TokenWithLocation<'a>> {
+        if self.cursor > 0 {
+            self.cursor -= 1;
+        }
+        self.tokens.get(self.cursor)
+    }
+
+    pub fn peek_token(&self) -> Option<&TokenWithLocation<'a>> {
+        self.tokens.get(self.cursor)
+    }
+
+    pub(crate) fn current_token(&self) -> ParseResult<&TokenWithLocation<'a>> {
         match self.tokens.get(self.cursor) {
-            Some(t) => {
-                if t.kind.is_error_token() {
-                    let error_msg = format!("{}: {}", t.kind, t.text);
-                    return Err(ParseError::General(error_msg.to_string()));
-                }
-                Ok(t)
-            },
-            None => Err(ParseError::UnexpectedEOF)
+            Some(t) => Ok(t),
+            None => Err(ParseError::UnexpectedEOF),
         }
     }
 
@@ -98,39 +107,35 @@ impl<'a> Parser<'a> {
         self.cursor >= self.tokens.len()
     }
 
-    pub(crate) fn last_token_range(&self) -> Option<TextSpan> {
+    pub(super) fn is_in_template_definition(&self) -> bool {
+        self.template_parsing_depth > 0
+    }
+
+    pub(super) fn last_token_range(&self) -> Option<Span> {
         let index = if self.is_eof() {
-            self.tokens.len() - 1
+            if self.tokens.len() > 0 {
+                self.tokens.len() - 1
+            } else {
+                0
+            }
         } else {
             self.cursor
         };
-        self.tokens.get(index).map(|Token { span, .. }| *span)
+        self.tokens.get(index).map(|TokenWithLocation { span, .. }| span.clone())
     }
 
-    pub(super) fn update_span(&self, span: &mut TextSpan) -> bool {
-        if let Some(end_span) = self.last_token_range() {
-            span.intersect_with(end_span);
-            return true;
-        }
-        false
-    }
-
-    pub(crate) fn expect(&mut self, kind: TokenKind) -> ParseResult<()> {
+    pub(super) fn expect(&mut self, kind: &Token) -> ParseResult<()> {
         if self.at(kind) {
             self.bump();
             Ok(())
         } else {
-            Err(self.token_error(&[kind]))
+            Err(self.token_error(&[kind.clone()]))
         }
     }
 
-    pub(crate) fn expect_token(&mut self, kind: TokenKind) -> ParseResult<&Token<'a>> {
-        self.expect_one_of(&[kind])
-    }
-
-    pub(crate) fn expect_one_of(&mut self, kinds: &[TokenKind]) -> ParseResult<&Token<'a>> {
+    pub(crate) fn expect_one_of(&mut self, kinds: &[Token]) -> ParseResult<&TokenWithLocation<'a>> {
         if self.at_set(kinds) {
-            // todo: weirdness to avoid borrowing
+            // weirdness to avoid borrowing
             self.cursor += 1;
             let tok = self.tokens.get(self.cursor - 1).unwrap();
             Ok(tok)
@@ -139,35 +144,48 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub(crate) fn token_error(&self, expected: &[TokenKind]) -> ParseError {
+    pub(super) fn expect_identifier(&mut self) -> ParseResult<String> {
+        let tok = self.expect_one_of(&[Token::Identifier])?;
+        let ident = if tok.text.contains(r#"\"#) {
+            unescape_ident(tok.text)
+        } else {
+            tok.text.to_string()
+        };
+        Ok(ident)
+    }
+
+    pub(super) fn token_error(&self, expected: &[Token]) -> ParseError {
         let current_token = self.peek_token();
 
-        let (found, range) = if let Some(Token { kind, span, .. }) = current_token {
-            (Some(*kind), *span)
+        if let Some(TokenWithLocation { kind, span, .. }) = current_token {
+            invalid_token_error(expected, Some(kind.clone()), span, "".to_string())
         } else {
-            // If we’re at the end of the input we use the range of the very last token in the
-            // input.
-            (None, self.last_token_range().unwrap_or_default())
-        };
+            // If we’re at the end of the input we use the range of the very last token in the input.
+            let span = self.last_token_range().unwrap_or_default();
+            invalid_token_error(expected, None, &span, "".to_string())
+        }
+    }
 
-        let inner = InvalidTokenError::new(expected, found, range);
-
-        ParseError::InvalidToken(inner)
+    pub(super) fn syntax_error(&self, msg: &str) -> ParseError {
+        let span = self.last_token_range().unwrap_or_default();
+        syntax_error(msg, &span, "".to_string())
     }
 
     pub(super) fn parse_ident_list(&mut self) -> ParseResult<Vec<String>> {
-        use TokenKind::*;
+        use Token::*;
 
-        self.expect(LeftParen)?;
-        self.parse_comma_separated(&[RightParen],|parser| {
-            let tok = parser.expect_token(Ident)?;
-            Ok(unescape_ident(tok.text))
+        self.expect(&LeftParen)?;
+        self.parse_comma_separated(&[RightParen], |parser| {
+            Ok(parser.expect_identifier()?)
         })
-
     }
 
-    /// Parse a comma-separated list of 1+ items accepted by `F`
-    pub fn parse_comma_separated<T, F>(&mut self, stop_tokens: &[TokenKind], mut f: F) -> ParseResult<Vec<T>>
+    /// Parse a comma-separated list of 1+ items accepted by `f`
+    pub fn parse_comma_separated<T, F>(
+        &mut self,
+        stop_tokens: &[Token],
+        mut f: F,
+    ) -> ParseResult<Vec<T>>
     where
         F: FnMut(&mut Parser<'a>) -> ParseResult<T>,
     {
@@ -175,20 +193,21 @@ impl<'a> Parser<'a> {
         loop {
             if self.at_set(stop_tokens) {
                 self.bump();
-                break
+                break;
             }
             let item = f(self)?;
             values.push(item);
+
             let kind = self.peek_kind();
-            if kind == TokenKind::Comma {
+            if kind == Token::Comma {
                 self.bump();
-                continue
+                continue;
             } else if stop_tokens.contains(&kind) {
                 self.bump();
                 break;
             } else {
                 let mut expected = Vec::from(stop_tokens);
-                expected.insert(0, TokenKind::Comma);
+                expected.insert(0, Token::Comma);
                 return Err(self.token_error(&expected));
             }
         }
@@ -198,80 +217,80 @@ impl<'a> Parser<'a> {
     pub(super) fn bump(&mut self) {
         if self.cursor < self.tokens.len() {
             self.cursor += 1;
-            if self.cursor < self.tokens.len() {
-                self.kind = self.tokens[self.cursor].kind;
-            } else {
-                self.kind = TokenKind::Eof;
-            }
-        } else {
-            self.kind = TokenKind::Eof;
         }
     }
 
-    pub(super) fn back(&mut self) -> &mut Self {
+    pub(super) fn back(&mut self) {
         if self.cursor > 0 {
             self.cursor -= 1;
-            self.kind = self.tokens[self.cursor].kind;
         }
-        self
+    }
+    
+    pub(super) fn at(&self, kind: &Token) -> bool {
+        let actual = self.peek_kind();
+        &actual == kind
     }
 
-    pub(crate) fn at(&self, kind: TokenKind) -> bool {
-        self.peek_kind() == kind
-    }
-
-    pub(super) fn at_set(&self, set: &[TokenKind]) -> bool {
+    pub(super) fn at_set(&self, set: &[Token]) -> bool {
         let kind = self.peek_kind();
-        set.contains(&kind )
+        set.contains(&kind)
     }
 
     pub(crate) fn at_end(&self) -> bool {
         self.cursor >= self.tokens.len()
     }
 
-    pub(super) fn peek_kind(&self) -> TokenKind {
+    pub(super) fn peek_kind(&self) -> Token {
         if self.at_end() {
-            return TokenKind::Eof
+            return Token::Eof;
         }
         // self.kind
         let tok = self.tokens.get(self.cursor);
         tok.expect("BUG: invalid index out of bounds").kind
     }
 
-}
+    pub(super) fn is_parsing_with(&self) -> bool {
+        !self.with_stack.is_empty()
+    }
 
-
-/// unexpected creates a parser error complaining about an unexpected lexer item.
-/// The item that is presented as unexpected is always the last item produced
-/// by the lexer.
-pub(super) fn unexpected(p: &mut Parser, context: &str, expected: &str, span: Option<TextSpan>) -> ParseError {
-    let mut err_msg: String = String::with_capacity(25 + context.len() + expected.len());
-
-    let span = span.unwrap_or_else(|| p.last_token_range().unwrap() );
-    err_msg.push_str("unexpected ");
-    let text = match p.current_token() {
-        Ok(t) => {
-            t.text
-        },
-        Err(_) => {
-            "EOF"
+    pub(super) fn lookup_with_expr(&self, name: &str) -> Option<&WithArgExpr> {
+        for frame in self.with_stack.iter().rev() {
+            if let Some(expr) = frame.iter().find(|x| x.name == name) {
+                return Some(expr);
+            }
         }
-    };
-
-    err_msg.push_str(text);
-
-    if !context.is_empty() {
-        err_msg.push_str(" in ");
-        err_msg.push_str(context)
+        None
     }
 
-    if !expected.is_empty() {
-        err_msg.push_str(", expected ");
-        err_msg.push_str(expected)
+    pub(super) fn resolve_value(&self, name: &str) -> Option<&WithArgExpr> {
+        if let Some(arg) = self.lookup_with_expr(name) {
+            if !arg.is_function {
+                return Some(arg);
+            }
+        }
+        None
     }
 
-    ParseError::Unexpected(
-        ParseErr::new(&err_msg, p.input, span)
-    )
+    pub(super) fn resolve_template_function(&self, name: &str) -> Option<&WithArgExpr> {
+        if let Some(arg) = self.lookup_with_expr(name) {
+            if arg.is_function {
+                return Some(arg);
+            }
+        }
+        None
+    }
+
+    pub(super) fn expand_if_needed(&self, expr: Expr) -> ParseResult<Expr> {
+        if self.needs_expansion {
+            let resolve_fn = |name: &str| {
+                if let Some(found) = self.resolve_value(name) {
+                    return Some(found.expr.clone()); // todo: use lifetimes !!!!!!
+                }
+                None
+            };
+            expand_with_expr(expr, resolve_fn)
+        } else {
+            Ok(expr)
+        }
+    }
 }
-

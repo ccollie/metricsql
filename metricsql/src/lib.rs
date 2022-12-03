@@ -8,34 +8,35 @@ extern crate regex;
 extern crate serde;
 extern crate thiserror;
 
-pub mod error;
 pub mod ast;
 pub mod binaryop;
-mod lexer;
-
-pub mod utils {
-    use crate::lexer;
-    pub use lexer::{escape_ident, parse_float, quote};
-}
-
-pub mod parser;
+pub mod common;
 pub mod functions;
+pub mod parser;
 pub mod transform;
 
-pub use lexer::TextSpan;
+pub mod optimize {
+    use crate::ast;
+    pub use ast::{
+        get_common_label_filters,
+        optimize,
+        push_down_filters,
+        simplify_expression,
+        trim_filters_by_group_modifier,
+    };
+}
 
 pub mod prelude {
     use crate::ast;
-    use crate::lexer;
     use crate::binaryop;
+    use crate::common;
     use crate::functions;
     use crate::parser;
-    use crate::transform;
 
     pub use ast::*;
     pub use binaryop::*;
+    pub use common::*;
     pub use functions::*;
-    pub use lexer::TextSpan;
+    pub use ast::*;
     pub use parser::*;
-    pub use transform::*;
 }

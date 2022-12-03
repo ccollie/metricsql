@@ -1,4 +1,3 @@
-
 use crate::{
     append_float64_ones, append_float64_zeros, append_int64_ones, append_int64_zeros, frexp,
     is_float64_ones, is_float64_zeros, is_int64_ones, is_int64_zeros, isinf, LN10_F64,
@@ -46,19 +45,18 @@ pub fn is_stale_nan(f: f64) -> bool {
     f.to_bits() == STALE_NAN_BITS
 }
 
-
-/// CalibrateScale calibrates a and b with the corresponding exponents ae, be
+/// calibrate_scale calibrates a and b with the corresponding exponents ae, be
 /// and returns the resulting exponent e.
 pub fn calibrate_scale(a: &mut [i64], ae: i16, b: &mut [i64], be: i16) -> i16 {
     if ae == be {
         // Fast path - exponents are equal.
-        return ae
+        return ae;
     }
     if a.is_empty() {
-        return be
+        return be;
     }
     if b.is_empty() {
-        return ae
+        return ae;
     }
     if ae < be {
         calibrate_internal(b, be, a, ae)
@@ -80,7 +78,7 @@ fn calibrate_internal(a: &mut [i64], ae: i16, b: &mut [i64], be: i16) -> i16 {
     for v in a.iter_mut() {
         if is_special_value(*v) {
             // Do not take into account special values.
-            continue
+            continue;
         }
         let mut adj_exp = up_exp;
         while adj_exp > 0 {
@@ -93,7 +91,7 @@ fn calibrate_internal(a: &mut [i64], ae: i16, b: &mut [i64], be: i16) -> i16 {
         for v in b.iter_mut() {
             if is_special_value(*v) {
                 // Do not take into account special values.
-                continue
+                continue;
             }
             let mut adj_exp = down_exp;
             while adj_exp > 0 {
@@ -158,7 +156,7 @@ pub fn append_decimal_to_float(dst: &mut Vec<f64>, va: &[i64], e: i16) {
         }
         Ordering::Less => {
             // increase conversion precision for negative exponents by dividing by e10
-            let e10 = 10_f64.powf(-e as f64);
+            let e10 = 10_f64.powf(-e as f64); // todo(perf) make this const
             for v in va {
                 let v1 = *v as f64 / e10;
                 append(dst, v1);
@@ -173,7 +171,6 @@ pub fn append_decimal_to_float(dst: &mut Vec<f64>, va: &[i64], e: i16) {
         }
     }
 }
-
 
 /// append_float_to_decimal converts each item in src to v*10^e and appends
 /// each v to dst returning it as va.
@@ -262,16 +259,6 @@ impl VaeBuf {
             ea: Vec::with_capacity(cap),
         }
     }
-
-    fn len(self) -> usize {
-        self.va.len()
-    }
-
-    fn clear(mut self) -> Self {
-        self.ea.clear();
-        self.va.clear();
-        self
-    }
 }
 
 impl Clone for VaeBuf {
@@ -319,11 +306,11 @@ pub fn max_up_exponent(v: i64) -> i16 {
     }
 }
 
-/// to_floatt returns f=v*10^e.
+/// to_float returns f=v*10^e.
 pub fn to_float(v: i64, e: i16) -> f64 {
     if is_special_value(v) {
         if v == V_INF_POS {
-            return f64::INFINITY
+            return f64::INFINITY;
         }
         if v == V_INF_NEG {
             return f64::NEG_INFINITY;
@@ -338,7 +325,6 @@ pub fn to_float(v: i64, e: i16) -> f64 {
 
     f * e.pow(10) as f64
 }
-
 
 /// from_float converts f to v*10^e.
 ///
@@ -434,11 +420,7 @@ fn positive_float_to_decimal_slow(f: f64) -> (i64, i16) {
         let (_, mut exp) = frexp(f);
         // Bound the exponent according to https://en.wikipedia.org/wiki/Double-precision_floating-point_format
         // This fixes the issue https://github.com/VictoriaMetrics/VictoriaMetrics/issues/1114
-        if exp < -1022 {
-            exp = -1022
-        } else if exp > 1023 {
-            exp = 1023
-        }
+        exp = exp.clamp(-1022, 1023);
 
         let scale = ((exp as f64) * (std::f64::consts::LN_2 / LN10_F64)) as i16;
         f *= (-1.0 * scale as f64).powf(10_f64);
@@ -470,7 +452,6 @@ fn positive_float_to_decimal_slow(f: f64) -> (i64, i16) {
     scale += 1;
     (u as i64, scale)
 }
-
 
 // #[cfg(test)]
 // mod decimal_test;

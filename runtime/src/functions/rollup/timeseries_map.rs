@@ -5,14 +5,14 @@ use std::sync::Arc;
 
 use metricsql::functions::RollupFunction;
 
-use crate::{MetricName, Timeseries};
 use crate::histogram::{Histogram, NonZeroBuckets};
+use crate::types::{MetricName, Timeseries};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct TimeseriesMap {
     origin: Timeseries,
     hist: Histogram,
-    pub(crate) series: HashMap<String, Timeseries>
+    pub(crate) series: HashMap<String, Timeseries>,
 }
 
 impl TimeseriesMap {
@@ -20,9 +20,9 @@ impl TimeseriesMap {
         func: &RollupFunction,
         keep_metric_names: bool,
         shared_timestamps: &Arc<Vec<i64>>,
-        mn_src: &MetricName) -> Option<TimeseriesMap> {
-
-        if !TimeseriesMap::is_eligible_function(func) {
+        mn_src: &MetricName,
+    ) -> Option<TimeseriesMap> {
+        if !is_eligible_function(func) {
             return None;
         }
 
@@ -35,36 +35,34 @@ impl TimeseriesMap {
         if !keep_metric_names {
             origin.metric_name.reset_metric_group()
         }
-        origin.timestamps = shared_timestamps.clone();
+        origin.timestamps = Arc::clone(&shared_timestamps);
         origin.values = values;
         let m: HashMap<String, Timeseries> = HashMap::new();
 
         Some(TimeseriesMap {
             origin,
             hist: Histogram::new(),
-            series: m
+            series: m,
         })
-    }
-
-    pub fn is_eligible_function(func: &RollupFunction) -> bool {
-        *func == RollupFunction::HistogramOverTime || *func == RollupFunction::QuantilesOverTime
     }
 
     pub fn update(&mut self, value: f64) {
         self.hist.update(value);
     }
 
-    pub fn get_or_create_timeseries(&mut self, label_name: &str, label_value: &str) -> &mut Timeseries {
+    pub fn get_or_create_timeseries(
+        &mut self,
+        label_name: &str,
+        label_value: &str,
+    ) -> &mut Timeseries {
         let value = label_value.to_string();
         let timestamps = &self.origin.timestamps;
-        self.series.entry(value)
-            .or_insert_with_key(move |value| {
-                let values: Vec<f64> = Vec::with_capacity(1);
-                let mut ts = Timeseries::with_shared_timestamps(&timestamps, &values);
-                ts.metric_name.remove_tag(label_name);
-                ts.metric_name.set_tag(label_name, value);
-                ts
-            })
+        self.series.entry(value).or_insert_with_key(move |value| {
+            let values: Vec<f64> = Vec::with_capacity(1);
+            let mut ts = Timeseries::with_shared_timestamps(&timestamps, &values);
+            ts.metric_name.set_tag(label_name, value);
+            ts
+        })
     }
 
     /// Copy all timeseries to dst. The map should not be used after this call
@@ -73,7 +71,7 @@ impl TimeseriesMap {
             dst.push(std::mem::take(&mut ts))
         }
     }
-    
+
     pub(crate) fn reset(&mut self) {
         self.hist.reset();
     }
@@ -85,4 +83,9 @@ impl TimeseriesMap {
     pub fn non_zero_buckets(&mut self) -> NonZeroBuckets {
         self.hist.non_zero_buckets()
     }
+}
+
+fn is_eligible_function(func: &RollupFunction) -> bool {
+    use RollupFunction::*;
+    matches!(*func, HistogramOverTime | QuantilesOverTime)
 }

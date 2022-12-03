@@ -7,8 +7,7 @@ extern crate enquote;
 extern crate integer_encoding;
 extern crate lockfree_object_pool;
 extern crate lru_time_cache;
-extern crate minstant;
-extern crate minitrace;
+extern crate prometheus_parse;
 extern crate once_cell;
 extern crate phf;
 extern crate q_compress;
@@ -29,39 +28,34 @@ mod eval;
 mod exec;
 mod functions;
 mod histogram;
-mod metric_name;
+mod memory_pool;
 mod parser_cache;
-mod prometheus;
 mod query;
-mod query_tracer;
-mod search;
 mod query_stats;
 mod runtime_error;
-mod traits;
+mod search;
+mod types;
 mod utils;
-mod timeseries;
-
 
 pub use active_queries::*;
 pub use cache::*;
-pub use eval::{EvalConfig, get_timestamps};
-pub use exec::*;
-pub use prometheus::*;
-pub use metric_name::*;
-pub use timeseries::*;
 pub use context::*;
+pub use eval::{get_timestamps, EvalConfig};
+pub use exec::*;
 pub use parser_cache::*;
-pub use runtime_error::*;
-pub use search::*;
 pub use query::*;
 pub use query_stats::*;
-pub use traits::*;
+pub use runtime_error::*;
+pub use search::*;
+pub use types::*;
 
 #[cfg(test)]
 pub use tests::utils::*;
+
+#[cfg(test)]
+extern crate speculate;
+
 #[cfg(test)]
 mod exec_test;
 #[cfg(test)]
 mod tests;
-#[cfg(test)]
-mod metric_name_test;

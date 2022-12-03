@@ -3,13 +3,11 @@ use std::str::FromStr;
 
 use phf::phf_map;
 
-use crate::ast::ReturnValue;
-use crate::error::Error;
-use crate::functions::MAX_ARG_COUNT;
+use crate::common::ValueType;
 use crate::functions::signature::{Signature, Volatility};
-
-use super::data_type::DataType;
-use serde::{Serialize, Deserialize};
+use crate::functions::MAX_ARG_COUNT;
+use crate::parser::ParseError;
+use serde::{Deserialize, Serialize};
 
 // TODO: ttf
 
@@ -93,6 +91,10 @@ pub enum TransformFunction {
     RangeStdDev,
     RangeStdVar,
     RangeSum,
+    RangeTrimOutliers,
+    RangeTrimSpikes,
+    RangeTrimZscore,
+    RangeZscore,
     RemoveResets,
     Round,
     Ru,
@@ -206,6 +208,10 @@ impl Display for TransformFunction {
             RangeStdDev => "range_stddev",
             RangeStdVar => "range_stdvar",
             RangeSum => "range_sum",
+            RangeTrimSpikes => "range_trim_spikes",
+            RangeTrimOutliers => "range_trim_outliers",
+            RangeTrimZscore => "range_trim_zscore",
+            RangeZscore => "range_zscore",
             RemoveResets => "remove_resets",
             Round => "round",
             Ru => "ru",
@@ -319,6 +325,10 @@ static REVERSE_MAP: phf::Map<&'static str, TransformFunction> = phf_map! {
 "range_stddev" => TransformFunction::RangeStdDev,
 "range_stdvar" => TransformFunction::RangeStdVar,
 "range_sum" => TransformFunction::RunningSum,
+"range_trim_outliers" => TransformFunction::RangeTrimOutliers,
+"range_trim_spikes" => TransformFunction::RangeTrimSpikes,
+"range_trim_zscore" => TransformFunction::RangeTrimZscore,
+"range_zscore" => TransformFunction::RangeZscore,
 "remove_resets" => TransformFunction::RemoveResets,
 "round" => TransformFunction::Round,
 "ru" => TransformFunction::Ru,
@@ -350,16 +360,14 @@ static REVERSE_MAP: phf::Map<&'static str, TransformFunction> = phf_map! {
 "year" => TransformFunction::Year
 };
 
-
 impl FromStr for TransformFunction {
-    type Err = Error;
+    type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let lower = s.to_lowercase();
         match REVERSE_MAP.get(lower.as_str()) {
             Some(op) => Ok(*op),
-            None => Err(Error::new(
-                format!("Unknown transform function: {}", s)))
+            None => Err(ParseError::InvalidFunction(s.to_string())),
         }
     }
 }
@@ -373,47 +381,63 @@ impl TransformFunction {
     /// so they don't drop metric name
     pub fn keep_metric_name(&self) -> bool {
         use TransformFunction::*;
-        matches!(self,
-            Ceil |
-            Clamp |
-            ClampMin |
-            ClampMax |
-            Floor |
-            Interpolate |
-            KeepLastValue |
-            KeepNextValue |
-            RangeAvg |
-            RangeFirst |
-            RangeLast |
-            RangeMax |
-            RangeMedian |
-            RangeMin |
-            RangeNormalize |
-            RangeQuantile |
-            Round |
-            Ru |
-            RunningAvg |
-            SmoothExponential)
+        matches!(
+            self,
+            Ceil | Clamp
+                | ClampMin
+                | ClampMax
+                | Floor
+                | Interpolate
+                | KeepLastValue
+                | KeepNextValue
+                | RangeAvg
+                | RangeFirst
+                | RangeLast
+                | RangeMax
+                | RangeMedian
+                | RangeMin
+                | RangeNormalize
+                | RangeQuantile
+                | Round
+                | Ru
+                | RunningAvg
+                | SmoothExponential
+        )
     }
 
-    pub fn sorts_results(&self) -> bool {
+    pub fn may_sort_results(&self) -> bool {
         use TransformFunction::*;
-        matches!(&self,
-            Sort |
-            SortDesc |
-            SortByLabel |
-            SortByLabelDesc |
-            SortByLabelNumeric |
-            SortByLabelNumericDesc
+        matches!(
+            &self,
+            Sort | SortDesc
+                | SortByLabel
+                | SortByLabelDesc
+                | SortByLabelNumeric
+                | SortByLabelNumericDesc
         )
     }
 
     pub fn manipulates_labels(&self) -> bool {
         use TransformFunction::*;
-        matches!(self, 
-            Alias | DropCommonLabels | LabelCopy | LabelDel | LabelGraphiteGroup | LabelJoin |
-            LabelKeep | LabelLowercase | LabelMap | LabelMatch | LabelMismatch | LabelMove |
-            LabelReplace | LabelSet | LabelTransform | LabelUppercase | LabelValue
+        matches!(
+            self,
+            Alias
+                | DropCommonLabels
+                | LabelCopy
+                | LabelDel
+                | LabelGraphiteGroup
+                | LabelJoin
+                | LabelKeep
+                | LabelLowercase
+                | LabelMap
+                | LabelMatch
+                | LabelMismatch
+                | LabelMove
+                | LabelReplace
+                | LabelSet
+                | LabelTransform
+                | LabelUppercase
+                | LabelValue
         )
     }
 
@@ -422,152 +446,149 @@ impl TransformFunction {
 
         // note: the expression must accept the type returned by this function or the execution panics.
         match self {
-            Alias => {
-                Signature::exact(vec![DataType::InstantVector, DataType::String], Volatility::Stable)
-            }
-            BitmapAnd |
-            BitmapOr |
-            BitmapXor => {
-                Signature::exact(vec![DataType::InstantVector, DataType::Scalar], Volatility::Immutable)
-            }
-            BucketsLimit => {
-                Signature::exact(vec![DataType::Scalar, DataType::InstantVector], Volatility::Immutable)
-            }
-            Clamp => {
-                Signature::exact(vec![DataType::InstantVector, DataType::Scalar, DataType::Scalar], Volatility::Volatile)
-            }
-            ClampMax |
-            ClampMin => {
-                Signature::exact(vec![DataType::InstantVector, DataType::Scalar], Volatility::Immutable)
-            }
-            Start |
-            End => {
-                Signature::exact(vec![], Volatility::Stable)
-            }
+            Alias => Signature::exact(
+                vec![ValueType::InstantVector, ValueType::String],
+                Volatility::Stable,
+            ),
+            BitmapAnd | BitmapOr | BitmapXor => Signature::exact(
+                vec![ValueType::InstantVector, ValueType::Scalar],
+                Volatility::Immutable,
+            ),
+            BucketsLimit => Signature::exact(
+                vec![ValueType::Scalar, ValueType::InstantVector],
+                Volatility::Immutable,
+            ),
+            Clamp => Signature::exact(
+                vec![ValueType::InstantVector, ValueType::Scalar, ValueType::Scalar],
+                Volatility::Volatile,
+            ),
+            ClampMax | ClampMin => Signature::exact(
+                vec![ValueType::InstantVector, ValueType::Scalar],
+                Volatility::Immutable,
+            ),
+            Start | End => Signature::exact(vec![], Volatility::Stable),
             DropCommonLabels => {
-                Signature::variadic_equal(DataType::InstantVector, 1, Volatility::Stable)
+                Signature::variadic_equal(ValueType::InstantVector, 1, Volatility::Stable)
             }
-            HistogramQuantile => {
-                Signature::exact(vec![DataType::Scalar, DataType::InstantVector], Volatility::Stable)
-            }
+            HistogramQuantile => Signature::exact(
+                vec![ValueType::Scalar, ValueType::InstantVector],
+                Volatility::Stable,
+            ),
             HistogramQuantiles => {
                 todo!()
             }
             // histogram_share(le, buckets)
-            HistogramShare => {
-                Signature::exact(vec![DataType::Scalar, DataType::InstantVector], Volatility::Stable)
-            }
-            LabelCopy |
-            LabelDel |
-            LabelJoin |
-            LabelKeep |
-            LabelLowercase |
-            LabelMap |
-            LabelMatch |
-            LabelMove |
-            LabelSet => {
-                let mut types = vec![DataType::String; MAX_ARG_COUNT];
-                types.insert(0, DataType::InstantVector);
+            HistogramShare => Signature::exact(
+                vec![ValueType::Scalar, ValueType::InstantVector],
+                Volatility::Stable,
+            ),
+            LabelCopy | LabelDel | LabelJoin | LabelKeep | LabelLowercase | LabelMap
+            | LabelMatch | LabelMove | LabelSet => {
+                let mut types = vec![ValueType::String; MAX_ARG_COUNT];
+                types.insert(0, ValueType::InstantVector);
                 Signature::exact(types, Volatility::Stable)
             }
             LabelGraphiteGroup => {
                 // label_graphite_group(q, groupNum1, ... groupNumN)
-                let mut types = vec![DataType::Scalar; MAX_ARG_COUNT];
-                types.insert(0, DataType::InstantVector);
+                let mut types = vec![ValueType::Scalar; MAX_ARG_COUNT];
+                types.insert(0, ValueType::InstantVector);
                 Signature::exact(types, Volatility::Stable)
             }
             LabelReplace => {
                 // label_replace(q, "dst_label", "replacement", "src_label", "regex")
-                Signature::exact(vec![
-                    DataType::InstantVector,
-                    DataType::String,
-                    DataType::String,
-                    DataType::String,
-                    DataType::String,
-                ], Volatility::Stable)
+                Signature::exact(
+                    vec![
+                        ValueType::InstantVector,
+                        ValueType::String,
+                        ValueType::String,
+                        ValueType::String,
+                        ValueType::String,
+                    ],
+                    Volatility::Stable,
+                )
             }
             LabelTransform => {
                 // label_transform(q, "label", "regexp", "replacement")
-                Signature::exact(vec![
-                    DataType::InstantVector,
-                    DataType::String,
-                    DataType::String,
-                    DataType::String,
-                ], Volatility::Stable)
+                Signature::exact(
+                    vec![
+                        ValueType::InstantVector,
+                        ValueType::String,
+                        ValueType::String,
+                        ValueType::String,
+                    ],
+                    Volatility::Stable,
+                )
             }
-            LabelValue => {
-                Signature::exact(vec![DataType::InstantVector, DataType::String], Volatility::Stable)
+            LabelValue => Signature::exact(
+                vec![ValueType::InstantVector, ValueType::String],
+                Volatility::Stable,
+            ),
+            LimitOffset => Signature::exact(
+                vec![ValueType::Scalar, ValueType::Scalar, ValueType::InstantVector],
+                Volatility::Stable,
+            ),
+            Now => Signature::exact(vec![], Volatility::Stable),
+            Pi => Signature::exact(vec![], Volatility::Immutable),
+            Random | RandExponential | RandNormal => {
+                Signature::variadic_min(vec![ValueType::Scalar], 0, Volatility::Stable)
             }
-            LimitOffset => {
-                Signature::exact(vec![DataType::Scalar, DataType::Scalar, DataType::InstantVector], Volatility::Stable)
-            }
-            Now => {
-                Signature::exact(vec![], Volatility::Stable)
-            }
-            Pi => {
-                Signature::exact(vec![], Volatility::Immutable)
-            }
-            Random |
-            RandExponential |
-            RandNormal => {
-                Signature::variadic_min(vec![DataType::Scalar], 0, Volatility::Stable)
-            }
+            RangeTrimSpikes => Signature::exact(
+                vec![ValueType::Scalar, ValueType::InstantVector],
+                Volatility::Stable,
+            ),
             RangeNormalize => {
-                Signature::variadic_min(vec![DataType::InstantVector], 1, Volatility::Stable)
+                Signature::variadic_min(vec![ValueType::InstantVector], 1, Volatility::Stable)
             }
-            RangeQuantile => {
-                Signature::exact(vec![DataType::Scalar, DataType::InstantVector], Volatility::Stable)
-            }
-            Round => {
-                Signature::exact(vec![DataType::InstantVector, DataType::Scalar], Volatility::Stable)
-            }
-            Ru => {
-                Signature::exact(vec![DataType::RangeVector, DataType::RangeVector], Volatility::Stable)
-            }
-            SmoothExponential => {
-                Signature::exact(vec![DataType::InstantVector, DataType::Scalar], Volatility::Stable)
-            }
-            SortByLabel |
-            SortByLabelDesc |
-            SortByLabelNumeric |
-            SortByLabelNumericDesc => {
-                let mut types = vec![DataType::String; MAX_ARG_COUNT];
-                types.insert(0, DataType::InstantVector);
+            RangeQuantile => Signature::exact(
+                vec![ValueType::Scalar, ValueType::InstantVector],
+                Volatility::Stable,
+            ),
+            Round => Signature::exact(
+                vec![ValueType::InstantVector, ValueType::Scalar],
+                Volatility::Stable,
+            ),
+            Ru => Signature::exact(
+                vec![ValueType::RangeVector, ValueType::RangeVector],
+                Volatility::Stable,
+            ),
+            SmoothExponential => Signature::exact(
+                vec![ValueType::InstantVector, ValueType::Scalar],
+                Volatility::Stable,
+            ),
+            SortByLabel | SortByLabelDesc | SortByLabelNumeric | SortByLabelNumericDesc => {
+                let mut types = vec![ValueType::String; MAX_ARG_COUNT];
+                types.insert(0, ValueType::InstantVector);
                 Signature::exact(types, Volatility::Stable)
             }
-            Step => {
-                Signature::exact(vec![], Volatility::Stable)
-            }
-            Time => {
-                Signature::exact(vec![], Volatility::Stable)
-            }
-            TimezoneOffset => {
-                Signature::exact(vec![DataType::String], Volatility::Stable)
-            }
+            Step => Signature::exact(vec![], Volatility::Stable),
+            Time => Signature::exact(vec![], Volatility::Stable),
+            TimezoneOffset => Signature::exact(vec![ValueType::String], Volatility::Stable),
             Union => {
                 // todo: specify minimum
-                Signature::uniform(MAX_ARG_COUNT, DataType::InstantVector, Volatility::Stable)
+                Signature::uniform(MAX_ARG_COUNT, ValueType::InstantVector, Volatility::Stable)
             }
-            Vector => {
-                Signature::exact(vec![DataType::InstantVector], Volatility::Stable)
-            }
+            Vector => Signature::exact(vec![ValueType::InstantVector], Volatility::Stable),
             _ => {
                 // by default we take a single arg containing series
-                Signature::exact(vec![DataType::InstantVector], Volatility::Immutable)
+                Signature::exact(vec![ValueType::InstantVector], Volatility::Immutable)
             }
         }
     }
 
-    pub fn return_type(&self) -> ReturnValue {
+    pub fn return_type(&self) -> ValueType {
         match self {
-            // todo: Pi(), NOW()
-            TransformFunction::Time => ReturnValue::Scalar,
-            _ => ReturnValue::InstantVector
+            TransformFunction::Time |
+            TransformFunction::Pi |
+            TransformFunction::Now => ValueType::Scalar,
+            _ => ValueType::InstantVector,
         }
     }
 }
 
-pub fn get_transform_arg_idx_for_optimization(func: TransformFunction, arg_count: usize) -> Option<usize> {
+pub fn get_transform_arg_idx_for_optimization(
+    func: TransformFunction,
+    arg_count: usize,
+) -> Option<usize> {
     if func.manipulates_labels() {
         return None;
     }
@@ -577,8 +598,10 @@ pub fn get_transform_arg_idx_for_optimization(func: TransformFunction, arg_count
         Absent | Scalar | Union | Vector => None,
         End | Now | Pi | Start | Step | Time => None, // todo Ru
         LimitOffset => Some(2),
-        BucketsLimit | HistogramQuantile | HistogramShare | RangeQuantile => Some(1),
+        BucketsLimit | HistogramQuantile | HistogramShare | RangeQuantile | RangeTrimSpikes => {
+            Some(1)
+        }
         HistogramQuantiles => Some(arg_count - 1),
-        _ => Some(0)
+        _ => Some(0),
     }
 }

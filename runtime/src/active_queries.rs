@@ -1,9 +1,9 @@
+use chrono::Utc;
 use std::collections::HashMap;
 use std::sync::RwLock;
-use chrono::{Utc};
 
 use crate::eval::EvalConfig;
-use crate::traits::{Timestamp, TimestampTrait};
+use crate::types::{Timestamp, TimestampTrait};
 
 struct Inner {
     id: u64,
@@ -27,21 +27,17 @@ pub struct ActiveQueryEntry {
 
 impl ActiveQueries {
     pub(crate) fn new() -> Self {
-        let id = Utc::now().timestamp_nanos() as u64;
+        let id = Utc::now().timestamp_nanos() as u64; // todo: uuid
         let inner = Inner {
             id,
             data: HashMap::new(),
         };
         ActiveQueries {
-            inner: RwLock::new(inner)
+            inner: RwLock::new(inner),
         }
     }
 
-    pub(crate) fn register(&self, ec: &EvalConfig, q: &str) -> u64 {
-        self.register_with_start(ec, q, Timestamp::now())
-    }
-
-    pub(crate) fn register_with_start(&self, ec: &EvalConfig, q: &str, start_time: Timestamp) -> u64 {
+    pub(crate) fn register(&self, ec: &EvalConfig, q: &str, start_time: Option<Timestamp>) -> u64 {
         let mut inner = self.inner.write().unwrap();
         let qid = inner.id + 1;
         inner.id = qid;
@@ -51,6 +47,8 @@ impl ActiveQueries {
         } else {
             "".to_string()
         };
+
+        let start_time = start_time.unwrap_or_else(|| Timestamp::now());
 
         let aqe = ActiveQueryEntry {
             start: ec.start,
@@ -74,9 +72,7 @@ impl ActiveQueries {
 
     pub fn get_all(&self) -> Vec<ActiveQueryEntry> {
         let inner = self.inner.read().unwrap();
-        let mut entries = inner.data.values()
-            .map(|x| x.clone())
-            .collect::<Vec<_>>();
+        let mut entries = inner.data.values().map(|x| x.clone()).collect::<Vec<_>>();
 
         entries.sort_by(|a, b| a.start_time.cmp(&b.start_time));
 

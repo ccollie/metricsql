@@ -1,5 +1,5 @@
-use std::fmt;
 use std::error::Error;
+use std::fmt;
 use std::fmt::Display;
 
 use thiserror::Error;
@@ -40,6 +40,10 @@ pub enum RuntimeError {
     TaskCancelledError(String),
     #[error("Invalid State: {0}")]
     InvalidState(String),
+    #[error("Internal Error: {0}")]
+    Internal(String),
+    #[error("{0}")]
+    ResourcesExhausted(String),
 }
 
 impl RuntimeError {
@@ -80,7 +84,7 @@ pub struct ArgCountError {
     pos: Option<usize>,
     min: usize,
     max: usize,
-    signature: String
+    signature: String,
 }
 
 impl ArgCountError {
@@ -91,7 +95,7 @@ impl ArgCountError {
     /// * `min` - Smallest allowed number of arguments
     /// * `max` - Largest allowed number of arguments
     pub fn new(signature: &str, min: usize, max: usize) -> Self {
-        Self::new_with_index(None, signature, min, max )
+        Self::new_with_index(None, signature, min, max)
     }
 
     /// Create a new instance of the error at a specific position
@@ -102,7 +106,12 @@ impl ArgCountError {
     /// * `min` - Smallest allowed number of arguments
     /// * `max` - Largest allowed number of arguments
     pub fn new_with_index(pos: Option<usize>, signature: &str, min: usize, max: usize) -> Self {
-        Self { pos, min, max, signature: signature.to_string() }
+        Self {
+            pos,
+            min,
+            max,
+            signature: signature.to_string(),
+        }
     }
 
     /// Function call signature
@@ -131,7 +140,11 @@ impl Display for ArgCountError {
         if self.min == self.max {
             write!(f, "{}: expected {} args", self.signature, self.min)?;
         } else {
-            write!(f, "{}: expected {}-{} args", self.signature, self.min, self.max)?;
+            write!(
+                f,
+                "{}: expected {}-{} args",
+                self.signature, self.min, self.max
+            )?;
         }
 
         if let Some(pos) = self.pos {

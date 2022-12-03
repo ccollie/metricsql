@@ -1,17 +1,20 @@
-
-
 /// removes samples from src* if they are closer to each other than dedup_interval in milliseconds.
-pub fn deduplicate_samples(src_timestamps: &mut Vec<i64>, src_values: &mut Vec<f64>, dedup_interval: i64) {
-    if !needs_dedup(src_timestamps, dedup_interval)  {
+pub fn deduplicate_samples(
+    src_timestamps: &mut Vec<i64>,
+    src_values: &mut Vec<f64>,
+    dedup_interval: i64,
+) {
+    if !needs_dedup(src_timestamps, dedup_interval) {
         // Fast path - nothing to deduplicate
         return;
     }
+
     let mut ts_next = src_timestamps[0] + dedup_interval - 1;
     ts_next = ts_next - (ts_next % dedup_interval);
     let mut j: usize = 0;
     let mut count = 0;
 
-    for i in 1 .. src_timestamps.len() {
+    for i in 1..src_timestamps.len() {
         let ts = src_timestamps[i];
         if ts <= ts_next {
             continue;
@@ -35,8 +38,12 @@ pub fn deduplicate_samples(src_timestamps: &mut Vec<i64>, src_values: &mut Vec<f
     src_values.truncate(count);
 }
 
-pub fn deduplicate_samples_during_merge(src_timestamps: &mut Vec<i64>, src_values: &mut Vec<i64>, dedup_interval: i64) {
-    if !needs_dedup(src_timestamps, dedup_interval)  {
+pub fn deduplicate_samples_during_merge(
+    src_timestamps: &mut Vec<i64>,
+    src_values: &mut Vec<i64>,
+    dedup_interval: i64,
+) {
+    if !needs_dedup(src_timestamps, dedup_interval) {
         // Fast path - nothing to deduplicate
         return;
     }
@@ -46,7 +53,7 @@ pub fn deduplicate_samples_during_merge(src_timestamps: &mut Vec<i64>, src_value
     let mut j: usize = 1;
     let mut count: usize = 0;
 
-    for i in 1 .. src_timestamps.len() {
+    for i in 1..src_timestamps.len() {
         let ts = src_timestamps[i];
         if ts <= ts_next {
             continue;
@@ -75,8 +82,8 @@ fn needs_dedup(timestamps: &[i64], dedup_interval: i64) -> bool {
     }
     let mut ts_next = timestamps[0] + dedup_interval - 1;
     ts_next = ts_next - (ts_next % dedup_interval);
-    for i in 1 .. timestamps.len() {
-        let ts = timestamps[i];
+    for ts in &timestamps[1..] {
+        let ts = *ts;
         if ts <= ts_next {
             return true;
         }

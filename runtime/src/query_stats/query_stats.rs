@@ -1,10 +1,10 @@
+use chrono::prelude::DateTime;
+use chrono::prelude::Utc;
+use chrono::Duration;
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::ops::{Sub};
-use std::sync::{RwLock};
-use chrono::Duration;
-use chrono::prelude::Utc;
-use chrono::prelude::DateTime;
+use std::ops::Sub;
+use std::sync::RwLock;
 
 const QUERY_STATS_DEFAULT_CAPACITY: usize = 250;
 
@@ -24,10 +24,10 @@ pub struct QueryStatRecord {
 impl QueryStatRecord {
     pub(crate) fn matches(&self, current_time: DateTime<Utc>, max_lifetime: Duration) -> bool {
         if self.key.query.len() == 0 {
-            return false
+            return false;
         }
         let elapsed = current_time.sub(self.register_time);
-        if elapsed.cmp( &max_lifetime) == Ordering::Greater {
+        if elapsed.cmp(&max_lifetime) == Ordering::Greater {
             return false;
         }
         return true;
@@ -55,7 +55,7 @@ impl Default for QueryStatByDuration {
             query: "".to_string(),
             time_range_secs: 0,
             duration: Duration::seconds(0),
-            count: 0
+            count: 0,
         }
     }
 }
@@ -79,19 +79,18 @@ impl QueryStatsConfig {
     }
 }
 
-
 struct Inner {
-    data: Vec<QueryStatRecord>,
+    data: Vec<QueryStatRecord>, // use deque ???
     next_idx: usize,
 }
 
 /// QueryStatsTracker holds statistics for queries
 pub struct QueryStatsTracker {
     inner: RwLock<Inner>,
-    config: QueryStatsConfig
+    config: QueryStatsConfig,
 }
 
-impl Default for QueryStatsTracker  {
+impl Default for QueryStatsTracker {
     fn default() -> Self {
         Self::new(QueryStatsConfig::new(), QUERY_STATS_DEFAULT_CAPACITY)
     }
@@ -101,23 +100,28 @@ impl QueryStatsTracker {
     pub fn new(config: QueryStatsConfig, cap: usize) -> Self {
         let inner = Inner {
             data: Vec::with_capacity(cap),
-            next_idx: 0
+            next_idx: 0,
         };
 
         QueryStatsTracker {
             inner: RwLock::new(inner),
-            config: config.clone()
+            config: config.clone(),
         }
     }
 
-    pub(crate) fn is_enabled(&self) -> bool {
+    pub fn is_enabled(&self) -> bool {
         self.config.last_queries_count > 0
     }
 
     /// Registers the query on the given time_range_msecs, which has been started at start_time.
     ///
     /// register_query must be called when the query is finished.
-    pub(crate) fn register_query(&self, query: &str, time_range_msecs: i64, start_time: DateTime<Utc>) {
+    pub(crate) fn register_query(
+        &self,
+        query: &str,
+        time_range_msecs: i64,
+        start_time: DateTime<Utc>,
+    ) {
         let register_time = Utc::now();
         let duration = register_time.sub(start_time);
         if duration.cmp(&self.config.min_query_duration) == Ordering::Less {
@@ -130,8 +134,8 @@ impl QueryStatsTracker {
             duration,
             key: QueryStatKey {
                 query: query.to_string(),
-                time_range_secs
-            }
+                time_range_secs,
+            },
         };
 
         {
@@ -152,7 +156,7 @@ impl QueryStatsTracker {
 
         let mut m: HashMap<&QueryStatKey, u64> = HashMap::new();
         let qst = self.inner.read().unwrap();
-        qst.data.iter().for_each(|r: &QueryStatRecord|  {
+        qst.data.iter().for_each(|r: &QueryStatRecord| {
             if r.matches(current_time, max_lifetime) {
                 let entry = m.entry(&r.key).or_insert(0);
                 *entry += 1;
@@ -175,7 +179,11 @@ impl QueryStatsTracker {
         return a;
     }
 
-    pub fn get_top_by_avg_duration(&self, top_n: usize, max_lifetime: Duration) -> Vec<QueryStatByDuration> {
+    pub fn get_top_by_avg_duration(
+        &self,
+        top_n: usize,
+        max_lifetime: Duration,
+    ) -> Vec<QueryStatByDuration> {
         let current_time = Utc::now();
 
         #[derive(Hash, Copy, Clone)]
@@ -191,11 +199,10 @@ impl QueryStatsTracker {
         inner.data.iter().for_each(|r: &QueryStatRecord| {
             if r.matches(current_time, max_lifetime) {
                 let k = &r.key;
-                let mut ks = m.entry(k)
-                    .or_insert(CountSum{
-                        count: 0,
-                        sum: Duration::milliseconds(0)
-                    });
+                let mut ks = m.entry(k).or_insert(CountSum {
+                    count: 0,
+                    sum: Duration::milliseconds(0),
+                });
 
                 ks.count += 1;
                 ks.sum = ks.sum + r.duration;
@@ -219,7 +226,11 @@ impl QueryStatsTracker {
         return a;
     }
 
-    pub fn get_top_by_sum_duration(&self, top_n: usize, max_lifetime: Duration) -> Vec<QueryStatByDuration> {
+    pub fn get_top_by_sum_duration(
+        &self,
+        top_n: usize,
+        max_lifetime: Duration,
+    ) -> Vec<QueryStatByDuration> {
         let current_time = Utc::now();
 
         #[derive(Hash, Clone)]
@@ -233,12 +244,10 @@ impl QueryStatsTracker {
         let qst = self.inner.read().unwrap();
         qst.data.iter().for_each(|r: &QueryStatRecord| {
             if r.matches(current_time, max_lifetime) {
-                let kd = m.entry(&r.key).or_insert(
-                    CountDuration{
-                        count: 0,
-                        sum: Duration::milliseconds(0)
-                    }
-                );
+                let kd = m.entry(&r.key).or_insert(CountDuration {
+                    count: 0,
+                    sum: Duration::milliseconds(0),
+                });
                 kd.count += 1;
                 kd.sum = kd.sum + r.duration;
             }

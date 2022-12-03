@@ -1,18 +1,21 @@
 mod aggregate;
 mod binary;
-mod rollup;
-mod eval;
 mod duration;
-mod scalar;
+mod eval;
 mod function;
-mod traits;
+mod rollup;
+mod scalar;
 mod string;
-pub mod arg_list;
+mod traits;
+
+pub(crate) mod arg_list;
 mod instant_vector;
+pub(crate) mod utils;
 
 pub use eval::*;
 pub use traits::*;
 
+pub mod binary_op;
 #[cfg(test)]
 mod eval_test;
-pub mod binary_op;
+mod hash_helper;

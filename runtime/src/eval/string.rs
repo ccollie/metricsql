@@ -1,22 +1,18 @@
+use metricsql::functions::{Volatility};
 use std::sync::Arc;
-use metricsql::functions::{DataType, Volatility};
+use metricsql::common::{Value, ValueType};
 
-use crate::{EvalConfig};
 use crate::context::Context;
 use crate::eval::traits::Evaluator;
-use crate::functions::types::AnyValue;
 use crate::runtime_error::RuntimeResult;
+use crate::{EvalConfig, QueryValue};
 
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct StringEvaluator {
-    value: String
-}
+pub struct StringEvaluator(String);
 
 impl StringEvaluator {
-    pub fn new(expr: &str) -> Self {
-        Self {
-            value: expr.to_string()
-        }
+    pub fn new<S: Into<String>>(expr: S) -> Self {
+        Self(expr.into())
     }
 }
 
@@ -26,18 +22,24 @@ impl From<&str> for StringEvaluator {
     }
 }
 
+impl Value for StringEvaluator {
+    fn value_type(&self) -> ValueType {
+        ValueType::String
+    }
+}
+
 impl Evaluator for StringEvaluator {
     /// Evaluates and returns the result.
-    fn eval(&self, _ctx: &Arc<&Context>, _ec: &EvalConfig) -> RuntimeResult<AnyValue> {
+    fn eval(&self, _ctx: &Arc<Context>, _ec: &EvalConfig) -> RuntimeResult<QueryValue> {
         // todo: how to avoid clone ?
-        Ok(AnyValue::String(self.value.clone()))
+        Ok(QueryValue::String(self.0.clone()))
     }
 
     fn volatility(&self) -> Volatility {
         Volatility::Immutable
     }
 
-    fn return_type(&self) -> DataType {
-        DataType::String
+    fn return_type(&self) -> ValueType {
+        ValueType::String
     }
 }

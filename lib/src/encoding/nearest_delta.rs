@@ -21,7 +21,7 @@ pub fn marshal_int64_nearest_delta(
         return Err(Error::from(format!(
             "BUG: src must contain at least 1 item; got {} items",
             src.len()
-        )))
+        )));
     }
     check_precision_bits(precision_bits)?;
 
@@ -74,7 +74,7 @@ pub(crate) fn unmarshal_int64_nearest_delta(
         return Err(Error::from(format!(
             "BUG: items_count must be greater than 0; got {}",
             items_count
-        )))
+        )));
     }
 
     // todo: use explicit config

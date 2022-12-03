@@ -54,7 +54,7 @@ pub struct Histogram {
     upper: u64,
     sum: f64,
     decimal_buckets: Vec<Vec<u64>>,
-    values: Vec<f64>
+    values: Vec<f64>,
 }
 
 impl Histogram {
@@ -72,7 +72,7 @@ impl Histogram {
             upper: 0,
             sum: 0.0,
             decimal_buckets: buckets,
-            values: Vec::with_capacity(16)
+            values: Vec::with_capacity(16),
         }
         // reset
     }
@@ -156,10 +156,6 @@ impl Histogram {
             offset: 0,
             stage: IterationStage::Lower,
         }
-    }
-
-    pub fn quantile(&self, phi: f64) -> f64 {
-        crate::functions::quantile(phi, &self.values)
     }
 }
 

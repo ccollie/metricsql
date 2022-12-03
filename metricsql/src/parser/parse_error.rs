@@ -1,17 +1,17 @@
-use std::{fmt};
+use std::fmt;
 use std::fmt::{Display, Formatter};
+use logos::Span;
 use thiserror::Error;
 
-use crate::lexer::{TextSpan, Token, TokenKind};
+use crate::parser::{TokenWithLocation};
+use crate::parser::tokens::Token;
 
 pub type ParseResult<T> = Result<T, ParseError>;
 
-#[derive(Debug, PartialEq, Clone, Error)]
+#[derive(Default, Debug, PartialEq, Clone, Error)]
 pub enum ParseError {
     #[error("{0}")]
     ArgumentError(String),
-    #[error(transparent)]
-    InvalidToken(InvalidTokenError),
     #[error(transparent)]
     Unexpected(ParseErr), // TODO !!!!!!
     #[error("Duplicate argument `{0}`")]
@@ -28,33 +28,36 @@ pub enum ParseError {
     InvalidArgCount(ArgCountError),
     #[error("Error expanding WITH expression: `{0}`")]
     WithExprExpansionError(String),
+    #[error("Syntax Error: `{0}`")]
+    SyntaxError(String),
     #[error("{0}")]
     General(String),
     #[error("Invalid regex: {0}")]
     InvalidRegex(String),
-    #[error("{0}")]
+    #[error("Unknown function {0}")]
     InvalidFunction(String),
-    #[error("{0}")]
-    InvalidExpression(String),
+    #[error("Division by zero")]
+    DivisionByZero,
+    #[default]
+    #[error("Parse error")]
+    Other
 }
 
 /// ParseErr wraps a parsing error with line and position context.
 #[derive(Debug, PartialEq, Clone, Error)]
 pub struct ParseErr {
-    pub range: TextSpan,
+    pub range: Span,
     pub err: String,
-    pub query: String,
     /// line_offset is an additional line offset to be added. Only used inside unit tests.
-    pub line_offset: usize
+    pub line_offset: usize,
 }
 
 impl ParseErr {
-    pub fn new<S: Into<TextSpan>>(msg: &str, query: &str, range: S) -> Self {
+    pub fn new<S: Into<Span>>(msg: &str, range: S) -> Self {
         Self {
             range: range.into(),
             err: msg.to_string(),
-            query: query.to_string(),
-            line_offset: 0
+            line_offset: 0,
         }
     }
 }
@@ -62,99 +65,107 @@ impl ParseErr {
 impl Display for ParseErr {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let pos: usize = self.range.start;
-        let mut last_line_break = 0;
-        let mut line = self.line_offset + 1;
+        let last_line_break = 0;
+        let line = self.line_offset + 1;
 
-        let position_str: String;
-
-        if pos > self.query.len() {
-            position_str = "invalid position:".to_string()
-        } else {
-            for (i, c) in self.query[0..pos].chars().enumerate() {
-                if c == '\n' {
-                    last_line_break = i;
-                    line += 1;
-                }
-            }
-            let col = pos - last_line_break;
-            position_str = format!("{}:{}:", line, col).to_string()
-        }
+        let col = pos - last_line_break;
+        let position_str = format!("{}:{}:", line, col).to_string();
         write!(f, "{} parse error: {}", position_str, self.err)?;
         Ok(())
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Error)]
-pub struct InvalidTokenError {
-    pub(super) expected: Vec<TokenKind>,
-    pub(super) found: Option<TokenKind>,
-    pub(super) range: TextSpan,
-    pub(super) context: String,
-}
-
-impl InvalidTokenError {
-    pub fn new<S: Into<TextSpan>>(expected: &[TokenKind], found: Option<TokenKind>, range: S) -> Self {
-        Self {
-            expected: Vec::from(expected),
-            found,
-            range: range.into(),
-            context: "".to_string(),
+pub(crate) fn invalid_token_error(
+    expected: &[Token],
+    found: Option<Token>,
+    range: &Span,
+    context: String,
+) -> ParseError {
+    let mut res = String::with_capacity(100);
+    if !context.is_empty() {
+        res.push_str(format!("{} :", context).as_str())
+    }
+    if found.is_none() {
+        res.push_str("unexpected end of stream");
+        if range.start > 0 {
+            res.push_str(format!(" at {}..{}: ", range.start, range.end).as_str());
         }
+    } else {
+        res.push_str(format!("error at {}..{}: ", range.start, range.end).as_str());
     }
 
-    pub fn with_context(&mut self, context: &str) {
-        self.context = context.to_string();
-    }
-}
+    let num_expected = expected.len();
+    let is_first = |idx| idx == 0;
+    let is_last = |idx| idx == num_expected - 1;
 
-impl Display for InvalidTokenError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if !self.context.is_empty() {
-            write!(f, "{} :", self.context)?;
-        }
-        if self.found.is_none() {
-            write!(f,"unexpected end of stream")?;
-            if self.range.start > 0 {
-                write!(
-                    f,
-                    " at {}..{}",
-                    self.range.start,
-                    self.range.end,
-                )?;
-            }
+    res.push_str("expected ");
+
+    for (idx, expected) in expected.iter().enumerate() {
+        let item = format!("\"{}\"", expected);
+        if is_first(idx) {
+            res.push_str(item.as_str());
+        } else if is_last(idx) {
+            res.push_str(format!(" or {}", item).as_str());
         } else {
-            write!(
-                f,
-                "error at {}..{}",
-                self.range.start,
-                self.range.end,
-            )?;
+            res.push_str(format!(", {}", item).as_str());
         }
-
-        write!(f, ": expected ")?;
-
-        let num_expected = self.expected.len();
-        let is_first = |idx| idx == 0;
-        let is_last = |idx| idx == num_expected - 1;
-
-        for (idx, expected_kind) in self.expected.iter().enumerate() {
-            let expected = expected_kind.to_string();
-            if is_first(idx) {
-                write!(f, "{}", expected)?;
-            } else if is_last(idx) {
-                write!(f, " or {}", expected)?;
-            } else {
-                write!(f, ", {}", expected)?;
-            }
-        }
-
-        if let Some(found) = self.found {
-            write!(f, ", but found {}", found)?;
-        }
-
-        Ok(())
     }
+
+    if let Some(found) = found {
+        res.push_str(format!(", but found {}", found).as_str());
+    }
+
+    ParseError::SyntaxError(res)
 }
+
+pub(crate) fn syntax_error(
+    msg: &str,
+    range: &Span,
+    context: String,
+) -> ParseError {
+    let mut res = String::with_capacity(100);
+    if !context.is_empty() {
+        res.push_str(format!("{} :", context).as_str())
+    }
+
+    res.push_str(format!("error at {}..{}: {}", range.start, range.end, msg).as_str());
+
+    ParseError::SyntaxError(res)
+}
+
+/// unexpected creates a parser error complaining about an unexpected lexer item.
+/// The item that is presented as unexpected is always the last item produced
+/// by the lexer.
+pub(super) fn unexpected(
+    context: &str,
+    actual: &str,
+    expected: &str,
+    span: Option<&Span>,
+) -> ParseError {
+    let mut err_msg: String = String::with_capacity(25 + context.len() + expected.len());
+
+    err_msg.push_str("unexpected ");
+
+    err_msg.push_str(actual);
+
+    if !context.is_empty() {
+        err_msg.push_str(" in ");
+        err_msg.push_str(context)
+    }
+
+    if !expected.is_empty() {
+        err_msg.push_str(", expected ");
+        err_msg.push_str(expected)
+    }
+
+    let span = if let Some(sp) = span {
+        sp.clone()
+    } else {
+        Span::default()
+    };
+    ParseError::Unexpected(ParseErr::new(&err_msg, span))
+}
+
 
 /// Occurs when a function is called with the wrong number of arguments
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -183,7 +194,7 @@ impl ArgCountError {
     /// * `signature` - Function call signature
     /// * `min` - Smallest allowed number of arguments
     /// * `max` - Largest allowed number of arguments
-    pub fn new_with_token(token: &Token, signature: &str, min: usize, max: usize) -> Self {
+    pub fn new_with_token(token: &TokenWithLocation, signature: &str, min: usize, max: usize) -> Self {
         Self::new_with_index(Some(usize::from(token.span.start)), signature, min, max)
     }
 
@@ -246,41 +257,34 @@ impl Display for ArgCountError {
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Range;
-    use crate::lexer::{TextSpan, TokenKind};
-
-    use super::*;
+    use logos::Span;
+    use crate::parser::invalid_token_error;
+    use crate::parser::tokens::Token;
 
     fn check(
-        expected: Vec<TokenKind>,
-        found: Option<TokenKind>,
-        range: Range<usize>,
+        expected: Vec<Token>,
+        found: Option<Token>,
+        range: Span,
         output: &str,
     ) {
-        let error = InvalidTokenError {
-            expected,
-            found,
-            range: TextSpan::new(range.start, range.end),
-            context: "".to_string(),
-        };
-
+        let error = invalid_token_error(&expected, found, &range, "".to_string());
         assert_eq!(format!("{}", error), output);
     }
 
     #[test]
     fn one_expected_did_find() {
         check(
-            vec![TokenKind::Equal],
-            Some(TokenKind::Ident),
+            vec![Token::Equal],
+            Some(Token::Identifier),
             10..20,
-            "error at 10..20: expected ‘=’, but found identifier",
+            "error at 10..20: expected ‘=’, but found 'foo'",
         );
     }
 
     #[test]
     fn one_expected_did_not_find() {
         check(
-            vec![TokenKind::RightParen],
+            vec![Token::RightParen],
             None,
             5..6,
             "error at 5..6: expected ‘)’",
@@ -290,8 +294,8 @@ mod tests {
     #[test]
     fn two_expected_did_find() {
         check(
-            vec![TokenKind::OpPlus, TokenKind::OpMinus],
-            Some(TokenKind::Equal),
+            vec![Token::OpPlus, Token::OpMinus],
+            Some(Token::Equal),
             0..1,
             "error at 0..1: expected ‘+’ or ‘-’, but found ‘=’",
         );
@@ -301,12 +305,12 @@ mod tests {
     fn multiple_expected_did_find() {
         check(
             vec![
-                TokenKind::Number,
-                TokenKind::Ident,
-                TokenKind::OpMinus,
-                TokenKind::LeftParen,
+                Token::Number,
+                Token::Identifier,
+                Token::OpMinus,
+                Token::LeftParen,
             ],
-            Some(TokenKind::With),
+            Some(Token::With),
             100..105,
             "error at 100..105: expected number, identifier, ‘-’ or ‘(’, but found ‘with’",
         );

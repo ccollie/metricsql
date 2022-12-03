@@ -1,12 +1,17 @@
 use once_cell::sync::OnceCell;
+
+use crate::ast::{Expr, WithArgExpr};
+use crate::parser::expr::{parse_expression};
+use crate::parser::with_expr::{check_duplicate_with_arg_names, must_parse_with_arg_expr};
+
+pub use duration::parse_duration_value;
+pub use function::validate_function_args;
+pub use number::{get_number_suffix, parse_number};
 pub use parse_error::*;
 pub use parser::*;
-pub use regexp_cache::compile_regexp;
-use crate::ast::{Expression, WithArgExpr};
-use crate::lexer::TokenKind;
-use crate::parser::expr::parse_expression;
-use crate::parser::with_expr::{check_duplicate_with_arg_names, must_parse_with_arg_expr};
-use crate::transform::{expand_with_expr, simplify_expr};
+pub use regexp_cache::{compile_regexp, is_empty_regex};
+pub use selector::parse_metric_expr;
+pub use utils::{escape_ident, extract_string_value, quote, unescape_ident};
 
 mod aggregation;
 mod expr;
@@ -18,29 +23,30 @@ mod with_expr;
 
 pub mod parse_error;
 pub mod parser;
+pub mod number;
+pub mod duration;
+pub mod utils;
+pub mod tokens;
 
 // tests
+mod expand_expr;
+#[cfg(test)]
+mod expand_with_test;
 #[cfg(test)]
 mod parser_example_test;
 #[cfg(test)]
 mod parser_test;
+#[cfg(test)]
+mod lexer_tests;
 
-
-pub fn parse(input: &str) -> ParseResult<Expression> {
-    let mut parser = Parser::new(input);
-    let tok = parser.peek_kind();
-    if tok == TokenKind::Eof {
-        let msg = format!("cannot parse the first token {}", input);
-        return Err(ParseError::General(msg));
-    }
+pub fn parse(input: &str) -> ParseResult<Expr> {
+    let mut parser = Parser::new(input)?;
     let expr = parse_expression(&mut parser)?;
     if !parser.is_eof() {
         let msg = "unparsed data".to_string();
         return Err(ParseError::General(msg));
     }
-    let was = get_default_with_arg_exprs();
-    let res = expand_with_expr(&was, expr)?;
-    Ok(simplify_expr(res))
+    parser.expand_if_needed(expr)
 }
 
 /// Expands WITH expressions inside q and returns the resulting
@@ -61,20 +67,14 @@ static DEFAULT_EXPRS: [&str; 1] = [
 fn get_default_with_arg_exprs() -> &'static Vec<WithArgExpr> {
     static INSTANCE: OnceCell<Vec<WithArgExpr>> = OnceCell::new();
     INSTANCE.get_or_init(|| {
-        let was: [WithArgExpr; 1] =
-            DEFAULT_EXPRS.map(|expr| {
-                let res = must_parse_with_arg_expr(expr);
-                res.unwrap()
-            });
+        let was: [WithArgExpr; 1] = DEFAULT_EXPRS.map(|expr| {
+            let res = must_parse_with_arg_expr(expr);
+            res.unwrap()
+        });
 
-        if let Err(err) = check_duplicate_with_arg_names(&was) {
+        if let Err(err) = check_duplicate_with_arg_names(&was.to_vec()) {
             panic!("BUG: {:?}", err)
         }
         was.to_vec()
     })
 }
-
-
-
-
-

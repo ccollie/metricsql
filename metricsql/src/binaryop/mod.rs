@@ -1,3 +1,3 @@
-pub mod funcs;
+mod funcs;
 
 pub use funcs::*;

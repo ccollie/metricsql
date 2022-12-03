@@ -1,28 +1,32 @@
-use std::borrow::{Cow};
-use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicU64, Ordering};
 use lru_time_cache::LruCache;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
-use metricsql::ast::Expression;
-use metricsql::ast::utils::visit_all;
-use metricsql::transform::optimize;
-use metricsql::parser::{ParseError};
+use metricsql::ast::Expr;
+use metricsql::optimize;
+use metricsql::parser::ParseError;
 
 use crate::eval::{create_evaluator, ExprEvaluator};
 
 const PARSE_CACHE_MAX_LEN: usize = 500;
 
 pub struct ParseCacheValue {
-    pub expr: Option<Expression>,
+    pub expr: Option<Expr>,
     pub evaluator: Option<ExprEvaluator>,
     pub err: Option<ParseError>,
-    pub has_subquery: bool
+    pub has_subquery: bool,
 }
 
 pub struct ParseCache {
     requests: AtomicU64,
     misses: AtomicU64,
     lru: Mutex<LruCache<String, Arc<ParseCacheValue>>>, // todo: use parking_lot rwLock
+}
+
+#[derive(PartialEq)]
+pub enum ParseCacheResult {
+    CacheHit,
+    CacheMiss,
 }
 
 impl Default for ParseCache {
@@ -56,18 +60,19 @@ impl ParseCache {
         self.lru.lock().unwrap().clear()
     }
 
-    pub fn parse(&self, q: &str) -> Arc<ParseCacheValue> {
+    pub fn parse(&self, q: &str) -> (Arc<ParseCacheValue>, ParseCacheResult) {
         self.requests.fetch_add(1, Ordering::Relaxed);
         match self.get(q) {
-            Some(value) => value,
+            Some(value) => (value, ParseCacheResult::CacheHit),
             None => {
                 self.misses.fetch_add(1, Ordering::Relaxed);
                 let parsed = Self::parse_internal(q);
                 let k = q.to_string();
+                let to_insert = Arc::new(parsed);
 
                 let mut lru = self.lru.lock().unwrap();
-                let value = lru.insert(k, Arc::new(parsed));
-                value.unwrap().clone()
+                lru.insert(k, to_insert.clone());
+                (to_insert, ParseCacheResult::CacheMiss)
             }
         }
     }
@@ -77,61 +82,54 @@ impl ParseCache {
         let mut lru = self.lru.lock().unwrap();
         match lru.get(q) {
             None => None,
-            Some(v) => Some(Arc::clone(v))
+            Some(v) => Some(Arc::clone(v)),
         }
     }
 
     fn parse_internal(q: &str) -> ParseCacheValue {
         match metricsql::parser::parse(q) {
             Ok(expr) => {
-                let mut expression = match optimize(&expr) {
-                    Cow::Owned(exp) => exp,
-                    Cow::Borrowed(exp) => exp.clone()
-                };
-                adjust_cmp_ops(&mut expression);
-                match create_evaluator(&expression) {
-                    Ok(evaluator) => {
-                        ParseCacheValue {
-                            expr: Some(expr.clone()),
-                            evaluator: Some(evaluator),
-                            err: None,
-                            has_subquery: expression.contains_subquery()
+                let optimized = optimize::optimize(expr);
+                if let Ok(expression) = optimized {
+                    match create_evaluator(&expression) {
+                        Ok(evaluator) => {
+                            let has_subquery = expression.contains_subquery();
+                            ParseCacheValue {
+                                expr: Some(expression),
+                                evaluator: Some(evaluator),
+                                err: None,
+                                has_subquery,
+                            }
                         }
-                    },
-                    Err(e) => {
-                        ParseCacheValue {
-                            expr: Some(expr),
+                        Err(e) => ParseCacheValue {
+                            expr: Some(expression),
                             evaluator: Some(ExprEvaluator::default()),
                             has_subquery: false,
-                            err: Some(
-                                ParseError::General(format!("Error creating evaluator: {:?}", e))
-                            ),
-                        }
+                            err: Some(ParseError::General(format!(
+                                "Error creating evaluator: {:?}",
+                                e
+                            ))),
+                        },
+                    }
+                } else {
+                    let err = optimized.err().unwrap();
+                    ParseCacheValue {
+                        expr: None,
+                        evaluator: Some(ExprEvaluator::default()),
+                        has_subquery: false,
+                        err: Some(ParseError::General(format!(
+                            "Error optimizing expression: {:?}",
+                            err
+                        ))),
                     }
                 }
-            },
-            Err(e) => {
-                ParseCacheValue {
-                    expr: None,
-                    evaluator: Some(ExprEvaluator::default()),
-                    err: Some(e.clone()),
-                    has_subquery: false
-                }
             }
+            Err(e) => ParseCacheValue {
+                expr: None,
+                evaluator: Some(ExprEvaluator::default()),
+                err: Some(e.clone()),
+                has_subquery: false,
+            },
         }
     }
-}
-
-
-// todo: put in optimize phase
-pub(crate) fn adjust_cmp_ops(e: &mut Expression) {
-    visit_all(e, |expr: &mut Expression|
-        {
-            match expr {
-                Expression::BinaryOperator(be) => {
-                    let _ = be.adjust_comparison_op();
-                },
-                _ => {}
-            }
-        });
 }

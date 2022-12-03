@@ -3,9 +3,7 @@ use std::iter::repeat;
 use std::ops::Deref;
 
 use byte_slice_cast::AsByteSlice;
-use integer_encoding::VarInt;
 
-use crate::{fastnum, get_pooled_buffer};
 use crate::encoding::compress::{compress_lz4, decompress_lz4};
 use crate::encoding::int::{marshal_var_int, unmarshal_var_int};
 use crate::encoding::nearest_delta::{marshal_int64_nearest_delta, unmarshal_int64_nearest_delta};
@@ -13,6 +11,7 @@ use crate::encoding::nearest_delta2::{
     marshal_int64_nearest_delta2, unmarshal_int64_nearest_delta2,
 };
 use crate::error::{Error, Result};
+use crate::{fastnum, get_pooled_buffer};
 
 /// MIN_COMPRESSIBLE_BLOCK_SIZE is the minimum block size in bytes for trying compression.
 ///
@@ -334,48 +333,6 @@ pub fn unmarshal_int64_array(
     }
 }
 
-#[inline]
-fn write_prefix(dst: &mut Vec<u8>, mt: MarshalType, count: usize, first_value: i64) {
-    dst.push(mt as u8);
-    marshal_var_int(dst, first_value);
-    marshal_var_int::<u64>(dst, count as u64);
-}
-
-#[inline]
-fn read_prefix(src: &mut [u8]) -> Result<(MarshalType, usize, i64, &[u8])> {
-    let mut ofs: usize = 0;
-
-    let mt: MarshalType;
-
-    match u8::decode_var(src) {
-        None => return Err(Error::from("Error reading marshal type value from prefix")),
-        Some((v, len)) => {
-            match MarshalType::try_from(v) {
-                Ok(t) => mt = t,
-                Err(err) => return Err(err),
-            }
-            ofs += len;
-        }
-    }
-
-    let first_value: i64;
-    match i64::decode_var(&src[ofs..]) {
-        None => return Err(Error::from("Error reading first value from prefix")),
-        Some((v, len)) => {
-            first_value = v;
-            ofs += len;
-        }
-    }
-
-    match usize::decode_var(&src[ofs..]) {
-        None => Err(Error::from("Error reading count value from prefix")),
-        Some((count, len)) => {
-            ofs += len;
-            Ok((mt as MarshalType, count, first_value, &src[ofs..]))
-        }
-    }
-}
-
 /// ensure_non_decreasing_sequence makes sure the first item in a is v_min, the last
 /// item in a is v_max and all the items in a are non-decreasing.
 ///
@@ -397,11 +354,11 @@ pub fn ensure_non_decreasing_sequence(a: &mut [i64], v_min: i64, v_max: i64) {
     }
 
     let mut v_prev = a[0];
-    for i in 1..a.len() {
-        if a[i] < v_prev {
-            a[i] = v_prev;
+    for value in a.iter_mut().skip(1) {
+        if *value < v_prev {
+            *value = v_prev;
         }
-        v_prev = a[i];
+        v_prev = *value;
     }
 
     let mut i = a.len() - 1;
@@ -439,12 +396,11 @@ pub fn is_delta_const(a: &[i64]) -> bool {
     }
     let d1 = a[1] - a[0];
     let mut prev = a[1];
-    for i in 2..a.len() {
-        let next = a[i];
-        if next - prev != d1 {
+    for next in &a[2..] {
+        if *next - prev != d1 {
             return false;
         }
-        prev = next;
+        prev = *next;
     }
     true
 }
@@ -468,14 +424,13 @@ pub fn is_gauge(a: &[i64]) -> bool {
         // Counter values cannot be negative.
         return true;
     }
-    for i in 1 .. a.len() {
-        let v = a[i];
-        if v < v_prev {
-            if v < 0 {
+    for v in &a[1..] {
+        if *v < v_prev {
+            if *v < 0 {
                 // Counter values cannot be negative.
                 return true;
             }
-            if v > (v_prev >> 3) {
+            if *v > (v_prev >> 3) {
                 // Decreasing sequence detected.
                 // This is a gauge.
                 return true;
@@ -483,7 +438,7 @@ pub fn is_gauge(a: &[i64]) -> bool {
             // Possible counter reset.
             resets += 1;
         }
-        v_prev = v;
+        v_prev = *v;
     }
     if resets <= 2 {
         // Counter with a few resets.

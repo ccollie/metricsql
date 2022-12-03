@@ -1,16 +1,17 @@
 use std::sync::Arc;
-use rayon::iter::{IntoParallelRefIterator};
 
-use metricsql::ast::BExpression;
-use metricsql::functions::{DataType, Signature, TypeSignature, Volatility};
+use tracing::info;
+use metricsql::common::ValueType;
 
-use crate::{EvalConfig};
+use metricsql::functions::{Signature, TypeSignature, Volatility};
+use metricsql::ast::{Expr};
+
 use crate::context::Context;
-use crate::eval::{create_evaluators, Evaluator, ExprEvaluator};
 use crate::eval::eval::eval_volatility;
-use crate::functions::types::AnyValue;
-use crate::rayon::iter::ParallelIterator;
-use crate::runtime_error::{RuntimeResult};
+use crate::eval::{create_evaluators, Evaluator, ExprEvaluator};
+use crate::rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use crate::runtime_error::RuntimeResult;
+use crate::{EvalConfig, QueryValue};
 
 pub(crate) struct ArgList {
     args: Vec<ExprEvaluator>,
@@ -19,7 +20,7 @@ pub(crate) struct ArgList {
 }
 
 impl ArgList {
-    pub fn new(signature: &Signature, args: &[BExpression]) -> RuntimeResult<Self> {
+    pub fn new(signature: &Signature, args: &[Expr]) -> RuntimeResult<Self> {
         let _args = create_evaluators(args)?;
         let volatility = eval_volatility(signature, &_args);
         Ok(Self {
@@ -43,33 +44,33 @@ impl ArgList {
         self.args.len() == 0 || self.args.iter().all(|x| x.is_const())
     }
 
-    pub fn eval(&self, ctx: &Arc<&Context>, ec: &EvalConfig) -> RuntimeResult<Vec<AnyValue>> {
-        // todo: use tinyvec and pass in as &mut vec
+    pub fn eval(&self, ctx: &Arc<Context>, ec: &EvalConfig) -> RuntimeResult<Vec<QueryValue>> {
+        // todo: use tinyvec/heapless and pass in as &mut vec
         if self.parallel && self.args.len() >= 2 {
-            return self.eval_parallel(ctx, ec)
+            return self.eval_parallel(ctx, ec);
         } else {
-            let mut res: Vec<AnyValue> = Vec::with_capacity(self.args.len());
+            let mut res: Vec<QueryValue> = Vec::with_capacity(self.args.len());
             for expr in self.args.iter() {
-                res.push(expr.eval(ctx, ec)? );
+                res.push(expr.eval(ctx, ec)?);
             }
             Ok(res)
         }
     }
 
-    fn eval_parallel(&self, ctx: &Arc<&Context>, ec: &EvalConfig) -> RuntimeResult<Vec<AnyValue>> {
-        let params: _ = self.args.par_iter()
-            .map(move |expr| { expr.eval(&mut ctx.clone(), ec) })
+    fn eval_parallel(&self, ctx: &Arc<Context>, ec: &EvalConfig) -> RuntimeResult<Vec<QueryValue>> {
+        info!("eval function args in parallel");
+
+        let params: _ = self
+            .args
+            .par_iter()
+            .map(move |expr| expr.eval(&mut ctx.clone(), ec))
             .collect::<Vec<_>>();
 
-        let mut result: Vec<AnyValue> = Vec::with_capacity(params.len());
+        let mut result: Vec<QueryValue> = Vec::with_capacity(params.len());
         for p in params.into_iter() {
             match p {
-                Ok(v) => {
-                    result.push(v)
-                },
-                Err(e) => {
-                    return Err(e.clone())
-                }
+                Ok(v) => result.push(v),
+                Err(e) => return Err(e.clone()),
             }
         }
 
@@ -77,41 +78,40 @@ impl ArgList {
     }
 }
 
-
 #[inline]
-fn should_parallelize(t: &DataType) -> bool {
-    !matches!(t, DataType::String | DataType::Scalar )
+fn should_parallelize(t: &ValueType) -> bool {
+    !matches!(t, ValueType::String | ValueType::Scalar)
 }
 
 /// Determines if we should parallelize parameter evaluation. We ignore "lightweight"
-/// parameter types like `String` or `Int`
-pub(crate) fn should_parallelize_param_parsing(signature: &Signature) -> bool {
+/// parameter types like `String` or `Scalar`
+fn should_parallelize_param_parsing(signature: &Signature) -> bool {
     let types = &signature.type_signature;
 
-    fn check_args(valid_types: &[DataType]) -> bool {
-        valid_types.iter().filter(|x| should_parallelize(*x)).count() > 1
+    fn check_args(valid_types: &[ValueType]) -> bool {
+        valid_types
+            .iter()
+            .filter(|x| should_parallelize(*x))
+            .count()
+            > 1
     }
 
     return match types {
-        TypeSignature::Variadic(valid_types, _min) => {
-            check_args(valid_types)
-        },
+        TypeSignature::Variadic(valid_types, _min) => check_args(valid_types),
         TypeSignature::Uniform(number, valid_type) => {
-            let types = &[*valid_type];
-            return *number >= 2 && check_args(types)
-        },
+            let types = &[valid_type.clone()];
+            return *number >= 2 && check_args(types);
+        }
         TypeSignature::VariadicEqual(data_type, _) => {
-            let types = &[*data_type];
+            let types = &[data_type.clone()];
             check_args(types)
         }
-        TypeSignature::Exact(valid_types) => {
-            check_args(valid_types)
-        },
+        TypeSignature::Exact(valid_types) => check_args(valid_types),
         TypeSignature::Any(number) => {
             if *number < 2 {
-                return false
+                return false;
             }
             true
         }
-    }
+    };
 }

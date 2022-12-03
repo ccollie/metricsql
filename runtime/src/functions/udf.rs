@@ -1,15 +1,16 @@
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
+use metricsql::common::ValueType;
 
-use metricsql::functions::{DataType, Signature, Volatility};
+use metricsql::functions::{Signature, Volatility};
 
 use crate::functions::types::FunctionImplementation;
 
 /// Logical representation of a UDF.
 pub(crate) struct Udf<P, R>
-    where
-        P: ?Sized + Send + Sync,
+where
+    P: ?Sized + Send + Sync,
 {
     /// name
     pub name: String,
@@ -19,11 +20,10 @@ pub(crate) struct Udf<P, R>
     /// be passed with the slice / vec of values (either scalar or array)
     /// with the exception of zero param function, where a singular element vec
     /// will be passed.
-    pub fun: Box<dyn FunctionImplementation<P, R, Output=R>>,
+    pub fun: Box<dyn FunctionImplementation<P, R, Output = R>>,
 }
 
-impl <P: ?Sized + Send + Sync, R>Debug for Udf<P, R>
-{
+impl<P: ?Sized + Send + Sync, R> Debug for Udf<P, R> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         f.debug_struct("UDF")
             .field("name", &self.name)
@@ -33,18 +33,18 @@ impl <P: ?Sized + Send + Sync, R>Debug for Udf<P, R>
     }
 }
 
-impl <P: ?Sized, R>PartialEq for Udf<P, R>
-    where
-        P: Send + Sync,
+impl<P: ?Sized, R> PartialEq for Udf<P, R>
+where
+    P: Send + Sync,
 {
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name && self.signature == other.signature
     }
 }
 
-impl <P: ?Sized, R>Hash for Udf<P, R>
-    where
-        P: Send + Sync,
+impl<P: ?Sized, R> Hash for Udf<P, R>
+where
+    P: Send + Sync,
 {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.name.hash(state);
@@ -52,9 +52,9 @@ impl <P: ?Sized, R>Hash for Udf<P, R>
     }
 }
 
-impl <P: ?Sized , R>Udf<P, R>
-    where
-        P: Send + Sync,
+impl<P: ?Sized, R> Udf<P, R>
+where
+    P: Send + Sync,
 {
     /// Create a new UDF
     pub fn new(
@@ -69,10 +69,14 @@ impl <P: ?Sized , R>Udf<P, R>
         }
     }
 
-    fn create_basic(name: &str, arg_count: usize, f: impl FunctionImplementation<P, R> + 'static) -> Self {
-        let mut types: Vec<DataType> = Vec::with_capacity(arg_count);
-        types.push(DataType::InstantVector);
-        types.resize(arg_count,DataType::Scalar);
+    fn create_basic(
+        name: &str,
+        arg_count: usize,
+        f: impl FunctionImplementation<P, R> + 'static,
+    ) -> Self {
+        let mut types: Vec<ValueType> = Vec::with_capacity(arg_count);
+        types.push(ValueType::InstantVector);
+        types.resize(arg_count, ValueType::Scalar);
 
         let sig: Signature = Signature::exact(types, Volatility::Immutable);
         Self::new(name, sig, f)

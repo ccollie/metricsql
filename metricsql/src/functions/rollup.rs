@@ -3,11 +3,11 @@ use std::str::FromStr;
 
 use phf::phf_map;
 
-use crate::functions::data_type::DataType;
-use crate::functions::MAX_ARG_COUNT;
 use crate::functions::signature::{Signature, Volatility};
+use crate::functions::MAX_ARG_COUNT;
 use crate::parser::ParseError;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use crate::common::{ValueType};
 
 /// Built-in Rollup Functions
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Hash, Serialize, Deserialize)]
@@ -43,15 +43,16 @@ pub enum RollupFunction {
     Increase,
     IncreasePrometheus,
     IncreasePure,
-    IncreasesOverTime, 
+    IncreasesOverTime,
     Integrate,
     IRate, // + rollupFuncsRemoveCounterResets
     Lag,
-    LastOverTime, 
+    LastOverTime,
     Lifetime,
+    MadOverTime,
     MaxOverTime,
     MedianOverTime,
-    MinOverTime, 
+    MinOverTime,
     ModeOverTime,
     PredictLinear,
     PresentOverTime,
@@ -81,7 +82,7 @@ pub enum RollupFunction {
     // in order to properly handle offset and timestamps unaligned to the current step.
     // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/415 for details.
     Timestamp,
-    TimestampWithName,  // + rollupFuncsKeepMetricName
+    TimestampWithName, // + rollupFuncsKeepMetricName
     TLastChangeOverTime,
     TLastOverTime,
     TMaxOverTime,
@@ -129,6 +130,7 @@ impl Display for RollupFunction {
             RollupFunction::Lag => "lag",
             RollupFunction::LastOverTime => "last_over_time",
             RollupFunction::Lifetime => "lifetime",
+            RollupFunction::MadOverTime => "mad_over_time",
             RollupFunction::MaxOverTime => "max_over_time",
             RollupFunction::MedianOverTime => "median_over_time",
             RollupFunction::MinOverTime => "min_over_time",
@@ -176,73 +178,102 @@ impl RollupFunction {
 
     /// the signatures supported by the function `fun`.
     pub fn signature(&self) -> Signature {
-        use DataType::*;
+        use ValueType::*;
         use RollupFunction::*;
-        
+
         // note: the physical expression must accept the type returned by this function or the execution panics.
         match self {
-            CountEqOverTime
-            | CountLeOverTime
-            | CountNeOverTime
-            | CountGtOverTime
-            | DurationOverTime
-            | PredictLinear
-            | ShareGtOverTime
-            | ShareLeOverTime => {
+            CountEqOverTime | CountLeOverTime | CountNeOverTime | CountGtOverTime
+            | DurationOverTime | PredictLinear | ShareGtOverTime | ShareLeOverTime => {
                 Signature::exact(vec![RangeVector, Scalar], Volatility::Immutable)
-            },
+            }
             HoeffdingBoundLower | HoeffdingBoundUpper => {
                 Signature::exact(vec![Scalar, RangeVector], Volatility::Immutable)
-            },
+            }
             HoltWinters => {
                 Signature::exact(vec![RangeVector, Scalar, Scalar], Volatility::Immutable)
-            },
+            }
             AggrOverTime | QuantilesOverTime => {
-                let mut quantile_types: Vec<DataType> = vec![RangeVector; MAX_ARG_COUNT];
+                let mut quantile_types: Vec<ValueType> = vec![RangeVector; MAX_ARG_COUNT];
                 quantile_types.insert(0, RangeVector);
                 Signature::variadic_min(quantile_types, 3, Volatility::Volatile)
+            }
+            Rollup | RollupDelta | RollupDeriv | RollupIncrease | RollupRate | RollupScrapeInterval | RollupCandlestick => {
+                Signature::variadic_min(vec![RangeVector, String], 1, Volatility::Volatile)
             }
             _ => {
                 // default
                 Signature::uniform(1, RangeVector, Volatility::Immutable)
             }
-        }      
+        }
     }
 
     /// These functions don't change physical meaning of input time series,
     /// so they don't drop metric name
     pub fn keep_metric_name(&self) -> bool {
         use RollupFunction::*;
-        matches!(self,
-        AvgOverTime | DefaultRollup | FirstOverTime | GeomeanOverTime | HoeffdingBoundLower |
-        HoeffdingBoundUpper | HoltWinters | LastOverTime | MaxOverTime | MinOverTime | ModeOverTime |
-        PredictLinear | QuantileOverTime | QuantilesOverTime | Rollup | RollupCandlestick |
-        TimestampWithName)
+        matches!(
+            self,
+            AvgOverTime
+                | DefaultRollup
+                | FirstOverTime
+                | GeomeanOverTime
+                | HoeffdingBoundLower
+                | HoeffdingBoundUpper
+                | HoltWinters
+                | LastOverTime
+                | MaxOverTime
+                | MinOverTime
+                | ModeOverTime
+                | PredictLinear
+                | QuantileOverTime
+                | QuantilesOverTime
+                | Rollup
+                | RollupCandlestick
+                | TimestampWithName
+        )
     }
 
     pub fn should_remove_counter_resets(&self) -> bool {
         use RollupFunction::*;
-        matches!(self,
-            Increase | IncreasePrometheus | IncreasePure |
-            IRate | Rate | RollupIncrease | RollupRate
+        matches!(
+            self,
+            Increase
+                | IncreasePrometheus
+                | IncreasePure
+                | IRate
+                | Rate
+                | RollupIncrease
+                | RollupRate
         )
     }
 }
 
-
-/// We can increase lookbehind window in square brackets for these functions
-/// if the given window doesn't contain enough samples for calculations.
+/// We can extend lookbehind window for these functions in order to make sure it contains enough
+/// points for returning non-empty results.
 ///
-/// This is needed in order to return the expected non-empty graphs when zooming in the graph in Grafana,
-/// which is built with `func_name(metric[$__interval])` query.
+/// This is needed for returning the expected non-empty graphs when zooming in the graph in Grafana,
+/// which is built with `func_name(metric)` query.
 pub fn can_adjust_window(func: &RollupFunction) -> bool {
     use RollupFunction::*;
-    matches!(func,
-        DefaultRollup | Deriv | DerivFast | IDeriv | IRate | Rate | RateOverSum | Rollup |
-        RollupCandlestick | RollupDeriv | RollupRate | RollupScrapeInterval | ScrapeInterval | Timestamp
+    matches!(
+        func,
+        DefaultRollup
+            | Deriv
+            | DerivFast
+            | IDeriv
+            | IRate
+            | Rate
+            | RateOverSum
+            | Rollup
+            | RollupCandlestick
+            | RollupDeriv
+            | RollupRate
+            | RollupScrapeInterval
+            | ScrapeInterval
+            | Timestamp
     )
 }
-
 
 static FUNCTION_MAP: phf::Map<&'static str, RollupFunction> = phf_map! {
     "absent_over_time" => RollupFunction::AbsentOverTime,
@@ -282,6 +313,7 @@ static FUNCTION_MAP: phf::Map<&'static str, RollupFunction> = phf_map! {
     "lag" => RollupFunction::Lag,
     "last_over_time" => RollupFunction::LastOverTime,
     "lifetime" => RollupFunction::Lifetime,
+    "mad_over_time" => RollupFunction::MadOverTime,
     "max_over_time" => RollupFunction::MaxOverTime,
     "median_over_time" => RollupFunction::MedianOverTime,
     "min_over_time" => RollupFunction::MinOverTime,
@@ -319,7 +351,6 @@ static FUNCTION_MAP: phf::Map<&'static str, RollupFunction> = phf_map! {
     "zscore_over_time" => RollupFunction::ZScoreOverTime,
 };
 
-
 impl FromStr for RollupFunction {
     type Err = ParseError;
 
@@ -327,9 +358,7 @@ impl FromStr for RollupFunction {
         let lower = s.to_lowercase();
         match FUNCTION_MAP.get(lower.as_str()) {
             Some(op) => Ok(*op),
-            None => Err(ParseError::InvalidFunction(
-                format!("unknown rollup function: {}", s)
-            ))
+            None => Err(ParseError::InvalidFunction(format!("rollup::{}", s))),
         }
     }
 }
@@ -339,6 +368,39 @@ pub fn is_rollup_func(func: &str) -> bool {
     FUNCTION_MAP.contains_key(&lower)
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Hash, Serialize, Deserialize)]
+pub enum RollupTag {
+    Min,
+    Max,
+    Avg
+}
+
+impl Display for RollupTag {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RollupTag::Min => write!(f, "min"),
+            RollupTag::Max => write!(f, "max"),
+            RollupTag::Avg => write!(f, "avg"),
+        }
+    }
+}
+
+impl FromStr for RollupTag {
+    type Err = ParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let lower = s.to_lowercase();
+        match lower.as_str() {
+            "min" => Ok(RollupTag::Min),
+            "max" => Ok(RollupTag::Max),
+            "avg" => Ok(RollupTag::Avg),
+            _ => Err(ParseError::InvalidFunction(format!("invalid rollup tag::{}", s))),
+        }
+    }
+}
+
+
+
 /// get_rollup_arg_idx returns the argument index for the given fe, which accepts the rollup argument.
 ///
 /// -1 is returned if fe isn't a rollup function.
@@ -347,18 +409,21 @@ pub fn get_rollup_arg_idx(fe: &RollupFunction, arg_count: usize) -> i32 {
     match fe {
         QuantileOverTime | AggrOverTime | HoeffdingBoundLower | HoeffdingBoundUpper => 1,
         QuantilesOverTime => (arg_count - 1) as i32,
-        _ => 0
+        _ => 0,
     }
 }
 
-pub fn get_rollup_arg_idx_for_optimization(func: RollupFunction, arg_count: usize) -> Option<usize> {
+pub fn get_rollup_arg_idx_for_optimization(
+    func: RollupFunction,
+    arg_count: usize,
+) -> Option<usize> {
     // This must be kept in sync with GetRollupArgIdx()
     use RollupFunction::*;
     match func {
         AbsentOverTime => None,
         QuantileOverTime | AggrOverTime | HoeffdingBoundLower | HoeffdingBoundUpper => Some(1),
         QuantilesOverTime => Some(arg_count - 1),
-        _ => Some(0)
+        _ => Some(0),
     }
 }
 
@@ -371,27 +436,24 @@ pub fn is_rollup_aggregation_over_time(func: RollupFunction) -> bool {
     let name = func.name();
 
     if name.ends_with("over_time") {
-        return true
+        return true;
     }
 
-    matches!(func,
-            | Delta
-            | DeltaPrometheus
-            | Deriv
-            | DerivFast
-            | IDelta
-            | IDeriv
-            | Increase
-            | IncreasePure
-            | IncreasePrometheus
-            | IncreasesOverTime
-            | IRate
-            | PredictLinear
-            | Rate
-            | Resets
-            | RollupDeriv
-            | RollupDelta
-            | RollupIncrease
-            | RollupRate
-    )
+    matches!(func, |Delta| DeltaPrometheus
+        | Deriv
+        | DerivFast
+        | IDelta
+        | IDeriv
+        | Increase
+        | IncreasePure
+        | IncreasePrometheus
+        | IncreasesOverTime
+        | IRate
+        | PredictLinear
+        | Rate
+        | Resets
+        | RollupDeriv
+        | RollupDelta
+        | RollupIncrease
+        | RollupRate)
 }

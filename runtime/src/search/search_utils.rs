@@ -4,15 +4,15 @@ use std::fmt::Display;
 use std::ops::Add;
 
 use chrono::Duration;
-
-use metricsql::ast::{Expression, LabelFilter};
+use metricsql::ast::Expr;
+use metricsql::common::LabelFilter;
 use metricsql::parser::parse;
 
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::traits::{Timestamp, TimestampTrait};
+use crate::types::{Timestamp, TimestampTrait};
 
 /// These values prevent from overflow when storing msec-precision time in int64.
-const MIN_TIME_MSECS: i64  = 0;
+const MIN_TIME_MSECS: i64 = 0;
 pub const MAX_DURATION_MSECS: i64 = 100 * 365 * 24 * 3600 * 1000;
 
 /// Deadline contains deadline with the corresponding timeout for pretty error messages.
@@ -20,7 +20,7 @@ pub const MAX_DURATION_MSECS: i64 = 100 * 365 * 24 * 3600 * 1000;
 pub struct Deadline {
     /// deadline in unix timestamp seconds.
     pub deadline: Timestamp,
-    pub timeout: Duration
+    pub timeout: Duration,
 }
 
 impl Deadline {
@@ -31,19 +31,26 @@ impl Deadline {
 
     /// Returns a deadline for the given start time and timeout.
     pub fn with_start_time<T>(start_time: T, timeout: Duration) -> RuntimeResult<Self>
-    where T: Into<Timestamp>
+    where
+        T: Into<Timestamp>,
     {
         let millis = timeout.num_milliseconds();
         if millis > MAX_DURATION_MSECS {
-            return Err( RuntimeError::ArgumentError(format!("Timeout value too large: {}", timeout)));
+            return Err(RuntimeError::ArgumentError(format!(
+                "Timeout value too large: {}",
+                timeout
+            )));
         }
         if millis < MIN_TIME_MSECS {
-            return Err( RuntimeError::ArgumentError(format!("Negative timeouts are not supported. Got {}", timeout)));
+            return Err(RuntimeError::ArgumentError(format!(
+                "Negative timeouts are not supported. Got {}",
+                timeout
+            )));
         }
         return Ok(Deadline {
             deadline: start_time.into().add(timeout.num_milliseconds()),
             timeout,
-        })
+        });
     }
 
     /// returns true if deadline is exceeded.
@@ -55,10 +62,10 @@ impl Deadline {
 impl Default for Deadline {
     fn default() -> Self {
         let start = Timestamp::now();
-        let timeout = Duration::seconds(10);    // todo: constant
+        let timeout = Duration::seconds(10); // todo: constant
         Deadline {
             deadline: start.add(timeout.num_milliseconds()),
-            timeout
+            timeout,
         }
     }
 }
@@ -81,57 +88,63 @@ impl TryFrom<i64> for Deadline {
 
 impl Display for Deadline {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let start_time = self.deadline  - self.timeout.num_milliseconds();
+        let start_time = self.deadline - self.timeout.num_milliseconds();
         let elapsed = (Timestamp::now() - start_time) / 1000_i64;
-        write!(f, "{:.3} seconds (elapsed {:.3} seconds);",
-                           self.timeout.num_seconds(), elapsed)?;
+        write!(
+            f,
+            "{:.3} seconds (elapsed {:.3} seconds);",
+            self.timeout.num_seconds(),
+            elapsed
+        )?;
         Ok(())
     }
 }
 
-
-/// join_tag_filterss adds etfs to every src filter and returns the result.
-pub(crate) fn join_tag_filterss<'a>(src: &'a Vec<Vec<LabelFilter>>, etfs: &'a Vec<Vec<LabelFilter>>) -> Cow<'a, Vec<Vec<LabelFilter>>> {
+/// join_tag_filter_list adds etfs to every src filter and returns the result.
+pub(crate) fn join_tag_filter_list<'a>(
+    src: &'a Vec<Vec<LabelFilter>>,
+    etfs: &'a Vec<Vec<LabelFilter>>,
+) -> Cow<'a, Vec<Vec<LabelFilter>>> {
     if src.len() == 0 {
-        return Cow::Borrowed::<'a>(etfs)
+        return Cow::Borrowed::<'a>(etfs);
     }
     if etfs.len() == 0 {
-        return Cow::Borrowed::<'a>(src)
+        return Cow::Borrowed::<'a>(src);
     }
     let mut dst: Vec<Vec<LabelFilter>> = Vec::with_capacity(src.len());
     for tf in src.iter() {
         for etf in etfs.iter() {
             let mut tfs: Vec<LabelFilter> = tf.clone();
-            tfs.append( &mut etf.clone());
+            tfs.append(&mut etf.clone());
             dst.push(tfs.into());
         }
     }
     Cow::Owned::<'a>(dst)
 }
 
-/// parse_metric_selector parses s containing PromQL metric selector and returns the corresponding 
+/// parse_metric_selector parses s containing PromQL metric selector and returns the corresponding
 /// LabelFilters.
 pub fn parse_metric_selector(s: &str) -> RuntimeResult<Vec<LabelFilter>> {
     return match parse(s) {
-        Ok(expr) => {
-            match expr {
-                Expression::MetricExpression(me) => {
-                    if me.label_filters.len() == 0 {
-                        let msg = "labelFilters cannot be empty";
-                        return Err(RuntimeError::from(msg));
+        Ok(expr) => match expr {
+            Expr::MetricExpression(me) => {
+                if me.is_empty() {
+                    let msg = "labelFilters cannot be empty";
+                    return Err(RuntimeError::from(msg));
+                }
+                match me.to_label_filters() {
+                    Ok(filters) => Ok(filters),
+                    Err(err) => {
+                        let msg = format!("error parsing metric selector; {:?}", err);
+                        Err(RuntimeError::from(msg))
                     }
-                    Ok(me.label_filters.into())
-                },
-                _ => {
-                    let msg = format!("expecting metric selector; got {}", expr);
-                    Err(RuntimeError::from(msg))
                 }
             }
+            _ => {
+                let msg = format!("expecting metric selector; got {}", expr);
+                Err(RuntimeError::from(msg))
+            }
         },
-        Err(err) => {
-            Err(
-                RuntimeError::ParseError( err )
-            )
-        }
-    }
+        Err(err) => Err(RuntimeError::ParseError(err)),
+    };
 }

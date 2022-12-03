@@ -1,55 +1,43 @@
 use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::Arc;
+use tracing::{field, trace_span, Span};
 
-use metricsql::ast::{AggregateModifier, AggrFuncExpr, Expression, FuncExpr, MetricExpr};
+use metricsql::common::{AggregateModifier, ValueType};
 use metricsql::functions::{AggregateFunction, BuiltinFunction, RollupFunction, Volatility};
+use metricsql::ast::{AggregationExpr, Expr, FunctionExpr, MetricExpr};
+use metricsql::prelude::Value;
 
-use crate::{EvalConfig};
 use crate::context::Context;
 use crate::eval::arg_list::ArgList;
-use crate::eval::rollup::{compile_rollup_func_args, IncrementalAggrFuncOptions, RollupEvaluator};
-use crate::functions::{
-    aggregate::{
-        AggrFn,
-        AggrFuncArg,
-        get_incremental_aggr_func_callbacks
-    },
-};
-use crate::functions::aggregate::get_aggr_func;
-use crate::functions::types::AnyValue;
+use crate::eval::rollup::{compile_rollup_func_args, RollupEvaluator};
+use crate::functions::aggregate::{get_aggr_func, AggrFn, AggrFuncArg, try_get_incremental_aggr_handler};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::utils::num_cpus;
+use crate::{EvalConfig, QueryValue};
 
 use super::{Evaluator, ExprEvaluator};
 
-pub(super) fn create_aggr_evaluator(ae: &AggrFuncExpr) -> RuntimeResult<ExprEvaluator> {
-    match get_incremental_aggr_func_callbacks(&ae.name) {
-        Some(callbacks) => {
+pub(super) fn create_aggr_evaluator(ae: &AggregationExpr) -> RuntimeResult<ExprEvaluator> {
+    match try_get_incremental_aggr_handler(&ae.name) {
+        Some(handler) => {
             match try_get_arg_rollup_func_with_metric_expr(ae)? {
                 Some(fe) => {
                     // There is an optimized path for calculating `Expression::AggrFuncExpr` over: RollupFunc
                     // over Expression::MetricExpr.
                     // The optimized path saves RAM for aggregates over big number of time series.
                     let (args, re) = compile_rollup_func_args(&fe)?;
-                    let expr = Expression::Aggregation(ae.clone());
+                    let expr = Expr::Aggregation(ae.clone());
                     let func = get_rollup_function(&fe)?;
 
-                    let mut res = RollupEvaluator::create_internal(
-                        func,
-                        &re,
-                        expr,
-                        args
-                    )?;
+                    let mut res = RollupEvaluator::create_internal(func, &re, expr, args)?;
 
                     res.timeseries_limit = get_timeseries_limit(ae)?;
                     res.is_incr_aggregate = true;
-                    res.incremental_aggr_opts = Some(IncrementalAggrFuncOptions {
-                        callbacks,
-                    });
+                    res.incremental_aggr_handler = Some(handler);
 
-                    return Ok(ExprEvaluator::Rollup(res))
-                },
+                    return Ok(ExprEvaluator::Rollup(res));
+                }
                 _ => {}
             }
         }
@@ -59,20 +47,20 @@ pub(super) fn create_aggr_evaluator(ae: &AggrFuncExpr) -> RuntimeResult<ExprEval
     Ok(ExprEvaluator::Aggregate(AggregateEvaluator::new(ae)?))
 }
 
-
 pub struct AggregateEvaluator {
     pub expr: String,
-    pub function: AggregateFunction,
+    pub function: String,   // smol_str ?
     args: ArgList,
-     /// optional modifier such as `by (...)` or `without (...)`.
+    /// optional modifier such as `by (...)` or `without (...)`.
     modifier: Option<AggregateModifier>,
+    handler: Arc<dyn AggrFn + 'static>,
     /// Max number of timeseries to return
     pub limit: usize,
-    handler: Arc<dyn AggrFn + 'static>,
+    pub may_sort_results: bool,
 }
 
 impl AggregateEvaluator {
-    pub fn new(ae: &AggrFuncExpr) -> RuntimeResult<Self> {
+    pub fn new(ae: &AggregationExpr) -> RuntimeResult<Self> {
         // todo: remove unwrap and return a Result
         let function = AggregateFunction::from_str(&ae.name).unwrap();
         let handler = get_aggr_func(&function)?;
@@ -82,10 +70,11 @@ impl AggregateEvaluator {
         Ok(Self {
             handler,
             args,
-            function,
+            function: ae.name.clone(),
             modifier: ae.modifier.clone(),
             limit: ae.limit,
-            expr: ae.to_string()
+            expr: ae.to_string(),
+            may_sort_results: function.may_sort_results(),
         })
     }
 
@@ -95,12 +84,25 @@ impl AggregateEvaluator {
 }
 
 impl Evaluator for AggregateEvaluator {
-    fn eval(&self, ctx: &Arc<&Context>, ec: &EvalConfig) -> RuntimeResult<AnyValue> {
+    fn eval(&self, ctx: &Arc<Context>, ec: &EvalConfig) -> RuntimeResult<QueryValue> {
+        let span = if ctx.trace_enabled() {
+            // done this way to avoid possible string alloc in the case where
+            // logging is disabled
+            trace_span!("aggregate", self.function, series = field::Empty)
+        } else {
+            Span::none()
+        }
+        .entered();
+
         let args = self.args.eval(ctx, ec)?;
+
         //todo: use tinyvec for args
-        let mut afa = AggrFuncArg::new(ec, args,  &self.modifier, self.limit);
+        let mut afa = AggrFuncArg::new(ec, args, &self.modifier, self.limit);
         match (self.handler)(&mut afa) {
-            Ok(res) => Ok(AnyValue::InstantVector(res)),
+            Ok(res) => {
+                span.record("series", res.len());
+                Ok(QueryValue::InstantVector(res))
+            }
             Err(e) => {
                 let res = format!("cannot evaluate {}: {:?}", self.expr, e);
                 Err(RuntimeError::General(res))
@@ -113,21 +115,33 @@ impl Evaluator for AggregateEvaluator {
     }
 }
 
+impl Value for AggregateEvaluator {
+    fn value_type(&self) -> ValueType {
+        ValueType::InstantVector
+    }
+}
 
-fn try_get_arg_rollup_func_with_metric_expr(ae: &AggrFuncExpr) -> RuntimeResult<Option<FuncExpr>> {
+fn try_get_arg_rollup_func_with_metric_expr(
+    ae: &AggregationExpr,
+) -> RuntimeResult<Option<FunctionExpr>> {
     if ae.args.len() != 1 {
         return Ok(None);
     }
-    let e = ae.args[0].deref();
+    let e = &ae.args[0];
     // Make sure e contains one of the following:
     // - metricExpr
     // - metricExpr[d]
     // -: RollupFunc(metricExpr)
     // -: RollupFunc(metricExpr[d])
 
-    fn create_func(me: &MetricExpr, expr: &Expression, name: &str, for_subquery: bool) -> RuntimeResult<Option<FuncExpr>> {
+    fn create_func(
+        me: &MetricExpr,
+        expr: &Expr,
+        name: &str,
+        for_subquery: bool,
+    ) -> RuntimeResult<Option<FunctionExpr>> {
         if me.is_empty() || for_subquery {
-            return Ok(None)
+            return Ok(None);
         }
 
         let func_name = if name.len() == 0 {
@@ -136,36 +150,31 @@ fn try_get_arg_rollup_func_with_metric_expr(ae: &AggrFuncExpr) -> RuntimeResult<
             name
         };
 
-        let span = me.span.clone();
-        match FuncExpr::from_single_arg(func_name, expr.clone(), span) {
-            Err(e) => {
-                Err(RuntimeError::General(
-                    format!("Error creating function {}: {:?}", func_name, e)
-                ))
-            },
-            Ok(fe) => Ok(Some(fe))
+        match FunctionExpr::from_single_arg(func_name, expr.clone()) {
+            Err(e) => Err(RuntimeError::General(format!(
+                "Error creating function {}: {:?}",
+                func_name, e
+            ))),
+            Ok(fe) => Ok(Some(fe)),
         }
     }
 
-
-   return match ae.args[0].deref() {
-        Expression::MetricExpression(me) => {
-            return create_func(me, e, "", false)
-        }
-        Expression::Rollup(re) => {
+    return match &ae.args[0] {
+        Expr::MetricExpression(me) => return create_func(me, e, "", false),
+        Expr::Rollup(re) => {
             match re.expr.deref() {
-                Expression::MetricExpression(me) => {
+                Expr::MetricExpression(me) => {
                     // e = metricExpr[d]
                     create_func(me, e, "", re.for_subquery())
-                },
-                _ => Ok(None)
+                }
+                _ => Ok(None),
             }
         }
-        Expression::Function(fe) => {
+        Expr::Function(fe) => {
             let function: BuiltinFunction;
             match BuiltinFunction::from_str(&fe.name) {
                 Err(_) => return Err(RuntimeError::UnknownFunction(fe.name.to_string())),
-                Ok(f) => function  = f
+                Ok(f) => function = f,
             };
 
             match function {
@@ -176,15 +185,15 @@ fn try_get_arg_rollup_func_with_metric_expr(ae: &AggrFuncExpr) -> RuntimeResult<
                             // TODO: this should be an error
                             // all rollup functions should have a value for this
                             return Ok(None);
-                        },
+                        }
                         Some(arg) => {
                             match arg.deref() {
-                                Expression::MetricExpression(me) => {
+                                Expr::MetricExpression(me) => {
                                     create_func(me, e, &fe.name, false)
-                                },
-                                Expression::Rollup(re) => {
+                                }
+                                Expr::Rollup(re) => {
                                     match &*re.expr {
-                                        Expression::MetricExpression(me) => {
+                                        Expr::MetricExpression(me) => {
                                             if me.is_empty() || re.for_subquery() {
                                                 Ok(None)
                                             } else {
@@ -192,42 +201,37 @@ fn try_get_arg_rollup_func_with_metric_expr(ae: &AggrFuncExpr) -> RuntimeResult<
                                                 // todo: use COW to avoid clone
                                                 Ok(Some(fe.clone()))
                                             }
-                                        },
-                                        _ => Ok(None)
+                                        }
+                                        _ => Ok(None),
                                     }
-
-                                },
-                                _=> Ok(None)
+                                }
+                                _ => Ok(None),
                             }
                         }
-
                     }
                 }
-                _ => Ok(None)
+                _ => Ok(None),
             }
-
         }
-        _ => Ok(None)
+        _ => Ok(None),
     };
 }
 
-
-fn get_rollup_function(fe: &FuncExpr) -> RuntimeResult<RollupFunction> {
+fn get_rollup_function(fe: &FunctionExpr) -> RuntimeResult<RollupFunction> {
     match RollupFunction::from_str(&fe.name) {
         Ok(rf) => Ok(rf),
         _ => {
             // should not happen
-            Err(
-                RuntimeError::General(
-                    format!("Invalid rollup function \"{}\"", fe.name)
-                )
-            )
+            Err(RuntimeError::General(format!(
+                "Invalid rollup function \"{}\"",
+                fe.name
+            )))
         }
     }
 }
 
-pub(super) fn get_timeseries_limit(aggr_expr: &AggrFuncExpr) -> RuntimeResult<usize> {
-    // Incremental aggregates require holding only GOMAXPROCS timeseries in memory.
+pub(super) fn get_timeseries_limit(aggr_expr: &AggregationExpr) -> RuntimeResult<usize> {
+    // Incremental aggregates require holding only num_cpus() timeseries in memory.
     let timeseries_len = usize::from(num_cpus()?);
     let res = if aggr_expr.limit > 0 {
         // There is an explicit limit on the number of output time series.

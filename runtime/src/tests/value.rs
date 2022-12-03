@@ -20,7 +20,7 @@ pub(crate) trait Value {
 }
 
 
-// String represents a string value.
+/// String represents a string value.
 pub(crate) struct StringValue {
     pub t: i64,
     pub v: String
@@ -113,7 +113,7 @@ impl Display for Sample {
 
 /// Vector is basically only an alias for model.Samples, but the
 /// contract is that in a Vector, all Samples have the same timestamp.
-pub(crate) type Vector = Vec<Sample>;
+pub(crate) struct  Vector(Vec<Sample>);
 
 impl Display for Vector {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -134,7 +134,7 @@ impl Vector {
     fn contains_same_label_set(&self) -> bool {
         match self.len() {
             0 | 1 => false,
-            2 => return self[0].metric.Hash() == self[1].Metric.Hash(),
+            2 => return self.0[0].metric.hash() == self.0[1].metric.hash(),
             _ => {
                 let l: BTreeSet<u64> = BTreeSet::new();
                 for ss in self.iter() {
@@ -153,63 +153,62 @@ impl Vector {
 
 /// Matrix is a slice of Series that implements sort.Interface and
 /// has a String method.
-pub(crate) type Matrix = Vec<Series>
+pub(crate) struct Matrix(Vec<Series>);
 
-fn (m Matrix) String() string {
-// TODO(fabxc): sort, or can we rely on order from the querier?
-strs := make([]string, len(m))
+impl Matrix {
+    pub fn to_string(&self) -> String {
+        // TODO: sort, or can we rely on order from the querier?
+        self.0.iter().map(|x| x.to_string()).collect().join("\n")
+    }
 
-for i, ss := range m {
-strs[i] = ss.String()
+    /// TotalSamples returns the total number of samples in the series within a matrix.
+    pub fn total_samples(&self) -> u64 {
+        let mut num_samples = 0;
+        for series in self.0.iter() {
+            num_samples += series.points.len()
+        }
+        return num_samples
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    // contains_same_labelset checks if a matrix has samples with the same labelset.
+    // Such a behavior is semantically undefined.
+    // https://github.com/prometheus/prometheus/issues/4562
+    pub fn contains_same_labelset(&self) -> bool {
+        let m = self.0;
+        match m.len() {
+            0 | 1 => false,
+            2 => return m[0].metric.hash() == m[1].metric.hash(),
+            _ => {
+                let l = BTreeSet::new();
+                for ss in m.iter() {
+                    let hash = ss.metric.hash();
+                    if l.contains(hash) {
+                        return true;
+                    }
+                    l.insert(hash);
+                }
+                return false
+            }
+        }
+    }
 }
 
-return strings.Join(strs, "\n")
-}
-
-// TotalSamples returns the total number of samples in the series within a matrix.
-fn (m Matrix) TotalSamples() int {
-numSamples := 0
-for _, series := range m {
-numSamples += len(series.Points)
-}
-return numSamples
-}
-
-fn (m Matrix) Len() int           { return len(m) }
 fn (m Matrix) Less(i, j int) bool { return labels.Compare(m[i].Metric, m[j].Metric) < 0 }
-fn (m Matrix) Swap(i, j int)      { m[i], m[j] = m[j], m[i] }
 
-// ContainsSameLabelset checks if a matrix has samples with the same labelset.
-// Such a behavior is semantically undefined.
-// https://github.com/prometheus/prometheus/issues/4562
-fn (m Matrix) ContainsSameLabelset() bool {
-switch len(m) {
-case 0, 1:
-return false
-case 2:
-return m[0].Metric.Hash() == m[1].Metric.Hash()
-default:
-l := make(map[ui64]struct{}, len(m))
-for _, ss := range m {
-hash := ss.Metric.Hash()
-if _, ok := l[hash]; ok {
-return true
-}
-l[hash] = struct{}{}
-}
-return false
-}
-}
 
 // Result holds the resulting value of an execution or an error
 // if any occurred.
-pub(crate) struct Result {
+pub(crate) struct QueryResult {
     err: Option<RuntimeError>,
     value: Value,
     warnings: storage.Warnings
 }
 
-impl Result {
+impl QueryResult {
     /// Vector returns a Vector if the result value is one. An error is returned if
     /// the result was an error or the result value is not a Vector.
     pub fn vector(&self) -> RuntimeResult<Vector> {
@@ -256,9 +255,6 @@ impl Result {
 
 
 fn (r *Result) String() string {
-if r.Err != nil {
-return r.Err.Error()
-}
 if r.Value == nil {
 return ""
 }
@@ -274,12 +270,12 @@ impl StorageSeries {
     pub fn new(series: Series) -> Self {
         Self { series }
     }
+
+    pub fn labels(&self) -> Labels {
+        self.series.metric
+    }
 }
 
-
-fn (ss *StorageSeries) Labels() labels.Labels {
-return ss.series.Metric
-}
 
 struct StorageSeriesIterator {
     points: Vec<Point>,

@@ -1,14 +1,14 @@
-use std::sync::{Arc};
-use chrono::{Duration};
+use chrono::Duration;
+use std::sync::Arc;
+use tracing::{span_enabled, Level};
 
 use crate::active_queries::ActiveQueries;
 use crate::cache::rollup_result_cache::RollupResultCache;
-use crate::{ActiveQueryEntry, MetricDataProvider, NullMetricDataProvider};
 use crate::parser_cache::{ParseCache, ParseCacheValue};
 use crate::query_stats::query_stats::QueryStatsTracker;
-use crate::query_tracer::Tracer;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::search::{Deadline, QueryResults, SearchQuery};
+use crate::{ActiveQueryEntry, MetricDataProvider, NullMetricDataProvider, ParseCacheResult};
 
 const DEFAULT_MAX_QUERY_LEN: usize = 16 * 1024;
 const DEFAULT_MAX_UNIQUE_TIMESERIES: usize = 1000;
@@ -21,7 +21,6 @@ pub struct Context {
     pub rollup_result_cache: RollupResultCache,
     pub(crate) active_queries: ActiveQueries,
     pub query_stats: QueryStatsTracker,
-    pub query_tracer: Tracer,
     pub metric_data_provider: Arc<dyn MetricDataProvider + Send + Sync>, // mutex
 }
 
@@ -30,19 +29,32 @@ impl Context {
         Self::default()
     }
 
-    pub fn process_search_query(&self, sq: &SearchQuery, deadline: &Deadline) -> RuntimeResult<QueryResults> {
+    pub fn process_search_query(
+        &self,
+        sq: &SearchQuery,
+        deadline: &Deadline,
+    ) -> RuntimeResult<QueryResults> {
+        // todo: trace
         self.metric_data_provider.search(sq, deadline)
     }
 
-    pub fn parse_promql(&self, q: &str) -> RuntimeResult<Arc<ParseCacheValue>> {
-        // if context.query_tracer.enabled {
-        //
-        // }
-        let cached = self.parse_cache.parse(q);
-        if let Some(err) = &cached.err {
-            return Err(RuntimeError::ParseError(err.clone()))
+    // todo: pass in tracer
+    pub fn parse_promql(&self, q: &str) -> RuntimeResult<(Arc<ParseCacheValue>, ParseCacheResult)> {
+        let (res, cached) = self.parse_cache.parse(q);
+        if let Some(err) = &res.err {
+            return Err(RuntimeError::ParseError(err.clone()));
         }
-        return Ok(cached)
+        return Ok((res, cached));
+    }
+
+    #[inline]
+    pub fn stats_enabled(&self) -> bool {
+        self.config.stats_enabled
+    }
+
+    #[inline]
+    pub fn trace_enabled(&self) -> bool {
+        self.config.trace_enabled && span_enabled!(Level::TRACE)
     }
 
     pub fn get_active_queries(&self) -> Vec<ActiveQueryEntry> {
@@ -58,12 +70,10 @@ impl Default for Context {
             rollup_result_cache: Default::default(),
             active_queries: ActiveQueries::new(),
             query_stats: Default::default(),
-            query_tracer: Tracer::new(true),
             metric_data_provider: Arc::new(NullMetricDataProvider {}),
         }
     }
 }
-
 
 pub struct SessionState {
     pub config: SessionConfig,
@@ -85,6 +95,9 @@ pub struct SessionConfig {
 
     /// Whether to disable response caching. This may be useful during data backfilling"
     pub disable_cache: bool,
+
+    /// Whether query tracing is enabled.
+    pub trace_enabled: bool,
 
     /// The maximum search query length in bytes
     pub max_query_len: usize,
@@ -130,7 +143,7 @@ pub struct SessionConfig {
 
     /// Whether to fix lookback interval to `step` query arg value.
     /// If set to true, the query model becomes closer to InfluxDB data model. If set to true,
-    /// then `max_lookback` and `max_staleness_interval` are ignored. Defaylts to `false`
+    /// then `max_lookback` and `max_staleness_interval` are ignored. Defaults to `false`
     pub set_lookback_to_step: bool,
 
     /// The maximum step when the range query handler adjusts points with timestamps closer than
@@ -139,7 +152,7 @@ pub struct SessionConfig {
     pub max_step_for_points_adjustment: Duration,
 
     /// The maximum duration for query execution (default 30 secs)
-    pub max_query_duration: Duration
+    pub max_query_duration: Duration,
 }
 
 impl SessionConfig {
@@ -169,6 +182,7 @@ impl Default for SessionConfig {
         SessionConfig {
             stats_enabled: false,
             disable_cache: false,
+            trace_enabled: false,
             max_query_len: DEFAULT_MAX_QUERY_LEN,
             latency_offset: Duration::milliseconds(DEFAULT_LATENCY_OFFSET as i64),
             max_memory_per_query: 0,
@@ -180,7 +194,7 @@ impl Default for SessionConfig {
             max_lookback: Duration::milliseconds(0),
             set_lookback_to_step: false,
             max_step_for_points_adjustment: Duration::minutes(1),
-            max_query_duration: Duration::seconds(30)
+            max_query_duration: Duration::seconds(30),
         }
     }
 }

@@ -1,4 +1,4 @@
-use rand::{Rng, thread_rng};
+use rand::{thread_rng, Rng};
 use rand_distr::StandardNormal;
 
 pub fn random() -> u8 {

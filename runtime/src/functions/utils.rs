@@ -5,7 +5,6 @@ use tinyvec::TinyVec;
 
 use lib::get_float64s;
 
-
 /// mode_no_nans returns mode for a.
 ///
 /// It is expected that a doesn't contain NaNs.
@@ -43,6 +42,26 @@ pub fn mode_no_nans(mut prev_value: f64, a: &mut Vec<f64>) -> f64 {
     return mode;
 }
 
+pub fn remove_nan_values_in_place(values: &mut Vec<f64>, timestamps: &mut Vec<i64>) {
+    if !values.iter().any(|x| x.is_nan()) {
+        return;
+    }
+
+    // Slow path: drop nans from values.
+    let mut k = 0;
+    for i in 0..values.len() {
+        let v = values[i];
+        if v.is_nan() {
+            values[k] = v;
+            timestamps[k] = timestamps[i];
+            k += 1;
+        }
+    }
+
+    values.truncate(k);
+    timestamps.truncate(k);
+}
+
 #[inline]
 pub fn get_first_non_nan_index(values: &[f64]) -> usize {
     let mut i = 0;
@@ -50,6 +69,17 @@ pub fn get_first_non_nan_index(values: &[f64]) -> usize {
         i += 1;
     }
     i
+}
+
+pub fn skip_leading_nans(values: &[f64]) -> &[f64] {
+    let mut i = 0;
+    for (index, v) in values.iter().enumerate() {
+        if !v.is_nan() {
+            i = index;
+            break;
+        }
+    }
+    return &values[i..]
 }
 
 pub fn skip_trailing_nans(values: &[f64]) -> &[f64] {
@@ -75,7 +105,7 @@ pub fn quantiles(qs: &mut [f64], phis: &[f64], origin_values: &[f64]) {
     if origin_values.len() <= 64 {
         let mut vec = tiny_vec!([f64; 64]);
         prepare_tv_for_quantile_float64(&mut vec, origin_values);
-        return quantiles_sorted(qs, phis, &vec)
+        return quantiles_sorted(qs, phis, &vec);
     }
 
     let mut block = get_float64s(phis.len());
@@ -96,7 +126,7 @@ pub fn quantile(phi: f64, origin_values: &[f64]) -> f64 {
 fn prepare_for_quantile_float64(dst: &mut Vec<f64>, src: &[f64]) {
     for v in src {
         if v.is_nan() {
-            continue
+            continue;
         }
         dst.push(*v);
     }
@@ -107,7 +137,7 @@ fn prepare_for_quantile_float64(dst: &mut Vec<f64>, src: &[f64]) {
 fn prepare_tv_for_quantile_float64(dst: &mut TinyVec<[f64; 64]>, src: &[f64]) {
     for v in src {
         if v.is_nan() {
-            continue
+            continue;
         }
         dst.push(*v);
     }
@@ -130,7 +160,7 @@ pub fn quantiles_sorted(qs: &mut [f64], phis: &[f64], values: &[f64]) {
 /// The implementation mimics Prometheus implementation for compatibility's sake.
 pub fn quantile_sorted(phi: f64, values: &[f64]) -> f64 {
     if values.len() == 0 || phi.is_nan() {
-        return f64::NAN
+        return f64::NAN;
     }
     if phi < 0.0 {
         return f64::NEG_INFINITY;
@@ -145,5 +175,9 @@ pub fn quantile_sorted(phi: f64, values: &[f64]) -> f64 {
     let upper_index = std::cmp::min(n - 1, lower_index + 1) as usize;
 
     let weight = rank - rank.floor();
-    return values[lower_index]*(1.0-weight) + values[upper_index]*weight
+    return values[lower_index] * (1.0 - weight) + values[upper_index] * weight;
+}
+
+pub(crate) fn float_to_int_bounded(f: f64) -> i64 {
+    (f as i64).clamp(i64::MIN, i64::MAX)
 }

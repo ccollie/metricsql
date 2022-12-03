@@ -1,33 +1,35 @@
-use crate::ast::{DurationExpr, Expression, ReturnValue, RollupExpr};
-use crate::lexer::TokenKind;
-use crate::parser::{ParseError, Parser, ParseResult};
-use crate::parser::expr::parse_single_expr_without_rollup_suffix;
+use logos::Span;
 use super::expr::{parse_duration, parse_positive_duration};
+use crate::ast::{DurationExpr, Expr, RollupExpr};
+use crate::common::ValueType;
+use crate::parser::expr::{parse_single_expr_without_rollup_suffix};
+use crate::parser::{ParseError, ParseResult, Parser, syntax_error};
+use crate::parser::tokens::Token;
 
-
-pub(super) fn parse_rollup_expr(p: &mut Parser, e: Expression) -> ParseResult<Expression> {
+pub(super) fn parse_rollup_expr(p: &mut Parser, e: Expr) -> ParseResult<Expr> {
     let mut re = RollupExpr::new(e);
 
-    let mut at: Option<Expression> = None;
-    if p.at(TokenKind::LeftBracket) {
+    let mut at: Option<Expr> = None;
+    if p.at(&Token::LeftBracket) {
         let (window, step, inherit_step) = parse_window_and_step(p)?;
         re.window = window;
         re.step = step;
         re.inherit_step = inherit_step;
     }
 
-    if p.at(TokenKind::At) {
+    if p.at(&Token::At) {
         at = Some(parse_at_expr(p)?);
     }
 
-    if p.at(TokenKind::Offset) {
+    if p.at(&Token::Offset) {
         re.offset = Some(parse_offset(p)?);
     }
 
-    if p.at(TokenKind::At) {
+    if p.at(&Token::At) {
         if at.is_some() {
-            let msg = "RollupExpr: duplicate '@' token".to_string();
-            return Err(ParseError::General(msg));
+            let span = p.last_token_range().or(Some(Span::default())).unwrap();
+            let msg = "duplicate '@' token".to_string();
+            return Err(syntax_error(&msg, &span, "".to_string()));
         }
         at = Some(parse_at_expr(p)?);
     }
@@ -36,57 +38,68 @@ pub(super) fn parse_rollup_expr(p: &mut Parser, e: Expression) -> ParseResult<Ex
         re.at = Some(Box::new(v))
     }
 
-    p.update_span(&mut re.span);
-
-    Ok(Expression::Rollup(re))
+    Ok(Expr::Rollup(re))
 }
 
-fn parse_at_expr(p: &mut Parser) -> ParseResult<Expression> {
-    p.expect(TokenKind::At)?;
-    let expr = parse_single_expr_without_rollup_suffix(p)?;
-    // validate result type
-    match expr.return_value() {
-        ReturnValue::InstantVector | ReturnValue::Scalar => Ok(expr),
-        ReturnValue::Unknown(cause) => {
-            // todo: pass span
-            Err(ParseError::InvalidExpression(cause.message))
-        }
-        _ => Err(ParseError::InvalidExpression(
-            String::from("@ modifier expression must return a scalar or instant vector")
-        )) // todo: have InvalidReturnType enum variant
+fn parse_at_expr(p: &mut Parser) -> ParseResult<Expr> {
+    use Token::*;
+
+    p.expect(&At)?;
+
+    let span = p.last_token_range().or(Some(Span::default())).unwrap();
+    match parse_single_expr_without_rollup_suffix(p) {
+        Ok(expr) => {
+            // validate result type
+            match expr.return_type() {
+                ValueType::InstantVector | ValueType::Scalar => Ok(expr),
+                _ => Err(syntax_error(
+                    "@ modifier Expr must return a scalar or instant vector",
+                    &span,
+                    "".to_string())), // todo: have InvalidReturnType enum variant
+            }
+        },
+        Err(e) => {
+            Err(
+                syntax_error(
+                    format!("cannot parse @ modifier Expr: {}", e).as_str(), 
+                    &span, 
+                    "".to_string()
+                )
+            )
+        },
     }
 }
 
 fn parse_window_and_step(
     p: &mut Parser,
 ) -> Result<(Option<DurationExpr>, Option<DurationExpr>, bool), ParseError> {
-    p.expect(TokenKind::LeftBracket)?;
+    p.expect(&Token::LeftBracket)?;
 
     let mut window: Option<DurationExpr> = None;
 
-    if !p.at(TokenKind::Colon) {
+    if !p.at(&Token::Colon) {
         window = Some(parse_positive_duration(p)?);
     }
 
     let mut step: Option<DurationExpr> = None;
     let mut inherit_step = false;
 
-    if p.at(TokenKind::Colon) {
+    if p.at(&Token::Colon) {
         p.bump();
         // Parse step
-        if p.at(TokenKind::RightBracket) {
+        if p.at(&Token::RightBracket) {
             inherit_step = true;
         }
-        if !p.at(TokenKind::RightBracket) {
+        if !p.at(&Token::RightBracket) {
             step = Some(parse_positive_duration(p)?);
         }
     }
-    p.expect(TokenKind::RightBracket)?;
+    p.expect(&Token::RightBracket)?;
 
     Ok((window, step, inherit_step))
 }
 
 fn parse_offset(p: &mut Parser) -> ParseResult<DurationExpr> {
-    p.expect(TokenKind::Offset)?;
+    p.expect(&Token::Offset)?;
     parse_duration(p)
 }

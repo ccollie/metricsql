@@ -20,11 +20,6 @@ const ERR_DUPLICATE_SAMPLE_FOR_TIMESTAMP: &str = "duplicate sample for timestamp
 const ERR_OUT_OF_BOUNDS: &str = "out of bounds";
 
 
-/// SeriesRef is a generic series reference. In prometheus it is either a
-/// HeadSeriesRef or BlockSeriesRef, though other implementations may have
-/// their own reference types.
-pub type SeriesRef = u64;
-
 /// Appendable allows creating appenders.
 pub trait Appendable {
     /// Appender returns a new appender for the storage. The implementation
@@ -33,26 +28,21 @@ pub trait Appendable {
     fn get_appender(ctx: Context) -> dyn Appender;  // todo: make this Arc??
 }
 
-/// SampleAndChunkQueryable allows retrieving samples as well as encoded samples in form of chunks.
-pub trait SampleAndChunkQueryable: Queryable + ChunkQueryable  {
-}
-
 /// Storage ingests and manages samples, along with various indexes. All methods
 /// are goroutine-safe. Storage implements storage.Appender.
 pub trait Storage: Appendable {
-    SampleAndChunkQueryable
     
-    /// StartTime returns the oldest timestamp stored in the storage.
+    /// start_time returns the oldest timestamp stored in the storage.
     fn start_time(&self) -> RuntimeResult<i64>;
 
-    /// Close closes the storage and all its underlying resources.
+    /// close closes the storage and all its underlying resources.
     fn close(&mut self) -> RuntimeResult<()>;
 }
 
 /// A Queryable handles queries against a storage.
 /// Use it when you need to have access to all samples without chunk encoding abstraction e.g promQL.
 pub trait Queryable {
-    // Querier returns a new Querier on the storage.
+    // get_querier returns a new Querier on the storage.
     fn get_querier(ctx:Context, mint: i64, maxt: i64) -> RuntimeResult<Querier>;
 }
 
@@ -97,7 +87,7 @@ impl MockQuerier {
         Ok(())
     }
 
-    fn select(&self, sort_series: bool, hints: &SelectHints, matchers: &[Matcher]) -> SeriesSet {
+    fn select(&self, sort_series: bool, hints: &SelectHints, matchers: &[Matcher]) -> Box<SeriesSet> {
         (self.select_function)(sort_series, hints, matchers)
     }
 }
@@ -124,39 +114,45 @@ pub trait LabelQuerier {
     /// It is not safe to use the strings beyond the lifetime of the querier.
     /// If matchers are specified the returned result set is reduced
     /// to label values of metrics matching the matchers.
-    fn label_values(&self, name: string, matchers: &[Matcher]) -> RuntimeResult<Vec<String>>;
+    fn label_values(&self, name: String, matchers: &[Matcher]) -> RuntimeResult<Vec<String>>;
 
-    /// LabelNames returns all the unique label names present in the block in sorted order.
-    /// If matchers are specified the returned result set is reduced
-    /// to label names of metrics matching the matchers.
-    fn label_names(&self, matchers: &[Matcher])  -> RuntimeResult<Vec<String>>;
-
-    /// Close releases the resources of the Querier.
-    fn close(&mut self) -> RuntimeResult<()>;
+    /// label_names returns all the unique label names present in the block in sorted order.
+    /// If matchers are specified the returned result set is reduced to label names of metrics
+    /// matching the matchers.
+    fn label_names(&self, matchers: &[Matcher]) -> RuntimeResult<Vec<String>>;
 }
 
 /// SelectHints specifies hints passed for data selections.
 /// This is used only as an option for implementation to use.
 pub struct SelectHints {
-    start: i64, // start time in milliseconds for this select.
-    end: i64, // end time in milliseconds for this select.
+    /// start time in milliseconds for this select.
+    start: i64,
+    /// end time in milliseconds for this select.
+    end: i64,
 
-    step: i64,  // Query step size in milliseconds.
-    func: String, // String representation of surrounding function or aggregation.
+    /// Query step size in milliseconds.
+    step: i64,
 
-    grouping: Vec<String>, // List of label names used in aggregation.
-    by:       bool,     // Indicate whether it is without or by.
-    range   : i64,    // Range vector selector range in milliseconds.
+    /// String representation of surrounding function or aggregation.
+    func: String,
 
-    // disable_trimming allows to disable trimming of matching series chunks based on query start and end time.
-    // When disabled, the result may contain samples outside the queried time range but Select() performances
-    // may be improved.
+    /// List of label names used in aggregation.
+    grouping: Vec<String>,
+
+    /// Indicate whether it is without or by.
+    by:       bool,
+    /// Range vector selector range in milliseconds.
+    range   : i64,
+
+    /// disable_trimming allows to disable trimming of matching series chunks based on query start and
+    /// end time. When disabled, the result may contain samples outside the queried time range but
+    /// Select() performances may be improved.
     disable_trimming: bool
 }
 
 /// QueryableFunc is an adapter to allow the use of ordinary functions as
 /// Queryables. It follows the idea of http.HandlerFunc.
-type QueryableFunc = fn(ctx: Context, mint: i64, maxt: i64) -> RuntimeResult<Querier>;
+type QueryableFunc = fn(ctx: Context, min_ts: i64, max_ts: i64) -> RuntimeResult<Querier>;
 
 
 /// Appender provides batched appends against a storage.
@@ -172,7 +168,7 @@ pub trait Appender {
     /// to `append()` at any point. Adding the sample via `append()` returns a new
     /// reference number.
     /// If the reference is 0 it must not be used for caching.
-    fn append(&mut self, sref: SeriesRef, l: Labels, t: i64, v: f64) -> RuntimeResult<SeriesRef>;
+    fn append(&mut self, l: Labels, t: i64, v: f64) -> RuntimeResult<()>;
 
     /// Commit submits the collected samples and purges the batch. If Commit
     /// returns a non-nil error, it also rolls back all modifications made in
@@ -180,18 +176,9 @@ pub trait Appender {
     /// must not be used anymore after Commit has been called.
     fn commit(&mut self) -> RuntimeResult<()>;
 
-    /// Rollback rolls back all modifications made in the appender so far.
+    /// rollback rolls back all modifications made in the appender so far.
     /// Appender has to be discarded after rollback.
     fn rollback(&mut self) -> RuntimeResult<()>;
-}
-
-/// GetRef is an extra interface on Appenders used by downstream projects
-/// (e.g. Cortex) to avoid maintaining a parallel set of references.
-pub trait GetRef {
-    /// Returns reference number that can be used to pass to Appender.append(),
-    /// and a set of labels that will not cause another copy when passed to Appender.append().
-    /// 0 means the appender does not have a reference to this series.
-    fn get_ref(self, lset: &Labels) -> (SeriesRef, Labels);
 }
 
 /// SeriesSet contains a set of series.
@@ -323,14 +310,14 @@ pub trait ChunkSeriesSet {
 
 /// ChunkSeries exposes a single time series and allows iterating over chunks.
 pub trait ChunkSeries {
-Labels
+Labels,
 ChunkIterable
 }
 
 // Labels represents an item that has labels e.g. time series.
 pub trait Labels {
     // Labels returns the complete set of labels. For series it means all labels identifying the series.
-    fn labels(&self) -> Labels
+    fn labels(&self) -> Labels;
 }
 
 pub trait SampleIterable {
