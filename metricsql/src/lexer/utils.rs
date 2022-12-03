@@ -1,4 +1,4 @@
-use enquote::{enquote, unescape, unquote};
+use enquote::{enquote, unescape};
 use std::str;
 use crate::parser::{ParseError, ParseResult};
 

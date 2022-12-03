@@ -16,23 +16,26 @@ pub(crate) fn expand_with_expr(was: &Vec<WithArgExpr>,
 }
 
 
-pub(super) fn expand_with_expr_internal<'a>(was: &Vec<WithArgExpr>,
+pub(super) fn expand_with_expr_internal<'a>(was: &'a Vec<WithArgExpr>,
                                             expr: &'a Expression) -> ParseResult<Cow<'a, Expression>> {
     use Expression::*;
 
     match expr {
         BinaryOperator(_) => expand_binary(expr, was),
-        Function(_) => expand_function(&expr, &was),
-        Aggregation(_) => expand_aggregation(&expr, was),
-        MetricExpression(_) => expand_metric_expr(&expr, was),
+        Function(_) => expand_function(expr, was),
+        Aggregation(_) => expand_aggregation(expr, &was),
+        MetricExpression(_) => expand_metric_expr(expr, was),
         Rollup(_) => expand_rollup(expr, was),
         Parens(_) => expand_parens_expr(expr, was),
         String(_) => expand_string(expr, was),
         With(with) => {
             let mut was_new: Vec<WithArgExpr> = Vec::with_capacity(was.len() + with.was.len());
             was_new.extend_from_slice(was);
-            was_new.extend(with.was.clone());
-            return expand_with_expr_internal(&was_new, with.expr.as_ref())
+            was_new.extend_from_slice(&*with.was);
+            let res = expand_with_expr_internal(&was_new, with.expr.as_ref())?;
+            // clone needed otherwise we get
+            // error[E0515]: cannot return value referencing local variable `was_new`
+            return Ok(res.to_owned().clone());
         }
         _ => Ok(Cow::Borrowed(expr))
     }
@@ -50,7 +53,7 @@ macro_rules! expect_variant {
 }
 
 fn expand_binary<'a>(expr: &'a Expression,
-                 was: &Vec<WithArgExpr>) -> ParseResult<Cow<'a, Expression>> {
+                 was: &'a Vec<WithArgExpr>) -> ParseResult<Cow<'a, Expression>> {
 
     let be = expect_variant!(expr, Expression::BinaryOperator);
 
@@ -87,8 +90,14 @@ fn expand_binary<'a>(expr: &'a Expression,
         _ => {},
     }
 
+    let mut changed = match (&left, &right) {
+        (Cow::Owned(_), Cow::Owned(_)) => true,
+        (Cow::Borrowed(_), Cow::Owned(_)) => true,
+        (Cow::Owned(_), Cow::Borrowed(_)) => true,
+        _ => false
+    };
+
     // todo(perf) determine if we need to clone
-    let mut changed = false;
     let mut group_modifier: Option<GroupModifier> = None;
     let mut join_modifier: Option<JoinModifier> = None;
 
@@ -111,6 +120,8 @@ fn expand_binary<'a>(expr: &'a Expression,
     if changed {
         let mut new_be = be.clone();
 
+        new_be.left = BExpression::from(left.into_owned());
+        new_be.right = BExpression::from(right.into_owned());
         new_be.join_modifier = join_modifier;
         new_be.group_modifier = group_modifier;
 
@@ -121,26 +132,26 @@ fn expand_binary<'a>(expr: &'a Expression,
 }
 
 fn expand_function<'a>(expr: &'a Expression,
-                       was: &Vec<WithArgExpr>) -> ParseResult<Cow<'a, Expression>> {
+                       was: &'a Vec<WithArgExpr>) -> ParseResult<Cow<'a, Expression>> {
 
     let func = expect_variant!(expr, Expression::Function);
     let arg_expr = get_with_arg_expr(was, &func.with_name);
     if let Some(wa) = arg_expr {
         let args = expand_with_args(was, &func.args)?;
-        return expand_with_expr_ext(expr, was, wa, Some(&args))
+        return expand_with_expr_ext(was, wa, Some(&args))
     }
 
     Ok(Cow::Borrowed(expr))
 }
 
-fn expand_aggregation<'a>(expr: &'a Expression, was: &Vec<WithArgExpr>) -> ParseResult<Cow<'a, Expression>> {
+fn expand_aggregation<'a>(expr: &'a Expression, was: &'a Vec<WithArgExpr>) -> ParseResult<Cow<'a, Expression>> {
 
     let aggregate = expect_variant!(expr, Expression::Aggregation);
 
     let wa = get_with_arg_expr(was, &aggregate.name);
     if let Some(wae) = wa {
         let args = expand_with_args(was, &aggregate.args)?;
-        return expand_with_expr_ext(expr, was, wae, Some(&args));
+        return expand_with_expr_ext(was, wae, Some(&args));
     }
 
     let mut new_modifier: Option<AggregateModifier> = None;
@@ -215,7 +226,7 @@ fn expand_string<'a>(expr: &'a Expression,
             return Err(ParseError::WithExprExpansionError(msg));
         }
         let wa = wa.unwrap();
-        let e_new = expand_with_expr_ext(expr, was, wa, None)?;
+        let e_new = expand_with_expr_ext(was, wa, None)?;
 
         let e_new = match e_new.as_ref() {
             Expression::String(e) => e,
@@ -286,10 +297,10 @@ fn expand_rollup<'a>(expr: &'a Expression, was: &Vec<WithArgExpr>) -> ParseResul
 }
 
 fn expand_metric_expr<'a>(expr: &'a Expression,
-                      was: &Vec<WithArgExpr>) -> ParseResult<Cow<'a, Expression>> {
+                      was: &'a Vec<WithArgExpr>) -> ParseResult<Cow<'a, Expression>> {
 
     let me = expect_variant!(expr, Expression::MetricExpression);
-    let me = expand_metric_labels(expr, &me, was)?;
+    let me = expand_metric_labels(&me, was)?;
 
     if !me.has_non_empty_metric_group() {
         return Ok(Cow::Borrowed(expr));
@@ -313,7 +324,7 @@ fn expand_metric_expr<'a>(expr: &'a Expression,
     }
 
     let wa = wa.unwrap();
-    let e_new = expand_with_expr_ext(expr, was, wa, None)?;
+    let e_new = expand_with_expr_ext(was, wa, None)?;
     let re: Option<&mut RollupExpr> = None;
 
     let wme = match e_new.as_ref() {
@@ -362,8 +373,7 @@ fn expand_metric_expr<'a>(expr: &'a Expression,
     }
 }
 
-fn expand_metric_labels<'a>(expr: &'a Expression,
-                            me: &'a MetricExpr,
+fn expand_metric_labels<'a>(me: &'a MetricExpr,
                             was: &Vec<WithArgExpr>) -> ParseResult<Cow<'a, MetricExpr>> {
 
     if me.label_filters.len() > 0 {
@@ -383,13 +393,13 @@ fn expand_metric_labels<'a>(expr: &'a Expression,
             }
 
             let wa = wa.unwrap();
-            let e_new = expand_with_expr_ext(expr, was, wa, None)?;
+            let e_new = expand_with_expr_ext(was, wa, None)?;
             let error_msg = format!(
                 "{} must be filters expression inside {}: got {}",
                 lfe.label, me, e_new
             );
 
-            let wae = expand_with_expr_ext(e_new.as_ref(), was, wa, None)?;
+            let wae = expand_with_expr_ext(was, wa, None)?;
             match wae.as_ref() {
                 Expression::MetricExpression(wme) => {
                     if me.is_only_metric_group() {
@@ -419,10 +429,13 @@ fn expand_metric_labels<'a>(expr: &'a Expression,
         // maybe extract logic from expand_string and use that
         let str_expr = Expression::from(lfe.value.as_str());
         let se = expand_with_expr_internal(was, &str_expr)?;
+        let se_extract = expect_variant!(se.as_ref(), Expression::String);
+
         let lfe_new = LabelFilterExpr::new_tag(
             lfe.label.to_string(),
             lfe.op,
-            se.to_string(), TextSpan::default());
+            se_extract.value.clone(),
+            TextSpan::default());
         let lf = lfe_new.to_label_filter();
         me_new.label_filters.push(lf);
     }
@@ -502,9 +515,8 @@ fn expand_modifier_args(was: &Vec<WithArgExpr>, args: &[String]) -> Result<Vec<S
     Ok(dst_args)
 }
 
-fn expand_with_expr_ext<'a>(expr: &'a Expression,
-                            was: &Vec<WithArgExpr>,
-                            wa: &WithArgExpr,
+fn expand_with_expr_ext<'a>(was: &'a Vec<WithArgExpr>,
+                            wa: &'a WithArgExpr,
                             args: Option<&Vec<BExpression>>) -> ParseResult<Cow<'a, Expression>> {
 
     let args_len = if let Some(expressions) = args {
@@ -525,11 +537,6 @@ fn expand_with_expr_ext<'a>(expr: &'a Expression,
 
     let mut was_new: Vec<WithArgExpr> = Vec::with_capacity(was.len() + args_len);
     for wa_tmp in was.iter() {
-        // let a: *const &WithArgExpr = &wa_tmp;
-        // let b: *const &WithArgExpr = &wa;
-        // if a == b {
-        //     break;
-        // }
         if wa_tmp.name == wa.name {
             break;
         }
@@ -547,7 +554,7 @@ fn expand_with_expr_ext<'a>(expr: &'a Expression,
         }
     }
 
-    expand_with_expr_internal(&was_new, expr)
+    expand_with_expr_internal(&was_new, &wa.expr)
 }
 
 fn expand_with_args(was: &Vec<WithArgExpr>, args: &Vec<BExpression>) -> ParseResult<Vec<BExpression>> {
@@ -571,9 +578,9 @@ fn expand_with_args(was: &Vec<WithArgExpr>, args: &Vec<BExpression>) -> ParseRes
 fn get_with_arg_expr<'a>(was: &'a Vec<WithArgExpr>, name: &str) -> Option<&'a WithArgExpr> {
     // Scan wes backwards, since certain expressions may override
     // previously defined expressions
-    for i in was.iter().rev() {
-        if i.name == name {
-            return Some(i);
+    for expr in was.iter().rev() {
+        if expr.name == name {
+            return Some(expr);
         }
     }
     None
