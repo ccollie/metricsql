@@ -1,6 +1,5 @@
 extern crate byte_pool;
 extern crate byte_slice_cast;
-extern crate instant;
 extern crate integer_encoding;
 extern crate lockfree_object_pool;
 extern crate lz4_flex;

@@ -1,6 +1,7 @@
+use enquote::{unescape};
 use crate::ast::{Expression, LabelFilterExpr, LabelFilterOp, MetricExpr, NAME_LABEL};
 use crate::lexer::{TokenKind, unescape_ident};
-use crate::parser::{Parser, ParseResult};
+use crate::parser::{ParseError, Parser, ParseResult};
 use crate::parser::expr::parse_string_expr;
 
 /// parse_metric_expr parses a metric.
@@ -15,7 +16,15 @@ pub fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expression> {
     if p.at(TokenKind::Ident) {
         let tok = p.current_token()?;
 
-        let token = unescape_ident(tok.text);
+        let token = match unescape(tok.text, None) {
+            Err(e) => {
+                return Err(ParseError::General(
+                    format!("Invalid selector name : {}", tok.text)
+                ));
+            },
+            Ok(value) => value
+        };
+
         let lfe = LabelFilterExpr::new_tag(NAME_LABEL, LabelFilterOp::Equal, &token, span);
         me.label_filter_exprs.push(lfe);
 

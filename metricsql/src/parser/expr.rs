@@ -303,7 +303,7 @@ pub(super) fn parse_positive_duration(p: &mut Parser) -> ParseResult<DurationExp
 fn parse_unary_plus_expr(p: &mut Parser) -> ParseResult<Expression> {
     p.expect(TokenKind::OpPlus)?;
     let expr = parse_single_expr(p)?;
-    /**
+    /*
     let t = checkAST(p, &expr)?;
     match t {
         ReturnType::Scalar | ReturnType::InstantVector => Ok(expr) {
@@ -312,7 +312,7 @@ fn parse_unary_plus_expr(p: &mut Parser) -> ParseResult<Expression> {
             Err(ParseError::Gen
         }
     }
-     **/
+     */
     Ok(expr)
 }
 
@@ -332,7 +332,7 @@ fn parse_unary_minus_expr(p: &mut Parser) -> ParseResult<Expression> {
         }
     }
 
-    /// Substitute `-expr` with `0 - expr`
+    // Substitute `-expr` with `0 - expr`
     let lhs = Expression::Number(NumberExpr::new(0.0, span));
     let mut binop_expr = BinaryOpExpr::new(BinaryOp::Sub, lhs, expr)?;
     binop_expr.span = span;

@@ -22,7 +22,7 @@ mod tests {
 
 	#[test]
 	fn single_test() {
-		another("with (x = m offset 5h) x + x", "m offset 5h + m offset 5h");
+		same(r#"foo @ 123.45"#);
 	}
 
 	#[test]
@@ -440,11 +440,11 @@ mod tests {
 		another("with (x = m offset 5h) x + x", "m offset 5h + m offset 5h");
 		another("with (x = m offset 5i) x + x", "m offset 5i + m offset 5i");
 		another(r#"with (foo = bar{x="x"}) 1"#, "1");
-		another(r#"with (foo = bar{x="x"}) "x""#, r#"x""#);
-		another(r#"with (f="x") f"#, r#"x""#);
-		another(r#"with (foo = bar{x="x"}) x{x="y"}"#, r#" x{x="y"}"#);
+		another(r#"with (foo = bar{x="x"}) "x""#, r#""x""#);
+		another(r#"with (f="x") f"#, r#""x""#);
+		another(r#"with (foo = bar{x="x"}) x{x="y"}"#, r#"x{x="y"}"#);
 		another(r#"with (foo = bar{x="x"}) 1+1"#, "2");
-		another(r#"with (foo = bar{x="x"}) f()"#,"f()");
+		another(r#"with (foo = bar{x="x"}) start()"#,"start()");
 		another(r#"with (foo = bar{x="x"}) sum(x)"#,"sum(x)");
 		another(r#"with (foo = bar{x="x"}) baz{foo="bar"}"#, r#"baz{foo="bar"}"#);
 		another(r#"with (foo = bar) baz"#, "baz");

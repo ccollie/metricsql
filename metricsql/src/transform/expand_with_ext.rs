@@ -1,4 +1,3 @@
-use std::borrow::{Cow};
 use std::collections::HashSet;
 use std::ops::{Deref};
 
@@ -7,17 +6,9 @@ use crate::binaryop::{eval_binary_op, string_compare};
 use crate::lexer::{TextSpan};
 use crate::parser::{ArgCountError, ParseError, ParseResult};
 
-pub(crate) fn expand_with_expr(was: &Vec<WithArgExpr>,
-                               expr: Expression) -> ParseResult<Expression> {
-    match expand_with_expr_internal(was, &expr)? {
-        Cow::Owned(val) => Ok(val),
-        Cow::Borrowed(val) => Ok(val.clone())   // todo: how to avoid clone ?
-    }
-}
 
-
-pub(super) fn expand_with_expr_internal<'a>(was: &Vec<WithArgExpr>,
-                                            expr: &'a Expression) -> ParseResult<Cow<'a, Expression>> {
+pub fn expand_with_expr(was: &Vec<WithArgExpr>,
+                        expr: &Expression) -> ParseResult<Expression> {
     use Expression::*;
 
     match expr {
@@ -32,12 +23,10 @@ pub(super) fn expand_with_expr_internal<'a>(was: &Vec<WithArgExpr>,
             let mut was_new: Vec<WithArgExpr> = Vec::with_capacity(was.len() + with.was.len());
             was_new.extend_from_slice(was);
             was_new.extend_from_slice(&*with.was);
-            let res = expand_with_expr_internal(&was_new, with.expr.as_ref())?;
-            // clone needed otherwise we get
-            // error[E0515]: cannot return value referencing local variable `was_new`
-            return Ok(res.to_owned().clone());
+            let res = expand_with_expr(&was_new, with.expr.as_ref())?;
+            return Ok(res.clone());
         }
-        _ => Ok(Cow::Borrowed(expr))
+        _ => Ok(expr.clone())
     }
 }
 
@@ -52,25 +41,25 @@ macro_rules! expect_variant {
     };
 }
 
-fn expand_binary<'a>(expr: &'a Expression,
-                 was: &Vec<WithArgExpr>) -> ParseResult<Cow<'a, Expression>> {
+fn expand_binary(expr: &Expression,
+                 was: &Vec<WithArgExpr>) -> ParseResult<Expression> {
 
     let be = expect_variant!(expr, Expression::BinaryOperator);
 
-    let left = expand_with_expr_internal(was, be.left.as_ref())?;
-    let right = expand_with_expr_internal(was, be.right.as_ref())?;
+    let left = expand_with_expr(was, be.left.as_ref())?;
+    let right = expand_with_expr(was, be.right.as_ref())?;
 
-    match (left.as_ref(), right.as_ref()) {
+    match (&left, &right) {
         (Expression::Number(ln), Expression::Number(rn)) => {
             let n = eval_binary_op(ln.value, rn.value, be.op, be.bool_modifier);
             let expr = Expression::Number( NumberExpr::new(n, be.left.span()));
-            return Ok(Cow::Owned(expr))
+            return Ok(expr)
         }
         (Expression::String(left), Expression::String(right)) => {
             if be.op == BinaryOp::Add {
                 let val = format!("{}{}", left.value, right.value);
                 let expr = Expression::from(val);
-                return Ok(Cow::Owned(expr))
+                return Ok(expr)
             }
             if be.op.is_comparison() {
                 // Note:: the `or` branch should not be reached because of
@@ -84,55 +73,34 @@ fn expand_binary<'a>(expr: &'a Expression,
                     0.0
                 };
                 let expr = Expression::from(n);
-                return Ok(Cow::Owned(expr))
+                return Ok(expr)
             }
         }
         _ => {},
     }
 
-    let mut changed = match (&left, &right) {
-        (Cow::Owned(_), Cow::Owned(_)) => true,
-        (Cow::Borrowed(_), Cow::Owned(_)) => true,
-        (Cow::Owned(_), Cow::Borrowed(_)) => true,
-        _ => false
-    };
-
-    // todo(perf) determine if we need to clone
-    let mut group_modifier: Option<GroupModifier> = None;
-    let mut join_modifier: Option<JoinModifier> = None;
+    let mut new_be = be.clone();
+    new_be.left = BExpression::from(left);
+    new_be.right = BExpression::from(right);
 
     if let Some(modifier) = &be.group_modifier {
         let labels = expand_modifier_args(was, &modifier.labels)?;
         if labels != modifier.labels {
-            changed = true;
-            group_modifier = Some(GroupModifier::new(modifier.op, labels));
+            new_be.group_modifier = Some(GroupModifier::new(modifier.op, labels));
         }
     }
 
     if let Some(ref modifier) = &be.join_modifier {
         let labels = expand_modifier_args(was, &modifier.labels)?;
         if labels != modifier.labels {
-            changed = true;
-            join_modifier = Some(JoinModifier::new(modifier.op, labels));
+            new_be.join_modifier = Some(JoinModifier::new(modifier.op, labels));
         }
     }
 
-    if changed {
-        let mut new_be = be.clone();
-
-        new_be.left = BExpression::from(left.into_owned());
-        new_be.right = BExpression::from(right.into_owned());
-        new_be.join_modifier = join_modifier;
-        new_be.group_modifier = group_modifier;
-
-        return Ok(Cow::Owned(Expression::BinaryOperator(new_be)))
-    }
-
-    Ok(Cow::Borrowed(expr))
+    Ok(Expression::BinaryOperator(new_be))
 }
 
-fn expand_function<'a>(expr: &'a Expression,
-                       was: &Vec<WithArgExpr>) -> ParseResult<Cow<'a, Expression>> {
+fn expand_function(expr: &Expression, was: &Vec<WithArgExpr>) -> ParseResult<Expression> {
 
     let func = expect_variant!(expr, Expression::Function);
     let arg_expr = get_with_arg_expr(was, &func.with_name);
@@ -141,68 +109,56 @@ fn expand_function<'a>(expr: &'a Expression,
         return expand_with_expr_ext(was, wa, Some(&args))
     }
 
-    Ok(Cow::Borrowed(expr))
+    Ok(expr.clone())
 }
 
-fn expand_aggregation<'a>(expr: &'a Expression, was: &Vec<WithArgExpr>) -> ParseResult<Cow<'a, Expression>> {
+fn expand_aggregation(expr: &Expression, was: &Vec<WithArgExpr>) -> ParseResult<Expression> {
 
     let aggregate = expect_variant!(expr, Expression::Aggregation);
+    let args = expand_with_args(was, &aggregate.args)?;
 
     let wa = get_with_arg_expr(was, &aggregate.name);
-    if let Some(wae) = wa {
-        let args = expand_with_args(was, &aggregate.args)?;
-        return expand_with_expr_ext(was, wae, Some(&args));
+    if let Some(with_arg_expression) = wa {
+        return expand_with_expr_ext(was, with_arg_expression, Some(&args));
     }
 
-    let mut new_modifier: Option<AggregateModifier> = None;
+    let mut aggr = aggregate.clone();
+
     if let Some(modifier) = &aggregate.modifier {
         let new_args =  expand_modifier_args(was, &modifier.args)?;
         if new_args != modifier.args {
-            new_modifier = Some(AggregateModifier::new(modifier.op.clone(), new_args));
+            aggr.modifier = Some(AggregateModifier::new(modifier.op.clone(), new_args));
         }
     }
 
-    if new_modifier.is_some() {
-        let mut aggr = aggregate.clone();
-        aggr.modifier = new_modifier;
-        return Ok(Cow::Owned(Expression::Aggregation(aggr)));
-    }
-
-    Ok(Cow::Borrowed(expr))
+    Ok(Expression::Aggregation(aggr))
 }
 
-fn expand_parens_expr<'a>(expr: &'a Expression,
-                          was: &Vec<WithArgExpr>) -> ParseResult<Cow<'a, Expression>> {
+fn expand_parens_expr(expr: &Expression,
+                          was: &Vec<WithArgExpr>) -> ParseResult<Expression> {
     let parens = expect_variant!(expr, Expression::Parens);
     let mut span = was[0].expr.span();
-    let mut exprs : Vec<BExpression> = Vec::with_capacity(parens.expressions.len());
-    for e in parens.expressions.iter() {
-        let expr = expand_with_expr_internal(was, e)?;
-        match expr {
-            Cow::Borrowed(borrowed) => {
-                let val = borrowed.clone();
-                exprs.push(Box::new(val));
-            }
-            Cow::Owned(val) => {
-                exprs.push(Box::new(val));
-            }
-        }
-        span = span.cover(e.span());
+    let mut expressions: Vec<BExpression> = Vec::with_capacity(parens.expressions.len());
+
+    for expression in parens.expressions.iter() {
+        let expr = expand_with_expr(was, &expression)?;
+        span = span.cover(expr.span());
+        expressions.push(Box::new(expr));
     }
 
-    let new_parens = ParensExpr::new(exprs, span);
+    let new_parens = ParensExpr::new(expressions, span);
 
-    Ok(Cow::Owned(Expression::Parens(new_parens)))
+    Ok(Expression::Parens(new_parens))
 }
 
-fn expand_string<'a>(expr: &'a Expression,
-                     was: &Vec<WithArgExpr>) -> ParseResult<Cow<'a, Expression>> {
+fn expand_string(expr: &Expression,
+                 was: &Vec<WithArgExpr>) -> ParseResult<Expression> {
 
     let e = expect_variant!(expr, Expression::String);
 
     if e.is_expanded() {
         // Already expanded. Copying should be cheap
-        return Ok(Cow::Borrowed(expr));
+        return Ok(expr.clone());
     }
     let start = e.span.start;
 
@@ -228,7 +184,7 @@ fn expand_string<'a>(expr: &'a Expression,
         let wa = wa.unwrap();
         let e_new = expand_with_expr_ext(was, wa, None)?;
 
-        let e_new = match e_new.as_ref() {
+        let e_new = match e_new {
             Expression::String(e) => e,
             _ => {
                 let msg = format!("{} is not a string expression", ident);
@@ -249,61 +205,35 @@ fn expand_string<'a>(expr: &'a Expression,
     let len = b.len();
     let res = Expression::String(StringExpr::new(b, TextSpan::at(start, len)));
 
-    return Ok(Cow::Owned(res));
+    return Ok(res);
 }
 
-fn expand_rollup<'a>(expr: &'a Expression, was: &Vec<WithArgExpr>) -> ParseResult<Cow<'a, Expression>> {
+fn expand_rollup(expr: &Expression, was: &Vec<WithArgExpr>) -> ParseResult<Expression> {
 
     let rollup = expect_variant!(expr, Expression::Rollup);
 
-    let mut new_expr: Option<BExpression> = None;
-    let mut new_at: Option<BExpression> = None;
-    let mut changed: bool = false;
+    let mut re = rollup.clone();
+    let expanded_expr = expand_with_expr(was, re.expr.as_ref())?;
 
-    // todo: use Box::into_inner instead of clone ?
-    match expand_with_expr_internal(was, rollup.expr.as_ref())? {
-        Cow::Owned(expanded) => {
-            changed = true;
-            new_expr = Some(Box::new(expanded));
-        }
-        _ => {}
+    re.expr = Box::new(expanded_expr);
+
+    if let Some(at) = &re.at {
+        let expanded_at = expand_with_expr(was, at.as_ref())?;
+        re.at = Some(Box::new(expanded_at));
     }
 
-    if let Some(at) = &rollup.at {
-        match expand_with_expr_internal(was, at.as_ref())? {
-            Cow::Owned(expanded) => {
-                changed = true;
-                new_at = Some(Box::new(expanded)) // todo: use .into ?
-            }
-            _ => {}
-        }
-    }
-
-    if changed {
-        let mut res = rollup.clone();
-
-        if new_at.is_some() {
-            res.at = new_at;
-        }
-
-        if let Some(_expr) = new_expr {
-            res.expr = _expr;
-        }
-
-        return Ok(Cow::Owned( Expression::Rollup(res)))
-    }
-
-    Ok(Cow::Borrowed(expr))
+    Ok(Expression::Rollup(re))
 }
 
-fn expand_metric_expr<'a>(expr: &'a Expression,
-                      was: &Vec<WithArgExpr>) -> ParseResult<Cow<'a, Expression>> {
+fn expand_metric_expr(expr: &Expression,
+                      was: &Vec<WithArgExpr>) -> ParseResult<Expression> {
 
     let me = expect_variant!(expr, Expression::MetricExpression);
     let me = expand_metric_labels(&me, was)?;
 
     if !me.has_non_empty_metric_group() {
-        return Ok(Cow::Borrowed(expr));
+        let expr = Expression::MetricExpression(me);
+        return Ok(expr);
     }
 
     let wa = {
@@ -312,26 +242,20 @@ fn expand_metric_expr<'a>(expr: &'a Expression,
     };
 
     if wa.is_none() {
-        return match me {
-            Cow::Owned(owned) => {
-                let expr = Expression::MetricExpression(owned);
-                Ok(Cow::Owned(expr))
-            }
-            Cow::Borrowed(_) => {
-                Ok(Cow::Borrowed(expr))
-            }
-        }
+        let expr = Expression::MetricExpression(me);
+        return Ok(expr);
     }
 
     let wa = wa.unwrap();
     let e_new = expand_with_expr_ext(was, wa, None)?;
-    let re: Option<&mut RollupExpr> = None;
 
-    let wme = match e_new.as_ref() {
+    let wme = match &e_new {
         Expression::MetricExpression(me) => Some(me),
-        Expression::Rollup(e) => match &e.expr.as_ref() {
-            Expression::MetricExpression(me) => Some(me),
-            _ => None,
+        Expression::Rollup(e) => {
+            match e.expr.as_ref() {
+                Expression::MetricExpression(me) => Some(me),
+                _ => None,
+            }
         },
         _ => None,
     };
@@ -361,24 +285,26 @@ fn expand_metric_expr<'a>(expr: &'a Expression,
 
     remove_duplicate_label_filters(&mut label_filters);
 
-    let new_me = MetricExpr::with_filters(label_filters);
+    let result = Expression::MetricExpression( MetricExpr::with_filters(label_filters) );
 
-    match re {
-        None => Ok(Cow::Borrowed(expr)),
-        Some(rollup) => {
-            rollup.expr = Box::new(Expression::MetricExpression(new_me));
-            let expr = Expression::Rollup(rollup.clone());
-            Ok(Cow::Owned(expr))
+    match e_new {
+        Expression::Rollup(mut re) => {
+            re.expr = Box::new(result);
+            let expr = Expression::Rollup(re);
+            Ok(expr)
+        }
+        _ => {
+            Ok(result)
         }
     }
 }
 
-fn expand_metric_labels<'a>(me: &'a MetricExpr,
-                            was: &Vec<WithArgExpr>) -> ParseResult<Cow<'a, MetricExpr>> {
+fn expand_metric_labels(me: &MetricExpr,
+                        was: &Vec<WithArgExpr>) -> ParseResult<MetricExpr> {
 
     if me.label_filters.len() > 0 {
         // already expanded
-        return Ok(Cow::Borrowed(me));
+        return Ok(me.clone());
     }
 
     // Populate me.label_filters
@@ -400,7 +326,7 @@ fn expand_metric_labels<'a>(me: &'a MetricExpr,
             );
 
             let wae = expand_with_expr_ext(was, wa, None)?;
-            match wae.as_ref() {
+            match wae {
                 Expression::MetricExpression(wme) => {
                     if me.is_only_metric_group() {
                         return Err(ParseError::WithExprExpansionError(error_msg));
@@ -427,23 +353,24 @@ fn expand_metric_labels<'a>(me: &'a MetricExpr,
 
         // todo(perf) - this seems wasteful to create a wrapped variant only to unpack again.
         // maybe extract logic from expand_string and use that
+        // this whole block should be redone
         let str_expr = Expression::from(lfe.value.as_str());
-        let se = expand_with_expr_internal(was, &str_expr)?;
-        let se_extract = expect_variant!(se.as_ref(), Expression::String);
+        let se = expand_with_expr(was, &str_expr)?;
+        let se_extract = expect_variant!(&se, Expression::String);
 
         let lfe_new = LabelFilterExpr::new_tag(
             lfe.label.to_string(),
             lfe.op,
             se_extract.value.clone(),
             TextSpan::default());
-        let lf = lfe_new.to_label_filter();
+        let lf = lfe_new.to_label_filter()?;
         me_new.label_filters.push(lf);
     }
 
     me_new.label_filter_exprs.clear();
     remove_duplicate_label_filters(&mut me_new.label_filters);
 
-    return Ok(Cow::Owned(me_new));
+    return Ok(me_new);
 }
 
 fn expand_modifier_args(was: &Vec<WithArgExpr>, args: &[String]) -> Result<Vec<String>, ParseError> {
@@ -515,9 +442,9 @@ fn expand_modifier_args(was: &Vec<WithArgExpr>, args: &[String]) -> Result<Vec<S
     Ok(dst_args)
 }
 
-fn expand_with_expr_ext<'a>(was: &Vec<WithArgExpr>,
-                            wa: &'a WithArgExpr,
-                            args: Option<&Vec<BExpression>>) -> ParseResult<Cow<'a, Expression>> {
+fn expand_with_expr_ext(was: &Vec<WithArgExpr>,
+                        wa: &WithArgExpr,
+                        args: Option<&Vec<BExpression>>) -> ParseResult<Expression> {
 
     let args_len = if let Some(expressions) = args {
         expressions.len()
@@ -529,7 +456,7 @@ fn expand_with_expr_ext<'a>(was: &Vec<WithArgExpr>,
         if args.is_none() {
             // Just return MetricExpr with the wa.name name.
             let me = Expression::MetricExpression(MetricExpr::new(&wa.name));
-            return Ok(Cow::Owned(me));
+            return Ok(me);
         }
         let err = ParseError::InvalidArgCount(ArgCountError::new(&*wa.name, args_len, args_len));
         return Err(err);
@@ -554,22 +481,15 @@ fn expand_with_expr_ext<'a>(was: &Vec<WithArgExpr>,
         }
     }
 
-    expand_with_expr_internal(&was_new, &wa.expr)
+    expand_with_expr(&was_new, &wa.expr)
 }
 
 fn expand_with_args(was: &Vec<WithArgExpr>, args: &Vec<BExpression>) -> ParseResult<Vec<BExpression>> {
     let mut result: Vec<BExpression> = Vec::with_capacity(args.len());
 
     for arg in args.iter() {
-        match expand_with_expr_internal(was, arg.as_ref())? {
-            Cow::Owned(value) => {
-                result.push( Box::new(value) )
-            },
-            Cow::Borrowed(borrowed) => {
-                let value = borrowed.clone(); // can be do better ??
-                result.push( Box::new(value) );
-            }
-        }
+        let expanded_arg = expand_with_expr(was, arg.as_ref())?;
+        result.push( Box::new(expanded_arg) );
     }
 
     Ok(result)
@@ -596,12 +516,4 @@ fn remove_duplicate_label_filters(lfs: &mut Vec<LabelFilter>) {
         set.insert(key);
         true
     })
-}
-
-/// type_changed checks for the case where the type of an expression changes, in our case
-/// because of a binary op simplification (eg. a > b or "foo" + "bar") i.o.w binary op to
-/// scalar or string
-fn type_changed(before: &Expression, after: &Expression) -> bool {
-    let (first_type, second_type) = (before.type_name(), after.type_name());
-    first_type != second_type
 }

@@ -1,7 +1,8 @@
 use crate::lexer::{escape_ident, quote, TextSpan};
-use crate::parser::{compile_regexp, ParseError};
+use crate::parser::{compile_regexp, ParseError, ParseResult};
 use enquote::enquote;
 use std::fmt;
+use regex::Regex;
 use crate::ast::StringExpr;
 use serde::{Serialize, Deserialize};
 
@@ -83,7 +84,9 @@ impl LabelFilter {
 
         if match_op == LabelFilterOp::RegexEqual || match_op == LabelFilterOp::RegexNotEqual {
             let re_anchored = format!("^(?:{})$", value);
-            if compile_regexp(&re_anchored).is_err() { return Err(ParseError::InvalidRegex(value)) }
+            if compile_regexp(&re_anchored).is_err() {
+                return Err(ParseError::InvalidRegex(value))
+            }
         }
 
         Ok(Self {
@@ -181,19 +184,11 @@ impl LabelFilterExpr {
         self.init
     }
 
-    pub fn to_label_filter(&self) -> LabelFilter {
+    pub fn to_label_filter(&self) -> ParseResult<LabelFilter> {
         if !self.is_expanded() {
             panic!("BUG: value must be already expanded; got {}", self.value)
         }
-        // // Verify regexp.
-        // if _, err := CompileRegexpAnchored(lfe.Value.S); err != nil {
-        //   return Err(Error::new("invalid regexp in {}={}: {}", lf.label, lf.value, err)
-        // }
-        LabelFilter {
-            label: self.label.to_string(),
-            value: self.value.value.to_string(),
-            op: self.op,
-        }
+        LabelFilter::new(self.op, &self.label, self.value.to_string())
     }
 
     pub fn is_expanded(&self) -> bool {

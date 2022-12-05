@@ -33,9 +33,7 @@ thiserror = { workspace = true }
 scopeguard = "1.1.0"
 pydeco = "0.1.0"
 tinyvec = { workspace = true }
-xxhash-rust = { version = "0.8.5", features = ["xxh3", "xxh64"] }
+xxhash-rust = { version = "0.8.6", features = ["xxh3", "xxh64"] }
 lib={ path = "../lib" }
 metricsql={ path = "../metricsql" }
 
-[profile.release]
-lto = true
