@@ -1,5 +1,5 @@
 use std::ops::Deref;
-use crate::ast::{BExpression, Expression, ExpressionNode, FuncExpr, ReturnValue};
+use crate::ast::{BExpression, Expression, ExpressionNode, FuncExpr, ReturnType};
 use crate::functions::{BuiltinFunction, DataType};
 use crate::lexer::{TokenKind, unescape_ident};
 use crate::parser::{ParseError, Parser, ParseResult};
@@ -8,8 +8,8 @@ use super::aggregation::parse_aggr_func_expr;
 
 pub(super) fn parse_function<'a>(p: &mut Parser<'a>, name: &str) -> ParseResult<Expression> {
     match BuiltinFunction::new(name) {
-        Ok(pf) => {
-            match pf {
+        Ok(bf) => {
+            match bf {
                 BuiltinFunction::Aggregate(_) => parse_aggr_func_expr(p),
                 _ => parse_func_expr(p)
             }
@@ -42,9 +42,9 @@ fn parse_func_expr(p: &mut Parser) -> ParseResult<Expression> {
 }
 
 pub(crate) fn validate_args(func: &BuiltinFunction, args: &[BExpression]) -> ParseResult<()> {
-    use ReturnValue::*;
+    use ReturnType::*;
 
-    let expect = |actual: ReturnValue, expected: ReturnValue, index: usize| -> ParseResult<()> {
+    let expect = |actual: ReturnType, expected: ReturnType, index: usize| -> ParseResult<()> {
         // Note: we don't use == because we're blocked from deriving PartialEq on ReturnValue because
         // of the Unknown variant
         if actual.to_string() != expected.to_string() {
@@ -55,7 +55,7 @@ pub(crate) fn validate_args(func: &BuiltinFunction, args: &[BExpression]) -> Par
         Ok(())
     };
 
-    let validate_return_type = |return_type: ReturnValue, expected: DataType, index: usize| -> ParseResult<()> {
+    let validate_return_type = |return_type: ReturnType, expected: DataType, index: usize| -> ParseResult<()> {
         match return_type {
             Unknown(u) => {
                 return Err(ParseError::ArgumentError(

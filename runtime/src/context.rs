@@ -21,7 +21,6 @@ pub struct Context {
     pub rollup_result_cache: RollupResultCache,
     pub(crate) active_queries: ActiveQueries,
     pub query_stats: QueryStatsTracker,
-    pub query_tracer: Tracer,
     pub metric_data_provider: Arc<dyn MetricDataProvider + Send + Sync>, // mutex
 }
 
@@ -34,15 +33,23 @@ impl Context {
         self.metric_data_provider.search(sq, deadline)
     }
 
+    // todo: pass in tracer
     pub fn parse_promql(&self, q: &str) -> RuntimeResult<Arc<ParseCacheValue>> {
-        // if context.query_tracer.enabled {
-        //
-        // }
         let cached = self.parse_cache.parse(q);
         if let Some(err) = &cached.err {
             return Err(RuntimeError::ParseError(err.clone()))
         }
         return Ok(cached)
+    }
+
+    #[inline]
+    pub fn stats_enabled(&self) -> bool {
+        self.config.stats_enabled
+    }
+
+    #[inline]
+    pub fn trace_enabled(&self) -> bool {
+        self.config.trace_enabled
     }
 
     pub fn get_active_queries(&self) -> Vec<ActiveQueryEntry> {
@@ -58,7 +65,6 @@ impl Default for Context {
             rollup_result_cache: Default::default(),
             active_queries: ActiveQueries::new(),
             query_stats: Default::default(),
-            query_tracer: Tracer::new(true),
             metric_data_provider: Arc::new(NullMetricDataProvider {}),
         }
     }
@@ -85,6 +91,9 @@ pub struct SessionConfig {
 
     /// Whether to disable response caching. This may be useful during data backfilling"
     pub disable_cache: bool,
+
+    /// Whether query tracing is enabled.
+    pub trace_enabled: bool,
 
     /// The maximum search query length in bytes
     pub max_query_len: usize,
@@ -169,6 +178,7 @@ impl Default for SessionConfig {
         SessionConfig {
             stats_enabled: false,
             disable_cache: false,
+            trace_enabled: false,
             max_query_len: DEFAULT_MAX_QUERY_LEN,
             latency_offset: Duration::milliseconds(DEFAULT_LATENCY_OFFSET as i64),
             max_memory_per_query: 0,

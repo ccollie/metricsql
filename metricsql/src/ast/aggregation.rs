@@ -1,7 +1,7 @@
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
-use crate::ast::{BExpression, Expression, ExpressionNode, ReturnValue};
+use crate::ast::{BExpression, Expression, ExpressionNode, ReturnType};
 use crate::ast::misc::{write_expression_list, write_labels};
 use crate::functions::{AggregateFunction, get_aggregate_arg_idx_for_optimization};
 use crate::lexer::TextSpan;
@@ -170,8 +170,8 @@ impl AggrFuncExpr {
         }
     }
 
-    pub fn return_value(&self) -> ReturnValue {
-        ReturnValue::InstantVector
+    pub fn return_value(&self) -> ReturnType {
+        ReturnType::InstantVector
     }
 
     pub fn get_arg_idx_for_optimization(&self) -> Option<usize> {

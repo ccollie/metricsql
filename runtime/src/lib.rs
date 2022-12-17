@@ -29,7 +29,6 @@ mod eval;
 mod exec;
 mod functions;
 mod histogram;
-mod metric_name;
 mod parser_cache;
 mod prometheus;
 mod query;
@@ -37,25 +36,21 @@ mod query_tracer;
 mod search;
 mod query_stats;
 mod runtime_error;
-mod traits;
 mod utils;
-mod timeseries;
-
+mod types;
 
 pub use active_queries::*;
 pub use cache::*;
 pub use eval::{EvalConfig, get_timestamps};
 pub use exec::*;
 pub use prometheus::*;
-pub use metric_name::*;
-pub use timeseries::*;
+pub use types::*;
 pub use context::*;
 pub use parser_cache::*;
 pub use runtime_error::*;
 pub use search::*;
 pub use query::*;
 pub use query_stats::*;
-pub use traits::*;
 
 #[cfg(test)]
 pub use tests::utils::*;
@@ -63,5 +58,3 @@ pub use tests::utils::*;
 mod exec_test;
 #[cfg(test)]
 mod tests;
-#[cfg(test)]
-mod metric_name_test;

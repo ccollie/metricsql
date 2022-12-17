@@ -9,14 +9,13 @@ use lib::{round_to_decimal_digits};
 use metricsql::ast::Expression;
 use metricsql::ast::utils::visit_all;
 
-
 use crate::context::Context;
 use crate::eval::{EvalConfig, Evaluator};
 use crate::functions::types::AnyValue;
 use crate::parser_cache::ParseCacheValue;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::search::QueryResult;
-use crate::timeseries::Timeseries;
+use crate::types::Timeseries;
 
 pub fn parse_promql_with_cache(ctx: &mut Context, q: &str) -> RuntimeResult<Arc<ParseCacheValue>> {
     ctx.parse_promql(q)
@@ -28,7 +27,7 @@ pub(crate) fn exec_internal(
     q: &str) -> RuntimeResult<(AnyValue, Arc<ParseCacheValue>)> {
 
     let start_time = Utc::now();
-    if context.config.stats_enabled && context.query_stats.is_enabled() {
+    if context.stats_enabled() && context.query_stats.is_enabled() {
         defer! {
             context.query_stats.register_query(q, ec.end - ec.start, start_time)
         }

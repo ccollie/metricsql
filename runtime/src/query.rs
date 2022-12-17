@@ -3,9 +3,11 @@ use chrono::Duration;
 use metricsql::ast::{DurationExpr, Expression, LabelFilter};
 use crate::{Context, Deadline, EvalConfig, exec, MAX_DURATION_MSECS,
             QueryResult, QueryResults, remove_empty_values_and_timeseries,
-            RuntimeError, RuntimeResult, SearchQuery, Timestamp, TimestampTrait};
+            RuntimeError, RuntimeResult, SearchQuery};
+use crate::types::{TimestampTrait, Timestamp};
 use crate::eval::{adjust_start_end, validate_max_points_per_timeseries};
-use crate::search::join_tag_filterss;
+use crate::query_tracer::Tracer;
+use crate::search::join_tag_filter_list;
 
 /// Default step used if not set.
 const DEFAULT_STEP: i64 = 5 * 60 * 1000;
@@ -20,7 +22,8 @@ pub struct QueryParams {
     pub step: Duration,
     pub deadline: Deadline,
     pub round_digits: usize,
-    pub enforced_tag_filterss: Vec<Vec<LabelFilter>>,
+    pub required_tag_filterss: Vec<Vec<LabelFilter>>,
+    pub tracer: Option<Tracer>
 }
 
 impl Default for QueryParams {
@@ -33,7 +36,8 @@ impl Default for QueryParams {
             step: Duration::milliseconds(DEFAULT_STEP),
             deadline: Default::default(),
             round_digits: 100,
-            enforced_tag_filterss: vec![]
+            required_tag_filterss: vec![],
+            tracer: None,
         }
     }
 }
@@ -79,6 +83,7 @@ pub struct QueryBuilder {
     etfs: Vec<Vec<LabelFilter>>,
     round_digits: usize,
     no_cache: bool,
+    trace_enabled: bool
 }
 
 impl Default for QueryBuilder {
@@ -91,7 +96,8 @@ impl Default for QueryBuilder {
             timeout: None,
             etfs: vec![],
             round_digits: 100,
-            no_cache: false
+            no_cache: false,
+            trace_enabled: false,
         }
     }
 }
@@ -118,6 +124,12 @@ impl QueryBuilder {
     pub fn no_cache(&mut self) -> &mut Self {
         let mut new = self;
         new.no_cache = true;
+        new
+    }
+
+    pub fn enable_tracing(&mut self) -> &mut Self {
+        let mut new = self;
+        new.trace_enabled = true;
         new
     }
 
@@ -159,10 +171,14 @@ impl QueryBuilder {
         q.may_cache = !self.no_cache;
         q.step = self.step.unwrap_or_else(|| Duration::milliseconds(DEFAULT_STEP));
         if self.etfs.len() > 0 {
-            q.enforced_tag_filterss = self.etfs.clone();
+            q.required_tag_filterss = self.etfs.clone();
         }
         q.round_digits = self.round_digits;
         q.deadline = get_deadline_for_query(context, q.start, Some(timeout))?;
+        if self.trace_enabled && context.trace_enabled() {
+            let tracer = Tracer::new("root");
+            q.tracer = Some(tracer);
+        }
 
         Ok(q)
     }
@@ -215,7 +231,7 @@ pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<Query
 
             // Fetch the remaining part of the result.
             let base_filters = vec![filters.clone()];  // can we avoid cloning ???
-            let tfs_list = join_tag_filterss(&base_filters, &params.enforced_tag_filterss);
+            let tfs_list = join_tag_filter_list(&base_filters, &params.required_tag_filterss);
 
             let cp = CommonParams{
                 deadline: params.deadline,
@@ -278,7 +294,7 @@ pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<Query
     let mut ec = EvalConfig::new(start, end, step);
 
     if ec.enforced_tag_filterss.len() > 0 {
-        ec.enforced_tag_filterss = params.enforced_tag_filterss.clone();
+        ec.enforced_tag_filterss = params.required_tag_filterss.clone();
     }
 
     ec.deadline = params.deadline;
@@ -361,7 +377,7 @@ fn query_range_handler(ctx: &Context, ct: Timestamp, params: &QueryParams) -> Ru
     let mut ec = EvalConfig::new(start, end, step);
     ec.deadline = params.deadline;
     ec.set_caching(params.may_cache);
-    ec.enforced_tag_filterss = params.enforced_tag_filterss.clone();  //todo: how to avoid this ??
+    ec.enforced_tag_filterss = params.required_tag_filterss.clone();  // todo: how to avoid this clone ??
     ec.round_digits = params.round_digits as i16;
     ec.lookback_delta = lookback_delta;
     ec.update_from_context(&ctx);

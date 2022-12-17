@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::mem::size_of;
 use std::sync::Arc;
 
 use byte_slice_cast::{AsByteSlice, AsSliceOf};
@@ -8,9 +9,8 @@ use once_cell::sync::OnceCell;
 
 use lib::{marshal_var_int, unmarshal_uint16};
 
-use crate::MetricName;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::traits::{Timestamp, TimestampTrait};
+use super::{MetricName, Timestamp, TimestampTrait};
 
 #[derive(Default, Debug, Clone, PartialEq)]
 pub struct Timeseries {
@@ -121,13 +121,13 @@ impl Timeseries {
     /// returned from marshal_fast_no_timestamps.
     pub fn marshaled_fast_size_no_timestamps(&self) -> usize {
         let mut n = self.metric_name.serialized_size();
-        n += 8 * self.values.len();
+        n += size_of::<f64>() * self.values.len();
         return n
     }
 
     /// unmarshalFastNoTimestamps unmarshal ts from src, so ts members reference src.
     ///
-    /// It is expected that ts.timestamps is already unmarshaled.
+    /// It is expected that ts.timestamps is already unmarshalled.
     pub fn unmarshal_fast_no_timestamps<'a>(src: &'a [u8], timestamps: &Arc<Vec<i64>>) -> RuntimeResult<(Timeseries, &'a [u8])> {
 
         let (metric_name, tail) = MetricName::unmarshal_fast(src)?;
@@ -330,7 +330,7 @@ pub fn unmarshal_bytes_fast(src: &[u8]) -> RuntimeResult<(&[u8], &[u8])> {
 }
 
 /// returns a copy of arg with shallow copies of MetricNames,
-/// Timestamps and Values.
+/// Timestamps and values.
 pub(crate) fn copy_timeseries_shallow(arg: &Vec<Timeseries>) -> Vec<Timeseries> {
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(arg.len());
     for src in arg.iter() {
@@ -340,7 +340,7 @@ pub(crate) fn copy_timeseries_shallow(arg: &Vec<Timeseries>) -> Vec<Timeseries> 
     return rvs;
 }
 
-pub(super) fn assert_identical_timestamps(tss: &[Timeseries], step: i64) -> RuntimeResult<()> {
+pub(crate) fn assert_identical_timestamps(tss: &[Timeseries], step: i64) -> RuntimeResult<()> {
     if tss.len() == 0 {
         return Ok(())
     }

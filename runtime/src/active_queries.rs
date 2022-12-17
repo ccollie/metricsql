@@ -3,7 +3,8 @@ use std::sync::RwLock;
 use chrono::{Utc};
 
 use crate::eval::EvalConfig;
-use crate::traits::{Timestamp, TimestampTrait};
+use crate::types::{Timestamp, TimestampTrait};
+
 
 struct Inner {
     id: u64,

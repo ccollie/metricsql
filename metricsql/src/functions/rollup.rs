@@ -230,11 +230,11 @@ impl RollupFunction {
 }
 
 
-/// We can increase lookbehind window in square brackets for these functions
-/// if the given window doesn't contain enough samples for calculations.
+/// We can extend lookbehind window for these functions in order to make sure it contains enough
+/// points for returning non-empty results.
 ///
-/// This is needed in order to return the expected non-empty graphs when zooming in the graph in Grafana,
-/// which is built with `func_name(metric[$__interval])` query.
+/// This is needed for returning the expected non-empty graphs when zooming in the graph in Grafana,
+/// which is built with `func_name(metric)` query.
 pub fn can_adjust_window(func: &RollupFunction) -> bool {
     use RollupFunction::*;
     matches!(func,
@@ -327,9 +327,7 @@ impl FromStr for RollupFunction {
         let lower = s.to_lowercase();
         match FUNCTION_MAP.get(lower.as_str()) {
             Some(op) => Ok(*op),
-            None => Err(ParseError::InvalidFunction(
-                format!("unknown rollup function: {}", s)
-            ))
+            None => Err(ParseError::InvalidFunction(format!("rollup::{}", s)))
         }
     }
 }

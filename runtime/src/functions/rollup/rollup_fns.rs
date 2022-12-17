@@ -16,7 +16,7 @@ use crate::functions::rollup::{RollupFn, RollupFunc, RollupFuncArg, RollupHandle
 use crate::functions::rollup::types::RollupHandlerFactory;
 use crate::functions::types::{AnyValue, get_scalar_param_value, get_string_param_value};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::traits::Timestamp;
+use crate::types::Timestamp;
 
 use super::timeseries_map::TimeseriesMap;
 
@@ -688,7 +688,7 @@ impl RollupConfig {
         // Sanity checks.
         self.validate()?;
 
-        // Extend dst_values in order to remove mallocs below.
+        // Extend dst_values in order to remove allocations below.
         dst_values.reserve(self.timestamps.len());
 
         let scrape_interval = get_scrape_interval(&timestamps);
@@ -705,15 +705,23 @@ impl RollupConfig {
         let mut window = self.window;
         if window <= 0 {
             window = self.step;
+            if self.may_adjust_window && window < max_prev_interval {
+                // Adjust lookbehind window only if it isn't set explicitly, e.g. rate(foo).
+                // In the case of missing lookbehind window it should be adjusted in order to return non-empty graph
+                // when the window doesn't cover at least two raw samples (this is what most users expect).
+                //
+                // If the user explicitly sets the lookbehind window to some fixed value, e.g. rate(foo[1s]),
+                // then it is expected he knows what he is doing. Do not adjust the lookbehind window then.
+                //
+                // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/3483
+                window = max_prev_interval
+            }
             if self.is_default_rollup && self.lookback_delta > 0 && window > self.lookback_delta {
                 // Implicit window exceeds -search.maxStalenessInterval, so limit it to
                 // -search.maxStalenessInterval
                 // according to https://github.com/VictoriaMetrics/VictoriaMetrics/issues/784
                 window = self.lookback_delta
             }
-        }
-        if self.may_adjust_window && window < max_prev_interval {
-            window = max_prev_interval
         }
 
         let mut rfa = RollupFuncArg::default();
@@ -746,9 +754,11 @@ impl RollupConfig {
 
             rfa.prev_value = NAN;
             rfa.prev_timestamp = t_start - max_prev_interval;
-            if i < timestamps.len() && i > 0 && timestamps[i-1] > rfa.prev_timestamp {
-                rfa.prev_value = values[i - 1];
-                rfa.prev_timestamp = timestamps[i-1];
+            let prev_ts = timestamps[i - 1];
+            let prev_value = values[i - 1];
+            if i < timestamps.len() && i > 0 && prev_ts > rfa.prev_timestamp {
+                rfa.prev_value = prev_value;
+                rfa.prev_timestamp = prev_ts;
             }
 
             rfa.values.clear();
@@ -756,16 +766,9 @@ impl RollupConfig {
             rfa.values.extend_from_slice(&values[i..j]);
             rfa.timestamps.extend_from_slice(&timestamps[i..j]);
 
-            if i > 0 {
-                rfa.real_prev_value = values[i-1];
-            } else {
-                rfa.real_prev_value = NAN;
-            }
-            if j < values.len() {
-                rfa.real_next_value = values[j];
-            } else {
-                rfa.real_next_value = NAN;
-            }
+            rfa.real_prev_value = if i > 0 { prev_value } else { NAN };
+            rfa.real_next_value = if j < values.len() { values[j] } else { NAN };
+
             rfa.curr_timestamp = *t_end;
             let value = (self.handler).eval(&mut rfa);
             rfa.idx += 1;

@@ -24,8 +24,8 @@ use crate::{EvalConfig, marshal_timeseries_fast, Timeseries};
 use crate::cache::default_result_cache_storage::DefaultResultCacheStorage;
 use crate::cache::traits::RollupResultCacheStorage;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::timeseries::{copy_timeseries_shallow, unmarshal_timeseries_fast};
-use crate::traits::{Timestamp, TimestampTrait};
+use crate::types::{copy_timeseries_shallow, unmarshal_timeseries_fast};
+use crate::types::{Timestamp, TimestampTrait};
 use crate::utils::{memory_limit, MemoryLimiter};
 
 /// The maximum duration since the current time for response data, which is always queried from the

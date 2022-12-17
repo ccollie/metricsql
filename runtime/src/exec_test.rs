@@ -379,7 +379,7 @@ mod tests {
         alias((time() < 1400)[200s:], "#one"),
         alias((time() > 1600)[200s:], "two"),
         ))"##;
-        assert_result_eq(q, &[NAN, NAN, NAN, 1.0, NAN, NAN]);
+        assert_result_eq(q, &[NAN, NAN, 1.0, 1.0, NAN, NAN]);
     }
 
     #[test]
@@ -2610,6 +2610,16 @@ mod tests {
     }
 
     #[test]
+    fn test_limitk_inf() {
+        let q = r#"sort(limitk(inf, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"#;
+        let mut r1 = make_result(&[10.0, 10.0, 10.0, 10.0, 10.0, 10.0]);
+        r1.metric_name.set_tag("foo", "bar");
+        let mut r2 = make_result(&[6.666666666666667, 8.0, 9.333333333333334, 10.666666666666666, 12.0, 13.333333333333334]);
+        r2.metric_name.set_tag("baz", "sss");
+        test_query(q, vec![r1, r2]);
+    }
+
+    #[test]
     fn any() {
         let q = r##"any(label_set(10, "#__name__", "x", "foo", "bar") or label_set(time()/150, "__name__", "y", "baz", "sss"))"##;
         let mut r = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
@@ -2793,7 +2803,7 @@ mod tests {
     }
 
     #[test]
-    fn topk__NaN() {
+    fn topk_NaN() {
         let q = r##"sort(topk(NaN, label_set(10, "#foo", "bar") or label_set(time()/150, "baz", "sss")))"##;
         test_query(q, vec![]);
     }
@@ -2985,7 +2995,7 @@ mod tests {
     }
 
     #[test]
-    fn quantile__NaN() {
+    fn quantile_NaN() {
         let q = r##"quantile(NaN, label_set(10, "#foo", "bar") or label_set(time()/150, "baz", "sss"))"##;
         test_query(q, vec![]);
     }
@@ -3053,6 +3063,16 @@ mod tests {
         let mut r2 = make_result(&[1300_f64, 1300.0, 1300.0, 1300.0, 1300.0, 1300.0]);
         r2.metric_name.set_tag("foo", "bar");
         test_query(q, vec![r1, r2]);
+    }
+
+    #[test]
+    fn range_trim_spikes() {
+        let q = "range_trim_spikes(0.2, time())";
+        let mut r = QueryResult::default();
+        r.metric_name = MetricName::default();
+        r.values = vec![f64::NAN, 1200_f64, 1400_f64, 1600_f64, 1800_f64, f64::NAN];
+        r.timestamps = Vec::from(TIMESTAMPS_EXPECTED);
+        test_query(q, vec![r])
     }
 
     #[test]
@@ -3173,14 +3193,17 @@ mod tests {
         r.metric_name.set_metric_group("foo");
         test_query(q, vec![r]);
 
-        assert_result_eq("rate(2000-time())", &[5.5, 4.5, 3.5, 2.5, 1.5, 0.5]);
+        assert_result_eq("rate(2000-time())", &[5.0, 4.0, 3.0, 2.0, 1.0, 0.0]);
 
-        assert_result_eq("rate((2000-time())[100s])", &[5.5, 4.5, 3.5, 2.5, 1.5, 0.5]);
+        assert_result_eq("rate((2000-time())[100s])", &[5.0, 4.0, 3.0, 2.0, 1.0, 0.0]);
 
-        assert_result_eq("rate((2000-time())[100s:100s])", &[0_f64, 0.0, 6.5, 4.5, 2.5, 0.5]);
+        assert_result_eq("rate((2000-time())[100s:100s])", &[0_f64, 0.0, 6.0, 4.0, 2.0, 0.0]);
+
+        let q = "rate((2000-time())[100s:100s] offset 100s)";
+        assert_result_eq(q, &[0.0, 0.0, 7.0, 5.0, 3.0, 1.0]);
 
         let q = "rate((2000-time())[100s:100s] offset 100s)[:] offset 100s";
-        assert_result_eq(q, &[0_f64, 0.0, 0.0, 3.5, 5.5, 3.5]);
+        assert_result_eq(q, &[0.0, 0.0, 0.0, 7.0, 5.0, 3.0]);
 
         test_query("rate({}[:5s])", vec![]);
     }

@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use metricsql::functions::RollupFunction;
 
-use crate::{MetricName, Timeseries};
+use crate::types::{MetricName, Timeseries};
 use crate::histogram::{Histogram, NonZeroBuckets};
 
 #[derive(Clone)]
@@ -22,7 +22,7 @@ impl TimeseriesMap {
         shared_timestamps: &Arc<Vec<i64>>,
         mn_src: &MetricName) -> Option<TimeseriesMap> {
 
-        if !TimeseriesMap::is_eligible_function(func) {
+        if !is_eligible_function(func) {
             return None;
         }
 
@@ -35,7 +35,7 @@ impl TimeseriesMap {
         if !keep_metric_names {
             origin.metric_name.reset_metric_group()
         }
-        origin.timestamps = shared_timestamps.clone();
+        origin.timestamps = Arc::clone(&shared_timestamps);
         origin.values = values;
         let m: HashMap<String, Timeseries> = HashMap::new();
 
@@ -44,10 +44,6 @@ impl TimeseriesMap {
             hist: Histogram::new(),
             series: m
         })
-    }
-
-    pub fn is_eligible_function(func: &RollupFunction) -> bool {
-        *func == RollupFunction::HistogramOverTime || *func == RollupFunction::QuantilesOverTime
     }
 
     pub fn update(&mut self, value: f64) {
@@ -85,4 +81,9 @@ impl TimeseriesMap {
     pub fn non_zero_buckets(&mut self) -> NonZeroBuckets {
         self.hist.non_zero_buckets()
     }
+}
+
+fn is_eligible_function(func: &RollupFunction) -> bool {
+    use RollupFunction::*;
+    matches!(*func, HistogramOverTime | QuantilesOverTime)
 }

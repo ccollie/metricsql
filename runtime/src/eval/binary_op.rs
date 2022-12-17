@@ -14,7 +14,8 @@ use metricsql::ast::{
 
 
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::timeseries::Timeseries;
+use crate::types::Timeseries;
+
 
 pub(crate) struct BinaryOpFuncArg<'a> {
     be: &'a BinaryOpExpr,

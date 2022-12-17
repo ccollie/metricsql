@@ -14,11 +14,11 @@ use crate::context::Context;
 use crate::eval::{create_evaluator, eval_number, ExprEvaluator};
 use crate::eval::binary_op::{BinaryOpFn, BinaryOpFuncArg, get_binary_op_handler};
 use crate::eval::traits::Evaluator;
-use crate::{EvalConfig, metric_name, Timeseries};
+use crate::{EvalConfig, Timeseries};
 use crate::functions::types::AnyValue;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 
-use metric_name::Tag;
+use crate::types::Tag;
 use metricsql::prelude::trim_filters_by_group_modifier;
 
 pub struct BinaryEvaluator {
@@ -193,14 +193,14 @@ fn to_vector(ec: &EvalConfig, value: AnyValue) -> RuntimeResult<Vec<Timeseries>>
 
 fn both_operands_are_scalar(be: &BinaryOpExpr) -> bool {
     match (&be.left.return_value(), &be.right.return_value()) {
-        (ReturnValue::Scalar, ReturnValue::Scalar) => true,
+        (ReturnType::Scalar, ReturnType::Scalar) => true,
         _ => false
     }
 }
 
 fn both_operands_are_vectors(be: &BinaryOpExpr) -> bool {
     match (&be.left.return_value(), &be.right.return_value()) {
-        (ReturnValue::InstantVector, ReturnValue::InstantVector) => true,
+        (ReturnType::InstantVector, ReturnType::InstantVector) => true,
         _ => false
     }
 }

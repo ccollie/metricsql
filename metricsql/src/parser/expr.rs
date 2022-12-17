@@ -11,7 +11,7 @@ use crate::ast::{
     JoinModifier,
     JoinModifierOp,
     NumberExpr,
-    ReturnValue,
+    ReturnType,
     StringExpr,
     StringTokenType
 };
@@ -153,7 +153,7 @@ fn balance(lhs: Expression,
            group_modifier: Option<GroupModifier>,
            join_modifier: Option<JoinModifier>,
            return_bool: bool) -> ParseResult<Expression> {
-    use ReturnValue::*;
+    use ReturnType::*;
 
     fn validate_scalar_op(
         left: &Expression,
@@ -324,8 +324,8 @@ fn parse_unary_minus_expr(p: &mut Parser) -> ParseResult<Expression> {
     span = span.cover(expr.span());
 
     match expr.return_value() {
-        ReturnValue::InstantVector |
-        ReturnValue::Scalar => {}
+        ReturnType::InstantVector |
+        ReturnType::Scalar => {}
         _ => {
             let msg = format!("unary expression only allowed on expressions of type scalar or instant vector");
             return Err(unexpected(p, "", &msg, Some(span)));
@@ -372,10 +372,10 @@ pub(super) fn parse_string_expr(p: &mut Parser) -> ParseResult<StringExpr> {
         }
 
         // composite StringExpr like `"s1" + "s2"`, `"s" + m()` or `"s" + m{}` or `"s" + unknownToken`.
-
         tok = p.current_token()?;
 
         if tok.kind != OpPlus {
+            p.bump();
             break;
         }
 

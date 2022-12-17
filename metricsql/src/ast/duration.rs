@@ -1,6 +1,6 @@
 use std::fmt;
 use std::fmt::{Display, Formatter};
-use crate::ast::{Expression, ExpressionNode, ReturnValue};
+use crate::ast::{Expression, ExpressionNode, ReturnType};
 use crate::lexer::{duration_value, TextSpan};
 use crate::parser::{ParseError, ParseResult};
 use serde::{Serialize, Deserialize};
@@ -55,8 +55,8 @@ impl DurationExpr {
         }
     }
 
-    pub fn return_value(&self) -> ReturnValue {
-        ReturnValue::Scalar
+    pub fn return_value(&self) -> ReturnType {
+        ReturnType::Scalar
     }
 }
 

@@ -1,6 +1,6 @@
 use std::fmt;
 use std::fmt::{Display, Formatter};
-use crate::ast::{BExpression, Expression, ExpressionNode, ReturnValue};
+use crate::ast::{BExpression, Expression, ExpressionNode, ReturnType};
 use crate::ast::misc::write_expression_list;
 use crate::functions::TransformFunction;
 use crate::lexer::TextSpan;
@@ -30,7 +30,7 @@ impl ParensExpr {
         self.expressions.is_empty()
     }
 
-    pub fn return_value(&self) -> ReturnValue {
+    pub fn return_value(&self) -> ReturnType {
         if self.expressions.len() == 1 {
             return self.expressions[0].return_value();
         }

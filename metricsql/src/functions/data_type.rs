@@ -1,8 +1,7 @@
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
-use crate::ast::ReturnValue;
+use crate::ast::ReturnType;
 
-use crate::error::Error;
 use crate::parser::ParseError;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
@@ -21,17 +20,14 @@ impl DataType {
         *self == DataType::Scalar
     }
 
-    /// Returns true if this `ReturnKind` is a valid sub-expression of an
+    /// Returns true if this `DataType` is a valid sub-expression of an
     /// operator, false if not.
     pub fn is_operator_valid(&self) -> bool {
-        match self {
+        matches!(self,
             DataType::String |
             DataType::Scalar |
-            DataType::InstantVector => true,
-            _ => false
-        }
+            DataType::InstantVector)
     }
-
 }
 
 impl Display for DataType {
@@ -46,29 +42,30 @@ impl Display for DataType {
     }
 }
 
-impl TryFrom<ReturnValue> for DataType {
+impl TryFrom<ReturnType> for DataType {
     type Error = ParseError;
 
-    fn try_from(value: ReturnValue) -> Result<Self, Self::Error> {
+    fn try_from(value: ReturnType) -> Result<Self, Self::Error> {
         match value {
-            ReturnValue::Unknown(_) => Err(ParseError::General(String::from("Unknown DataType"))),
-            ReturnValue::Scalar => Ok(DataType::Scalar),
-            ReturnValue::String => Ok(DataType::String),
-            ReturnValue::InstantVector => Ok(DataType::InstantVector),
-            ReturnValue::RangeVector => Ok(DataType::RangeVector)
+            ReturnType::Unknown(_) => Err(ParseError::General(String::from("Unknown DataType"))),
+            ReturnType::Scalar => Ok(DataType::Scalar),
+            ReturnType::String => Ok(DataType::String),
+            ReturnType::InstantVector => Ok(DataType::InstantVector),
+            ReturnType::RangeVector => Ok(DataType::RangeVector)
         }
     }
 }
 
 impl FromStr for DataType {
-    type Err = Error;
+    type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "rangevector" => Ok(DataType::RangeVector),
             "instantvector" => Ok(DataType::InstantVector),
+            "string" => Ok(DataType::String),
             "scalar" => Ok(DataType::Scalar),
-            _ => Err(Error::new(format!("Invalid data type name: {}", s)))
+            _ => Err(ParseError::General(format!("Invalid data type name: {}", s)))
         }
     }
 }

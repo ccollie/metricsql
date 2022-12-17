@@ -2,7 +2,7 @@
 mod tests {
     use std::sync::Arc;
     use crate::{marshal_timeseries_fast, test_metric_names_equal, test_rows_equal, test_timeseries_equal, Timeseries};
-    use crate::timeseries::{unmarshal_fast_no_timestamps, unmarshal_timeseries_fast};
+    use crate::{unmarshal_fast_no_timestamps, unmarshal_timeseries_fast};
 
     #[test]
     fn test_timeseries_marshal_unmarshal_fast_single() {

@@ -9,7 +9,7 @@ use metricsql::ast::{Expression, LabelFilter};
 use metricsql::parser::parse;
 
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::traits::{Timestamp, TimestampTrait};
+use crate::types::{Timestamp, TimestampTrait};
 
 /// These values prevent from overflow when storing msec-precision time in int64.
 const MIN_TIME_MSECS: i64  = 0;
@@ -90,8 +90,8 @@ impl Display for Deadline {
 }
 
 
-/// join_tag_filterss adds etfs to every src filter and returns the result.
-pub(crate) fn join_tag_filterss<'a>(src: &'a Vec<Vec<LabelFilter>>, etfs: &'a Vec<Vec<LabelFilter>>) -> Cow<'a, Vec<Vec<LabelFilter>>> {
+/// join_tag_filter_list adds etfs to every src filter and returns the result.
+pub(crate) fn join_tag_filter_list<'a>(src: &'a Vec<Vec<LabelFilter>>, etfs: &'a Vec<Vec<LabelFilter>>) -> Cow<'a, Vec<Vec<LabelFilter>>> {
     if src.len() == 0 {
         return Cow::Borrowed::<'a>(etfs)
     }

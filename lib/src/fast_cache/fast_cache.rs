@@ -50,7 +50,7 @@ const SMALL_CACHE_SIZE_MIN: usize = 4 * 1024 * 1024;
 
 /// Stats represents cache stats.
 ///
-/// Use Cache.UpdateStats for obtaining fresh stats from the cache.
+/// Use Cache.update_stats for obtaining fresh stats from the cache.
 #[derive(Default)]
 pub struct Stats {
     /// get_calls is the number of Get calls.
@@ -62,7 +62,7 @@ pub struct Stats {
     /// misses is the number of cache misses.
     pub misses: u64,
 
-    /// Collisions is the number of cache collisions.
+    /// collisions is the number of cache collisions.
     ///
     /// Usually the number of collisions must be close to zero.
     /// High number of collisions suggest something wrong with cache.
@@ -73,16 +73,16 @@ pub struct Stats {
     /// Corruptions may occur when corrupted cache is loaded from file.
     pub corruptions: u64,
 
-    /// EntriesCount is the current number of entries in the cache.
+    /// entries_count is the current number of entries in the cache.
     pub entries_count: u64,
 
-    /// BytesSize is the current size of the cache in bytes.
+    /// bytes_size is the current size of the cache in bytes.
     pub bytes_size: u64,
 
-    /// MaxBytesSize is the maximum allowed size of the cache in bytes (aka capacity).
+    /// max_bytes_size is the maximum allowed size of the cache in bytes (aka capacity).
     pub max_bytes_size: u64,
 
-    /// GetBigCalls is the number of get_big calls.
+    /// get_big_calls is the number of get_big calls.
     pub get_big_calls: u64,
 
     /// the number of set_big calls.
@@ -91,7 +91,7 @@ pub struct Stats {
     /// the number of calls to set_big with too big key.
     pub too_big_key_errors: u64,
 
-    /// InvalidMetavalueErrors is the number of calls to get_big resulting
+    /// invalid_metavalue_errors is the number of calls to get_big resulting
     /// to invalid meta value.
     pub invalid_metavalue_errors: u64,
 
@@ -123,7 +123,7 @@ impl Stats {
     }
 }
 
-/// BigStats contains stats for GetBig/SetBig methods.
+/// BigStats contains stats for get_big/set_big methods.
 #[derive(Default, Debug)]
 pub struct BigStats {
     /// get_big_calls is the number of GetBig calls.

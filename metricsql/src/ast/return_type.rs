@@ -14,7 +14,7 @@ pub struct UnknownCause {
 
 /// A predicted return datatype
 #[derive(Debug, Clone)]
-pub enum ReturnValue {
+pub enum ReturnType {
     Unknown(Box<UnknownCause>),
     Scalar,
     String,
@@ -22,12 +22,12 @@ pub enum ReturnValue {
     RangeVector
 }
 
-impl ReturnValue {
+impl ReturnType {
     pub fn unknown<S>(message: S, expression: Expression) -> Self
         where
             S: Into<String>
     {
-        ReturnValue::Unknown(Box::new(UnknownCause {
+        ReturnType::Unknown(Box::new(UnknownCause {
             message: message.into(),
             expression
         }))
@@ -37,34 +37,36 @@ impl ReturnValue {
     /// operator, false if not.
     pub fn is_operator_valid(&self) -> bool {
         match self {
-            ReturnValue::Scalar |
-            ReturnValue::String |
-            ReturnValue::RangeVector | // ???????
-            ReturnValue::InstantVector => true,
+            ReturnType::Scalar |
+            ReturnType::String |
+            ReturnType::RangeVector | // ???????
+            ReturnType::InstantVector => true,
             _ => false
         }
     }
 
     pub fn is_scalar(&self) -> bool {
         match self {
-            ReturnValue::Scalar => true,
+            ReturnType::Scalar => true,
             _ => false
         }
     }
 }
 
-impl Display for ReturnValue {
+impl Display for ReturnType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        use ReturnType::*;
+
         let s: String;
         let name = match self {
-            ReturnValue::Unknown(u) => {
+            Unknown(u) => {
                 s = format!("<unknown> - {} : {:?}", u.message, u.expression);
                 &s
             },
-            ReturnValue::Scalar => "Scalar",
-            ReturnValue::String => "String",
-            ReturnValue::InstantVector => "InstantVector",
-            ReturnValue::RangeVector => "RangeVector"
+            Scalar => "Scalar",
+            String => "String",
+            InstantVector => "InstantVector",
+            RangeVector => "RangeVector"
         };
         write!(f, "{}", name)?;
         Ok(())

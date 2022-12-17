@@ -32,7 +32,7 @@ pub enum ParseError {
     General(String),
     #[error("Invalid regex: {0}")]
     InvalidRegex(String),
-    #[error("{0}")]
+    #[error("Unknown function {0}")]
     InvalidFunction(String),
     #[error("{0}")]
     InvalidExpression(String),

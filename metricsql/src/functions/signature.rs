@@ -19,7 +19,7 @@
 //! and return types of functions in DataFusion.
 use crate::functions::data_type::DataType;
 use crate::functions::MAX_ARG_COUNT;
-use crate::parser::ParseError;
+use crate::parser::{ParseError, ParseResult};
 
 ///A function's volatility, which defines the functions eligibility for certain optimizations
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
@@ -58,9 +58,9 @@ pub enum TypeSignature {
 
 impl TypeSignature {
     /// Validate argument counts matches the `signature`.
-    pub fn validate_arg_count(&self, name: &str, arg_len: usize) -> Result<(), ParseError> {
+    pub fn validate_arg_count(&self, name: &str, arg_len: usize) -> ParseResult<()> {
 
-        fn expect_arg_count(name: &str, arg_len: usize, expected: usize) -> Result<(), ParseError> {
+        fn expect_arg_count(name: &str, arg_len: usize, expected: usize) -> ParseResult<()> {
             if arg_len != expected {
                 return Err(ParseError::ArgumentError(format!(
                     "The function {} expected {} arguments but received {}",
@@ -72,7 +72,7 @@ impl TypeSignature {
             Ok(())
         }
 
-        fn expect_min_args(name: &str, args_len: usize, min: usize) -> Result<(), ParseError> {
+        fn expect_min_args(name: &str, args_len: usize, min: usize) -> ParseResult<()> {
             if args_len < min {
                 return Err(ParseError::ArgumentError(format!(
                     "The function {} expected a minimum of {} arguments but received {}",
@@ -91,7 +91,7 @@ impl TypeSignature {
             TypeSignature::Variadic(valid_types, min) => {
                 if valid_types.len() < *min || arg_len > valid_types.len() {
                     return Err(ParseError::ArgumentError(format!(
-                        "The function {} expected between {} and {} argument, but received {}",
+                        "The function {} expects between {} and {} arguments, but received {}",
                         name,
                         min,
                         valid_types.len(),

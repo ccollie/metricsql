@@ -20,43 +20,51 @@ fn addParseErrf<T: Display>(&mut self, range: TextRange, format: String, args: &
 p.addParseErr(range, fmt.Errorf(format, args...))
 }
 
-// expectType checks the type of the node and raises an error if it
-// is not of the expected type.
-fn expectType(p: &Parser, node: Node, want: ValueType, context: string) {
+/// expect_type checks the type of the node and raises an error if it
+/// is not of the expected type.
+fn expect_type(p: &Parser, node: Node, want: ValueType, context: &str) {
     let t = p.checkAST(node);
     if t != want {
-        p.addParseErrf(node.range(), "expected type {} in {}, got {}", DocumentedType(want), context, DocumentedType(t))
+        p.addParseErrf(node.span, "expected type {} in {}, got {}", DocumentedType(want), context, DocumentedType(t))
     }
 }
 
-// checkAST checks the sanity of the provided AST. This includes type checking.
-fn checkAST(p: &mut Parser, node: &Expression) -> ReturnType {
+/// check_ast checks the sanity of the provided AST. This includes type checking.
+fn check_ast(p: &mut Parser, node: &Expression) -> ReturnType {
+    use Expression::*;
     match node {
         Expression::Function(fe) => fe.return_value(),
         Expression::Aggregation(ae) => ae.return_value(),
         Expression::With(we) => we.return_value(),
     }
-    // For expressions the type is determined by their Type function.
+
+    // opRange returns the TextRange of the operator part of the BinaryOpExpr.
+    // This is made a function instead of a variable, so it is lazily evaluated on demand.
+    fn op_range(n: BinaryOpExpr, r: TextRange) {
+        // Remove whitespace at the beginning and end of the range.
+        let mut start = n.left.span.end;
+        let mut end = n.right.span.start;
+        for r.start = n.left.span.end; isSpace(rune(p.lex.input[r.Start])); start += 1 {
+        }
+        for r.End = n.RHS.PositionRange().Start - 1; isSpace(rune(p.lex.input[r.End])); r.End-- {
+        }
+        return
+    }
+    // For expressions the type is determined by their return_value function.
     // Lists do not have a type but are not invalid either.
 
     // Recursively check correct typing for child nodes and raise
     // errors in case of bad typing.
     match node {
-        Expression::String(s) => {
-            s.return_value()
-        }
-        Expression::Number(n) => {
-            n.return_value()
-        }
-        Expression::Duration(d) => {
-            d.return_value()
-        }
+        Expression::String(_) |
+        Expression::Number(_) |
+        Expression::Duration(_) => node.return_value(),
         // todo: With
         Expression::Parens(pe) => {
             for e in pe.expressions.iter() {
-                let ty = checkAST(p,e)?;
+                let ty = check_ast(p, e)?;
                 if ty == ReturnType::Unknown {
-                    p.addParseErrf(e.range(), "expression must have a valid expression type but got {:?}", ty)
+                    p.addParseErrf(e.span, "expression must have a valid expression type but got {:?}", ty)
                 }
             }
             return Ok(pe.return_value())
@@ -66,18 +74,18 @@ fn checkAST(p: &mut Parser, node: &Expression) -> ReturnType {
             let nargs = fe.args.len();
             if n.Func.Variadic == 0 {
                 if nargs != fe.args.len() {
-                    p.addParseErrf(n.range(), "expected {} argument(s) in call to {}, got {}", 
+                    p.addParseErrf(n.span, "expected {} argument(s) in call to {}, got {}", 
                                    nargs, fe.name, fe.args.len())
                 }
             } else {
                 let na = nargs - 1;
                 if na > fe.args.len() {
-                    p.addParseErrf(n.range(), "expected at least {} argument(s) in call to {}, got {}",
+                    p.addParseErrf(n.span, "expected at least {} argument(s) in call to {}, got {}",
                                    na, fe.name, fe.args.len())
                 } else {
                     let nargsmax = na + fe.func.Variadic;
                     if  n.Func.Variadic > 0 && nargsmax < fe.args.len() {
-                        p.addParseErrf(n.range(), "expected at most {} argument(s) in call to {}, got {}",
+                        p.addParseErrf(n.span, "expected at most {} argument(s) in call to {}, got {}",
                                        nargsmax, n.name, fe.args.len())
                     }
                 }
@@ -91,14 +99,14 @@ fn checkAST(p: &mut Parser, node: &Expression) -> ReturnType {
                     }
                     i = len(n.Func.ArgTypes) - 1
                 }
-                p.expectType(arg, n.Func.ArgTypes[i], fmt.Sprintf("call to function {}", fe.name))
+                p.expectType(arg, n.Func.ArgTypes[i], format!("call to function {}", fe.name))
             }
         }
 
     Expression::Rollup(re) => {
-        let ty = checkAST(&mut p, &re.expr);
+        let ty = check_ast(&mut p, &re.expr);
         if ty != ValueTypeVector {
-            p.addParseErrf(n.range(), "subquery is only allowed on instant vector, got {} instead", ty)
+            p.addParseErrf(n.span, "subquery is only allowed on instant vector, got {} instead", ty)
         }
         // todo: window, at, offset
     }
@@ -107,7 +115,8 @@ fn checkAST(p: &mut Parser, node: &Expression) -> ReturnType {
         // detect duplicate name
         let name_count = me.label_matchers.find(|x| x.label == "__name__").count();
         if name_count > 1 {
-            p.addParseErrf(n.range(), "metric name must not be set twice: {} or {}", n.name, m.value)
+            p.addParseErrf(n.span
+                           , "metric name must not be set twice: {} or {}", n.name, m.value)
         }
 
         if !name.is_empty() {
@@ -115,8 +124,8 @@ fn checkAST(p: &mut Parser, node: &Expression) -> ReturnType {
             // set outside the braces. This checks if the name has already been set
             // previously.
             for m in me.label_matchers.iter() {
-                if m.name == labels.MetricName {
-                    p.addParseErrf(n.range(), "metric name must not be set twice: {} or {}", n.name, m.value)
+                if m.name == labels.metric_name {
+                    p.addParseErrf(n.span, "metric name must not be set twice: {} or {}", n.name, m.value)
                 }
             }
 
@@ -129,20 +138,18 @@ fn checkAST(p: &mut Parser, node: &Expression) -> ReturnType {
         // implicit selection of all metrics (e.g. by a typo).
         let mut not_empty = false;
         for lm in n.label_matchers.iter() {
-            if !lm.Matches("") {
+            if !lm.matches("") {
                 not_empty = true;
                 break
             }
         }
         if !not_empty {
-            p.addParseErrf(n.range(), "vector selector must contain at least one non-empty matcher")
+            p.addParseErrf(n.span, "vector selector must contain at least one non-empty matcher")
         }
-
-    Number | String  => {}
 // Nothing to do for terminals.
 
 default:
-p.addParseErrf(n.range(), "unknown node type: %T", node)
+p.addParseErrf(n.span, "unknown node type: %T", node)
 }
 return
 }
@@ -151,7 +158,7 @@ return
 
 // it is already ensured by parseDuration func that there never will be a zero offset modifier
 if *orgoffsetp != 0 {
-p.addParseErrf(e.range(), "offset may not be set multiple times")
+p.addParseErrf(e.span, "offset may not be set multiple times")
 } else if orgoffsetp != nil {
 *orgoffsetp = offset
 }
@@ -161,8 +168,9 @@ p.addParseErrf(e.range(), "offset may not be set multiple times")
 
 
 pub fn check_binary_expr(p: &mut Parser, be: &BinaryOpExpr) -> ParseResult<ReturnType> {
-    let lt = checkAST(p, &be.left);
-    let rt = checkAST(p, &be.right);
+    use ReturnValue::*;
+    let lt = check_ast(p, &be.left);
+    let rt = check_ast(p, &be.right);
 
     let mut both_vectors = false;
 
@@ -181,8 +189,16 @@ pub fn check_binary_expr(p: &mut Parser, be: &BinaryOpExpr) -> ParseResult<Retur
         (InstantVector, Scalar) => {
 
         },
+        (String, String) => {
+            if be.op != BinaryOp::Add {
+                return ReturnValue::unknown(
+                    format!("Operator {} is not valid for (String, String)", be.op),
+                    self.clone().cast()
+                );
+            }
+        },
         _ => {
-            p.addParseErrf(n.left.range(), "binary expression must contain only scalar and instant vector types")
+            p.addParseErrf(n.left.span, "binary expression must contain only scalar and instant vector types")
         }
     }
 
@@ -228,22 +244,22 @@ pub fn check_binary_expr(p: &mut Parser, be: &BinaryOpExpr) -> ParseResult<Retur
 
 
     if !both_vectors && be.join_modifier.is_some() {
-        p.addParseErrf(be.range(), "vector matching only allowed between instant vectors");
+        p.addParseErrf(be.span, "vector matching only allowed between instant vectors");
     } else {
         // Both operands are Vectors.
         if be.op.is_set_operator() {
             if be.cardinality == CardOneToMany || be.cardinality == CardManyToOne {
-                p.addParseErrf(be.range(), "no grouping allowed for {:?} operation", be.op)
+                p.addParseErrf(be.span, "no grouping allowed for {:?} operation", be.op)
             }
             if be.cardinality != CardManyToMany {
-                p.addParseErrf(be.range(), "set operations must always be many-to-many")
+                p.addParseErrf(be.span, "set operations must always be many-to-many")
             }
         }
     }
 
     if !both_vectors {
         if be.op.is_set_operator() {
-            p.addParseErrf(be.range(), "set operator {} not allowed in binary scalar expression", n.op)
+            p.addParseErrf(be.span, "set operator {} not allowed in binary scalar expression", be.op)
         }
     }
 

@@ -22,7 +22,7 @@ mod tests {
 
 	#[test]
 	fn single_test() {
-		same(r#"foo @ 123.45"#);
+		another("-0o12", "-10");
 	}
 
 	#[test]
@@ -87,7 +87,7 @@ mod tests {
 		another("-0x3b", "-59");
 		another("+0X3B", "59");
 		another("0b1011", "11");
-		another("073", "59");
+		same("073");
 		another("-0o12", "-10");
 		another("-.2", "-0.2");
 		another("-.2E-2", "-0.002");
@@ -498,19 +498,19 @@ mod tests {
 		another(r#"with (f(x)=1+f(x)) f(foo{bar="baz"})"#, r#"1 + f(foo{bar="baz"})"#);
 		another("with (a=foo, y=bar, f(a)= a+a+y) f(x)", "(x + x) + bar");
 		another(r#"with (f(a, b) = m{a, b}) f({a="x", b="y"}, {c="d"})"#, r#"m{a="x", b="y", c="d"}"#);
-		another(r#"with (xx={a="x"}, f(a, b) = m{a, b}) f({xx, b="y"}, {c="d"})`, `m{a="x", b="y", c="d"}`)
-			another(r#"with (x() = {b="c"}) foo{x}`, `foo{b="c"}`)
-			another(r#"with (f(x)=x{foo="bar"} offset 5m) f(m offset 10m)`, `(m{foo="bar"} offset 10m) offset 5m`)
-			another(r#"with (f(x)=x{foo="bar",bas="a"}[5m]) f(m[10m] offset 3s)`, `(m{foo="bar", bas="a"}[10m] offset 3s)[5m]`)
-			another(r#"with (f(x)=x{foo="bar"}[5m] offset 10m) f(m{x="y"})`, `m{x="y", foo="bar"}[5m] offset 10m`)
-			another(r#"with (f(x)=x{foo="bar"}[5m] offset 10m) f({x="y", foo="bar", foo="bar"})`, `{x="y", foo="bar"}[5m] offset 10m`)
-			another("with (f(m, x)=m{x}[5m] offset 10m) f(foo, {})", "foo[5m] offset 10m")
-			another(r#"with (f(m, x)=m{x, bar="baz"}[5m] offset 10m) f(foo, {})`, `foo{bar="baz"}[5m] offset 10m`)
-			another("with (f(x)=x[5m] offset 3s) f(foo[3m]+bar)", "(foo[3m] + bar)[5m] offset 3s")
-			another("with (f(x)=x[5m:3s] oFFsEt 1.5m) f(sum(s) by (a,b))", "(sum(s) by (a, b))[5m:3s] offset 1.5m")
-			another(r#"with (x="a", y=x) y+"bc"`, `"abc"`)
-			another(r#"with (x="a", y="b"+x) "we"+y+"z"+f()`, `"webaz" + f()`)
-			another(r#"with (f(x) = m{foo=x+"y", bar="y"+x, baz=x} + x) f("qwe")"#,
+		another(r#"with (xx={a="x"}, f(a, b) = m{a, b}) f({xx, b="y"}, {c="d"})"#, r#"m{a="x", b="y", c="d"}"#);
+		another(r#"with (x() = {b="c"}) foo{x}"#, r#"foo{b="c"}"#);
+		another(r#"with (f(x)=x{foo="bar"} offset 5m) f(m offset 10m)"#, r#"(m{foo="bar"} offset 10m) offset 5m"#);
+		another(r#"with (f(x)=x{foo="bar",bas="a"}[5m]) f(m[10m] offset 3s)"#, r#"(m{foo="bar", bas="a"}[10m] offset 3s)[5m]"#);
+		another(r#"with (f(x)=x{foo="bar"}[5m] offset 10m) f(m{x="y"})"#, r#"m{x="y", foo="bar"}[5m] offset 10m"#);
+		another(r#"with (f(x)=x{foo="bar"}[5m] offset 10m) f({x="y", foo="bar", foo="bar"})"#, r#"{x="y", foo="bar"}[5m] offset 10m"#);
+		another("with (f(m, x)=m{x}[5m] offset 10m) f(foo, {})", "foo[5m] offset 10m");
+		another(r#"with (f(m, x)=m{x, bar="baz"}[5m] offset 10m) f(foo, {})"#, r#"foo{bar="baz"}[5m] offset 10m"#);
+		another("with (f(x)=x[5m] offset 3s) f(foo[3m]+bar)", "(foo[3m] + bar)[5m] offset 3s");
+		another("with (f(x)=x[5m:3s] oFFsEt 1.5m) f(sum(s) by (a,b))", "(sum(s) by (a, b))[5m:3s] offset 1.5m");
+		another(r#"with (x="a", y=x) y+"bc""#, r#""abc""#);
+		another(r#"with (x="a", y="b"+x) "we"+y+"z"+f()"#, r#""webaz" + f()"#);
+		another(r#"with (f(x) = m{foo=x+"y", bar="y"+x, baz=x} + x) f("qwe")"#,
 							r#"m{foo="qwey", bar="yqwe", baz="qwe"} + "qwe""#);
 		another("with (f(a)=a) f", "f");
 		another(r#"with (f\q(a)=a) f\q"#, "fq");
@@ -526,12 +526,7 @@ mod tests {
 		another(r#"with (
 					x = {foo="bar"},
 					q = m{x, y="1"},
-					f(x) =
-					with (
-					z(y) = x + y * q
-					)
-					z(foo) / f(x)
-					)
+					f(x) = with ( z(y) = x + y * q ) z(foo) / f(x) )
 					f(a)"#, r#"(a + (foo * m{foo="bar", y="1"})) / f(a)"#);
 	}
 	
@@ -553,8 +548,8 @@ mod tests {
 			f(x, y) = x2(x) + x*y + x2(y)
 			)
 			f(a, 3)
-			`, `((a ^ 2) + (a * 3)) + 9`)
-			another(`WITH (
+			"#, r#"((a ^ 2) + (a * 3)) + 9"#);
+		another(r#"WITH (
 			x2(x) = x^2,
 			f(x, y) = x2(x) + x*y + x2(y)
 			)
@@ -564,9 +559,9 @@ mod tests {
 				commonFilters = {instance="foo"},
 				timeToFuckup(currv, maxv) = (maxv - currv) / rate(currv)
 				)
-				timeToFuckup(diskUsage{commonFilters}, maxDiskSize{commonFilters})`,
-				`(maxDiskSize{instance="foo"} - diskUsage{instance="foo"}) / rate(diskUsage{instance="foo"})`)
-				another(r#"WITH (
+				timeToFuckup(diskUsage{commonFilters}, maxDiskSize{commonFilters})"#,
+				r#"(maxDiskSize{instance="foo"} - diskUsage{instance="foo"}) / rate(diskUsage{instance="foo"})"#);
+		another(r#"WITH (
 				commonFilters = {job="foo", instance="bar"},
 				sumRate(m, cf) = sum(rate(m{cf})) by (job, instance),
 				hitRate(hits, misses) = sumRate(hits, commonFilters) / (sumRate(hits, commonFilters) + sumRate(misses, commonFilters))
@@ -591,8 +586,10 @@ mod tests {
 	}
 
 	fn assert_invalid(s: &str) {
-		let e = parse(s);
-		assert!(e.is_err(), "expecting error expr when parsing {}", s)
+		match parse(s) {
+			Ok(_) => panic!("expecting error expr when parsing {}", s),
+			_ => {}
+		}
 	}
 
 	#[test]

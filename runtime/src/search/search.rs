@@ -9,8 +9,8 @@ use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use metricsql::ast::LabelFilter;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::search::Deadline;
-use crate::{Context, MetricName, Timeseries};
-use crate::traits::{Timestamp, TimestampTrait};
+use crate::{Context};
+use crate::types::{Timestamp, TimestampTrait, Timeseries, MetricName};
 
 pub type TimeRange = Range<Timestamp>;
 
@@ -33,7 +33,7 @@ impl MetricDataProvider for NullMetricDataProvider {
 pub type QueryableFunc = fn(ctx: &Context, sq: &SearchQuery) -> RuntimeResult<QueryResults>;
 
 // Querier calls f() with the given parameters.
-// fn (f QueryableFunc) Querier(ctx: &Context, mint: i64, maxt: i64) (Querier, error) {
+// fn (f QueryableFunc) Querier(ctx: &Context, mint: i64, maxt: i64) -> RuntimeResult<Querier> {
 // return f(ctx, mint, maxt)
 // }
 
@@ -67,7 +67,7 @@ pub struct SearchQuery {
     pub max_timestamp: Timestamp,
 
     /// Tag filters for the search query
-    pub tag_filterss: Vec<Vec<LabelFilter>>,
+    pub tag_filter_list: Vec<Vec<LabelFilter>>,
 
     /// The maximum number of time series the search query can return.
     pub max_metrics: usize
@@ -75,7 +75,7 @@ pub struct SearchQuery {
 
 impl SearchQuery {
     /// Create a new search query for the given args.
-    pub fn new(start: Timestamp, end: Timestamp, tag_filterss: Vec<Vec<LabelFilter>>, max_metrics: usize) -> Self {
+    pub fn new(start: Timestamp, end: Timestamp, tag_filter_list: Vec<Vec<LabelFilter>>, max_metrics: usize) -> Self {
         let mut max = max_metrics;
         if max_metrics <= 0 {
             max = 2e9 as usize
@@ -83,7 +83,7 @@ impl SearchQuery {
         SearchQuery{
             min_timestamp: start,
             max_timestamp: end,
-            tag_filterss,
+            tag_filter_list,
             max_metrics: max,
         }
     }
@@ -91,8 +91,8 @@ impl SearchQuery {
 
 impl Display for SearchQuery {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut a: Vec<String> = Vec::with_capacity(self.tag_filterss.len());
-        for tfs in &self.tag_filterss {
+        let mut a: Vec<String> = Vec::with_capacity(self.tag_filter_list.len());
+        for tfs in &self.tag_filter_list {
             a.push(filters_to_string(&tfs))
         }
         let start = self.min_timestamp.to_string_millis();

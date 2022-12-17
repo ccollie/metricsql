@@ -53,9 +53,7 @@ impl BuiltinFunction {
             return Ok(BuiltinFunction::Rollup(rf.unwrap()))
         }
 
-        Err(ParseError::InvalidFunction(
-            format!("Unknown function: {}", name)
-        ))
+        Err(ParseError::InvalidFunction(format!("rollup::{}", name)))
     }
 
     pub fn name(&self) -> String {

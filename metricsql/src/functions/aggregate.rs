@@ -6,7 +6,7 @@ use std::str::FromStr;
 
 use phf::phf_map;
 
-use crate::ast::ReturnValue;
+use crate::ast::ReturnType;
 use crate::functions::data_type::DataType;
 use crate::functions::MAX_ARG_COUNT;
 use crate::functions::signature::{Signature, Volatility};
@@ -86,8 +86,8 @@ impl AggregateFunction {
     self.to_string()
   }
 
-  pub fn return_type(&self) -> ReturnValue {
-    ReturnValue::InstantVector
+  pub fn return_type(&self) -> ReturnType {
+    ReturnType::InstantVector
   }
 }
 

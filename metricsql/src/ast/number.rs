@@ -2,7 +2,7 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use lib::hash_f64;
-use crate::ast::{Expression, ExpressionNode, ReturnValue};
+use crate::ast::{Expression, ExpressionNode, ReturnType};
 use crate::lexer::TextSpan;
 use serde::{Serialize, Deserialize};
 
@@ -19,8 +19,8 @@ impl NumberExpr {
     pub fn new<S: Into<TextSpan>>(v: f64, span: S) -> Self {
         NumberExpr { value: v, span: span.into() }
     }
-    pub fn return_value(&self) -> ReturnValue {
-        ReturnValue::Scalar
+    pub fn return_value(&self) -> ReturnType {
+        ReturnType::Scalar
     }
 }
 

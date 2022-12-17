@@ -2,10 +2,9 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use crate::ast::{
     Expression, ExpressionNode, LabelFilter,
-    LabelFilterExpr, LabelFilterOp, ReturnValue
+    LabelFilterExpr, LabelFilterOp, ReturnType
 };
 use crate::lexer::TextSpan;
-use crate::utils::escape_ident;
 use serde::{Serialize, Deserialize};
 
 
@@ -83,8 +82,8 @@ impl MetricExpr {
         });
     }
 
-    pub fn return_value(&self) -> ReturnValue {
-        ReturnValue::InstantVector
+    pub fn return_value(&self) -> ReturnType {
+        ReturnType::InstantVector
     }
 }
 
@@ -94,7 +93,7 @@ impl Display for MetricExpr {
         if !lfs.is_empty() {
             let lf = &lfs[0];
             if lf.label == "__name__" && !lf.is_negative() && !lf.is_regexp() {
-                write!(f, "{}", escape_ident(&lf.value))?;
+                write!(f, "{}", &lf.value)?;
                 lfs = &lfs[1..];
             }
         }

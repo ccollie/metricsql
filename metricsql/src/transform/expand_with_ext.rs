@@ -302,13 +302,17 @@ fn expand_metric_expr(expr: &Expression,
 fn expand_metric_labels(me: &MetricExpr,
                         was: &Vec<WithArgExpr>) -> ParseResult<MetricExpr> {
 
-    if me.label_filters.len() > 0 {
+    if me.label_filter_exprs.len() == 0 {
         // already expanded
         return Ok(me.clone());
     }
 
     // Populate me.label_filters
     let mut me_new = MetricExpr::default();
+    if me.label_filters.len() > 0 {
+        me_new.label_filters.extend_from_slice(&me.label_filters);
+    }
+
     for lfe in me.label_filter_exprs.iter() {
         if !lfe.is_init() {
             // Expand lfe.label into Vec<LabelFilter>.

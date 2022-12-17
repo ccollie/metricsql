@@ -16,6 +16,7 @@ use crate::exec::remove_empty_series;
 use crate::functions::{mode_no_nans, quantile, quantiles, skip_trailing_nans};
 use crate::functions::transform::vmrange_buckets_to_le;
 use crate::functions::types::AnyValue;
+use crate::functions::utils::float_to_int_bounded;
 use crate::histogram::{get_pooled_histogram, Histogram};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 
@@ -816,7 +817,7 @@ fn get_int_k(k: f64, k_max: usize) -> usize {
     if k.is_nan() {
         return 0;
     }
-    let kn = k as i64;
+    let kn = float_to_int_bounded(k);
     if kn < 0 {
         return 0;
     }
@@ -910,7 +911,9 @@ fn aggr_func_outliersk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> 
 }
 
 fn aggr_func_limitk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let mut limit = afa.args[0].get_int()?;
+    expect_arg_count(afa, 2)?;
+
+    let mut limit = get_int_number(afa, 0)?;
     if limit < 0 {
         limit = 0
     }
@@ -1140,4 +1143,24 @@ fn get_scalar(tfa: &AggrFuncArg, arg_num: usize) -> RuntimeResult<Vec<f64>> {
         }
         _ => return Err(RuntimeError::InvalidNumber("vector parameter expected ".to_string()))
     };
+}
+
+pub(crate) fn get_int_number(tfa: &AggrFuncArg, arg_num: usize) -> RuntimeResult<i64> {
+    let v = get_scalar(tfa, arg_num)?;
+    let mut n = 0;
+    if v.len() > 0 {
+        n = float_to_int_bounded(v[0]);
+    }
+    return Ok(n);
+}
+
+fn expect_arg_count(tfa: &AggrFuncArg, expected: usize) -> RuntimeResult<()> {
+    let arg_count = tfa.args.len();
+    if arg_count == expected {
+        return Ok(())
+    }
+    return Err(
+        RuntimeError::ArgumentError(
+            format!("unexpected number of args; got {}; want {}", arg_count, expected))
+    )
 }

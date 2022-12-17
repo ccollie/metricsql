@@ -14,8 +14,7 @@ use crate::eval::string::StringEvaluator;
 use crate::functions::types::AnyValue;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::search::Deadline;
-use crate::timeseries::Timeseries;
-use crate::traits::Timestamp;
+use crate::types::{Timestamp, Timeseries};
 
 use super::rollup::RollupEvaluator;
 use super::traits::{Evaluator, NullEvaluator};

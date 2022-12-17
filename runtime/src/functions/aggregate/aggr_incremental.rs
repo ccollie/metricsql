@@ -6,7 +6,7 @@ use phf::phf_map;
 use metricsql::ast::{AggrFuncExpr};
 
 use crate::runtime_error::RuntimeResult;
-use crate::timeseries::Timeseries;
+use crate::Timeseries;
 
 // todo: make it a trait ??
 pub(crate) struct IncrementalAggrFuncCallbacks {

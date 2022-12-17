@@ -3,13 +3,13 @@ use std::str::FromStr;
 
 use phf::phf_map;
 
-use crate::ast::ReturnValue;
-use crate::error::Error;
+use crate::ast::ReturnType;
 use crate::functions::MAX_ARG_COUNT;
 use crate::functions::signature::{Signature, Volatility};
 
 use super::data_type::DataType;
 use serde::{Serialize, Deserialize};
+use crate::parser::ParseError;
 
 // TODO: ttf
 
@@ -93,6 +93,7 @@ pub enum TransformFunction {
     RangeStdDev,
     RangeStdVar,
     RangeSum,
+    RangeTrimSpikes,
     RemoveResets,
     Round,
     Ru,
@@ -206,6 +207,7 @@ impl Display for TransformFunction {
             RangeStdDev => "range_stddev",
             RangeStdVar => "range_stdvar",
             RangeSum => "range_sum",
+            RangeTrimSpikes => "range_trim_spikes",
             RemoveResets => "remove_resets",
             Round => "round",
             Ru => "ru",
@@ -319,6 +321,7 @@ static REVERSE_MAP: phf::Map<&'static str, TransformFunction> = phf_map! {
 "range_stddev" => TransformFunction::RangeStdDev,
 "range_stdvar" => TransformFunction::RangeStdVar,
 "range_sum" => TransformFunction::RunningSum,
+"range_trim_spikes" => TransformFunction::RangeTrimSpikes,
 "remove_resets" => TransformFunction::RemoveResets,
 "round" => TransformFunction::Round,
 "ru" => TransformFunction::Ru,
@@ -352,14 +355,13 @@ static REVERSE_MAP: phf::Map<&'static str, TransformFunction> = phf_map! {
 
 
 impl FromStr for TransformFunction {
-    type Err = Error;
+    type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let lower = s.to_lowercase();
         match REVERSE_MAP.get(lower.as_str()) {
             Some(op) => Ok(*op),
-            None => Err(Error::new(
-                format!("Unknown transform function: {}", s)))
+            None => Err(ParseError::InvalidFunction(s.to_string()))
         }
     }
 }
@@ -512,6 +514,9 @@ impl TransformFunction {
             RandNormal => {
                 Signature::variadic_min(vec![DataType::Scalar], 0, Volatility::Stable)
             }
+            RangeTrimSpikes => {
+                Signature::exact(vec![DataType::Scalar, DataType::InstantVector],  Volatility::Stable)
+            }
             RangeNormalize => {
                 Signature::variadic_min(vec![DataType::InstantVector], 1, Volatility::Stable)
             }
@@ -558,11 +563,11 @@ impl TransformFunction {
         }
     }
 
-    pub fn return_type(&self) -> ReturnValue {
+    pub fn return_type(&self) -> ReturnType {
         match self {
             // todo: Pi(), NOW()
-            TransformFunction::Time => ReturnValue::Scalar,
-            _ => ReturnValue::InstantVector
+            TransformFunction::Time => ReturnType::Scalar,
+            _ => ReturnType::InstantVector
         }
     }
 }
@@ -577,7 +582,7 @@ pub fn get_transform_arg_idx_for_optimization(func: TransformFunction, arg_count
         Absent | Scalar | Union | Vector => None,
         End | Now | Pi | Start | Step | Time => None, // todo Ru
         LimitOffset => Some(2),
-        BucketsLimit | HistogramQuantile | HistogramShare | RangeQuantile => Some(1),
+        BucketsLimit | HistogramQuantile | HistogramShare | RangeQuantile | RangeTrimSpikes => Some(1),
         HistogramQuantiles => Some(arg_count - 1),
         _ => Some(0)
     }

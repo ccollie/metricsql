@@ -43,6 +43,27 @@ pub fn mode_no_nans(mut prev_value: f64, a: &mut Vec<f64>) -> f64 {
     return mode;
 }
 
+pub fn remove_nan_values_in_place(values: &mut Vec<f64>, timestamps: &mut Vec<i64>) {
+    if !values.iter().any(|x| x.is_nan()) {
+        return;
+    }
+
+    // Slow path: drop nans from values.
+    let mut k = 0;
+    for i in 0 .. values.len() {
+        let v = values[i];
+        if v.is_nan() {
+            values[k] = v;
+            timestamps[k] = timestamps[i];
+            k += 1;
+        }
+    }
+
+    values.truncate(k);
+    timestamps.truncate(k);
+}
+
+
 #[inline]
 pub fn get_first_non_nan_index(values: &[f64]) -> usize {
     let mut i = 0;
@@ -146,4 +167,8 @@ pub fn quantile_sorted(phi: f64, values: &[f64]) -> f64 {
 
     let weight = rank - rank.floor();
     return values[lower_index]*(1.0-weight) + values[upper_index]*weight
+}
+
+pub(crate) fn float_to_int_bounded(f: f64) -> i64 {
+    (f as i64).clamp(i64::MIN, i64::MAX)
 }

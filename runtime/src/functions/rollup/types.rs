@@ -6,10 +6,10 @@ use std::task::Context;
 use clone_dyn::clone_dyn;
 use crate::eval::arg_list::ArgList;
 use crate::{EvalConfig, RuntimeResult};
+use crate::types::{Timestamp};
 
 use crate::functions::rollup::TimeseriesMap;
 use crate::functions::types::AnyValue;
-use crate::traits::Timestamp;
 
 #[derive(Default, Clone)]
 pub struct RollupFuncArg {

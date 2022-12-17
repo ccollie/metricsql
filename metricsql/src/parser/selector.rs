@@ -1,5 +1,5 @@
 use enquote::{unescape};
-use crate::ast::{Expression, LabelFilterExpr, LabelFilterOp, MetricExpr, NAME_LABEL};
+use crate::ast::{Expression, LabelFilter, LabelFilterExpr, LabelFilterOp, MetricExpr, NAME_LABEL};
 use crate::lexer::{TokenKind, unescape_ident};
 use crate::parser::{ParseError, Parser, ParseResult};
 use crate::parser::expr::parse_string_expr;
@@ -17,7 +17,7 @@ pub fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expression> {
         let tok = p.current_token()?;
 
         let token = match unescape(tok.text, None) {
-            Err(e) => {
+            Err(_) => {
                 return Err(ParseError::General(
                     format!("Invalid selector name : {}", tok.text)
                 ));
@@ -25,8 +25,10 @@ pub fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expression> {
             Ok(value) => value
         };
 
-        let lfe = LabelFilterExpr::new_tag(NAME_LABEL, LabelFilterOp::Equal, &token, span);
-        me.label_filter_exprs.push(lfe);
+        let filter = LabelFilter::new(
+            LabelFilterOp::Equal, NAME_LABEL, &token)?;
+
+        me.label_filters.push(filter);
 
         p.bump();
         if !p.at(TokenKind::LeftBrace) {

@@ -2,13 +2,13 @@ use std::{fmt, iter};
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash};
 use std::string::{String};
-use crate::ast::{AggrFuncExpr, BinaryOpExpr, ParensExpr};
+use crate::ast::{AggrFuncExpr, BinaryOpExpr, ParensExpr, StringTokenType};
 
 use crate::ast::duration::DurationExpr;
 use crate::ast::function::FuncExpr;
 use crate::ast::label_filter::{LabelFilter};
 use crate::ast::number::NumberExpr;
-use crate::ast::return_type::ReturnValue;
+use crate::ast::return_type::ReturnType;
 use crate::ast::rollup::RollupExpr;
 use crate::ast::selector::MetricExpr;
 use crate::ast::string::StringExpr;
@@ -74,6 +74,10 @@ impl Expression {
 
     pub fn is_number(expr: &Expression) -> bool {
         matches!(expr, Expression::Number(_))
+    }
+
+    pub fn from_string_tokens<TS: Into<TextSpan>>(tokens: Vec<StringTokenType>, span: TS) -> Expression {
+        Expression::String(StringExpr::from_tokens(tokens, span))
     }
 
     pub fn vectors(&self) -> Box<dyn Iterator<Item = &LabelFilter> + '_> {
@@ -167,7 +171,7 @@ impl Expression {
         }
     }
 
-    pub fn return_value(&self) -> ReturnValue {
+    pub fn return_value(&self) -> ReturnType {
         match self {
             Expression::Duration(de) => de.return_value(),
             Expression::Number(ne) => ne.return_value(),

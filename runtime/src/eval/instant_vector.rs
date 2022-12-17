@@ -4,7 +4,7 @@ use metricsql::functions::DataType;
 use crate::{Context, EvalConfig, QueryResults, RuntimeResult, SearchQuery, Timeseries};
 use crate::eval::{Evaluator};
 use crate::functions::types::AnyValue;
-use crate::search::join_tag_filterss;
+use crate::search::join_tag_filter_list;
 
 /// An evaluator for a selector NOT containing a subquery or rollup
 pub struct InstantVectorEvaluator {
@@ -26,7 +26,7 @@ impl InstantVectorEvaluator {
     }
 
     pub(crate) fn search(&self, ctx: &Arc<&Context>, ec: &EvalConfig) -> RuntimeResult<QueryResults> {
-        let tfss = join_tag_filterss(&self.tfs, &ec.enforced_tag_filterss);
+        let tfss = join_tag_filter_list(&self.tfs, &ec.enforced_tag_filterss);
         let filters = tfss.to_vec();
         let sq = SearchQuery::new(ec.start, ec.end, filters, ec.max_series);
         ctx.process_search_query(&sq, &ec.deadline)

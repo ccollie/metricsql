@@ -26,7 +26,7 @@ use crate::functions::{quantile_sorted};
 use crate::functions::rollup::{linear_regression, stddev, stdvar};
 use crate::functions::transform::utils::{get_timezone_offset, ru};
 use crate::functions::types::AnyValue;
-use crate::functions::utils::{get_first_non_nan_index, get_last_non_nan_index};
+use crate::functions::utils::{float_to_int_bounded, get_first_non_nan_index, get_last_non_nan_index};
 use crate::rand_distr::Distribution;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 
@@ -161,6 +161,7 @@ static HANDLER_MAP: Lazy<RwLock<HashMap<TransformFunction,
     m.insert(RangeStdDev, boxed!(transform_range_stddev));
     m.insert(RangeStdVar, boxed!(transform_range_stdvar));
     m.insert(RangeSum, boxed!(new_transform_func_range(running_sum)));
+    m.insert(RangeTrimSpikes, boxed!(transform_range_trim_spikes));
     m.insert(RemoveResets, boxed!(transform_remove_resets));
     m.insert(Round, boxed!(transform_round));
     m.insert(Ru, boxed!(transform_range_ru));
@@ -402,12 +403,8 @@ fn transform_floor(v: f64) -> f64 {
 }
 
 fn transform_buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let limits = get_scalar(&tfa, 1)?;
+    let mut limit = get_int_number(&tfa, 1)?;
 
-    let mut limit: usize = 0;
-    if limits.len() > 0 {
-        limit = limits[0] as usize // trunc ???
-    }
     if limit <= 0 {
         return Ok(vec![]);
     }
@@ -422,6 +419,8 @@ fn transform_buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Time
     if tss_len == 0 {
         return Ok(vec![]);
     }
+
+    let points_count = tss[0].values.len();
 
     // Group timeseries by all MetricGroup+tags excluding `le` tag.
     struct Bucket {
@@ -472,7 +471,7 @@ fn transform_buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Time
     // Remove buckets with the smallest counters.
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(tss_len);
     for (_, le_group) in bucket_map.iter_mut() {
-        if le_group.len() <= limit {
+        if le_group.len() <= limit as usize {
             // Fast path - the number of buckets doesn't exceed the given limit.
             // Keep all the buckets as is.
             let series = le_group.into_iter()
@@ -485,7 +484,7 @@ fn transform_buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Time
 
         // Calculate per-bucket hits.
         le_group.sort_by(|a, b| a.le.total_cmp(&b.le));
-        for n in 0..limits.len() {
+        for n in 0..points_count {
             let mut prev_value: f64 = 0.0;
             for bucket in le_group.iter_mut() {
                 match tss.get(bucket.ts_index) {
@@ -498,7 +497,7 @@ fn transform_buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Time
                 }
             }
         }
-        while le_group.len() > limit {
+        while le_group.len() > limit as usize {
             // Preserve the first and the last bucket for better accuracy for min and max values
             let mut xx_min_idx = 1;
             let mut min_merge_hits = le_group[1].hits + le_group[2].hits;
@@ -944,6 +943,45 @@ fn transform_range_normalize(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Ti
     Ok(rvs)
 }
 
+fn transform_range_trim_spikes(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    expect_transform_args_num(tfa, 2)?;
+    let phis = get_scalar(tfa, 0)?;
+    let mut phi = 0_f64;
+    if phis.len() > 0 {
+        phi = phis[0];
+    }
+    // Trim 100% * (phi / 2) samples with the lowest / highest values per each time series
+    phi /= 2.0;
+    let phi_upper = 1.0 - phi;
+    let phi_lower = phi;
+    let mut rvs = get_series(tfa, 1)?;
+    let mut values = get_float64s(phis.len());
+    for ts in rvs.iter_mut() {
+        values.clear();
+        for v in ts.values.iter() {
+            if v.is_nan() {
+                continue;
+            }
+            values.push(*v);
+        }
+
+        values.sort_by(|a, b| a.total_cmp(&b));
+
+        let v_max = quantile_sorted(phi_upper, &values);
+        let v_min = quantile_sorted(phi_lower, &values);
+        for v in ts.values.iter_mut() {
+            if v.is_nan() {
+                continue
+            }
+            if *v > v_max || *v < v_min {
+                *v = f64::NAN;
+            }
+        }
+    }
+
+    Ok(rvs)
+}
+
 
 fn transform_range_linear_regression(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut series = get_series(tfa, 0)?; // todo: get_matrix
@@ -990,7 +1028,7 @@ fn transform_histogram_quantiles(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
     let dst_label = tfa.args[0].get_string()?;
 
     let len = tfa.args.len();
-    let tss_orig = tfa.args[len - 1].get_instant_vector()?;
+    let tss_orig = tfa.args[len - 1].as_instant_vec(tfa.ec)?;
     // Calculate quantile individually per each phi.
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(tfa.args.len());
 
@@ -1935,7 +1973,7 @@ fn transform_label_transform(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Ti
         Ok(..) => {}
         Err(err) => {
             return Err(RuntimeError::from(format!(
-                "cannot compile regex {}: {}",
+                "cannot compile regex {}: {:?}",
                 &regex,
                 err,
             )));
@@ -2810,6 +2848,7 @@ fn remove_counter_resets_maybe_nans(values: &mut Vec<f64>) {
 }
 
 fn get_string(tfa: &TransformFuncArg, arg_num: usize) -> RuntimeResult<String> {
+    // todo: range check
     match &tfa.args[arg_num] {
         AnyValue::String(s) => Ok(s.clone()), // todo: use .into ??
         AnyValue::Scalar(f) => Ok(f.to_string()),
@@ -2850,6 +2889,7 @@ pub fn get_series(tfa: &TransformFuncArg, arg_num: usize) -> RuntimeResult<Vec<T
     Ok(tfa.args[arg_num].get_instant_vector()?)
 }
 
+// TODO: COW
 pub fn get_scalar(tfa: &TransformFuncArg, arg_num: usize) -> RuntimeResult<Vec<f64>> {
     // todo: check bounds
     let arg = &tfa.args[arg_num];
@@ -2882,11 +2922,28 @@ pub fn get_scalar(tfa: &TransformFuncArg, arg_num: usize) -> RuntimeResult<Vec<f
     }
 }
 
-fn get_int_number(tfa: &TransformFuncArg, arg_num: usize) -> RuntimeResult<i64> {
+// TODO: COW
+pub fn get_instant_vector<'a>(tfa: &'a mut TransformFuncArg, arg_num: usize) -> RuntimeResult<Cow<'a, Vec<Timeseries>>> {
+    // todo: proper bounds check
+    tfa.args[arg_num].as_instant_vec(tfa.ec)
+}
+
+pub(crate) fn get_int_number(tfa: &TransformFuncArg, arg_num: usize) -> RuntimeResult<i64> {
     let v = get_scalar(tfa, arg_num)?;
     let mut n = 0;
     if v.len() > 0 {
-        n = v[0] as i64;
+        n = float_to_int_bounded(v[0]);
     }
     return Ok(n);
+}
+
+fn expect_transform_args_num(tfa: &TransformFuncArg, expected: usize) -> RuntimeResult<()> {
+    let arg_count = tfa.args.len();
+    if arg_count == expected {
+        return Ok(())
+    }
+    return Err(
+        RuntimeError::ArgumentError(
+            format!("unexpected number of args; got {}; want {}", arg_count, expected))
+    )
 }

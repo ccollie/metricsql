@@ -1,7 +1,7 @@
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::ops::Deref;
-use crate::ast::{Expression, ExpressionNode, ReturnValue};
+use crate::ast::{Expression, ExpressionNode, ReturnType};
 use crate::lexer::TextSpan;
 use serde::{Serialize, Deserialize};
 
@@ -87,8 +87,8 @@ impl StringExpr {
         !self.value.is_empty() || self.token_count() == 0
     }
 
-    pub fn return_value(&self) -> ReturnValue {
-        ReturnValue::String
+    pub fn return_value(&self) -> ReturnType {
+        ReturnType::String
     }
 }
 

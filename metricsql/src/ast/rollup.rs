@@ -1,6 +1,6 @@
 use std::fmt;
 use std::fmt::{Display, Formatter};
-use crate::ast::{BExpression, Expression, ExpressionNode, ReturnValue};
+use crate::ast::{BExpression, Expression, ExpressionNode, ReturnType};
 use crate::ast::duration::DurationExpr;
 use crate::lexer::TextSpan;
 use serde::{Serialize, Deserialize};
@@ -77,15 +77,15 @@ impl RollupExpr {
         self.expr = Box::new(Expression::cast(expr));
     }
 
-    pub fn return_value(&self) -> ReturnValue {
+    pub fn return_value(&self) -> ReturnType {
         // sub queries turn instant vectors into ranges
         let kind = match (self.window.is_some(), self.for_subquery()) {
-            (false, false) => ReturnValue::InstantVector,
-            (false, true) => ReturnValue::RangeVector,
-            (true, false) => ReturnValue::RangeVector,
+            (false, false) => ReturnType::InstantVector,
+            (false, true) => ReturnType::RangeVector,
+            (true, false) => ReturnType::RangeVector,
 
             // range + subquery is not allowed (however this is syntactically invalid)
-            (true, true) => ReturnValue::unknown(
+            (true, true) => ReturnType::unknown(
                 "range and subquery are not allowed together in a rollup expression",
                 self.clone().cast()
             )

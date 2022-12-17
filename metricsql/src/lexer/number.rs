@@ -19,7 +19,7 @@ fn parse_with_radix(str: &str, radix: u32, is_negative: bool) -> Result<f64, Par
 pub fn parse_float(str: &str) -> Result<f64, ParseError> {
     let binding = str.to_ascii_lowercase();
     let mut str = binding.as_str();
-    let ch = str.chars().next().unwrap();
+    let mut ch = str.chars().next().unwrap();
     let is_negative = if ch == '-' {
         str = &str[1..];
         true
@@ -28,11 +28,11 @@ pub fn parse_float(str: &str) -> Result<f64, ParseError> {
     };
 
     if str.len() > 2 {
-        let prefix = &str[0..2];
+        let (prefix, rest) = str.split_at(2);
         match prefix {
-            "0b" => return parse_with_radix(&str[2..], 2, is_negative),
-            "0o" => return parse_with_radix(&str[2..], 8, is_negative),
-            "0x" => return parse_with_radix(&str[2..], 16, is_negative),
+            "0b" => return parse_with_radix(rest, 2, is_negative),
+            "0o" => return parse_with_radix(rest, 8, is_negative),
+            "0x" => return parse_with_radix(rest, 16, is_negative),
             _ => {}
         }
     }

@@ -1,6 +1,6 @@
 use std::fmt;
 use std::fmt::{Display, Formatter};
-use crate::ast::{BExpression, Expression, ExpressionNode, ReturnValue};
+use crate::ast::{BExpression, Expression, ExpressionNode, ReturnType};
 use crate::ast::misc::write_expression_list;
 use crate::functions::{BuiltinFunction, is_rollup_aggregation_over_time};
 use crate::lexer::TextSpan;
@@ -49,7 +49,7 @@ impl FuncExpr {
 
         match expr.return_value() {
             // todo: pass span to error
-            ReturnValue::Unknown(unknown) => {
+            ReturnType::Unknown(unknown) => {
                 Err(ParseError::InvalidExpression(
                     unknown.message
                 ))
@@ -86,9 +86,9 @@ impl FuncExpr {
         self.function.type_name()
     }
 
-    pub fn return_value(&self) -> ReturnValue {
+    pub fn return_value(&self) -> ReturnType {
         if self.is_scalar {
-            return ReturnValue::Scalar
+            return ReturnType::Scalar
         }
 
         // determine the arg to pass through
@@ -96,7 +96,7 @@ impl FuncExpr {
 
         let kind = if arg.is_none() {
             // todo: does this depend on the function type (rollup, transform, aggregation)
-            ReturnValue::InstantVector
+            ReturnType::InstantVector
         } else {
             arg.unwrap().return_value()
         };
@@ -105,12 +105,12 @@ impl FuncExpr {
             BuiltinFunction::Rollup(rf) => {
                 if is_rollup_aggregation_over_time(rf) {
                     match kind {
-                        ReturnValue::RangeVector => ReturnValue::InstantVector,
+                        ReturnType::RangeVector => ReturnType::InstantVector,
                         // ???
-                        ReturnValue::InstantVector => ReturnValue::InstantVector,
+                        ReturnType::InstantVector => ReturnType::InstantVector,
                         _ => {
                             // invalid arg
-                            ReturnValue::unknown(
+                            ReturnType::unknown(
                                 format!("aggregation over time is not valid with expression returning {:?}", kind),
                                 // show the arg as the cause
                                 // doesn't follow the usual pattern of showing the parent, but would

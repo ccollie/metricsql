@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use std::fmt;
 use std::fmt::{Display, Formatter};
-use crate::ast::{BExpression, Expression, ExpressionNode, NumberExpr, ReturnValue};
+use crate::ast::{BExpression, Expression, ExpressionNode, NumberExpr, ReturnType};
 use crate::ast::misc::{intersection, write_labels, write_list};
 use crate::ast::operator::BinaryOp;
 use crate::lexer::TextSpan;
@@ -268,7 +268,7 @@ impl BinaryOpExpr {
 
         // ensure we have a operands are valid for the operator
         match expr.return_value() {
-            ReturnValue::Unknown(unknown_cause) => {
+            ReturnType::Unknown(unknown_cause) => {
                 // todo: better error variant. also include span
                 Err(ParseError::General(
                     unknown_cause.message
@@ -319,39 +319,39 @@ impl BinaryOpExpr {
         true
     }
 
-    pub fn return_value(&self) -> ReturnValue {
-        // binary operator exprs can only contain (and return) instant vectors
+    pub fn return_value(&self) -> ReturnType {
+        // binary operator expressions can only contain (and return) instant vectors
         let lhs_ret = self.left.return_value();
         let rhs_ret = self.right.return_value();
 
         // operators can only have instant vectors or scalars
         if !lhs_ret.is_operator_valid() {
-            return ReturnValue::unknown(
+            return ReturnType::unknown(
                 format!("lhs return type ({:?}) is not valid in an operator", &lhs_ret),
                 self.clone().cast()
             );
         }
 
         if !rhs_ret.is_operator_valid() {
-            return ReturnValue::unknown(
+            return ReturnType::unknown(
                 format!("rhs return type ({:?}) is not valid in an operator", &rhs_ret),
                 self.clone().cast()
             );
         }
 
         match (lhs_ret, rhs_ret) {
-            (ReturnValue::Scalar, ReturnValue::Scalar) => ReturnValue::Scalar,
-            (ReturnValue::RangeVector, ReturnValue::RangeVector) => ReturnValue::RangeVector,
-            (ReturnValue::String, ReturnValue::String) => {
+            (ReturnType::Scalar, ReturnType::Scalar) => ReturnType::Scalar,
+            (ReturnType::RangeVector, ReturnType::RangeVector) => ReturnType::RangeVector,
+            (ReturnType::String, ReturnType::String) => {
                 if self.op != BinaryOp::Add {
-                    return ReturnValue::unknown(
+                    return ReturnType::unknown(
                         format!("Operator {} is not valid for (String, String)", self.op),
                         self.clone().cast()
                     );
                 }
-                return ReturnValue::String
+                return ReturnType::String
             },
-            _ => return ReturnValue::InstantVector
+            _ => return ReturnType::InstantVector
         }
     }
 

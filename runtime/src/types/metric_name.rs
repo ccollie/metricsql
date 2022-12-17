@@ -28,8 +28,8 @@ const KV_SEPARATOR_CHAR: u8  = 2_u8;
 /// Tag represents a (key, value) tag for metric.
 #[derive(Debug, Default, PartialEq, Eq, Clone, Hash)]
 pub struct Tag {
-    pub(crate) key: String,
-    pub(crate) value: String,
+    pub key: String,
+    pub value: String,
 }
 
 impl Tag {
@@ -386,7 +386,7 @@ impl MetricName {
     /// marshal appends marshaled mn to dst.
     ///
     /// `self.sort_tags` must be called before calling this function
-    /// in order to sort and de-duplcate tags.
+    /// in order to sort and de-duplicate tags.
     pub fn marshal(&self, dst: &mut Vec<u8>) {
         // Calculate the required size and pre-allocate space in dst
         let mut required_size = self.metric_group.len() + 1;
@@ -431,9 +431,9 @@ impl MetricName {
         Ok(())
     }
 
-    /// marshalRaw marshals mn to dst and returns the result.
+    /// marshal_raw marshals mn to dst and returns the result.
     ///
-    /// The results may be unmarshaled with MetricName.UnmarshalRaw.
+    /// The results may be unmarshalled with MetricName.UnmarshalRaw.
     ///
     /// This function is for testing purposes. MarshalMetricNameRaw must be used
     /// in prod instead.

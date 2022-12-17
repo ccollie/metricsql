@@ -2,7 +2,6 @@ use crate::lexer::{escape_ident, quote, TextSpan};
 use crate::parser::{compile_regexp, ParseError, ParseResult};
 use enquote::enquote;
 use std::fmt;
-use regex::Regex;
 use crate::ast::StringExpr;
 use serde::{Serialize, Deserialize};
 
@@ -188,7 +187,7 @@ impl LabelFilterExpr {
         if !self.is_expanded() {
             panic!("BUG: value must be already expanded; got {}", self.value)
         }
-        LabelFilter::new(self.op, &self.label, self.value.to_string())
+        LabelFilter::new(self.op, &self.label, self.value.value.to_string())
     }
 
     pub fn is_expanded(&self) -> bool {

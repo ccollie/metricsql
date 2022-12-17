@@ -6,6 +6,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
 use rayon::prelude::IntoParallelRefIterator;
+use crate::rayon::iter::ParallelIterator;
 
 use lib::is_stale_nan;
 use metricsql::ast::*;
@@ -30,11 +31,9 @@ use crate::functions::rollup::{
 };
 use crate::functions::transform::get_absent_timeseries;
 use crate::functions::types::AnyValue;
-use crate::rayon::iter::ParallelIterator;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::search::{join_tag_filterss, QueryResult, QueryResults, SearchQuery};
-use crate::timeseries::Timeseries;
-use crate::traits::Timestamp;
+use crate::search::{join_tag_filter_list, QueryResult, QueryResults, SearchQuery};
+use crate::{Timestamp, Timeseries};
 
 use super::traits::Evaluator;
 
@@ -187,9 +186,9 @@ impl RollupEvaluator {
     /// rollup, so for those cases we perform a small optimization by calling the factory
     /// and storing the result.
     /// 
-    ///  It is also possible to optimize in cases where the non-selector inputs are all scalar
-    ///  or string (meaning constant), meaning the result of the factory call is essentially
-    ///  idempotent
+    /// It is also possible to optimize in cases where the non-selector inputs are all scalar
+    /// or string (meaning constant), meaning the result of the factory call is essentially
+    /// idempotent
     fn get_rollup_handler(func: &RollupFunction, arg_list: &mut ArgList, _factory: RollupHandlerFactory) -> Option<RollupHandlerEnum> {
         if rollup_func_requires_config(func) {
             if !arg_list.all_const() {
@@ -328,7 +327,7 @@ impl RollupEvaluator {
             }
             _ => {
                 if self.is_incr_aggregate {
-                    let msg = format!("BUG: iafc must be None for rollup {} over subquery {}", self.func, &self.re);
+                    let msg = format!("BUG:iafc must be None for rollup {} over subquery {}", self.func, &self.re);
                     return Err(RuntimeError::from(msg));
                 }
                 self.eval_with_subquery(ctx, &ec_new, rollup_func)?
@@ -489,7 +488,7 @@ impl RollupEvaluator {
 
         // Fetch the remaining part of the result.
         let tfs = vec![me.label_filters.clone()];
-        let tfss = join_tag_filterss(&tfs, &ec.enforced_tag_filterss);
+        let tfss = join_tag_filter_list(&tfs, &ec.enforced_tag_filterss);
         let mut min_timestamp = start - MAX_SILENCE_INTERVAL;
         if window > ec.step {
             min_timestamp -= &window
@@ -902,26 +901,6 @@ fn remove_nan_values(dst_values: &mut Vec<f64>, dst_timestamps: &mut Vec<i64>, v
         dst_values.push(*v);
         dst_timestamps.push(timestamps[i])
     }
-}
-
-fn remove_nan_values_in_place(values: &mut Vec<f64>, timestamps: &mut Vec<i64>) {
-    if !values.iter().any(|x| x.is_nan()) {
-        return;
-    }
-
-    // Slow path: drop nans from values.
-    let mut k = 0;
-    for i in 0 .. values.len() {
-        let v = values[i];
-        if v.is_nan() {
-            values[k] = v;
-            timestamps[k] = timestamps[i];
-            k += 1;
-        }
-    }
-
-    values.truncate(k);
-    timestamps.truncate(k);
 }
 
 fn do_rollup_for_timeseries(keep_metric_names: bool,

@@ -1,4 +1,4 @@
-
+use std::string::ParseError;
 
 struct Lexer {
     // Token contains the currently parsed token.
@@ -118,20 +118,20 @@ lex.sTail = s[len(token) .. ]
 return token
 }
 
-fn scan_string(s: &str) (string, error) {
-if s.len() < 2 {
-return "", fmt.Errorf("cannot find end of string in %q", s)
-}
+fn scan_string(s: &str) -> ParseResult<String> {
+    if s.len() < 2 {
+        return Err(ParseError::General(format!("cannot find end of string in {}", s)));
+    }
 
-quote = s[0]
-i = 1
-for {
+    let quote = s[0];
+    let mut i = 1;
+    for {
 n = strings.IndexByte(s[i .. ], quote)
 if n < 0 {
 return "", fmt.Errorf("cannot find closing quote %c for the string %q", quote, s)
 }
-i += n
-bs = 0
+i += n;
+bs = 0;
 for bs < i && s[i-bs-1] == '\\' {
 bs++
 }
@@ -226,17 +226,17 @@ fn scan_positive_number(s: &str) -> ParseRult<String>  {
         i += 1;
     }
 
-if i == s.len() {
-if i == 0 {
-return "", fmt.Errorf("number cannot be empty")
-}
-return s
-}
-if sLen = scanNumMultiplier(s[i .. ]); 
-    if sLen > 0 {
-        i += sLen;
-        return &s[0 .. ];
+    if i == s.len() {
+        if i == 0 {
+            return "", fmt.Errorf("number cannot be empty")
+        }
+        return s
     }
+    if sLen = scanNumMultiplier(s[i .. ]);
+        if sLen > 0 {
+            i += sLen;
+            return &s[0 .. ];
+        }
     if s[i] != '.' && s[i] != 'e' && s[i] != 'E' {
         if i == 0 {
             return "", fmt.Errorf("missing positive number")
@@ -580,25 +580,18 @@ if err != nil {
 return 0, fmt.Errorf("cannot parse duration %q: %s", s, err)
 }
 var mp float64;
-switch s[num_part.len() .. ] {
-case "ms":
-mp = 1e-3;
-case "s":
-mp = 1
-case "m":
-mp = 60;
-case "h":
-mp = 60 * 60;
-case "d":
-mp = 24 * 60 * 60;
-case "w":
-mp = 7 * 24 * 60 * 60;
-case "y":
-mp = 365 * 24 * 60 * 60;
-case "i":
-mp = float64(step) / 1e3;
-default:
-return 0, fmt.Errorf("invalid duration suffix in %q", s)
+    match s[num_part.len() .. ] {
+    "ms" => mp = 1e-3,
+    "s" => mp = 1,
+    "m" => mp = 60,
+    "h" => mp = 60 * 60,
+    "d" => mp = 24 * 60 * 60,
+    "w" => mp = 7 * 24 * 60 * 60,
+    "y" => mp = 365 * 24 * 60 * 60,
+    "i" => mp = float64(step) / 1e3,
+    _ => {
+        return 0, fmt.Errorf("invalid duration suffix in %q", s)
+    }
 }
 return mp * f * 1e3
 }
@@ -633,9 +626,9 @@ let mut i = 0;
 if s[0] == '-' && can_be_negative {
 i += 1;
 }
-while i < s.len() && isDecimalChar(s[i]) {
-i += 1;
-}
+    while i < s.len() && isDecimalChar(s[i]) {
+        i += 1;
+    }
 if i == 0 || i == s.len() {
 return -1
 }

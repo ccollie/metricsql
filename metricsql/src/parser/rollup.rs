@@ -1,4 +1,4 @@
-use crate::ast::{DurationExpr, Expression, ReturnValue, RollupExpr};
+use crate::ast::{DurationExpr, Expression, ReturnType, RollupExpr};
 use crate::lexer::TokenKind;
 use crate::parser::{ParseError, Parser, ParseResult};
 use crate::parser::expr::parse_single_expr_without_rollup_suffix;
@@ -46,8 +46,8 @@ fn parse_at_expr(p: &mut Parser) -> ParseResult<Expression> {
     let expr = parse_single_expr_without_rollup_suffix(p)?;
     // validate result type
     match expr.return_value() {
-        ReturnValue::InstantVector | ReturnValue::Scalar => Ok(expr),
-        ReturnValue::Unknown(cause) => {
+        ReturnType::InstantVector | ReturnType::Scalar => Ok(expr),
+        ReturnType::Unknown(cause) => {
             // todo: pass span
             Err(ParseError::InvalidExpression(cause.message))
         }
