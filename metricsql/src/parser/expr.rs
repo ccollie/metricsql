@@ -162,7 +162,7 @@ fn balance(lhs: Expression,
         returns_bool: bool,
         // todo: span
     ) -> ParseResult<()> {
-        match (left.return_value(), right.return_value()) {
+        match (left.return_type(), right.return_type()) {
             (Scalar, Scalar) => {
                 if op.is_comparison() && !returns_bool {
                     // todo: better error, including position
@@ -323,7 +323,7 @@ fn parse_unary_minus_expr(p: &mut Parser) -> ParseResult<Expression> {
     let expr = parse_single_expr(p)?;
     span = span.cover(expr.span());
 
-    match expr.return_value() {
+    match expr.return_type() {
         ReturnType::InstantVector |
         ReturnType::Scalar => {}
         _ => {

@@ -56,6 +56,7 @@ impl ParseCache {
         self.lru.lock().unwrap().clear()
     }
 
+    // todo: pass tracer
     pub fn parse(&self, q: &str) -> Arc<ParseCacheValue> {
         self.requests.fetch_add(1, Ordering::Relaxed);
         match self.get(q) {

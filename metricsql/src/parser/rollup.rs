@@ -45,7 +45,7 @@ fn parse_at_expr(p: &mut Parser) -> ParseResult<Expression> {
     p.expect(TokenKind::At)?;
     let expr = parse_single_expr_without_rollup_suffix(p)?;
     // validate result type
-    match expr.return_value() {
+    match expr.return_type() {
         ReturnType::InstantVector | ReturnType::Scalar => Ok(expr),
         ReturnType::Unknown(cause) => {
             // todo: pass span

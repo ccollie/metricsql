@@ -48,7 +48,7 @@ impl TransformEvaluator {
                 let args = ArgList::new(&signature, &fe.args)?;
                 let keep_metric_names = fe.keep_metric_names || function.keep_metric_name();
 
-                let rv = fe.return_value();
+                let rv = fe.return_type();
                 let return_type = DataType::try_from(rv).unwrap_or(DataType::RangeVector);
 
                 Ok(Self {

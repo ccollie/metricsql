@@ -43,17 +43,20 @@ pub enum Expression {
     /// A function call
     Function(FuncExpr),
 
+    /// Aggregation represents aggregate functions such as `sum(...) by (...)`
     Aggregation(AggrFuncExpr),
 
     /// A binary operator expression
     BinaryOperator(BinaryOpExpr),
 
-    /// A Metricsql specific WITH statement node. Transformed at parse time to one
+    /// A MetricsQL specific WITH statement node. Transformed at parse time to one
     /// of the other variants
     With(WithExpr),
 
+    /// RollupExpr represents an MetricsQL expression which contains at least `offset` or `[...]` part.
     Rollup(RollupExpr),
 
+    /// MetricExpr represents a MetricsQL metric with optional filters, i.e. `foo{...}`.
     MetricExpression(MetricExpr),
 }
 
@@ -171,18 +174,18 @@ impl Expression {
         }
     }
 
-    pub fn return_value(&self) -> ReturnType {
+    pub fn return_type(&self) -> ReturnType {
         match self {
-            Expression::Duration(de) => de.return_value(),
-            Expression::Number(ne) => ne.return_value(),
-            Expression::String(se) => se.return_value(),
-            Expression::Parens(pe) => pe.return_value(),
-            Expression::Function(fe) => fe.return_value(),
-            Expression::Aggregation(ae) => ae.return_value(),
-            Expression::BinaryOperator(be) => be.return_value(),
-            Expression::With(we) => we.return_value(),
-            Expression::Rollup(re) => re.return_value(),
-            Expression::MetricExpression(me) => me.return_value()
+            Expression::Duration(de) => de.return_type(),
+            Expression::Number(ne) => ne.return_type(),
+            Expression::String(se) => se.return_type(),
+            Expression::Parens(pe) => pe.return_type(),
+            Expression::Function(fe) => fe.return_type(),
+            Expression::Aggregation(ae) => ae.return_type(),
+            Expression::BinaryOperator(be) => be.return_type(),
+            Expression::With(we) => we.return_type(),
+            Expression::Rollup(re) => re.return_type(),
+            Expression::MetricExpression(me) => me.return_type()
         }
     }
 

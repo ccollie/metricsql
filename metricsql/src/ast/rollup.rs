@@ -77,7 +77,7 @@ impl RollupExpr {
         self.expr = Box::new(Expression::cast(expr));
     }
 
-    pub fn return_value(&self) -> ReturnType {
+    pub fn return_type(&self) -> ReturnType {
         // sub queries turn instant vectors into ranges
         let kind = match (self.window.is_some(), self.for_subquery()) {
             (false, false) => ReturnType::InstantVector,

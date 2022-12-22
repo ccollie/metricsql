@@ -267,7 +267,7 @@ impl BinaryOpExpr {
         };
 
         // ensure we have a operands are valid for the operator
-        match expr.return_value() {
+        match expr.return_type() {
             ReturnType::Unknown(unknown_cause) => {
                 // todo: better error variant. also include span
                 Err(ParseError::General(
@@ -319,10 +319,10 @@ impl BinaryOpExpr {
         true
     }
 
-    pub fn return_value(&self) -> ReturnType {
+    pub fn return_type(&self) -> ReturnType {
         // binary operator expressions can only contain (and return) instant vectors
-        let lhs_ret = self.left.return_value();
-        let rhs_ret = self.right.return_value();
+        let lhs_ret = self.left.return_type();
+        let rhs_ret = self.right.return_type();
 
         // operators can only have instant vectors or scalars
         if !lhs_ret.is_operator_valid() {

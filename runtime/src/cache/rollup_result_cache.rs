@@ -126,7 +126,7 @@ impl RollupResultCache {
 
         match RollupResultCacheMetaInfo::from_buf(meta_info_buf.as_slice()) {
             Err(err) => {
-                let msg = format!("BUG: cannot unmarshal RollupResultCacheMetainfo; {:?}", err);
+                let msg = format!("BUG: cannot unmarshal RollupResultCacheMetaInfo; {:?}", err);
                 return Err(RuntimeError::SerializationError(msg));
             },
             Ok(m) => mi = m

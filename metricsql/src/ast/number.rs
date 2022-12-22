@@ -19,7 +19,7 @@ impl NumberExpr {
     pub fn new<S: Into<TextSpan>>(v: f64, span: S) -> Self {
         NumberExpr { value: v, span: span.into() }
     }
-    pub fn return_value(&self) -> ReturnType {
+    pub fn return_type(&self) -> ReturnType {
         ReturnType::Scalar
     }
 }

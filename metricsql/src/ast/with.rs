@@ -24,8 +24,8 @@ impl WithExpr {
         }
     }
 
-    pub fn return_value(&self) -> ReturnType {
-        self.expr.return_value()
+    pub fn return_type(&self) -> ReturnType {
+        self.expr.return_type()
     }
 }
 
@@ -68,7 +68,7 @@ impl WithArgExpr {
     }
 
     pub fn return_value(&self) -> ReturnType {
-        self.expr.return_value()
+        self.expr.return_type()
     }
 }
 

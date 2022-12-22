@@ -37,7 +37,7 @@ impl BinaryEvaluator {
         let rhs = Box::new(create_evaluator(&expr.right)? );
         let can_pushdown_filters = can_pushdown_common_filters(expr);
         let handler = get_binary_op_handler(expr.op);
-        let rv = expr.return_value();
+        let rv = expr.return_type();
         let return_type = DataType::try_from(rv).unwrap_or(DataType::InstantVector);
         let can_parallelize = both_operands_are_vectors(&expr);
 
@@ -192,14 +192,14 @@ fn to_vector(ec: &EvalConfig, value: AnyValue) -> RuntimeResult<Vec<Timeseries>>
 }
 
 fn both_operands_are_scalar(be: &BinaryOpExpr) -> bool {
-    match (&be.left.return_value(), &be.right.return_value()) {
+    match (&be.left.return_type(), &be.right.return_type()) {
         (ReturnType::Scalar, ReturnType::Scalar) => true,
         _ => false
     }
 }
 
 fn both_operands_are_vectors(be: &BinaryOpExpr) -> bool {
-    match (&be.left.return_value(), &be.right.return_value()) {
+    match (&be.left.return_type(), &be.right.return_type()) {
         (ReturnType::InstantVector, ReturnType::InstantVector) => true,
         _ => false
     }

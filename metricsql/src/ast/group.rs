@@ -30,9 +30,9 @@ impl ParensExpr {
         self.expressions.is_empty()
     }
 
-    pub fn return_value(&self) -> ReturnType {
+    pub fn return_type(&self) -> ReturnType {
         if self.expressions.len() == 1 {
-            return self.expressions[0].return_value();
+            return self.expressions[0].return_type();
         }
 
         // Treat as a function with empty name, i.e. union()

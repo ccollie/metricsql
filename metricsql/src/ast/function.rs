@@ -47,7 +47,7 @@ impl FuncExpr {
             with_name: "".to_string()
         };
 
-        match expr.return_value() {
+        match expr.return_type() {
             // todo: pass span to error
             ReturnType::Unknown(unknown) => {
                 Err(ParseError::InvalidExpression(
@@ -86,7 +86,7 @@ impl FuncExpr {
         self.function.type_name()
     }
 
-    pub fn return_value(&self) -> ReturnType {
+    pub fn return_type(&self) -> ReturnType {
         if self.is_scalar {
             return ReturnType::Scalar
         }
@@ -98,7 +98,7 @@ impl FuncExpr {
             // todo: does this depend on the function type (rollup, transform, aggregation)
             ReturnType::InstantVector
         } else {
-            arg.unwrap().return_value()
+            arg.unwrap().return_type()
         };
 
         return match self.function {

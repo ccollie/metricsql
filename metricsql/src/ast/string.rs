@@ -87,7 +87,7 @@ impl StringExpr {
         !self.value.is_empty() || self.token_count() == 0
     }
 
-    pub fn return_value(&self) -> ReturnType {
+    pub fn return_type(&self) -> ReturnType {
         ReturnType::String
     }
 }

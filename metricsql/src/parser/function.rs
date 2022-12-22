@@ -113,7 +113,7 @@ pub(crate) fn validate_args(func: &BuiltinFunction, args: &[BExpression]) -> Par
             _ => {}
         }
 
-        validate_return_type(arg.return_value(), expected, i)?
+        validate_return_type(arg.return_type(), expected, i)?
     }
     Ok(())
 }

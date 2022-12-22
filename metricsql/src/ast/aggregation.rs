@@ -170,7 +170,7 @@ impl AggrFuncExpr {
         }
     }
 
-    pub fn return_value(&self) -> ReturnType {
+    pub fn return_type(&self) -> ReturnType {
         ReturnType::InstantVector
     }
 
