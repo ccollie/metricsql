@@ -189,7 +189,6 @@ pub struct QueryResults {
     pub tr: TimeRange,
     pub deadline: Deadline,
     pub series: Vec<QueryResult>,
-    pub sr: Search,
     signal: Arc<AtomicU32>
 }
 
@@ -201,7 +200,6 @@ impl Default for QueryResults {
             tr: TimeRange::default(),
             deadline: Deadline::default(),
             series: vec![],
-            sr: Search::default(),
             signal: Arc::new(AtomicU32::new(0_u32))
         }
     }
@@ -214,7 +212,6 @@ impl Clone for QueryResults {
             tr: self.tr.clone(),
             deadline: self.deadline.clone(),
             series: self.series.clone(),
-            sr: self.sr.clone(),
             signal: Arc::new(AtomicU32::new(signal_value))
         }
     }

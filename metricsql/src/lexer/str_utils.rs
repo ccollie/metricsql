@@ -34,7 +34,7 @@ pub fn unquote(s: &str) -> ParseResult<String> {
     }
 
     let quote = s.chars().next().unwrap();
-    let end = s.chars().rev().next().unwrap();
+    let end = s.chars().last().unwrap();
 
     if quote != end {
         return Err(err_syntax())
@@ -61,7 +61,7 @@ pub fn unquote(s: &str) -> ParseResult<String> {
         return Ok(s)
     }
 
-    var runeTmp [utf8.UTFMax]byte
+    let runeTmp [utf8.UTFMax]byte
     let buf = String::with_capacity(3 * s.len()/2); // Try to avoid more allocations.
     while s.len() > 0 {
         let (c, multibyte, ss) = unquote_char(s, quote)?;
@@ -121,13 +121,13 @@ fn unquote_char(s: &str, quote: char) -> ParseResult<(char, bool, &str)> {
     s = &s[2..];
 
     match c {
-        'a' => value = '\a',
-        'b' => value = '\b',
-        'f' => value = '\f',
-        'n' => value = '\n',
-        'r' => value = '\r',
-        't' => value = '\t',
-        'v' => value = '\v',
+        'a' => value = "\a",
+        'b' => value = "\b",
+        'f' => value = "\f",
+        'n' => value = "\n",
+        'r' => value = "\r",
+        't' => value = "\t",
+        'v' => value = "\v",
         'x' | 'u' | 'U' => {
             let mut n = 0;
             match c {
@@ -141,7 +141,7 @@ fn unquote_char(s: &str, quote: char) -> ParseResult<(char, bool, &str)> {
                 return Err(err_syntax())
             }
             for j in 0 .. n {
-                x, ok: = unhex(s[j]);
+                let x  = unhex(s[j]);
                 if !ok {
                     return Err(err_syntax())
                 }
@@ -175,15 +175,13 @@ fn unquote_char(s: &str, quote: char) -> ParseResult<(char, bool, &str)> {
                 return Err(err_syntax())
             }
             value = v;
-            case
-            '\\':
-                value = '\\'
-            case
-            '\'', '"':
-            if c != quote {
-                return Err(err_syntax())
+            '\\' => value = "\\","
+            '\'', '"' => {
+                if c != quote {
+                    return Err(err_syntax())
+                }
+                value = rune(c)
             }
-            value = rune(c)
             default:
                 err = ErrSyntax
             return

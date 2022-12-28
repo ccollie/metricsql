@@ -4,26 +4,10 @@ mod tests {
     use chrono_tz::Tz;
     use metricsql::parser::parse;
     use crate::{Context, Deadline, EvalConfig, exec, MetricName, QueryResult, test_results_equal};
-    use crate::exec::escape_dots_in_regexp_label_filters;
     use crate::functions::transform::get_timezone_offset;
 
     const NAN: f64 = f64::NAN;
     const INF: f64 = f64::INFINITY;
-
-    fn test_escape_dots_in_regexp_label_filters() {
-        fn f(s: &str, result_expected: &str) {
-            let mut e = parse(s).unwrap();
-            escape_dots_in_regexp_label_filters(&mut e);
-            let result = e.to_string();
-            assert_eq!(result, result_expected,
-                       "unexpected result for escape_dots_in_regexp_label_filters({});\ngot\n{}\nwant\n{}", s, result, result_expected);
-        }
-        f("2", "2");
-        f("foo.bar + 123", "foo.bar + 123");
-        f(r#"foo{bar=~"baz.xx.yyy"}"#, r#"foo{bar=~"baz\\.xx\\.yyy"}"#);
-        f(r#"foo(a.b{c="d.e",x=~"a.b.+[.a]",y!~"aaa.bb|cc.dd"}) + x.y(1,sum({x=~"aa.bb"}))"#,
-          r#"foo(a.b{c="d.e", x=~"a\\.b.+[\\.a]", y!~"aaa\\.bb|cc\\.dd"}) + x.y(1, sum({x=~"aa\\.bb"}))"#);
-    }
 
     const START: i64 = 1000000 as i64;
     const END: i64 = 2000000 as i64;
@@ -136,7 +120,9 @@ mod tests {
         let q = r#"timezone_offset("America/New_York")"#;
         let tz: Tz = "America/New_York".parse().unwrap();
         let offset = get_timezone_offset(&tz, TIMESTAMPS_EXPECTED[0]);
-        let off = offset as f64;
+        assert_ne!(offset, None);
+
+        let off = Some(offset) as f64;
         let r = make_result(&[off, off, off, off, off, off]);
         let result_expected: Vec<QueryResult> = vec![r];
         test_query(q, result_expected)
@@ -146,7 +132,7 @@ mod tests {
     fn timezone_offset__Local() {
         let q = r#"timezone_offset("Local")"#;
         let tz: Tz = "Local".parse().unwrap();
-        let offset = get_timezone_offset(&tz, TIMESTAMPS_EXPECTED[0]);
+        let offset = get_timezone_offset(&tz, TIMESTAMPS_EXPECTED[0]).unwrap();
         let off = offset as f64;
         let r = make_result(&[off, off, off, off, off, off]);
         test_query(q, vec![r]);
@@ -1003,14 +989,29 @@ mod tests {
     }
 
     #[test]
-    fn label_replace__nonexisting_src() {
+    fn label_replace_with_nonexisting_src() {
         let q = r##"label_replace(time(), "#__name__", "x${1}y", "foo", ".+")"##;
         let r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         test_query(q, vec![r]);
     }
 
     #[test]
-    fn label_replace__mismatch() {
+    fn label_replace_with_nonexisting_src_match() {
+        let q = r#"label_replace(time(), "foo", "x", "bar", "")"#;
+        let mut r = make_result(&[1000.0, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
+        r.metric_name.set_tag("foo", "x");
+        test_query(q, vec![r]);
+    }
+
+    #[test]
+    fn label_replace_with_nonexisting_src_mismatch() {
+        let q = r#"label_replace(time(), "foo", "x", "bar", "y")"#;
+        let mut r = make_result(&[1000.0, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
+        test_query(q, vec![r]);
+    }
+
+    #[test]
+    fn label_replace_with_mismatch() {
         let q = r##"label_replace(label_set(time(), "#foo", "foobar"), "__name__", "x${1}y", "foo", "bar(.+)")"##;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric_name.set_tag("foo", "foobar");
@@ -3351,7 +3352,6 @@ mod tests {
         test_query(q, vec![r1]);
     }
 
-
     #[test]
     fn aggr_over_time_multi_func() {
         let q = r##"sort(aggr_over_time(("#min_over_time", "count_over_time", "max_over_time"), round(rand(0),0.1)[:10s]))"##;
@@ -3761,10 +3761,11 @@ mod tests {
             ec.max_points_per_series = 10000;
             ec.max_series = 1000;
             let context = Context::default();
+
             (0..4).for_each(|_| {
-                let rv = exec(&context, &mut ec, q, false);
+                let rv = exec(&context, &mut ec,  q, false);
                 assert_eq!(rv.is_err(), true, "expecting exec error: {}", q);
-                let rv = exec(&context, &mut ec, q, true);
+                let rv = exec( &context, &mut ec,  q, true);
                 assert_eq!(rv.is_err(), true, "expecting exec error: {}", q);
             });
         }

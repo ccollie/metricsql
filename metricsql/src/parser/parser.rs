@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+use crate::ast::BExpression;
 use crate::lexer::{Lexer, TextSpan, Token, TokenKind, unescape_ident};
 use crate::parser::parse_error::{InvalidTokenError, ParseError};
 use crate::parser::{ParseErr, ParseResult};
@@ -15,8 +17,11 @@ pub struct Parser<'a> {
     tokens: Vec<Token<'a>>,
     cursor: usize,
     kind: TokenKind,
+    pub(super) with_stack: Vec<HashMap<String, BExpression>>,
     pub(super) parsing_with: bool,
 }
+
+struct WithSymbol(String, BExpression);
 
 impl<'a> Parser<'a> {
     pub(crate) fn from_tokens(tokens: Vec<Token<'a>>) -> Self {
@@ -33,7 +38,8 @@ impl<'a> Parser<'a> {
             cursor: 0,
             tokens,
             parsing_with: false,
-            kind
+            kind,
+            with_stack: vec![],
         }
     }
 
@@ -81,6 +87,14 @@ impl<'a> Parser<'a> {
         self.tokens.get(self.cursor)
     }
 
+    pub fn peek_next(&self) -> Option<&Token<'a>> {
+        if self.cursor + 1 >= self.tokens.len() {
+            None
+        } else {
+            self.tokens.get(self.cursor + 1)
+        }
+    }
+
     pub(crate) fn current_token(&self) -> ParseResult<&Token<'a>> {
         match self.tokens.get(self.cursor) {
             Some(t) => {
@@ -100,7 +114,11 @@ impl<'a> Parser<'a> {
 
     pub(crate) fn last_token_range(&self) -> Option<TextSpan> {
         let index = if self.is_eof() {
-            self.tokens.len() - 1
+            if self.tokens.len() > 0 {
+                self.tokens.len() - 1
+            } else {
+                0
+            }
         } else {
             self.cursor
         };
@@ -163,7 +181,6 @@ impl<'a> Parser<'a> {
             let tok = parser.expect_token(Ident)?;
             Ok(unescape_ident(tok.text))
         })
-
     }
 
     /// Parse a comma-separated list of 1+ items accepted by `F`

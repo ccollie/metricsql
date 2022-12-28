@@ -25,6 +25,12 @@ pub struct ParseCache {
     lru: Mutex<LruCache<String, Arc<ParseCacheValue>>>, // todo: use parking_lot rwLock
 }
 
+#[derive(PartialEq)]
+pub enum ParseCacheResult {
+    CacheHit,
+    CacheMiss
+}
+
 impl Default for ParseCache {
     fn default() -> Self {
         ParseCache::new(PARSE_CACHE_MAX_LEN)
@@ -56,11 +62,12 @@ impl ParseCache {
         self.lru.lock().unwrap().clear()
     }
 
-    // todo: pass tracer
-    pub fn parse(&self, q: &str) -> Arc<ParseCacheValue> {
+    pub fn parse(&self, q: &str) -> (Arc<ParseCacheValue>, ParseCacheResult) {
         self.requests.fetch_add(1, Ordering::Relaxed);
         match self.get(q) {
-            Some(value) => value,
+            Some(value) => {
+                (value, ParseCacheResult::CacheHit)
+            },
             None => {
                 self.misses.fetch_add(1, Ordering::Relaxed);
                 let parsed = Self::parse_internal(q);
@@ -68,7 +75,7 @@ impl ParseCache {
 
                 let mut lru = self.lru.lock().unwrap();
                 let value = lru.insert(k, Arc::new(parsed));
-                value.unwrap().clone()
+                (value.unwrap().clone(), ParseCacheResult::CacheMiss)
             }
         }
     }

@@ -14,6 +14,7 @@ use crate::eval::string::StringEvaluator;
 use crate::functions::types::AnyValue;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::search::Deadline;
+use crate::TimestampTrait;
 use crate::types::{Timestamp, Timeseries};
 
 use super::rollup::RollupEvaluator;
@@ -105,25 +106,27 @@ impl From<&str> for ExprEvaluator {
 }
 
 pub fn create_evaluator(expr: &Expression) -> RuntimeResult<ExprEvaluator> {
+    use Expression::*;
+
     match expr {
-        Expression::Aggregation(ae) => create_aggr_evaluator(ae),
-        Expression::MetricExpression(me) => {
+        Aggregation(ae) => create_aggr_evaluator(ae),
+        MetricExpression(me) => {
             Ok(ExprEvaluator::Rollup(RollupEvaluator::from_metric_expression(me.clone())?))
         }
-        Expression::Rollup(re) => Ok(ExprEvaluator::Rollup(RollupEvaluator::new(re)?)),
-        Expression::Function(fe) => create_function_evaluator(fe),
-        Expression::BinaryOperator(be) => create_evaluator_from_binop(be),
-        Expression::Number(ne) => Ok(ExprEvaluator::from(ne.value)),
-        Expression::String(se) => Ok(ExprEvaluator::from(se.value())),
-        Expression::Duration(de) => {
+        Rollup(re) => Ok(ExprEvaluator::Rollup(RollupEvaluator::new(re)?)),
+        Function(fe) => create_function_evaluator(fe),
+        BinaryOperator(be) => create_evaluator_from_binop(be),
+        Number(ne) => Ok(ExprEvaluator::from(ne.value)),
+        String(se) => Ok(ExprEvaluator::from(se.value())),
+        Duration(de) => {
             if de.requires_step {
                 Ok(ExprEvaluator::Duration(DurationEvaluator::new(de)))
             } else {
                 Ok(ExprEvaluator::from(de.value))
             }
         },
-        Expression::Parens(pe) => create_parens_evaluator(pe),
-        Expression::With(_) => {
+        Parens(pe) => create_parens_evaluator(pe),
+        With(_) => {
             panic!("unexpected WITH expression - {}: Should have been expanded during parsing", expr);
         }
     }
@@ -131,7 +134,7 @@ pub fn create_evaluator(expr: &Expression) -> RuntimeResult<ExprEvaluator> {
 
 fn create_parens_evaluator(expr: &ParensExpr) -> RuntimeResult<ExprEvaluator> {
     if expr.len() == 1 {
-        let mut exp = expr;
+        let exp = expr;
         let res = exp.expressions[0].clone(); // todo: can we take ??
         return create_evaluator(&res);
     }
@@ -277,8 +280,8 @@ pub struct EvalConfig {
     /// How many decimal digits after the point to leave in response.
     pub round_digits: i16,
 
-    /// enforced_tag_filterss may contain additional label filters to use in the query.
-    pub enforced_tag_filterss: Vec<Vec<LabelFilter>>,
+    /// enforced_tag_filters may contain additional label filters to use in the query.
+    pub enforced_tag_filters: Vec<Vec<LabelFilter>>,
 
     /// Set this flag to true if the data doesn't contain Prometheus stale markers, so there is
     /// no need in spending additional CPU time on its handling. Staleness markers may exist only in
@@ -314,7 +317,7 @@ impl EvalConfig {
             _may_cache: self._may_cache,
             lookback_delta: self.lookback_delta,
             round_digits: self.round_digits,
-            enforced_tag_filterss: self.enforced_tag_filterss.clone(),
+            enforced_tag_filters: self.enforced_tag_filters.clone(),
             // do not copy src.timestamps - they must be generated again.
             _timestamps: Arc::new(vec![]),
             no_stale_markers: self.no_stale_markers,
@@ -388,6 +391,10 @@ impl EvalConfig {
         Arc::clone(&self._timestamps)
     }
 
+    pub fn timerange_string(&self) -> String {
+        format!("[{}..{}]", self.start.to_rfc3339(), self.end.to_rfc3339())
+    }
+
     pub(crate) fn ensure_timestamps(&mut self) -> RuntimeResult<()> {
         if self._timestamps.len() == 0 {
             let ts = get_timestamps(
@@ -418,7 +425,7 @@ impl Default for EvalConfig {
             _may_cache: false,
             lookback_delta: 0,
             round_digits: 100,
-            enforced_tag_filterss: vec![],
+            enforced_tag_filters: vec![],
             no_stale_markers: true,
             max_points_per_series: 0,
             disable_cache: false,
@@ -485,7 +492,6 @@ pub(crate) fn eval_time(ec: &EvalConfig) -> Vec<Timeseries> {
     }
     rv
 }
-
 
 pub(super) fn eval_volatility(sig: &Signature, args: &Vec<ExprEvaluator>) -> Volatility {
     if sig.volatility != Volatility::Immutable {

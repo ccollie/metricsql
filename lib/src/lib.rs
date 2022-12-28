@@ -10,8 +10,10 @@ extern crate rand;
 extern crate xxhash_rust;
 extern crate core;
 
+mod atomic_counter;
 mod bits;
 mod decimal;
+mod duration;
 mod encoding;
 pub mod error;
 mod fastnum;
@@ -22,8 +24,10 @@ mod time;
 mod fast_cache;
 mod dedup;
 
+pub use atomic_counter::*;
 pub use bits::*;
 pub use decimal::*;
+pub use duration::*;
 pub use encoding::*;
 pub use fastnum::*;
 pub use math::*;
@@ -35,3 +39,4 @@ pub use dedup::{ deduplicate_samples, deduplicate_samples_during_merge };
 
 #[cfg(test)]
 pub(crate) mod tests;
+

@@ -3,7 +3,6 @@ pub use parse_error::*;
 pub use parser::*;
 pub use regexp_cache::compile_regexp;
 use crate::ast::{Expression, WithArgExpr};
-use crate::lexer::TokenKind;
 use crate::parser::expr::parse_expression;
 use crate::parser::with_expr::{check_duplicate_with_arg_names, must_parse_with_arg_expr};
 use crate::transform::{expand_with_expr, simplify_expr};
@@ -28,11 +27,6 @@ mod parser_test;
 
 pub fn parse(input: &str) -> ParseResult<Expression> {
     let mut parser = Parser::new(input);
-    let tok = parser.peek_kind();
-    if tok == TokenKind::Eof {
-        let msg = format!("cannot parse the first token {}", input);
-        return Err(ParseError::General(msg));
-    }
     let expr = parse_expression(&mut parser)?;
     if !parser.is_eof() {
         let msg = "unparsed data".to_string();

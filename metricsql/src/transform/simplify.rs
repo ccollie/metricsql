@@ -1,4 +1,6 @@
-use crate::ast::{BExpression, Expression, BinaryOp, FuncExpr};
+use crate::ast::{BExpression, Expression, BinaryOp, FuncExpr, BinaryOpExpr, StringExpr};
+use crate::ast::BinaryOp::Add;
+use crate::ast::StringTokenType::String;
 use crate::binaryop::{eval_binary_op, string_compare};
 use crate::prelude::NumberExpr;
 
@@ -10,6 +12,8 @@ pub(crate) fn simplify_expr(expr: Expression) -> Expression {
 
 /// removes parensExpr for (Expr) case.
 pub(crate) fn remove_parens_expr(e: Expression) -> Expression {
+    use Expression::*;
+
     fn remove_parens_args(args: &mut Vec<BExpression>) {
         for i in 0 .. args.len() {
             let arg = &args[i];
@@ -32,7 +36,7 @@ pub(crate) fn remove_parens_expr(e: Expression) -> Expression {
 
     let mut expr = e;
     match expr {
-        Expression::Rollup(ref mut re) => {
+        Rollup(ref mut re) => {
             if let Some(expr) = remove_boxed(&re.expr) {
                 re.expr = expr;
             }
@@ -42,7 +46,7 @@ pub(crate) fn remove_parens_expr(e: Expression) -> Expression {
                 }
             }
         }
-        Expression::BinaryOperator(ref mut be) => {
+        BinaryOperator(ref mut be) => {
             if let Some(expr) = remove_boxed(&be.left) {
                 be.left = expr;
             }
@@ -50,13 +54,13 @@ pub(crate) fn remove_parens_expr(e: Expression) -> Expression {
                 be.right = expr;
             }
         }
-        Expression::Aggregation(ref mut agg) => {
+        Aggregation(ref mut agg) => {
             remove_parens_args(&mut agg.args);
         }
-        Expression::Function(ref mut f) => {
+        Function(ref mut f) => {
             remove_parens_args(&mut f.args);
         }
-        Expression::Parens(ref mut parens) => {
+        Parens(ref mut parens) => {
             remove_parens_args(&mut parens.expressions);
             if parens.len() == 1 {
                 expr = std::mem::take(parens.expressions[0].as_mut());
@@ -66,7 +70,7 @@ pub(crate) fn remove_parens_expr(e: Expression) -> Expression {
                 let fe = FuncExpr::new("", parens.expressions.clone(),
                                        expr.span())
                     .unwrap(); // todo: remove this
-                expr = Expression::Function(fe)
+                expr = Function(fe)
             }
         }
         _ => {},
@@ -76,8 +80,10 @@ pub(crate) fn remove_parens_expr(e: Expression) -> Expression {
 
 
 fn should_remove_parens(e: &Expression) -> bool {
+    use Expression::*;
+
     match e {
-        Expression::Rollup(re) => {
+        Rollup(re) => {
             if !should_remove_parens(re.expr.as_ref()) {
                 return false;
             }
@@ -86,17 +92,17 @@ fn should_remove_parens(e: &Expression) -> bool {
             }
             return false
         }
-        Expression::BinaryOperator(be) => {
+        BinaryOperator(be) => {
             should_remove_parens(be.left.as_ref()) ||
             should_remove_parens(be.right.as_ref())
         }
-        Expression::Aggregation(agg) => {
+        Aggregation(agg) => {
             agg.args.iter().any(|x| should_remove_parens(x.as_ref()))
         }
-        Expression::Function(func) => {
+        Function(func) => {
             func.args.iter().any(|x| should_remove_parens(x.as_ref()))
         }
-        Expression::Parens(parens) => {
+        Parens(parens) => {
             if parens.len() == 1 {
                 return true;
             }
@@ -107,8 +113,10 @@ fn should_remove_parens(e: &Expression) -> bool {
 }
 
 pub(crate) fn can_simplify_constants(expr: &Expression) -> bool {
+    use Expression::*;
+
     match expr {
-        Expression::Rollup(re) => {
+        Rollup(re) => {
             if !can_simplify_constants(re.expr.as_ref()) {
                 return false
             }
@@ -117,17 +125,27 @@ pub(crate) fn can_simplify_constants(expr: &Expression) -> bool {
             }
             return false;
         }
-        Expression::BinaryOperator(be) => {
-            can_simplify_constants(be.left.as_ref()) ||
-            can_simplify_constants(be.right.as_ref())
+        BinaryOperator(be) => {
+            let left = be.left.as_ref();
+            let right = be.right.as_ref();
+            match (left, right) {
+                (Number(_), Number(_)) => true,
+                (String(_), String(_)) => {
+                    be.op == Add || be.op.is_comparison()
+                },
+                _ => {
+                    can_simplify_constants(left) ||
+                    can_simplify_constants(right)
+                }
+            }
         }
-        Expression::Aggregation(agg) => {
+        Aggregation(agg) => {
             agg.args.iter().any(|x| can_simplify_constants(x.as_ref()))
         }
-        Expression::Function(fe) => {
+        Function(fe) => {
             fe.args.iter().any(|x| can_simplify_constants(x.as_ref()))
         }
-        Expression::Parens(parens) => {
+        Parens(parens) => {
             if parens.len() == 1 {
                 return true
             }
@@ -139,10 +157,10 @@ pub(crate) fn can_simplify_constants(expr: &Expression) -> bool {
 
 // todo: use a COW?
 pub(crate) fn simplify_constants(expr: Expression) -> Expression {
+    use Expression::*;
 
     fn simplify_boxed(expr: &BExpression) -> BExpression {
-        // todo(perf) can we take possession of the contents of the box rather
-        // than clone
+        // todo(perf) can we take possession of the contents of the box rather than clone
         let cloned = expr.as_ref().clone();
         let simple = simplify_constants(cloned);
         return Box::new(simple);
@@ -150,7 +168,7 @@ pub(crate) fn simplify_constants(expr: Expression) -> Expression {
 
     let mut expr = expr;
     match expr {
-        Expression::Rollup(ref mut re) => {
+        Rollup(ref mut re) => {
             if can_simplify_constants(&re.expr) {
                 re.expr = simplify_boxed(&re.expr);
             }
@@ -160,7 +178,7 @@ pub(crate) fn simplify_constants(expr: Expression) -> Expression {
                 }
             }
         }
-        Expression::BinaryOperator(ref mut be) => {
+        BinaryOperator(ref mut be) => {
             if can_simplify_constants(&be.left) {
                 be.left = simplify_boxed(&be.left);
             }
@@ -169,40 +187,17 @@ pub(crate) fn simplify_constants(expr: Expression) -> Expression {
                 be.right = simplify_boxed(&be.right);
             }
 
-            match (&be.left.as_ref(), &be.right.as_ref()) {
-                (Expression::Number(ln), Expression::Number(rn)) => {
-                    let n = eval_binary_op(ln.value, rn.value, be.op, be.bool_modifier);
-                    return Expression::Number( NumberExpr::new(n, be.left.span()))
-                }
-                (Expression::String(left), Expression::String(right)) => {
-                    if be.op == BinaryOp::Add {
-                        let val = format!("{}{}", left.value, right.value);
-                        return Expression::from(val)
-                    }
-                    if be.op.is_comparison() {
-                        // Note:: the `or` branch should not be reached because of
-                        // the comparison above
-                        let n = if string_compare(&left.value, &right.value, be.op)
-                            .unwrap_or(false) {
-                            1.0
-                        } else if !be.bool_modifier {
-                            f64::NAN
-                        } else {
-                            0.0
-                        };
-                        return Expression::from(n)
-                    }
-                }
-                _ => {},
+            if let Some( folded ) = constant_fold_binary(be) {
+                return folded
             }
         }
-        Expression::Aggregation(ref mut agg) => {
+        Aggregation(ref mut agg) => {
             simplify_args_in_place(&mut agg.args);
         }
-        Expression::Function(ref mut fe) => {
+        Function(ref mut fe) => {
             simplify_args_in_place(&mut fe.args);
         }
-        Expression::Parens(ref mut parens) => {
+        Parens(ref mut parens) => {
             if parens.len() == 1 {
                 let single = parens.expressions.remove(0).as_ref().clone();
                 // todo: how to avoid clone ?
@@ -217,8 +212,10 @@ pub(crate) fn simplify_constants(expr: Expression) -> Expression {
 
 
 pub(crate) fn simplify_constants_inplace(expr: &mut Expression) {
+    use Expression::*;
+
     match expr {
-        Expression::Rollup(ref mut re) => {
+        Rollup(ref mut re) => {
             simplify_constants_inplace(&mut re.expr);
             if let Some(at) = &re.at {
                 // todo: how to avoid clone
@@ -226,17 +223,18 @@ pub(crate) fn simplify_constants_inplace(expr: &mut Expression) {
                 re.at = Some( Box::new( simplify_constants(clone)) );
             }
         }
-        Expression::BinaryOperator(be) => {
-            simplify_constants_inplace(&mut be.left);
-            simplify_constants_inplace(&mut be.right);
+        BinaryOperator(be) => {
+            if let Some(constant) = constant_fold_binary(be) {
+                *expr = constant
+            }
         }
-        Expression::Aggregation(agg) => {
+        Aggregation(agg) => {
             simplify_args_in_place(&mut agg.args);
         }
-        Expression::Function(fe) => {
+        Function(fe) => {
             simplify_args_in_place(&mut fe.args);
         }
-        Expression::Parens(parens) => {
+        Parens(parens) => {
             simplify_args_in_place(&mut parens.expressions);
         }
         _ => {},
@@ -249,3 +247,37 @@ fn simplify_args_in_place(args: &mut Vec<BExpression>) {
         simplify_constants_inplace(arg.as_mut());
     }
 }
+/// Perform constant-folding on binary op if possible
+pub(super) fn constant_fold_binary(be: &BinaryOpExpr) -> Option<Expression> {
+
+    match (be.left.as_ref(), be.right.as_ref()) {
+        (Expression::Number(ln), Expression::Number(rn)) => {
+            let n = eval_binary_op(ln.value, rn.value, be.op, be.bool_modifier);
+            let expr = Expression::Number( NumberExpr::new(n, be.left.span()));
+            Some(expr)
+        }
+        (Expression::String(left), Expression::String(right)) => {
+            if be.op == BinaryOp::Add {
+                let val = format!("{}{}", left.value, right.value);
+                let expr = Expression::String( StringExpr::new(val, be.left.span()));
+                return Some(expr)
+            }
+            if be.op.is_comparison() {
+                let n = if string_compare(&left.value, &right.value, be.op)
+                    .unwrap_or(false) {
+                    1.0
+                } else if !be.bool_modifier {
+                    f64::NAN
+                } else {
+                    0.0
+                };
+                let expr = Expression::Number( NumberExpr::new(n, be.left.span()));
+                return Some(expr)
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+// todo: tests

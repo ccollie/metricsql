@@ -14,19 +14,6 @@ struct Lexer {
     err error
 }
 
-fn (lex *lexer) Context() string {
-return fmt.Sprintf("%s%s", lex.Token, lex.sTail)
-}
-
-fn (lex *lexer) Init(s: &str) {
-lex.Token = ""
-lex.prevTokens = nil
-lex.nextTokens = nil
-lex.err = nil
-
-lex.sOrig = s
-lex.sTail = s
-}
 
 fn (lex *lexer) Next() error {
 if lex.err != nil {
@@ -47,7 +34,7 @@ lex.Token = token
 return nil
 }
 
-fn (lex *lexer) next() (string, error) {
+fn (lex *lexer) next() -> ParseResult<String> {
 again:
 // Skip whitespace
 s = lex.sTail
@@ -136,78 +123,11 @@ for bs < i && s[i-bs-1] == '\\' {
 bs++
 }
 if bs%2 == 0 {
-token = s[0 .. i+1]
+token = s[0 .. i+1];
 return token
 }
 i += 1;
 }
-}
-
-fn parse_positive_number(s: &str) -> ParseResult<f64> {
-    if is_special_integer_prefix(s) {
-        n = strconv.ParseInt(s, 0, 64);
-        if err != nil {
-            return 0, err
-        }
-return float64(n)
-}
-s = s.to_ascii_lowercase();
-m = float64(1);
-switch true {
-case s.ends_with("kib"):
-s = &s[0 .. .len()-3];
-m = 1024;
-case s.ends_with("ki"):
-s = &s[0 .. .len()-2];
-m = 1024;
-case s.ends_with("kb"):
-s = &s[0 .. .len()-2];
-m = 1000;
-case s.ends_with("k"):
-s = &s[0 .. .len()-1];
-m = 1000;
-case s.ends_with("mib"):
-s = &s[0 ..len()-3];
-m = 1024 * 1024;
-case s.ends_with("mi"):
-s = &s[0 ..len()-2];
-m = 1024 * 1024;
-case s.ends_with("mb"):
-s = &s[0 ..len()-2];
-m = 1000 * 1000;
-case s.ends_with("m"):
-s = &s[0 ..len()-1];
-m = 1000 * 1000;
-case s.ends_with("gib"):
-s = &s[0 ..len()-3];
-m = 1024 * 1024 * 1024;
-case s.ends_with("gi"):
-s = &s[0 ..len()-2];
-m = 1024 * 1024 * 1024;
-case s.ends_with("gb"):
-s = &s[0 ..len()-2];
-m = 1000 * 1000 * 1000;
-case s.ends_with("g"):
-s = &s[0 ..len()-1];
-m = 1000 * 1000 * 1000;
-case s.ends_with("tib"):
-s = &s[0 ..len()-3];
-m = 1024 * 1024 * 1024 * 1024;
-case s.ends_with("ti"):
-s = &s[0 ..len()-2];
-m = 1024 * 1024 * 1024 * 1024;
-case s.ends_with("tb"):
-s = &s[0 ..len()-2];
-m = 1000 * 1000 * 1000 * 1000;
-case s.ends_with("t"):
-s = &s[0 ..len()-1];
-m = 1000 * 1000 * 1000 * 1000
-}
-v = strconv.ParseFloat(s, 64);
-if err != nil {
-return 0, err
-}
-return v * m
 }
 
 fn scan_positive_number(s: &str) -> ParseRult<String>  {
@@ -284,46 +204,6 @@ return "", fmt.Errorf("missing exponent part in %q", s)
 return s[0 .. j]
 }
 
-fn scan_num_multiplier(s: &str) int {
-s = s.to_ascii_lowercase()
-switch true {
-case strings.HasPrefix(s, "kib"):
-return 3
-case strings.HasPrefix(s, "ki"):
-return 2
-case strings.HasPrefix(s, "kb"):
-return 2
-case strings.HasPrefix(s, "k"):
-return 1
-case strings.HasPrefix(s, "mib"):
-return 3
-case strings.HasPrefix(s, "mi"):
-return 2
-case strings.HasPrefix(s, "mb"):
-return 2
-case strings.HasPrefix(s, "m"):
-return 1
-case strings.HasPrefix(s, "gib"):
-return 3
-case strings.HasPrefix(s, "gi"):
-return 2
-case strings.HasPrefix(s, "gb"):
-return 2
-case strings.HasPrefix(s, "g"):
-return 1
-case strings.HasPrefix(s, "tib"):
-return 3
-case strings.HasPrefix(s, "ti"):
-return 2
-case strings.HasPrefix(s, "tb"):
-return 2
-case strings.HasPrefix(s, "t"):
-return 1
-default:
-return 0
-}
-}
-
 fn scan_ident(s: &str) -> String {
     let i = 0;
     while i < s.len() {
@@ -338,49 +218,13 @@ fn scan_ident(s: &str) -> String {
 
         // Do not verify the next char, since it is escaped.
         // The next char may be encoded as multi-byte UTF8 sequence. See https://en.wikipedia.org/wiki/UTF-8#Encoding
-        _, size = utf8.DecodeRuneInString(s[i .. ])
+        _, size = utf8.DecodeRuneInString(s[i .. ]);
         i += size
     }
     if i == 0 {
         panic("BUG: scan_ident couldn't find a single ident char; make sure is_ident_prefix called before scan_ident")
     }
     return s[0 .. i]
-}
-
-fn unescape_ident(s: &str) -> String {
-    n = strings.IndexByte(s, '\\');
-if n < 0 {
-return s
-}
-dst = make([]byte, 0, s.len());
-for {
-    dst.push(&s[0 .. n];...)
-    s = &s[n+1 .. ];
-    if s.len() == 0 {
-        return string(dst)
-    }
-    if s[0] == 'x' && s.len() >= 3 {
-        h1 = from_hex(s[1]);
-        h2 = from_hex(s[2]);
-        if h1 >= 0 && h2 >= 0 {
-            dst.push(byte((h1<<4)|h2));
-            s = s[3 .. ];
-        } else {
-dst.push(s[0]);
-s = s[1 .. ]
-}
-} else {
-// UTF8 char. See https://en.wikipedia.org/wiki/UTF-8#Encoding
-_, size = utf8.DecodeRuneInString(s);
-dst.push(&s[0 .. ize]...)
-s = s[size .. ]
-}
-n = strings.IndexByte(s, '\\');
-if n < 0 {
-dst.push(s...)
-return string(dst)
-}
-}
 }
 
 fn from_hex(ch: u8) -> i32 {
@@ -394,13 +238,6 @@ if ch >= 'A' && ch <= 'F' {
 return int((ch - 'A') + 10)
 }
 return -1
-}
-
-fn toHex(n: u8) -> char {
-if n < 10 {
-return '0' + n
-}
-return 'a' + (n - 10)
 }
 
 fn append_escaped_ident(dst []byte, s: &str) []byte {
@@ -430,12 +267,6 @@ dst.push('x', toHex(ch>>4), toHex(ch&0xf))
 return dst
 }
 
-fn (lex *lexer) Prev() {
-lex.nextTokens = append(lex.nextTokens, lex.Token)
-lex.Token = lex.prevTokens[len(lex.prevTokens)-1]
-lex.prevTokens = lex.prevTokens[0 .. len(lex.prevTokens)-1]
-}
-
 fn is_eof(s: &str) -> bool {
 return s.len() == 0
 }
@@ -453,19 +284,6 @@ return 1
 }
 }
 return -1
-}
-
-fn isInfOrNaN(s: &str) -> bool {
-if s.len() != 3 {
-return false
-}
-s = s.to_ascii_lowercase();
-return s == "inf" || s == "nan"
-}
-
-fn is_offset(s: &str) -> bool {
-s = s.to_ascii_lowercase();
-return s == "offset"
 }
 
 fn is_positive_number_prefix(s: &str) -> bool {
@@ -488,46 +306,9 @@ skipChars, _ = scanSpecialIntegerPrefix(s);
 return skipChars > 0
 }
 
-fn scan_special_integer_prefix(s: &str) (skipChars int, isHex bool) {
-if s.len() < 1 || s[0] != '0' {
-return 0, false
-}
-s = strings.ToLower(s[1 .. ])
-if s.len() == 0 {
-return 0, false
-}
-if isDecimalChar(s[0]) {
-// octal number: 0123
-return 1, false
-}
-if s[0] == 'x' {
-// 0x
-return 2, true
-}
-if s[0] == 'o' || s[0] == 'b' {
-// 0x, 0o or 0b prefix
-return 2, false
-}
-return 0, false
-}
-
 fn is_positive_duration(s: &str) -> bool {
     let n = scan_duration(s);
     return n == s.len()
-}
-
-// positive_duration_value returns positive duration in milliseconds for the given s
-// and the given step.
-//
-// Duration in s may be combined, i.e. 2h5m or 2h-5m.
-//
-// Error is returned if the duration in s is negative.
-fn positive_duration_value(s: &str, step: i64) -> ParseResult<i64> {
-    let d = duration_value(s, step);
-    if d < 0 {
-        return 0, fmt.Errorf("duration cannot be negative; got %q", s)
-    }
-    return d
 }
 
 // duration_value returns the duration in milliseconds for the given s
@@ -567,33 +348,6 @@ if math.Abs(d) > 1<<63-1 {
 return 0, fmt.Errorf("too big duration %.0fms", d)
 }
 return int64(d)
-}
-
-fn parse_single_duration(s: &str, step: i64) -> ParseResult<f64> {
-numPart = &s[0..s.len()-1];
-if strings.HasSuffix(numPart, "m") {
-// Duration in ms
-numPart = numPart[0 .. num_part.len()-1]
-}
-f = strconv.ParseFloat(numPart, 64);
-if err != nil {
-return 0, fmt.Errorf("cannot parse duration %q: %s", s, err)
-}
-var mp float64;
-    match s[num_part.len() .. ] {
-    "ms" => mp = 1e-3,
-    "s" => mp = 1,
-    "m" => mp = 60,
-    "h" => mp = 60 * 60,
-    "d" => mp = 24 * 60 * 60,
-    "w" => mp = 7 * 24 * 60 * 60,
-    "y" => mp = 365 * 24 * 60 * 60,
-    "i" => mp = float64(step) / 1e3,
-    _ => {
-        return 0, fmt.Errorf("invalid duration suffix in %q", s)
-    }
-}
-return mp * f * 1e3
 }
 
 // scan_duration scans duration, which must start with positive num.
@@ -688,13 +442,4 @@ if isFirstIdentChar(ch) {
 return true
 }
 return isDecimalChar(ch) || ch == '.'
-}
-
-fn is_space_char(ch: u8) -> bool {
-switch ch {
-case ' ', '\t', '\n', '\v', '\f', '\r':
-return true
-default:
-return false
-}
 }

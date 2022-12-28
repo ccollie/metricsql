@@ -6,7 +6,7 @@ use std::ops::{Deref};
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 
-use chrono::{Datelike, DateTime, Timelike, TimeZone, Utc, Weekday};
+use chrono::{Datelike, DateTime, NaiveDateTime, Timelike, TimeZone, Utc, Weekday};
 use once_cell::sync::Lazy;
 use rand::{Rng, rngs::StdRng, SeedableRng, thread_rng};
 use rand_distr::{Exp1, StandardNormal};
@@ -350,19 +350,24 @@ fn new_transform_func_datetime(f: fn(t: DateTime<Utc>) -> f64) -> impl Transform
         let tf = move |values: &mut [f64]| {
             for v in values.iter_mut() {
                 if !v.is_nan() {
-                    let t = Utc.timestamp(*v as i64, 0);
-                    *v = f(t) as f64;
+                    // todo: do we need try_info ?
+                    let naive = NaiveDateTime::from_timestamp_opt(*v as i64, 0);
+                    *v = if let Some(naive_datetime) = naive {
+                        let date_time_utc = Utc.from_utc_datetime(&naive_datetime);
+                        f(date_time_utc)
+                    } else {
+                       NAN
+                    };
                 }
             }
         };
 
-        if tfa.args.len() == 0 {
-            let mut arg = eval_time(&tfa.ec);
-            do_transform_values(&mut arg, tf, tfa.keep_metric_names)
+        let mut arg = if tfa.args.len() == 0 {
+            eval_time(&tfa.ec)
         } else {
-            let mut arg = get_series(tfa, 0)?;
-            do_transform_values(&mut arg, tf, tfa.keep_metric_names)
-        }
+            get_series(tfa, 0)?
+        };
+        do_transform_values(&mut arg, tf, tfa.keep_metric_names)
     }
 }
 
@@ -2717,8 +2722,13 @@ fn transform_timezone_offset(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Ti
     let timestamps = tfa.ec.timestamps();
     let mut values: Vec<f64> = Vec::with_capacity(timestamps.len());
     for v in timestamps.iter() {
-        let ofs = get_timezone_offset(&zone, *v);
-        values.push(ofs as f64);
+        // todo(perf) construct a DateTime in the tz and update timestamp
+        let ofs = if let Some(val) = get_timezone_offset(&zone, *v) {
+            val as f64
+        } else {
+            f64::NAN
+        };
+        values.push(ofs);
     }
     let ts = Timeseries {
         metric_name: MetricName::default(),

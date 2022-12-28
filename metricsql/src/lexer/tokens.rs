@@ -4,11 +4,10 @@ use std::fmt::{Display, Formatter};
 #[derive(Logos, Debug, PartialEq, Copy, Clone)]
 #[logos(subpattern decimal = r"[0-9][_0-9]*")]
 #[logos(subpattern hex = r"-?0[xX][0-9a-fA-F][_0-9a-fA-F]*")]
-#[logos(subpattern octal = r"0[oO](_?[0-7]+)+")]
-#[logos(subpattern binary = r"0[bB][0-1][_0-1]*")]
-#[logos(subpattern float = r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?")]
-#[logos(subpattern exp = r"[eE][+-]?[0-9][_0-9]*")]
-#[logos(subpattern duration = r"(-?)(0|[1-9]\d*)(\.\d+)?(ms|s|m|h|d|w|y|i)+")]
+#[logos(subpattern octal = r"-?0[oO]?[1-7][0-7]*")]
+#[logos(subpattern binary = r"-?0[bB][0-1][_0-1]*")]
+#[logos(subpattern float = r"-?(?:([0-9]*[.])?[0-9]+)(?:[eE][+-]?\d+)?")]
+#[logos(subpattern duration = r"-?(?:([0-9]*[.])?[0-9]+)(ms|s|m|h|d|w|y|i)")]
 pub enum TokenKind {
     #[token("and", ignore(ascii_case))]
     OpAnd,
@@ -69,26 +68,14 @@ pub enum TokenKind {
 
     #[token("nan", ignore(ascii_case))]
     #[token("inf", ignore(ascii_case))]
+    #[regex("(?&binary)")]
     #[regex("(?&hex)")]
     #[regex("(?&octal)")]
-    #[regex("(?&binary)")]
-    #[regex("(?&float)")]
+    #[regex("(?&float)((?i)(kib|ki|kb|k|mib|mi|mb|m|gib|gi|gb|g|tib|ti|tb|t))*")]
     Number,
 
     #[regex(r"[_a-zA-Z][_a-zA-Z0-9:\.]*")]
     Ident,
-
-    #[regex("(?&float)(?i)(kib|ki|kb|k|mib|mi|mb|m|gib|gi|gb|g|tib|ti|tb|t)", priority = 8)]
-    NumberWithUnit,
-
-    #[regex(r"(?:0|[1-9][0-9]*)\.[^0-9]")]
-    ErrorNumJunkAfterDecimalPoint,
-
-    #[regex(r"(?:0|[1-9][0-9]*)(?:\.[0-9]+)?[eE][^+\-0-9]")]
-    ErrorNumJunkAfterExponent,
-
-    #[regex(r"(?:0|[1-9][0-9]*)(?:\.[0-9]+)?[eE][+-][^0-9]")]
-    ErrorNumJunkAfterExponentSign,
 
     #[token("@")]
     At,
@@ -179,6 +166,11 @@ pub enum TokenKind {
     #[regex("@[^\"'\\s]\\S+")]
     ErrorStringMissingQuotes,
 
+    #[regex(r"(?:0|[1-9][0-9]*)\.[^0-9]")]
+    #[regex(r"(?:0|[1-9][0-9]*)(?:\.[0-9]+)?[eE][^+\-0-9]")]
+    #[regex(r"(?:0|[1-9][0-9]*)(?:\.[0-9]+)?[eE][+-][^0-9]")]
+    ErrorInvalidNumber,
+
     #[regex(r"[ \t\n\r]+", logos::skip)]
     Whitespace,
 
@@ -202,9 +194,6 @@ impl TokenKind {
         matches!(self,
             ErrorStringDoubleQuotedUnterminated
             | ErrorStringSingleQuotedUnterminated
-            | ErrorNumJunkAfterDecimalPoint
-            | ErrorNumJunkAfterExponent
-            | ErrorNumJunkAfterExponentSign
             | ErrorStringMissingQuotes
             | ErrorInvalidToken)
     }
@@ -226,7 +215,6 @@ impl TokenKind {
     #[inline]
     pub fn is_rollup_start(&self) -> bool {
         use TokenKind::*;
-
         matches!(self, Offset | At | LeftBracket)
     }
 
@@ -261,10 +249,8 @@ impl TokenKind {
         use TokenKind::*;
         matches!(self,
             ErrorInvalidToken
-            | ErrorNumJunkAfterDecimalPoint
+            | ErrorInvalidNumber
             | ErrorStringMissingQuotes
-            | ErrorNumJunkAfterExponent
-            | ErrorNumJunkAfterExponentSign
             | ErrorStringDoubleQuotedUnterminated
             | ErrorStringSingleQuotedUnterminated)
     }
@@ -286,11 +272,14 @@ impl Display for TokenKind {
             Self::Offset => "offset",
             Self::With => "with",
             Self::Without => "without",
+
+            // Numerics
+            Self::Number => "<number>",
+
             // variable tokens
             Self::Duration => "<duration>",
             Self::Ident => "<ident>",
-            Self::Number => "<number>",
-            Self::NumberWithUnit => "<number><unit>",
+
             // symbols
             Self::At => "@",
             Self::LeftBrace => "{{",
@@ -330,18 +319,14 @@ impl Display for TokenKind {
             Self::SingleLineHashComment => "<#comment>",
 
             // string errors
-            Self::ErrorStringDoubleQuotedUnterminated => "<unterminated double quoted string>",
+            Self::ErrorStringDoubleQuotedUnterminated => "unterminated double quoted string",
             Self::ErrorStringSingleQuotedUnterminated => "<unterminated single quoted string>",
             Self::ErrorStringMissingQuotes => "<string missing quotes>",
 
-            // number errors
-            Self::ErrorNumJunkAfterDecimalPoint => "invalid number (unexpected character after decimal point)",
-            Self::ErrorNumJunkAfterExponent => "invalid number (unexpected character after exponent)",
-            Self::ErrorNumJunkAfterExponentSign => "invalid number (unexpected character after exponent sign)",
-
             // other
             Self::ErrorInvalidToken => "<invalid token>",
-            Self::Eof => "<Eof>"
+            Self::Eof => "<Eof>",
+            Self::ErrorInvalidNumber => "invalid number"
         })
     }
 }
@@ -446,30 +431,32 @@ mod tests {
     #[test_case("0.10")]
     #[test_case("0e100")]
     #[test_case("1e100")]
+    #[test_case("123.45")]
+    #[test_case("0.234")]
     #[test_case("1.1e100")]
     #[test_case("1.2e-100")]
     #[test_case("1.3e+100")]
     #[test_case("0.49641")]
-    fn number_float(src: &str) {
+    fn float_literal(src: &str) {
         test_tokens!(src, [Number]);
     }
 
     #[test_case("0b1110")]
     #[test_case("0b0")]
-    fn number_binary(src: &str) {
+    fn binary_literal(src: &str) {
         test_tokens!(src, [Number]);
     }
 
     #[test_case("0x1fffa")]
     #[test_case("0x4")]
-    fn number_hex(src: &str) {
+    fn hex_literal(src: &str) {
         test_tokens!(src, [Number]);
     }
 
     #[test_case("03")]
     #[test_case("0o1")]
     #[test_case("0O12")]
-    fn number_octal(src: &str) {
+    fn octal_literal(src: &str) {
         test_tokens!(src, [Number]);
     }
 
@@ -499,11 +486,11 @@ mod tests {
         test_success(s, &expected);
     }
 
-    #[test_case("1.+", ErrorNumJunkAfterDecimalPoint)]
-    #[test_case("1e!", ErrorNumJunkAfterExponent)]
-    #[test_case("1e+!", ErrorNumJunkAfterExponentSign)]
-    fn bad_number(src: &str, tok: TokenKind) {
-        test_tokens!(src, [tok]);
+    #[test]
+    fn test_invalid_number() {
+        test_tokens!("1.+", [ErrorInvalidNumber]);
+        test_tokens!("1e!", [ErrorInvalidNumber]);
+        test_tokens!("1e+!", [ErrorInvalidNumber]);
     }
 
     #[test_case("\"hi\"", StringLiteral; "double_1")]
@@ -577,7 +564,7 @@ mod tests {
         test_success("m offset 123h", &["m", "offset", "123h"]);
 
         let s = "m offset -1.23w-5h34.5m - 123";
-        let expected = vec!["m", "offset", "-", "1.23w-5h34.5m", "-", "123"];
+        let expected = vec!["m", "offset", "-1.23w-5h34.5m", "-", "123"];
         test_success(s, &expected);
     }
 
@@ -598,11 +585,25 @@ mod tests {
     #[test_case("3ti")]
     #[test_case("-4.5TIB")]
     fn number_with_unit(src: &str) {
-        test_tokens!(src, [NumberWithUnit]);
+        test_tokens!(src, [Number]);
     }
 
     #[test]
     fn identifiers() {
+        // short
+        test_tokens!(
+          "m y f i h d s",
+          [
+            Ident=>"m",
+            Ident=>"y",
+            Ident=>"f",
+            Ident=>"i",
+            Ident=>"h",
+            Ident=>"d",
+            Ident=>"s"
+          ]
+        );
+
         test_tokens!(
           "foo bar123",
           [
@@ -713,5 +714,4 @@ mod tests {
             i += 1;
         }
     }
-
 }

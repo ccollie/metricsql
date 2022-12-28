@@ -1,7 +1,7 @@
 use crate::ast::{DurationExpr, Expression, ReturnType, RollupExpr};
 use crate::lexer::TokenKind;
 use crate::parser::{ParseError, Parser, ParseResult};
-use crate::parser::expr::parse_single_expr_without_rollup_suffix;
+use crate::parser::expr::{parse_duration_expr, parse_single_expr_without_rollup_suffix};
 use super::expr::{parse_duration, parse_positive_duration};
 
 
@@ -42,7 +42,13 @@ pub(super) fn parse_rollup_expr(p: &mut Parser, e: Expression) -> ParseResult<Ex
 }
 
 fn parse_at_expr(p: &mut Parser) -> ParseResult<Expression> {
-    p.expect(TokenKind::At)?;
+    use TokenKind::*;
+
+    p.expect(At)?;
+    if p.at_set(&[Number, Duration]) {
+        return parse_duration_expr(p)
+    }
+
     let expr = parse_single_expr_without_rollup_suffix(p)?;
     // validate result type
     match expr.return_type() {

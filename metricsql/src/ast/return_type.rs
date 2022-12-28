@@ -57,11 +57,10 @@ impl Display for ReturnType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         use ReturnType::*;
 
-        let s: String;
         let name = match self {
             Unknown(u) => {
-                s = format!("<unknown> - {} : {:?}", u.message, u.expression);
-                &s
+                write!(f, "<unknown> - {} : {:?}", u.message, u.expression)?;
+                return Ok(())
             },
             Scalar => "Scalar",
             String => "String",

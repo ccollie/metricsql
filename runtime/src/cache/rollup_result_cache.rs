@@ -2,22 +2,14 @@ use std::collections::HashMap;
 use std::hash::Hasher;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use once_cell::sync::Lazy;
 /// import commonly used items from the prelude:
 use rand::prelude::*;
+use tracing::{field, info, Level, Span, span_enabled, trace_span};
 use xxhash_rust::xxh3::Xxh3;
 
-use lib::{
-    compress_lz4,
-    decompress_lz4,
-    get_pooled_buffer,
-    marshal_fixed_int,
-    marshal_var_int,
-    unmarshal_fixed_int,
-    unmarshal_var_int
-};
+use lib::{AtomicCounter, compress_lz4, decompress_lz4, get_pooled_buffer, marshal_fixed_int, marshal_var_int, RelaxedU64Counter, unmarshal_fixed_int, unmarshal_var_int};
 use metricsql::ast::{Expression, LabelFilter};
 
 use crate::{EvalConfig, marshal_timeseries_fast, Timeseries};
@@ -47,8 +39,16 @@ fn get_default_cache_size() -> u64 {
     n
 }
 
+#[derive(Clone, Default)]
+pub struct RollupCacheStats {
+    pub full_hits: u64,
+    pub partial_hits: u64,
+    pub misses: u64
+}
+
 struct Inner {
     cache: Box<dyn RollupResultCacheStorage + Send + Sync>,
+    stats: RollupCacheStats,
     hasher: Xxh3
 }
 
@@ -56,7 +56,10 @@ pub struct RollupResultCache {
     inner: Mutex<Inner>,
     memory_limiter: MemoryLimiter,
     max_marshaled_size: u64,
-    cache_key_suffix: AtomicU64,
+    cache_key_suffix: RelaxedU64Counter,
+    pub full_hits: RelaxedU64Counter,
+    pub partial_hits: RelaxedU64Counter,
+    pub misses: RelaxedU64Counter
 }
 
 impl Default for RollupResultCache {
@@ -83,6 +86,7 @@ impl RollupResultCache {
 
         let inner = Inner {
             cache,
+            stats: Default::default(),
             hasher
         };
 
@@ -90,7 +94,10 @@ impl RollupResultCache {
             inner: Mutex::new(inner),
             memory_limiter,
             max_marshaled_size: (max_size as u64 / 4_u64),
-            cache_key_suffix: AtomicU64::new( suffix ),
+            cache_key_suffix: RelaxedU64Counter::new( suffix ),
+            full_hits: Default::default(),
+            partial_hits: Default::default(),
+            misses: Default::default(),
         }
     }
 
@@ -107,7 +114,25 @@ impl RollupResultCache {
     }
 
     pub fn get(&self, ec: &EvalConfig, expr: &Expression, window: i64) -> RuntimeResult<(Option<Vec<Timeseries>>, i64)> {
+
+        let is_tracing = span_enabled!(Level::TRACE);
+
+        let span = if is_tracing {
+            let mut query = expr.to_string();
+            query.truncate(300);
+            trace_span!("rollup_cache::get",
+                query,
+                start = ec.start,
+                end = ec.end,
+                step = ec.step,
+                series = field::Empty,
+                window)
+        } else {
+            Span::none()
+        }.entered();
+
         if !ec.may_cache() {
+            info!("did not fetch series from cache, since it is disabled in the current context");
             return Ok((None, ec.start));
         }
 
@@ -117,9 +142,10 @@ impl RollupResultCache {
         let mut inner = self.inner.lock().unwrap();
 
         let hash = marshal_rollup_result_cache_key(&mut inner.hasher,
-                                        expr, window, ec.step, &ec.enforced_tag_filterss);
+                                        expr, window, ec.step, &ec.enforced_tag_filters);
 
         if !inner.cache.get(&hash.to_ne_bytes(), &mut meta_info_buf) || meta_info_buf.len() == 0 {
+            info!("nothing found");
             return Ok((None, ec.start));
         }
         let mut mi: RollupResultCacheMetaInfo;
@@ -134,6 +160,8 @@ impl RollupResultCache {
 
         let key = mi.get_best_key(ec.start, ec.end)?;
         if key.prefix == 0 && key.suffix == 0 {
+            // todo: add start, end properties ?
+            info!("nothing found on the timeRange");
             return Ok((None, ec.start));
         }
         
@@ -147,9 +175,11 @@ impl RollupResultCache {
             mi.remove_key(key);
             mi.marshal(&mut meta_info_buf);
             let hash = marshal_rollup_result_cache_key(&mut inner.hasher, expr,
-                    window, ec.step, &ec.enforced_tag_filterss);
+                    window, ec.step, &ec.enforced_tag_filters);
 
             inner.cache.set(&hash.to_ne_bytes(), meta_info_buf.as_slice());
+
+            info!("missing cache entry");
             return Ok((None, ec.start));
         }
         // we don't need cache past this point
@@ -157,9 +187,11 @@ impl RollupResultCache {
 
         // Decompress into newly allocated byte slice, since tss returned from unmarshalTimeseriesFast
         // refers to the byte slice, so it cannot be returned to the resultBufPool.
+        info!("load compressed entry from cache with size {} bytes", compressed_result_buf.len());
 
         let mut tss = match decompress_lz4(&compressed_result_buf) {
             Ok(uncompressed) => {
+                info!("unpack the entry into {} bytes", uncompressed.len());
                 match unmarshal_timeseries_fast(&uncompressed) {
                     Ok(tss) => tss,
                     Err(_) => {
@@ -175,6 +207,8 @@ impl RollupResultCache {
             }
         };
 
+        info!("unmarshal {} series", tss.len());
+
         // Extract values for the matching timestamps
         let mut i = 0;
         let mut j;
@@ -185,10 +219,12 @@ impl RollupResultCache {
             }
             if i == timestamps.len() {
                 // no matches.
+                info!("no datapoints found in the cached series on the given timeRange");
                 return Ok((None, ec.start));
             }
             if timestamps[i] != ec.start {
                 // The cached range doesn't cover the requested range.
+                info!("cached series don't cover the given timeRange");
                 return Ok((None, ec.start));
             }
 
@@ -211,11 +247,38 @@ impl RollupResultCache {
 
         let timestamps = &tss[0].timestamps;
         let new_start = timestamps[timestamps.len() - 1] + ec.step;
+
+        if is_tracing {
+            let start_string = ec.start.to_rfc3339();
+            let end_string = (new_start - ec.step).to_rfc3339();
+            span.record("series", tss.len());
+
+            // todo: store as properties
+            info!("return {} series on a timeRange=[{}..{}]", tss.len(), start_string, end_string);
+        }
+
         return Ok((Some(tss), new_start));
     }
 
     pub fn put(&self, ec: &EvalConfig, expr: &Expression, window: i64, tss: &Vec<Timeseries>) -> RuntimeResult<()> {
+
+        let is_tracing = span_enabled!(Level::TRACE);
+        let span = if is_tracing {
+            let mut query = expr.to_string();
+            query.truncate(300);
+            trace_span!("rollup_cache::put",
+                query,
+                start = ec.start,
+                end = ec.end,
+                step = ec.step,
+                series = field::Empty,
+                window)
+        } else {
+            Span::none()
+        }.entered();
+
         if tss.len() == 0 || !ec.may_cache() {
+            info!("do not store series to cache, since it is disabled in the current context");
             return Ok(());
         }
 
@@ -229,6 +292,7 @@ impl RollupResultCache {
         }
         if i == 0 {
             // Nothing to store in the cache.
+            info!("nothing to store in the cache, since all the points have timestamps bigger than {}", deadline);
             return Ok(());
         }
 
@@ -258,7 +322,7 @@ impl RollupResultCache {
         let mut inner = self.inner.lock().unwrap();
 
         let hash = marshal_rollup_result_cache_key(&mut inner.hasher, expr, window, ec.step,
-                                        &ec.enforced_tag_filterss);
+                                        &ec.enforced_tag_filters);
 
         let found = inner.cache.get(&hash.to_ne_bytes(), &mut metainfo_buf);
         let mut mi = if found && metainfo_buf.len() > 0 {
@@ -274,7 +338,8 @@ impl RollupResultCache {
         };
 
         if mi.covers_time_range(start, end) {
-            // qt.Printf("series on the given timeRange=[{}..{}] already exist in the cache", start, end);
+            // todo: check if enabled first
+            info!("series on the given timeRange=[{}..{}] already exist in the cache", start, end);
             return Ok(());
         }
 
@@ -282,18 +347,33 @@ impl RollupResultCache {
         // should we handle error here and consider it a cache miss ?
         marshal_timeseries_fast(result_buf.deref_mut(), tss, self.max_marshaled_size as usize, ec.step)?;
         if result_buf.len() == 0 {
+            info!("cannot store series in the cache, since they would occupy more than {} bytes", self.max_marshaled_size);
+            // tooBigRollupResults.Inc()
             return Ok(());
+        }
+
+        if is_tracing {
+            let start_string = start.to_rfc3339();
+            let end_string = end.to_rfc3339();
+            span.record("series", tss.len());
+
+            info!("marshal {} series on a timeRange=[{}..{}] into {} bytes",
+                tss.len(), start_string, end_string, result_buf.len())
         }
 
         let compressed_buf = compress_lz4(&result_buf);
 
-        let suffix = self.cache_key_suffix.fetch_add(1, Ordering::Relaxed);
+        info!("compress {} bytes into {} bytes", result_buf.len(), compressed_buf.len());
+
+        let suffix = self.cache_key_suffix.inc();
         let key = RollupResultCacheKey::new(suffix);
 
         metainfo_key.clear();
         key.marshal(metainfo_key.deref_mut());
 
         inner.cache.set_big(&metainfo_key, compressed_buf.as_slice());
+
+        info!("store {} bytes in the cache", compressed_buf.len());
 
         mi.add_key(key, start, end)?;
         mi.marshal(&mut metainfo_buf);
@@ -302,7 +382,7 @@ impl RollupResultCache {
     }
 }
 
-// var resultBufPool bytesutil.ByteBufferPool
+// let resultBufPool = ByteBufferPool
 
 /// Increment this value every time the format of the cache changes.
 const ROLLUP_RESULT_CACHE_VERSION: u8 = 8;

@@ -3,6 +3,7 @@ use std::sync::Arc;
 use metricsql::ast::FuncExpr;
 use metricsql::functions::{DataType, Volatility};
 use metricsql::prelude::TransformFunction;
+use tracing::{field, Span, trace_span};
 
 use crate::context::Context;
 use crate::eval::ExprEvaluator;
@@ -75,11 +76,24 @@ impl TransformEvaluator {
 
 impl Evaluator for TransformEvaluator {
     fn eval(&self, ctx: &Arc<&Context>, ec: &EvalConfig) -> RuntimeResult<AnyValue> {
+        let span = if ctx.trace_enabled() {
+            trace_span!("transform", function = self.fe.name, series = field::Empty)
+        } else {
+            Span::none()
+        }.entered();
+
         let args = self.args.eval(ctx, ec)?;
         let mut tfa = TransformFuncArg::new(ec, &self.fe, args, self.keep_metric_names);
+
         match (self.handler)(&mut tfa) {
-            Err(err) => Err(RuntimeError::from(format!("cannot evaluate {}: {:?}", self.fe, err))),
-            Ok(v) => Ok(AnyValue::InstantVector(v))
+            Err(err) => {
+                span.record("series", 0);
+                Err(RuntimeError::from(format!("cannot evaluate {}: {:?}", self.fe, err)))
+            },
+            Ok(v) => {
+                span.record("series", v.len());
+                Ok(AnyValue::InstantVector(v))
+            }
         }
     }
 

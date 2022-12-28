@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use regex::escape;
+use tracing::{field, Span, span_enabled, Level, trace_span, trace};
 
 use metricsql::ast::*;
 use metricsql::functions::{DataType, Volatility};
@@ -20,6 +21,7 @@ use crate::runtime_error::{RuntimeError, RuntimeResult};
 
 use crate::types::Tag;
 use metricsql::prelude::trim_filters_by_group_modifier;
+use crate::eval::utils::series_len;
 
 pub struct BinaryEvaluator {
     expr: BinaryOpExpr,
@@ -39,12 +41,12 @@ impl BinaryEvaluator {
         let handler = get_binary_op_handler(expr.op);
         let rv = expr.return_type();
         let return_type = DataType::try_from(rv).unwrap_or(DataType::InstantVector);
-        let can_parallelize = both_operands_are_vectors(&expr);
+        let can_parallelize = should_parallelize(&expr);
 
         Ok(Self {
             lhs,
             rhs,
-            expr: expr.clone(),
+            expr: expr.clone(), // todo: store as arc on parse result and clone Arc
             handler,
             can_pushdown_filters,
             can_parallelize,
@@ -65,27 +67,33 @@ impl BinaryEvaluator {
         };
 
         if !self.can_pushdown_filters {
+            // avoid multi-threading in simple case
+            let op = self.expr.op.as_str();
+            let span = trace_span!("execute left and right sides in parallel", op);
+            let _guard = span.enter();
             return if self.can_parallelize {
-                // Execute both sides in parallel, since it is impossible to push down common filters
-                // from exprFirst to exprSecond.
-                // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/2886
-
-                let mut ctx_clone = Arc::clone(ctx);
+                // todo: have a special path for case where both sides are selectors
+                // i.e. both are io bound async
+                let ctx_clone = Arc::clone(ctx);
                 match rayon::join(
-                    || first.eval(ctx, ec),
-                    || second.eval(&mut ctx_clone, ec),
+                    || {
+                        trace!("left");
+                        first.eval(ctx, ec)
+                    },
+                    || {
+                        trace!("right");
+                        second.eval(&ctx_clone, ec)
+                    },
                 ) {
                     (Ok(first), Ok(second)) => Ok((first, second)),
                     (Err(err), _) => Err(err),
                     (Ok(_), Err(err)) => Err(err)
                 }
             } else {
-                // avoid multi-threading in simple case
                 let left = first.eval(ctx, ec)?;
                 let right = second.eval(ctx, ec)?;
                 Ok((left, right))
             }
-
         }
 
         // Execute binary operation in the following way:
@@ -160,6 +168,14 @@ impl Evaluator for BinaryEvaluator {
         // This, in turn, should reduce the time to select series for the left side of the query.
         let swap = self.expr.op == BinaryOp::And || self.expr.op == BinaryOp::If;
 
+        let is_tracing = span_enabled!(Level::TRACE);
+
+        let span = if is_tracing {
+            trace_span!("binary op", "op" = self.expr.op.as_str(), series = field::Empty)
+        } else {
+            Span::none()
+        }.entered();
+
         let (left, right) = self.eval_args(ctx, ec, swap)?;
         let left_series = to_vector(ec, left)?;
         let right_series = to_vector(ec, right)?;
@@ -170,12 +186,19 @@ impl Evaluator for BinaryEvaluator {
             BinaryOpFuncArg::new(left_series,&self.expr, right_series)
         };
 
-        match (self.handler)(&mut bfa) {
+        let result = match (self.handler)(&mut bfa) {
             Err(err) => Err(RuntimeError::from(
                 format!("cannot evaluate {}: {:?}", &self.expr, err)
             )),
             Ok(v) => Ok(AnyValue::InstantVector(v))
+        }?;
+
+        if is_tracing {
+            let series_count = series_len(&result);
+            span.record("series", series_count);
         }
+
+        Ok(result)
     }
 
     fn return_type(&self) -> DataType {
@@ -185,20 +208,26 @@ impl Evaluator for BinaryEvaluator {
 
 fn to_vector(ec: &EvalConfig, value: AnyValue) -> RuntimeResult<Vec<Timeseries>> {
     match value {
-        AnyValue::InstantVector(val) => Ok(val.into()), // todo: use std::mem::takee ??
+        AnyValue::InstantVector(val) => Ok(val.into()), // todo: use std::mem::take ??
         AnyValue::Scalar(n) => Ok(eval_number(ec, n)),
         _ => unreachable!("Bug: binary_op. Unexpected {} operand", value.data_type_name())
     }
 }
 
-fn both_operands_are_scalar(be: &BinaryOpExpr) -> bool {
-    match (&be.left.return_type(), &be.right.return_type()) {
-        (ReturnType::Scalar, ReturnType::Scalar) => true,
-        _ => false
+fn should_parallelize_expr(expr: &BExpression) -> bool {
+    use Expression::*;
+
+    match expr.as_ref() {
+        With(..) | String(..) | Number(..) | Duration(..) => false,
+        _ => true
     }
 }
 
-fn both_operands_are_vectors(be: &BinaryOpExpr) -> bool {
+fn should_parallelize(be: &BinaryOpExpr) -> bool {
+    if should_parallelize_expr(&be.left) && should_parallelize_expr(&be.right) {
+        return true
+    }
+
     match (&be.left.return_type(), &be.right.return_type()) {
         (ReturnType::InstantVector, ReturnType::InstantVector) => true,
         _ => false
@@ -206,7 +235,7 @@ fn both_operands_are_vectors(be: &BinaryOpExpr) -> bool {
 }
 
 fn can_pushdown_common_filters(be: &BinaryOpExpr) -> bool {
-    if !both_operands_are_vectors(&be) {
+    if !should_parallelize(&be) {
         return false
     }
     match be.op {

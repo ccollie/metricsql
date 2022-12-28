@@ -3,16 +3,10 @@ use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::iter::FromIterator;
 use std::vec::Vec;
-use crate::ast::{
-    AggregateModifierOp,
-    AggrFuncExpr,
-    BinaryOp,
-    BinaryOpExpr,
-    Expression,
-    GroupModifierOp,
-    JoinModifierOp,
-    LabelFilter
-};
+
+use crate::ast::{AggregateModifierOp, AggrFuncExpr, BinaryOp, BinaryOpExpr, Expression, GroupModifierOp, JoinModifierOp, LabelFilter, NumberExpr};
+use crate::binaryop::{eval_binary_op, string_compare};
+use crate::prelude::StringExpr;
 
 
 /// Optimize optimizes e in order to improve its performance.
@@ -32,14 +26,16 @@ pub fn optimize(expr: &Expression) -> Cow<Expression> {
 }
 
 pub fn can_optimize(e: &Expression) -> bool {
+    use Expression::*;
+
     match e {
-        Expression::Rollup(re) => match (&re.expr, &re.at) {
+        Rollup(re) => match (&re.expr, &re.at) {
             (expr, Some(at)) => can_optimize(expr) || can_optimize(at),
             _ => false,
         },
-        Expression::Function(f) => f.args.iter().any(|x| can_optimize(x)),
-        Expression::Aggregation(agg) => agg.args.iter().any(|x| can_optimize(x)),
-        Expression::BinaryOperator(_) => true,
+        Function(f) => f.args.iter().any(|x| can_optimize(x)),
+        Aggregation(agg) => agg.args.iter().any(|x| can_optimize(x)),
+        BinaryOperator(_) => true,
         _ => false,
     }
 }
@@ -234,12 +230,9 @@ pub fn pushdown_binary_op_filters<'a>(
 
 #[inline]
 pub fn can_pushdown_op_filters(e: &Expression) -> bool {
+    use Expression::*;
     // these are the types handled below in pushdown_binary_op_filters_in_place
-    matches!(e, Expression::MetricExpression(_) |
-        Expression::Function(_) |
-        Expression::Rollup(_) |
-        Expression::BinaryOperator(_) |
-        Expression::Aggregation(_))
+    matches!(e, MetricExpression(_) | Function(_) | Rollup(_) | BinaryOperator(_) | Aggregation(_))
 }
 
 fn pushdown_binary_op_filters_in_place(e: &mut Expression, common_filters: &mut Vec<LabelFilter>) {

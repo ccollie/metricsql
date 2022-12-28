@@ -15,7 +15,7 @@ mod lexer;
 
 pub mod utils {
     use crate::lexer;
-    pub use lexer::{escape_ident, parse_float, quote};
+    pub use lexer::{escape_ident, parse_number, quote};
 }
 
 pub mod parser;

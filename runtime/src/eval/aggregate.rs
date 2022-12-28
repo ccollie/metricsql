@@ -1,6 +1,7 @@
 use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::Arc;
+use tracing::{field, Span, trace_span};
 
 use metricsql::ast::{AggregateModifier, AggrFuncExpr, Expression, FuncExpr, MetricExpr};
 use metricsql::functions::{AggregateFunction, BuiltinFunction, RollupFunction, Volatility};
@@ -96,11 +97,24 @@ impl AggregateEvaluator {
 
 impl Evaluator for AggregateEvaluator {
     fn eval(&self, ctx: &Arc<&Context>, ec: &EvalConfig) -> RuntimeResult<AnyValue> {
+        let span = if ctx.trace_enabled() {
+            // done this way to avoid possible string alloc in the case where
+            // logging is disabled
+            let function = self.function.name();
+            trace_span!("aggregate", function, series = field::Empty)
+        } else {
+            Span::none()
+        }.entered();
+
         let args = self.args.eval(ctx, ec)?;
+
         //todo: use tinyvec for args
         let mut afa = AggrFuncArg::new(ec, args,  &self.modifier, self.limit);
         match (self.handler)(&mut afa) {
-            Ok(res) => Ok(AnyValue::InstantVector(res)),
+            Ok(res) => {
+                span.record("series", res.len());
+                Ok(AnyValue::InstantVector(res))
+            },
             Err(e) => {
                 let res = format!("cannot evaluate {}: {:?}", self.expr, e);
                 Err(RuntimeError::General(res))
@@ -227,7 +241,7 @@ fn get_rollup_function(fe: &FuncExpr) -> RuntimeResult<RollupFunction> {
 }
 
 pub(super) fn get_timeseries_limit(aggr_expr: &AggrFuncExpr) -> RuntimeResult<usize> {
-    // Incremental aggregates require holding only GOMAXPROCS timeseries in memory.
+    // Incremental aggregates require holding only num_cpus() timeseries in memory.
     let timeseries_len = usize::from(num_cpus()?);
     let res = if aggr_expr.limit > 0 {
         // There is an explicit limit on the number of output time series.

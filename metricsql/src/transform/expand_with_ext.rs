@@ -480,6 +480,7 @@ fn expand_with_expr_ext(was: &Vec<WithArgExpr>,
                 name: wa.args[i].clone(),
                 args: vec![],
                 expr: arg.clone(),
+                is_function: false
             };
             was_new.push(wae);
         }

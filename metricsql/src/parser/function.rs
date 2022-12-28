@@ -4,21 +4,9 @@ use crate::functions::{BuiltinFunction, DataType};
 use crate::lexer::{TokenKind, unescape_ident};
 use crate::parser::{ParseError, Parser, ParseResult};
 use crate::parser::expr::parse_arg_list;
-use super::aggregation::parse_aggr_func_expr;
 
-pub(super) fn parse_function<'a>(p: &mut Parser<'a>, name: &str) -> ParseResult<Expression> {
-    match BuiltinFunction::new(name) {
-        Ok(bf) => {
-            match bf {
-                BuiltinFunction::Aggregate(_) => parse_aggr_func_expr(p),
-                _ => parse_func_expr(p)
-            }
-        },
-        Err(e) => Err(e)
-    }
-}
 
-fn parse_func_expr(p: &mut Parser) -> ParseResult<Expression> {
+pub(super) fn parse_func_expr(p: &mut Parser) -> ParseResult<Expression> {
     let token = p.expect_token(TokenKind::Ident)?;
     let name = unescape_ident(token.text);
     let mut span= token.span;
@@ -69,7 +57,11 @@ pub(crate) fn validate_args(func: &BuiltinFunction, args: &[BExpression]) -> Par
                 return expect(return_type, RangeVector, index);
             }
             DataType::InstantVector => {
-                return expect(return_type, InstantVector, index);
+                return match return_type {
+                    // scalar can be converted to InstantVector
+                    Scalar | InstantVector => Ok(()),
+                    _ => expect(return_type, InstantVector, index)
+                }
             }
             DataType::Scalar => {
                 if !return_type.is_operator_valid() {

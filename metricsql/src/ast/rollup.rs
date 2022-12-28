@@ -105,7 +105,7 @@ impl RollupExpr {
 impl Display for RollupExpr {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let need_parent = match *self.expr {
-            Expression::Rollup(..) => false,
+            Expression::Rollup(..) => true,
             Expression::BinaryOperator(..) => true,
             Expression::Aggregation(..) => true,
             _ => false,

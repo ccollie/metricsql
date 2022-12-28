@@ -33,8 +33,10 @@ fn parse_with_arg_expr(p: &mut Parser) -> ParseResult<WithArgExpr> {
 
     let tok = p.expect_token(TokenKind::Ident)?;
     let name = unescape_ident(tok.text);
+    let is_function: bool;
 
     let args = if p.at(TokenKind::LeftParen) {
+        is_function = true;
         // Parse func args.
         let args = p.parse_ident_list()?;
 
@@ -50,6 +52,7 @@ fn parse_with_arg_expr(p: &mut Parser) -> ParseResult<WithArgExpr> {
 
         args
     } else {
+        is_function = false;
         vec![]
     };
 
@@ -62,7 +65,11 @@ fn parse_with_arg_expr(p: &mut Parser) -> ParseResult<WithArgExpr> {
         }
     };
 
-    Ok(WithArgExpr::new(name, expr, args))
+    if is_function {
+        Ok(WithArgExpr::new_function(name, expr, args))
+    } else {
+        Ok(WithArgExpr::new(name, expr))
+    }
 }
 
 pub(super) fn must_parse_with_arg_expr(s: &str) -> ParseResult<WithArgExpr> {

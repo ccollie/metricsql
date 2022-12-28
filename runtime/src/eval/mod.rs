@@ -7,7 +7,9 @@ mod scalar;
 mod function;
 mod traits;
 mod string;
+
 pub mod arg_list;
+pub(crate) mod utils;
 mod instant_vector;
 
 pub use eval::*;

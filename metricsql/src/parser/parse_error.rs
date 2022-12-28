@@ -108,7 +108,7 @@ impl InvalidTokenError {
 }
 
 impl Display for InvalidTokenError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         if !self.context.is_empty() {
             write!(f, "{} :", self.context)?;
         }

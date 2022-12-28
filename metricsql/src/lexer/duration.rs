@@ -1,14 +1,11 @@
 use crate::parser::{ParseError, ParseResult};
 
-
 static SECONDS_PER_MS: f64 = 1e-3;
 static SECONDS_PER_MINUTE: f64 = 60.0;
 static SECONDS_PER_HOUR: f64 = 60.0 * SECONDS_PER_MINUTE;
 static SECONDS_PER_DAY: f64 = 24.0 * SECONDS_PER_HOUR;
 static SECONDS_PER_WEEK: f64 = 7.0 * SECONDS_PER_DAY;
 static SECONDS_PER_YEAR: f64 = 365.0 * SECONDS_PER_DAY;
-
-
 
 /// positive_duration_value returns positive duration in milliseconds for the given s
 /// and the given step.
@@ -17,7 +14,7 @@ static SECONDS_PER_YEAR: f64 = 365.0 * SECONDS_PER_DAY;
 ///
 /// Error is returned if the duration in s is negative.
 pub fn positive_duration_value(s: &str, step: i64) -> Result<i64, ParseError> {
-    let d = duration_value(s, step)?;
+    let d = parse_duration_value(s, step)?;
     if d < 0 {
         return Err(ParseError::InvalidDuration(
             format!("duration cannot be negative; got {}", s)
@@ -26,13 +23,13 @@ pub fn positive_duration_value(s: &str, step: i64) -> Result<i64, ParseError> {
     return Ok(d)
 }
 
-/// duration_value returns the duration in milliseconds for the given s
+/// parse_duration_value returns the duration in milliseconds for the given s
 /// and the given step.
 ///
 /// Duration in s may be combined, i.e. 2h5m, -2h5m or 2h-5m.
 ///
 /// The returned duration value can be negative.
-pub fn duration_value(s: &str, step: i64) -> ParseResult<i64> {
+pub fn parse_duration_value(s: &str, step: i64) -> ParseResult<i64> {
     fn scan_value(s: &str, step: i64) -> ParseResult<i64> {
         let mut is_minus = false;
         let mut cursor: &str = s;
@@ -110,9 +107,9 @@ pub fn parse_single_duration(s: &str, &step: &i64) -> Result<f64, ParseError> {
     Ok(mp * f * 1e3)
 }
 
-// scan_duration scans duration, which must start with positive num.
-//
-// I.e. 123h, 3h5m or 3.4d-35.66s
+/// scan_duration scans duration, which must start with positive num.
+///
+/// I.e. 123h, 3h5m or 3.4d-35.66s
 #[allow(dead_code)]
 pub fn scan_duration(s: &str) -> i32 {
     // The first part must be non-negative
@@ -202,7 +199,7 @@ fn is_decimal_char(ch: char) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::lexer::duration::positive_duration_value;
-    use crate::lexer::duration_value;
+    use crate::lexer::parse_duration_value;
 
     const MS: i64 = 1;
     const SECOND: i64 = 1000 * MS;
@@ -215,7 +212,7 @@ mod tests {
     #[test]
     fn test_duration_success() {
         fn f(s: &str, step: i64, expected: i64) {
-            let d = duration_value(s, step).unwrap();
+            let d = parse_duration_value(s, step).unwrap();
             assert_eq!(d, expected, "unexpected duration; got {}; want {}; expr {}", d, expected, s)
         }
 
@@ -263,7 +260,7 @@ mod tests {
     #[test]
     fn test_complex() {
         fn f(s: &str) {
-            let _ = duration_value(s, 1).unwrap();
+            let _ = parse_duration_value(s, 1).unwrap();
         }
 
         f("5w4h-3.4m13.4ms");
@@ -272,7 +269,7 @@ mod tests {
     #[test]
     fn test_duration_error() {
         fn f(s: &str) {
-            match duration_value(s, 42) {
+            match parse_duration_value(s, 42) {
                 Ok(d) => {
                     panic!("Expected error, got {} for expr {}", d, s)
                 },
@@ -285,7 +282,17 @@ mod tests {
         f("m");
         f("1.23mm");
         f("123q");
-        f("-123q")
+        f("-123q");
+
+        // With uppercase duration
+        f("1M");
+        f("1Ms");
+        f("1MS");
+        f("1Y");
+        f("2W");
+        f("3D");
+        f("3H");
+        f("3S")
     }
 
     #[test]
@@ -306,6 +313,5 @@ mod tests {
         // Too big duration
         f("10000000000y")
     }
-
 
 }

@@ -22,7 +22,7 @@ impl ScalarEvaluator {
 }
 
 impl Evaluator for ScalarEvaluator {
-    fn eval(&self, _ctx: &Arc<&Context>, _: &EvalConfig) -> RuntimeResult<AnyValue> {
+    fn eval(&self, _ctx: &Arc<&Context>, _ec: &EvalConfig) -> RuntimeResult<AnyValue> {
         Ok(AnyValue::Scalar(self.value))
     }
 

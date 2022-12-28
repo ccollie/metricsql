@@ -213,12 +213,13 @@ impl ExprRewritable for Expression {
             Expression::With(WithExpr{ was, expr, span }) => {
                 let mut was_new: Vec<WithArgExpr> = Vec::with_capacity(was.len());
                 for wae in was.iter() {
-                    let WithArgExpr{ name, expr, args} = wae;
+                    let WithArgExpr{ name, expr, args, is_function} = wae;
                     was_new.push(
                         WithArgExpr {
                                 name: name.clone(),
                                 args: args.clone(),
-                                expr: rewrite_boxed(expr.clone(), rewriter)?
+                                expr: rewrite_boxed(expr.clone(), rewriter)?,
+                                is_function: *is_function
                             }
                     );
                 }

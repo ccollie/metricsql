@@ -1,7 +1,8 @@
 use std::cmp::Ordering;
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{TimeZone, Utc};
 use chrono_tz::Tz;
-use metricsql::utils::parse_float;
+use lib::timestamp_ms_to_datetime;
+use metricsql::utils::parse_number;
 use crate::{RuntimeError, RuntimeResult};
 
 pub fn cmp_alpha_numeric(a: &str, b: &str) -> RuntimeResult<Ordering> {
@@ -101,7 +102,7 @@ fn is_decimal_char(ch: char) -> bool {
 }
 
 fn must_parse_num(s: &str) -> RuntimeResult<f64> {
-    match parse_float(s) {
+    match parse_number(s) {
         Err(err) => {
             Err(RuntimeError::from(format!("BUG: unexpected error when parsing the number {}: {:?}", s, err)))
         },
@@ -109,10 +110,14 @@ fn must_parse_num(s: &str) -> RuntimeResult<f64> {
     }
 }
 
-pub fn get_timezone_offset(zone: &Tz, timestamp_msecs: i64) -> i64 {
-    let dt = Utc.timestamp(timestamp_msecs / 1000, 0);
-    let in_tz: DateTime<Tz> = dt.with_timezone(&zone);
-    in_tz.naive_local().timestamp()
+pub fn get_timezone_offset(zone: &Tz, timestamp_msecs: i64) -> Option<i64> {
+    match timestamp_ms_to_datetime(timestamp_msecs) {
+        None => None,
+        Some(naive) => {
+            let in_tz = Utc.from_utc_datetime(&naive).with_timezone(zone);
+            Some(in_tz.naive_local().timestamp())
+        }
+    }
 }
 
 #[inline]
@@ -137,14 +142,14 @@ pub(crate) fn ru(free_value: f64, max_value: f64) -> f64 {
 mod tests {
     use std::cmp::Ordering;
     use std::cmp::Ordering::{Equal, Greater, Less};
-    use metricsql::utils::parse_float;
+    use metricsql::utils::parse_number;
     use crate::functions::transform::utils::{cmp_alpha_numeric, get_num_prefix};
 
     fn test_prefix(s: &str, expected_prefix: &str) {
         let prefix = get_num_prefix(s);
         assert_eq!(prefix, expected_prefix, "unexpected get_num_prefix({}): got {}; want {}", s, prefix, expected_prefix);
         if prefix.len() > 0 {
-            parse_float(prefix).expect(format!("unable to parse {} as float", prefix).as_str());
+            parse_number(prefix).expect(format!("unable to parse {} as float", prefix).as_str());
         }
     }
     

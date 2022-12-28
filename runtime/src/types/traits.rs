@@ -13,13 +13,14 @@ pub trait TimestampTrait {
     fn sub(&self, d: Duration) -> Self;
     fn round_up_to_secs(&self) -> Self;
     fn to_string_millis(&self) -> String;
+    fn to_rfc3339(&self) -> String;
 }
 
 impl TimestampTrait for Timestamp {
     fn from(v: i64) -> Self {
         v
     }
-    
+
     fn now() -> Self {
         Timestamp::from_systemtime(SystemTime::now())
     }
@@ -55,7 +56,16 @@ impl TimestampTrait for Timestamp {
     }
 
     fn to_string_millis(&self) -> String {
-        let ts = NaiveDateTime::from_timestamp(self / 1000, 0);
-        ts.format("%Y-%m-%dT%H:%M:%S%.3f").to_string()
+        match NaiveDateTime::from_timestamp_millis(self / 1000) {
+            Some(ts) => ts.format("%Y-%m-%dT%H:%M:%S%.3f").to_string(),
+            None => "".to_string()
+        }
     }
+
+    fn to_rfc3339(&self) -> String {
+        let naive_date_time = NaiveDateTime::from_timestamp_millis(*self).unwrap();
+        let date_time = DateTime::<Utc>::from_utc(naive_date_time, Utc);
+        date_time.to_rfc3339()
+    }
+
 }

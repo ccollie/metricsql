@@ -26,7 +26,7 @@ impl InstantVectorEvaluator {
     }
 
     pub(crate) fn search(&self, ctx: &Arc<&Context>, ec: &EvalConfig) -> RuntimeResult<QueryResults> {
-        let tfss = join_tag_filter_list(&self.tfs, &ec.enforced_tag_filterss);
+        let tfss = join_tag_filter_list(&self.tfs, &ec.enforced_tag_filters);
         let filters = tfss.to_vec();
         let sq = SearchQuery::new(ec.start, ec.end, filters, ec.max_series);
         ctx.process_search_query(&sq, &ec.deadline)

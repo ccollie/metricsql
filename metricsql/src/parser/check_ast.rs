@@ -97,7 +97,7 @@ fn check_ast(p: &mut Parser, node: &Expression) -> ReturnType {
                         // type of the extra arguments.
                         break
                     }
-                    i = len(n.Func.ArgTypes) - 1
+                    i = n.Func.arg_types.len() - 1
                 }
                 p.expectType(arg, n.Func.ArgTypes[i], format!("call to function {}", fe.name))
             }
@@ -105,10 +105,11 @@ fn check_ast(p: &mut Parser, node: &Expression) -> ReturnType {
 
     Expression::Rollup(re) => {
         let ty = check_ast(&mut p, &re.expr);
-        if ty != ValueTypeVector {
+        if ty != ReturnType::InstantVector {
             p.addParseErrf(n.span, "subquery is only allowed on instant vector, got {} instead", ty)
         }
         // todo: window, at, offset
+        ty
     }
     Expression::MetricExpression(me) => {
         let name = me.name();
@@ -136,13 +137,7 @@ fn check_ast(p: &mut Parser, node: &Expression) -> ReturnType {
 
         // A Vector selector must contain at least one non-empty matcher to prevent
         // implicit selection of all metrics (e.g. by a typo).
-        let mut not_empty = false;
-        for lm in n.label_matchers.iter() {
-            if !lm.matches("") {
-                not_empty = true;
-                break
-            }
-        }
+        let mut not_empty = !n.label_matchers.iter().every(|lm| lm.matches(""));
         if !not_empty {
             p.addParseErrf(n.span, "vector selector must contain at least one non-empty matcher")
         }
@@ -160,10 +155,10 @@ return
 if *orgoffsetp != 0 {
 p.addParseErrf(e.span, "offset may not be set multiple times")
 } else if orgoffsetp != nil {
-*orgoffsetp = offset
+    *orgoffsetp = offset
 }
 
-*endPosp = p.lastClosing
+    *endPosp = p.lastClosing
 }
 
 

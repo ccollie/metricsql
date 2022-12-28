@@ -14,20 +14,50 @@
 
 use std::fmt::{Display, Formatter};
 use std::task::Context;
+use crate::{MetricName, RuntimeResult};
+
+/// Appender provides batched appends against a storage.
+/// It must be completed with a call to Commit or Rollback and must not be reused afterwards.
+///
+/// Operations on the Appender interface are not goroutine-safe.
+///
+/// The type of samples (float64, histogram, etc) appended for a given series must remain same within an Appender.
+/// The behaviour is undefined if samples of different types are appended to the same series in a single Commit().
+pub(crate) trait Appender {
+    /// Append adds a sample pair for the given series.
+    /// An optional series reference can be provided to accelerate calls.
+    /// A series reference number is returned which can be used to add further
+    /// samples to the given series in the same or later transactions.
+    /// Returned reference numbers are ephemeral and may be rejected in calls
+    /// to append() at any point. Adding the sample via Append() returns a new
+    /// reference number.
+    /// If the reference is 0 it must not be used for caching.
+    fn append(&mut self, l: Labels, t: i64, v: f64) -> RuntimeResult<()>;
+
+    /// Commit submits the collected samples and purges the batch. If Commit
+    /// returns a non-nil error, it also rolls back all modifications made in
+    /// the appender so far, as Rollback would do. In any case, an Appender
+    /// must not be used anymore after Commit has been called.
+    fn commit(&mut self) -> RuntimeResult<()>;
+
+    /// rollback rolls back all modifications made in the appender so far.
+    /// Appender has to be discarded after rollback.
+    fn rollback(&mut self) -> RuntimeResult<()>;
+}
 
 pub(crate) struct NoopAppendable{}
 pub struct NoopAppender{}
 
 
 impl Appendable for NoopAppendable {
-    fn get_appender(_: Context) -> Appender {
+    fn get_appender(_: Context) -> impl Appender {
         return NoopAppender{}
     }
 }
 
 impl Appender for NoopAppender {
-    fn append(&self, _sref: SeriesRef, _labels: Labels, _ts: i64, _v: f64) -> RuntimeResult<SeriesRef> {
-        return Ok(0)
+    fn append(&self, _labels: Labels, _ts: i64, _v: f64) -> RuntimeResult<()> {
+        return Ok(())
     }
     
     fn commit(&self) -> RuntimeResult<()> { 
@@ -61,40 +91,45 @@ impl Sample {
 #[derive(Default, Clone)]
 pub struct CollectResultAppender {
     next: Option<Box<dyn Appender>>,
-    result : Vec<Sample>,
+    result: Vec<Sample>,
     pending_result: Vec<Sample>,
     rolledback_result: Vec<Sample>,
 }
 
+impl CollectResultAppender {
+    pub fn new() -> Self {
+        Self {
+            next: None,
+            result: vec![],
+            pending_result: vec![],
+            rolledback_result: vec![],
+        }
+    }
+}
+
 impl Appender for CollectResultAppender {
-    fn append(&mut self, sref: SeriesRef, l: Labels, t: i64, v: f64) -> RuntimeResult<SeriesRef> {
+    fn append(&mut self, l: Labels, t: i64, v: f64) -> RuntimeResult<()> {
         self.pending_result.push(Sample::new(l, t, v));
-        let res = 0;
-        if _ref == 0 {
-            res = storage.SeriesRef(rand.Uint64())
+        if let Some(next) = self.next {
+            next.unwrap().append(res, lset, t, v)
         } else {
-            res = sref
+            Ok(())
         }
-        if self.next.is_none() {
-            return Ok(res)
-        }
-        
-        self.next.unwrap().append(res, lset, t, v)
     }
     
     fn commit(&mut self) -> RuntimeResult<()> {
         self.result.extend_from_slice(self.pending_result.into_iter());
         self.pending_result.clear();
-        if let Some(next) = self.next {
-            return self.next.commit();
+        return if let Some(next) = self.next {
+            next.commit()
         } else {
-            return Ok(())
+            Ok(())
         }
     }
 
     fn rollback(&mut self) -> RuntimeResult<()> {
         self.rolledback_result = std::mem::take(&mut self.pending_result);
-        if let Some(next) = self.next {
+        if let Some(next) = &self.next {
             return next.rollback();
         }
         Ok(())        

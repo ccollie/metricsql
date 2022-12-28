@@ -185,7 +185,7 @@ impl LabelFilterExpr {
 
     pub fn to_label_filter(&self) -> ParseResult<LabelFilter> {
         if !self.is_expanded() {
-            panic!("BUG: value must be already expanded; got {}", self.value)
+            return Err(ParseError::General(format!("BUG: value must be already expanded; got {}", self.value)))
         }
         LabelFilter::new(self.op, &self.label, self.value.value.to_string())
     }

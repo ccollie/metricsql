@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use rayon::iter::{IntoParallelRefIterator};
+use tracing::{enabled, info, Level};
 
 use metricsql::ast::BExpression;
 use metricsql::functions::{DataType, Signature, TypeSignature, Volatility};
@@ -57,6 +58,11 @@ impl ArgList {
     }
 
     fn eval_parallel(&self, ctx: &Arc<&Context>, ec: &EvalConfig) -> RuntimeResult<Vec<AnyValue>> {
+
+        if enabled!(Level::INFO) {
+            info!("eval function args in parallel");
+        }
+
         let params: _ = self.args.par_iter()
             .map(move |expr| { expr.eval(&mut ctx.clone(), ec) })
             .collect::<Vec<_>>();
@@ -84,7 +90,7 @@ fn should_parallelize(t: &DataType) -> bool {
 }
 
 /// Determines if we should parallelize parameter evaluation. We ignore "lightweight"
-/// parameter types like `String` or `Int`
+/// parameter types like `String` or `Scalar`
 pub(crate) fn should_parallelize_param_parsing(signature: &Signature) -> bool {
     let types = &signature.type_signature;
 

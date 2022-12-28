@@ -20,11 +20,6 @@ const ERR_DUPLICATE_SAMPLE_FOR_TIMESTAMP: &str = "duplicate sample for timestamp
 const ERR_OUT_OF_BOUNDS: &str = "out of bounds";
 
 
-/// SeriesRef is a generic series reference. In prometheus it is either a
-/// HeadSeriesRef or BlockSeriesRef, though other implementations may have
-/// their own reference types.
-pub type SeriesRef = u64;
-
 /// Appendable allows creating appenders.
 pub trait Appendable {
     /// Appender returns a new appender for the storage. The implementation
@@ -141,22 +136,26 @@ pub struct SelectHints {
     start: i64, // start time in milliseconds for this select.
     end: i64, // end time in milliseconds for this select.
 
-    step: i64,  // Query step size in milliseconds.
-    func: String, // String representation of surrounding function or aggregation.
+    /// Query step size in milliseconds.
+    step: i64,
+    /// String representation of surrounding function or aggregation.
+    func: String,
 
-    grouping: Vec<String>, // List of label names used in aggregation.
+    /// List of label names used in aggregation.
+    grouping: Vec<String>,
     by:       bool,     // Indicate whether it is without or by.
-    range   : i64,    // Range vector selector range in milliseconds.
+    /// Range vector selector range in milliseconds.
+    range   : i64,
 
-    // disable_trimming allows to disable trimming of matching series chunks based on query start and end time.
-    // When disabled, the result may contain samples outside the queried time range but Select() performances
-    // may be improved.
+    /// disable_trimming allows to disable trimming of matching series chunks based on query start and
+    /// end time. When disabled, the result may contain samples outside the queried time range but
+    /// Select() performances may be improved.
     disable_trimming: bool
 }
 
 /// QueryableFunc is an adapter to allow the use of ordinary functions as
 /// Queryables. It follows the idea of http.HandlerFunc.
-type QueryableFunc = fn(ctx: Context, mint: i64, maxt: i64) -> RuntimeResult<Querier>;
+type QueryableFunc = fn(ctx: Context, min_ts: i64, max_ts: i64) -> RuntimeResult<Querier>;
 
 
 /// Appender provides batched appends against a storage.
@@ -172,7 +171,7 @@ pub trait Appender {
     /// to `append()` at any point. Adding the sample via `append()` returns a new
     /// reference number.
     /// If the reference is 0 it must not be used for caching.
-    fn append(&mut self, sref: SeriesRef, l: Labels, t: i64, v: f64) -> RuntimeResult<SeriesRef>;
+    fn append(&mut self, l: Labels, t: i64, v: f64) -> RuntimeResult<()>;
 
     /// Commit submits the collected samples and purges the batch. If Commit
     /// returns a non-nil error, it also rolls back all modifications made in
@@ -183,15 +182,6 @@ pub trait Appender {
     /// Rollback rolls back all modifications made in the appender so far.
     /// Appender has to be discarded after rollback.
     fn rollback(&mut self) -> RuntimeResult<()>;
-}
-
-/// GetRef is an extra interface on Appenders used by downstream projects
-/// (e.g. Cortex) to avoid maintaining a parallel set of references.
-pub trait GetRef {
-    /// Returns reference number that can be used to pass to Appender.append(),
-    /// and a set of labels that will not cause another copy when passed to Appender.append().
-    /// 0 means the appender does not have a reference to this series.
-    fn get_ref(self, lset: &Labels) -> (SeriesRef, Labels);
 }
 
 /// SeriesSet contains a set of series.
@@ -330,7 +320,7 @@ ChunkIterable
 // Labels represents an item that has labels e.g. time series.
 pub trait Labels {
     // Labels returns the complete set of labels. For series it means all labels identifying the series.
-    fn labels(&self) -> Labels
+    fn labels(&self) -> Labels;
 }
 
 pub trait SampleIterable {

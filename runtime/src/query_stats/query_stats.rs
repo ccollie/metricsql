@@ -79,9 +79,8 @@ impl QueryStatsConfig {
     }
 }
 
-
 struct Inner {
-    data: Vec<QueryStatRecord>,
+    data: Vec<QueryStatRecord>, // use deque ???
     next_idx: usize,
 }
 

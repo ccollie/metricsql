@@ -13,20 +13,44 @@
 
 // https://github.com/prometheus/prometheus/blob/main/promql/test.go
 
+use core::num::dec2flt::parse::parse_number;
 use std::collections::btree_map::BTreeMap;
 use std::fmt::{Display, Formatter};
+use std::fs;
 use std::time::Duration;
+use regex::Regex;
 
 const
 MIN_NORMAL: f64 = f64::from_bits(0x0010000000000000); // The smallest positive normal value of type float64.
 
-const PATTERN_SPACE: &str = "[\t ]+";
-const PATTERN_LOAD: &str = r"^load\s+(.+?)$";
-const PATTERN_EVAL_INSTANT: &str = r"^eval(?:_(fail|ordered))?\s+instant\s+(?:at\s+(.+?))?\s+(.+)$";
+const PATTERN_SPACE: Lazy<Regex> = Regex::new("[\t ]+");
+const PATTERN_LOAD: Lazy<Regex> = Regex::new(r"^load\s+(.+?)$");
+const PATTERN_EVAL_INSTANT: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^eval(?:_(fail|ordered))?\s+instant\s+(?:at\s+(.+?))?\s+(.+)$"));
 
+static UPPER_BUCKET_RANGE: Lazy<String> = Lazy::new(|| format!("{:.3}...+Inf", UPPER_MAX));
 
 /// Relative error allowed for sample values.
 const EPSILON: f64 = 0.000001;
+
+
+/// AtModifierUnsafeFunctions are the functions whose result
+/// can vary if evaluation time is changed when the arguments are
+/// step invariant. It also includes functions that use the timestamps
+/// of the passed instant vector argument to calculate a result since
+/// that can also change with change in eval time.
+fn isAtModifierUnsafeFunctions() -> bool {
+
+}
+
+// Step invariant functions.
+"days_in_month", "day_of_month", "day_of_week", "day_of_year",
+"hour", "minute", "month", "year",
+"predict_linear", "time",
+// Uses timestamp of the argument for the result,
+// hence unsafe to use with @ modifier.
+"timestamp"
+}
 
 
 /// Point represents a single data point for a given timestamp.
@@ -64,8 +88,8 @@ impl TestCommand {
     }
 }
 
-// Test is a sequence of read and write commands that are run
-// against a test storage.
+/// Test is a sequence of read and write commands that are run
+/// against a test storage.
 pub(crate) struct Test {
     cmds: Vec<TestCommand>,
     storage: TestStorage,
@@ -80,7 +104,7 @@ impl Test {
     pub fn new(input: String) -> RuntimeResult<Test> {
         let test = Test{
             cmds: vec![],
-            storage: (),
+            storage: TestStorage::new(),
             query_engine: (),
             context: (),
             cancel_ctx: ()
@@ -92,13 +116,13 @@ impl Test {
     }
 
     pub fn from_file(filename: String) -> RuntimeResult<Test> {
-        let content = os.ReadFile(filename)?;
+        let content = fs::read(filename)?;
         return Self::new(content)
     }
 
     /// parse the given command sequence and appends it to the test.
     fn parse(&mut self, input: String) -> RuntimeResult<()> {
-        let lines = getLines(input);
+        let lines = get_lines(input);
         // Scan for steps line by line.
         for (i, line) in lines.iter().enumerate() {
             if line.is_empty() {
@@ -130,13 +154,13 @@ impl Test {
     // clear the current test storage of all inserted samples.
     pub fn clear(&mut self) {
         if self.storage != nil {
-            err = t.storage.Close();
+            self.storage.close();
             require.NoError(t.T, err, "Unexpected error while closing test storage.")
         }
         if let Some(cancel_ctx) = self.cancel_ctx {
             (cancel_ctx)()
         }
-        self.storage = TestStorage.new(t);
+        self.storage = TestStorage::new(t);
         let opts = EngineOpts {
             MaxSamples: 10000,
             Timeout: 100 * time.Second,
@@ -150,7 +174,7 @@ impl Test {
     // Close closes resources associated with the Test.
     fn close(&mut self) -> RuntimeResult<()> {
         self.cancel_ctx();
-        err := t.storage.close();
+        self.storage.close()?;
         require.NoError(t.T, err, "Unexpected error while closing test storage.")
     }
 
@@ -173,22 +197,22 @@ impl Test {
 
 
 
-fn raise(line: usize, format: String, v ...interface{}) -> RuntimeResult<()> {
-    return &parser.ParseErr{
-        lineOffset: line,
-        err: fmt.Errorf(format, v...),
+fn raise(line: usize, err: String) -> RuntimeResult<()> {
+    return ParseErr {
+        line_offset: line,
+        err,
     }
 }
 
 fn parse_load(lines: &[String], i: usize) -> RuntimeResult<(usize, LoadCmd)> {
-    if !patLoad.MatchString(lines[i]) {
+    if !PATTERN_LOAD.MatchString(lines[i]) {
         return raise(i, "invalid load command. (load <step:duration>)")
     }
-    let parts = patLoad.FindStringSubmatch(lines[i]);
+    let parts = PATTERN_LOAD.match(lines[i]);
 
     let gap = duration_value(parts[1], 1);
     if let Err(err) = gap {
-        return raise(i, "invalid step definition {}: {}", parts[1], err)
+        return raise(i, format!("invalid step definition {}: {}", parts[1], err))
     }
     let gap = gap.unwrap();
     let cmd = LoadCmd::new(time.Duration(gap));
@@ -202,7 +226,7 @@ fn parse_load(lines: &[String], i: usize) -> RuntimeResult<(usize, LoadCmd)> {
         if err != nil {
             let perr: ParseErr;
             if errors.As(err, &perr) {
-                perr.LineOffset = i
+                perr.line_offset = i
             }
             return Err(err)
         }
@@ -220,12 +244,11 @@ fn parse_eval(t: &mut Test, lines: &[String], i: usize) -> RuntimeResult<(usize,
     let at   = parts[2];
     let expr = parts[3];
 
-    _, err = parser.parse(expr);
-    if err != nil {
+    if let Err(err) = parser.parse(expr) {
         let perr: ParseErr;
         if errors.As(err, &perr) {
-            perr.LineOffset = i;
-            let pos_offset = parser.Pos(strings.Index(lines[i], expr));
+            perr.line_offset = i;
+            let pos_offset = parser.pos(strings.Index(lines[i], expr));
             perr.span.start += pos_offset;
             perr.span.end += pos_offset;
             perr.query = lines[i]
@@ -233,11 +256,11 @@ fn parse_eval(t: &mut Test, lines: &[String], i: usize) -> RuntimeResult<(usize,
         return Err(err)
     }
 
-    offset = parse_duration(at);
+    let offset = parse_duration(at);
     if err != nil {
-        return raise(i, "invalid step definition {}: %s", parts[1], err)
+        return raise(i, format!("invalid step definition {}: {:?}", parts[1], err));
     }
-    let ts = testStartTime.Add(time.Duration(offset));
+    let ts = testStartTime.add(Duration::from_millis(offset));
     let cmd = EvalCmd::new(expr, ts, i+1);
     match mod_ {
         "ordered" => cmd.ordered = true,
@@ -250,18 +273,18 @@ fn parse_eval(t: &mut Test, lines: &[String], i: usize) -> RuntimeResult<(usize,
         i += 1;
         let def_line = lines[i];
         if def_line.len() == 0 {
-            i--
+            i -= 1;
             break
         }
-        if f, err := parseNumber(def_line); err == nil {
-            self.expect(0, nil, SequenceValue{Value: f})
+        if f, err := parse_number(def_line); err == nil {
+            self.expect(0, nil, SequenceValue{value: f});
             break
         }
         let (metric, vals) = parse_series_desc(defLine);
         if err != nil {
             let perr: ParseErr;
             if errors.As(err, &perr) {
-                perr.LineOffset = i
+                perr.line_offset = i
             }
             return Err(err)
         }
@@ -275,7 +298,7 @@ fn parse_eval(t: &mut Test, lines: &[String], i: usize) -> RuntimeResult<(usize,
     Ok((i, cmd))
 }
 
-// get_lines returns trimmed lines after removing the comments.
+/// get_lines returns trimmed lines after removing the comments.
 fn get_lines(input: String) -> Vec<String> {
     let lines = input.split("\n");
     for (i, l) in lines.iter().enumerate() {
@@ -291,7 +314,7 @@ fn get_lines(input: String) -> Vec<String> {
 
 
 /// SequenceValue is an omittable value in a sequence of time series values.
-struct SequenceValue {
+pub(crate) struct SequenceValue {
     pub value: f64,
     pub omitted: bool
 }
@@ -299,7 +322,7 @@ struct SequenceValue {
 impl Display for SequenceValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.omitted {
-            write(f, "_")
+            write!(f, "_")
         }
         write!(f, "{}", self.value)
     }
@@ -324,7 +347,7 @@ impl LoadCmd {
     }
 
     fn exec(&mut self, t: &mut Test) -> RuntimeResult<()> {
-        let app = t.storage.get_appender(t.context);
+        let mut app = t.storage.get_appender(t.context);
         match self.append(app) {
             Err(e) => {
                 app.rollback();
@@ -339,13 +362,13 @@ impl LoadCmd {
 
     /// set a sequence of sample values for the given metric.
     pub fn set(&mut self, m: Labels, vals: &[SequenceValue]) {
-        let h = m.Hash();
+        let h = m.hash();
         let samples: Vec<Point> = Vec::with_capacity(vals.len());
         let ts = testStartTime;
         for v in vals.iter() {
             if !v.omitted {
                 samples.push(Point{
-                        t: ts.UnixNano() / int64(time.Millisecond/time.Nanosecond),
+                        t: ts.milliseconds(),
                         v: v.value,
                 })
             }
@@ -366,7 +389,6 @@ impl LoadCmd {
         }
         Ok(())
     }
-
 }
 
 impl Display for LoadCmd {
@@ -380,7 +402,7 @@ impl Display for LoadCmd {
 /// and expects a specific result.
 pub(crate) struct EvalCmd {
     expr : String,
-    start: Timestamp,
+    start: timestamp,
     line: usize,
     fail: bool,
     ordered: bool,
@@ -388,7 +410,7 @@ pub(crate) struct EvalCmd {
     expected: BTreeMap<u64, Entry>
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Entry {
     pos: usize,
     vals: Vec<SequenceValue>
@@ -402,7 +424,7 @@ impl Display for Entry {
 }
 
 impl EvalCmd {
-    fn new(expr: String, start: Timestamp, line: usize) -> EvalCmd {
+    fn new(expr: String, start: timestamp, line: usize) -> EvalCmd {
         return EvalCmd{
             expr,
             start,
@@ -417,28 +439,32 @@ impl EvalCmd {
     /// expect adds a new metric with a sequence of values to the set of expected
     /// results for the query.
     fn expect(&mut self, pos: usize, m: Labels, vals: &[SequenceValue]) {
-        if m == nil {
-            self.expected[0] = Entry{ pos, vals };
+        if m.is_empty() {
+            self.expected.set(0, Entry{ pos, vals });
             return
         }
-        let h = m.Hash();
-        ev.metrics[h] = m;
-        ev.expected[h] = Entry{ pos, vals  }
+        let h = m.hash();
+        self.metrics.set(h, m);
+        self.expected.set(h, Entry{ pos, vals });
     }
 
     fn exec(&mut self, t: &mut Test) -> RuntimeResult<()> {
         let mut queries = at_modifier_test_cases(self.expr, self.start)?;
 
-        queries = append([]atModifierTestCase{{expr: self.expr, eval_time: self.start}}, queries...)
-        for iq in queries.iter() {
-            let q = t.query_engine.new_instant_query(t.storage, nil, iq.expr, iq.eval_time)?;
+        queries.push(AtModifierTestCase{
+            expr: self.expr,
+            eval_time: self.start
+        });
 
-            let res = q.exec(t.context);
+        for iq in queries.iter() {
+            let q = self.query_engine.new_instant_query(self.storage, nil, iq.expr, iq.eval_time)?;
+
+            let res = q.exec(self.context);
             if res.err.is_some() {
                 if cmd.fail {
                     continue
                 }
-                const msg = format!("error evaluating query {} (line {}): {:?}", iq.expr, cmd.line, res.err);
+                let msg = format!("error evaluating query {} (line {}): {:?}", iq.expr, cmd.line, res.err);
                 return Err(RuntimeError::from(msg))
             }
 
@@ -454,16 +480,16 @@ impl EvalCmd {
 
             // Check query returns same result in range mode,
             // by checking against the middle step.
-            let q, err = t.queryEngine.new_range_query(t.storage, nil, iq.expr,
-                iq.eval_time.Add(-time.Minute),
-                iq.eval_time.Add(time.Minute),
+            let q, err = self.queryEngine.new_range_query(self.storage, iq.expr,
+                iq.eval_time.add(-time.Minute),
+                iq.eval_time.add(time.Minute),
                 time.Minute)
 
             let range_res = q.exec(t.context);
 
             if range_res.err.is_some() {
                 let msg = format!("error evaluating query {} (line {}) in range mode: {}", 
-                    iq.expr, self.line, range_res.err)
+                    iq.expr, self.line, range_res.err);
                 return Err(RuntimeError::from(msg));
             }
 
@@ -473,11 +499,11 @@ impl EvalCmd {
             }
             let mat = range_res.Value.(Matrix)
 
-            let vec = Vec::with_capacity(mat.len())
+            let vec = Vec::with_capacity(mat.len());
             for series in mat {
                 for point in series.points.iter() {
                     if point.t == timeMilliseconds(iq.eval_time) {
-                        vec.push(Sample{metric: series.metric, point})
+                        vec.push(Sample{metric: series.metric, point});
                         break
                     }
                 }
@@ -580,10 +606,10 @@ impl Display for ClearCmd {
 
 struct AtModifierTestCase {
     expr: String,
-    eval_time: Timestamp
+    eval_time: timestamp
 }
 
-fn at_modifier_test_cases(expr_str: String, eval_time: Timestamp) -> RuntimeResult<Vec<AtModifierTestCase>> {
+fn at_modifier_test_cases(expr_str: String, eval_time: timestamp) -> RuntimeResult<Vec<AtModifierTestCase>> {
     let expr = parser.ParseExpr(exprStr)?;
     let ts = timestamp.FromTime(eval_time);
 
@@ -601,25 +627,25 @@ return nil
         match node {
             Expression::MetricExpression(me) => {
             if n.timestamp == nil {
-                n.Timestamp = makeInt64Pointer(ts)
+                n.timestamp = makeInt64Pointer(ts)
             }
 
             Expression::MatrixSelector(me) => {
-                    if vs: = n.VectorSelector.(*parser.VectorSelector);
-                    vs.Timestamp == 0 {
+                    if vs = n.VectorSelector.(*parser.VectorSelector);
+                    vs.timestamp == 0 {
                         vs.timestamp = makeInt64Pointer(ts)
                     }
                 }
 
 
             Expression::RollupExpr(_) => {
-                    if n.Timestamp == nil {
-                        n.Timestamp = makeInt64Pointer(ts)
+                    if n.timestamp == nil {
+                        n.timestamp = makeInt64Pointer(ts)
                     }
             }
         },
     Expression::Function(fe) => {
-        _, ok := AtModifierUnsafeFunctions[n.Func.Name]
+        _, ok := AtModifierUnsafeFunctions[n.Func.Name];
         contains_non_step_invariant = contains_non_step_invariant || ok
     }
 return nil
@@ -696,7 +722,7 @@ pub(crate) struct LazyLoader {
     opts: LazyLoaderOpts
 }
 
-// LazyLoaderOpts are options for the lazy loader.
+/// LazyLoaderOpts are options for the lazy loader.
 pub struct LazyLoaderOpts {
     // Both of these must be set to true for regular PromQL (as of
     // Prometheus v2.33). They can still be disabled here for legacy and
@@ -709,7 +735,11 @@ impl LazyLoader {
     /// new returns an initialized empty LazyLoader.
     fn new(input: &str, opts: LazyLoaderOpts) -> RuntimeResult<LazyLoader> {
         let ll = LazyLoader {
-            load_cmd: LoadCmd {},
+            load_cmd: LoadCmd {
+                gap: Default::default(),
+                metrics: Default::default(),
+                defs: Default::default(),
+            },
             storage: (),
             subquery_interval: Default::default(),
             query_engine: (),
@@ -752,14 +782,12 @@ impl LazyLoader {
         if let Some(cancel_func) = self.cancel_ctx {
             (cancel_func)();
         }
-        self.storage = teststorage.New(ll);
+        self.storage = TestStorage::new(ll);
 
         let opts = EngineOpts {
-            MaxSamples: 10000,
-            Timeout: 100 * time.Second,
-            NoStepSubqueryIntervalFn: Duration::from_millis(self.SubqueryInterval),
-            EnableAtModifier: self.opts.EnableAtModifier,
-            EnableNegativeOffset: self.opts.EnableNegativeOffset,
+            max_samples: 10000,
+            timeout: 100 * time.Second,
+            NoStepSubqueryIntervalFn: Duration::from_millis(self.SubqueryInterval)
         };
 
         self.queryEngine = NewEngine(opts)
@@ -777,8 +805,7 @@ impl LazyLoader {
             for (i, s) in samples.iter() {
                 if s.t > ts {
                     // Removing the already added samples.
-                    self.load_cmd.defs[h] = samples
-                    [i: ]
+                    self.load_cmd.defs[h] = &samples[i..];
                     break
                 }
                 app.append(0, m, s.t, s.v)?;
@@ -793,12 +820,12 @@ impl LazyLoader {
     // Close closes resources associated with the LazyLoader.
     pub fn close(&mut self) -> RuntimeResult<()> {
         self.cancelCtx();
-        err: = self.storage.close();
+        self.storage.close();
         require.NoError(ll.T, err, "Unexpected error while closing test storage.")
     }
 
     // with_samples_till loads the samples till given timestamp and executes the given function.
-    fn with_samples_till(&mut self, ts: Timestamp, func: fn(RuntimeError)) {
+    fn with_samples_till(&mut self, ts: timestamp, func: fn(RuntimeError)) {
         let ts_milli = ts.Sub(time.Unix(0, 0).UTC()) / time.Millisecond;
         func(self.append_till(int64(ts_milli)));
     }
@@ -821,15 +848,11 @@ struct SeriesDescription {
 fn parse_series_desc(input: &str) -> RuntimeResult<SeriesDescription> {
     let p = newParser(input);
 
-    let parse_result = p.parseGenerated(START_SERIES_DESCRIPTION);
+    let parse_result = p.parse_generated(START_SERIES_DESCRIPTION)?;
     if parse_result != nil {
         let result = parse_result.(*seriesDescription)
         labels = result.labels
         values = result.values
-    }
-
-    if len(p.parseErrors) != 0 {
-        err = p.parseErrors
     }
 
     return SeriesDescription{ labels, values }

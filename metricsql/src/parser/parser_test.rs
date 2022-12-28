@@ -22,7 +22,8 @@ mod tests {
 
 	#[test]
 	fn single_test() {
-		another("-0o12", "-10");
+		// another("-1 ^ 0.5", "-1");
+		another("sum without (a, b) (xx,2+2)", "sum(xx, 4) without (a, b)");
 	}
 
 	#[test]
@@ -52,7 +53,6 @@ mod tests {
 					panic!("Expected a number expression. Got {}\nq: {}", expr.type_name(), s)
 				}
 			}
-
 		}
 
 		fn same(s: &str) {
@@ -87,7 +87,7 @@ mod tests {
 		another("-0x3b", "-59");
 		another("+0X3B", "59");
 		another("0b1011", "11");
-		same("073");
+		another("073", "59");
 		another("-0o12", "-10");
 		another("-.2", "-0.2");
 		another("-.2E-2", "-0.002");
@@ -143,29 +143,6 @@ mod tests {
 		same(r#"metric{foo="bar", b="sdfsdf"}[2.34:5.6] offset 3600.5"#);
 		same(r#"metric{foo="bar", b="sdfsdf"}[234:56] offset -3600"#);
 		another(r#"  metric  {  foo  = "bar"  }  [  2d ]   offset   10h  "#, r#"metric{foo="bar"}[2d] offset 10h"#);
-	}
-
-	#[test]
-	fn test_parse_metric_names_matching_keywords() {
-		// metric name matching keywords
-		same("rate");
-		same("RATE");
-		same("by");
-		same("BY");
-		same("bool");
-		same("BOOL");
-		same("unless");
-		same("UNLESS");
-		same("Ignoring");
-		same("with");
-		same("WITH");
-		same("With");
-		same("offset");
-		same("keep_metric_names");
-		same("alias");
-		same(r#"alias{foo="bar"}"#);
-		same(r#"aLIas{alias="aa"}"#);
-		another(r#"al\ias"#, "alias");
 	}
 	
 	#[test]
@@ -226,7 +203,7 @@ mod tests {
 	fn test_parse_string_expr() {
 		// stringExpr
 		same(r#""""#);
-		same(r#""\n\t\r 12:{}[]()44""#);
+		another(r#""\n\t\r 12:{}[]()44""#, "\n\t\r 12:{}[]()44");
 		another(r#"''"#, r#""""#);
 		another("``", "");
 		another(r#"   `foo\"b'ar`  "#, "\"foo\\\"b'ar\"");
@@ -261,7 +238,7 @@ mod tests {
 		another("((foo, bar),(baz))", "((foo, bar), baz)");
 		same("(foo, (bar, baz), ((x, y), (z, y), xx))");
 		another("1+(foo, bar,)", "1 + (foo, bar)");
-		another("((foo(bar,baz)), (1+(2)+(3,4)+()))", "(foo(bar, baz), (3 + (3, 4)) + ())");
+		another("((avg(bar,baz)), (1+(2)+(3,4)+()))", "(avg(bar, baz), (3 + (3, 4)) + ())");
 		same("()");
 	}
 	
@@ -286,12 +263,12 @@ mod tests {
 		another("avg by(x) (z) limit 20", "avg(z) by (x) limit 20");
 
 		// All the above
-		another(r#"Sum(Ff(M) * M{X=""}[5m] Offset 7m - 123, 35) BY (X, y) * F2("Test")"#,
-				r#"sum((Ff(M) * M{X=""}[5m] offset 7m) - 123, 35) by (X, y) * F2("Test")"#);
+		another(r#"Sum(avg(M) * M{X=""}[5m] Offset 7m - 123, 35) BY (X, y) * alias(q, "Test")"#,
+				r#"sum((avg(M) * M{X=""}[5m] offset 7m) - 123, 35) by (X, y) * alias(q, "Test")"#);
 		another(r#"# comment
-			Sum(Ff(M) * M{X=""}[5m] Offset 7m - 123, 35) BY (X, y) # yet another comment
-			* F2("Test")"#,
-				r#" sum((Ff(M) * M{X=""}[5m] offset 7m) - 123, 35) by (X, y) * F2("Test")"#);
+			Sum(avg(M) * M{X=""}[5m] Offset 7m - 123, 35) BY (X, y) # yet another comment
+			* alias(q, "Test")"#,
+				r#" sum((avg(M) * M{X=""}[5m] offset 7m) - 123, 35) by (X, y) * alias(q, "Test")"#);
 	}
 
 	#[test]
@@ -391,21 +368,21 @@ mod tests {
 	#[test]
 	fn test_parse_func_expr() {
 		// funcExpr
-		same("f()");
-		another("f(x,)", "f(x)");
-		another("-f()-Ff()", "(0 - f()) - Ff()");
-		same("F()");
-		another("+F()", "F()");
-		another("++F()", "F()");
-		another("--F()", "0 - (0 - F())");
-		same("f(http_server_request)");
-		same("f(http_server_request)[4s:5m] offset 10m");
-		same("f(http_server_request)[4i:5i] offset 10i");
-		same("F(HttpServerRequest)");
-		same("f(job, foo)");
-		same("F(Job, Foo)");
-		another(r#" FOO (bar) + f  (  m  (  ),ff(1 + (  2.5)) ,M[5m ]  , "ff"  )"#,
-				r#"FOO(bar) + f(m(), ff(3.5), M[5m], "ff")"#);
+		same("now()");
+		another("avg(x,)", "avg(x)");
+		another("-now()-pi()", "(0 - now()) - pi()");
+		same("now()");
+		another("+pi()", "pi()");
+		another("++now()", "now()");
+		another("--now()", "0 - (0 - now())");
+		same("avg(http_server_request)");
+		same("floor(http_server_request)[4s:5m] offset 10m");
+		same("ceil(http_server_request)[4i:5i] offset 10i");
+		same("irate(HttpServerRequest)");
+		same("avg(job, foo)");
+		same("max(Job, Foo)");
+		another(r#" sin(bar) + avg (  pi  (  ), sin(1 + (  2.5)) ,M[5m ]  , "ff"  )"#,
+				r#"sin(bar) + avg(pi(), sin(3.5), M[5m], "ff")"#);
 		same("rate(foo[5m]) keep_metric_names");
 		another("log2(foo) KEEP_metric_names + 1 / increase(bar[5m]) keep_metric_names offset 1h @ 435",
 				"log2(foo) keep_metric_names + (1 / increase(bar[5m]) keep_metric_names offset 1h @ 435)");
@@ -449,7 +426,7 @@ mod tests {
 		another(r#"with (foo = bar{x="x"}) baz{foo="bar"}"#, r#"baz{foo="bar"}"#);
 		another(r#"with (foo = bar) baz"#, "baz");
 		another(r#"with (foo = bar) foo + foo{a="b"}"#, r#"bar + bar{a="b"}"#);
-		another(r#"with (foo = bar, bar=baz + f()) test"#, "test");
+		another(r#"with (foo = bar, bar=baz + now()) test"#, "test");
 		another(r#"with (ct={job="test"}) a{ct} + ct() + f({ct="x"})"#,
 				r#"(a{job="test"} + {job="test"}) + f({ct="x"})"#);
 		another(r#"with (ct={job="test", i="bar"}) ct + {ct, x="d"} + foo{ct, ct} + ctx(1)"#,

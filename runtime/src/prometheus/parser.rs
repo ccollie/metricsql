@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::ops::Deref;
 use std::slice::Iter;
 
-use metricsql::utils::parse_float;
+use metricsql::utils::parse_number;
 
 use crate::{RuntimeError, RuntimeResult};
 
@@ -112,7 +112,7 @@ impl Row {
         let n = next_whitespace(s);
         if n.is_none() {
             // There is no timestamp.
-            match parse_float(s) {
+            match parse_number(s) {
                 Err(err) => {
                     return Err(RuntimeError::from(format!("cannot parse value {}: {:?}", s, err)));
                 }
@@ -123,7 +123,7 @@ impl Row {
         let n = n.unwrap();
         // There is a timestamp.
         let ts_part = &s[0..n];
-        match parse_float(&s[0..n]) {
+        match parse_number(&s[0..n]) {
             Err(err) => {
                 return Err(RuntimeError::from(format!("cannot parse value {}: {:?}", ts_part, err)));
             }
@@ -136,7 +136,7 @@ impl Row {
         }
         // There are some whitespaces after timestamp
         s = skip_trailing_whitespace(s);
-        return match parse_float(s) {
+        return match parse_number(s) {
             Err(err) => {
                 Err(RuntimeError::from(format!("cannot parse timestamp {}: {:?}", s, err)))
             }

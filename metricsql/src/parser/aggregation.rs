@@ -16,7 +16,7 @@ pub(super) fn parse_aggr_func_expr(p: &mut Parser) -> ParseResult<Expression> {
     let tok = p.current_token()?;
     let mut span = tok.span;
 
-    let func: AggregateFunction = AggregateFunction::from_str(tok.text)?;
+    let func = AggregateFunction::from_str(tok.text)?;
 
     fn handle_prefix(p: &mut Parser, ae: &mut AggrFuncExpr) -> ParseResult<()> {
         ae.modifier = Some(parse_aggregate_modifier(p)?);
@@ -40,7 +40,7 @@ pub(super) fn parse_aggr_func_expr(p: &mut Parser) -> ParseResult<Expression> {
         Ok(())
     }
 
-    let mut ae: AggrFuncExpr = AggrFuncExpr::new(&func);
+    let mut ae = AggrFuncExpr::new(&func);
     p.bump();
 
     let kind = p.peek_kind();

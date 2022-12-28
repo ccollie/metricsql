@@ -244,20 +244,16 @@ impl MetricName {
             self.hash = None;
             return;
         } else {
-            let mut found = false;
             for dst_tag in self.tags.iter_mut() {
                 if dst_tag.key == key {
-                    found = true;
                     dst_tag.value = value.into();
                     self.hash = None;
                     return;
                 }
             }
-            if !found {
-                let tag = Tag::new(key, value.into());
-                self.tags.push(tag);
-                self.sorted = false;
-            }
+            let tag = Tag::new(key, value.into());
+            self.tags.push(tag);
+            self.sorted = false;
         }
     }
 

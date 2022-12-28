@@ -1,12 +1,12 @@
 use std::sync::{Arc};
 use chrono::{Duration};
+use tracing::{Level, span_enabled};
 
 use crate::active_queries::ActiveQueries;
 use crate::cache::rollup_result_cache::RollupResultCache;
-use crate::{ActiveQueryEntry, MetricDataProvider, NullMetricDataProvider};
+use crate::{ActiveQueryEntry, MetricDataProvider, NullMetricDataProvider, ParseCacheResult};
 use crate::parser_cache::{ParseCache, ParseCacheValue};
 use crate::query_stats::query_stats::QueryStatsTracker;
-use crate::query_tracer::Tracer;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::search::{Deadline, QueryResults, SearchQuery};
 
@@ -30,16 +30,17 @@ impl Context {
     }
 
     pub fn process_search_query(&self, sq: &SearchQuery, deadline: &Deadline) -> RuntimeResult<QueryResults> {
+        // todo: trace
         self.metric_data_provider.search(sq, deadline)
     }
 
     // todo: pass in tracer
-    pub fn parse_promql(&self, q: &str) -> RuntimeResult<Arc<ParseCacheValue>> {
-        let cached = self.parse_cache.parse(q);
-        if let Some(err) = &cached.err {
+    pub fn parse_promql(&self, q: &str) -> RuntimeResult<(Arc<ParseCacheValue>, ParseCacheResult)> {
+        let (res, cached) = self.parse_cache.parse(q);
+        if let Some(err) = &res.err {
             return Err(RuntimeError::ParseError(err.clone()))
         }
-        return Ok(cached)
+        return Ok((res, cached))
     }
 
     #[inline]
@@ -49,7 +50,7 @@ impl Context {
 
     #[inline]
     pub fn trace_enabled(&self) -> bool {
-        self.config.trace_enabled
+        self.config.trace_enabled && span_enabled!(Level::TRACE)
     }
 
     pub fn get_active_queries(&self) -> Vec<ActiveQueryEntry> {
@@ -139,7 +140,7 @@ pub struct SessionConfig {
 
     /// Whether to fix lookback interval to `step` query arg value.
     /// If set to true, the query model becomes closer to InfluxDB data model. If set to true,
-    /// then `max_lookback` and `max_staleness_interval` are ignored. Defaylts to `false`
+    /// then `max_lookback` and `max_staleness_interval` are ignored. Defaults to `false`
     pub set_lookback_to_step: bool,
 
     /// The maximum step when the range query handler adjusts points with timestamps closer than

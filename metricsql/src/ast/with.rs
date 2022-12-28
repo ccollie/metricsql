@@ -50,20 +50,31 @@ impl ExpressionNode for WithExpr {
     }
 }
 
-/// withArgExpr represents a single entry from WITH expression.
+/// WithArgExpr represents a single entry from WITH expression.
 #[derive(Debug, Clone, Hash, Serialize, Deserialize)]
 pub struct WithArgExpr {
     pub name: String,
     pub args: Vec<String>,
     pub expr: BExpression,
+    pub is_function: bool,
 }
 
 impl WithArgExpr {
-    pub fn new<S: Into<String>>(name: S, expr: Expression, args: Vec<String>) -> Self {
+    pub fn new_function<S: Into<String>>(name: S, expr: Expression, args: Vec<String>) -> Self {
         WithArgExpr {
             name: name.into(),
             args,
             expr: Box::new(expr),
+            is_function: true
+        }
+    }
+
+    pub fn new<S: Into<String>>(name: S, expr: Expression) -> Self {
+        WithArgExpr {
+            name: name.into(),
+            args: vec![],
+            expr: Box::new(expr),
+            is_function: false
         }
     }
 

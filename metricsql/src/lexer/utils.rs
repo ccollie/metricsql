@@ -112,15 +112,6 @@ pub fn extract_string_value(token: &str) -> ParseResult<String> {
     handle_unquote(s, quote_ch)
 }
 
-fn is_string_prefix(s: &str) -> bool {
-    if s.is_empty() {
-        return false
-    }
-    let ch = s.chars().next().unwrap();
-    // See https://prometheus.io/docs/prometheus/latest/querying/basics/#string-literals
-    ['"', '\'', '`'].contains(&ch)
-}
-
 #[inline]
 fn handle_unquote(token: &str, quote: char) -> ParseResult<String> {
     match unescape(token, Some(quote)) {

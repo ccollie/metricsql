@@ -1,7 +1,7 @@
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use crate::ast::{Expression, ExpressionNode, ReturnType};
-use crate::lexer::{duration_value, TextSpan};
+use crate::lexer::{parse_duration_value, TextSpan};
 use crate::parser::{ParseError, ParseResult};
 use serde::{Serialize, Deserialize};
 
@@ -18,8 +18,8 @@ impl TryFrom<&str> for DurationExpr {
     type Error = ParseError;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
-        let last_ch: char = s.chars().rev().next().unwrap();
-        let const_value = duration_value(&s, 1)?;
+        let last_ch: char = s.chars().last().unwrap();
+        let const_value = parse_duration_value(&s, 1)?;
         let requires_step: bool = last_ch == 'i' || last_ch == 'I';
 
         Ok(Self {
@@ -33,10 +33,10 @@ impl TryFrom<&str> for DurationExpr {
 
 impl DurationExpr {
     pub fn new<S: Into<TextSpan>>(text: &str, span: S) -> ParseResult<DurationExpr> {
-        let last_ch: char = text.chars().rev().next().unwrap();
+        let last_ch: char = text.chars().last().unwrap();
         let requires_step: bool = last_ch == 'i' || last_ch == 'I';
         // todo: the following is icky
-        let const_value = duration_value(text, 1)?;
+        let const_value = parse_duration_value(text, 1)?;
 
         Ok(DurationExpr {
             text: text.to_string(),
@@ -55,7 +55,7 @@ impl DurationExpr {
         }
     }
 
-    pub fn return_value(&self) -> ReturnType {
+    pub fn return_type(&self) -> ReturnType {
         ReturnType::Scalar
     }
 }

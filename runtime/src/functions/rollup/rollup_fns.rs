@@ -665,16 +665,17 @@ impl RollupConfig {
     /// timestamps must cover time range [rc.start - rc.window - MAX_SILENCE_INTERVAL ... rc.end].
     ///
     /// exec is not safe to be called from concurrent threads.
-    pub(crate) fn exec(&self, dst_values: &mut Vec<f64>, values: &[f64], timestamps: &[Timestamp]) -> RuntimeResult<usize> {
+    pub(crate) fn exec(&self, dst_values: &mut Vec<f64>, values: &[f64], timestamps: &[Timestamp]) -> RuntimeResult<u64> {
         self.do_internal(dst_values, None, values, timestamps)
     }
 
     /// calculates rollup for the given timestamps and values and puts them to tsm.
+    /// returns the number of samples scanned
     pub(crate) fn do_timeseries_map(
         &self,
         tsm: &Rc<RefCell<TimeseriesMap>>,
         values: &[f64],
-        timestamps: &[Timestamp]) -> RuntimeResult<usize> {
+        timestamps: &[Timestamp]) -> RuntimeResult<u64> {
         let mut ts = get_timeseries();
         self.do_internal(&mut ts.values,Some(tsm), values, timestamps)
     }
@@ -683,7 +684,7 @@ impl RollupConfig {
                    dst_values: &mut Vec<f64>,
                    tsm: Option<&Rc<RefCell<TimeseriesMap>>>,
                    values: &[f64],
-                   timestamps: &[Timestamp]) -> RuntimeResult<usize> {
+                   timestamps: &[Timestamp]) -> RuntimeResult<u64> {
 
         // Sanity checks.
         self.validate()?;
@@ -738,8 +739,8 @@ impl RollupConfig {
         let mut ni = 0;
         let mut nj = 0;
 
-        let mut samples_scanned = values.len();
-        let samples_scanned_per_call = self.samples_scanned_per_call;
+        let mut samples_scanned = values.len() as u64;
+        let samples_scanned_per_call = self.samples_scanned_per_call as u64;
 
         for t_end in self.timestamps.iter() {
             let t_start = *t_end - window;
@@ -776,7 +777,7 @@ impl RollupConfig {
             if samples_scanned_per_call > 0 {
                 samples_scanned += samples_scanned_per_call
             } else {
-                samples_scanned += rfa.values.len()
+                samples_scanned += rfa.values.len() as u64;
             }
 
             dst_values.push(value);

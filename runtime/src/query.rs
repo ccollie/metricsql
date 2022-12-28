@@ -1,13 +1,16 @@
 use std::borrow::Cow;
+
 use chrono::Duration;
+
 use metricsql::ast::{DurationExpr, Expression, LabelFilter};
+
 use crate::{Context, Deadline, EvalConfig, exec, MAX_DURATION_MSECS,
             QueryResult, QueryResults, remove_empty_values_and_timeseries,
             RuntimeError, RuntimeResult, SearchQuery};
-use crate::types::{TimestampTrait, Timestamp};
 use crate::eval::{adjust_start_end, validate_max_points_per_timeseries};
-use crate::query_tracer::Tracer;
+use crate::exec::parse_promql_internal;
 use crate::search::join_tag_filter_list;
+use crate::types::{Timestamp, TimestampTrait};
 
 /// Default step used if not set.
 const DEFAULT_STEP: i64 = 5 * 60 * 1000;
@@ -22,8 +25,7 @@ pub struct QueryParams {
     pub step: Duration,
     pub deadline: Deadline,
     pub round_digits: usize,
-    pub required_tag_filterss: Vec<Vec<LabelFilter>>,
-    pub tracer: Option<Tracer>
+    pub required_tag_filters: Vec<Vec<LabelFilter>>,
 }
 
 impl Default for QueryParams {
@@ -36,8 +38,7 @@ impl Default for QueryParams {
             step: Duration::milliseconds(DEFAULT_STEP),
             deadline: Default::default(),
             round_digits: 100,
-            required_tag_filterss: vec![],
-            tracer: None,
+            required_tag_filters: vec![],
         }
     }
 }
@@ -171,15 +172,10 @@ impl QueryBuilder {
         q.may_cache = !self.no_cache;
         q.step = self.step.unwrap_or_else(|| Duration::milliseconds(DEFAULT_STEP));
         if self.etfs.len() > 0 {
-            q.required_tag_filterss = self.etfs.clone();
+            q.required_tag_filters = self.etfs.clone();
         }
         q.round_digits = self.round_digits;
         q.deadline = get_deadline_for_query(context, q.start, Some(timeout))?;
-        if self.trace_enabled && context.trace_enabled() {
-            let tracer = Tracer::new("root");
-            q.tracer = Some(tracer);
-        }
-
         Ok(q)
     }
 }
@@ -191,7 +187,7 @@ struct CommonParams {
     start: Timestamp,
     end: Timestamp,
     current_timestamp: Timestamp,
-    filterss: Vec<Vec<LabelFilter>>
+    filters: Vec<Vec<LabelFilter>>
 }
 
 /// Query handler for `Instant Queries`
@@ -208,10 +204,10 @@ pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<Query
         step = DEFAULT_STEP
     }
 
-    let cached = context.parse_promql(&params.query)?;
+    let parsed = parse_promql_internal(context, &params.query)?;
 
     // Safety: at this point expr has a value. We error out above in case of failure
-    let expr = cached.expr.as_ref().unwrap();
+    let expr = parsed.expr.as_ref().unwrap();
     if let Some(rollup) = get_rollup(&expr) {
         let window = rollup.window.duration(step);
         let offset = rollup.offset.duration(step);
@@ -231,14 +227,14 @@ pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<Query
 
             // Fetch the remaining part of the result.
             let base_filters = vec![filters.clone()];  // can we avoid cloning ???
-            let tfs_list = join_tag_filter_list(&base_filters, &params.required_tag_filterss);
+            let tfs_list = join_tag_filter_list(&base_filters, &params.required_tag_filters);
 
             let cp = CommonParams{
                 deadline: params.deadline,
                 start,
                 end,
                 current_timestamp: ct,
-                filterss: tfs_list.to_vec()
+                filters: tfs_list.to_vec()
             };
 
             return match export_handler(context, cp) {
@@ -293,8 +289,8 @@ pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<Query
 
     let mut ec = EvalConfig::new(start, end, step);
 
-    if ec.enforced_tag_filterss.len() > 0 {
-        ec.enforced_tag_filterss = params.required_tag_filterss.clone();
+    if ec.enforced_tag_filters.len() > 0 {
+        ec.enforced_tag_filters = params.required_tag_filters.clone(); // todo: .into()?
     }
 
     ec.deadline = params.deadline;
@@ -323,7 +319,7 @@ pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<Query
 
 fn export_handler(ctx: &Context, cp: CommonParams) -> RuntimeResult<QueryResults> {
     let max_series = &ctx.config.max_unique_timeseries;
-    let sq = SearchQuery::new(cp.start, cp.end, cp.filterss, *max_series);
+    let sq = SearchQuery::new(cp.start, cp.end, cp.filters, *max_series);
     ctx.process_search_query(&sq, &cp.deadline)
 }
 
@@ -377,7 +373,7 @@ fn query_range_handler(ctx: &Context, ct: Timestamp, params: &QueryParams) -> Ru
     let mut ec = EvalConfig::new(start, end, step);
     ec.deadline = params.deadline;
     ec.set_caching(params.may_cache);
-    ec.enforced_tag_filterss = params.required_tag_filterss.clone();  // todo: how to avoid this clone ??
+    ec.enforced_tag_filters = params.required_tag_filters.clone();  // todo: how to avoid this clone ??
     ec.round_digits = params.round_digits as i16;
     ec.lookback_delta = lookback_delta;
     ec.update_from_context(&ctx);
@@ -386,7 +382,7 @@ fn query_range_handler(ctx: &Context, ct: Timestamp, params: &QueryParams) -> Ru
     if step < config.max_step_for_points_adjustment.num_milliseconds() {
         let query_offset = get_latency_offset_milliseconds(ctx);
         if ct - query_offset < end {
-            adjust_last_points(&mut result, ct- query_offset, ct+step)
+            adjust_last_points(&mut result, ct - query_offset, ct + step)
         }
     }
 

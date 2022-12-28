@@ -1,5 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
+use metricsql::prelude::LabelFilter;
+use crate::{MetricName, Sample};
 
 struct TestSample {
     labels: Rc<MetricName>,
@@ -8,13 +10,21 @@ struct TestSample {
 }
 
 pub struct TestStorage {
-    // metric names by hash
+    /// metric names by hash
     labels_hash: BTreeMap<u64, Rc<MetricName>>,
     sample_values: BTreeMap<u64, Vec<Point>>,
     need_sort: BTreeSet<u64>
 }
 
 impl TestStorage {
+    pub fn new() -> Self {
+        Self {
+            labels_hash: Default::default(),
+            sample_values: Default::default(),
+            need_sort: Default::default(),
+        }
+    }
+
     pub fn add_sample(&mut self, sample: &Sample) {
         let metric_id = sample.metric_name.hash();
         self.labels_hash.entry(metric_id).or_insert_with(|x| {
@@ -42,9 +52,9 @@ impl TestStorage {
         let mut ids: BTreeSet<u64> = BTreeSet::new();
         let mut res: Vec<TestSample> = vec![];
 
-        filters.for_each(|f| self.get_metric_ids_matching(f, ids));
+        let _ = filters.for_each(|f| self.get_metric_ids_matching(f, &ids));
         for metric_id in ids {
-            match (self.sample_values.get(metric_id), self.labels_hash.get_mut(metric_id)) {
+            match (self.sample_values.get(&metric_id), self.labels_hash.get_mut(&metric_id)) {
                 (Some(values), Some(labels)) => {
                     self.sort_if_needed(metric_id);
                     if let Some(start) = find_first_index(&bucket, start) {
@@ -73,23 +83,23 @@ impl TestStorage {
 
     fn sort_if_needed(&mut self, id: u64) {
         if self.need_sort(id) {
-            self.need_sort.remove(id);
-            if let Some(points) = self.sample_values.get_mut(id) {
+            self.need_sort.remove(&id);
+            if let Some(points) = self.sample_values.get_mut(&id) {
                 points.sort_by(|a, b| a.t.cmp(b.t) )
             }
         }
     }
 
-    fn get_metric_ids_matching(&self, filter: &LabelFilter, dst: BTreeSet<u64>) {
+    fn get_metric_ids_matching(&self, filter: &LabelFilter, mut dst: &BTreeSet<u64>) {
         for (k, labels) in self.labels_hash {
-          if matches_filter(labels, filter) {
+          if matches_filter(&labels, filter) {
               dst.insert(k);
           }
         }
     }
 }
 
-fn matches_filter(mn: &MetricName, filter: LabelFilter) -> bool {
+fn matches_filter(mn: &MetricName, filter: &LabelFilter) -> bool {
     todo!()
 }
 
@@ -97,7 +107,7 @@ fn matches_filter(mn: &MetricName, filter: LabelFilter) -> bool {
 fn find_first_index<'a>(range_values: &[Point], ts: i64) -> Option<usize> {
     // Find the index of the first item where `range.start <= key`.
     return
-        match range_values.binary_search_by_key(ts, |point| point.t) {
+        match range_values.binary_search_by_key(&ts, |point| point.t) {
             Ok(index) => Some(index),
 
             // If the requested key is smaller than the smallest range in the slice,

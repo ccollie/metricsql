@@ -17,13 +17,17 @@ use crate::ast::{
 };
 use crate::ast::Expression::BinaryOperator;
 use crate::functions::AggregateFunction;
-use crate::lexer::{extract_string_value, get_number_suffix, parse_float, parse_number_with_unit, TokenKind};
+use crate::lexer::{
+    extract_string_value,
+    parse_duration_value,
+    TokenKind
+};
 use crate::parser::{ParseError, Parser, ParseResult};
+use crate::parser::function::{parse_func_expr};
 use crate::parser::parser::unexpected;
 use crate::TextSpan;
 
 use super::aggregation::parse_aggr_func_expr;
-use super::function::parse_function;
 use super::rollup::parse_rollup_expr;
 use super::selector::parse_metric_expr;
 use super::with_expr::parse_with_expr;
@@ -38,29 +42,24 @@ pub(super) fn parse_number(p: &mut Parser) -> ParseResult<f64> {
         return Err(unexpected(p, "expression", "number", Some(span) ))
     }
 
+
     let value = match kind {
-        Number => parse_float(token.text),
-        NumberWithUnit => parse_number_with_unit(token.text),
+        Number => crate::lexer::parse_number(token.text),
         Duration => {
             // there is a bit of ambiguity between a NumberWithUnit and a Duration in the
-            // case of tokens with the prefix 'm'. For example, does 60m mean 60 minutes or
+            // case of tokens with the suffix 'm'. For example, does 60m mean 60 minutes or
             // 60 million. We accept Duration here to deal with that special case
-            let suffix = get_number_suffix(token.text);
-            if let Some(a_suffix) = suffix {
-                if a_suffix.0 == "m" {
-                    return parse_number_with_unit(token.text);
-                }
+            let last_ch: char = token.text.chars().last().unwrap();
+            if last_ch == 'm' || last_ch == 'M' {
+                crate::lexer::parse_number(token.text)
+            } else {
+                raise_error(p, token.span)
             }
-            return raise_error(p, token.span)
         }
-        _ => {
-            return raise_error(p, token.span)
-        }
+        _ => raise_error(p, token.span)
     };
 
-    if value.is_ok() {
-        p.bump();
-    }
+    p.bump();
 
     value
 }
@@ -73,8 +72,40 @@ pub(super) fn parse_number_expr(p: &mut Parser) -> ParseResult<Expression> {
 
 pub(super) fn parse_duration(p: &mut Parser) -> ParseResult<DurationExpr> {
     use TokenKind::*;
-    let tok = p.expect_one_of(&[Number, Duration, NumberWithUnit])?;
-    DurationExpr::new(tok.text, tok.span)
+
+    let mut requires_step = false;
+    let token = p.expect_one_of(&[Number, Duration])?;
+    let last_ch: char = token.text.chars().last().unwrap();
+
+    let value = match token.kind {
+        Number => {
+            // there is a bit of ambiguity between a Number with a unit and a Duration in the
+            // case of tokens with the suffix 'm'. For example, does 60m mean 60 minutes or
+            // 60 million. We accept Duration here to deal with that special case
+            if last_ch == 'm' || last_ch == 'M' {
+                // treat as minute
+                parse_duration_value(token.text, 1)?
+            } else {
+                crate::lexer::parse_number(token.text)? as i64
+            }
+        },
+        Duration => {
+            requires_step = last_ch == 'i' || last_ch == 'I';
+            parse_duration_value(token.text, 1)?
+        }
+        _ => {
+            // unreachable
+            0
+        }
+    };
+    Ok(
+        DurationExpr {
+            text: token.text.to_string(),
+            span: token.span,
+            value,
+            requires_step,
+        }
+    )
 }
 
 pub(super) fn parse_duration_expr(p: &mut Parser) -> ParseResult<Expression> {
@@ -271,10 +302,10 @@ pub(super) fn parse_single_expr_without_rollup_suffix(p: &mut Parser) -> ParseRe
             Err(e) => Err(e),
         },
         Ident => parse_ident_expr(p),
-        Number | NumberWithUnit => parse_number_expr(p),
-        Duration => parse_duration_expr(p),
-        LeftBrace => parse_metric_expr(p),
+        Number => parse_number_expr(p),
         LeftParen => parse_parens_expr(p),
+        LeftBrace => parse_metric_expr(p),
+        Duration => parse_duration_expr(p),
         OpPlus => parse_unary_plus_expr(p),
         OpMinus => parse_unary_minus_expr(p),
         _ => {
@@ -343,9 +374,9 @@ pub(super) fn parse_string_expr(p: &mut Parser) -> ParseResult<StringExpr> {
     use TokenKind::*;
 
     let mut ident_count = 0;
-    let mut tokens: Vec<StringTokenType> = Vec::with_capacity(1);
+    let mut tokens: Vec<StringTokenType> = Vec::with_capacity(4);
     let mut span: TextSpan;
-    let mut tok = p.expect_one_of(&[StringLiteral, Ident])?;
+    let mut tok = p.current_token()?;
 
     loop {
         span = tok.span;
@@ -362,27 +393,28 @@ pub(super) fn parse_string_expr(p: &mut Parser) -> ParseResult<StringExpr> {
                 ident_count += 1;
             }
             _ => {
-                return Err(unexpected(p, "", "string literal", None));
+                return Err(unexpected(p, "", "string literal or identifier", None));
             }
-        }
-
-
-        if p.at_end() {
-            break;
-        }
-
-        // composite StringExpr like `"s1" + "s2"`, `"s" + m()` or `"s" + m{}` or `"s" + unknownToken`.
-        tok = p.current_token()?;
-
-        if tok.kind != OpPlus {
-            p.bump();
-            break;
         }
 
         if let Some(token) = p.next_token() {
             tok = token;
         } else {
-            // todo: err
+            break
+        }
+
+        if tok.kind != OpPlus {
+            break;
+        }
+
+        // if p.at_end() {
+        //     break;
+        // }
+
+        // composite StringExpr like `"s1" + "s2"`, `"s" + m()` or `"s" + m{}` or `"s" + unknownToken`.
+        if let Some(token) = p.next_token() {
+            tok = token;
+        } else {
             break
         }
 
@@ -463,16 +495,15 @@ fn parse_ident_expr(p: &mut Parser) -> ParseResult<Expression> {
             p.back();
             return parse_metric_expr(p);
         }
-        Ident => {
+        By | Without | LeftParen => {
             p.back();
             if is_aggr_func(name) {
                 return parse_aggr_func_expr(p);
             }
+            if kind == LeftParen {
+                return parse_func_expr(p);
+            }
             return parse_metric_expr(p);
-        }
-        LeftParen => {
-            p.back();
-            return parse_function(p, name);
         }
         LeftBrace | LeftBracket | RightParen | Comma | At => {
             p.back();
