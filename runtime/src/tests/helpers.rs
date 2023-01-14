@@ -12,9 +12,13 @@
 // limitations under the License.
 
 
+use std::borrow::{Borrow, BorrowMut};
+use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::task::Context;
 use crate::{MetricName, RuntimeResult};
+
+pub type Labels = HashMap<String, String>;
 
 /// Appender provides batched appends against a storage.
 /// It must be completed with a call to Commit or Rollback and must not be reused afterwards.
@@ -45,26 +49,32 @@ pub(crate) trait Appender {
     fn rollback(&mut self) -> RuntimeResult<()>;
 }
 
+pub trait Appendable {
+    fn get_appender(_: Context) -> Box<dyn Appender> {
+        return Box::new(NoopAppender{})
+    }
+}
+
 pub(crate) struct NoopAppendable{}
 pub struct NoopAppender{}
 
 
 impl Appendable for NoopAppendable {
-    fn get_appender(_: Context) -> impl Appender {
-        return NoopAppender{}
+    fn get_appender(_: Context) -> Box<dyn Appender> {
+        return Box::new(NoopAppender{})
     }
 }
 
 impl Appender for NoopAppender {
-    fn append(&self, _labels: Labels, _ts: i64, _v: f64) -> RuntimeResult<()> {
+    fn append(&mut self, _labels: Labels, _ts: i64, _v: f64) -> RuntimeResult<()> {
         return Ok(())
     }
     
-    fn commit(&self) -> RuntimeResult<()> { 
+    fn commit(&mut self) -> RuntimeResult<()> {
         Ok(()) 
     }
 
-    fn rollback(&self) -> RuntimeResult<()> {
+    fn rollback(&mut self) -> RuntimeResult<()> {
         Ok(())
     }
 }
@@ -79,16 +89,28 @@ pub struct Sample {
 impl Sample {
     pub fn new(labels: MetricName, t: i64, v: f64) -> Self {
         Self {
-            metric: labels.clone(),
+            metric: labels,
             t,
             v
         }
-    }    
+    }
+
+    pub fn from_hashmap(map: &HashMap<String, String>, t: i64, v: f64) -> Self {
+        let mut metric_name = MetricName::new("");
+        for (k,v) in map.iter() {
+            metric_name.set_tag(k.as_str(), v)
+        }
+        Self {
+            metric: metric_name,
+            t,
+            v
+        }
+    }
 }
 
 /// CollectResultAppender records all samples that were added through the appender.
 /// It can be used as its zero value or be backed by another appender it writes samples through.
-#[derive(Default, Clone)]
+#[derive(Default)]
 pub struct CollectResultAppender {
     next: Option<Box<dyn Appender>>,
     result: Vec<Sample>,
@@ -109,18 +131,18 @@ impl CollectResultAppender {
 
 impl Appender for CollectResultAppender {
     fn append(&mut self, l: Labels, t: i64, v: f64) -> RuntimeResult<()> {
-        self.pending_result.push(Sample::new(l, t, v));
-        if let Some(next) = self.next {
-            next.unwrap().append(res, lset, t, v)
+        self.pending_result.push(Sample::from_hashmap(&l, t, v));
+        if let Some(mut next) = &self.next.borrow_mut() {
+            next.append(l, t, v)
         } else {
             Ok(())
         }
     }
     
     fn commit(&mut self) -> RuntimeResult<()> {
-        self.result.extend_from_slice(self.pending_result.into_iter());
+        self.result.extend_from_slice(&self.pending_result.clone());
         self.pending_result.clear();
-        return if let Some(next) = self.next {
+        return if let Some(mut next) = self.next.borrow() {
             next.commit()
         } else {
             Ok(())
@@ -129,7 +151,7 @@ impl Appender for CollectResultAppender {
 
     fn rollback(&mut self) -> RuntimeResult<()> {
         self.rolledback_result = std::mem::take(&mut self.pending_result);
-        if let Some(next) = &self.next {
+        if let Some(mut next) = &self.next.borrow() {
             return next.rollback();
         }
         Ok(())        
@@ -139,13 +161,14 @@ impl Appender for CollectResultAppender {
 impl Display for CollectResultAppender {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         for s in self.result.iter()  {
-            write!(f, "committed: {} {} {}\n", s.metric, s.v, s.t);
+            write!(f, "committed: {} {} {}\n", s.metric, s.v, s.t)?;
         }
         for s in self.pending_result.iter()  {
-            write!(f, "pending: {} {} {}\n", s.metric, s.v, s.t);
+            write!(f, "pending: {} {} {}\n", s.metric, s.v, s.t)?;
         }
         for s in self.rolledback_result.iter()  {
-            write!(f, "rolled back: {} {} {}\n", s.metric, s.v, s.t);
+            write!(f, "rolled back: {} {} {}\n", s.metric, s.v, s.t)?;
         }
+        Ok(())
     }
 }

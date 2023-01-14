@@ -72,7 +72,7 @@ fn check_ast(p: &mut Parser, node: &Expression) -> ReturnType {
         Expression::BinaryExpr(be) => check_binary_expr(p, &be),
         Expression::Function(fe) => {
             let nargs = fe.args.len();
-            if n.Func.Variadic == 0 {
+            if n.func.variadic == 0 {
                 if nargs != fe.args.len() {
                     p.addParseErrf(n.span, "expected {} argument(s) in call to {}, got {}", 
                                    nargs, fe.name, fe.args.len())
@@ -83,7 +83,7 @@ fn check_ast(p: &mut Parser, node: &Expression) -> ReturnType {
                     p.addParseErrf(n.span, "expected at least {} argument(s) in call to {}, got {}",
                                    na, fe.name, fe.args.len())
                 } else {
-                    let nargsmax = na + fe.func.Variadic;
+                    let nargsmax = na + fe.func.variadic;
                     if  n.Func.Variadic > 0 && nargsmax < fe.args.len() {
                         p.addParseErrf(n.span, "expected at most {} argument(s) in call to {}, got {}",
                                        nargsmax, n.name, fe.args.len())
@@ -99,7 +99,7 @@ fn check_ast(p: &mut Parser, node: &Expression) -> ReturnType {
                     }
                     i = n.Func.arg_types.len() - 1
                 }
-                p.expectType(arg, n.Func.ArgTypes[i], format!("call to function {}", fe.name))
+                p.expectType(arg, n.func.argTypes[i], format!("call to function {}", fe.name))
             }
         }
 

@@ -84,7 +84,7 @@ impl StringExpr {
     }
 
     pub(crate) fn is_expanded(&self) -> bool {
-        !self.value.is_empty() || self.token_count() == 0
+        self.token_count() == 0
     }
 
     pub fn return_type(&self) -> ReturnType {

@@ -2,7 +2,6 @@
 mod tests {
     use chrono::Duration;
     use chrono_tz::Tz;
-    use metricsql::parser::parse;
     use crate::{Context, Deadline, EvalConfig, exec, MetricName, QueryResult, test_results_equal};
     use crate::functions::transform::get_timezone_offset;
 
@@ -122,7 +121,7 @@ mod tests {
         let offset = get_timezone_offset(&tz, TIMESTAMPS_EXPECTED[0]);
         assert_ne!(offset, None);
 
-        let off = Some(offset) as f64;
+        let off = offset.unwrap() as f64;
         let r = make_result(&[off, off, off, off, off, off]);
         let result_expected: Vec<QueryResult> = vec![r];
         test_query(q, result_expected)

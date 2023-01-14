@@ -5,7 +5,7 @@ use once_cell::sync::Lazy;
 
 use metricsql::ast::{
     BinaryOp,
-    BinaryOpExpr,
+    BinaryExpr,
     GroupModifier,
     GroupModifierOp,
     JoinModifier,
@@ -18,13 +18,13 @@ use crate::types::Timeseries;
 
 
 pub(crate) struct BinaryOpFuncArg<'a> {
-    be: &'a BinaryOpExpr,
+    be: &'a BinaryExpr,
     left: Vec<Timeseries>,
     right: Vec<Timeseries>,
 }
 
 impl<'a> BinaryOpFuncArg<'a> {
-    pub fn new(left: Vec<Timeseries>, be: &'a BinaryOpExpr, right: Vec<Timeseries>) -> Self {
+    pub fn new(left: Vec<Timeseries>, be: &'a BinaryExpr, right: Vec<Timeseries>) -> Self {
         Self {
             left,
             be,
@@ -284,7 +284,7 @@ fn adjust_binary_op_tags<'a>(bfa: &'a mut BinaryOpFuncArg)
     return Ok((left, right, dst))
 }
 
-fn ensure_single_timeseries(side: &str, be: &BinaryOpExpr, tss: &mut Vec<Timeseries>) -> RuntimeResult<()> {
+fn ensure_single_timeseries(side: &str, be: &BinaryExpr, tss: &mut Vec<Timeseries>) -> RuntimeResult<()> {
     if tss.len() == 0 {
         return Err(RuntimeError::General("BUG: tss must contain at least one value".to_string()));
     }
@@ -307,7 +307,7 @@ fn ensure_single_timeseries(side: &str, be: &BinaryOpExpr, tss: &mut Vec<Timeser
 
 fn group_join<'a>(
     single_timeseries_side: &str,
-    be: &BinaryOpExpr,
+    be: &BinaryExpr,
     rvs_left: &'a mut Vec<Timeseries>,
     rvs_right: &'a mut Vec<Timeseries>,
     tss_left: &'a mut Vec<Timeseries>,
@@ -523,7 +523,7 @@ fn binary_op_default(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>
 }
 
 
-fn reset_metric_group_if_required(be: &BinaryOpExpr, ts: &mut Timeseries) {
+fn reset_metric_group_if_required(be: &BinaryExpr, ts: &mut Timeseries) {
     if be.op.is_comparison() && !be.bool_modifier {
         // do not reset MetricGroup for non-boolean `compare` binary ops like Prometheus does.
         return
@@ -700,7 +700,7 @@ fn series_by_key<'a>(m: &'a TimeseriesHashMap, key: &'a str) -> Option<&'a Vec<T
 }
 
 #[inline]
-fn get_modifier_or_default(be: &BinaryOpExpr) -> (GroupModifierOp, Cow<Vec<String>>) {
+fn get_modifier_or_default(be: &BinaryExpr) -> (GroupModifierOp, Cow<Vec<String>>) {
     match &be.group_modifier {
         None => {
             (GroupModifierOp::Ignoring, Cow::Owned::<Vec<String>>(vec![]))
@@ -711,7 +711,7 @@ fn get_modifier_or_default(be: &BinaryOpExpr) -> (GroupModifierOp, Cow<Vec<Strin
     }
 }
 
-fn is_group_right(bfa: &BinaryOpExpr) -> bool {
+fn is_group_right(bfa: &BinaryExpr) -> bool {
     match &bfa.join_modifier {
         Some(modifier) => modifier.op == JoinModifierOp::GroupRight,
         None => false

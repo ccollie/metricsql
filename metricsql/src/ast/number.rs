@@ -8,16 +8,22 @@ use serde::{Serialize, Deserialize};
 
 // todo: number => scalar
 /// NumberExpr represents number expression.
-#[derive(Default, Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct NumberExpr {
     /// value is the parsed number, i.e. `1.23`, `-234`, etc.
     pub value: f64,
-    pub span: TextSpan
+    pub span: TextSpan,
+    /// the original token value
+    s: String
 }
 
 impl NumberExpr {
     pub fn new<S: Into<TextSpan>>(v: f64, span: S) -> Self {
-        NumberExpr { value: v, span: span.into() }
+        NumberExpr {
+            value: v,
+            span: span.into(),
+            s: format!("{}", v)
+        }
     }
     pub fn return_type(&self) -> ReturnType {
         ReturnType::Scalar
@@ -62,7 +68,9 @@ impl ExpressionNode for NumberExpr {
 
 impl Display for NumberExpr {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        if self.value.is_nan() {
+        if self.s.len() > 0 {
+            write!(f, "{}", self.s)?;
+        } else if self.value.is_nan() {
             write!(f, "NaN")?;
         } else if self.value.is_finite() {
             write!(f, "{}", self.value)?;

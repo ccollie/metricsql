@@ -2,7 +2,7 @@ use std::{fmt, iter};
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash};
 use std::string::{String};
-use crate::ast::{AggrFuncExpr, BinaryOpExpr, ParensExpr, StringTokenType};
+use crate::ast::{AggrFuncExpr, BinaryExpr, ParensExpr, StringTokenType};
 
 use crate::ast::duration::DurationExpr;
 use crate::ast::function::FuncExpr;
@@ -47,7 +47,7 @@ pub enum Expression {
     Aggregation(AggrFuncExpr),
 
     /// A binary operator expression
-    BinaryOperator(BinaryOpExpr),
+    BinaryOperator(BinaryExpr),
 
     /// A MetricsQL specific WITH statement node. Transformed at parse time to one
     /// of the other variants

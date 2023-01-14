@@ -17,7 +17,7 @@
 
 //! Expression visitor
 
-use super::{AggrFuncExpr, BinaryOpExpr, DurationExpr, Expression, FuncExpr, ParensExpr, RollupExpr, WithExpr};
+use super::{AggrFuncExpr, BinaryExpr, DurationExpr, Expression, FuncExpr, ParensExpr, RollupExpr, WithExpr};
 use crate::parser::ParseResult;
 
 /// Controls how the visitor recursion should proceed.
@@ -101,7 +101,7 @@ impl ExprVisitable for Expression {
             Expression::Parens(ParensExpr { expressions, .. }) => expressions
                 .iter()
                 .fold(Ok(visitor), |v, e| v.and_then(|v| e.accept(v))),
-            Expression::BinaryOperator(BinaryOpExpr { left, right, .. }) => {
+            Expression::BinaryOperator(BinaryExpr { left, right, .. }) => {
                 let visitor = left.accept(visitor)?;
                 right.accept(visitor)
             },

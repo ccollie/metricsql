@@ -23,7 +23,9 @@ mod tests {
 	#[test]
 	fn single_test() {
 		// another("-1 ^ 0.5", "-1");
-		another("sum without (a, b) (xx,2+2)", "sum(xx, 4) without (a, b)");
+		same(r#"M{x=""}"#);
+		another(r#"Sum(avg(M) * M{X=""}[5m] Offset 7m - 123, 35) BY (X, y) * alias(q, "Test")"#,
+				r#"sum((avg(M) * M{X=""}[5m] offset 7m) - 123, 35) by (X, y) * alias(q, "Test")"#);
 	}
 
 	#[test]

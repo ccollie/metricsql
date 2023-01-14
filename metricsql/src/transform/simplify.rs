@@ -1,17 +1,16 @@
-use crate::ast::{BExpression, Expression, BinaryOp, FuncExpr, BinaryOpExpr, StringExpr};
+use crate::ast::{BExpression, Expression, BinaryOp, FuncExpr, BinaryExpr, StringExpr};
 use crate::ast::BinaryOp::Add;
-use crate::ast::StringTokenType::String;
 use crate::binaryop::{eval_binary_op, string_compare};
 use crate::prelude::NumberExpr;
 
 
-pub(crate) fn simplify_expr(expr: Expression) -> Expression {
+pub fn simplify_expr(expr: Expression) -> Expression {
     let exp = remove_parens_expr(expr);
     simplify_constants(exp)
 }
 
 /// removes parensExpr for (Expr) case.
-pub(crate) fn remove_parens_expr(e: Expression) -> Expression {
+fn remove_parens_expr(e: Expression) -> Expression {
     use Expression::*;
 
     fn remove_parens_args(args: &mut Vec<BExpression>) {
@@ -112,7 +111,7 @@ fn should_remove_parens(e: &Expression) -> bool {
     }
 }
 
-pub(crate) fn can_simplify_constants(expr: &Expression) -> bool {
+fn can_simplify_constants(expr: &Expression) -> bool {
     use Expression::*;
 
     match expr {
@@ -156,7 +155,7 @@ pub(crate) fn can_simplify_constants(expr: &Expression) -> bool {
 }
 
 // todo: use a COW?
-pub(crate) fn simplify_constants(expr: Expression) -> Expression {
+fn simplify_constants(expr: Expression) -> Expression {
     use Expression::*;
 
     fn simplify_boxed(expr: &BExpression) -> BExpression {
@@ -187,7 +186,7 @@ pub(crate) fn simplify_constants(expr: Expression) -> Expression {
                 be.right = simplify_boxed(&be.right);
             }
 
-            if let Some( folded ) = constant_fold_binary(be) {
+            if let Some( folded ) = constant_fold_binary_expression(be) {
                 return folded
             }
         }
@@ -211,7 +210,7 @@ pub(crate) fn simplify_constants(expr: Expression) -> Expression {
 }
 
 
-pub(crate) fn simplify_constants_inplace(expr: &mut Expression) {
+fn simplify_constants_inplace(expr: &mut Expression) {
     use Expression::*;
 
     match expr {
@@ -224,7 +223,7 @@ pub(crate) fn simplify_constants_inplace(expr: &mut Expression) {
             }
         }
         BinaryOperator(be) => {
-            if let Some(constant) = constant_fold_binary(be) {
+            if let Some(constant) = constant_fold_binary_expression(be) {
                 *expr = constant
             }
         }
@@ -248,30 +247,37 @@ fn simplify_args_in_place(args: &mut Vec<BExpression>) {
     }
 }
 /// Perform constant-folding on binary op if possible
-pub(super) fn constant_fold_binary(be: &BinaryOpExpr) -> Option<Expression> {
+pub fn constant_fold_binary_expression(be: &BinaryExpr) -> Option<Expression> {
+    constant_fold_internal(be.left.as_ref(), be.right.as_ref(), be.op, be.bool_modifier)
+}
 
-    match (be.left.as_ref(), be.right.as_ref()) {
+pub(crate) fn constant_fold_internal(left: &Expression,
+                                     right: &Expression,
+                                     op: BinaryOp,
+                                     bool_modifier: bool) -> Option<Expression> {
+
+    match (left, right) {
         (Expression::Number(ln), Expression::Number(rn)) => {
-            let n = eval_binary_op(ln.value, rn.value, be.op, be.bool_modifier);
-            let expr = Expression::Number( NumberExpr::new(n, be.left.span()));
+            let n = eval_binary_op(ln.value, rn.value, op, bool_modifier);
+            let expr = Expression::Number( NumberExpr::new(n, left.span()));
             Some(expr)
         }
         (Expression::String(left), Expression::String(right)) => {
-            if be.op == BinaryOp::Add {
+            if op == Add {
                 let val = format!("{}{}", left.value, right.value);
-                let expr = Expression::String( StringExpr::new(val, be.left.span()));
+                let expr = Expression::String( StringExpr::new(val, left.span));
                 return Some(expr)
             }
-            if be.op.is_comparison() {
-                let n = if string_compare(&left.value, &right.value, be.op)
+            if op.is_comparison() {
+                let n = if string_compare(&left.value, &right.value, op)
                     .unwrap_or(false) {
                     1.0
-                } else if !be.bool_modifier {
+                } else if !bool_modifier {
                     f64::NAN
                 } else {
                     0.0
                 };
-                let expr = Expression::Number( NumberExpr::new(n, be.left.span()));
+                let expr = Expression::Number( NumberExpr::new(n, left.span));
                 return Some(expr)
             }
             None

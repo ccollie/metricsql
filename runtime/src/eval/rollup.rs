@@ -358,7 +358,7 @@ impl RollupEvaluator {
                           rollup_func: &RollupHandlerEnum) -> RuntimeResult<Vec<Timeseries>> {
         // TODO: determine whether to use rollup result cache here.
 
-        let mut span = if ctx.trace_enabled() {
+        let span = if ctx.trace_enabled() {
             let function = self.func.name();
             trace_span!("subquery",
                 function,
@@ -646,7 +646,7 @@ impl RollupEvaluator {
     {
 
         let is_tracing = span_enabled!(Level::TRACE);
-        let mut span = if is_tracing {
+        let span = if is_tracing {
             let function = self.func.name();
             let span = trace_span!("rollup",
                 function,

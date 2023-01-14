@@ -60,7 +60,7 @@ pub fn parse_positive_number(str: &str) -> ParseResult<f64> {
                 'x' | 'X' => from_str_radix(&rest[1..], 16),
                 _ => {
                     if ch.is_numeric() {
-                        // try and match Go style octals
+                        // try and match Go style octal
                         return from_str_radix(rest, 8)
                     }
                     // punt to std lib num parsing

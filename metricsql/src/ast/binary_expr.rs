@@ -231,7 +231,7 @@ impl Display for JoinModifier {
 
 /// BinaryOpExpr represents a binary operation.
 #[derive(Debug, Clone, Hash, Serialize, Deserialize)]
-pub struct BinaryOpExpr {
+pub struct BinaryExpr {
     /// Op is the operation itself, i.e. `+`, `-`, `*`, etc.
     pub op: BinaryOp,
 
@@ -251,12 +251,13 @@ pub struct BinaryOpExpr {
     /// right contains right arg for the `left op right` expression.
     pub right: BExpression,
 
+    /// the position where the operator is found in input
     pub span: TextSpan,
 }
 
-impl BinaryOpExpr {
+impl BinaryExpr {
     pub fn new(op: BinaryOp, lhs: Expression, rhs: Expression) -> ParseResult<Self> {
-        let expr = BinaryOpExpr {
+        let expr = BinaryExpr {
             op,
             left: Box::new(lhs),
             right: Box::new(rhs),
@@ -282,7 +283,7 @@ impl BinaryOpExpr {
     pub fn new_unary_minus<S: Into<TextSpan>>(e: impl ExpressionNode, span: S) -> ParseResult<Self> {
         let expr = Expression::cast(e);
         let lhs = Expression::Number(NumberExpr::new(0.0, span));
-        BinaryOpExpr::new(BinaryOp::Sub, lhs, expr)
+        BinaryExpr::new(BinaryOp::Sub, lhs, expr)
     }
 
     pub fn get_group_modifier_or_default(&self) -> (GroupModifierOp, Cow<Vec<String>>) {
@@ -343,6 +344,9 @@ impl BinaryOpExpr {
             (ReturnType::Scalar, ReturnType::Scalar) => ReturnType::Scalar,
             (ReturnType::RangeVector, ReturnType::RangeVector) => ReturnType::RangeVector,
             (ReturnType::String, ReturnType::String) => {
+                if self.op.is_comparison() {
+                    return ReturnType::Scalar;
+                }
                 if self.op != BinaryOp::Add {
                     return ReturnType::unknown(
                         format!("Operator {} is not valid for (String, String)", self.op),
@@ -381,7 +385,7 @@ impl BinaryOpExpr {
     }
 }
 
-impl Display for BinaryOpExpr {
+impl Display for BinaryExpr {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         // Op is the operation itself, i.e. `+`, `-`, `*`, etc.
         if self.left.is_binary_op() {
@@ -409,18 +413,17 @@ impl Display for BinaryOpExpr {
     }
 }
 
-impl ExpressionNode for BinaryOpExpr {
+impl ExpressionNode for BinaryExpr {
     fn cast(self) -> Expression {
         Expression::BinaryOperator(self)
     }
 }
 
-// Gets vector matching cardinality. Assumes both operands are InstantVector
-pub fn get_vector_match_cardinality(binary_node: &BinaryOpExpr) -> VectorMatchCardinality {
+/// Gets vector matching cardinality. Assumes both operands are InstantVector
+pub fn get_vector_match_cardinality(binary_node: &BinaryExpr) -> VectorMatchCardinality {
     let mut card = VectorMatchCardinality::OneToOne;
     if let Some(join_modifier) = &binary_node.join_modifier {
-        let group_left = join_modifier.op == JoinModifierOp::GroupLeft;
-        if group_left {
+        if join_modifier.op == JoinModifierOp::GroupLeft {
             card = VectorMatchCardinality::ManyToOne
         } else {
             card = VectorMatchCardinality::OneToMany

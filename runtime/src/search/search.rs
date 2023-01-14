@@ -28,36 +28,10 @@ impl MetricDataProvider for NullMetricDataProvider {
     }
 }
 
-// QueryableFunc is an adapter to allow the use of ordinary functions as
-// MetricDataProvider. It follows the idea of http.HandlerFunc.
+/// QueryableFunc is an adapter to allow the use of ordinary functions as
+/// MetricDataProvider. It follows the idea of http.HandlerFunc.
 pub type QueryableFunc = fn(ctx: &Context, sq: &SearchQuery) -> RuntimeResult<QueryResults>;
 
-// Querier calls f() with the given parameters.
-// fn (f QueryableFunc) Querier(ctx: &Context, mint: i64, maxt: i64) -> RuntimeResult<Querier> {
-// return f(ctx, mint, maxt)
-// }
-
-
-/// Search is a search for time series.
-#[derive(Debug, Clone, Default)]
-pub struct Search {
-    /// tr contains time range used in the search.
-    pub tr: TimeRange,
-
-    /// tfss contains tag filters used in the search.
-    pub tfss: Vec<LabelFilter>,
-
-    /// deadline in unix timestamp seconds for the current search.
-    pub deadline: u64, // todo: Duration
-}
-
-impl Search {
-    pub fn reset(&mut self) {
-        self.tr = TimeRange{ start: Timestamp::now(), end: i64::MAX };
-        self.tfss = vec![];
-        self.deadline = 0;
-    }
-}
 
 /// SearchQuery is used for sending search queries to external data sources.
 #[derive(Default, Debug, Clone)]

@@ -5,6 +5,7 @@ use crate::ast::*;
 use crate::binaryop::{eval_binary_op, string_compare};
 use crate::lexer::{TextSpan};
 use crate::parser::{ArgCountError, ParseError, ParseResult};
+use crate::transform::constant_fold_internal;
 
 
 pub fn expand_with_expr(was: &Vec<WithArgExpr>,
@@ -49,34 +50,8 @@ fn expand_binary(expr: &Expression,
     let left = expand_with_expr(was, be.left.as_ref())?;
     let right = expand_with_expr(was, be.right.as_ref())?;
 
-    match (&left, &right) {
-        (Expression::Number(ln), Expression::Number(rn)) => {
-            let n = eval_binary_op(ln.value, rn.value, be.op, be.bool_modifier);
-            let expr = Expression::Number( NumberExpr::new(n, be.left.span()));
-            return Ok(expr)
-        }
-        (Expression::String(left), Expression::String(right)) => {
-            if be.op == BinaryOp::Add {
-                let val = format!("{}{}", left.value, right.value);
-                let expr = Expression::from(val);
-                return Ok(expr)
-            }
-            if be.op.is_comparison() {
-                // Note:: the `or` branch should not be reached because of
-                // the comparison above
-                let n = if string_compare(&left.value, &right.value, be.op)
-                    .unwrap_or(false) {
-                    1.0
-                } else if !be.bool_modifier {
-                    f64::NAN
-                } else {
-                    0.0
-                };
-                let expr = Expression::from(n);
-                return Ok(expr)
-            }
-        }
-        _ => {},
+    if let Some(expr) = constant_fold_internal(&left, &right, be.op, be.bool_modifier) {
+        return Ok(expr)
     }
 
     let mut new_be = be.clone();
@@ -362,12 +337,7 @@ fn expand_metric_labels(me: &MetricExpr,
         let se = expand_with_expr(was, &str_expr)?;
         let se_extract = expect_variant!(&se, Expression::String);
 
-        let lfe_new = LabelFilterExpr::new_tag(
-            lfe.label.to_string(),
-            lfe.op,
-            se_extract.value.clone(),
-            TextSpan::default());
-        let lf = lfe_new.to_label_filter()?;
+        let lf = LabelFilter::new(lfe.op, &lfe.label, se_extract.value.clone())?;
         me_new.label_filters.push(lf);
     }
 

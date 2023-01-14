@@ -69,11 +69,11 @@ pub fn test_metric_names_equal(mn: &MetricName, expected: &MetricName, pos: usiz
     for (i, tag) in mn.tags.iter().enumerate() {
         let tag_expected = &expected.tags[i];
         assert_eq!(tag.key, tag_expected.key,
-                   "unexpected tag key at #{},{}; got {}; want {}; metricGot={}, metricExpected={}",
+                   "unexpected tag key at #{},{}; got {}; want {}; got={}, expected={}",
                    pos, i, tag.key, tag_expected.key, mn, expected);
 
         assert_eq!(tag.value, tag_expected.value,
-                   "unexpected tag value at #{},{}; got {}; want {}; metricGot={}, metricExpected={}",
+                   "unexpected tag value at #{},{}; got {}; want {}; got={}, expected={}",
                    pos, i, tag.value, tag_expected.value, mn, expected)
     }
 }
@@ -121,4 +121,30 @@ pub fn compare_floats(expected: f64, actual: f64) -> bool {
         },
         _ => false
     }
+}
+
+const
+MIN_NORMAL: f64 = f64::from_bits(0x0010000000000000); // The smallest positive normal value of type float64.
+
+/// returns true if the two sample lines only differ by a
+/// small relative error in their sample value.
+pub(crate) fn almost_equal(a: f64, b: f64) -> bool {
+    // NaN has no equality but for testing we still want to know whether both values
+    // are NaN.
+    if a.is_nan() && b.is_nan() {
+        return true
+    }
+
+    // Cf. http://floating-point-gui.de/errors/comparison/
+    if a == b {
+        return true
+    }
+
+    let diff = (a - b).abs();
+
+    if a == 0_f64 || b == 0_f64 || diff < MIN_NORMAL {
+        return diff < EPSILON * MIN_NORMAL
+    }
+
+    return diff/(a.abs() + b.abs()) < EPSILON
 }

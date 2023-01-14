@@ -4,10 +4,16 @@ use std::collections::HashSet;
 use std::iter::FromIterator;
 use std::vec::Vec;
 
-use crate::ast::{AggregateModifierOp, AggrFuncExpr, BinaryOp, BinaryOpExpr, Expression, GroupModifierOp, JoinModifierOp, LabelFilter, NumberExpr};
-use crate::binaryop::{eval_binary_op, string_compare};
-use crate::prelude::StringExpr;
-
+use crate::ast::{
+    AggregateModifierOp,
+    AggrFuncExpr,
+    BinaryOp,
+    BinaryExpr,
+    Expression,
+    GroupModifierOp,
+    JoinModifierOp,
+    LabelFilter
+};
 
 /// Optimize optimizes e in order to improve its performance.
 ///
@@ -186,7 +192,7 @@ fn trim_filters_by_aggr_modifier(lfs: &mut Vec<LabelFilter>, afe: &AggrFuncExpr)
 /// - It returns lfs as is if be doesn't contain any group modifier
 /// - It returns only filters specified in on()
 /// - It drops filters specified inside ignoring()
-pub fn trim_filters_by_group_modifier(lfs: &mut Vec<LabelFilter>, be: &BinaryOpExpr) {
+pub fn trim_filters_by_group_modifier(lfs: &mut Vec<LabelFilter>, be: &BinaryExpr) {
     match &be.group_modifier {
         None => {}
         Some(modifier) => match modifier.op {

@@ -1,11 +1,9 @@
 mod transform_fns;
-#[cfg(test)]
-mod transform_test;
 mod utils;
 
 pub(crate) use utils::{
     cmp_alpha_numeric,
-    // get_timezone_offset
+    get_timezone_offset
 };
 
 pub(crate) use transform_fns::{
@@ -15,3 +13,6 @@ pub(crate) use transform_fns::{
     TransformFnImplementation,
     vmrange_buckets_to_le,
 };
+
+#[cfg(test)]
+mod transform_test;

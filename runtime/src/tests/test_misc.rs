@@ -20,8 +20,6 @@ use std::fs;
 use std::time::Duration;
 use regex::Regex;
 
-const
-MIN_NORMAL: f64 = f64::from_bits(0x0010000000000000); // The smallest positive normal value of type float64.
 
 const PATTERN_SPACE: Lazy<Regex> = Regex::new("[\t ]+");
 const PATTERN_LOAD: Lazy<Regex> = Regex::new(r"^load\s+(.+?)$");
@@ -100,7 +98,7 @@ pub(crate) struct Test {
 
 impl Test {
 
-    // NewTest returns an initialized empty Test.
+    // returns an initialized empty Test.
     pub fn new(input: String) -> RuntimeResult<Test> {
         let test = Test{
             cmds: vec![],
@@ -128,11 +126,11 @@ impl Test {
             if line.is_empty() {
                 continue;
             }
-            let cmd_str = Strings::toLower(patSpace.Split(l, 2)[0]);
+            let cmd_str = Strings::toLower(patSpace.split(l, 2)[0]);
             let cmd: TestCommand;
 
             match cmd_str {
-                "clear" => cmd = ClearCmd::new(),
+                "clear" => cmd = TestCommand::Clear(ClearCmd::new()),
                 "load" => {
                     (i, cmd) = parse_load(lines, i)?
                 },
@@ -171,11 +169,15 @@ impl Test {
             (self.context, self.cancelCtx) = context.WithCancel(context.Background())
     }
 
-    // Close closes resources associated with the Test.
-    fn close(&mut self) -> RuntimeResult<()> {
+    /// Close closes resources associated with the Test.
+    pub fn close(&mut self) -> RuntimeResult<()> {
         self.cancel_ctx();
-        self.storage.close()?;
-        require.NoError(t.T, err, "Unexpected error while closing test storage.")
+        match self.storage.close() {
+            Ok(_) => {},
+            Err(e) => {
+                require.NoError(t.T, err, "Unexpected error while closing test storage.")
+            }
+        }
     }
 
     /// Run executes the command sequence of the test. Until the maximum error number
@@ -192,6 +194,69 @@ impl Test {
     // Queryable allows querying the test data.
     pub fn queryable(&self) -> Queryable {
         return self.storage
+    }
+
+    fn parse_eval(&mut self, lines: &[String], i: usize) -> RuntimeResult<(usize, EvalCmd)> {
+        if !patEvalInstant.MatchString(lines[i]) {
+            return raise(i, "invalid evaluation command. (eval[_fail|_ordered] instant [at <offset:duration>] <query>")
+        }
+        let parts = patEvalInstant.FindStringSubmatch(lines[i]);
+        let mod_  = parts[1];
+        let at   = parts[2];
+        let expr = parts[3];
+
+        if let Err(err) = parser.parse(expr) {
+            let perr: ParseErr;
+            if errors.As(err, &perr) {
+                perr.line_offset = i;
+                let pos_offset = parser.pos(strings.Index(lines[i], expr));
+                perr.span.start += pos_offset;
+                perr.span.end += pos_offset;
+                perr.query = lines[i]
+            }
+            return Err(err)
+        }
+
+        let offset = parse_duration(at);
+        if err != nil {
+            return raise(i, format!("invalid step definition {}: {:?}", parts[1], err));
+        }
+        let ts = testStartTime.add(Duration::from_millis(offset));
+        let cmd = EvalCmd::new(expr, ts, i+1);
+        match mod_ {
+            "ordered" => cmd.ordered = true,
+            "fail" => cmd.fail = true,
+            _ => {}
+        }
+
+        let mut j = 1;
+        while i+1 < lines.len() {
+            i += 1;
+            let def_line = lines[i];
+            if def_line.len() == 0 {
+                i -= 1;
+                break
+            }
+            if let Some(f) = parse_number(def_line) {
+                self.expect(0, nil, SequenceValue{value: f, omitted: false });
+                break
+            }
+            let (metric, vals) = parse_series_desc(defLine);
+            if err != nil {
+                let perr: ParseErr;
+                if errors.As(err, &perr) {
+                    perr.line_offset = i
+                }
+                return Err(err)
+            }
+
+            // Currently, we are not expecting any matrices.
+            if vals.len() > 1 {
+                raise(i, "expecting multiple values in instant evaluation not allowed");
+            }
+            cmd.expect(j, metric, vals...)
+        }
+        Ok((i, cmd))
     }
 }
 
@@ -233,69 +298,6 @@ fn parse_load(lines: &[String], i: usize) -> RuntimeResult<(usize, LoadCmd)> {
         cmd.set(metric, vals...)
     }
     return Ok((i, cmd))
-}
-
-fn parse_eval(t: &mut Test, lines: &[String], i: usize) -> RuntimeResult<(usize, EvalCmd)> {
-    if !patEvalInstant.MatchString(lines[i]) {
-        return raise(i, "invalid evaluation command. (eval[_fail|_ordered] instant [at <offset:duration>] <query>")
-    }
-    let parts = patEvalInstant.FindStringSubmatch(lines[i]);
-    let mod_  = parts[1];
-    let at   = parts[2];
-    let expr = parts[3];
-
-    if let Err(err) = parser.parse(expr) {
-        let perr: ParseErr;
-        if errors.As(err, &perr) {
-            perr.line_offset = i;
-            let pos_offset = parser.pos(strings.Index(lines[i], expr));
-            perr.span.start += pos_offset;
-            perr.span.end += pos_offset;
-            perr.query = lines[i]
-        }
-        return Err(err)
-    }
-
-    let offset = parse_duration(at);
-    if err != nil {
-        return raise(i, format!("invalid step definition {}: {:?}", parts[1], err));
-    }
-    let ts = testStartTime.add(Duration::from_millis(offset));
-    let cmd = EvalCmd::new(expr, ts, i+1);
-    match mod_ {
-        "ordered" => cmd.ordered = true,
-        "fail" => cmd.fail = true,
-        _ => {}
-    }
-
-    let mut j = 1;
-    while i+1 < lines.len() {
-        i += 1;
-        let def_line = lines[i];
-        if def_line.len() == 0 {
-            i -= 1;
-            break
-        }
-        if f, err := parse_number(def_line); err == nil {
-            self.expect(0, nil, SequenceValue{value: f});
-            break
-        }
-        let (metric, vals) = parse_series_desc(defLine);
-        if err != nil {
-            let perr: ParseErr;
-            if errors.As(err, &perr) {
-                perr.line_offset = i
-            }
-            return Err(err)
-        }
-
-        // Currently, we are not expecting any matrices.
-        if vals.len() > 1 {
-            raise(i, "expecting multiple values in instant evaluation not allowed");
-        }
-        cmd.expect(j, metric, vals...)
-    }
-    Ok((i, cmd))
 }
 
 /// get_lines returns trimmed lines after removing the comments.
@@ -438,7 +440,7 @@ impl EvalCmd {
 
     /// expect adds a new metric with a sequence of values to the set of expected
     /// results for the query.
-    fn expect(&mut self, pos: usize, m: Labels, vals: &[SequenceValue]) {
+    pub fn expect(&mut self, pos: usize, m: Labels, vals: &[SequenceValue]) {
         if m.is_empty() {
             self.expected.set(0, Entry{ pos, vals });
             return
@@ -606,7 +608,7 @@ impl Display for ClearCmd {
 
 struct AtModifierTestCase {
     expr: String,
-    eval_time: timestamp
+    eval_time: Timestamp
 }
 
 fn at_modifier_test_cases(expr_str: String, eval_time: timestamp) -> RuntimeResult<Vec<AtModifierTestCase>> {
@@ -639,9 +641,9 @@ return nil
 
 
             Expression::RollupExpr(_) => {
-                    if n.timestamp == nil {
-                        n.timestamp = makeInt64Pointer(ts)
-                    }
+                if n.timestamp == nil {
+                    n.timestamp = makeInt64Pointer(ts)
+                }
             }
         },
     Expression::Function(fe) => {
@@ -672,30 +674,6 @@ return nil
     return test_cases
 }
 
-
-/// returns true if the two sample lines only differ by a
-/// small relative error in their sample value.
-fn almost_equal(a: f64, b: f64) -> bool {
-    // NaN has no equality but for testing we still want to know whether both values
-    // are NaN.
-    if a.is_nan() && b.is_nan() {
-        return true
-    }
-
-    // Cf. http://floating-point-gui.de/errors/comparison/
-    if a == b {
-        return true
-    }
-
-    let diff = (a - b).abs();
-
-    if a == 0 || b == 0 || diff < MIN_NORMAL {
-        return diff < EPSILON * MIN_NORMAL
-    }
-    
-    return diff/(a.abs() + b.abs()) < EPSILON
-}
-
 fn parse_number(s: &str) -> RuntimeResult<f64> {
     match i64::try_from(s) {
         Ok(v) => v as f64,
@@ -724,9 +702,9 @@ pub(crate) struct LazyLoader {
 
 /// LazyLoaderOpts are options for the lazy loader.
 pub struct LazyLoaderOpts {
-    // Both of these must be set to true for regular PromQL (as of
-    // Prometheus v2.33). They can still be disabled here for legacy and
-    // other uses.
+    /// Both of these must be set to true for regular PromQL (as of
+    /// Prometheus v2.33). They can still be disabled here for legacy and
+    /// other uses.
     enable_at_modifier: bool,
     enable_negative_offset: bool
 }
@@ -766,7 +744,7 @@ impl LazyLoader {
                 self.load_cmd = parse_load(lines, i)?;
                 Ok(())
             }
-            return raise(i, "invalid command {}", l);
+            return raise(i, format!("invalid command {}", l));
         }
         return RuntimeError::from("no \"load\" command found")
     }
@@ -849,11 +827,9 @@ fn parse_series_desc(input: &str) -> RuntimeResult<SeriesDescription> {
     let p = newParser(input);
 
     let parse_result = p.parse_generated(START_SERIES_DESCRIPTION)?;
-    if parse_result != nil {
-        let result = parse_result.(*seriesDescription)
-        labels = result.labels
-        values = result.values
-    }
+    let result = parse_result.(*seriesDescription)
+    labels = result.labels
+    values = result.values
 
     return SeriesDescription{ labels, values }
 }

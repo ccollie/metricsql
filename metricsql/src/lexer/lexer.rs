@@ -58,7 +58,7 @@ impl fmt::Display for TextSpan {
 }
 
 
-/// A token of metricsql source.
+/// A token of MetricSql source.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token<'source> {
     /// The kind of token.
@@ -73,7 +73,7 @@ impl<'source> Token<'source> {
     }
 }
 
-/// A lexer of metricsql source.
+/// A lexer of MetricSql source.
 pub struct Lexer<'a> {
     inner: logos::Lexer<'a, TokenKind>,
     done: bool,

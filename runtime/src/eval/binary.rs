@@ -24,7 +24,7 @@ use metricsql::prelude::trim_filters_by_group_modifier;
 use crate::eval::utils::series_len;
 
 pub struct BinaryEvaluator {
-    expr: BinaryOpExpr,
+    expr: BinaryExpr,
     lhs: Box<ExprEvaluator>,
     rhs: Box<ExprEvaluator>,
     handler: Arc<dyn BinaryOpFn<Output=RuntimeResult<Vec<Timeseries>>>>,
@@ -34,7 +34,7 @@ pub struct BinaryEvaluator {
 }
 
 impl BinaryEvaluator {
-    pub fn new(expr: &BinaryOpExpr) -> RuntimeResult<Self> {
+    pub fn new(expr: &BinaryExpr) -> RuntimeResult<Self> {
         let lhs = Box::new( create_evaluator(&expr.left)? );
         let rhs = Box::new(create_evaluator(&expr.right)? );
         let can_pushdown_filters = can_pushdown_common_filters(expr);
@@ -218,12 +218,15 @@ fn should_parallelize_expr(expr: &BExpression) -> bool {
     use Expression::*;
 
     match expr.as_ref() {
-        With(..) | String(..) | Number(..) | Duration(..) => false,
-        _ => true
+        With(_) | String(_) | Number(_) | Duration(_) => false,
+        _ => {
+            // todo: maybe have a complexity threshold
+            true
+        }
     }
 }
 
-fn should_parallelize(be: &BinaryOpExpr) -> bool {
+fn should_parallelize(be: &BinaryExpr) -> bool {
     if should_parallelize_expr(&be.left) && should_parallelize_expr(&be.right) {
         return true
     }
@@ -234,7 +237,7 @@ fn should_parallelize(be: &BinaryOpExpr) -> bool {
     }
 }
 
-fn can_pushdown_common_filters(be: &BinaryOpExpr) -> bool {
+fn can_pushdown_common_filters(be: &BinaryExpr) -> bool {
     if !should_parallelize(&be) {
         return false
     }

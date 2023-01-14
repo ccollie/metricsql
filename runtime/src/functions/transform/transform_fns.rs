@@ -1527,7 +1527,7 @@ fn range_quantile(phi: f64, series: &mut Vec<Timeseries>) {
             values.push(*v);
             last_idx = i;
         }
-        if last_idx >= 0 {
+        if last_idx > 0 {
             values.sort_by(|a, b| a.total_cmp(&b));
             ts.values[last_idx] = quantile_sorted(phi, &values)
         }

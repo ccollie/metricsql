@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use metricsql::ast::*;
-use metricsql::binaryop::{eval_binary_op, string_compare};
 use metricsql::functions::{DataType, Signature, Volatility};
+use metricsql::prelude::constant_fold_binary_expression;
 
 use crate::context::Context;
 use crate::eval::aggregate::{AggregateEvaluator, create_aggr_evaluator};
@@ -147,35 +147,10 @@ fn create_parens_evaluator(expr: &ParensExpr) -> RuntimeResult<ExprEvaluator> {
     create_function_evaluator(&fe)
 }
 
-fn create_evaluator_from_binop(be: &BinaryOpExpr) -> RuntimeResult<ExprEvaluator> {
-    match (be.left.as_ref(), be.right.as_ref()) {
-        (Expression::Number(ln), Expression::Number(rn)) => {
-            let n = eval_binary_op(ln.value, rn.value, be.op, be.bool_modifier);
-            Ok(ExprEvaluator::from(n))
-        }
-        (Expression::String(lhs), Expression::String(rhs)) => {
-            if be.op == BinaryOp::Add {
-                let val = format!("{}{}", lhs.value, rhs.value);
-                return Ok(ExprEvaluator::from(val))
-            }
-            let n = match string_compare(&lhs.value, &rhs.value, be.op) {
-                Ok(v) => {
-                    if v {
-                        1.0
-                    } else {
-                        if be.bool_modifier { 0.0 } else { f64::NAN }
-                    }
-                }
-                Err(_) => {
-                    // todo: should be unreachable
-                    f64::NAN
-                }
-            };
-            Ok(ExprEvaluator::from(n))
-        }
-        _ => {
-            Ok(ExprEvaluator::BinaryOp(BinaryEvaluator::new(be)?))
-        },
+fn create_evaluator_from_binop(be: &BinaryExpr) -> RuntimeResult<ExprEvaluator> {
+    match constant_fold_binary_expression(be) {
+        Some(expr) => create_evaluator(&expr),
+        None => Ok(ExprEvaluator::BinaryOp(BinaryEvaluator::new(be)?))
     }
 }
 

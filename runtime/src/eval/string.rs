@@ -13,9 +13,9 @@ pub struct StringEvaluator {
 }
 
 impl StringEvaluator {
-    pub fn new(expr: &str) -> Self {
+    pub fn new<S: Into<String>>(expr: S) -> Self {
         Self {
-            value: expr.to_string()
+            value: expr.into()
         }
     }
 }

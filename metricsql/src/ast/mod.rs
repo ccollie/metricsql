@@ -11,7 +11,7 @@ mod selector;
 mod function;
 mod with;
 mod rollup;
-mod binary_op;
+mod binary_expr;
 mod operator;
 mod aggregation;
 mod group;
@@ -19,7 +19,7 @@ pub mod utils;
 
 pub use aggregation::*;
 pub use expression::*;
-pub use binary_op::*;
+pub use binary_expr::*;
 pub use string::*;
 pub use duration::*;
 pub use group::*;

@@ -97,17 +97,12 @@ fn get_non_num_prefix(s: &str) -> &str {
     return s
 }
 
-fn is_decimal_char(ch: char) -> bool {
-    ch >= '0' && ch <= '9'
+fn must_parse_num(s: &str) -> RuntimeResult<f64> {
+    parse_number(s).or_else(|_| Err(RuntimeError::InvalidNumber(s.to_string())))
 }
 
-fn must_parse_num(s: &str) -> RuntimeResult<f64> {
-    match parse_number(s) {
-        Err(err) => {
-            Err(RuntimeError::from(format!("BUG: unexpected error when parsing the number {}: {:?}", s, err)))
-        },
-        Ok(v) => Ok(v)
-    }
+fn is_decimal_char(ch: char) -> bool {
+    ch >= '0' && ch <= '9'
 }
 
 pub fn get_timezone_offset(zone: &Tz, timestamp_msecs: i64) -> Option<i64> {

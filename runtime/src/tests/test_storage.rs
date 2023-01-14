@@ -5,8 +5,12 @@ use crate::{MetricName, Sample};
 
 struct TestSample {
     labels: Rc<MetricName>,
-    t: u64,
+    t: i64,
     v: f64
+}
+pub struct Point {
+    pub t: i64,
+    pub v: f64
 }
 
 pub struct TestStorage {
@@ -27,7 +31,7 @@ impl TestStorage {
 
     pub fn add_sample(&mut self, sample: &Sample) {
         let metric_id = sample.metric_name.hash();
-        self.labels_hash.entry(metric_id).or_insert_with(|x| {
+        self.labels_hash.entry(metric_id).or_insert_with(|| {
             Rc::new(sample.metric_name.clone())
         });
 
@@ -52,15 +56,15 @@ impl TestStorage {
         let mut ids: BTreeSet<u64> = BTreeSet::new();
         let mut res: Vec<TestSample> = vec![];
 
-        let _ = filters.for_each(|f| self.get_metric_ids_matching(f, &ids));
+        let _ = filters.iter().for_each(|f| self.get_metric_ids_matching(f, &ids));
         for metric_id in ids {
             match (self.sample_values.get(&metric_id), self.labels_hash.get_mut(&metric_id)) {
                 (Some(values), Some(labels)) => {
                     self.sort_if_needed(metric_id);
-                    if let Some(start) = find_first_index(&bucket, start) {
+                    if let Some(start) = find_first_index(&values, start) {
                         let mut i = start;
                         while i < values.len() {
-                            let point = values[i];
+                            let point = &values[i];
                             if point.t > end {
                                 break;
                             }
@@ -82,10 +86,10 @@ impl TestStorage {
     }
 
     fn sort_if_needed(&mut self, id: u64) {
-        if self.need_sort(id) {
+        if self.need_sort.contains(&id) {
             self.need_sort.remove(&id);
             if let Some(points) = self.sample_values.get_mut(&id) {
-                points.sort_by(|a, b| a.t.cmp(b.t) )
+                points.sort_by(|a, b| a.t.cmp(&b.t) )
             }
         }
     }

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use rayon::iter::{IntoParallelRefIterator};
-use tracing::{enabled, info, Level};
+use tracing::{info};
 
 use metricsql::ast::BExpression;
 use metricsql::functions::{DataType, Signature, TypeSignature, Volatility};
@@ -45,7 +45,7 @@ impl ArgList {
     }
 
     pub fn eval(&self, ctx: &Arc<&Context>, ec: &EvalConfig) -> RuntimeResult<Vec<AnyValue>> {
-        // todo: use tinyvec and pass in as &mut vec
+        // todo: use tinyvec/heapless and pass in as &mut vec
         if self.parallel && self.args.len() >= 2 {
             return self.eval_parallel(ctx, ec)
         } else {
@@ -59,9 +59,7 @@ impl ArgList {
 
     fn eval_parallel(&self, ctx: &Arc<&Context>, ec: &EvalConfig) -> RuntimeResult<Vec<AnyValue>> {
 
-        if enabled!(Level::INFO) {
-            info!("eval function args in parallel");
-        }
+        info!("eval function args in parallel");
 
         let params: _ = self.args.par_iter()
             .map(move |expr| { expr.eval(&mut ctx.clone(), ec) })

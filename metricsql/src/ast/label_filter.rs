@@ -191,7 +191,7 @@ impl LabelFilterExpr {
     }
 
     pub fn is_expanded(&self) -> bool {
-        !self.value.is_empty() && !self.value.has_tokens()
+        !self.value.has_tokens()
     }
 }
 

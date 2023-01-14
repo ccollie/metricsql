@@ -3,7 +3,7 @@ use std::str::FromStr;
 use crate::ast::{
     BExpression,
     BinaryOp,
-    BinaryOpExpr,
+    BinaryExpr,
     DurationExpr,
     Expression,
     GroupModifier,
@@ -228,7 +228,7 @@ fn balance(lhs: Expression,
                 //                    lhs_be.op,
                 //                    lhs_be.bool_modifier)?;
 
-                let expr = BinaryOpExpr {
+                let expr = BinaryExpr {
                     op: lhs_be.op,
                     left: lhs_be.left.clone(),
                     right: Box::new(balanced),
@@ -247,7 +247,7 @@ fn balance(lhs: Expression,
 
     // validate_scalar_op(&lhs, &rhs, op, return_bool)?;
 
-    let expr = BinaryOpExpr {
+    let expr = BinaryExpr {
         op,
         left: Box::new(lhs),
         right: Box::new(rhs),
@@ -365,7 +365,7 @@ fn parse_unary_minus_expr(p: &mut Parser) -> ParseResult<Expression> {
 
     // Substitute `-expr` with `0 - expr`
     let lhs = Expression::Number(NumberExpr::new(0.0, span));
-    let mut binop_expr = BinaryOpExpr::new(BinaryOp::Sub, lhs, expr)?;
+    let mut binop_expr = BinaryExpr::new(BinaryOp::Sub, lhs, expr)?;
     binop_expr.span = span;
     Ok(BinaryOperator(binop_expr))
 }

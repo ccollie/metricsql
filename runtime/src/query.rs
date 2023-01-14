@@ -304,7 +304,8 @@ pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<Query
             return Err(RuntimeError::General(msg));
         }
         Ok(mut result) => {
-            if query_offset > 0 {
+            if query_offset > 0 && result.len() > 0{
+                // todo: verify see https://github.com/VictoriaMetrics/VictoriaMetrics/commit/0771d57860d87806b2eda684cc2d3b640939bf6b
                 for res in result.iter_mut() {
                     for j in res.timestamps.iter_mut() {
                         *j += query_offset;

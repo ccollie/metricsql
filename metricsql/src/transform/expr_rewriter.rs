@@ -20,7 +20,7 @@
 use crate::ast::{
     AggrFuncExpr,
     BExpression,
-    BinaryOpExpr,
+    BinaryExpr,
     Expression,
     FuncExpr,
     ParensExpr,
@@ -80,7 +80,7 @@ impl ExprRewritable for Expression {
     /// ```text
     /// BinaryExpr (GT)
     ///    left: Number(1024)
-    ///    right: MetricExpression("bar")
+    ///    right: MetricExpr("bar")
     /// ```
     ///
     /// The nodes are visited using the following order
@@ -190,7 +190,7 @@ impl ExprRewritable for Expression {
                 )
 
             },
-            Expression::BinaryOperator(BinaryOpExpr {
+            Expression::BinaryOperator(BinaryExpr {
                                            group_modifier,
                                            join_modifier,
                                            left,
@@ -199,7 +199,7 @@ impl ExprRewritable for Expression {
                                            bool_modifier,
                                            span, }) => {
                 Expression::BinaryOperator(
-                    BinaryOpExpr {
+                    BinaryExpr {
                         left: rewrite_boxed(left, rewriter)?,
                         op,
                         bool_modifier,
