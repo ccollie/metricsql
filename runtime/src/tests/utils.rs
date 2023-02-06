@@ -123,8 +123,6 @@ pub fn compare_floats(expected: f64, actual: f64) -> bool {
     }
 }
 
-const
-MIN_NORMAL: f64 = f64::from_bits(0x0010000000000000); // The smallest positive normal value of type float64.
 
 /// returns true if the two sample lines only differ by a
 /// small relative error in their sample value.
@@ -141,9 +139,9 @@ pub(crate) fn almost_equal(a: f64, b: f64) -> bool {
     }
 
     let diff = (a - b).abs();
-
-    if a == 0_f64 || b == 0_f64 || diff < MIN_NORMAL {
-        return diff < EPSILON * MIN_NORMAL
+    let min_normal = f64::from_bits(0x0010000000000000); // The smallest positive normal value of type float64.
+    if a == 0_f64 || b == 0_f64 || diff < min_normal {
+        return diff < EPSILON * min_normal
     }
 
     return diff/(a.abs() + b.abs()) < EPSILON

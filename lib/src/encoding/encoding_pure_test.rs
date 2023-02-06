@@ -9,7 +9,7 @@ mod tests {
         let mut v: i64 = 0;
 
         // Verify nearest delta encoding.
-        for i in 0 .. 8*1024 {
+        for _ in 0 .. 8*1024 {
             v += (get_rand_normal() * 1e6) as i64;
             va.push(v);
         }
@@ -25,7 +25,7 @@ mod tests {
         // Verify nearest delta2 encoding.
         v = 0;
 
-        for i in 0 .. 8*1024 {
+        for _ in 0 .. 8*1024 {
             v += (30e6 + get_rand_normal() * 1e6) as i64;
             va.push(v);
         }
@@ -41,7 +41,7 @@ mod tests {
         // Verify nearest delta encoding.
         va.clear();
         v = 1000;
-        for i in 0 .. 6 {
+        for _ in 0 .. 6 {
             v += (get_rand_normal() * 100_f64) as i64;
             va.push(v);
         }
@@ -68,7 +68,7 @@ mod tests {
         let mut va: Vec<i64> = Vec::with_capacity(8 * 1024);
 
         let mut v = (get_rand_normal() * 1e9) as i64;
-        for i in 0 .. 8*1024 {
+        for _ in 0 .. 8*1024 {
             va.push(v);
             v +=  (30e3 + get_rand_normal() * 1e3) as i64;
         }

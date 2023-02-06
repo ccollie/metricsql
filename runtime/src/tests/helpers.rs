@@ -11,8 +11,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-
-use std::borrow::{Borrow, BorrowMut};
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::task::Context;
@@ -27,7 +25,7 @@ pub type Labels = HashMap<String, String>;
 ///
 /// The type of samples (float64, histogram, etc) appended for a given series must remain same within an Appender.
 /// The behaviour is undefined if samples of different types are appended to the same series in a single Commit().
-pub(crate) trait Appender {
+pub trait Appender {
     /// Append adds a sample pair for the given series.
     /// An optional series reference can be provided to accelerate calls.
     /// A series reference number is returned which can be used to add further
@@ -132,28 +130,17 @@ impl CollectResultAppender {
 impl Appender for CollectResultAppender {
     fn append(&mut self, l: Labels, t: i64, v: f64) -> RuntimeResult<()> {
         self.pending_result.push(Sample::from_hashmap(&l, t, v));
-        if let Some(mut next) = &self.next.borrow_mut() {
-            next.append(l, t, v)
-        } else {
-            Ok(())
-        }
+        Ok(())
     }
     
     fn commit(&mut self) -> RuntimeResult<()> {
         self.result.extend_from_slice(&self.pending_result.clone());
         self.pending_result.clear();
-        return if let Some(mut next) = self.next.borrow() {
-            next.commit()
-        } else {
-            Ok(())
-        }
+        Ok(())
     }
 
     fn rollback(&mut self) -> RuntimeResult<()> {
         self.rolledback_result = std::mem::take(&mut self.pending_result);
-        if let Some(mut next) = &self.next.borrow() {
-            return next.rollback();
-        }
         Ok(())        
     }
 }

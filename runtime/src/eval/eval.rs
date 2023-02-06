@@ -168,7 +168,7 @@ pub(crate) fn create_evaluators(vec: &[BExpression]) -> RuntimeResult<Vec<ExprEv
 /// validate_max_points_per_timeseries checks the maximum number of points that
 /// may be returned per each time series.
 ///
-/// The number mustn't exceed -search.maxPointsPerTimeseries.
+/// The number mustn't exceed max_points_per_timeseries.
 pub(crate) fn validate_max_points_per_timeseries(
     start: Timestamp,
     end: Timestamp,

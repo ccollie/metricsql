@@ -109,7 +109,7 @@ pub(crate) fn rollup_func_requires_config(f: &RollupFunction) -> bool {
     )
 }
 
-/// rollupFuncsSamplesScannedPerCall contains functions which scan lower number of samples
+/// rollup_samples_scanned_per_call contains functions which scan lower number of samples
 /// than is passed to the rollup func.
 ///
 /// It is expected that the remaining rollupFuncs scan all the samples passed to them.
@@ -373,7 +373,7 @@ pub(crate) fn get_rollup_aggr_funcs(expr: &Expression) -> RuntimeResult<Vec<Roll
 
     return match fe {
         None => {
-            let msg = format!("BUG: unexpected expression; want metricsql.FuncExpr; got {}; value: {}", expr.type_name(), expr);
+            let msg = format!("BUG: unexpected expression; want FuncExpr; got {}; value: {}", expr.type_name(), expr);
             Err(RuntimeError::from(msg))
         },
         Some(fe_) => {
@@ -442,11 +442,12 @@ fn delta_values_pre_func(values: &mut [f64], _: &[i64]) -> () {
 fn calc_sample_intervals_pre_fn(values: &mut [f64], timestamps: &[i64]) {
     // Calculate intervals in seconds between samples.
     let mut ts_secs_prev = NAN;
-    for (i, ts) in timestamps.iter().enumerate() {
+    for (value, ts) in values.iter_mut().zip(timestamps.iter()) {
         let ts_secs = (ts / 1000) as f64;
-        values[i] = ts_secs - ts_secs_prev;
-        ts_secs_prev = ts_secs;
-    };
+        *value = ts_secs - ts_secs_prev;
+        ts_secs_prev = ts_secs;        
+    }
+
     if values.len() > 1 {
         // Overwrite the first NaN interval with the second interval,
         // So min, max and avg rollup could be calculated properly,
@@ -623,7 +624,7 @@ impl Default for RollupConfig {
 impl RollupConfig {
     fn clone_with_fn(&self, rollup_fn: &RollupHandlerEnum, tag_value: &str) -> Self {
         return RollupConfig {
-            tag_value: tag_value.to_string(),
+            tag_value: tag_value.to_string(), // should this be Arc ??
             handler: rollup_fn.clone(),
             start: self.start,
             end: self.end,
@@ -898,7 +899,7 @@ fn get_max_prev_interval(scrape_interval: i64) -> i64 {
 pub(super) fn remove_counter_resets(values: &mut [f64]) {
     // There is no need in handling NaNs here, since they are impossible
     // on values from vmstorage.
-    if values.len() == 0 {
+    if values.is_empty() {
         return;
     }
     let mut correction: f64 = 0.0;
@@ -923,18 +924,18 @@ pub(super) fn remove_counter_resets(values: &mut [f64]) {
 pub(super) fn delta_values(values: &mut [f64]) {
     // There is no need in handling NaNs here, since they are impossible
     // on values from storage.
-    if values.len() == 0 {
+    if values.is_empty() {
         return;
     }
 
     let mut prev_delta: f64 = 0.0;
-    let mut prev_value = values[0];
+    let mut iter = values.iter_mut();
+    let mut prev_value = *iter.next().unwrap(); // unwrap is safe because of length check above
 
-    for i in 1 .. values.len() {
-        let v = values[i];
-        prev_delta = v - prev_value;
-        values[i] = prev_delta;
-        prev_value = v;
+    for v in iter {
+        prev_delta = *v - prev_value;
+        *v = prev_delta;
+        prev_value = *v;
     }
 
     values[values.len() - 1] = prev_delta
@@ -943,7 +944,7 @@ pub(super) fn delta_values(values: &mut [f64]) {
 pub(super) fn deriv_values(values: &mut [f64], timestamps: &[Timestamp]) {
     // There is no need in handling NaNs here, since they are impossible
     // on values from vmstorage.
-    if values.len() == 0 {
+    if values.is_empty() {
         return;
     }
     let mut prev_deriv: f64 = 0.0;
@@ -979,7 +980,7 @@ fn new_rollup_holt_winters(args: &Vec<AnyValue>) -> RuntimeResult<RollupHandlerE
 fn holt_winters_internal(rfa: &mut RollupFuncArg, sf: f64, tf: f64) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
-    if rfa.values.len() == 0 {
+    if rfa.values.is_empty() {
         return rfa.prev_value;
     }
 
@@ -1046,13 +1047,15 @@ pub(crate) fn linear_regression(values: &[f64], timestamps: &[i64], intercept_ti
     let mut t_sum: f64 = 0.0;
     let mut tv_sum: f64 = 0.0;
     let mut tt_sum: f64 = 0.0;
-    for (i, v) in values.iter().enumerate() {
-        let dt = (timestamps[i] - intercept_time) as f64 / 1e3_f64;
+
+    for (ts, v) in timestamps.iter().zip(values.iter()) {
+        let dt = (ts - intercept_time) as f64 / 1e3_f64;
         v_sum += v;
         t_sum += dt;
         tv_sum += dt * v;
-        tt_sum += dt * dt
+        tt_sum += dt * dt        
     }
+
     let mut k: f64 = 0.0;
     let n = n as f64;
     let t_diff = tt_sum - t_sum * t_sum / n;
@@ -1085,7 +1088,7 @@ fn new_rollup_duration_over_time(args: &Vec<AnyValue>) -> RuntimeResult<RollupHa
     let f = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
         // There is no need in handling NaNs here, since they must be cleaned up
         // before calling rollup fns.
-        if rfa.timestamps.len() == 0 {
+        if rfa.timestamps.is_empty() {
             return NAN;
         }
         let mut t_prev = rfa.timestamps[0];
@@ -1198,7 +1201,7 @@ fn new_rollup_count_filter(
     let handler = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
         // There is no need in handling NaNs here, since they must be cleaned up
         // before calling rollup fns.
-        if rfa.values.len() == 0 {
+        if rfa.values.is_empty() {
             return NAN;
         }
 
@@ -1233,7 +1236,7 @@ fn new_rollup_hoeffding_bound_upper(args: &Vec<AnyValue>) -> RuntimeResult<Rollu
 fn rollup_hoeffding_bound_internal(rfa: &mut RollupFuncArg, phi: f64) -> (f64, f64) {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
-    if rfa.values.len() == 0 {
+    if rfa.values.is_empty() {
         return (NAN, NAN);
     }
     if rfa.values.len() == 1 {
@@ -1280,7 +1283,7 @@ fn new_rollup_quantiles(args: &Vec<AnyValue>) -> RuntimeResult<RollupHandlerEnum
     let f: Box<dyn RollupFn<Output=f64>> = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
         // There is no need in handling NaNs here, since they must be cleaned up
         // before calling rollup fns.
-        if rfa.values.len() == 0 {
+        if rfa.values.is_empty() {
             return rfa.prev_value;
         }
         if rfa.values.len() == 1 {
@@ -1342,7 +1345,7 @@ pub(super) fn rollup_avg(rfa: &mut RollupFuncArg) -> f64 {
 
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
-    if rfa.values.len() == 0 {
+    if rfa.values.is_empty() {
         // do not take into account rfa.prev_value, since it may lead
         // to inconsistent results comparing to Prometheus on broken time series
         // with irregular data points.
@@ -1355,7 +1358,7 @@ pub(super) fn rollup_avg(rfa: &mut RollupFuncArg) -> f64 {
 pub(super) fn rollup_min(rfa: &mut RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
-    if rfa.values.len() == 0 {
+    if rfa.values.is_empty() {
         // do not take into account rfa.prev_value, since it may lead
         // to inconsistent results comparing to Prometheus on broken time series
         // with irregular data points.
@@ -1375,7 +1378,7 @@ pub(super) fn rollup_min(rfa: &mut RollupFuncArg) -> f64 {
 pub(super) fn rollup_max(rfa: &mut RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
-    if rfa.values.len() == 0 {
+    if rfa.values.is_empty() {
         // do not take into account rfa.prev_value, since it may lead
         // to inconsistent results comparing to Prometheus on broken time series
         // with irregular data points.
@@ -1388,7 +1391,7 @@ pub(super) fn rollup_max(rfa: &mut RollupFuncArg) -> f64 {
 pub(super) fn rollup_median(rfa: &mut RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
-    if rfa.values.len() == 0 {
+    if rfa.values.is_empty() {
         // do not take into account rfa.prev_value, since it may lead
         // to inconsistent results comparing to Prometheus on broken time series
         // with irregular data points.
@@ -1401,7 +1404,7 @@ pub(super) fn rollup_tmin(rfa: &mut RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
     let values = &rfa.values;
-    if values.len() == 0 {
+    if values.is_empty() {
         return NAN;
     }
     let mut min_value = values[0];
@@ -1420,7 +1423,7 @@ pub(super) fn rollup_tmax(rfa: &mut RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
 
-    if rfa.values.len() == 0 {
+    if rfa.values.is_empty() {
         return NAN;
     }
 
@@ -1465,7 +1468,7 @@ pub(super) fn rollup_tlast(rfa: &mut RollupFuncArg) -> f64 {
 pub(super) fn rollup_tlast_change(rfa: &mut RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
-    if rfa.values.len() == 0 {
+    if rfa.values.is_empty() {
         return NAN;
     }
 
@@ -1488,7 +1491,7 @@ pub(super) fn rollup_sum(rfa: &mut RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
 
-    if rfa.values.len() == 0 {
+    if rfa.values.is_empty() {
         // do not take into account rfa.prev_value, since it may lead
         // to inconsistent results comparing to Prometheus on broken time series
         // with irregular data points.
@@ -1526,7 +1529,7 @@ pub(super) fn rollup_range(rfa: &mut RollupFuncArg) -> f64 {
 pub(super) fn rollup_sum2(rfa: &mut RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
-    if rfa.values.len() == 0 {
+    if rfa.values.is_empty() {
         return rfa.prev_value * rfa.prev_value;
     }
     rfa.values.iter().fold(0.0,|r, x| r + (*x * *x))
@@ -1545,7 +1548,7 @@ pub(super) fn rollup_geomean(rfa: &mut RollupFuncArg) -> f64 {
 }
 
 pub(super) fn rollup_absent(rfa: &mut RollupFuncArg) -> f64 {
-    if rfa.values.len() == 0 {
+    if rfa.values.is_empty() {
         return 1.0;
     }
     return NAN;
@@ -1563,7 +1566,7 @@ pub(super) fn rollup_present(rfa: &mut RollupFuncArg) -> f64 {
 pub(super) fn rollup_count(rfa: &mut RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
-    if rfa.values.len() == 0 {
+    if rfa.values.is_empty() {
         return NAN;
     }
     return rfa.values.len() as f64;
@@ -1571,7 +1574,7 @@ pub(super) fn rollup_count(rfa: &mut RollupFuncArg) -> f64 {
 
 pub(super) fn rollup_stale_samples(rfa: &mut RollupFuncArg) -> f64 {
     let values = &rfa.values;
-    if values.len() == 0 {
+    if values.is_empty() {
         return NAN;
     }
     let mut n = 0;
@@ -1601,7 +1604,7 @@ pub(crate) fn stdvar(values: &[f64]) -> f64 {
 
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
-    if values.len() == 0 {
+    if values.is_empty() {
         return NAN;
     }
     if values.len() == 1 {
@@ -1633,7 +1636,7 @@ pub(super) fn rollup_increase_pure(rfa: &mut RollupFuncArg) -> f64 {
         // Assume the counter starts from 0.
         rfa.prev_value = 0.0;
     }
-    if rfa.values.len() == 0 {
+    if rfa.values.is_empty() {
         // Assume the counter didn't change since prev_value.
         return 0 as f64;
     }
@@ -1645,7 +1648,7 @@ pub(super) fn rollup_delta(rfa: &mut RollupFuncArg) -> f64 {
     // before calling rollup fns.
     let mut values = &rfa.values[0..];
     if rfa.prev_value.is_nan() {
-        if values.len() == 0 {
+        if values.is_empty() {
             return NAN;
         }
         if !rfa.real_prev_value.is_nan() {
@@ -1685,7 +1688,7 @@ pub(super) fn rollup_delta(rfa: &mut RollupFuncArg) -> f64 {
             values = &values[1..]
         }
     }
-    if values.len() == 0 {
+    if values.is_empty() {
         // Assume that the value didn't change on the given interval.
         return 0.0;
     }
@@ -1708,7 +1711,7 @@ pub(super) fn rollup_idelta(rfa: &mut RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
     let values = &rfa.values;
-    if values.len() == 0 {
+    if values.is_empty() {
         if rfa.prev_value.is_nan() {
             return NAN;
         }
@@ -1717,7 +1720,7 @@ pub(super) fn rollup_idelta(rfa: &mut RollupFuncArg) -> f64 {
     }
     let last_value = rfa.values[rfa.values.len() - 1];
     let values = &values[0..values.len() - 1];
-    if values.len() == 0 {
+    if values.is_empty() {
         let prev_value = rfa.prev_value;
         if prev_value.is_nan() {
             // Assume that the previous non-existing value was 0.
@@ -1743,7 +1746,7 @@ pub(super) fn rollup_deriv_fast(rfa: &mut RollupFuncArg) -> f64 {
     let mut prev_value = rfa.prev_value;
     let mut prev_timestamp = rfa.prev_timestamp;
     if prev_value.is_nan() {
-        if values.len() == 0 {
+        if values.is_empty() {
             return NAN;
         }
         if values.len() == 1 {
@@ -1761,7 +1764,7 @@ pub(super) fn rollup_deriv_fast(rfa: &mut RollupFuncArg) -> f64 {
         }
         prev_value = values[0];
         prev_timestamp = timestamps[0];
-    } else if values.len() == 0 {
+    } else if values.is_empty() {
         // Assume that the value didn't change on the given interval.
         return 0.0;
     }
@@ -1896,7 +1899,7 @@ pub(super) fn rollup_changes(rfa: &mut RollupFuncArg) -> f64 {
     let mut n = 0;
     let mut start = 0;
     if rfa.prev_value.is_nan() {
-        if rfa.values.len() == 0 {
+        if rfa.values.is_empty() {
             return NAN;
         }
         rfa.prev_value = rfa.values[0];
@@ -1916,7 +1919,7 @@ pub(super) fn rollup_changes(rfa: &mut RollupFuncArg) -> f64 {
 pub(super) fn rollup_increases(rfa: &mut RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
-    if rfa.values.len() == 0 {
+    if rfa.values.is_empty() {
         if rfa.prev_value.is_nan() {
             return NAN;
         }
@@ -1949,7 +1952,7 @@ pub(super) fn rollup_resets(rfa: &mut RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
     let values = &rfa.values;
-    if rfa.values.len() == 0 {
+    if rfa.values.is_empty() {
         if rfa.prev_value.is_nan() {
             return NAN;
         }
@@ -2010,7 +2013,7 @@ fn rollup_open(rfa: &mut RollupFuncArg) -> f64 {
         return v;
     }
     let values = get_candlestick_values(rfa);
-    if values.len() == 0 {
+    if values.is_empty() {
         return NAN;
     }
     return values[0];
@@ -2018,7 +2021,7 @@ fn rollup_open(rfa: &mut RollupFuncArg) -> f64 {
 
 fn rollup_close(rfa: &mut RollupFuncArg) -> f64 {
     let values = get_candlestick_values(rfa);
-    if values.len() == 0 {
+    if values.is_empty() {
         return get_first_value_for_candlestick(rfa);
     }
     values[values.len()]
@@ -2029,7 +2032,7 @@ fn rollup_high(rfa: &mut RollupFuncArg) -> f64 {
     let values = get_candlestick_values(rfa);
     let mut start = 0;
     if max.is_nan() {
-        if values.len() == 0 {
+        if values.is_empty() {
             return NAN;
         }
         max = values[0];
@@ -2051,7 +2054,7 @@ fn rollup_low(rfa: &mut RollupFuncArg) -> f64 {
     let values = get_candlestick_values(rfa);
     let mut start = 0;
     if min.is_nan() {
-        if values.len() == 0 {
+        if values.is_empty() {
             return NAN;
         }
         min = values[0];
@@ -2084,20 +2087,19 @@ pub(super) fn rollup_ascent_over_time(rfa: &mut RollupFuncArg) -> f64 {
     let mut prev_value = rfa.prev_value;
     let mut start: usize = 0;
     if prev_value.is_nan() {
-        if values.len() == 0 {
+        if values.is_empty() {
             return NAN;
         }
         prev_value = values[0];
         start = 1;
     }
     let mut s: f64 = 0.0;
-    for i in start ..= values.len() - 1 {
-        let v = values[i];
+    for v in &values[start .. ] {
         let d = v - prev_value;
         if d > 0.0 {
             s += d;
         }
-        prev_value = v;
+        prev_value = *v;
     }
     return s;
 }
@@ -2107,7 +2109,7 @@ pub(super) fn rollup_descent_over_time(rfa: &mut RollupFuncArg) -> f64 {
     // before calling rollup fns.
     let mut ofs = 0;
     if rfa.prev_value.is_nan() {
-        if rfa.values.len() == 0 {
+        if rfa.values.is_empty() {
             return NAN;
         }
         rfa.prev_value = rfa.values[0];
@@ -2145,7 +2147,7 @@ pub(super) fn rollup_first(rfa: &mut RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
     let values = &rfa.values;
-    if values.len() == 0 {
+    if values.is_empty() {
         // do not take into account rfa.prev_value, since it may lead
         // to inconsistent results comparing to Prometheus on broken time series
         // with irregular data points.
@@ -2156,7 +2158,7 @@ pub(super) fn rollup_first(rfa: &mut RollupFuncArg) -> f64 {
 
 pub(super) fn rollup_default(rfa: &mut RollupFuncArg) -> f64 {
     let values = &rfa.values;
-    if values.len() == 0 {
+    if values.is_empty() {
         // do not take into account rfa.prev_value, since it may lead
         // to inconsistent results comparing to Prometheus on broken time series
         // with irregular data points.
@@ -2169,7 +2171,7 @@ pub(super) fn rollup_default(rfa: &mut RollupFuncArg) -> f64 {
 
 pub(super) fn rollup_last(rfa: &mut RollupFuncArg) -> f64 {
     let values = &rfa.values;
-    if values.len() == 0 {
+    if values.is_empty() {
         // do not take into account rfa.prev_value, since it may lead
         // to inconsistent results comparing to Prometheus on broken time series
         // with irregular data points.
@@ -2181,7 +2183,7 @@ pub(super) fn rollup_last(rfa: &mut RollupFuncArg) -> f64 {
 pub(super) fn rollup_distinct(rfa: &mut RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
-    if rfa.values.len() == 0 {
+    if rfa.values.is_empty() {
         if rfa.prev_value.is_nan() {
             return NAN;
         }
@@ -2203,7 +2205,7 @@ pub(super) fn rollup_integrate(rfa: &mut RollupFuncArg) -> f64 {
     let mut prev_value = &rfa.prev_value;
     let mut prev_timestamp = &rfa.curr_timestamp - &rfa.window;
     if prev_value.is_nan() {
-        if values.len() == 0 {
+        if values.is_empty() {
             return NAN;
         }
         prev_value = &values[0];

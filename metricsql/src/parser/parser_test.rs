@@ -21,6 +21,13 @@ mod tests {
 	}
 
 	#[test]
+	fn test_with_single() {
+		another("Inf + inf", "+Inf");
+		another(r#"with (ct={job="test"}) a{ct} + ct() + f({ct="x"})"#,
+				r#"(a{job="test"} + {job="test"}) + f({ct="x"})"#);
+	}
+
+	#[test]
 	fn single_test() {
 		// another("-1 ^ 0.5", "-1");
 		same(r#"M{x=""}"#);

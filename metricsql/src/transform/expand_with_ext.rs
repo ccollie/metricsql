@@ -2,7 +2,6 @@ use std::collections::HashSet;
 use std::ops::{Deref};
 
 use crate::ast::*;
-use crate::binaryop::{eval_binary_op, string_compare};
 use crate::lexer::{TextSpan};
 use crate::parser::{ArgCountError, ParseError, ParseResult};
 use crate::transform::constant_fold_internal;

@@ -1,4 +1,3 @@
-mod compression;
 mod metric_name;
 mod sample;
 mod timeseries;

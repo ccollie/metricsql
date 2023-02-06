@@ -57,7 +57,10 @@ impl MetricExpr {
     }
 
     pub fn is_only_metric_group(&self) -> bool {
-        self.label_filters.len() == 1 && self.name().is_some()
+        if !self.has_non_empty_metric_group() {
+            return false
+        }
+        self.label_filters.len() == 1
     }
 
     pub fn name(&self) -> Option<&str> {

@@ -373,10 +373,9 @@ fn parse_unary_minus_expr(p: &mut Parser) -> ParseResult<Expression> {
 pub(super) fn parse_string_expr(p: &mut Parser) -> ParseResult<StringExpr> {
     use TokenKind::*;
 
-    let mut ident_count = 0;
-    let mut tokens: Vec<StringTokenType> = Vec::with_capacity(4);
     let mut span: TextSpan;
     let mut tok = p.current_token()?;
+    let mut res: String = String::with_capacity(16);
 
     loop {
         span = tok.span;
@@ -384,13 +383,29 @@ pub(super) fn parse_string_expr(p: &mut Parser) -> ParseResult<StringExpr> {
         match tok.kind {
             StringLiteral => {
                 let str = extract_string_value(tok.text)?;
-                tokens.push(StringTokenType::String(str));
+                res.push_str(&str);
                 span = span.cover(tok.span)
             }
             Ident => {
-                tokens.push(StringTokenType::Ident(tok.text.to_string()));
-                span = span.cover(tok.span);
-                ident_count += 1;
+                // todo: if parsing WITH expr, check if we have a var of type string
+                if let Some(wa) = p.lookup_with_expr(tok.text) {
+                    match &wa.expr {
+                        Expression::String(se) => {
+                            res.push_str(&se.value);
+                            span = span.cover(tok.span);
+                        },
+                        _ => {
+                            // todo: we need to pass span here. Maybe just call unexpected ?
+                            let msg = format!("expected value of type string for token {}. Found {} ",
+                                              ident, wa.expr.return_type());
+                            return Err(ParseError::WithExprExpansionError(msg));
+                        }
+                    }
+                } else {
+                    // todo: we need to pass span here. Maybe just call unexpected ?
+                    let msg = format!("missing {} value inside StringExpr", ident);
+                    return Err(ParseError::WithExprExpansionError(msg));
+                }
             }
             _ => {
                 return Err(unexpected(p, "", "string literal or identifier", None));
@@ -448,19 +463,7 @@ pub(super) fn parse_string_expr(p: &mut Parser) -> ParseResult<StringExpr> {
     }
 
     // optimize if we have no idents
-    if ident_count == 0 {
-        let joined = tokens.iter().map(|x| {
-            match x {
-                StringTokenType::String(s) => s,
-                _ => ""
-            }
-        }).collect::<Vec<_>>()
-            .join("");
-
-        return Ok(StringExpr::new(joined, span));
-    }
-
-    Ok(StringExpr::from_tokens(tokens, span))
+    Ok(StringExpr::new(res, span))
 }
 
 pub(super) fn parse_parens_expr(p: &mut Parser) -> ParseResult<Expression> {

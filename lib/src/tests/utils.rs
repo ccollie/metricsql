@@ -17,7 +17,7 @@ pub fn check_precision_bits(a: &[i64], b: &[i64], precision_bits: u8) -> Result<
         let mut av: i64 = *av;
         let mut bv = b[i];
         if av < bv {
-            let (av, bv) = (bv, av);
+            (av, bv) = (bv, av);
         }
         let eps = av - bv;
         if eps == 0 {
@@ -41,7 +41,11 @@ pub fn check_precision_bits(a: &[i64], b: &[i64], precision_bits: u8) -> Result<
     Ok(())
 }
 
-pub fn ensure_marshal_unmarshal_int64_array(va: &[i64], precision_bits: u8, mt_expected: MarshalType) {
+pub fn ensure_marshal_unmarshal_int64_array(
+    va: &[i64],
+    precision_bits: u8,
+    mt_expected: MarshalType
+) {
     use MarshalType::*;
 
     let mut b: Vec<u8> = vec![];
@@ -90,11 +94,11 @@ pub fn ensure_marshal_unmarshal_int64_array(va: &[i64], precision_bits: u8, mt_e
                va, precision_bits, mt_new, mt);
 
     let va_prefix = [4, 5, 6, 8];
-    let mut vaNew: Vec<i64> = Vec::from(va_prefix);
-    unmarshal_int64_array(&mut vaNew, &b, mt, first_value, va.len())
+    let mut va_new: Vec<i64> = Vec::from(va_prefix);
+    unmarshal_int64_array(&mut va_new, &b, mt, first_value, va.len())
         .expect("unmarshal_int64_array");
 
-    let prefix = &vaNew[0 .. va_prefix.len()];
+    let prefix = &va_new[0 .. va_prefix.len()];
     assert_eq!(prefix, &va_prefix,
                "unexpected prefix for va={:?}, precision_bits={}; got\n{:?}; expecting\n{:?}",
                va, precision_bits, prefix, va_prefix);
@@ -104,14 +108,13 @@ pub fn ensure_marshal_unmarshal_int64_array(va: &[i64], precision_bits: u8, mt_e
         Lz4NearestDelta2 |
         NearestDelta |
         NearestDelta2 => {
-            let suffix = &vaNew[va_prefix.len() .. ];
-            match check_precision_bits(suffix, &va, precision_bits) {
-                Err(err) => panic!("too low precision for timestamps: {:?}", err),
-                _ => {}
+            let suffix = &va_new[va_prefix.len() .. ];
+            if let Err(err) = check_precision_bits(suffix, va, precision_bits) {
+                panic!("too low precision for timestamps: {:?}", err)
             }
         },
         _ => {
-            let suffix = &vaNew[prefix.len() .. ];
+            let suffix = &va_new[prefix.len() .. ];
             assert_eq!(suffix, va,
                        "unexpected prefixed va_new for va={:?}, precision_bits={}; got\n{:?}; expecting\n{:?}",
                        va, precision_bits, suffix, va)

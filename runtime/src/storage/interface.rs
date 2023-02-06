@@ -119,22 +119,21 @@ pub trait LabelQuerier {
     /// It is not safe to use the strings beyond the lifetime of the querier.
     /// If matchers are specified the returned result set is reduced
     /// to label values of metrics matching the matchers.
-    fn label_values(&self, name: string, matchers: &[Matcher]) -> RuntimeResult<Vec<String>>;
+    fn label_values(&self, name: String, matchers: &[Matcher]) -> RuntimeResult<Vec<String>>;
 
     /// LabelNames returns all the unique label names present in the block in sorted order.
-    /// If matchers are specified the returned result set is reduced
-    /// to label names of metrics matching the matchers.
-    fn label_names(&self, matchers: &[Matcher])  -> RuntimeResult<Vec<String>>;
-
-    /// Close releases the resources of the Querier.
-    fn close(&mut self) -> RuntimeResult<()>;
+    /// If matchers are specified the returned result set is reduced to label names of metrics
+    /// matching the matchers.
+    fn label_names(&self, matchers: &[Matcher]) -> RuntimeResult<Vec<String>>;
 }
 
 /// SelectHints specifies hints passed for data selections.
 /// This is used only as an option for implementation to use.
 pub struct SelectHints {
-    start: i64, // start time in milliseconds for this select.
-    end: i64, // end time in milliseconds for this select.
+    /// start time in milliseconds for this select.
+    start: i64,
+    /// end time in milliseconds for this select.
+    end: i64,
 
     /// Query step size in milliseconds.
     step: i64,
@@ -143,7 +142,8 @@ pub struct SelectHints {
 
     /// List of label names used in aggregation.
     grouping: Vec<String>,
-    by:       bool,     // Indicate whether it is without or by.
+    /// Indicate whether it is without or by.
+    by:       bool,
     /// Range vector selector range in milliseconds.
     range   : i64,
 

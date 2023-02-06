@@ -1,4 +1,4 @@
-use std::borrow::{Cow};
+use std::borrow::{BorrowMut, Cow};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use once_cell::sync::Lazy;
@@ -133,16 +133,16 @@ const fn new_binary_op_func(bf: impl BinopClosureFn) -> impl BinaryOpFn {
     move |bfa: &mut BinaryOpFuncArg| -> RuntimeResult<Vec<Timeseries>> {
         let op = bfa.be.op;
 
+        if bfa.left.len() == 0 || bfa.right.len() == 0 {
+            return Ok(vec![]);
+        }
+
         if op.is_comparison() {
             // Do not remove empty series for comparison operations,
             // since this may lead to missing result.
         } else {
             remove_empty_series(&mut bfa.left);
             remove_empty_series(&mut bfa.right);
-        }
-
-        if bfa.left.len() == 0 || bfa.right.len() == 0 {
-            return Ok(vec![]);
         }
 
         let is_bool = bfa.be.bool_modifier;
@@ -154,20 +154,22 @@ const fn new_binary_op_func(bf: impl BinopClosureFn) -> impl BinaryOpFn {
             ));
         }
 
-        for (i, ts_left) in left.iter().enumerate() {
-            let left_values = &ts_left.values;
-            let right_values = &right[i].values;
-            let dst_len = dst[i].values.len();
+        let mut i = 0;
+        for (left_ts, right_ts) in left.iter().zip(right.iter()) {
+            let curr_dest = dst[i].borrow_mut();
+            i += 1;
 
-            if left_values.len() != right_values.len() || left_values.len() != dst_len {
+            let dst_len = curr_dest.values.len();
+            if left_ts.len() != right_ts.len() || left_ts.len() != dst_len {
                 let msg = format!("BUG: left_values.len() must match right_values.len() and len(dst_values); got {} vs {} vs {}",
-                                  left_values.len(), right_values.len(), dst_len);
+                                  left_ts.len(), right_ts.len(), dst_len);
                 return Err(RuntimeError::InvalidState(msg));
             }
 
-            for (j, a) in left_values.iter().enumerate() {
-                let b = right_values[j];
-                dst[i].values[j] = bf(*a, b, is_bool)
+            let mut j = 0;
+            for (a, b) in left_ts.values.iter().zip(right_ts.values.iter()) {
+                curr_dest.values[j] = bf(*a, *b, is_bool);
+                j += 1;
             }
         }
 
@@ -288,15 +290,17 @@ fn ensure_single_timeseries(side: &str, be: &BinaryExpr, tss: &mut Vec<Timeserie
     if tss.len() == 0 {
         return Err(RuntimeError::General("BUG: tss must contain at least one value".to_string()));
     }
-    while tss.len() > 1 {
-        let last = tss.remove(tss.len() - 1);
-        if !merge_non_overlapping_timeseries(&mut tss[0], &last) {
+
+    let mut acc = tss.pop().unwrap();
+
+    for ts in tss.iter() {
+        if !merge_non_overlapping_timeseries(&mut acc, &ts) {
             let msg = format!("duplicate time series on the {} side of {} {}: {} and {}",
                               side,
                               be.op,
                               group_modifier_to_string(&be.group_modifier),
-                              tss[0].metric_name,
-                              last.metric_name);
+                              acc.metric_name,
+                              ts.metric_name);
 
             return Err(RuntimeError::from(msg));
         }
@@ -565,19 +569,18 @@ fn binary_op_or(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
 }
 
 #[inline]
+/// Fill gaps in tss_left with values from tss_right as Prometheus does.
+/// See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/552
 fn fill_left_nans_with_right_values(tss_left: &mut Vec<Timeseries>, tss_right: &Vec<Timeseries>) {
-    // Fill gaps in tss_left with values from tss_right as Prometheus does.
-    // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/552
     for ts_left in tss_left.iter_mut() {
-        for i in 0 .. ts_left.values.len() {
-            let v = ts_left.values[i];
-            if !v.is_nan() {
-                continue
+        for (i, left_value) in ts_left.values.iter_mut().enumerate() {
+            if !left_value.is_nan() {
+                continue;
             }
-            for ts_right in tss_right {
+            for ts_right in tss_right.iter() {
                 let v_right = ts_right.values[i];
                 if !v_right.is_nan() {
-                    ts_left.values[i] = v_right;
+                    *left_value = v_right;
                     break
                 }
             }
@@ -631,11 +634,12 @@ fn binary_op_if_not(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>>
 }
 
 fn add_left_nans_if_no_right_nans(tss_left: &mut Vec<Timeseries>, tss_right: &Vec<Timeseries>) {
+    // todo: zip
     for ts_left in tss_left.iter_mut() {
-        for i in 0 .. ts_left.values.len() {
+        for (i, left_value) in ts_left.values.iter_mut().enumerate() {
             for ts_right in tss_right {
                 if !ts_right.values[i].is_nan() {
-                    ts_left.values[i] = f64::NAN;
+                    *left_value = f64::NAN;
                     break;
                 }
             }

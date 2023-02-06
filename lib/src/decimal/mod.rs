@@ -47,7 +47,7 @@ pub fn is_stale_nan(f: f64) -> bool {
 }
 
 
-/// CalibrateScale calibrates a and b with the corresponding exponents ae, be
+/// calibrate_scale calibrates a and b with the corresponding exponents ae, be
 /// and returns the resulting exponent e.
 pub fn calibrate_scale(a: &mut [i64], ae: i16, b: &mut [i64], be: i16) -> i16 {
     if ae == be {
@@ -158,7 +158,7 @@ pub fn append_decimal_to_float(dst: &mut Vec<f64>, va: &[i64], e: i16) {
         }
         Ordering::Less => {
             // increase conversion precision for negative exponents by dividing by e10
-            let e10 = 10_f64.powf(-e as f64);
+            let e10 = 10_f64.powf(-e as f64); // todo(perf) make this const
             for v in va {
                 let v1 = *v as f64 / e10;
                 append(dst, v1);
@@ -319,7 +319,7 @@ pub fn max_up_exponent(v: i64) -> i16 {
     }
 }
 
-/// to_floatt returns f=v*10^e.
+/// to_float returns f=v*10^e.
 pub fn to_float(v: i64, e: i16) -> f64 {
     if is_special_value(v) {
         if v == V_INF_POS {
@@ -434,11 +434,7 @@ fn positive_float_to_decimal_slow(f: f64) -> (i64, i16) {
         let (_, mut exp) = frexp(f);
         // Bound the exponent according to https://en.wikipedia.org/wiki/Double-precision_floating-point_format
         // This fixes the issue https://github.com/VictoriaMetrics/VictoriaMetrics/issues/1114
-        if exp < -1022 {
-            exp = -1022
-        } else if exp > 1023 {
-            exp = 1023
-        }
+        exp = exp.clamp(-1022, 1023);
 
         let scale = ((exp as f64) * (std::f64::consts::LN_2 / LN10_F64)) as i16;
         f *= (-1.0 * scale as f64).powf(10_f64);

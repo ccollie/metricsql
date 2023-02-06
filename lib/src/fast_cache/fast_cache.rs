@@ -35,14 +35,14 @@ const MAX_BUCKET_SIZE: usize = 1 << BUCKET_SIZE_BITS;
 ///
 /// - 16 bytes are for sub key encoding
 /// - 4 bytes are for key.len()+value.len() encoding
-/// - 1 byte is implementation detail of fastcache
+/// - 1 byte is implementation detail of FastCache
 const MAX_SUB_VALUE_LEN: usize = CHUNK_SIZE - 16 - 4 - 1;
 
 /// MAX_KEY_LEN is the maximum size of key.
 ///
 /// - 16 bytes are for (hash + value_len)
 /// - 4 bytes are for key.len()+len(sub key)
-/// - 1 byte is implementation detail of fastcache
+/// - 1 byte is implementation detail of FastCache
 const MAX_KEY_LEN: usize = CHUNK_SIZE - 16 - 4 - 1;
 
 const BIG_CACHE_SIZE_MIN: usize = 32 * 1024 * 1024;
@@ -425,7 +425,7 @@ struct BucketInner {
     chunks: Vec<Vec<u8>>,
 
     /// maps hash(k) to idx of (k, v) pair in chunks.
-    /// todo(perf): use a non-cryptographic hash
+    /// todo(perf): use a non-cryptographic hash/ IntMap
     hash_idx_map: HashMap<u64, usize>,
 
     /// idx points to chunks for writing the next (k, v) pair.
@@ -559,10 +559,8 @@ impl BucketInner {
         if let Some(v) = self.hash_idx_map.get(&h) {
             let b_gen = self.gen & GEN_BIT_MASK;
             let gen = (v >> BUCKET_SIZE_BITS) as u64;
-            let idx = (v & ((1 << BUCKET_SIZE_BITS) - 1)) as usize;
-            if gen == b_gen && idx < self.idx ||
-                gen + 1 == b_gen && idx >= self.idx ||
-                gen == MAX_GEN && b_gen == 1 && idx >= self.idx {
+            let idx = v & ((1 << BUCKET_SIZE_BITS) - 1);
+            if gen == b_gen && idx < self.idx || idx >= self.idx && gen + 1 == b_gen || idx >= self.idx && gen == MAX_GEN && b_gen == 1 {
                 let chunk_idx: usize = idx / CHUNK_SIZE;
                 if chunk_idx >= self.chunks.len() {
                     // Corrupted data during the load from file. Just skip it.
@@ -581,7 +579,7 @@ impl BucketInner {
                 let key_len = (((kv_len_buf[0] as u64) << 8) | kv_len_buf[1] as u64) as usize;
                 let val_len = (((kv_len_buf[2] as u64) << 8) | kv_len_buf[3] as u64) as usize;
                 idx += 4;
-                if idx + (key_len + val_len) as usize >= CHUNK_SIZE {
+                if idx + (key_len + val_len) >= CHUNK_SIZE {
                     // Corrupted data during the load from file. Just skip it.
                     self.corruptions += 1;
                     return None;
@@ -785,17 +783,17 @@ mod tests {
 
         let mut s: Stats = Stats::default();
         c.update_stats(&mut s);
-        let get_calls = (calls + calls/10) as u64;
+        let get_calls = calls + calls/10;
         assert_eq!(s.get_calls, get_calls, "unexpected number of get_calls; got {}; want {}", s.get_calls, get_calls);
 
         assert_eq!(s.set_calls, calls, "unexpected number of set_calls; got {}; want {}", s.set_calls, calls);
 
-        assert!(s.misses == 0 || s.misses >= (calls/10) as u64,
+        assert!(s.misses == 0 || s.misses >= (calls/10),
                 "unexpected number of misses; got {}; it should be between 0 and {}", s.misses, calls/10);
 
         assert_ne!(s.collisions, 0, "unexpected number of collisions; got {}; want 0", s.collisions);
 
-        assert!(s.entries_count < (calls/5) as u64,
+        assert!(s.entries_count < (calls/5),
                 "unexpected number of items; got {}; cannot be smaller than {}", s.entries_count, calls/5);
 
         assert!(s.bytes_size < 1024,

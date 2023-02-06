@@ -406,7 +406,8 @@ impl RollupEvaluator {
         let keep_metric_names = self.keep_metric_names;
         let func = self.func;
 
-        let (res, samples_scanned_total) = do_parallel(&tss_sq, move |ts_sq: &Timeseries, values: &mut [f64], timestamps: &[i64]| -> RuntimeResult<(Vec<Timeseries>, u64)> {
+        let (res, samples_scanned_total) = 
+            do_parallel(&tss_sq, move |ts_sq: &Timeseries, values: &mut [f64], timestamps: &[i64]| -> RuntimeResult<(Vec<Timeseries>, u64)> {
 
             let mut res: Vec<Timeseries> = Vec::with_capacity(ts_sq.len());
 
@@ -956,6 +957,7 @@ fn do_parallel<F>(tss: &Vec<Timeseries>, f: F) -> RuntimeResult<(Vec<Timeseries>
         let mut values: Vec<f64> = Vec::with_capacity(len);
         let mut timestamps: Vec<i64> = Vec::with_capacity(len);
 
+        // todo(perf): have param for if values have NaNs
         remove_nan_values(&mut values, &mut timestamps, &ts.values, &ts.timestamps);
 
         f(ts, &mut values, &mut timestamps)

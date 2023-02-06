@@ -439,12 +439,11 @@ pub fn is_delta_const(a: &[i64]) -> bool {
     }
     let d1 = a[1] - a[0];
     let mut prev = a[1];
-    for i in 2..a.len() {
-        let next = a[i];
-        if next - prev != d1 {
+    for next in &a[2..] {
+        if *next - prev != d1 {
             return false;
         }
-        prev = next;
+        prev = *next;
     }
     true
 }
@@ -468,14 +467,13 @@ pub fn is_gauge(a: &[i64]) -> bool {
         // Counter values cannot be negative.
         return true;
     }
-    for i in 1 .. a.len() {
-        let v = a[i];
-        if v < v_prev {
-            if v < 0 {
+    for v in &a[1..] {
+        if *v < v_prev {
+            if *v < 0 {
                 // Counter values cannot be negative.
                 return true;
             }
-            if v > (v_prev >> 3) {
+            if *v > (v_prev >> 3) {
                 // Decreasing sequence detected.
                 // This is a gauge.
                 return true;
@@ -483,7 +481,7 @@ pub fn is_gauge(a: &[i64]) -> bool {
             // Possible counter reset.
             resets += 1;
         }
-        v_prev = v;
+        v_prev = *v;
     }
     if resets <= 2 {
         // Counter with a few resets.

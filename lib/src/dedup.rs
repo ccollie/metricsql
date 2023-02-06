@@ -75,8 +75,8 @@ fn needs_dedup(timestamps: &[i64], dedup_interval: i64) -> bool {
     }
     let mut ts_next = timestamps[0] + dedup_interval - 1;
     ts_next = ts_next - (ts_next % dedup_interval);
-    for i in 1 .. timestamps.len() {
-        let ts = timestamps[i];
+    for ts in &timestamps[1 .. ] {
+        let ts = *ts;
         if ts <= ts_next {
             return true;
         }

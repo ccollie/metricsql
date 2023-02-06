@@ -67,11 +67,3 @@ where
 {
     auto_decompress::<T>(bytes)
 }
-
-// var (
-// compressCalls   = metrics.NewCounter(`vm_zstd_block_compress_calls_total`)
-// decompressCalls = metrics.NewCounter(`vm_zstd_block_decompress_calls_total`)
-//
-// originalBytes   = metrics.NewCounter(`vm_zstd_block_original_bytes_total`)
-// compressedBytes = metrics.NewCounter(`vm_zstd_block_compressed_bytes_total`)
-// )

@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-use crate::ast::BExpression;
+use crate::ast::{WithArgExpr};
 use crate::lexer::{Lexer, TextSpan, Token, TokenKind, unescape_ident};
 use crate::parser::parse_error::{InvalidTokenError, ParseError};
 use crate::parser::{ParseErr, ParseResult};
@@ -17,11 +16,8 @@ pub struct Parser<'a> {
     tokens: Vec<Token<'a>>,
     cursor: usize,
     kind: TokenKind,
-    pub(super) with_stack: Vec<HashMap<String, BExpression>>,
-    pub(super) parsing_with: bool,
+    pub(super) with_stack: Vec<Vec<WithArgExpr>>,
 }
-
-struct WithSymbol(String, BExpression);
 
 impl<'a> Parser<'a> {
     pub(crate) fn from_tokens(tokens: Vec<Token<'a>>) -> Self {
@@ -37,7 +33,6 @@ impl<'a> Parser<'a> {
             input: "",
             cursor: 0,
             tokens,
-            parsing_with: false,
             kind,
             with_stack: vec![],
         }
@@ -255,6 +250,18 @@ impl<'a> Parser<'a> {
         tok.expect("BUG: invalid index out of bounds").kind
     }
 
+    pub(super) fn is_parsing_with(&self) -> bool {
+        !self.with_stack.is_empty()
+    }
+
+    pub(super) fn lookup_with_expr(&self, name: &str) -> Option<&WithArgExpr> {
+        for frame in self.with_stack.iter().rev() {
+            if let Some(expr) = frame.iter().find(|x| x.name == name) {
+                return Some(expr);
+            }
+        }
+        None
+    }
 }
 
 
@@ -264,7 +271,7 @@ impl<'a> Parser<'a> {
 pub(super) fn unexpected(p: &mut Parser, context: &str, expected: &str, span: Option<TextSpan>) -> ParseError {
     let mut err_msg: String = String::with_capacity(25 + context.len() + expected.len());
 
-    let span = span.unwrap_or_else(|| p.last_token_range().unwrap() );
+    let span = span.unwrap_or_else(|| p.last_token_range().unwrap_or_default() );
     err_msg.push_str("unexpected ");
     let text = match p.current_token() {
         Ok(t) => {

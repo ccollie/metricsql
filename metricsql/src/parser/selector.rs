@@ -3,6 +3,7 @@ use crate::ast::{Expression, LabelFilter, LabelFilterExpr, LabelFilterOp, Metric
 use crate::lexer::{TokenKind, unescape_ident};
 use crate::parser::{ParseError, Parser, ParseResult};
 use crate::parser::expr::parse_string_expr;
+use crate::parser::parser::unexpected;
 
 /// parse_metric_expr parses a metric.
 ///
@@ -44,30 +45,66 @@ pub fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expression> {
 
 /// parse_label_filters parses a set of label matchers.
 ///
-///		'{' [ <labelname> <match_op> <match_string>, ... ] '}'
+///		'{' [ <label_name> <match_op> <match_string>, ... ] '}'
 ///
 fn parse_label_filters(p: &mut Parser) -> ParseResult<Vec<LabelFilterExpr>> {
     use TokenKind::*;
     p.expect(LeftBrace)?;
-    p.parse_comma_separated(&[RightBrace], parse_label_filter_expr)
+    let vec = p.parse_comma_separated(&[RightBrace], parse_label_filter_expr)?;
+    let iter = vec.into_iter().flatten().collect::<Vec<LabelFilterExpr>>();
+    Ok(iter)
 }
 
-fn parse_label_filter_expr(p: &mut Parser) -> ParseResult<LabelFilterExpr> {
+fn parse_label_filter_expr(p: &mut Parser) -> ParseResult<Vec<LabelFilterExpr>> {
     use TokenKind::*;
 
     let token = p.expect_token(Ident)?;
     let label = unescape_ident(token.text);
+    // todo: if we're parsing a WITH, we can accept an ident. IOW, we can have metric{ident}
+    let tok = p.current_token()?;
 
-    let op_token = p.expect_one_of(&[Equal, OpNotEqual, RegexEqual, RegexNotEqual])?;
+    if tok.kind == RightBrace {
+        if !p.is_parsing_with() {
+            return Err(unexpected(p, "label filter", "=, !=, =~ or !~", None))
+        }
+        // we have something like
+        // WITH (x = {foo="bar"}) metric{x}
+        // label here would be 'x'
+        return if let Some(wae) = p.lookup_with_expr(&label) {
+            // return
+            match &*wae.expr {
+                Expression::MetricExpression(me) => {
+                    if me.has_non_empty_metric_group() {
+                        // we have something like WITH (x = cpu{foo="bar"}) metric{x}
+                        // which we don't allow
+                        // return Err()
+                    }
 
-    let op = match op_token.kind {
+                    Ok(me.label_filter_exprs.clone())
+                }
+                _ => {
+                    Err(unexpected(p, "label filter", "selector expression", None))
+                }
+            }
+        } else {
+            let err = format!("variable {} not found in WITH expression", label);
+            Err(ParseError::General(err))
+        }
+    }
+
+    let op = match tok.kind {
         Equal => LabelFilterOp::Equal,
         OpNotEqual => LabelFilterOp::NotEqual,
         RegexEqual => LabelFilterOp::RegexEqual,
         RegexNotEqual => LabelFilterOp::RegexNotEqual,
-        _ => unreachable!()
+        _ => {
+            return Err(unexpected(p, "label filter", "=, !=, =~ or !~", None))
+        }
     };
 
+    p.bump();
+
+    // todo: if we're parsing a WITH, we can accept an ident. IOW, we can have metric{s=ident}
     let se = parse_string_expr(p)?;
-    Ok(LabelFilterExpr::new(label, se, op))
+    Ok(vec![LabelFilterExpr::new(label, se, op)])
 }

@@ -113,7 +113,7 @@ impl Display for Sample {
 
 /// Vector is basically only an alias for model.Samples, but the
 /// contract is that in a Vector, all Samples have the same timestamp.
-pub(crate) type Vector = Vec<Sample>;
+pub(crate) struct  Vector(Vec<Sample>);
 
 impl Display for Vector {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -134,7 +134,7 @@ impl Vector {
     fn contains_same_label_set(&self) -> bool {
         match self.len() {
             0 | 1 => false,
-            2 => return self[0].metric.hash() == self[1].Metric.hash(),
+            2 => return self.0[0].metric.hash() == self.0[1].metric.hash(),
             _ => {
                 let l: BTreeSet<u64> = BTreeSet::new();
                 for ss in self.iter() {
@@ -173,31 +173,32 @@ impl Matrix {
     pub fn len(&self) -> usize {
         self.0.len()
     }
+
+    // contains_same_labelset checks if a matrix has samples with the same labelset.
+    // Such a behavior is semantically undefined.
+    // https://github.com/prometheus/prometheus/issues/4562
+    pub fn contains_same_labelset(&self) -> bool {
+        let m = self.0;
+        match m.len() {
+            0 | 1 => false,
+            2 => return m[0].metric.hash() == m[1].metric.hash(),
+            _ => {
+                let l = BTreeSet::new();
+                for ss in m.iter() {
+                    let hash = ss.metric.hash();
+                    if l.contains(hash) {
+                        return true;
+                    }
+                    l.insert(hash);
+                }
+                return false
+            }
+        }
+    }
 }
 
 fn (m Matrix) Less(i, j int) bool { return labels.Compare(m[i].Metric, m[j].Metric) < 0 }
 
-// ContainsSameLabelset checks if a matrix has samples with the same labelset.
-// Such a behavior is semantically undefined.
-// https://github.com/prometheus/prometheus/issues/4562
-fn (m Matrix) ContainsSameLabelset() -> bool {
-switch len(m) {
-case 0, 1:
-return false
-case 2:
-return m[0].metric.Hash() == m[1].metric.Hash()
-default:
-l := make(map[ui64]struct{}, len(m))
-for _, ss := range m {
-hash := ss.Metric.Hash()
-if _, ok := l[hash]; ok {
-return true
-}
-l[hash] = struct{}{}
-}
-return false
-}
-}
 
 // Result holds the resulting value of an execution or an error
 // if any occurred.

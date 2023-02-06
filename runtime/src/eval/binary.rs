@@ -266,6 +266,7 @@ fn is_aggr_func_without_grouping(e: &Expression) -> bool {
 }
 
 pub(super) fn get_common_label_filters(tss: &[Timeseries]) -> Vec<LabelFilter> {
+    // todo(perf): use fnv or xxxhash
     let mut m: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for ts in tss.iter() {
         for Tag{ key: k, value: v} in ts.metric_name.tags.iter() {

@@ -1,32 +1,54 @@
-use std::collections::HashSet;
+use std::collections::{HashSet};
 use crate::ast::{WithArgExpr, WithExpr};
 use crate::lexer::{TokenKind, unescape_ident};
 use crate::parser::{ParseError, Parser, ParseResult};
 use crate::parser::expr::parse_expression;
+use crate::parser::parser::unexpected;
 
 /// parses `WITH (withArgExpr...) expr`.
 pub(super) fn parse_with_expr(p: &mut Parser) -> ParseResult<WithExpr> {
+    use TokenKind::*;
     let mut span = p.last_token_range().unwrap();
 
-    p.expect(TokenKind::With)?;
-    p.expect(TokenKind::LeftParen)?;
+    p.expect(With)?;
+    p.expect(LeftParen)?;
 
-    let was_in_with = p.parsing_with;
-    p.parsing_with = true;
+    push_stack(p);
 
-    let was = p.parse_comma_separated(&[TokenKind::RightParen],
-                                      parse_with_arg_expr)?;
+    loop {
+        if p.at(RightParen) {
+            p.bump();
+            break
+        }
+        let item = parse_with_arg_expr(p)?;
+        store_with_expr(p, item);
 
-    if !was_in_with {
-        p.parsing_with = false
+        match p.peek_kind() {
+            Comma => {
+                p.bump();
+                continue;
+            }
+            RightParen => {
+                p.bump();
+                break;
+            }
+            _ => {
+                return Err(unexpected(p, "parse_with_expr", ") or ,", None));
+            }
+        }
     }
 
-    // end:
-    check_duplicate_with_arg_names(&was)?;
+    if let Some(was) = p.with_stack.last() {
+        // end:
+        check_duplicate_with_arg_names(was)?;
+    }
 
     let expr = parse_expression(p)?;
+
+    let args = pop_stack(p);
+
     p.update_span(&mut span);
-    Ok(WithExpr::new(expr, was, span))
+    Ok(WithExpr::new(expr, args, span))
 }
 
 fn parse_with_arg_expr(p: &mut Parser) -> ParseResult<WithArgExpr> {
@@ -57,18 +79,19 @@ fn parse_with_arg_expr(p: &mut Parser) -> ParseResult<WithArgExpr> {
     };
 
     p.expect(TokenKind::Equal)?;
-    let expr = match parse_expression(p) {
-        Ok(e) => e,
+
+    match parse_expression(p) {
+        Ok(expr) => {
+            if is_function {
+                Ok(WithArgExpr::new_function(name, expr, args))
+            } else {
+                Ok(WithArgExpr::new(name, expr))
+            }
+        },
         Err(e) => {
             let msg = format!("withArgExpr: cannot parse expression for {}: {:?}", name, e);
             return Err(ParseError::General(msg));
         }
-    };
-
-    if is_function {
-        Ok(WithArgExpr::new_function(name, expr, args))
-    } else {
-        Ok(WithArgExpr::new(name, expr))
     }
 }
 
@@ -96,4 +119,21 @@ pub(super) fn check_duplicate_with_arg_names(was: &[WithArgExpr]) -> ParseResult
         m.insert(wa.name.clone());
     }
     Ok(())
+}
+
+fn push_stack(p: &mut Parser) {
+    p.with_stack.push(Vec::with_capacity(4));
+}
+
+fn pop_stack(p: &mut Parser) -> Vec<WithArgExpr> {
+    p.with_stack.pop().unwrap_or_default()
+}
+
+fn store_with_expr(p: &mut Parser, expr: WithArgExpr) {
+    match p.with_stack.last_mut() {
+        Some(top) => top.push(expr),
+        None => {
+            panic!("Bug: trying to fetch from an empty WITH stack")
+        }
+    }
 }

@@ -3,7 +3,7 @@ use std::rc::Rc;
 use metricsql::prelude::LabelFilter;
 use crate::{MetricName, Sample};
 
-struct TestSample {
+pub struct TestSample {
     labels: Rc<MetricName>,
     t: i64,
     v: f64
@@ -29,18 +29,18 @@ impl TestStorage {
         }
     }
 
-    pub fn add_sample(&mut self, sample: &Sample) {
-        let metric_id = sample.metric_name.hash();
+    pub fn add_sample(&mut self, sample: &mut Sample) {
+        let metric_id = sample.metric.get_hash();
         self.labels_hash.entry(metric_id).or_insert_with(|| {
-            Rc::new(sample.metric_name.clone())
+            Rc::new(sample.metric.clone())
         });
 
         // todo: insert sort ?
         self.sample_values.entry(metric_id)
             .or_default()
             .push(Point {
-                t: sample.t,
-                v: sample.v
+                t: sample.timestamp,
+                v: sample.value
             });
 
         self.need_sort.insert(metric_id);
@@ -56,29 +56,25 @@ impl TestStorage {
         let mut ids: BTreeSet<u64> = BTreeSet::new();
         let mut res: Vec<TestSample> = vec![];
 
-        let _ = filters.iter().for_each(|f| self.get_metric_ids_matching(f, &ids));
+        let _ = filters.iter().for_each(|f| self.get_metric_ids_matching(f, &mut ids));
         for metric_id in ids {
-            match (self.sample_values.get(&metric_id), self.labels_hash.get_mut(&metric_id)) {
-                (Some(values), Some(labels)) => {
-                    self.sort_if_needed(metric_id);
-                    if let Some(start) = find_first_index(&values, start) {
-                        let mut i = start;
-                        while i < values.len() {
-                            let point = &values[i];
-                            if point.t > end {
-                                break;
-                            }
+            self.sort_if_needed(metric_id);
+            if let Some(values) = self.sample_values.get(&metric_id) {
+                if let Some(start) = find_first_index(&values, start) {
+                    for point in &values[start..] {
+                        if point.t > end {
+                            break;
+                        }
+                        if let Some(labels) = self.labels_hash.get_mut(&metric_id) {
                             let sample = TestSample {
                                 labels: Rc::clone(labels),
                                 t: point.t,
                                 v: point.v
                             };
                             res.push(sample);
-                            i += 1;
                         }
                     }
-                },
-                _ => continue
+                }
             }
         }
 
@@ -94,10 +90,10 @@ impl TestStorage {
         }
     }
 
-    fn get_metric_ids_matching(&self, filter: &LabelFilter, mut dst: &BTreeSet<u64>) {
-        for (k, labels) in self.labels_hash {
+    fn get_metric_ids_matching(&self, filter: &LabelFilter, dst: &mut BTreeSet<u64>) {
+        for (k, labels) in &self.labels_hash {
           if matches_filter(&labels, filter) {
-              dst.insert(k);
+              dst.insert(*k);
           }
         }
     }
