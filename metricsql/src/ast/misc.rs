@@ -5,7 +5,7 @@ use crate::ast::{BExpression};
 use crate::utils::escape_ident;
 
 
-pub(super) fn write_expression_list(exprs: &[BExpression], f: &mut Formatter) -> Result<(), fmt::Error> {
+pub(crate) fn write_expression_list(exprs: &[BExpression], f: &mut Formatter) -> Result<(), fmt::Error> {
     let mut items: Vec<String> = Vec::with_capacity(exprs.len());
     for expr in exprs {
         items.push(format!("{}", expr));
@@ -14,7 +14,7 @@ pub(super) fn write_expression_list(exprs: &[BExpression], f: &mut Formatter) ->
     Ok(())
 }
 
-pub(super) fn write_list<T: Display>(
+pub(crate) fn write_list<T: Display>(
     values: &Vec<T>,
     f: &mut Formatter,
     use_parens: bool,
@@ -34,7 +34,7 @@ pub(super) fn write_list<T: Display>(
     Ok(())
 }
 
-pub(super) fn write_labels(labels: &[String], f: &mut Formatter) -> Result<(), fmt::Error> {
+pub(crate) fn write_labels(labels: &[String], f: &mut Formatter) -> Result<(), fmt::Error> {
     write!(f, "(")?;
     for (i, label) in labels.iter().enumerate() {
         if i > 0 {
@@ -56,4 +56,16 @@ pub fn intersection(labels_a: &Vec<String>, labels_b: &Vec<String>) -> Vec<Strin
         .intersection(&unique_b)
         .map(|i| i.clone())
         .collect::<Vec<_>>()
+}
+
+pub(crate) fn format_num(value: f64) -> &str {
+    if value.is_nan() {
+        "NaN"
+    } else if value.is_finite() {
+        format!("{}", value).as_str()
+    } else if value.is_sign_positive() {
+        "+Inf"
+    } else {
+        "-Inf"
+    }
 }

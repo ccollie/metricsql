@@ -36,6 +36,8 @@ pub enum ParseError {
     InvalidFunction(String),
     #[error("{0}")]
     InvalidExpression(String),
+    #[error("Division by zero")]
+    DivisionByZero,
 }
 
 /// ParseErr wraps a parsing error with line and position context.

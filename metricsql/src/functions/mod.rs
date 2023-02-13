@@ -23,13 +23,7 @@ use serde::{Serialize, Deserialize};
 /// to variadic functions like `aggr_over_time` and `quantiles_over_time`
 const MAX_ARG_COUNT: usize = 32;
 
-#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
-pub struct WithExprFunction {
-    name: String,
-    //sig: Signature
-}
-
-#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, PartialEq, Serialize, Deserialize)]
 pub enum BuiltinFunction {
     Aggregate(AggregateFunction),
     Rollup(RollupFunction),
@@ -72,6 +66,10 @@ impl BuiltinFunction {
             Rollup(rf) => rf.signature(),
             Transform(tf) => tf.signature()
         }
+    }
+
+    pub fn volatility(&self) -> Volatility {
+        self.signature().volatility
     }
 
     pub fn type_name(&self) -> &'static str {
@@ -140,3 +138,4 @@ impl FromStr for BuiltinFunction {
         Self::new(s)
     }
 }
+

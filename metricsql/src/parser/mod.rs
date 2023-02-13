@@ -18,11 +18,14 @@ mod with_expr;
 pub mod parse_error;
 pub mod parser;
 
+pub use selector::{parse_metric_expr, dedupe_label_filters};
+
 // tests
 #[cfg(test)]
 mod parser_example_test;
 #[cfg(test)]
 mod parser_test;
+mod expand_rewriter;
 
 
 pub fn parse(input: &str) -> ParseResult<Expression> {
@@ -32,9 +35,13 @@ pub fn parse(input: &str) -> ParseResult<Expression> {
         let msg = "unparsed data".to_string();
         return Err(ParseError::General(msg));
     }
-    let was = get_default_with_arg_exprs();
-    let res = expand_with_expr(&was, &expr)?;
-    Ok(simplify_expr(res))
+    if parser.needs_expansion {
+        let was = get_default_with_arg_exprs();
+        let res = expand_with_expr(&was, &expr)?;
+        simplify_expr(res)
+    } else {
+        expr
+    }
 }
 
 /// Expands WITH expressions inside q and returns the resulting

@@ -4,7 +4,7 @@ use std::sync::{Arc, RwLock};
 use once_cell::sync::Lazy;
 
 use metricsql::ast::{
-    BinaryOp,
+    Operator,
     BinaryExpr,
     GroupModifier,
     GroupModifierOp,
@@ -62,10 +62,10 @@ macro_rules! comp_func {
 }
 
 
-static HANDLER_MAP: Lazy<RwLock<HashMap<BinaryOp, BinaryOpFnImplementation>>> = Lazy::new(|| {
-    use BinaryOp::*;
+static HANDLER_MAP: Lazy<RwLock<HashMap<Operator, BinaryOpFnImplementation>>> = Lazy::new(|| {
+    use Operator::*;
 
-    let mut m: HashMap<BinaryOp, BinaryOpFnImplementation> = HashMap::with_capacity(14);
+    let mut m: HashMap<Operator, BinaryOpFnImplementation> = HashMap::with_capacity(14);
 
     m.insert(Add,   arith_func!(metricsql::binaryop::plus));
     m.insert(Sub,   arith_func!(metricsql::binaryop::minus));
@@ -79,7 +79,7 @@ static HANDLER_MAP: Lazy<RwLock<HashMap<BinaryOp, BinaryOpFnImplementation>>> = 
 
     // cmp ops
     m.insert(Eql,   comp_func!(metricsql::binaryop::eq));
-    m.insert(Neq,   comp_func!(metricsql::binaryop::neq));
+    m.insert(NotEq, comp_func!(metricsql::binaryop::neq));
     m.insert(Gt,    comp_func!(metricsql::binaryop::gt));
     m.insert(Gte,   comp_func!(metricsql::binaryop::gte));
     m.insert(Lt,    comp_func!(metricsql::binaryop::lt));
@@ -99,7 +99,7 @@ static HANDLER_MAP: Lazy<RwLock<HashMap<BinaryOp, BinaryOpFnImplementation>>> = 
 });
 
 
-pub(crate) fn get_binary_op_handler(op: BinaryOp) -> BinaryOpFnImplementation {
+pub(crate) fn get_binary_op_handler(op: Operator) -> BinaryOpFnImplementation {
     let map = HANDLER_MAP.read().unwrap();
     map.get(&op).unwrap().clone()
 }
@@ -414,11 +414,11 @@ pub fn merge_non_overlapping_timeseries(dst: &mut Timeseries, src: &Timeseries) 
     // Verify whether the time series can be merged.
     let mut overlaps = 0;
 
-    for (i, v) in src.values.iter().enumerate() {
-        if v.is_nan() {
+    for (src_val, dst_val) in src.values.iter().zip(dst.values.iter) {
+        if src_val.is_nan() {
             continue;
         }
-        if !dst.values[i].is_nan() {
+        if !dst_val.is_nan() {
             overlaps += 1;
             // Allow up to two overlapping data points, which can appear due to staleness algorithm,
             // which can add a few data points in the end of time series.
@@ -435,11 +435,10 @@ pub fn merge_non_overlapping_timeseries(dst: &mut Timeseries, src: &Timeseries) 
         return false
     }
     // Time series can be merged. Merge them.
-    for (i, v) in src.values.iter().enumerate() {
-        if v.is_nan() {
-            continue
-        }
-        dst.values[i] = *v;
+    for (src_val, dst_val) in src.values.iter().zip(dst.values.iter_mut()) {
+       if !src_val.is_nan() {
+           *dst_val = *src_val
+       }
     }
     true
 }
@@ -533,7 +532,7 @@ fn reset_metric_group_if_required(be: &BinaryExpr, ts: &mut Timeseries) {
         return
     }
 
-    if be.op == BinaryOp::Default || be.op == BinaryOp::If || be.op == BinaryOp::IfNot {
+    if be.op == Operator::Default || be.op == Operator::If || be.op == Operator::IfNot {
         // do not reset MetricGroup for these ops.
         return
     }

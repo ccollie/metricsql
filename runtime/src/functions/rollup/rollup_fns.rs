@@ -218,6 +218,7 @@ make_factory!(new_rollup_irate,                 rollup_ideriv);
 make_factory!(new_rollup_lag,                   rollup_lag);
 make_factory!(new_rollup_last_over_time,        rollup_last);
 make_factory!(new_rollup_lifetime,              rollup_lifetime);
+make_factory!(new_rollup_mad_over_time,         rollup_mad);
 make_factory!(new_rollup_max_over_time,         rollup_max);
 make_factory!(new_rollup_min_over_time,         rollup_min);
 make_factory!(new_rollup_median_over_time,      rollup_median);
@@ -299,6 +300,7 @@ pub(crate) fn get_rollup_function_factory(func: RollupFunction) -> RollupHandler
         RollupFunction::Lag => new_rollup_lag,
         RollupFunction::LastOverTime => new_rollup_last_over_time,
         RollupFunction::Lifetime => new_rollup_lifetime,
+        RollupFunction::MadOverTime => new_rollup_mad_over_time,
         RollupFunction::MaxOverTime => new_rollup_max_over_time,
         RollupFunction::MedianOverTime => new_rollup_median_over_time,
         RollupFunction::MinOverTime => new_rollup_min_over_time,
@@ -373,7 +375,7 @@ pub(crate) fn get_rollup_aggr_funcs(expr: &Expression) -> RuntimeResult<Vec<Roll
 
     return match fe {
         None => {
-            let msg = format!("BUG: unexpected expression; want FuncExpr; got {}; value: {}", expr.type_name(), expr);
+            let msg = format!("BUG: unexpected expression; want FuncExpr; got {}; value: {}", expr.variant_name(), expr);
             Err(RuntimeError::from(msg))
         },
         Some(fe_) => {
@@ -1373,6 +1375,20 @@ pub(super) fn rollup_min(rfa: &mut RollupFuncArg) -> f64 {
     }
 
     min_value
+}
+
+pub(crate) fn rollup_mad(rfa: &RollupFuncArg) -> f64 {
+    // There is no need in handling NaNs here, since they must be cleaned up
+    // before calling rollup funcs.
+
+    // See https://en.wikipedia.org/wiki/Median_absolute_deviation
+    let values = &rfa.values;
+    let median = quantile(0.5, values);
+    let mut ds = Vec::with_capacity(values.len()); // todo: use object pool
+    for v in values.iter() {
+        ds.push((v - median).abs())
+    }
+    quantile(0.5, &ds)
 }
 
 pub(super) fn rollup_max(rfa: &mut RollupFuncArg) -> f64 {

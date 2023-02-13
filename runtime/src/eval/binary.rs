@@ -126,7 +126,7 @@ impl BinaryEvaluator {
         // if first.is_empty() && self.op == Or, the result will be empty,
         // since the "exprFirst op exprSecond" would return an empty result in any case.
         // https://github.com/VictoriaMetrics/VictoriaMetrics/issues/3349
-        if first.is_empty() && self.expr.op == BinaryOp::Or {
+        if first.is_empty() && self.expr.op == Operator::Or {
             return Ok((
                 AnyValue::empty_vec(),
                 AnyValue::empty_vec()
@@ -166,7 +166,7 @@ impl Evaluator for BinaryEvaluator {
         // lower number of time series for `and` and `if` operator.
         // This should produce more specific label filters for the left side of the query.
         // This, in turn, should reduce the time to select series for the left side of the query.
-        let swap = self.expr.op == BinaryOp::And || self.expr.op == BinaryOp::If;
+        let swap = self.expr.op == Operator::And || self.expr.op == Operator::If;
 
         let is_tracing = span_enabled!(Level::TRACE);
 
@@ -242,7 +242,7 @@ fn can_pushdown_common_filters(be: &BinaryExpr) -> bool {
         return false
     }
     match be.op {
-        BinaryOp::Or | BinaryOp::Default => false,
+        Operator::Or | Operator::Default => false,
         _=> {
             return !(
                 is_aggr_func_without_grouping(&be.left) ||

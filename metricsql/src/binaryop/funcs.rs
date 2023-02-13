@@ -1,4 +1,4 @@
-use crate::ast::BinaryOp;
+use crate::ast::Operator;
 use crate::parser::{ParseError, ParseResult};
 
 /// Eq returns true of left == right.
@@ -119,8 +119,8 @@ pub fn ifnot(left: f64, right: f64) -> f64 {
 }
 
 
-pub fn eval_binary_op(left: f64, right: f64, op: BinaryOp, is_bool: bool) -> f64 {
-    use crate::ast::BinaryOp::*;
+pub fn eval_binary_op(left: f64, right: f64, op: Operator, is_bool: bool) -> f64 {
+    use crate::ast::Operator::*;
 
     return if op.is_comparison() {
         fn eval_cmp(left: f64, right: f64, is_bool: bool, cf: fn(left: f64, right: f64) -> bool) -> f64 {
@@ -132,7 +132,7 @@ pub fn eval_binary_op(left: f64, right: f64, op: BinaryOp, is_bool: bool) -> f64
 
         match op {
             Eql => eval_cmp(left, right, is_bool, eq),
-            Neq => eval_cmp(left, right, is_bool, neq),
+            NotEq => eval_cmp(left, right, is_bool, neq),
             Gt => eval_cmp(left, right, is_bool, gt),
             Lt => eval_cmp(left, right, is_bool, lt),
             Gte => eval_cmp(left, right, is_bool, gte),
@@ -158,14 +158,14 @@ pub fn eval_binary_op(left: f64, right: f64, op: BinaryOp, is_bool: bool) -> f64
     }
 }
 
-pub fn string_compare(a: &str, b: &str, op: BinaryOp) -> ParseResult<bool> {
+pub fn string_compare(a: &str, b: &str, op: Operator) -> ParseResult<bool> {
     match op {
-        BinaryOp::Eql => Ok(a == b),
-        BinaryOp::Neq => Ok(a != b),
-        BinaryOp::Lt => Ok(a < b),
-        BinaryOp::Gt => Ok(a > b),
-        BinaryOp::Lte => Ok(a <= b),
-        BinaryOp::Gte => Ok(a >= b),
+        Operator::Eql => Ok(a == b),
+        Operator::NotEq => Ok(a != b),
+        Operator::Lt => Ok(a < b),
+        Operator::Gt => Ok(a > b),
+        Operator::Lte => Ok(a <= b),
+        Operator::Gte => Ok(a >= b),
         _ => Err(ParseError::General(format!("unexpected operator {} in string comparison", op))),
     }
 }

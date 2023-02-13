@@ -1,5 +1,7 @@
+use std::collections::HashSet;
 use enquote::{unescape};
-use crate::ast::{Expression, LabelFilter, LabelFilterExpr, LabelFilterOp, MetricExpr, NAME_LABEL};
+use crate::ast::{Expression, LabelFilter, LabelFilterOp, MetricExpr, NAME_LABEL, WithExprParam};
+use crate::ast::label_filter_expr::LabelFilterExpr;
 use crate::lexer::{TokenKind, unescape_ident};
 use crate::parser::{ParseError, Parser, ParseResult};
 use crate::parser::expr::parse_string_expr;
@@ -26,8 +28,8 @@ pub fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expression> {
             Ok(value) => value
         };
 
-        let filter = LabelFilter::new(
-            LabelFilterOp::Equal, NAME_LABEL, &token)?;
+        let name = resolve_metric_name(p, &token)?;
+        let filter = LabelFilterExpr::new(LabelFilterOp::Equal, NAME_LABEL, name)?;
 
         me.label_filters.push(filter);
 
@@ -36,8 +38,8 @@ pub fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expression> {
             return Ok(Expression::MetricExpression(me));
         }
     }
-    let lfes = parse_label_filters(p)?;
-    me.label_filter_exprs.extend(lfes.into_iter());
+    let filters = parse_label_filters(p)?;
+    me.label_filters.extend(filters.into_iter());
     p.update_span(&mut span);
     me.span = span;
     Ok(Expression::MetricExpression(me))
@@ -47,47 +49,54 @@ pub fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expression> {
 ///
 ///		'{' [ <label_name> <match_op> <match_string>, ... ] '}'
 ///
-fn parse_label_filters(p: &mut Parser) -> ParseResult<Vec<LabelFilterExpr>> {
+fn parse_label_filters(p: &mut Parser) -> ParseResult<Vec<LabelFilter>> {
     use TokenKind::*;
     p.expect(LeftBrace)?;
-    let vec = p.parse_comma_separated(&[RightBrace], parse_label_filter_expr)?;
-    let iter = vec.into_iter().flatten().collect::<Vec<LabelFilterExpr>>();
-    Ok(iter)
+    let vec = p.parse_comma_separated(&[RightBrace], parse_label_filter)?;
+    let mut filters = vec
+        .into_iter()
+        .flatten()
+        .collect::<Vec<LabelFilter>>();
+
+    dedupe_label_filters(&mut filters);
+    Ok(filters)
 }
 
-fn parse_label_filter_expr(p: &mut Parser) -> ParseResult<Vec<LabelFilterExpr>> {
+/// parse_label_filter parses a single label matcher.
+///
+///   <label_name> <match_op> <match_string> | identifier
+///
+fn parse_label_filter(p: &mut Parser) -> ParseResult<Vec<LabelFilterExpr>> {
     use TokenKind::*;
 
     let token = p.expect_token(Ident)?;
     let label = unescape_ident(token.text);
-    // todo: if we're parsing a WITH, we can accept an ident. IOW, we can have metric{ident}
+
     let tok = p.current_token()?;
 
     if tok.kind == RightBrace {
-        if !p.is_parsing_with() {
-            return Err(unexpected(p, "label filter", "=, !=, =~ or !~", None))
-        }
         // we have something like
         // WITH (x = {foo="bar"}) metric{x}
         // label here would be 'x'
         return if let Some(wae) = p.lookup_with_expr(&label) {
-            // return
-            match &*wae.expr {
+            match &*wae.expr() {
                 Expression::MetricExpression(me) => {
                     if me.has_non_empty_metric_group() {
                         // we have something like WITH (x = cpu{foo="bar"}) metric{x}
                         // which we don't allow
                         // return Err()
+                        let msg = format!("cannot expand a selector with a metric group ({:?}) to a label filter", me);
+                        return Err(ParseError::General(msg));
                     }
 
-                    Ok(me.label_filter_exprs.clone())
+                    Ok(me.label_filters.clone())
                 }
                 _ => {
                     Err(unexpected(p, "label filter", "selector expression", None))
                 }
             }
         } else {
-            let err = format!("variable {} not found in WITH expression", label);
+            let err = format!("variable {} not found in expression", label);
             Err(ParseError::General(err))
         }
     }
@@ -106,5 +115,60 @@ fn parse_label_filter_expr(p: &mut Parser) -> ParseResult<Vec<LabelFilterExpr>> 
 
     // todo: if we're parsing a WITH, we can accept an ident. IOW, we can have metric{s=ident}
     let se = parse_string_expr(p)?;
-    Ok(vec![LabelFilterExpr::new(label, se, op)])
+    let filter = LabelFilterExpr::new(op, label, se.value)?;
+    Ok(vec![filter])
+}
+
+pub fn dedupe_label_filters(lfs: &mut Vec<LabelFilter>) {
+    let mut set: HashSet<String> = HashSet::with_capacity(lfs.len());
+    lfs.retain(|lf| {
+        let key = lf.to_string();
+        if set.contains(&key) {
+            return false;
+        }
+        set.insert(key);
+        true
+    })
+}
+
+// todo: COW
+fn resolve_metric_name<'a>(p: &Parser, name: &str) -> ParseResult<&'a str> {
+    let wa = p.lookup_with_expr(name);
+    if wa.is_none() {
+        return Ok(name);
+    }
+
+    let wa = wa.unwrap();
+    // todo: handle wa.args.len() > 0
+
+    // let e_new = expand_with_expr_ext(was, wa, None)?;
+
+    let handle_metric_expr = |me: &MetricExpr, wa: &WithExprParam| -> ParseResult<&str> {
+        if !me.is_only_metric_group() {
+            let msg = format!("cannot expand {:?} to non-metric expression {:?}", me, wa.expr());
+            return Err(ParseError::General(msg));
+        }
+        Ok(me.name().unwrap_or_default())
+    };
+
+    match &wa.expr() {
+        Expression::String(se) => {
+            return Ok(&se.value)
+        }
+        Expression::MetricExpression(me) => {
+            return Ok(handle_metric_expr(me, wa)?);
+        },
+        Expression::Rollup(e) => {
+            match e.expr.as_ref() {
+                Expression::MetricExpression(me) => {
+                    return Ok(handle_metric_expr(me, wa)?);
+                },
+                _ => {},
+            }
+        },
+        _ => {},
+    };
+
+    let msg = format!("cannot resolve {} as string parsing metric name. Found {:?}", name, wa.expr());
+    Err(ParseError::General(msg))
 }

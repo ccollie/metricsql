@@ -1,4 +1,4 @@
-use crate::ast::{WithArgExpr};
+use crate::ast::{WithArgExpr, WithExpr, WithExprParam};
 use crate::lexer::{Lexer, TextSpan, Token, TokenKind, unescape_ident};
 use crate::parser::parse_error::{InvalidTokenError, ParseError};
 use crate::parser::{ParseErr, ParseResult};
@@ -16,7 +16,8 @@ pub struct Parser<'a> {
     tokens: Vec<Token<'a>>,
     cursor: usize,
     kind: TokenKind,
-    pub(super) with_stack: Vec<Vec<WithArgExpr>>,
+    pub(super) needs_expansion: bool,
+    pub(super) with_stack: Vec<Vec<WithExprParam>>,
 }
 
 impl<'a> Parser<'a> {
@@ -34,6 +35,7 @@ impl<'a> Parser<'a> {
             cursor: 0,
             tokens,
             kind,
+            needs_expansion: false,
             with_stack: vec![],
         }
     }
@@ -254,10 +256,30 @@ impl<'a> Parser<'a> {
         !self.with_stack.is_empty()
     }
 
-    pub(super) fn lookup_with_expr(&self, name: &str) -> Option<&WithArgExpr> {
+    pub(super) fn lookup_with_expr(&self, name: &str) -> Option<&WithExprParam> {
         for frame in self.with_stack.iter().rev() {
             if let Some(expr) = frame.iter().find(|x| x.name == name) {
                 return Some(expr);
+            }
+        }
+        None
+    }
+
+    pub(super) fn resolve_value(&self, name: &str) -> Option<&WithArgExpr> {
+        if let Some(arg) = self.lookup_with_expr(name) {
+            match arg {
+                WithExprParam::Value(v) => Some(v),
+                None => None
+            }
+        }
+        None
+    }
+
+    pub(super) fn resolve_template_function(&self, name: &str) -> Option<&WithExpr> {
+        if let Some(arg) = self.lookup_with_expr(name) {
+            match arg {
+                WithExprParam::Function(v) => Some(v),
+                None => None
             }
         }
         None

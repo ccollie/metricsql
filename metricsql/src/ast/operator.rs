@@ -4,7 +4,7 @@ use std::fmt;
 use serde::{Serialize, Deserialize};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum BinaryOp {
+pub enum Operator {
     Add,
     And,
     Atan2,
@@ -21,39 +21,39 @@ pub enum BinaryOp {
     IfNot,
     Lt,
     Lte,
-    Neq,
+    NotEq,
     Or,
     Unless,
 }
 
-pub static BINARY_OPS_MAP: phf::Map<&'static str, BinaryOp> = phf_map! {
-    "+" => BinaryOp::Add,
-    "-" => BinaryOp::Sub,
-    "*" => BinaryOp::Mul,
-    "/" => BinaryOp::Div,
-    "%" => BinaryOp::Mod,
-    "^" => BinaryOp::Pow,
+pub static BINARY_OPS_MAP: phf::Map<&'static str, Operator> = phf_map! {
+    "+" => Operator::Add,
+    "-" => Operator::Sub,
+    "*" => Operator::Mul,
+    "/" => Operator::Div,
+    "%" => Operator::Mod,
+    "^" => Operator::Pow,
 
     // See https://github.com/prometheus/prometheus/pull/9248
-    "atan2" => BinaryOp::Atan2,
+    "atan2" => Operator::Atan2,
 
     // cmp ops
-    "==" => BinaryOp::Eql,
-    "!=" => BinaryOp::Neq,
-    "<" => BinaryOp::Lt,
-    ">" => BinaryOp::Gt,
-    "<=" => BinaryOp::Lte,
-    ">=" => BinaryOp::Gte,
+    "==" => Operator::Eql,
+    "!=" => Operator::NotEq,
+    "<" => Operator::Lt,
+    ">" => Operator::Gt,
+    "<=" => Operator::Lte,
+    ">=" => Operator::Gte,
 
     // logic set ops
-    "and" => BinaryOp::And,
-    "or" => BinaryOp::Or,
-    "unless" => BinaryOp::Unless,
+    "and" => Operator::And,
+    "or" => Operator::Or,
+    "unless" => Operator::Unless,
 
     // New ops for MetricsQL
-    "if" => BinaryOp::If,
-    "ifnot" => BinaryOp::IfNot,
-    "default" => BinaryOp::Default,
+    "if" => Operator::If,
+    "ifnot" => Operator::IfNot,
+    "default" => Operator::Default,
 };
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
@@ -65,10 +65,10 @@ pub enum BinaryOpKind {
 
 pub type Precedence = usize;
 
-impl BinaryOp {
+impl Operator {
     #[inline]
     pub fn precedence(self) -> Precedence {
-        use BinaryOp::*;
+        use Operator::*;
 
         match self {
             Default => 0,
@@ -76,7 +76,7 @@ impl BinaryOp {
             // See https://prometheus.io/docs/prometheus/latest/querying/operators/#binary-operator-precedence
             Or => 10,
             And | Unless => 20,
-            Eql | Gte | Gt | Lt | Lte | Neq => 30,
+            Eql | Gte | Gt | Lt | Lte | NotEq => 30,
             Add | Sub => 40,
             Mul | Div | Mod | Atan2 => 50,
             Pow => 60,
@@ -85,19 +85,19 @@ impl BinaryOp {
 
     #[inline]
     pub fn kind(self) -> BinaryOpKind {
-        use BinaryOp::*;
+        use Operator::*;
         use BinaryOpKind::*;
 
         match self {
             Add | Sub | Mul | Div | Mod | Pow | Atan2 => Arithmetic,
-            Eql | Gte | Gt | Lt | Lte | Neq => Comparison,
+            Eql | Gte | Gt | Lt | Lte | NotEq => Comparison,
             And | Unless | Or | If | IfNot | Default => Logical,
         }
     }
 
     // See https://prometheus.io/docs/prometheus/latest/querying/operators/#binary-operator-precedence
     pub fn is_right_associative(self) -> bool {
-        self == BinaryOp::Pow
+        self == Operator::Pow
     }
 
     pub fn is_logical_op(&self) -> bool {
@@ -108,12 +108,12 @@ impl BinaryOp {
         self.kind() == BinaryOpKind::Comparison
     }
 
-    pub fn get_reverse_cmp(&self) -> BinaryOp {
+    pub fn get_reverse_cmp(&self) -> Operator {
         match self {
-            BinaryOp::Gt => BinaryOp::Lt,
-            BinaryOp::Lt => BinaryOp::Gt,
-            BinaryOp::Gte => BinaryOp::Lte,
-            BinaryOp::Lte => BinaryOp::Gte,
+            Operator::Gt => Operator::Lt,
+            Operator::Lt => Operator::Gt,
+            Operator::Gte => Operator::Lte,
+            Operator::Lte => Operator::Gte,
             // there is no need in changing `==` and `!=`.
             _ => *self,
         }
@@ -121,12 +121,12 @@ impl BinaryOp {
 
     #[inline]
     pub fn is_set_operator(&self) -> bool {
-        use BinaryOp::*;
+        use Operator::*;
         matches!(self, And | Or | Unless)
     }
 
     pub fn as_str<'a>(self) -> &'a str {
-        use BinaryOp::*;
+        use Operator::*;
         match self {
             Add => "+",
             And => "and",
@@ -142,7 +142,7 @@ impl BinaryOp {
             Mul => "*",
             Lt => "<",
             Lte => "<=",
-            Neq => "!=",
+            NotEq => "!=",
             Or => "or",
             Pow => "^",
             Sub => "-",
@@ -151,7 +151,7 @@ impl BinaryOp {
     }
 }
 
-impl TryFrom<&str> for BinaryOp {
+impl TryFrom<&str> for Operator {
     type Error = ParseError;
 
     fn try_from(op: &str) -> Result<Self, Self::Error> {
@@ -167,7 +167,7 @@ impl TryFrom<&str> for BinaryOp {
     }
 }
 
-impl fmt::Display for BinaryOp {
+impl fmt::Display for Operator {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.as_str())?;
         Ok(())

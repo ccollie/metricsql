@@ -1,21 +1,10 @@
 use std::str::FromStr;
 
-use crate::ast::{
-    BExpression,
-    BinaryOp,
-    BinaryExpr,
-    DurationExpr,
-    Expression,
-    GroupModifier,
-    GroupModifierOp,
-    JoinModifier,
-    JoinModifierOp,
-    NumberExpr,
-    ReturnType,
-    StringExpr,
-    StringTokenType
-};
+use crate::ast::{BExpression, Operator, BinaryExpr, DurationExpr, Expression,
+                 GroupModifier, GroupModifierOp, JoinModifier, JoinModifierOp,
+                 NumberExpr, ReturnType, StringExpr};
 use crate::ast::Expression::BinaryOperator;
+use crate::ast::segmented_string::SegmentedString;
 use crate::functions::AggregateFunction;
 use crate::lexer::{
     extract_string_value,
@@ -137,7 +126,7 @@ pub(super) fn parse_expression(p: &mut Parser) -> ParseResult<Expression> {
             return Ok(left);
         }
 
-        let operator = BinaryOp::try_from(token.text)?;
+        let operator = Operator::try_from(token.text)?;
 
         p.bump();
 
@@ -179,7 +168,7 @@ pub(super) fn parse_expression(p: &mut Parser) -> ParseResult<Expression> {
 
 // see https://github.com/influxdata/promql/blob/eb8f592be73d3164ad7a723b9f3d6a7f565ca780/parse.go#L425
 fn balance(lhs: Expression,
-           op: BinaryOp,
+           op: Operator,
            rhs: Expression,
            group_modifier: Option<GroupModifier>,
            join_modifier: Option<JoinModifier>,
@@ -189,7 +178,7 @@ fn balance(lhs: Expression,
     fn validate_scalar_op(
         left: &Expression,
         right: &Expression,
-        op: BinaryOp,
+        op: Operator,
         returns_bool: bool,
         // todo: span
     ) -> ParseResult<()> {
@@ -271,6 +260,7 @@ fn parse_group_modifier(p: &mut Parser) -> Result<GroupModifier, ParseError> {
     };
 
     let args = p.parse_ident_list()?;
+
     Ok(GroupModifier::new(op, args))
 }
 
@@ -323,7 +313,7 @@ pub(super) fn parse_single_expr_without_rollup_suffix(p: &mut Parser) -> ParseRe
 pub(super) fn parse_positive_duration(p: &mut Parser) -> ParseResult<DurationExpr> {
     // Verify the duration in seconds without explicit suffix.
     let duration = parse_duration(p)?;
-    let val = duration.duration(1);
+    let val = duration.value(1);
     if val < 0 {
         Err(ParseError::InvalidDuration(duration.text))
     } else {
@@ -365,47 +355,48 @@ fn parse_unary_minus_expr(p: &mut Parser) -> ParseResult<Expression> {
 
     // Substitute `-expr` with `0 - expr`
     let lhs = Expression::Number(NumberExpr::new(0.0, span));
-    let mut binop_expr = BinaryExpr::new(BinaryOp::Sub, lhs, expr)?;
+    let mut binop_expr = BinaryExpr::new(Operator::Sub, lhs, expr);
     binop_expr.span = span;
     Ok(BinaryOperator(binop_expr))
 }
 
 pub(super) fn parse_string_expr(p: &mut Parser) -> ParseResult<StringExpr> {
+    let (str, span) = parse_string_expression(p)?;
+    // todo !!
+    let mut res: String = str.to_string();
+    Ok(StringExpr::new(res, span))
+}
+
+pub(super) fn parse_string_expression(p: &mut Parser) -> ParseResult<(SegmentedString, TextSpan)> {
     use TokenKind::*;
 
     let mut span: TextSpan;
     let mut tok = p.current_token()?;
-    let mut res: String = String::with_capacity(16);
-
+    let mut result = SegmentedString::default();
+    
     loop {
         span = tok.span;
 
         match tok.kind {
             StringLiteral => {
                 let str = extract_string_value(tok.text)?;
-                res.push_str(&str);
+                result.push_str(&str);
                 span = span.cover(tok.span)
             }
             Ident => {
-                // todo: if parsing WITH expr, check if we have a var of type string
                 if let Some(wa) = p.lookup_with_expr(tok.text) {
-                    match &wa.expr {
+                    match &*wa.expr() {
                         Expression::String(se) => {
-                            res.push_str(&se.value);
-                            span = span.cover(tok.span);
+                            result.push_str(&se.value);
                         },
                         _ => {
-                            // todo: we need to pass span here. Maybe just call unexpected ?
-                            let msg = format!("expected value of type string for token {}. Found {} ",
-                                              ident, wa.expr.return_type());
-                            return Err(ParseError::WithExprExpansionError(msg));
+                            result.push_ident(tok.text)
                         }
                     }
                 } else {
-                    // todo: we need to pass span here. Maybe just call unexpected ?
-                    let msg = format!("missing {} value inside StringExpr", ident);
-                    return Err(ParseError::WithExprExpansionError(msg));
+                    result.push_ident(tok.text)
                 }
+                span = span.cover(tok.span);
             }
             _ => {
                 return Err(unexpected(p, "", "string literal or identifier", None));
@@ -461,9 +452,8 @@ pub(super) fn parse_string_expr(p: &mut Parser) -> ParseResult<StringExpr> {
         // "s" + ident
         tok = p.prev_token().unwrap();
     }
-
-    // optimize if we have no idents
-    Ok(StringExpr::new(res, span))
+    
+    Ok((result, span))
 }
 
 pub(super) fn parse_parens_expr(p: &mut Parser) -> ParseResult<Expression> {
@@ -517,6 +507,7 @@ fn parse_ident_expr(p: &mut Parser) -> ParseResult<Expression> {
                 p.back();
                 return parse_metric_expr(p);
             }
+            // todo: check if we're parsing WITH
         }
     }
 

@@ -1,5 +1,5 @@
 use std::ops::Deref;
-use crate::ast::{BExpression, Expression, ExpressionNode, FuncExpr, ReturnType};
+use crate::ast::{BExpression, Expression, ExpressionNode, FuncExpr, ReturnType, WithArgExpr};
 use crate::functions::{BuiltinFunction, DataType};
 use crate::lexer::{TokenKind, unescape_ident};
 use crate::parser::{ParseError, Parser, ParseResult};
@@ -28,6 +28,40 @@ pub(super) fn parse_func_expr(p: &mut Parser) -> ParseResult<Expression> {
 
     Ok(fe.cast())
 }
+
+pub(super) fn parse_template_func_expr(p: &mut Parser) -> ParseResult<Expression> {
+    let token = p.expect_token(TokenKind::Ident)?;
+    let name = unescape_ident(token.text);
+    let mut span= token.span;
+
+    let func = p.resolve_template_function(&name);
+    if func.is_none() {
+        // todo: raise error
+    }
+
+    let func = func.unwrap();
+
+    let args = parse_arg_list(p)?;
+    
+    let frame = func.was.iter().zip(args.iter()).map(|(arg, expr)| {
+        WithArgExpr {
+            name: arg.name.clone(),
+            args: vec![],
+            expr: expr.clone(),
+            is_function: false,
+        }
+    }).collect::<Vec<WithArgExpr>>();
+
+    p.with_stack.push(frame);
+
+    let mut fe = FuncExpr::new(&name, args, span)?;
+
+    // TODO: !!!! fix validate args
+    // validate_args(&fe.function, &fe.args)?;
+
+    Ok(fe.cast())
+}
+
 
 pub(crate) fn validate_args(func: &BuiltinFunction, args: &[BExpression]) -> ParseResult<()> {
     use ReturnType::*;

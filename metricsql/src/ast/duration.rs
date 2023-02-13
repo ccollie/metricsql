@@ -47,7 +47,7 @@ impl DurationExpr {
     }
 
     /// Duration returns the duration from de in milliseconds.
-    pub fn duration(&self, step: i64) -> i64 {
+    pub fn value(&self, step: i64) -> i64 {
         if self.requires_step {
             self.value * step
         } else {

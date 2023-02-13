@@ -7,14 +7,20 @@ use std::vec::Vec;
 use crate::ast::{
     AggregateModifierOp,
     AggrFuncExpr,
-    BinaryOp,
+    Operator,
     BinaryExpr,
     Expression,
     GroupModifierOp,
     JoinModifierOp,
     LabelFilter
 };
+use crate::ast::expr_rewriter::{ExprRewriter, RewriteRecursion};
+use crate::ast::expr_visitor::{ExprVisitable, VisitorAdapter};
+use crate::parser::ParseResult;
 
+// todo: investigate
+// https://github.com/apache/arrow-datafusion/tree/master/datafusion/optimizer/src
+// https://github.com/apache/arrow-datafusion/blob/e222bd627b6e7974133364fed4600d74b4da6811/datafusion/optimizer/src/utils.rs
 /// Optimize optimizes e in order to improve its performance.
 ///
 /// It performs the following optimizations:
@@ -29,6 +35,40 @@ pub fn optimize(expr: &Expression) -> Cow<Expression> {
     } else {
         Cow::Borrowed(expr)
     }
+}
+
+pub struct PushdownFilterOptimizer {}
+
+impl ExprRewriter for PushdownFilterOptimizer {
+
+    /// Invoked before any children of `expr` are rewritten /
+    /// visited. Default implementation returns `Ok(RewriteRecursion::Continue)`
+    fn pre_visit(&mut self, expr: &Expression) -> ParseResult<RewriteRecursion> {
+        match expr {
+            Expression::Duration(_) |
+            Expression::String(_) |
+            Expression::Number(_) => Ok(RewriteRecursion::Skip),
+            _ => Ok(RewriteRecursion::Mutate)
+        }
+    }
+
+    fn mutate(&mut self, expr: Expression) -> ParseResult<Expression> {
+        todo!()
+    }
+}
+
+/// Recursively inspect an [`Expr`] and all its children.
+///
+/// Performs a pre-visit traversal by recursively calling `f(expr)` on
+/// `expr`, and then on all its children. See [`ExpressionVisitor`]
+/// for more details and more options to control the walk.
+fn can_inspect_expr_pre<F, E>(expr: &Expression, f: F) -> Result<(), E>
+    where
+        F: FnMut(&Expression) -> Result<(), E>,
+{
+    // the visit is fallible, so unwrap here
+    let adapter = expr.accept(VisitorAdapter::new(f) ).unwrap();
+    adapter.err
 }
 
 pub fn can_optimize(e: &Expression) -> bool {
@@ -103,11 +143,10 @@ pub(crate) fn get_common_label_filters(e: &Expression) -> Vec<LabelFilter> {
             }
         }
         BinaryOperator(e) => {
-
             let mut lfs_left = get_common_label_filters(&e.left);
             let mut lfs_right = get_common_label_filters(&e.right);
             match e.op {
-                BinaryOp::Or => {
+                Operator::Or => {
                     // {fCommon, f1} or {fCommon, f2} -> {fCommon}
                     // {fCommon, f1} or on() {fCommon, f2} -> {}
                     // {fCommon, f1} or on(fCommon) {fCommon, f2} -> {fCommon}
@@ -118,7 +157,7 @@ pub(crate) fn get_common_label_filters(e: &Expression) -> Vec<LabelFilter> {
                     trim_filters_by_group_modifier(&mut lfs_left, e);
                     lfs_left
                 }
-                BinaryOp::Unless => {
+                Operator::Unless => {
                     // {f1} unless {f2} -> {f1}
                     // {f1} unless on() {f2} -> {}
                     // {f1} unless on(f1) {f2} -> {f1}

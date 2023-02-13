@@ -59,7 +59,7 @@ mod tests {
 							   s, actual, expected_val )
 				},
 				_ => {
-					panic!("Expected a number expression. Got {}\nq: {}", expr.type_name(), s)
+					panic!("Expected a number expression. Got {}\nq: {}", expr.variant_name(), s)
 				}
 			}
 		}

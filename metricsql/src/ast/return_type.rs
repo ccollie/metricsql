@@ -1,8 +1,8 @@
 use std::fmt::{Display, Formatter};
-
+use serde::{Serialize, Deserialize};
 use crate::ast::Expression;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
 pub struct UnknownCause {
     /// An explanation for why this Unknown was returned
     pub message: String,
@@ -13,7 +13,7 @@ pub struct UnknownCause {
 }
 
 /// A predicted return datatype
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
 pub enum ReturnType {
     Unknown(Box<UnknownCause>),
     Scalar,
@@ -50,6 +50,12 @@ impl ReturnType {
             ReturnType::Scalar => true,
             _ => false
         }
+    }
+}
+
+impl Default for ReturnType {
+    fn default() -> Self {
+        ReturnType::InstantVector
     }
 }
 

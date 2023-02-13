@@ -60,6 +60,8 @@ fn parse_with_arg_expr(p: &mut Parser) -> ParseResult<WithArgExpr> {
     let args = if p.at(TokenKind::LeftParen) {
         is_function = true;
         // Parse func args.
+        
+        // push_stack(p)
         let args = p.parse_ident_list()?;
 
         // Make sure all the args have different names
@@ -121,11 +123,11 @@ pub(super) fn check_duplicate_with_arg_names(was: &[WithArgExpr]) -> ParseResult
     Ok(())
 }
 
-fn push_stack(p: &mut Parser) {
+pub(super) fn push_stack(p: &mut Parser) {
     p.with_stack.push(Vec::with_capacity(4));
 }
 
-fn pop_stack(p: &mut Parser) -> Vec<WithArgExpr> {
+pub(super) fn pop_stack(p: &mut Parser) -> Vec<WithArgExpr> {
     p.with_stack.pop().unwrap_or_default()
 }
 

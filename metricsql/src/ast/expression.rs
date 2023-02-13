@@ -1,8 +1,8 @@
-use std::{fmt, iter};
+use std::{fmt, iter, ops};
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash};
 use std::string::{String};
-use crate::ast::{AggrFuncExpr, BinaryExpr, ParensExpr, StringTokenType};
+use crate::ast::{AggrFuncExpr, BinaryExpr, Operator, ParensExpr};
 
 use crate::ast::duration::DurationExpr;
 use crate::ast::function::FuncExpr;
@@ -24,7 +24,7 @@ pub trait ExpressionNode {
 /// A root expression node.
 ///
 /// These are all valid root expression ast.
-#[derive(Clone, Debug, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, Hash, PartialEq, Serialize, Deserialize)]
 pub enum Expression {
     Duration(DurationExpr),
 
@@ -77,10 +77,6 @@ impl Expression {
 
     pub fn is_number(expr: &Expression) -> bool {
         matches!(expr, Expression::Number(_))
-    }
-
-    pub fn from_string_tokens<TS: Into<TextSpan>>(tokens: Vec<StringTokenType>, span: TS) -> Expression {
-        Expression::String(StringExpr::from_tokens(tokens, span))
     }
 
     pub fn vectors(&self) -> Box<dyn Iterator<Item = &LabelFilter> + '_> {
@@ -189,18 +185,18 @@ impl Expression {
         }
     }
 
-    pub fn type_name(&self) -> &str {
+    pub fn variant_name(&self) -> &str {
         match self {
-            Expression::Duration(_) => "duration",
-            Expression::Number(_) => "scalar",
-            Expression::String(_) => "string",
-            Expression::Parens(_) => "group",
-            Expression::Function(_) => "function",
-            Expression::Aggregation(_) => "aggregation",
-            Expression::BinaryOperator(_) => "operator",
-            Expression::With(_) => "with expression",
-            Expression::Rollup(_) => "rollup",
-            Expression::MetricExpression(_) => "selector"
+            Expression::Duration(_) => "Duration",
+            Expression::Number(_) => "Scalar",
+            Expression::String(_) => "String",
+            Expression::Parens(_) => "Group",
+            Expression::Function(_) => "Function",
+            Expression::Aggregation(_) => "Aggregation",
+            Expression::BinaryOperator(_) => "Operator",
+            Expression::With(_) => "With expression",
+            Expression::Rollup(_) => "Rollup",
+            Expression::MetricExpression(_) => "Selector"
         }
     }
 
@@ -231,6 +227,96 @@ impl Expression {
             Expression::Rollup(re) => re.span,
             Expression::MetricExpression(me) => me.span
         }
+    }
+
+    /// returns a scalar expression
+    pub fn scalar(value: f64) -> Expression {
+        Expression::from(value)
+    }
+
+    /// returns a string literal expression
+    pub fn string_literal(value: &str) -> Expression {
+        Expression::from(value)
+    }
+
+    /// Return `self == other`
+    pub fn eq(self, other: Expression) -> Expression {
+        binary_expr(self, Operator::Eql, other)
+    }
+
+    /// Return `self != other`
+    pub fn not_eq(self, other: Expression) -> Expression {
+        binary_expr(self, Operator::NotEq, other)
+    }
+
+    /// Return `self > other`
+    pub fn gt(self, other: Expression) -> Expression {
+        binary_expr(self, Operator::Gt, other)
+    }
+
+    /// Return `self >= other`
+    pub fn gt_eq(self, other: Expression) -> Expression {
+        binary_expr(self, Operator::Gte, other)
+    }
+
+    /// Return `self < other`
+    pub fn lt(self, other: Expression) -> Expression {
+        binary_expr(self, Operator::Lt, other)
+    }
+
+    /// Return `self <= other`
+    pub fn lt_eq(self, other: Expression) -> Expression {
+        binary_expr(self, Operator::Lte, other)
+    }
+
+    /// Return `self AND other`
+    pub fn and(self, other: Expression) -> Expression {
+        binary_expr(self, Operator::And, other)
+    }
+
+    /// Return `self OR other`
+    pub fn or(self, other: Expression) -> Expression {
+        binary_expr(self, Operator::Or, other)
+    }
+
+    /// Calculate the modulus of two expressions.
+    /// Return `self % other`
+    pub fn modulus(self, other: Expression) -> Expression {
+        binary_expr(self, Operator::Mod, other)
+    }
+
+    /// Return `self == bool NaN`
+    #[allow(clippy::wrong_self_convention)]
+    pub fn is_NaN(self) -> Expression {
+        self.eq( Expression::from(f64::NAN) )
+    }
+
+    /// Return `self != bool NaN`
+    #[allow(clippy::wrong_self_convention)]
+    pub fn is_not_NaN(self) -> Expression {
+        self.not_eq(Expression::from(f64::NAN))
+    }
+
+    /// Return `self == bool 1`
+    #[allow(clippy::wrong_self_convention)]
+    pub fn is_true(self) -> Expression {
+        self.eq( Expression::from(1.0) )
+    }
+
+    /// Return `self != BOOL 1`
+    #[allow(clippy::wrong_self_convention)]
+    pub fn is_not_true(self) -> Expression {
+        self.not_eq( Expression::from(1.0) )
+    }
+
+    /// Return `self == bool 0`
+    pub fn is_false(self) -> Expression {
+        self.eq(Expression::from(1.0))
+    }
+
+    /// Return `self != bool 0`
+    pub fn is_not_false(self) -> Expression {
+        self.not_eq(Expression::from(0.0))
     }
 }
 
@@ -318,6 +404,53 @@ impl From<Vec<Expression>> for Expression {
         Expression::Parens(ParensExpr::new(items, TextSpan::default()))
     }
 }
+
+fn binary_expr(left: Expression, op: Operator, right: Expression) -> Expression {
+    let mut expr = BinaryExpr::new(op,left, right);
+    expr.bool_modifier = op.is_comparison();
+    Expression::BinaryOperator(expr)
+}
+
+impl ops::Add for Expression {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self {
+        binary_expr(self, Operator::Add, rhs)
+    }
+}
+
+impl ops::Sub for Expression {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self {
+        binary_expr(self, Operator::Sub, rhs)
+    }
+}
+
+impl ops::Mul for Expression {
+    type Output = Self;
+
+    fn mul(self, rhs: Self) -> Self {
+        binary_expr(self, Operator::Mul, rhs)
+    }
+}
+
+impl ops::Div for Expression {
+    type Output = Self;
+
+    fn div(self, rhs: Self) -> Self {
+        binary_expr(self, Operator::Div, rhs)
+    }
+}
+
+impl ops::Rem for Expression {
+    type Output = Self;
+
+    fn rem(self, rhs: Self) -> Self {
+        binary_expr(self, Operator::Mod, rhs)
+    }
+}
+
 
 // todo: integrate checks from
 // https://github.com/prometheus/prometheus/blob/fa6e05903fd3ce52e374a6e1bf4eb98c9f1f45a7/promql/parser/parse.go#L436

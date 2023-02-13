@@ -27,7 +27,7 @@ impl DurationEvaluator {
 
 impl Evaluator for DurationEvaluator {
     fn eval(&self, _ctx: &Arc<&Context>, ec: &EvalConfig) -> RuntimeResult<AnyValue> {
-        let d = self.expr.duration(ec.step);
+        let d = self.expr.value(ec.step);
         let d_sec: f64 = (d / 1000) as f64;
         Ok(AnyValue::Scalar(d_sec))
     }

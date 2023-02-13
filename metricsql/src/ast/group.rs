@@ -8,7 +8,7 @@ use serde::{Serialize, Deserialize};
 
 // TODO: ParensExpr => GroupExpr
 /// Expression(s) explicitly grouped in parens
-#[derive(Default, Debug, Clone, Hash, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Hash, PartialEq, Serialize, Deserialize)]
 pub struct ParensExpr {
     pub expressions: Vec<BExpression>,
     pub span: TextSpan,

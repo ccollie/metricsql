@@ -1,5 +1,6 @@
 use crate::ast::Expression;
 
+// todo: use expr_visitor instead
 pub fn visit_all(e: &mut Expression, visitor: fn(&mut Expression) -> ()) {
     match e {
         Expression::BinaryOperator(be) => {

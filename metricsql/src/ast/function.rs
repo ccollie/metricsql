@@ -8,7 +8,7 @@ use crate::parser::{ParseError, ParseResult};
 use serde::{Serialize, Deserialize};
 
 /// FuncExpr represents MetricsQL function such as `rate(...)`
-#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, PartialEq, Serialize, Deserialize)]
 pub struct FuncExpr {
     pub name: String,
 

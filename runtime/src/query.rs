@@ -209,8 +209,8 @@ pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<Query
     // Safety: at this point expr has a value. We error out above in case of failure
     let expr = parsed.expr.as_ref().unwrap();
     if let Some(rollup) = get_rollup(&expr) {
-        let window = rollup.window.duration(step);
-        let offset = rollup.offset.duration(step);
+        let window = rollup.window.value(step);
+        let offset = rollup.offset.value(step);
 
         if let Some(filters) = rollup.filters {
             // metric expression without subquery
@@ -251,12 +251,12 @@ pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<Query
 
 
         // we have a rollup with a non-empty window
-        let new_step = rollup.step.duration(step);
+        let new_step = rollup.step.value(step);
         if new_step > 0 {
             step = new_step
         }
-        let window = rollup.window.duration(step);
-        let offset = rollup.offset.duration(step);
+        let window = rollup.window.value(step);
+        let offset = rollup.offset.value(step);
         start -= offset;
         end = start;
         start = end - window;

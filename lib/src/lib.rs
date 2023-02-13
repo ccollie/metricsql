@@ -39,4 +39,5 @@ pub use dedup::{ deduplicate_samples, deduplicate_samples_during_merge };
 
 #[cfg(test)]
 pub(crate) mod tests;
+mod no_hash;
 

@@ -148,3 +148,45 @@ fn accept_optional_duration<V: ExpressionVisitor>(e: &Option<DurationExpr>, visi
     }
     Ok(visitor)
 }
+
+pub(crate) struct VisitorAdapter<F, E> {
+    f: F,
+    // Store returned error as it my not be a DataFusionError
+    pub err: Result<(), E>,
+}
+
+impl<F, E> VisitorAdapter<F, E> {
+    pub fn new(f: F) -> Self{
+        Self { f, err: Ok(()) }
+    }
+}
+
+impl<F, E> ExpressionVisitor for VisitorAdapter<F, E>
+    where
+        F: FnMut(&Expression) -> Result<(), E>,
+{
+    fn pre_visit(mut self, expr: &Expression) -> ParseResult<Recursion<Self>> {
+        if let Err(e) = (self.f)(expr) {
+            // save the error for later (it may not be a DataFusionError
+            self.err = Err(e);
+            Ok(Recursion::Stop(self))
+        } else {
+            // keep going
+            Ok(Recursion::Continue(self))
+        }
+    }
+}
+
+/// Recursively inspect an [`Expr`] and all its children.
+///
+/// Performs a pre-visit traversal by recursively calling `f(expr)` on
+/// `expr`, and then on all its children. See [`ExpressionVisitor`]
+/// for more details and more options to control the walk.
+pub fn inspect_expr_pre<F, T, E>(expr: &Expression, f: F) -> Result<(), E>
+    where
+        F: FnMut(&Expression) -> Result<(), E>,
+{
+    // the visit is fallible, so unwrap here
+    let adapter = expr.accept(VisitorAdapter { f, err: Ok(()) }).unwrap();
+    adapter.err
+}

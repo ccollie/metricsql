@@ -1,8 +1,6 @@
-use crate::lexer::{escape_ident, quote, TextSpan};
-use crate::parser::{compile_regexp, ParseError, ParseResult};
-use enquote::enquote;
+use crate::lexer::{escape_ident, quote};
+use crate::parser::{compile_regexp, ParseError};
 use std::fmt;
-use crate::ast::StringExpr;
 use serde::{Serialize, Deserialize};
 
 pub const NAME_LABEL: &str = "__name__";
@@ -144,66 +142,6 @@ impl PartialEq for LabelFilter {
 impl fmt::Display for LabelFilter {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}{}{}", escape_ident(&self.label), self.op, quote(&self.value))?;
-        Ok(())
-    }
-}
-
-
-/// labelFilterExpr represents `foo <op> "bar"` expression, where <op> is `=`, `!=`, `=~` or `!~`.
-///
-/// This type isn't exported.
-#[derive(Default, Debug, Clone, Hash, Serialize, Deserialize)]
-pub(crate) struct LabelFilterExpr {
-    pub label: String,
-    pub value: StringExpr,
-    pub op: LabelFilterOp,
-    init: bool
-}
-
-impl LabelFilterExpr {
-    pub fn new<K: Into<String>>(label: K, value: StringExpr, op: LabelFilterOp) -> Self {
-        LabelFilterExpr {
-            label: label.into(),
-            value,
-            op,
-            init: true
-        }
-    }
-
-    pub fn new_tag<S: Into<String>, TS: Into<TextSpan>>(label: S, op: LabelFilterOp, value: S, span: TS) -> Self {
-        LabelFilterExpr {
-            label: label.into(),
-            value: StringExpr::new(value.into(), span.into()),
-            op,
-            init: true
-        }
-    }
-
-    pub(crate) fn is_init(&self) -> bool {
-        self.init
-    }
-
-    pub fn to_label_filter(&self) -> ParseResult<LabelFilter> {
-        if !self.is_expanded() {
-            return Err(ParseError::General(format!("BUG: value must be already expanded; got {}", self.value)))
-        }
-        LabelFilter::new(self.op, &self.label, self.value.value.to_string())
-    }
-
-    pub fn is_expanded(&self) -> bool {
-        !self.value.has_tokens()
-    }
-}
-
-impl fmt::Display for LabelFilterExpr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{}{}{}",
-            escape_ident(&self.label),
-            self.op,
-            enquote('\"', &self.value.value)
-        )?;
         Ok(())
     }
 }

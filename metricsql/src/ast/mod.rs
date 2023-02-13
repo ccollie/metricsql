@@ -2,7 +2,6 @@ mod expression;
 mod label_filter;
 mod return_type;
 mod misc;
-pub mod expr_visitor;
 
 mod duration;
 mod string;
@@ -16,6 +15,10 @@ mod operator;
 mod aggregation;
 mod group;
 pub mod utils;
+pub mod expr_visitor;
+pub mod expr_rewriter;
+pub mod segmented_string;
+pub mod label_filter_expr;
 
 pub use aggregation::*;
 pub use expression::*;

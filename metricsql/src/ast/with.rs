@@ -7,7 +7,7 @@ use crate::utils::escape_ident;
 use serde::{Serialize, Deserialize};
 
 /// WithExpr represents `with (...)` extension from MetricsQL.
-#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, PartialEq, Serialize, Deserialize)]
 pub struct WithExpr {
     pub was: Vec<WithArgExpr>,
     pub expr: BExpression,
@@ -51,7 +51,7 @@ impl ExpressionNode for WithExpr {
 }
 
 /// WithArgExpr represents a single entry from WITH expression.
-#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, PartialEq, Serialize, Deserialize)]
 pub struct WithArgExpr {
     pub name: String,
     pub args: Vec<String>,
@@ -90,5 +90,27 @@ impl Display for WithArgExpr {
         write!(f, " = ")?;
         write!(f, "{}", self.expr)?;
         Ok(())
+    }
+}
+
+pub(crate) enum WithExprParam {
+    Function(WithExpr),
+    Value(WithArgExpr)
+}
+
+impl WithExprParam {
+    pub fn function(expr: WithExpr) -> Self {
+        WithExprParam::Function(expr)
+    }
+    
+    pub fn value(arg: WithArgExpr) -> Self {
+        WithExprParam::Value(arg)
+    }
+
+    pub fn expr(&self) -> &Expression {
+        match self {
+            WithExprParam::Function(func) => &func.expr,
+            WithExprParam::Value(val) => &val.expr
+        }
     }
 }

@@ -286,6 +286,18 @@ impl MetricName {
             .and_then(|v| Some(&v.value))
     }
 
+    pub fn with_keys(&self, names: &[String]) -> Self {
+        let mut mn = MetricName::default();
+        let mut map: HashMap<&String, usize> = HashMap::with_capacity(self.tags.len());
+        todo!()
+    }
+
+    pub fn without_keys(&self, names: &[String]) -> Self {
+        let mut mn = MetricName::default();
+        let mut map: HashMap<&String, usize> = HashMap::with_capacity(self.tags.len());
+        todo!()
+    }
+
     /// remove_tags_on removes all the tags not included to onTags.
     pub fn remove_tags_on(&mut self, on_tags: &Vec<String>) {
         let set: HashSet<_> = HashSet::from_iter(on_tags);

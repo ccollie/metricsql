@@ -280,3 +280,49 @@ fn rewrite_vec<R>(v: Vec<BExpression>, rewriter: &mut R) -> ParseResult<Vec<BExp
     }
     Ok(res)
 }
+
+/// Implementation of [`ExprRewriter`] that calls a function, for use
+/// with [`rewrite_expr`]
+struct RewriterAdapter<F> {
+    f: F,
+}
+
+impl<F> ExprRewriter for RewriterAdapter<F>
+    where
+        F: FnMut(Expression) -> ParseResult<Expression>,
+{
+    fn mutate(&mut self, expr: Expression) -> ParseResult<Expression> {
+        (self.f)(expr)
+    }
+}
+
+/// Recursively rewrite an [`Expr`] via a function.
+///
+/// Rewrites the expression bottom up by recursively calling `f(expr)`
+/// on `expr`'s children and then on `expr`. See [`ExprRewriter`]
+/// for more details and more options to control the walk.
+///
+/// # Example:
+/// ```
+/// use metricsql::ast::expr_rewriter::rewrite_expr;
+/// use metricsql::ast::Expression;
+/// use metricsql::transform::expr_rewriter::rewrite_expr;
+/// let expr = col("a") + lit(1);
+///
+/// // rewrite all literals to 42
+/// let rewritten = rewrite_expr(expr, |e| {
+///   if let Expression::Number(_) = e {
+///     Ok(Expression::from(42))
+///   } else {
+///     Ok(e)
+///   }
+/// }).unwrap();
+///
+/// assert_eq!(rewritten, col("a") + lit(42));
+/// ```
+pub fn rewrite_expr<F>(expr: Expression, f: F) -> ParseResult<Expression>
+    where
+        F: FnMut(Expression) -> ParseResult<Expression>,
+{
+    expr.rewrite(&mut RewriterAdapter { f })
+}

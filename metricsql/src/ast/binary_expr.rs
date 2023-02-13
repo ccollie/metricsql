@@ -3,7 +3,7 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use crate::ast::{BExpression, Expression, ExpressionNode, NumberExpr, ReturnType};
 use crate::ast::misc::{intersection, write_labels, write_list};
-use crate::ast::operator::BinaryOp;
+use crate::ast::operator::Operator;
 use crate::lexer::TextSpan;
 use crate::parser::{ParseError, ParseResult};
 use serde::{Serialize, Deserialize};
@@ -230,10 +230,10 @@ impl Display for JoinModifier {
 }
 
 /// BinaryOpExpr represents a binary operation.
-#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, PartialEq, Serialize, Deserialize)]
 pub struct BinaryExpr {
     /// Op is the operation itself, i.e. `+`, `-`, `*`, etc.
-    pub op: BinaryOp,
+    pub op: Operator,
 
     /// bool_modifier indicates whether `bool` modifier is present.
     /// For example, `foo > bool bar`.
@@ -256,8 +256,8 @@ pub struct BinaryExpr {
 }
 
 impl BinaryExpr {
-    pub fn new(op: BinaryOp, lhs: Expression, rhs: Expression) -> ParseResult<Self> {
-        let expr = BinaryExpr {
+    pub fn new(op: Operator, lhs: Expression, rhs: Expression) -> Self {
+        BinaryExpr {
             op,
             left: Box::new(lhs),
             right: Box::new(rhs),
@@ -265,25 +265,14 @@ impl BinaryExpr {
             group_modifier: None,
             bool_modifier: false,
             span: TextSpan::default(),
-        };
-
-        // ensure we have a operands are valid for the operator
-        match expr.return_type() {
-            ReturnType::Unknown(unknown_cause) => {
-                // todo: better error variant. also include span
-                Err(ParseError::General(
-                    unknown_cause.message
-                ))
-            },
-            _ => Ok(expr)
         }
     }
 
     /// Unary minus. Substitute `-expr` with `0 - expr`
-    pub fn new_unary_minus<S: Into<TextSpan>>(e: impl ExpressionNode, span: S) -> ParseResult<Self> {
+    pub fn new_unary_minus<S: Into<TextSpan>>(e: impl ExpressionNode, span: S) -> Self {
         let expr = Expression::cast(e);
         let lhs = Expression::Number(NumberExpr::new(0.0, span));
-        BinaryExpr::new(BinaryOp::Sub, lhs, expr)
+        BinaryExpr::new(Operator::Sub, lhs, expr)
     }
 
     pub fn get_group_modifier_or_default(&self) -> (GroupModifierOp, Cow<Vec<String>>) {
@@ -347,7 +336,7 @@ impl BinaryExpr {
                 if self.op.is_comparison() {
                     return ReturnType::Scalar;
                 }
-                if self.op != BinaryOp::Add {
+                if self.op != Operator::Add {
                     return ReturnType::unknown(
                         format!("Operator {} is not valid for (String, String)", self.op),
                         self.clone().cast()

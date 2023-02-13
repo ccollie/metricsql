@@ -17,12 +17,12 @@ pub struct InstantVectorEvaluator {
 impl InstantVectorEvaluator {
     #[inline]
     fn get_offset(&self, step: i64) -> i64 {
-        self.offset.duration(step)
+        self.offset.value(step)
     }
 
     #[inline]
     fn get_window(&self, step: i64) -> i64 {
-        self.window.duration(step)
+        self.window.value(step)
     }
 
     pub(crate) fn search(&self, ctx: &Arc<&Context>, ec: &EvalConfig) -> RuntimeResult<QueryResults> {

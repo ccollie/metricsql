@@ -100,7 +100,7 @@ impl Display for AggregateModifier {
 }
 
 /// AggrFuncExpr represents aggregate function such as `sum(...) by (...)`
-#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, PartialEq, Serialize, Deserialize)]
 pub struct AggrFuncExpr {
     /// the aggregation function enum
     pub function: AggregateFunction,

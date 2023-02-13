@@ -262,7 +262,7 @@ impl RollupEvaluator {
     #[inline]
     fn get_offset(&self, step: i64) -> i64 {
         if let Some(ofs) = &self.re.offset {
-            ofs.duration(step)
+            ofs.value(step)
         } else {
             0
         }
@@ -271,7 +271,7 @@ impl RollupEvaluator {
     #[inline]
     fn get_window(&self, step: i64) -> i64 {
         if let Some(win) = &self.re.window {
-            win.duration(step)
+            win.value(step)
         } else {
             0
         }
@@ -280,7 +280,7 @@ impl RollupEvaluator {
     #[inline]
     fn get_step(&self, step: i64) -> i64 {
         if let Some(v) = &self.re.step {
-            let res = v.duration(step);
+            let res = v.value(step);
             if res == 0 {
                 step
             } else {

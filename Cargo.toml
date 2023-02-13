@@ -7,7 +7,7 @@ members = [
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [workspace.dependencies]
-chrono = "0.4.23"
+chrono = { version = "0.4.23", features=["serde"]}
 chrono-tz = "0.8.1"
 either = "1.8.1"
 enquote = "1.1.0"

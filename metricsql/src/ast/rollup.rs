@@ -5,7 +5,7 @@ use crate::ast::duration::DurationExpr;
 use crate::lexer::TextSpan;
 use serde::{Serialize, Deserialize};
 
-#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, PartialEq, Serialize, Deserialize)]
 /// RollupExpr represents an MetricsQL expression which contains at least `offset` or `[...]` part.
 pub struct RollupExpr {
     /// The expression for the rollup. Usually it is MetricExpr, but may be arbitrary expr

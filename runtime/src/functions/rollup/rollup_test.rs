@@ -12,7 +12,7 @@ mod tests {
                                                rollup_avg, rollup_changes, rollup_changes_prometheus, rollup_count,
                                                rollup_default, rollup_delta, rollup_delta_prometheus, rollup_deriv_fast,
                                                rollup_deriv_slow, rollup_distinct, rollup_first, rollup_idelta, rollup_ideriv,
-                                               rollup_integrate, rollup_lag, rollup_last, rollup_lifetime, rollup_max, rollup_min,
+                                               rollup_integrate, rollup_lag, rollup_last, rollup_lifetime, rollup_mad, rollup_max, rollup_min,
                                                rollup_mode_over_time, rollup_rate_over_sum, rollup_resets, rollup_scrape_interval,
                                                rollup_stddev, rollup_sum, rollup_zscore_over_time};
     use crate::functions::types::AnyValue;

@@ -21,6 +21,7 @@ pub mod utils {
 pub mod parser;
 pub mod functions;
 pub mod transform;
+mod hir;
 
 pub use lexer::TextSpan;
 
