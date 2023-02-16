@@ -1,55 +1,72 @@
+use crate::ast::{Expression, ExpressionNode, SegmentedString, StringSegment};
+use crate::common::ReturnType;
+use crate::parser::ParseResult;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::{Display, Formatter};
-use std::ops::Deref;
-use crate::ast::{Expression, ExpressionNode, ReturnType};
-use crate::lexer::TextSpan;
-use serde::{Serialize, Deserialize};
 
 /// StringExpr represents string expression.
 #[derive(Debug, Clone, Default, Hash, PartialEq, Serialize, Deserialize)]
-pub struct StringExpr {
-    /// contains unquoted value for string expression.
-    pub value: String,
-    pub span: TextSpan,
-}
+pub struct StringExpr(SegmentedString);
 
 impl StringExpr {
-    pub fn new<S: Into<String>, TS: Into<TextSpan>>(s: S, span: TS) -> Self {
-        StringExpr {
-            value: s.into(),
-            span: span.into()
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        self.value.len()
+    pub fn new<S: Into<String>>(s: S) -> Self {
+        StringExpr(SegmentedString::from(s.into()))
     }
 
     pub fn is_empty(&self) -> bool {
-        self.value.is_empty()
+        self.0.is_empty()
     }
 
-    #[inline]
-    pub fn value(&self) -> &str {
-        &self.value
+    pub fn clear(&mut self) {
+        self.0.clear();
+    }
+
+    pub fn push_str(&mut self, value: &str) {
+        self.0.push_str(value);
+    }
+
+    pub fn push_ident(&mut self, value: &str) {
+        self.0.push_ident(value);
     }
 
     pub fn return_type(&self) -> ReturnType {
         ReturnType::String
     }
+
+    pub fn is_resolved(&self) -> bool {
+        self.0.is_expanded()
+    }
+
+    pub fn is_literal_only(&self) -> bool {
+        self.0.is_literal_only()
+    }
+
+    pub fn resolve<F>(&self, f: F) -> ParseResult<String>
+    where
+        F: Fn(&str) -> ParseResult<&str>,
+    {
+        self.0.resolve(f)
+    }
+
+    pub fn estimate_result_capacity(&self) -> usize {
+        self.0.estimate_result_capacity()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &StringSegment> + '_ {
+        self.0.iter()
+    }
 }
 
 impl From<String> for StringExpr {
     fn from(s: String) -> Self {
-        let range = TextSpan::new(0,s.len());
-        StringExpr::new(s, range)
+        StringExpr::new(s)
     }
 }
 
 impl From<&str> for StringExpr {
     fn from(s: &str) -> Self {
-        let range = TextSpan::new(0,s.len());
-        StringExpr::new(s, range)
+        StringExpr::new(s)
     }
 }
 
@@ -61,14 +78,7 @@ impl ExpressionNode for StringExpr {
 
 impl Display for StringExpr {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{}", enquote::enquote('"', &*self.value))?;
+        write!(f, "{}", &self.0)?;
         Ok(())
-    }
-}
-
-impl Deref for StringExpr {
-    type Target = String;
-    fn deref(&self) -> &Self::Target {
-        &self.value
     }
 }

@@ -1,4 +1,4 @@
-use std::{fmt};
+use std::fmt;
 use std::fmt::{Display, Formatter};
 use thiserror::Error;
 
@@ -28,6 +28,8 @@ pub enum ParseError {
     InvalidArgCount(ArgCountError),
     #[error("Error expanding WITH expression: `{0}`")]
     WithExprExpansionError(String),
+    #[error("Syntax Error: `{0}`")]
+    SyntaxError(String),
     #[error("{0}")]
     General(String),
     #[error("Invalid regex: {0}")]
@@ -47,7 +49,7 @@ pub struct ParseErr {
     pub err: String,
     pub query: String,
     /// line_offset is an additional line offset to be added. Only used inside unit tests.
-    pub line_offset: usize
+    pub line_offset: usize,
 }
 
 impl ParseErr {
@@ -56,7 +58,7 @@ impl ParseErr {
             range: range.into(),
             err: msg.to_string(),
             query: query.to_string(),
-            line_offset: 0
+            line_offset: 0,
         }
     }
 }
@@ -95,7 +97,11 @@ pub struct InvalidTokenError {
 }
 
 impl InvalidTokenError {
-    pub fn new<S: Into<TextSpan>>(expected: &[TokenKind], found: Option<TokenKind>, range: S) -> Self {
+    pub fn new<S: Into<TextSpan>>(
+        expected: &[TokenKind],
+        found: Option<TokenKind>,
+        range: S,
+    ) -> Self {
         Self {
             expected: Vec::from(expected),
             found,
@@ -115,22 +121,12 @@ impl Display for InvalidTokenError {
             write!(f, "{} :", self.context)?;
         }
         if self.found.is_none() {
-            write!(f,"unexpected end of stream")?;
+            write!(f, "unexpected end of stream")?;
             if self.range.start > 0 {
-                write!(
-                    f,
-                    " at {}..{}",
-                    self.range.start,
-                    self.range.end,
-                )?;
+                write!(f, " at {}..{}", self.range.start, self.range.end,)?;
             }
         } else {
-            write!(
-                f,
-                "error at {}..{}",
-                self.range.start,
-                self.range.end,
-            )?;
+            write!(f, "error at {}..{}", self.range.start, self.range.end,)?;
         }
 
         write!(f, ": expected ")?;
@@ -248,8 +244,8 @@ impl Display for ArgCountError {
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Range;
     use crate::lexer::{TextSpan, TokenKind};
+    use std::ops::Range;
 
     use super::*;
 

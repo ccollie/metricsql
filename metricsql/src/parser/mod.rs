@@ -1,11 +1,10 @@
+use crate::ast::{Expression, WithArgExpr};
+use crate::parser::expr::parse_expression;
+use crate::parser::with_expr::{check_duplicate_with_arg_names, must_parse_with_arg_expr};
 use once_cell::sync::OnceCell;
 pub use parse_error::*;
 pub use parser::*;
 pub use regexp_cache::compile_regexp;
-use crate::ast::{Expression, WithArgExpr};
-use crate::parser::expr::parse_expression;
-use crate::parser::with_expr::{check_duplicate_with_arg_names, must_parse_with_arg_expr};
-use crate::transform::{expand_with_expr, simplify_expr};
 
 mod aggregation;
 mod expr;
@@ -18,15 +17,17 @@ mod with_expr;
 pub mod parse_error;
 pub mod parser;
 
-pub use selector::{parse_metric_expr, dedupe_label_filters};
+use crate::parser::expand_expr::expand_with_expr;
+pub use selector::parse_metric_expr;
 
 // tests
+mod expand_expr;
+#[cfg(test)]
+mod expand_with_test;
 #[cfg(test)]
 mod parser_example_test;
 #[cfg(test)]
 mod parser_test;
-mod expand_rewriter;
-
 
 pub fn parse(input: &str) -> ParseResult<Expression> {
     let mut parser = Parser::new(input);
@@ -35,13 +36,7 @@ pub fn parse(input: &str) -> ParseResult<Expression> {
         let msg = "unparsed data".to_string();
         return Err(ParseError::General(msg));
     }
-    if parser.needs_expansion {
-        let was = get_default_with_arg_exprs();
-        let res = expand_with_expr(&was, &expr)?;
-        simplify_expr(res)
-    } else {
-        expr
-    }
+    parser.expand_if_needed(expr)
 }
 
 /// Expands WITH expressions inside q and returns the resulting
@@ -62,20 +57,14 @@ static DEFAULT_EXPRS: [&str; 1] = [
 fn get_default_with_arg_exprs() -> &'static Vec<WithArgExpr> {
     static INSTANCE: OnceCell<Vec<WithArgExpr>> = OnceCell::new();
     INSTANCE.get_or_init(|| {
-        let was: [WithArgExpr; 1] =
-            DEFAULT_EXPRS.map(|expr| {
-                let res = must_parse_with_arg_expr(expr);
-                res.unwrap()
-            });
+        let was: [WithArgExpr; 1] = DEFAULT_EXPRS.map(|expr| {
+            let res = must_parse_with_arg_expr(expr);
+            res.unwrap()
+        });
 
-        if let Err(err) = check_duplicate_with_arg_names(&was) {
+        if let Err(err) = check_duplicate_with_arg_names(&was.to_vec()) {
             panic!("BUG: {:?}", err)
         }
         was.to_vec()
     })
 }
-
-
-
-
-

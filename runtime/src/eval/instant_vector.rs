@@ -1,17 +1,18 @@
-use std::sync::Arc;
-use metricsql::ast::{DurationExpr, LabelFilter, MetricExpr};
-use metricsql::functions::DataType;
-use crate::{Context, EvalConfig, QueryResults, RuntimeResult, SearchQuery, Timeseries};
-use crate::eval::{Evaluator};
+use crate::eval::Evaluator;
 use crate::functions::types::AnyValue;
 use crate::search::join_tag_filter_list;
+use crate::{Context, EvalConfig, QueryResults, RuntimeResult, SearchQuery, Timeseries};
+use metricsql::ast::{DurationExpr, MetricExpr};
+use metricsql::common::LabelFilter;
+use metricsql::functions::DataType;
+use std::sync::Arc;
 
 /// An evaluator for a selector NOT containing a subquery or rollup
 pub struct InstantVectorEvaluator {
     pub(crate) expr: MetricExpr,
     window: DurationExpr,
     offset: DurationExpr,
-    tfs: Vec<Vec<LabelFilter>>
+    tfs: Vec<Vec<LabelFilter>>,
 }
 
 impl InstantVectorEvaluator {
@@ -25,14 +26,17 @@ impl InstantVectorEvaluator {
         self.window.value(step)
     }
 
-    pub(crate) fn search(&self, ctx: &Arc<&Context>, ec: &EvalConfig) -> RuntimeResult<QueryResults> {
+    pub(crate) fn search(
+        &self,
+        ctx: &Arc<&Context>,
+        ec: &EvalConfig,
+    ) -> RuntimeResult<QueryResults> {
         let tfss = join_tag_filter_list(&self.tfs, &ec.enforced_tag_filters);
         let filters = tfss.to_vec();
         let sq = SearchQuery::new(ec.start, ec.end, filters, ec.max_series);
         ctx.process_search_query(&sq, &ec.deadline)
     }
 }
-
 
 impl Evaluator for InstantVectorEvaluator {
     fn eval(&self, ctx: &Arc<&Context>, ec: &EvalConfig) -> RuntimeResult<AnyValue> {
@@ -45,7 +49,7 @@ impl Evaluator for InstantVectorEvaluator {
                 let ts = Timeseries {
                     metric_name: std::mem::take(&mut res.metric_name),
                     values: std::mem::take(&mut res.values),
-                    timestamps: Arc::new(timestamps)
+                    timestamps: Arc::new(timestamps),
                 };
                 result.push(ts);
             }

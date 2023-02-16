@@ -1,14 +1,14 @@
-use std::sync::{Arc};
-use chrono::{Duration};
-use tracing::{Level, span_enabled};
+use chrono::Duration;
+use std::sync::Arc;
+use tracing::{span_enabled, Level};
 
 use crate::active_queries::ActiveQueries;
 use crate::cache::rollup_result_cache::RollupResultCache;
-use crate::{ActiveQueryEntry, MetricDataProvider, NullMetricDataProvider, ParseCacheResult};
 use crate::parser_cache::{ParseCache, ParseCacheValue};
 use crate::query_stats::query_stats::QueryStatsTracker;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::search::{Deadline, QueryResults, SearchQuery};
+use crate::{ActiveQueryEntry, MetricDataProvider, NullMetricDataProvider, ParseCacheResult};
 
 const DEFAULT_MAX_QUERY_LEN: usize = 16 * 1024;
 const DEFAULT_MAX_UNIQUE_TIMESERIES: usize = 1000;
@@ -29,7 +29,11 @@ impl Context {
         Self::default()
     }
 
-    pub fn process_search_query(&self, sq: &SearchQuery, deadline: &Deadline) -> RuntimeResult<QueryResults> {
+    pub fn process_search_query(
+        &self,
+        sq: &SearchQuery,
+        deadline: &Deadline,
+    ) -> RuntimeResult<QueryResults> {
         // todo: trace
         self.metric_data_provider.search(sq, deadline)
     }
@@ -38,9 +42,9 @@ impl Context {
     pub fn parse_promql(&self, q: &str) -> RuntimeResult<(Arc<ParseCacheValue>, ParseCacheResult)> {
         let (res, cached) = self.parse_cache.parse(q);
         if let Some(err) = &res.err {
-            return Err(RuntimeError::ParseError(err.clone()))
+            return Err(RuntimeError::ParseError(err.clone()));
         }
-        return Ok((res, cached))
+        return Ok((res, cached));
     }
 
     #[inline]
@@ -70,7 +74,6 @@ impl Default for Context {
         }
     }
 }
-
 
 pub struct SessionState {
     pub config: SessionConfig,
@@ -149,7 +152,7 @@ pub struct SessionConfig {
     pub max_step_for_points_adjustment: Duration,
 
     /// The maximum duration for query execution (default 30 secs)
-    pub max_query_duration: Duration
+    pub max_query_duration: Duration,
 }
 
 impl SessionConfig {
@@ -191,7 +194,7 @@ impl Default for SessionConfig {
             max_lookback: Duration::milliseconds(0),
             set_lookback_to_step: false,
             max_step_for_points_adjustment: Duration::minutes(1),
-            max_query_duration: Duration::seconds(30)
+            max_query_duration: Duration::seconds(30),
         }
     }
 }

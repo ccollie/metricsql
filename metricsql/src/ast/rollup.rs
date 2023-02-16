@@ -1,9 +1,9 @@
+use crate::ast::duration::DurationExpr;
+use crate::ast::{BExpression, Expression, ExpressionNode};
+use crate::common::ReturnType;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::{Display, Formatter};
-use crate::ast::{BExpression, Expression, ExpressionNode, ReturnType};
-use crate::ast::duration::DurationExpr;
-use crate::lexer::TextSpan;
-use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Clone, Hash, PartialEq, Serialize, Deserialize)]
 /// RollupExpr represents an MetricsQL expression which contains at least `offset` or `[...]` part.
@@ -37,13 +37,10 @@ pub struct RollupExpr {
     /// For example, `foo @ end()` or `bar[5m] @ 12345`
     /// See https://prometheus.io/docs/prometheus/latest/querying/basics/#modifier
     pub at: Option<BExpression>,
-
-    pub span: TextSpan,
 }
 
 impl RollupExpr {
     pub fn new(expr: Expression) -> Self {
-        let span = expr.span();
         RollupExpr {
             expr: Box::new(expr),
             window: None,
@@ -51,7 +48,6 @@ impl RollupExpr {
             step: None,
             inherit_step: false,
             at: None,
-            span,
         }
     }
 
@@ -87,8 +83,8 @@ impl RollupExpr {
             // range + subquery is not allowed (however this is syntactically invalid)
             (true, true) => ReturnType::unknown(
                 "range and subquery are not allowed together in a rollup expression",
-                self.clone().cast()
-            )
+                self.to_string(),
+            ),
         };
 
         kind
@@ -97,7 +93,7 @@ impl RollupExpr {
     pub fn wraps_metric_expr(&self) -> bool {
         match *self.expr {
             Expression::MetricExpression(_) => true,
-            _ => false
+            _ => false,
         }
     }
 }

@@ -18,13 +18,13 @@
 //! Signature module contains foundational types that are used to represent signatures, types,
 //! and return types of functions in metrix.
 use std::borrow::{Borrow, Cow};
-use std::hash::{Hash};
+use std::hash::Hash;
 use std::str::FromStr;
 
 use clone_dyn::clone_dyn;
 
+use crate::eval::eval_number;
 use metricsql::functions::DataType;
-use crate::eval::{eval_number};
 
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::{EvalConfig, Timeseries};
@@ -37,7 +37,6 @@ pub enum AnyValue {
 }
 
 impl AnyValue {
-
     pub fn nan() -> Self {
         AnyValue::Scalar(f64::NAN)
     }
@@ -45,7 +44,7 @@ impl AnyValue {
     pub fn is_numeric(&self) -> bool {
         match self {
             AnyValue::Scalar(_) => true,
-            _ => false
+            _ => false,
         }
     }
 
@@ -54,7 +53,7 @@ impl AnyValue {
             AnyValue::RangeVector(_) => DataType::RangeVector,
             AnyValue::Scalar(_) => DataType::Scalar,
             AnyValue::String(_) => DataType::String,
-            AnyValue::InstantVector(_) => DataType::InstantVector
+            AnyValue::InstantVector(_) => DataType::InstantVector,
         }
     }
 
@@ -63,14 +62,14 @@ impl AnyValue {
             AnyValue::RangeVector(_) => "RangeVector",
             AnyValue::Scalar(_) => "Scalar",
             AnyValue::String(_) => "String",
-            AnyValue::InstantVector(_) => "InstantVector"
+            AnyValue::InstantVector(_) => "InstantVector",
         }
     }
 
     pub fn get_matrix(&self) -> &Vec<Timeseries> {
         match self {
             AnyValue::RangeVector(val) => val,
-            _ => panic!("BUG: range selection value expected ")
+            _ => panic!("BUG: range selection value expected "),
         }
     }
 
@@ -81,14 +80,15 @@ impl AnyValue {
                 let ts = get_single_timeseries(series)?;
                 if ts.values.len() != 1 {
                     let msg = format!("expected a vector of size 1; got {}", ts.values.len());
-                    return Err(RuntimeError::ArgumentError(msg))
+                    return Err(RuntimeError::ArgumentError(msg));
                 }
                 Ok(ts.values[0])
-            },
+            }
             _ => {
-                return Err(RuntimeError::TypeCastError(
-                    format!("{} cannot be converted to a scalar", self.data_type())
-                ))
+                return Err(RuntimeError::TypeCastError(format!(
+                    "{} cannot be converted to a scalar",
+                    self.data_type()
+                )))
             }
         }
     }
@@ -96,12 +96,10 @@ impl AnyValue {
     pub fn get_int(&self) -> RuntimeResult<i64> {
         match self {
             AnyValue::Scalar(val) => Ok(*val as i64),
-            _=> {
-                match self.get_scalar() {
-                    Ok(val) => Ok(val as i64),
-                    Err(e) => Err(e)
-                }
-            }
+            _ => match self.get_scalar() {
+                Ok(val) => Ok(val as i64),
+                Err(e) => Err(e),
+            },
         }
     }
 
@@ -110,28 +108,29 @@ impl AnyValue {
             AnyValue::InstantVector(val) => {
                 // TODO: into
                 Ok(val.clone())
-            }, // ????
+            } // ????
             AnyValue::RangeVector(val) => {
                 // TODO: into
                 Ok(val.clone())
-            }, // ????
-            _ => Err(RuntimeError::InvalidNumber("vector parameter expected ".to_string()))
+            } // ????
+            _ => Err(RuntimeError::InvalidNumber(
+                "vector parameter expected ".to_string(),
+            )),
         }
     }
-
 
     // todo: get_series_into()
     pub fn get_instant_vector(&self) -> RuntimeResult<Vec<Timeseries>> {
         match self {
             AnyValue::InstantVector(val) => Ok(val.clone()), // ????
-            _ => panic!("BUG: invalid series parameter")
+            _ => panic!("BUG: invalid series parameter"),
         }
     }
 
     pub fn get_range_vector(&self) -> RuntimeResult<Vec<Timeseries>> {
         match self {
             AnyValue::RangeVector(val) => Ok(val.clone()), // ????
-            _ => panic!("BUG: invalid series parameter")
+            _ => panic!("BUG: invalid series parameter"),
         }
     }
 
@@ -141,16 +140,14 @@ impl AnyValue {
             AnyValue::Scalar(n) => Ok(eval_number(ec, n)),
             _ => {
                 let msg = format!("cannot cast {} to an instant vector", self.data_type());
-                return Err(RuntimeError::TypeCastError(msg))
+                return Err(RuntimeError::TypeCastError(msg));
             }
         }
     }
 
     pub fn get_string(&self) -> RuntimeResult<String> {
         match self {
-            AnyValue::String(s) => {
-                Ok(s.to_string())
-            }
+            AnyValue::String(s) => Ok(s.to_string()),
             AnyValue::InstantVector(series) => {
                 let ts = get_single_timeseries(series)?;
                 if ts.values.len() > 0 {
@@ -166,7 +163,7 @@ impl AnyValue {
             }
             _ => {
                 let msg = format!("cannot cast {} to a string", self.data_type());
-                return Err(RuntimeError::TypeCastError(msg))
+                return Err(RuntimeError::TypeCastError(msg));
             }
         }
     }
@@ -174,14 +171,10 @@ impl AnyValue {
     pub fn as_instant_vec(&self, ec: &EvalConfig) -> RuntimeResult<Cow<Vec<Timeseries>>> {
         match self {
             AnyValue::InstantVector(v) => Ok(Cow::Borrowed(v)),
-            AnyValue::Scalar(n) => {
-                Ok(
-                    Cow::Owned(eval_number(ec, *n))
-                )
-            },
+            AnyValue::Scalar(n) => Ok(Cow::Owned(eval_number(ec, *n))),
             _ => {
                 let msg = format!("cannot cast {} to an instant vector", self.data_type());
-                return Err(RuntimeError::TypeCastError(msg))
+                return Err(RuntimeError::TypeCastError(msg));
             }
         }
     }
@@ -191,7 +184,7 @@ impl AnyValue {
             AnyValue::InstantVector(val) => val.is_empty(), // ????
             AnyValue::RangeVector(val) => val.is_empty(),
             AnyValue::String(v) => v.is_empty(),
-            _ => false
+            _ => false,
         }
     }
 
@@ -235,14 +228,10 @@ impl From<Vec<Timeseries>> for AnyValue {
 impl Clone for AnyValue {
     fn clone(&self) -> Self {
         match self {
-            AnyValue::RangeVector(m) => {
-                AnyValue::RangeVector(m.clone())
-            }
-            AnyValue::InstantVector(series) => {
-                AnyValue::InstantVector(series.clone())
-            }
+            AnyValue::RangeVector(m) => AnyValue::RangeVector(m.clone()),
+            AnyValue::InstantVector(series) => AnyValue::InstantVector(series.clone()),
             AnyValue::Scalar(f) => AnyValue::Scalar(*f),
-            AnyValue::String(s) => { AnyValue::String(s.clone()) }
+            AnyValue::String(s) => AnyValue::String(s.clone()),
         }
     }
 }
@@ -254,75 +243,86 @@ fn get_single_timeseries(series: &Vec<Timeseries>) -> RuntimeResult<&Timeseries>
             "arg must contain a single timeseries; got {} timeseries",
             series.len()
         );
-        return Err(RuntimeError::TypeCastError(msg))
+        return Err(RuntimeError::TypeCastError(msg));
     }
     Ok(&series[0])
 }
 
-pub fn get_scalar_param_value(param: &AnyValue, func_name: &str, param_name: &str) -> RuntimeResult<f64> {
+pub fn get_scalar_param_value(
+    param: &AnyValue,
+    func_name: &str,
+    param_name: &str,
+) -> RuntimeResult<f64> {
     match param {
         AnyValue::Scalar(val) => Ok(*val),
         _ => {
             let msg = format!(
                 "expected scalar arg for parameter \"{}\" of function {}; Got {}",
-                param_name, func_name, param.data_type_name()
+                param_name,
+                func_name,
+                param.data_type_name()
             );
-            return Err(RuntimeError::TypeCastError(msg))
+            return Err(RuntimeError::TypeCastError(msg));
         }
     }
 }
 
 #[inline]
-pub fn get_string_param_value(param: &AnyValue, func_name: &str, param_name: &str) -> RuntimeResult<String> {
+pub fn get_string_param_value(
+    param: &AnyValue,
+    func_name: &str,
+    param_name: &str,
+) -> RuntimeResult<String> {
     match param {
         AnyValue::String(val) => Ok(val.clone()),
         _ => {
             let msg = format!(
                 "expected string arg for parameter \"{}\" of function {}; Got {}",
-                param_name, func_name, param.data_type_name()
+                param_name,
+                func_name,
+                param.data_type_name()
             );
-            return Err(RuntimeError::TypeCastError(msg))
+            return Err(RuntimeError::TypeCastError(msg));
         }
     }
 }
 
 #[clone_dyn]
 pub trait FunctionImplementation<P: ?Sized, R>: Fn(&mut P) -> R
-    where
-        P: Send + Sync,
+where
+    P: Send + Sync,
 {
 }
 
 impl<T, P: ?Sized, R> FunctionImplementation<P, R> for T
-    where
-        T: Fn(&mut P) -> R + 'static,
-        P: Send + Sync,
+where
+    T: Fn(&mut P) -> R + 'static,
+    P: Send + Sync,
 {
 }
 
-
 pub trait FunctionRegistry<K, P: ?Sized, R>
-    where
-        K: Eq + Hash,
+where
+    K: Eq + Hash,
 {
-    fn into_vec(self) -> Vec<(K, Box<dyn FunctionImplementation<P, R, Output=R>>)>;
+    fn into_vec(self) -> Vec<(K, Box<dyn FunctionImplementation<P, R, Output = R>>)>;
 
     fn remove<Q: ?Sized>(&mut self, key: &Q)
-        where
-            K: Borrow<Q>,
-            Q: Eq + Hash;
+    where
+        K: Borrow<Q>,
+        Q: Eq + Hash;
 
-    fn insert(&mut self, key: K, item: Box<dyn FunctionImplementation<P, R, Output=R>>);
+    fn insert(&mut self, key: K, item: Box<dyn FunctionImplementation<P, R, Output = R>>);
 
     fn contains_key<Q: ?Sized>(&self, key: &Q) -> bool
-        where
-            K: Borrow<Q>,
-            Q: Eq + Hash;
+    where
+        K: Borrow<Q>,
+        Q: Eq + Hash;
 
-    fn get<Q: ?Sized>(&self, key: &Q) -> Option<&Box<dyn FunctionImplementation<P, R, Output=R>>>
-        where
-            K: Borrow<Q>,
-            Q: Eq + Hash;
+    fn get<Q: ?Sized>(&self, key: &Q) -> Option<&Box<dyn FunctionImplementation<P, R, Output = R>>>
+    where
+        K: Borrow<Q>,
+        Q: Eq + Hash;
 
     fn len(&self) -> usize;
 }

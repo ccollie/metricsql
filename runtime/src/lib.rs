@@ -31,24 +31,24 @@ mod histogram;
 mod parser_cache;
 mod prometheus;
 mod query;
-mod search;
 mod query_stats;
 mod runtime_error;
-mod utils;
+mod search;
 mod types;
+mod utils;
 
 pub use active_queries::*;
 pub use cache::*;
-pub use eval::{EvalConfig, get_timestamps};
-pub use exec::*;
-pub use prometheus::*;
-pub use types::*;
 pub use context::*;
+pub use eval::{get_timestamps, EvalConfig};
+pub use exec::*;
 pub use parser_cache::*;
-pub use runtime_error::*;
-pub use search::*;
+pub use prometheus::*;
 pub use query::*;
 pub use query_stats::*;
+pub use runtime_error::*;
+pub use search::*;
+pub use types::*;
 
 #[cfg(test)]
 pub use tests::utils::*;

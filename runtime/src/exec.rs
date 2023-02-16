@@ -1,25 +1,28 @@
 use std::collections::HashSet;
 use std::ops::Deref;
-use std::sync::Arc;
 use std::string::String;
+use std::sync::Arc;
 
 use chrono::Utc;
-use tracing::{field, trace_span, Span, info};
+use tracing::{field, info, trace_span, Span};
 
-use lib::{round_to_decimal_digits};
-use metricsql::ast::Expression;
+use lib::round_to_decimal_digits;
+use metricsql::hir::Expression;
 
 use crate::context::Context;
 use crate::eval::{EvalConfig, Evaluator};
 use crate::functions::types::AnyValue;
-use crate::ParseCacheResult;
 use crate::parser_cache::ParseCacheValue;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::search::QueryResult;
 use crate::types::Timeseries;
+use crate::ParseCacheResult;
 
-pub(crate) fn parse_promql_internal(context: &Context, query: &str) -> RuntimeResult<Arc<ParseCacheValue>> {
-    let span = trace_span!("parse", cached = field::Empty ).entered();
+pub(crate) fn parse_promql_internal(
+    context: &Context,
+    query: &str,
+) -> RuntimeResult<Arc<ParseCacheValue>> {
+    let span = trace_span!("parse", cached = field::Empty).entered();
     let (parsed, cached) = context.parse_promql(query)?;
     span.record("cached", cached == ParseCacheResult::CacheHit);
     Ok(parsed)
@@ -28,8 +31,8 @@ pub(crate) fn parse_promql_internal(context: &Context, query: &str) -> RuntimeRe
 pub(crate) fn exec_internal(
     context: &Context,
     ec: &mut EvalConfig,
-    q: &str) -> RuntimeResult<(AnyValue, Arc<ParseCacheValue>)> {
-
+    q: &str,
+) -> RuntimeResult<(AnyValue, Arc<ParseCacheValue>)> {
     let start_time = Utc::now();
     if context.stats_enabled() {
         defer! {
@@ -43,18 +46,18 @@ pub(crate) fn exec_internal(
 
     match (&parsed.evaluator, &parsed.has_subquery) {
         (Some(evaluator), has_subquery) => {
-
             if *has_subquery {
                 ec.ensure_timestamps()?;
             }
 
             let ctx = Arc::new(context);
-            let qid = context.active_queries.register(ec, q, Some(start_time.timestamp()));
+            let qid = context
+                .active_queries
+                .register(ec, q, Some(start_time.timestamp()));
 
             defer! {
                 context.active_queries.remove(qid);
             }
-
 
             let is_tracing = ctx.trace_enabled();
 
@@ -62,7 +65,8 @@ pub(crate) fn exec_internal(
                 let mut query = q.to_string();
                 query.truncate(300);
 
-                trace_span!("eval",
+                trace_span!(
+                    "eval",
                     query,
                     may_cache = ec.may_cache(),
                     start = ec.start,
@@ -73,7 +77,8 @@ pub(crate) fn exec_internal(
                 )
             } else {
                 Span::none()
-            }.entered();
+            }
+            .entered();
 
             let rv = evaluator.eval(&ctx, ec)?;
 
@@ -81,15 +86,14 @@ pub(crate) fn exec_internal(
                 let ts_count: usize;
                 let series_count: usize;
                 match &rv {
-                    AnyValue::RangeVector(iv) |
-                    AnyValue::InstantVector(iv) => {
+                    AnyValue::RangeVector(iv) | AnyValue::InstantVector(iv) => {
                         series_count = iv.len();
                         if series_count > 0 {
                             ts_count = iv[0].timestamps.len();
                         } else {
                             ts_count = 0;
                         }
-                    },
+                    }
                     _ => {
                         ts_count = ec.timestamps().len();
                         series_count = 1;
@@ -107,28 +111,21 @@ pub(crate) fn exec_internal(
             }
 
             Ok((rv, Arc::clone(&parsed)))
-        },
+        }
         _ => {
             panic!("Bug: Invalid parse state")
         }
     }
 }
 
-#[inline]
-fn value_len(val: &AnyValue) -> usize {
-    match val {
-        AnyValue::RangeVector(v) => v.len(),
-        AnyValue::InstantVector(v) => v.len(),
-        _ => 1
-    }
-}
 
 /// executes q for the given config.
-pub fn exec(context: &Context,
-            ec: &mut EvalConfig,
-            q: &str,
-            is_first_point_only: bool) -> RuntimeResult<Vec<QueryResult>> {
-
+pub fn exec(
+    context: &Context,
+    ec: &mut EvalConfig,
+    q: &str,
+    is_first_point_only: bool,
+) -> RuntimeResult<Vec<QueryResult>> {
     let (rv, parsed) = exec_internal(context, ec, q)?;
 
     let mut rv = rv.into_instant_vector(ec)?;
@@ -177,17 +174,16 @@ fn truncate(s: &str, max_chars: usize) -> &str {
 
 fn may_sort_results(e: &Expression, _tss: &[Timeseries]) -> bool {
     return match e {
-        Expression::Function(fe) => {
-            !fe.function.sorts_results()
-        },
-        Expression::Aggregation(ae) => {
-            !ae.function.sorts_results()
-        },
-        _ => true
-    }
+        Expression::Function(fe) => !fe.function.sorts_results(),
+        Expression::Aggregation(ae) => !ae.function.sorts_results(),
+        _ => true,
+    };
 }
 
-pub(crate) fn timeseries_to_result(tss: &mut [Timeseries], may_sort: bool) -> RuntimeResult<Vec<QueryResult>> {
+pub(crate) fn timeseries_to_result(
+    tss: &mut [Timeseries],
+    may_sort: bool,
+) -> RuntimeResult<Vec<QueryResult>> {
     let mut result: Vec<QueryResult> = Vec::with_capacity(tss.len());
     let mut m: HashSet<String> = HashSet::with_capacity(tss.len());
 
@@ -201,25 +197,26 @@ pub(crate) fn timeseries_to_result(tss: &mut [Timeseries], may_sort: bool) -> Ru
         let key = ts.metric_name.to_string();
 
         if m.contains(&key) {
-            return Err(RuntimeError::from(format!("duplicate output timeseries: {}", ts.metric_name)));
+            return Err(RuntimeError::from(format!(
+                "duplicate output timeseries: {}",
+                ts.metric_name
+            )));
         }
         m.insert(key);
         let res = QueryResult {
-            metric_name: ts.metric_name.clone(),  // todo(perf) into vs clone/take
-            values: ts.values.clone(), // todo(perf) .into vs clone/take
-            timestamps: timestamps.clone(), // todo: declare field as Rc<Vec<i64>>
+            metric_name: ts.metric_name.clone(), // todo(perf) into vs clone/take
+            values: ts.values.clone(),           // todo(perf) .into vs clone/take
+            timestamps: timestamps.clone(),      // todo: declare field as Rc<Vec<i64>>
             rows_processed: 0,
             worker_id: 0,
-            last_reset_time: 0
+            last_reset_time: 0,
         };
 
         result.push(res);
     }
 
     if may_sort {
-        result.sort_by(|a, b| {
-            a.metric_name.partial_cmp(&b.metric_name).unwrap()
-        })
+        result.sort_by(|a, b| a.metric_name.partial_cmp(&b.metric_name).unwrap())
     }
 
     Ok(result)
@@ -227,7 +224,5 @@ pub(crate) fn timeseries_to_result(tss: &mut [Timeseries], may_sort: bool) -> Ru
 
 #[inline]
 pub(super) fn remove_empty_series(tss: &mut Vec<Timeseries>) {
-    tss.retain(|ts| {
-        !ts.values.iter().all(|v| v.is_nan())
-    });
+    tss.retain(|ts| !ts.values.iter().all(|v| v.is_nan()));
 }

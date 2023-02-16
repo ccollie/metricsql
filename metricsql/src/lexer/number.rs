@@ -1,6 +1,5 @@
-use crate::parser::{ParseError, ParseResult};
 use crate::parser::ParseError::InvalidNumber;
-
+use crate::parser::{ParseError, ParseResult};
 
 fn from_str_radix(str: &str, radix: u32) -> Result<f64, ParseError> {
     match u64::from_str_radix(str, radix) {
@@ -17,13 +16,11 @@ fn parse_basic(str: &str) -> ParseResult<f64> {
         multiplier = *mult;
     }
     match str.parse::<f64>() {
-        Ok(value) => {
-            Ok(if multiplier > 1 {
-               value * multiplier as f64
-            } else {
-                value
-            })
-        },
+        Ok(value) => Ok(if multiplier > 1 {
+            value * multiplier as f64
+        } else {
+            value
+        }),
         Err(_) => Err(InvalidNumber(str.to_string())),
     }
 }
@@ -36,20 +33,26 @@ pub fn parse_positive_number(str: &str) -> ParseResult<f64> {
         'i' | 'I' => {
             // perf: avoid allocation by exhaustive check of casing permutations instead of
             // first converting case
-            if matches!(str, "inf" | "Inf" | "iNf" | "inF" | "INf" | "InF" | "iNF" | "INF") {
+            if matches!(
+                str,
+                "inf" | "Inf" | "iNf" | "inF" | "INf" | "InF" | "iNF" | "INF"
+            ) {
                 return Ok(f64::INFINITY);
             }
         }
         'n' | 'N' => {
             // perf: avoid allocation by exhaustive check of casing permutations instead of
             // first converting case
-            if matches!(str, "nan" | "Nan" | "nAn" | "naN" | "NAn" | "NaN" | "nAN" | "NAN") {
+            if matches!(
+                str,
+                "nan" | "Nan" | "nAn" | "naN" | "NAn" | "NaN" | "nAN" | "NAN"
+            ) {
                 return Ok(f64::NAN);
             }
-        },
+        }
         '0' => {
             if str.len() == 1 {
-                return Ok(0_f64)
+                return Ok(0_f64);
             }
             let rest = &str[1..];
             let ch = rest.chars().next().unwrap();
@@ -61,17 +64,17 @@ pub fn parse_positive_number(str: &str) -> ParseResult<f64> {
                 _ => {
                     if ch.is_numeric() {
                         // try and match Go style octal
-                        return from_str_radix(rest, 8)
+                        return from_str_radix(rest, 8);
                     }
                     // punt to std lib num parsing
                     parse_basic(str)
-                },
-            }
+                }
+            };
         }
-        _ => return parse_basic(str)
+        _ => return parse_basic(str),
     }
 
-    return Err(InvalidNumber(str.to_string()))
+    return Err(InvalidNumber(str.to_string()));
 }
 
 pub fn parse_number(str: &str) -> Result<f64, ParseError> {
@@ -90,40 +93,37 @@ pub fn parse_number(str: &str) -> Result<f64, ParseError> {
         };
     }
 
-    parse_positive_number(str)
-        .and_then(|value| Ok(if is_negative { -1.0 * value } else { value }))
+    parse_positive_number(str).and_then(|value| Ok(if is_negative { -1.0 * value } else { value }))
 }
 
 type SuffixValue = (&'static str, usize);
 const SUFFIXES: [SuffixValue; 16] = [
     ("kib", 1024),
-    ("ki",  1024),
-    ("kb",  1000),
-    ("k",   1000),
+    ("ki", 1024),
+    ("kb", 1000),
+    ("k", 1000),
     ("mib", 1024 * 1024),
-    ("mi",  1024 * 1024),
-    ("mb",  1000 * 1000),
-    ("m",   1000 * 1000),
+    ("mi", 1024 * 1024),
+    ("mb", 1000 * 1000),
+    ("m", 1000 * 1000),
     ("gib", 1024 * 1024 * 1024),
-    ("gi",  1024 * 1024 * 1024),
-    ("gb",  1000 * 1000 * 1000),
-    ("g",   1000 * 1000 * 1000),
+    ("gi", 1024 * 1024 * 1024),
+    ("gb", 1000 * 1000 * 1000),
+    ("g", 1000 * 1000 * 1000),
     ("tib", 1024 * 1024 * 1024 * 1024),
-    ("ti",  1024 * 1024 * 1024 * 1024),
-    ("tb",  1000 * 1000 * 1000 * 1000),
-    ("t",   1000 * 1000 * 1000 * 1000)
+    ("ti", 1024 * 1024 * 1024 * 1024),
+    ("tb", 1000 * 1000 * 1000 * 1000),
+    ("t", 1000 * 1000 * 1000 * 1000),
 ];
 
 pub fn get_number_suffix(s: &str) -> Option<&'static SuffixValue> {
     if s.len() == 0 {
-        return None
+        return None;
     }
     let last_ch = s.chars().last().unwrap();
     if last_ch.is_alphabetic() {
         let lower = s.to_ascii_lowercase();
-        SUFFIXES.iter().find(|x| {
-            lower.ends_with(x.0)
-        })
+        SUFFIXES.iter().find(|x| lower.ends_with(x.0))
     } else {
         None
     }
@@ -131,13 +131,16 @@ pub fn get_number_suffix(s: &str) -> Option<&'static SuffixValue> {
 
 #[cfg(test)]
 mod tests {
-    use crate::lexer::number::{parse_positive_number};
+    use crate::lexer::number::parse_positive_number;
 
     fn expect_failure(s: &str) {
         match parse_positive_number(s) {
             Err(..) => {}
             Ok(ns) => {
-                panic!("expecting error in parse_positive_number({}); got result {}", s, ns)
+                panic!(
+                    "expecting error in parse_positive_number({}); got result {}",
+                    s, ns
+                )
             }
         }
     }
@@ -147,12 +150,19 @@ mod tests {
         fn f(s: &str, expected: f64) {
             let v = parse_positive_number(s).unwrap();
             if v.is_nan() {
-                assert!(expected.is_nan(),"unexpected value returned from parse_number_with_unit({}); got {}; want {}",
-                        s, v, expected)
+                assert!(
+                    expected.is_nan(),
+                    "unexpected value returned from parse_number_with_unit({}); got {}; want {}",
+                    s,
+                    v,
+                    expected
+                )
             } else {
-                assert_eq!(v, expected,
-                           "unexpected value returned from parse_number_with_unit({}); got {}; want {}",
-                           s, v, expected)
+                assert_eq!(
+                    v, expected,
+                    "unexpected value returned from parse_number_with_unit({}); got {}; want {}",
+                    s, v, expected
+                )
             }
         }
 
@@ -160,16 +170,16 @@ mod tests {
         f("2.3Kb", 2.3 * 1000_f64);
         f("3ki", (3 * 1024) as f64);
         f("4.5Kib", 4.5 * 1024_f64);
-        f("2m", (2 * 1000 *1000) as f64);
+        f("2m", (2 * 1000 * 1000) as f64);
         f("2.3Mb", 2.3 * 1000_f64 * 1000_f64);
         f("3Mi", (3_i64 * 1024 * 1024) as f64);
         f("4.5mib", 4.5 * (1024 * 1024) as f64);
-        f("2G",     (2_i64 * 1000 * 1000 * 1000) as f64);
+        f("2G", (2_i64 * 1000 * 1000 * 1000) as f64);
         f("2.3gB", 2.3 * (1000 * 1000 * 1000) as f64);
         f("3gI", (3_i64 * 1024 * 1024 * 1024) as f64);
-        f("4.5GiB", 4.5 * (1024_i64 * 1024 *1024) as f64);
+        f("4.5GiB", 4.5 * (1024_i64 * 1024 * 1024) as f64);
         f("2T", (2_i64 * 1000 * 1000 * 1000 * 1000) as f64);
-        f("2.3tb", 2.3 * (1000_i64 * 1000 * 1000 *1000) as f64);
+        f("2.3tb", 2.3 * (1000_i64 * 1000 * 1000 * 1000) as f64);
         f("3tI", (3 * 1024_i64 * 1024 * 1024 * 1024) as f64);
         f("4.5TIB", 4.5 * (1024_i64 * 1024 * 1024 * 1024) as f64)
     }
@@ -179,7 +189,10 @@ mod tests {
         fn f(s: &str, expected: f64) {
             match parse_positive_number(s) {
                 Err(err) => {
-                    panic!("unexpected error in parse_positive_number({}): {:?}", s, err)
+                    panic!(
+                        "unexpected error in parse_positive_number({}): {:?}",
+                        s, err
+                    )
                 }
                 Ok(v) => {
                     if v.is_nan() {
@@ -217,7 +230,7 @@ mod tests {
         f("4.5GiB", 4.5 * 1024.0 * 1024.0 * 1024.0);
         f("2T", 2.0 * 1000.0 * 1000.0 * 1000.0 * 1000.0);
         f("2.3tb", 2.3 * 1000.0 * 1000.0 * 1000.0 * 1000.0);
-        f("3tI", 3.0 * 1024.0 * 1024.0 * 1024.0 *1024.0);
+        f("3tI", 3.0 * 1024.0 * 1024.0 * 1024.0 * 1024.0);
         f("4.5TIB", 4.5 * 1024.0 * 1024.0 * 1024.0 * 1024.0)
     }
 

@@ -1,10 +1,11 @@
+use crate::ast::{format_num, Expression, ExpressionNode};
+use crate::common::ReturnType;
+use lib::hash_f64;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
-use lib::hash_f64;
-use crate::ast::{Expression, ExpressionNode, ReturnType};
-use crate::lexer::TextSpan;
-use serde::{Serialize, Deserialize};
+use std::ops::Neg;
 
 // todo: number => scalar
 /// NumberExpr represents number expression.
@@ -12,17 +13,15 @@ use serde::{Serialize, Deserialize};
 pub struct NumberExpr {
     /// value is the parsed number, i.e. `1.23`, `-234`, etc.
     pub value: f64,
-    pub span: TextSpan,
     /// the original token value
-    s: String
+    s: String,
 }
 
 impl NumberExpr {
-    pub fn new<S: Into<TextSpan>>(v: f64, span: S) -> Self {
+    pub fn new(v: f64) -> Self {
         NumberExpr {
             value: v,
-            span: span.into(),
-            s: format!("{}", v)
+            s: format!("{}", v),
         }
     }
     pub fn return_type(&self) -> ReturnType {
@@ -32,19 +31,19 @@ impl NumberExpr {
 
 impl From<f64> for NumberExpr {
     fn from(value: f64) -> Self {
-        NumberExpr::new(value, TextSpan::default())
+        NumberExpr::new(value)
     }
 }
 
 impl From<i64> for NumberExpr {
     fn from(value: i64) -> Self {
-        NumberExpr::new(value as f64, TextSpan::default())
+        NumberExpr::new(value as f64)
     }
 }
 
 impl From<usize> for NumberExpr {
     fn from(value: usize) -> Self {
-        NumberExpr::new(value as f64, TextSpan::default())
+        NumberExpr::new(value as f64)
     }
 }
 
@@ -69,22 +68,27 @@ impl ExpressionNode for NumberExpr {
 impl Display for NumberExpr {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         if self.s.len() > 0 {
-            write!(f, "{}", self.s)?;
-        } else if self.value.is_nan() {
-            write!(f, "NaN")?;
-        } else if self.value.is_finite() {
-            write!(f, "{}", self.value)?;
-        } else if self.value.is_sign_positive() {
-            write!(f, "+Inf")?;
+            write!(f, "{}", self.s)
         } else {
-            write!(f, "-Inf")?;
+            format_num(f, self.value)
         }
-        Ok(())
     }
 }
 
 impl Hash for NumberExpr {
     fn hash<H: Hasher>(&self, state: &mut H) {
         hash_f64(state, self.value);
+    }
+}
+
+impl Neg for NumberExpr {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        let value = -self.value;
+        NumberExpr {
+            value,
+            s: value.to_string(),
+        }
     }
 }

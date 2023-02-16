@@ -17,19 +17,8 @@
 
 //! Expression rewriter
 
-use crate::ast::{
-    AggrFuncExpr,
-    BExpression,
-    BinaryExpr,
-    Expression,
-    FuncExpr,
-    ParensExpr,
-    RollupExpr,
-    WithArgExpr,
-    WithExpr
-};
+use crate::hir::{AggregationExpr, BExpression, BinaryExpr, Expression, FunctionExpr, RollupExpr};
 use crate::parser::ParseResult;
-
 
 /// Controls how the [ExprRewriter] recursion should proceed.
 pub enum RewriteRecursion {
@@ -100,8 +89,8 @@ impl ExprRewritable for Expression {
     /// called on that expression
     ///
     fn rewrite<R>(self, rewriter: &mut R) -> ParseResult<Self>
-        where
-            R: ExprRewriter<Self>,
+    where
+        R: ExprRewriter<Self>,
     {
         let need_mutate = match rewriter.pre_visit(&self)? {
             RewriteRecursion::Mutate => return rewriter.mutate(self),
@@ -112,126 +101,82 @@ impl ExprRewritable for Expression {
 
         // recurse into all sub expressions(and cover all expression types)
         let expr = match self {
-            Expression::Duration(_) |
-            Expression::Number(_) |
-            Expression::String(_) |
-            Expression::MetricExpression(_) => self.clone(),
-            Expression::Parens(ParensExpr { expressions, span }) => {
-                Expression::Parens(
-                    ParensExpr {
-                        expressions: rewrite_vec(expressions, rewriter)?,
-                        span
-                    }
-                )
-            },
-            Expression::Function(FuncExpr {
-                                     function,
-                                     name,
-                                     args,
-                                     keep_metric_names,
-                                     is_scalar,
-                                     span,
-                                     with_name, }) => {
-
-                Expression::Function(
-                    FuncExpr {
-                        function: function.clone(),
-                        name,
-                        args: rewrite_vec(args, rewriter)?,
-                        keep_metric_names,
-                        is_scalar,
-                        span,
-                        with_name
-                    }
-                )
-            },
-            Expression::Aggregation(AggrFuncExpr {
-                                        function,
-                                        name,
-                                        args,
-                                        modifier,
-                                        limit,
-                                        keep_metric_names,
-                                        span }) => {
-
-                Expression::Aggregation(
-                    AggrFuncExpr {
-                        function,
-                        name,
-                        args: rewrite_vec(args, rewriter)?,
-                        modifier,
-                        limit,
-                        keep_metric_names,
-                        span
-                    }
-                )
-
-            },
+            Expression::Duration(_)
+            | Expression::Number(_)
+            | Expression::String(_)
+            | Expression::MetricExpression(_) => self.clone(),
+            Expression::Function(FunctionExpr {
+                function,
+                name,
+                args,
+                keep_metric_names,
+                is_scalar,
+                arg_idx_for_optimization,
+                return_type,
+                sorts_results,
+            }) => Expression::Function(FunctionExpr {
+                function: function.clone(),
+                name,
+                args: rewrite_vec(args, rewriter)?,
+                keep_metric_names,
+                is_scalar,
+                arg_idx_for_optimization,
+                return_type,
+                sorts_results,
+            }),
+            Expression::Aggregation(AggregationExpr {
+                function,
+                name,
+                args,
+                modifier,
+                limit,
+                keep_metric_names,
+                arg_idx_for_optimization,
+            }) => Expression::Aggregation(AggregationExpr {
+                function,
+                name,
+                args: rewrite_vec(args, rewriter)?,
+                modifier,
+                limit,
+                keep_metric_names,
+                arg_idx_for_optimization,
+            }),
             Expression::Rollup(RollupExpr {
-                                   expr,
-                                   window,
-                                   step,
-                                   offset,
-                                   inherit_step,
-                                   at,
-                                   span
-                               }) => {
-
-                Expression::Rollup(
-                    RollupExpr {
-                        expr: rewrite_boxed(expr, rewriter)?,
-                        window,
-                        step,
-                        offset,
-                        inherit_step,
-                        at: rewrite_option_box(at, rewriter)?,
-                        span
-                    }
-                )
-
-            },
+                expr,
+                window,
+                step,
+                offset,
+                inherit_step,
+                at,
+                return_type,
+            }) => Expression::Rollup(RollupExpr {
+                expr: rewrite_boxed(expr, rewriter)?,
+                window,
+                step,
+                offset,
+                inherit_step,
+                at: rewrite_option_box(at, rewriter)?,
+                return_type,
+            }),
             Expression::BinaryOperator(BinaryExpr {
-                                           group_modifier,
-                                           join_modifier,
-                                           left,
-                                           op,
-                                           right,
-                                           bool_modifier,
-                                           span, }) => {
-                Expression::BinaryOperator(
-                    BinaryExpr {
-                        left: rewrite_boxed(left, rewriter)?,
-                        op,
-                        bool_modifier,
-                        group_modifier,
-                        right: rewrite_boxed(right, rewriter)?,
-                        join_modifier,
-                        span
-                    }
-                )
-            },
-            Expression::With(WithExpr{ was, expr, span }) => {
-                let mut was_new: Vec<WithArgExpr> = Vec::with_capacity(was.len());
-                for wae in was.iter() {
-                    let WithArgExpr{ name, expr, args, is_function} = wae;
-                    was_new.push(
-                        WithArgExpr {
-                                name: name.clone(),
-                                args: args.clone(),
-                                expr: rewrite_boxed(expr.clone(), rewriter)?,
-                                is_function: *is_function
-                            }
-                    );
-                }
-
-                Expression::With(
-                    WithExpr {
-                        was: was_new,
-                        expr: rewrite_boxed(expr, rewriter)?,
-                        span
-                    }
-                )
-            }
+                group_modifier,
+                join_modifier,
+                left,
+                op,
+                right,
+                bool_modifier,
+                cardinality,
+                return_type,
+            }) => Expression::BinaryOperator(BinaryExpr {
+                left: rewrite_boxed(left, rewriter)?,
+                op,
+                bool_modifier,
+                group_modifier,
+                right: rewrite_boxed(right, rewriter)?,
+                join_modifier,
+                cardinality,
+                return_type,
+            }),
         };
 
         // now rewrite this expression itself
@@ -245,8 +190,8 @@ impl ExprRewritable for Expression {
 
 #[allow(clippy::boxed_local)]
 fn rewrite_boxed<R>(boxed_expr: Box<Expression>, rewriter: &mut R) -> ParseResult<Box<Expression>>
-    where
-        R: ExprRewriter,
+where
+    R: ExprRewriter,
 {
     // TODO: It might be possible to avoid an allocation (the
     // Box::new) below by reusing the box.
@@ -259,8 +204,8 @@ fn rewrite_option_box<R>(
     option_box: Option<Box<Expression>>,
     rewriter: &mut R,
 ) -> ParseResult<Option<Box<Expression>>>
-    where
-        R: ExprRewriter,
+where
+    R: ExprRewriter,
 {
     option_box
         .map(|expr| rewrite_boxed(expr, rewriter))
@@ -269,14 +214,14 @@ fn rewrite_option_box<R>(
 
 /// rewrite a `Vec` of `Expression`s with the rewriter
 fn rewrite_vec<R>(v: Vec<BExpression>, rewriter: &mut R) -> ParseResult<Vec<BExpression>>
-    where
-        R: ExprRewriter,
+where
+    R: ExprRewriter,
 {
     let mut res: Vec<BExpression> = Vec::with_capacity(v.len());
     for expr in v.iter() {
         // hacky. Since the vec is of references, we need to clone. Can we avoid this ?
         let cloned = expr.clone();
-        res.push( Box::new( cloned.rewrite(rewriter)? ))
+        res.push(Box::new(cloned.rewrite(rewriter)?))
     }
     Ok(res)
 }
@@ -288,8 +233,8 @@ struct RewriterAdapter<F> {
 }
 
 impl<F> ExprRewriter for RewriterAdapter<F>
-    where
-        F: FnMut(Expression) -> ParseResult<Expression>,
+where
+    F: FnMut(Expression) -> ParseResult<Expression>,
 {
     fn mutate(&mut self, expr: Expression) -> ParseResult<Expression> {
         (self.f)(expr)
@@ -307,22 +252,22 @@ impl<F> ExprRewriter for RewriterAdapter<F>
 /// use metricsql::ast::expr_rewriter::rewrite_expr;
 /// use metricsql::ast::Expression;
 /// use metricsql::transform::expr_rewriter::rewrite_expr;
-/// let expr = col("a") + lit(1);
+/// let expr = selector("a") + number(1.0);
 ///
 /// // rewrite all literals to 42
 /// let rewritten = rewrite_expr(expr, |e| {
 ///   if let Expression::Number(_) = e {
-///     Ok(Expression::from(42))
+///     Ok(Expression::from(42.0))
 ///   } else {
 ///     Ok(e)
 ///   }
 /// }).unwrap();
 ///
-/// assert_eq!(rewritten, col("a") + lit(42));
+/// assert_eq!(rewritten, selector("a") + number(42.0));
 /// ```
 pub fn rewrite_expr<F>(expr: Expression, f: F) -> ParseResult<Expression>
-    where
-        F: FnMut(Expression) -> ParseResult<Expression>,
+where
+    F: FnMut(Expression) -> ParseResult<Expression>,
 {
     expr.rewrite(&mut RewriterAdapter { f })
 }

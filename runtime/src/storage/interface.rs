@@ -28,14 +28,9 @@ pub trait Appendable {
     fn get_appender(ctx: Context) -> dyn Appender;  // todo: make this Arc??
 }
 
-/// SampleAndChunkQueryable allows retrieving samples as well as encoded samples in form of chunks.
-pub trait SampleAndChunkQueryable: Queryable + ChunkQueryable  {
-}
-
 /// Storage ingests and manages samples, along with various indexes. All methods
 /// are goroutine-safe. Storage implements storage.Appender.
 pub trait Storage: Appendable {
-    SampleAndChunkQueryable
     
     /// StartTime returns the oldest timestamp stored in the storage.
     fn start_time(&self) -> RuntimeResult<i64>;
@@ -137,11 +132,13 @@ pub struct SelectHints {
 
     /// Query step size in milliseconds.
     step: i64,
+
     /// String representation of surrounding function or aggregation.
     func: String,
 
     /// List of label names used in aggregation.
     grouping: Vec<String>,
+
     /// Indicate whether it is without or by.
     by:       bool,
     /// Range vector selector range in milliseconds.

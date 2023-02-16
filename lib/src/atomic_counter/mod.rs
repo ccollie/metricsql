@@ -1,4 +1,3 @@
-
 //! # AtomicCounter
 //!
 //! Atomic (thread-safe) counters for Rust.
@@ -81,8 +80,8 @@
 //! So in order to maintain invariants such as `a > b` across multiple threads,
 //! use `ConsistentCounter`.
 
-use std::sync::atomic::{AtomicU64, AtomicUsize};
 use std::sync::atomic::Ordering::{Relaxed, SeqCst};
+use std::sync::atomic::{AtomicU64, AtomicUsize};
 
 /// Provides an atomic counter trait that can be shared across threads.
 pub trait AtomicCounter: Send + Sync {
@@ -118,7 +117,6 @@ pub trait AtomicCounter: Send + Sync {
 pub struct RelaxedCounter(AtomicUsize);
 
 impl RelaxedCounter {
-
     /// Creates a new counter with initial_value
     pub fn new(initial_count: usize) -> RelaxedCounter {
         RelaxedCounter(AtomicUsize::new(initial_count))
@@ -160,7 +158,6 @@ impl AtomicCounter for RelaxedCounter {
 pub struct RelaxedU64Counter(AtomicU64);
 
 impl RelaxedU64Counter {
-
     /// Creates a new counter with initial_value
     pub fn new(initial_count: u64) -> RelaxedU64Counter {
         RelaxedU64Counter(AtomicU64::new(initial_count))
@@ -202,7 +199,6 @@ impl AtomicCounter for RelaxedU64Counter {
 pub struct ConsistentCounter(AtomicUsize);
 
 impl ConsistentCounter {
-
     /// Creates a new counter with initial_value
     pub fn new(initial_count: usize) -> ConsistentCounter {
         ConsistentCounter(AtomicUsize::new(initial_count))
@@ -237,9 +233,9 @@ impl AtomicCounter for ConsistentCounter {
 mod tests {
 
     use std::fmt::Debug;
-    use std::thread;
-    use std::sync::Arc;
     use std::ops::Deref;
+    use std::sync::Arc;
+    use std::thread;
 
     use super::*;
 
@@ -247,7 +243,8 @@ mod tests {
     const NUM_ITERATIONS: usize = 7_000_000;
 
     fn test_simple_with<Counter>(counter: Counter)
-        where Counter: AtomicCounter<PrimitiveType=usize>
+    where
+        Counter: AtomicCounter<PrimitiveType = usize>,
     {
         counter.reset();
         assert_eq!(0, counter.add(5));
@@ -269,12 +266,14 @@ mod tests {
     }
 
     fn test_inc_with<Counter>(counter: Arc<Counter>)
-        where Counter: AtomicCounter<PrimitiveType=usize> + 'static + Debug
+    where
+        Counter: AtomicCounter<PrimitiveType = usize> + 'static + Debug,
     {
         let mut join_handles = Vec::new();
-        println!("test_inc: Spawning {} threads, each with {} iterations...",
-                 NUM_THREADS,
-                 NUM_ITERATIONS);
+        println!(
+            "test_inc: Spawning {} threads, each with {} iterations...",
+            NUM_THREADS, NUM_ITERATIONS
+        );
         for _ in 0..NUM_THREADS {
             let counter_ref = counter.clone();
             join_handles.push(thread::spawn(move || {
@@ -304,12 +303,14 @@ mod tests {
     }
 
     fn test_add_with<Counter>(counter: Arc<Counter>)
-        where Counter: AtomicCounter<PrimitiveType=usize> + 'static + Debug
+    where
+        Counter: AtomicCounter<PrimitiveType = usize> + 'static + Debug,
     {
         let mut join_handles = Vec::new();
-        println!("test_add: Spawning {} threads, each with {} iterations...",
-                 NUM_THREADS,
-                 NUM_ITERATIONS);
+        println!(
+            "test_add: Spawning {} threads, each with {} iterations...",
+            NUM_THREADS, NUM_ITERATIONS
+        );
         let mut expected_count = 0;
         for to_add in 0..NUM_THREADS {
             let counter_ref = counter.clone();
@@ -326,9 +327,10 @@ mod tests {
             handle.join().unwrap();
         }
         let count = Arc::try_unwrap(counter).unwrap().into_inner();
-        println!("test_add: Expected count: {}, got count: {}",
-                 expected_count,
-                 count);
+        println!(
+            "test_add: Expected count: {}, got count: {}",
+            expected_count, count
+        );
         assert_eq!(expected_count, count);
     }
 
@@ -343,12 +345,14 @@ mod tests {
     }
 
     fn test_reset_with<Counter>(counter: Arc<Counter>)
-        where Counter: AtomicCounter<PrimitiveType=usize> + 'static + Debug
+    where
+        Counter: AtomicCounter<PrimitiveType = usize> + 'static + Debug,
     {
         let mut join_handles = Vec::new();
-        println!("test_add_reset: Spawning {} threads, each with {} iterations...",
-                 NUM_THREADS,
-                 NUM_ITERATIONS);
+        println!(
+            "test_add_reset: Spawning {} threads, each with {} iterations...",
+            NUM_THREADS, NUM_ITERATIONS
+        );
         let mut expected_count = 0;
         for to_add in 0..NUM_THREADS {
             expected_count += to_add * NUM_ITERATIONS;
@@ -388,9 +392,10 @@ mod tests {
             handle.join().unwrap();
         }
         let actual_count = reset_handle.join().unwrap();
-        println!("test_add_reset: Expected count: {}, got count: {}",
-                 expected_count,
-                 actual_count);
+        println!(
+            "test_add_reset: Expected count: {}, got count: {}",
+            expected_count, actual_count
+        );
         assert_eq!(expected_count, actual_count);
     }
 
@@ -403,5 +408,4 @@ mod tests {
     fn test_reset_relaxed() {
         test_reset_with(Arc::new(RelaxedCounter::new(0)));
     }
-
 }

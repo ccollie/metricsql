@@ -1,24 +1,25 @@
-use std::collections::{HashSet};
 use crate::ast::{WithArgExpr, WithExpr};
-use crate::lexer::{TokenKind, unescape_ident};
-use crate::parser::{ParseError, Parser, ParseResult};
+use crate::lexer::{unescape_ident, TokenKind};
 use crate::parser::expr::parse_expression;
 use crate::parser::parser::unexpected;
+use crate::parser::{ParseError, ParseResult, Parser};
+use std::collections::HashSet;
 
 /// parses `WITH (withArgExpr...) expr`.
 pub(super) fn parse_with_expr(p: &mut Parser) -> ParseResult<WithExpr> {
     use TokenKind::*;
-    let mut span = p.last_token_range().unwrap();
 
     p.expect(With)?;
     p.expect(LeftParen)?;
 
+    p.template_parsing_depth += 1;
     push_stack(p);
 
     loop {
         if p.at(RightParen) {
+            p.template_parsing_depth -= 1;
             p.bump();
-            break
+            break;
         }
         let item = parse_with_arg_expr(p)?;
         store_with_expr(p, item);
@@ -29,6 +30,7 @@ pub(super) fn parse_with_expr(p: &mut Parser) -> ParseResult<WithExpr> {
                 continue;
             }
             RightParen => {
+                p.template_parsing_depth -= 1;
                 p.bump();
                 break;
             }
@@ -47,12 +49,10 @@ pub(super) fn parse_with_expr(p: &mut Parser) -> ParseResult<WithExpr> {
 
     let args = pop_stack(p);
 
-    p.update_span(&mut span);
-    Ok(WithExpr::new(expr, args, span))
+    Ok(WithExpr::new(expr, args))
 }
 
 fn parse_with_arg_expr(p: &mut Parser) -> ParseResult<WithArgExpr> {
-
     let tok = p.expect_token(TokenKind::Ident)?;
     let name = unescape_ident(tok.text);
     let is_function: bool;
@@ -60,7 +60,7 @@ fn parse_with_arg_expr(p: &mut Parser) -> ParseResult<WithArgExpr> {
     let args = if p.at(TokenKind::LeftParen) {
         is_function = true;
         // Parse func args.
-        
+
         // push_stack(p)
         let args = p.parse_ident_list()?;
 
@@ -89,7 +89,7 @@ fn parse_with_arg_expr(p: &mut Parser) -> ParseResult<WithArgExpr> {
             } else {
                 Ok(WithArgExpr::new(name, expr))
             }
-        },
+        }
         Err(e) => {
             let msg = format!("withArgExpr: cannot parse expression for {}: {:?}", name, e);
             return Err(ParseError::General(msg));
@@ -111,7 +111,7 @@ pub(super) fn must_parse_with_arg_expr(s: &str) -> ParseResult<WithArgExpr> {
     Ok(expr)
 }
 
-pub(super) fn check_duplicate_with_arg_names(was: &[WithArgExpr]) -> ParseResult<()> {
+pub(super) fn check_duplicate_with_arg_names(was: &Vec<WithArgExpr>) -> ParseResult<()> {
     let mut m: HashSet<String> = HashSet::with_capacity(was.len());
 
     for wa in was {

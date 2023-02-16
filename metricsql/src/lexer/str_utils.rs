@@ -218,7 +218,7 @@ const MaxRune: char   = '\U0010FFFF';
 /// package of the Go standard library to work for Prometheus-style strings.
 /// None of the actual escaping/quoting logic was changed in this function - it
 /// was only modified to integrate with our lexer.
-fn lex_escape(l: &Lexer, s: &str, quote: char) -> ParseResult<stateFn> {
+fn lex_escape(l: &Lexer, s: &str, quote: char) -> ParseResult<String> {
     let mut n: usize;
     let mut base: usize;
     let mut max: u32;
@@ -226,7 +226,7 @@ fn lex_escape(l: &Lexer, s: &str, quote: char) -> ParseResult<stateFn> {
     let mut ch = l.next();
     match ch {
         'a' | 'b' | 'f' | 'n' | 'r' | 't' | 'v' | '\\' | quote => return lex_string,
-        '0' .. '7' => (n, base, max) = (3, 8, 255),
+        ('0' ... '7') => (n, base, max) = (3, 8, 255),
         'x' => {
             ch = l.next();
             (n, base, max) = (2, 16, 255)

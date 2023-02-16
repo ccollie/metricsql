@@ -1,20 +1,14 @@
-use std::{fmt, iter, ops};
+use crate::ast::utils::visit_all;
+use crate::ast::{
+    AggrFuncExpr, BinaryExpr, DurationExpr, FuncExpr, MetricExpr, NumberExpr, ParensExpr,
+    RollupExpr, StringExpr, WithExpr,
+};
+use crate::common::{Operator, ReturnType};
+use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
-use std::hash::{Hash};
-use std::string::{String};
-use crate::ast::{AggrFuncExpr, BinaryExpr, Operator, ParensExpr};
-
-use crate::ast::duration::DurationExpr;
-use crate::ast::function::FuncExpr;
-use crate::ast::label_filter::{LabelFilter};
-use crate::ast::number::NumberExpr;
-use crate::ast::return_type::ReturnType;
-use crate::ast::rollup::RollupExpr;
-use crate::ast::selector::MetricExpr;
-use crate::ast::string::StringExpr;
-use crate::ast::with::WithExpr;
-use crate::lexer::TextSpan;
-use serde::{Serialize, Deserialize};
+use std::hash::Hash;
+use std::string::String;
+use std::{fmt, ops};
 
 /// Expression Trait. Useful for cases where match is not ergonomic
 pub trait ExpressionNode {
@@ -79,94 +73,15 @@ impl Expression {
         matches!(expr, Expression::Number(_))
     }
 
-    pub fn vectors(&self) -> Box<dyn Iterator<Item = &LabelFilter> + '_> {
-
-        match self {
-            Self::MetricExpression(v) => {
-                Box::new(v.label_filters.iter() )
-            },
-            Self::Rollup(re) => {
-                Box::new(
-                    re.expr.vectors().chain(
-                        if let Some(at) = &re.at {
-                                at.vectors()
-                              } else {
-                                Box::new(iter::empty())
-                              }
-                        )
-                )
-            },
-            Self::BinaryOperator(be) => {
-                Box::new(be.left.vectors().chain(be.right.vectors()))
-            },
-            Self::Aggregation(ae) => {
-                Box::new(ae.args.iter().flat_map(|node| node.vectors()))
-            },
-            Self::Function(fe) => {
-                Box::new(fe.args.iter().flat_map(|node| node.vectors()))
-            },
-            Self::Parens(pe) => {
-                Box::new(pe.expressions.iter().flat_map(|node| node.vectors()))
-            },
-            Self::Number(_) |
-            Self::String(_) |
-            Self::Duration(_) |
-            Self::With(_) => Box::new(iter::empty()),
-        }
-    }
-
-    /**
-    Return an iterator of series names present in this node.
-    ```
-    let opts = promql::ParserOptions::new()
-    	.allow_periods(false)
-    	.build();
-    let query = r#"
-    	sum(1 - something_used{env="production"} / something_total) by (instance)
-    	and ignoring (instance)
-    	sum(rate(some_queries{instance=~"localhost\\d+"} [5m])) > 100
-    "#;
-    let ast = promql::parse(query, opts).expect("valid query");
-    let series: Vec<String> = ast.series_names().collect();
-    assert_eq!(series, vec![
-    		"something_used".to_string(),
-    		"something_total".to_string(),
-    		"some_queries".to_string(),
-    	],
-    );
-    ```
-     */
-    pub fn series_names(&self) -> impl Iterator<Item = String> + '_ {
-        self.vectors().map(|x| {
-            if x.label == "__name__" {
-                x.value.clone()
-                // String::from_utf8(x.value.clone())
-                //     .expect("series names should always be valid utf8")
-            } else {
-                x.label.clone()
-            }
-        })
-    }
-
     pub fn contains_subquery(&self) -> bool {
         use Expression::*;
         match self {
-            Function(fe) => {
-                fe.args.iter().any(|e| e.contains_subquery())
-            }
-            BinaryOperator(bo) => {
-                bo.left.contains_subquery() || bo.right.contains_subquery()
-            }
-            Aggregation(aggr) => {
-                aggr.args.iter().any(|e| e.contains_subquery())
-            }
-            Rollup(re) => {
-                re.for_subquery()
-            }
-            With(we) => {
-                we.was.iter().any(|e| e.expr.contains_subquery())
-            }
-            _ => false
+            Function(fe) => fe.args.iter().any(|e| e.contains_subquery()),
+            BinaryOperator(bo) => bo.left.contains_subquery() || bo.right.contains_subquery(),
+            Aggregation(aggr) => aggr.args.iter().any(|e| e.contains_subquery()),
+            Rollup(re) => re.for_subquery(),
+            With(we) => we.was.iter().any(|e| e.expr.contains_subquery()),
+            _ => false,
         }
     }
 
@@ -181,7 +96,7 @@ impl Expression {
             Expression::BinaryOperator(be) => be.return_type(),
             Expression::With(we) => we.return_type(),
             Expression::Rollup(re) => re.return_type(),
-            Expression::MetricExpression(me) => me.return_type()
+            Expression::MetricExpression(me) => me.return_type(),
         }
     }
 
@@ -196,37 +111,31 @@ impl Expression {
             Expression::BinaryOperator(_) => "Operator",
             Expression::With(_) => "With expression",
             Expression::Rollup(_) => "Rollup",
-            Expression::MetricExpression(_) => "Selector"
+            Expression::MetricExpression(_) => "Selector",
         }
     }
 
     pub fn is_metric_expression(&self) -> bool {
         match self {
             Expression::MetricExpression(_) => true,
-            _ => false
+            _ => false,
         }
     }
 
     pub fn is_binary_op(&self) -> bool {
         match self {
             Expression::BinaryOperator(_) => true,
-            _ => false
+            _ => false,
         }
     }
 
-    pub fn span(&self) -> TextSpan {
-        match self {
-            Expression::Duration(de) => de.span,
-            Expression::Number(num) => num.span,
-            Expression::String(se) => se.span,
-            Expression::Parens(pe) => pe.span,
-            Expression::Function(fe) => fe.span,
-            Expression::Aggregation(ae) => ae.span,
-            Expression::BinaryOperator(be) => be.span,
-            Expression::With(we) => we.span,
-            Expression::Rollup(re) => re.span,
-            Expression::MetricExpression(me) => me.span
-        }
+    pub fn adjust_comp_ops(&mut self) {
+        visit_all(self, |expr: &mut Expression| match expr {
+            Expression::BinaryOperator(be) => {
+                let _ = be.adjust_comparison_op();
+            }
+            _ => {}
+        });
     }
 
     /// returns a scalar expression
@@ -288,7 +197,7 @@ impl Expression {
     /// Return `self == bool NaN`
     #[allow(clippy::wrong_self_convention)]
     pub fn is_NaN(self) -> Expression {
-        self.eq( Expression::from(f64::NAN) )
+        self.eq(Expression::from(f64::NAN))
     }
 
     /// Return `self != bool NaN`
@@ -300,13 +209,13 @@ impl Expression {
     /// Return `self == bool 1`
     #[allow(clippy::wrong_self_convention)]
     pub fn is_true(self) -> Expression {
-        self.eq( Expression::from(1.0) )
+        self.eq(Expression::from(1.0))
     }
 
     /// Return `self != BOOL 1`
     #[allow(clippy::wrong_self_convention)]
     pub fn is_not_true(self) -> Expression {
-        self.not_eq( Expression::from(1.0) )
+        self.not_eq(Expression::from(1.0))
     }
 
     /// Return `self == bool 0`
@@ -388,25 +297,28 @@ impl From<String> for Expression {
 
 impl From<&str> for Expression {
     fn from(s: &str) -> Self {
-        Expression::String (StringExpr::from(s))
+        Expression::String(StringExpr::from(s))
     }
 }
 
 impl From<Vec<BExpression>> for Expression {
     fn from(list: Vec<BExpression>) -> Self {
-        Expression::Parens(ParensExpr::new(list, TextSpan::default()))
+        Expression::Parens(ParensExpr::new(list))
     }
 }
 
 impl From<Vec<Expression>> for Expression {
     fn from(list: Vec<Expression>) -> Self {
-        let items = list.into_iter().map(|x| Box::new(x)).collect::<Vec<BExpression>>();
-        Expression::Parens(ParensExpr::new(items, TextSpan::default()))
+        let items = list
+            .into_iter()
+            .map(|x| Box::new(x))
+            .collect::<Vec<BExpression>>();
+        Expression::Parens(ParensExpr::new(items))
     }
 }
 
 fn binary_expr(left: Expression, op: Operator, right: Expression) -> Expression {
-    let mut expr = BinaryExpr::new(op,left, right);
+    let mut expr = BinaryExpr::new(op, left, right);
     expr.bool_modifier = op.is_comparison();
     Expression::BinaryOperator(expr)
 }
@@ -450,7 +362,6 @@ impl ops::Rem for Expression {
         binary_expr(self, Operator::Mod, rhs)
     }
 }
-
 
 // todo: integrate checks from
 // https://github.com/prometheus/prometheus/blob/fa6e05903fd3ce52e374a6e1bf4eb98c9f1f45a7/promql/parser/parse.go#L436

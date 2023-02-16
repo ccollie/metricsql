@@ -2,17 +2,17 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fmt::Display;
-use std::hash::{Hash};
-use std::ops::{Deref};
+use std::hash::Hash;
+use std::ops::Deref;
 
 use enquote::enquote;
 use xxhash_rust::xxh3::Xxh3;
 
 use lib::{marshal_string_fast, unmarshal_string_fast, unmarshal_var_int};
-use metricsql::ast::{AggregateModifier, AggregateModifierOp, GroupModifier, GroupModifierOp};
+use metricsql::common::{AggregateModifier, AggregateModifierOp, GroupModifier, GroupModifierOp};
 
-use crate::{marshal_bytes_fast, unmarshal_bytes_fast};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
+use crate::{marshal_bytes_fast, unmarshal_bytes_fast};
 
 /// The maximum length of label name.
 ///
@@ -23,7 +23,7 @@ pub const METRIC_NAME_LABEL: &str = "__name__";
 
 const ESCAPE_CHAR: u8 = 0_u8;
 const TAG_SEPARATOR_CHAR: u8 = 1_u8;
-const KV_SEPARATOR_CHAR: u8  = 2_u8;
+const KV_SEPARATOR_CHAR: u8 = 2_u8;
 
 /// Tag represents a (key, value) tag for metric.
 #[derive(Debug, Default, PartialEq, Eq, Clone, Hash)]
@@ -36,7 +36,7 @@ impl Tag {
     pub fn new<S: Into<String>>(key: S, value: String) -> Self {
         Self {
             key: key.into(),
-            value: value.into()
+            value: value.into(),
         }
     }
 
@@ -54,7 +54,9 @@ impl Tag {
                 src = rest;
             }
             Err(_) => {
-                return Err(RuntimeError::SerializationError("error reading tag key".to_string()));
+                return Err(RuntimeError::SerializationError(
+                    "error reading tag key".to_string(),
+                ));
             }
         }
         match unmarshal_tag_value(src) {
@@ -63,7 +65,9 @@ impl Tag {
                 src = rest;
             }
             Err(_) => {
-                return Err(RuntimeError::SerializationError("error reading tag value".to_string()));
+                return Err(RuntimeError::SerializationError(
+                    "error reading tag value".to_string(),
+                ));
             }
         }
         Ok(src)
@@ -82,11 +86,13 @@ impl PartialOrd for Tag {
 pub fn marshal_tag_value_no_trailing_tag_separator(dst: &mut Vec<u8>, src: &str) {
     marshal_tag_value(dst, src.as_bytes());
     // Remove trailing TAG_SEPARATOR_CHAR
-   let _ = dst.remove(dst.len() - 1);
+    let _ = dst.remove(dst.len() - 1);
 }
 
 pub fn marshal_tag_value(dst: &mut Vec<u8>, src: &[u8]) {
-    let n1 = src.iter().position(|x| *x == ESCAPE_CHAR || *x == TAG_SEPARATOR_CHAR || *x == KV_SEPARATOR_CHAR);
+    let n1 = src
+        .iter()
+        .position(|x| *x == ESCAPE_CHAR || *x == TAG_SEPARATOR_CHAR || *x == KV_SEPARATOR_CHAR);
     if n1.is_none() {
         // Fast path.
         dst.extend_from_slice(src);
@@ -98,16 +104,16 @@ pub fn marshal_tag_value(dst: &mut Vec<u8>, src: &[u8]) {
             ESCAPE_CHAR => {
                 dst.push(ESCAPE_CHAR);
                 dst.push(0_u8);
-            },
+            }
             TAG_SEPARATOR_CHAR => {
                 dst.push(ESCAPE_CHAR);
                 dst.push(1_u8);
-            },
+            }
             KV_SEPARATOR_CHAR => {
                 dst.push(ESCAPE_CHAR);
                 dst.push(2_u8);
-            },
-            _ => dst.push(*ch)
+            }
+            _ => dst.push(*ch),
         }
     }
 
@@ -123,7 +129,9 @@ fn u8_index_of(haystack: &[u8], needle: u8) -> Option<usize> {
 pub fn unmarshal_tag_value<'a>(src: &'a [u8]) -> RuntimeResult<(String, &'a [u8])> {
     let n = u8_index_of(src, TAG_SEPARATOR_CHAR);
     if n.is_none() {
-        return Err(RuntimeError::General("cannot find the end of tag value".to_string()));
+        return Err(RuntimeError::General(
+            "cannot find the end of tag value".to_string(),
+        ));
     }
 
     // todo: use a stack based buffer
@@ -131,8 +139,8 @@ pub fn unmarshal_tag_value<'a>(src: &'a [u8]) -> RuntimeResult<(String, &'a [u8]
 
     let n = n.unwrap();
     let mut src = src;
-    let mut b = &src[0 .. n];
-    src = &src[n + 1 .. ];
+    let mut b = &src[0..n];
+    src = &src[n + 1..];
 
     loop {
         let n = u8_index_of(b, ESCAPE_CHAR);
@@ -140,13 +148,13 @@ pub fn unmarshal_tag_value<'a>(src: &'a [u8]) -> RuntimeResult<(String, &'a [u8]
             dst.extend_from_slice(b);
             return match String::from_utf8(dst) {
                 Ok(v) => Ok((v, src)),
-                Err(_) => Err(RuntimeError::General("invalid utf8 string".to_string()))
-            }
+                Err(_) => Err(RuntimeError::General("invalid utf8 string".to_string())),
+            };
         }
 
         let n = n.unwrap();
-        dst.extend_from_slice( &b[0 .. n] );
-        b = &b[n + 1 .. ];
+        dst.extend_from_slice(&b[0..n]);
+        b = &b[n + 1..];
         if b.len() == 0 {
             return Err(RuntimeError::General("missing escaped char".to_string()));
         }
@@ -156,15 +164,15 @@ pub fn unmarshal_tag_value<'a>(src: &'a [u8]) -> RuntimeResult<(String, &'a [u8]
             1 => dst.push(TAG_SEPARATOR_CHAR),
             2 => dst.push(KV_SEPARATOR_CHAR),
             _ => {
-                return Err(RuntimeError::General(
-                    format!("unsupported escaped char: {}", ch)
-                ));
+                return Err(RuntimeError::General(format!(
+                    "unsupported escaped char: {}",
+                    ch
+                )));
             }
         }
-        b = &b[1 .. ];
+        b = &b[1..];
     }
 }
-
 
 /// MetricName represents a metric name.
 #[derive(Debug, PartialEq, Eq, Clone, Default, Hash)]
@@ -182,19 +190,19 @@ impl MetricName {
             metric_group: name.to_string(),
             tags: vec![],
             hash: None,
-            sorted: false
+            sorted: false,
         }
     }
 
     /// from_strings creates new labels from pairs of strings.
     pub fn from_strings(ss: &[&str]) -> RuntimeResult<Self> {
-        if ss.len() %2 != 0 {
+        if ss.len() % 2 != 0 {
             return Err(RuntimeError::from("invalid number of strings"));
         }
 
         let mut res = MetricName::default();
-        for i in (0 .. ss.len()).step_by(2) {
-            res.set_tag(ss[i], ss[i+1]);
+        for i in (0..ss.len()).step_by(2) {
+            res.set_tag(ss[i], ss[i + 1]);
         }
 
         Ok(res)
@@ -225,17 +233,16 @@ impl MetricName {
     pub fn add_tag<S: Into<String>>(&mut self, key: &str, value: S) {
         if key == METRIC_NAME_LABEL {
             self.metric_group = value.into();
-            return
+            return;
         }
         let tag = Tag {
             key: key.to_string(),
-            value: value.into()
+            value: value.into(),
         };
         self.hash = None;
         self.sorted = false;
         self.tags.push(tag);
     }
-
 
     /// adds new tag to mn with the given key and value.
     pub fn set_tag<S: Into<String>>(&mut self, key: &str, value: S) {
@@ -326,10 +333,10 @@ impl MetricName {
         match modifier.op {
             GroupModifierOp::On => {
                 self.remove_tags_on(&modifier.labels);
-            },
+            }
             GroupModifierOp::Ignoring => {
                 self.remove_tags(&modifier.labels);
-            },
+            }
         }
     }
 
@@ -359,7 +366,7 @@ impl MetricName {
             match src.get_tag_value(tag_name) {
                 Some(tag_value) => {
                     self.set_tag(tag_name, tag_value);
-                },
+                }
                 None => {
                     self.remove_tag(tag_name);
                 }
@@ -373,7 +380,7 @@ impl MetricName {
 
         let len = &self.tags.len();
         let mut i = 0;
-        for Tag {key: k, value: v } in self.tags.iter() {
+        for Tag { key: k, value: v } in self.tags.iter() {
             dst.extend_from_slice(format!("{}={}", k, enquote('"', &v)).as_bytes());
             if i + 1 < *len {
                 dst.extend_from_slice(", ".as_bytes())
@@ -385,7 +392,7 @@ impl MetricName {
     }
 
     pub(crate) fn marshal_tags_fast(&self, dst: &mut Vec<u8>) {
-        for Tag{ key: k, value: v} in self.tags.iter() {
+        for Tag { key: k, value: v } in self.tags.iter() {
             marshal_bytes_fast(dst, k.as_bytes());
             marshal_bytes_fast(dst, v.as_bytes());
         }
@@ -398,21 +405,20 @@ impl MetricName {
     pub fn marshal(&self, dst: &mut Vec<u8>) {
         // Calculate the required size and pre-allocate space in dst
         let mut required_size = self.metric_group.len() + 1;
-        for Tag {key: k, value: v} in self.tags.iter() {
+        for Tag { key: k, value: v } in self.tags.iter() {
             required_size += k.len() + v.len() + 2
         }
 
         dst.reserve(required_size);
 
         marshal_tag_value(dst, &self.metric_group.as_bytes());
-        for Tag {key: k, value: v} in self.tags.iter() {
+        for Tag { key: k, value: v } in self.tags.iter() {
             required_size += k.len() + v.len() + 2
         }
 
         marshal_string_fast(dst, &self.metric_group);
         self.marshal_tags_fast(dst);
     }
-
 
     /// unmarshal unmarshals mn from src.
     /// Todo(perf) this is not necessarily as performant as can be, even for
@@ -422,9 +428,9 @@ impl MetricName {
         let mut src = src;
         match unmarshal_tag_value(src) {
             Err(_) => {
-                return Err(RuntimeError::SerializationError(
-                    format!("cannot unmarshal metric group")
-                ))
+                return Err(RuntimeError::SerializationError(format!(
+                    "cannot unmarshal metric group"
+                )))
             }
             Ok((str, tail)) => {
                 src = tail;
@@ -491,7 +497,10 @@ impl MetricName {
 
         match unmarshal_bytes_fast(src) {
             Err(err) => {
-                return Err(RuntimeError::SerializationError(format!("cannot unmarshal MetricGroup: {:?}", err)));
+                return Err(RuntimeError::SerializationError(format!(
+                    "cannot unmarshal MetricGroup: {:?}",
+                    err
+                )));
             }
             Ok((tail, metric_group)) => {
                 src = tail;
@@ -500,9 +509,10 @@ impl MetricName {
         }
 
         if src.len() < 2 {
-            return Err(RuntimeError::SerializationError(
-                format!("not enough bytes for unmarshalling len(tags); need at least 2 bytes; got {} bytes", src.len())
-            ));
+            return Err(RuntimeError::SerializationError(format!(
+                "not enough bytes for unmarshalling len(tags); need at least 2 bytes; got {} bytes",
+                src.len()
+            )));
         }
 
         let tags_len: u16;
@@ -511,9 +521,12 @@ impl MetricName {
             Ok((len, tail)) => {
                 src = tail;
                 tags_len = len;
-            },
+            }
             Err(err) => {
-                return Err(RuntimeError::SerializationError(format!("error reading tags length: {}", err)));
+                return Err(RuntimeError::SerializationError(format!(
+                    "error reading tags length: {}",
+                    err
+                )));
             }
         }
 
@@ -523,7 +536,10 @@ impl MetricName {
         for i in 0..tags_len {
             match unmarshal_string_fast(&mut src) {
                 Err(_) => {
-                    return Err(RuntimeError::SerializationError(format!("cannot unmarshal key for tag[{}]", i)));
+                    return Err(RuntimeError::SerializationError(format!(
+                        "cannot unmarshal key for tag[{}]",
+                        i
+                    )));
                 }
                 Ok((t, v)) => {
                     src = v;
@@ -533,9 +549,10 @@ impl MetricName {
 
             match unmarshal_string_fast(&mut src) {
                 Err(_) => {
-                    return Err(
-                        RuntimeError::SerializationError(format!("cannot unmarshal value for tag[{}]", i))
-                    );
+                    return Err(RuntimeError::SerializationError(format!(
+                        "cannot unmarshal value for tag[{}]",
+                        i
+                    )));
                 }
                 Ok((t, v)) => {
                     src = v;
@@ -549,11 +566,10 @@ impl MetricName {
         Ok(src)
     }
 
-
     pub(crate) fn serialized_size(&self) -> usize {
         let mut n = 2 + self.metric_group.len();
         n += 2; // Length of tags.
-        for Tag{ key: k, value: v} in self.tags.iter() {
+        for Tag { key: k, value: v } in self.tags.iter() {
             n += 2 + k.len();
             n += 2 + v.len();
         }
@@ -583,9 +599,12 @@ impl MetricName {
 
     pub(crate) fn count_label_values(&self, hm: &mut HashMap<String, HashMap<String, usize>>) {
         // duplication, I know
-        let label_counts = hm.entry(METRIC_NAME_LABEL.to_string())
+        let label_counts = hm
+            .entry(METRIC_NAME_LABEL.to_string())
             .or_insert_with(|| HashMap::new());
-        *label_counts.entry(self.metric_group.to_string()).or_insert(0) += 1;
+        *label_counts
+            .entry(self.metric_group.to_string())
+            .or_insert(0) += 1;
         for tag in self.tags.iter() {
             count_label_value(hm, &tag.key, &tag.value);
         }
@@ -594,7 +613,7 @@ impl MetricName {
     pub fn fast_hash(&self) -> u64 {
         let mut hasher: Xxh3 = Xxh3::new();
         hasher.update(self.metric_group.as_bytes());
-        for Tag{ key: k, value: v} in self.tags.iter() {
+        for Tag { key: k, value: v } in self.tags.iter() {
             hasher.update(k.as_bytes());
             hasher.update(v.as_bytes());
         }
@@ -613,7 +632,7 @@ impl MetricName {
     pub fn sort_tags(&mut self) {
         self.tags.sort_by(|a, b| {
             if a.key == b.key {
-                return a.value.cmp(&b.value)
+                return a.value.cmp(&b.value);
             }
             return a.key.cmp(&b.key);
         });
@@ -627,7 +646,7 @@ impl MetricName {
         result.push_str("{");
         let len = self.tags.len();
         let mut i = 0;
-        for Tag{ key: k, value: v} in self.tags.iter() {
+        for Tag { key: k, value: v } in self.tags.iter() {
             result.push_str(format!("{}={}", k, enquote('"', &v)).as_str());
             if i < len - 1 {
                 result.push_str(",");
@@ -639,9 +658,13 @@ impl MetricName {
     }
 }
 
-
-fn count_label_value(hm: &mut HashMap<String, HashMap<String, usize>>, label: &String, value: &String) {
-    let label_counts = hm.entry(label.to_string())
+fn count_label_value(
+    hm: &mut HashMap<String, HashMap<String, usize>>,
+    label: &String,
+    value: &String,
+) {
+    let label_counts = hm
+        .entry(label.to_string())
         .or_insert_with(|| HashMap::new());
     *label_counts.entry(value.to_string()).or_insert(0) += 1;
 }
@@ -651,7 +674,7 @@ impl Display for MetricName {
         write!(f, "{}{{", self.metric_group)?;
         let len = self.tags.len();
         let mut i = 0;
-        for Tag{ key: k, value: v} in self.tags.iter() {
+        for Tag { key: k, value: v } in self.tags.iter() {
             write!(f, "{}={}", k, enquote('"', &v))?;
             if i < len - 1 {
                 write!(f, ",")?;

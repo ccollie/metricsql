@@ -1,7 +1,8 @@
 use crate::lexer::{escape_ident, quote};
 use crate::parser::{compile_regexp, ParseError};
+use serde::{Deserialize, Serialize};
 use std::fmt;
-use serde::{Serialize, Deserialize};
+use std::ops::Deref;
 
 pub const NAME_LABEL: &str = "__name__";
 
@@ -24,7 +25,10 @@ impl LabelFilterOp {
     }
 
     pub fn is_regex(&self) -> bool {
-        matches!(self, LabelFilterOp::RegexEqual | LabelFilterOp::RegexNotEqual)
+        matches!(
+            self,
+            LabelFilterOp::RegexEqual | LabelFilterOp::RegexNotEqual
+        )
     }
 }
 
@@ -82,7 +86,7 @@ impl LabelFilter {
         if match_op == LabelFilterOp::RegexEqual || match_op == LabelFilterOp::RegexNotEqual {
             let re_anchored = format!("^(?:{})$", value);
             if compile_regexp(&re_anchored).is_err() {
-                return Err(ParseError::InvalidRegex(value))
+                return Err(ParseError::InvalidRegex(value));
             }
         }
 
@@ -141,7 +145,30 @@ impl PartialEq for LabelFilter {
 
 impl fmt::Display for LabelFilter {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}{}{}", escape_ident(&self.label), self.op, quote(&self.value))?;
+        write!(
+            f,
+            "{}{}{}",
+            escape_ident(&self.label),
+            self.op,
+            quote(&self.value)
+        )?;
         Ok(())
+    }
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct MatcherList(Vec<LabelFilter>);
+
+impl MatcherList {
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+impl Deref for MatcherList {
+    type Target = Vec<LabelFilter>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }

@@ -1,4 +1,4 @@
-use crate::ast::Operator;
+use crate::common::Operator;
 use crate::parser::{ParseError, ParseResult};
 
 /// Eq returns true of left == right.
@@ -118,44 +118,46 @@ pub fn ifnot(left: f64, right: f64) -> f64 {
     f64::NAN
 }
 
-
 pub fn eval_binary_op(left: f64, right: f64, op: Operator, is_bool: bool) -> f64 {
-    use crate::ast::Operator::*;
-
     return if op.is_comparison() {
-        fn eval_cmp(left: f64, right: f64, is_bool: bool, cf: fn(left: f64, right: f64) -> bool) -> f64 {
+        fn eval_cmp(
+            left: f64,
+            right: f64,
+            is_bool: bool,
+            cf: fn(left: f64, right: f64) -> bool,
+        ) -> f64 {
             if is_bool {
                 return if cf(left, right) { 1_f64 } else { 0_f64 };
             }
-            return if cf(left, right) { left } else { f64::NAN }
+            return if cf(left, right) { left } else { f64::NAN };
         }
 
         match op {
-            Eql => eval_cmp(left, right, is_bool, eq),
-            NotEq => eval_cmp(left, right, is_bool, neq),
-            Gt => eval_cmp(left, right, is_bool, gt),
-            Lt => eval_cmp(left, right, is_bool, lt),
-            Gte => eval_cmp(left, right, is_bool, gte),
-            Lte => eval_cmp(left, right, is_bool, lte),
-            _ => panic!("BUG: unexpected comparison binaryOp: {}", op)
+            Operator::Eql => eval_cmp(left, right, is_bool, eq),
+            Operator::NotEq => eval_cmp(left, right, is_bool, neq),
+            Operator::Gt => eval_cmp(left, right, is_bool, gt),
+            Operator::Lt => eval_cmp(left, right, is_bool, lt),
+            Operator::Gte => eval_cmp(left, right, is_bool, gte),
+            Operator::Lte => eval_cmp(left, right, is_bool, lte),
+            _ => panic!("BUG: unexpected comparison binaryOp: {}", op),
         }
     } else {
         match op {
-            Add => plus(left, right),
-            Sub => minus(left, right),
-            Mul => mul(left, right),
-            Div => div(left, right),
-            Mod => mod_(left, right),
-            Pow => pow(left, right),
-            Atan2 => atan2(left, right),
-            And | Or => left,
-            Unless => f64::NAN, // nothing to do
-            Default => default(left, right),
-            If => if_(left, right),
-            IfNot => ifnot(left, right),
+            Operator::Add => plus(left, right),
+            Operator::Sub => minus(left, right),
+            Operator::Mul => mul(left, right),
+            Operator::Div => div(left, right),
+            Operator::Mod => mod_(left, right),
+            Operator::Pow => pow(left, right),
+            Operator::Atan2 => atan2(left, right),
+            Operator::And | Operator::Or => left,
+            Operator::Unless => f64::NAN, // nothing to do
+            Operator::Default => default(left, right),
+            Operator::If => if_(left, right),
+            Operator::IfNot => ifnot(left, right),
             _ => panic!("unexpected non-comparison op: {:?}", op),
         }
-    }
+    };
 }
 
 pub fn string_compare(a: &str, b: &str, op: Operator) -> ParseResult<bool> {
@@ -166,6 +168,9 @@ pub fn string_compare(a: &str, b: &str, op: Operator) -> ParseResult<bool> {
         Operator::Gt => Ok(a > b),
         Operator::Lte => Ok(a <= b),
         Operator::Gte => Ok(a >= b),
-        _ => Err(ParseError::General(format!("unexpected operator {} in string comparison", op))),
+        _ => Err(ParseError::General(format!(
+            "unexpected operator {} in string comparison",
+            op
+        ))),
     }
 }

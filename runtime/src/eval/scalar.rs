@@ -1,29 +1,25 @@
-use std::sync::Arc;
 use metricsql::ast::NumberExpr;
 use metricsql::functions::{DataType, Volatility};
+use std::sync::Arc;
 
-use crate::{EvalConfig};
 use crate::context::Context;
 use crate::eval::traits::Evaluator;
 use crate::functions::types::AnyValue;
 use crate::runtime_error::RuntimeResult;
+use crate::EvalConfig;
 
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct ScalarEvaluator {
-    value: f64
-}
+pub struct ScalarEvaluator(f64);
 
 impl ScalarEvaluator {
     pub fn new(expr: &NumberExpr) -> Self {
-        Self {
-            value: expr.value
-        }
+        Self(expr.value)
     }
 }
 
 impl Evaluator for ScalarEvaluator {
     fn eval(&self, _ctx: &Arc<&Context>, _ec: &EvalConfig) -> RuntimeResult<AnyValue> {
-        Ok(AnyValue::Scalar(self.value))
+        Ok(AnyValue::Scalar(self.0))
     }
 
     fn volatility(&self) -> Volatility {
@@ -37,12 +33,12 @@ impl Evaluator for ScalarEvaluator {
 
 impl From<f64> for ScalarEvaluator {
     fn from(v: f64) -> Self {
-        ScalarEvaluator { value: v }
+        ScalarEvaluator(v)
     }
 }
 
 impl From<i64> for ScalarEvaluator {
     fn from(v: i64) -> Self {
-        ScalarEvaluator { value: v as f64 }
+        ScalarEvaluator(v as f64)
     }
 }

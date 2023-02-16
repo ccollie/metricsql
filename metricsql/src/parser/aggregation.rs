@@ -1,11 +1,11 @@
-use std::str::FromStr;
-use crate::ast::{AggregateModifier, AggregateModifierOp, AggrFuncExpr, Expression};
-use crate::functions::{AggregateFunction, BuiltinFunction};
-use crate::lexer::TokenKind;
-use crate::parser::{ParseErr, ParseError, Parser, ParseResult};
 use super::expr::{parse_arg_list, parse_number};
 use super::function::validate_args;
-
+use crate::ast::{AggrFuncExpr, Expression};
+use crate::common::{AggregateModifier, AggregateModifierOp};
+use crate::functions::{AggregateFunction, BuiltinFunction};
+use crate::lexer::TokenKind;
+use crate::parser::{ParseErr, ParseError, ParseResult, Parser};
+use std::str::FromStr;
 
 /// parse_aggr_func_expr parses an aggregation expression.
 ///
@@ -14,7 +14,6 @@ use super::function::validate_args;
 ///
 pub(super) fn parse_aggr_func_expr(p: &mut Parser) -> ParseResult<Expression> {
     let tok = p.current_token()?;
-    let mut span = tok.span;
 
     let func = AggregateFunction::from_str(tok.text)?;
 
@@ -49,15 +48,8 @@ pub(super) fn parse_aggr_func_expr(p: &mut Parser) -> ParseResult<Expression> {
     } else if kind == TokenKind::LeftParen {
         handle_args(p, &mut ae)?;
     } else {
-        return Err(p.token_error(&[
-            TokenKind::By,
-            TokenKind::Without,
-            TokenKind::LeftParen
-        ]));
+        return Err(p.token_error(&[TokenKind::By, TokenKind::Without, TokenKind::LeftParen]));
     }
-
-    p.update_span(&mut span);
-    ae.span = span;
 
     Ok(Expression::Aggregation(ae))
 }
@@ -67,7 +59,7 @@ fn parse_aggregate_modifier(p: &mut Parser) -> ParseResult<AggregateModifier> {
     let op = match tok.kind {
         TokenKind::By => AggregateModifierOp::By,
         TokenKind::Without => AggregateModifierOp::Without,
-        _ => unreachable!()
+        _ => unreachable!(),
     };
 
     let args = p.parse_ident_list()?;

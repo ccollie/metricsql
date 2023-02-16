@@ -1,25 +1,23 @@
-use std::sync::Arc;
-use metricsql::ast::DurationExpr;
 use metricsql::functions::{DataType, Volatility};
+use metricsql::hir::DurationExpr;
+use std::sync::Arc;
 
-use crate::{EvalConfig};
 use crate::context::Context;
 use crate::eval::traits::Evaluator;
 use crate::functions::types::AnyValue;
 use crate::runtime_error::RuntimeResult;
+use crate::EvalConfig;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct DurationEvaluator {
-    expr: DurationExpr
+    expr: DurationExpr,
 }
 
 impl DurationEvaluator {
     pub fn new(expr: &DurationExpr) -> Self {
-        Self {
-            expr: expr.clone()
-        }
+        Self { expr: expr.clone() }
     }
-    
+
     pub(super) fn is_const(&self) -> bool {
         !self.expr.requires_step
     }

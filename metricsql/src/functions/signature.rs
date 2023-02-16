@@ -53,20 +53,17 @@ pub enum TypeSignature {
     /// exact number of arguments of an exact type
     Exact(Vec<DataType>),
     /// fixed number of arguments of arbitrary types
-    Any(usize)
+    Any(usize),
 }
 
 impl TypeSignature {
     /// Validate argument counts matches the `signature`.
     pub fn validate_arg_count(&self, name: &str, arg_len: usize) -> ParseResult<()> {
-
         fn expect_arg_count(name: &str, arg_len: usize, expected: usize) -> ParseResult<()> {
             if arg_len != expected {
                 return Err(ParseError::ArgumentError(format!(
                     "The function {} expected {} arguments but received {}",
-                    name,
-                    expected,
-                    arg_len
+                    name, expected, arg_len
                 )));
             }
             Ok(())
@@ -76,18 +73,14 @@ impl TypeSignature {
             if args_len < min {
                 return Err(ParseError::ArgumentError(format!(
                     "The function {} expected a minimum of {} arguments but received {}",
-                    name,
-                    min,
-                    args_len
+                    name, min, args_len
                 )));
             }
             Ok(())
         }
 
         return match self {
-            TypeSignature::VariadicEqual(_data_type_, min) => {
-                expect_min_args(name,arg_len, *min)
-            },
+            TypeSignature::VariadicEqual(_data_type_, min) => expect_min_args(name, arg_len, *min),
             TypeSignature::Variadic(valid_types, min) => {
                 if valid_types.len() < *min || arg_len > valid_types.len() {
                     return Err(ParseError::ArgumentError(format!(
@@ -99,20 +92,15 @@ impl TypeSignature {
                     )));
                 }
                 Ok(())
-            },
+            }
             TypeSignature::Uniform(number, _valid_type_) => {
                 expect_arg_count(name, arg_len, *number)
-            },
-            TypeSignature::Exact(valid_types) => {
-                expect_arg_count(name, arg_len, valid_types.len())
-            },
-            TypeSignature::Any(number) => {
-                expect_arg_count(name, arg_len, *number)
             }
-        }
+            TypeSignature::Exact(valid_types) => expect_arg_count(name, arg_len, valid_types.len()),
+            TypeSignature::Any(number) => expect_arg_count(name, arg_len, *number),
+        };
     }
 }
-
 
 ///The Signature of a function defines its supported input types as well as its volatility.
 #[derive(Debug, Clone, PartialEq, Hash)]
@@ -157,11 +145,7 @@ impl Signature {
     }
 
     /// uniform - Creates a signature with a fixed number of arguments of the same type, which must be from valid_types.
-    pub fn uniform(
-        arg_count: usize,
-        valid_type: DataType,
-        volatility: Volatility,
-    ) -> Self {
+    pub fn uniform(arg_count: usize, valid_type: DataType, volatility: Volatility) -> Self {
         Self {
             type_signature: TypeSignature::Uniform(arg_count, valid_type),
             volatility,
@@ -189,20 +173,13 @@ impl Signature {
         self.type_signature.validate_arg_count(name, arg_len)
     }
 
-    pub fn expand_types(&self) -> (Vec<DataType>, usize) {  // todo: also return min count
+    pub fn expand_types(&self) -> (Vec<DataType>, usize) {
+        // todo: also return min count
         match &self.type_signature {
-            TypeSignature::Variadic(types, min) => {
-                (types.clone(), *min)
-            }
-            TypeSignature::VariadicEqual(data_type, min) => {
-                (vec![*data_type;MAX_ARG_COUNT], *min)
-            }
-            TypeSignature::Uniform(count, data_type) => {
-                (vec![*data_type;MAX_ARG_COUNT], *count)
-            }
-            TypeSignature::Exact(types) => {
-                (types.clone(), types.len())
-            }
+            TypeSignature::Variadic(types, min) => (types.clone(), *min),
+            TypeSignature::VariadicEqual(data_type, min) => (vec![*data_type; MAX_ARG_COUNT], *min),
+            TypeSignature::Uniform(count, data_type) => (vec![*data_type; MAX_ARG_COUNT], *count),
+            TypeSignature::Exact(types) => (types.clone(), types.len()),
             TypeSignature::Any(count) => {
                 (vec![DataType::InstantVector; *count], *count) // TODO:: !!!! have a Datatype::Any
             }

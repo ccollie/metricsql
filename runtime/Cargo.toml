@@ -29,9 +29,8 @@ rand = { workspace = true }
 rand_distr = { workspace = true }
 rayon = { workspace = true }
 thiserror = { workspace = true }
-scopeguard = "1.1.0"
-pydeco = "0.1.0"
-tinyvec = { workspace = true }
+tinyvec = { wokspace = true }
+scopeguard = { workspace = true }
 tracing = { workspace = true }
 xxhash-rust = { version = "0.8.6", features = ["xxh3", "xxh64"] }
 lib={ path = "../lib" }

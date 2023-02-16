@@ -14,5 +14,5 @@ pub fn compare<T: Ord>(a: &[T], b: &[T]) -> std::cmp::Ordering {
         }
         min_len -= 1;
     }
-    return a.len().cmp(&b.len());
+    a.len().cmp(&b.len())
 }

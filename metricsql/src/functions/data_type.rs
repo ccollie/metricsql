@@ -1,6 +1,6 @@
+use crate::common::ReturnType;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
-use crate::ast::ReturnType;
 
 use crate::parser::ParseError;
 
@@ -11,7 +11,7 @@ pub enum DataType {
     /// A 64-bit floating point number.
     Scalar,
     /// An owned String
-    String
+    String,
 }
 
 impl DataType {
@@ -23,20 +23,20 @@ impl DataType {
     /// Returns true if this `DataType` is a valid sub-expression of an
     /// operator, false if not.
     pub fn is_operator_valid(&self) -> bool {
-        matches!(self,
-            DataType::String |
-            DataType::Scalar |
-            DataType::InstantVector)
+        matches!(
+            self,
+            DataType::String | DataType::Scalar | DataType::InstantVector
+        )
     }
 }
 
 impl Display for DataType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let name = match self {
-            DataType::RangeVector => "RangeVector",  // range vector
-            DataType::InstantVector => "InstantVector",  // instant vector
+            DataType::RangeVector => "RangeVector",     // range vector
+            DataType::InstantVector => "InstantVector", // instant vector
             DataType::String => "String",
-            DataType::Scalar => "Scalar"
+            DataType::Scalar => "Scalar",
         };
         write!(f, "{}", name)
     }
@@ -51,7 +51,7 @@ impl TryFrom<ReturnType> for DataType {
             ReturnType::Scalar => Ok(DataType::Scalar),
             ReturnType::String => Ok(DataType::String),
             ReturnType::InstantVector => Ok(DataType::InstantVector),
-            ReturnType::RangeVector => Ok(DataType::RangeVector)
+            ReturnType::RangeVector => Ok(DataType::RangeVector),
         }
     }
 }
@@ -65,7 +65,10 @@ impl FromStr for DataType {
             "instantvector" => Ok(DataType::InstantVector),
             "string" => Ok(DataType::String),
             "scalar" => Ok(DataType::Scalar),
-            _ => Err(ParseError::General(format!("Invalid data type name: {}", s)))
+            _ => Err(ParseError::General(format!(
+                "Invalid data type name: {}",
+                s
+            ))),
         }
     }
 }

@@ -1,10 +1,11 @@
-use crate::lexer::{escape_ident};
-use crate::parser::{compile_regexp, ParseError, ParseResult};
 use std::fmt;
-use crate::ast::{LabelFilter, LabelFilterOp, LabelName, LabelValue, NAME_LABEL};
-use serde::{Serialize, Deserialize};
-use crate::ast::segmented_string::SegmentedString;
 
+use serde::{Deserialize, Serialize};
+
+use crate::ast::StringExpr;
+use crate::common::{LabelFilter, LabelFilterOp, LabelName, NAME_LABEL};
+use crate::lexer::escape_ident;
+use crate::parser::{compile_regexp, ParseError, ParseResult};
 
 /// LabelFilterExpr represents `foo <op> ident + "bar"` expression, where <op> is `=`, `!=`, `=~` or `!~`.
 /// For internal use only, in the context of WITH expressions
@@ -16,28 +17,29 @@ pub struct LabelFilterExpr {
     pub label: String,
 
     /// Value contains unquoted value for the filter.
-    pub value: SegmentedString,
+    pub value: StringExpr,
 }
 
 impl LabelFilterExpr {
-    pub fn new<N, V>(match_op: LabelFilterOp, label: N, value: V) -> ParseResult<Self>
+    pub fn new<N>(match_op: LabelFilterOp, label: N, value: StringExpr) -> ParseResult<Self>
     where
         N: Into<LabelName>,
-        V: Into<LabelValue>,
     {
         let label = label.into();
-        let value = value.into();
 
         assert!(!label.is_empty());
 
         if match_op == LabelFilterOp::RegexEqual || match_op == LabelFilterOp::RegexNotEqual {
-            let re_anchored = format!("^(?:{})$", value);
-            if compile_regexp(&re_anchored).is_err() {
-                return Err(ParseError::InvalidRegex(value))
+            if value.is_resolved() {
+                let resolved_value = value.to_string();
+                let re_anchored = format!("^(?:{})$", resolved_value);
+                if compile_regexp(&re_anchored).is_err() {
+                    return Err(ParseError::InvalidRegex(resolved_value));
+                }
             }
         }
 
-        let value = SegmentedString::from(value.into());
+        let value = StringExpr::from(value.to_string());
         Ok(Self {
             label,
             op: match_op,
@@ -45,12 +47,17 @@ impl LabelFilterExpr {
         })
     }
 
-    pub fn equal<S: Into<String>>(key: S, value: S) -> ParseResult<LabelFilterExpr> {
+    pub fn equal<S: Into<String>>(key: S, value: StringExpr) -> ParseResult<LabelFilterExpr> {
         LabelFilterExpr::new(LabelFilterOp::Equal, key, value)
     }
 
-    pub fn not_equal<S: Into<String>>(key: S, value: S) -> ParseResult<LabelFilterExpr> {
+    pub fn not_equal<S: Into<String>>(key: S, value: StringExpr) -> ParseResult<LabelFilterExpr> {
         LabelFilterExpr::new(LabelFilterOp::NotEqual, key, value)
+    }
+
+    /// is_negative represents whether the filter is negative, i.e. '!=' or '!~'.
+    pub fn is_negative(&self) -> bool {
+        self.op.is_negative()
     }
 
     /// is_regexp represents whether the filter is regexp, i.e. `=~` or `!~`.
@@ -63,7 +70,7 @@ impl LabelFilterExpr {
     }
 
     pub fn set_value<S: Into<String>>(&mut self, value: S) {
-        self.value.set_from_string(value.into())
+        self.value = StringExpr::from(value.into())
     }
 
     pub fn as_string(&self) -> String {
@@ -71,11 +78,11 @@ impl LabelFilterExpr {
     }
 
     pub fn is_resolved(&self) -> bool {
-        self.value.is_expanded()
+        self.value.is_resolved()
     }
 
     pub fn to_label_filter(&self) -> ParseResult<LabelFilter> {
-        LabelFilter::new(self.op, &self.label, self.value.value.to_string())
+        LabelFilter::new(self.op, &self.label, self.value.to_string())
     }
 }
 

@@ -1,146 +1,19 @@
-use std::{fmt, iter, ops};
-use std::fmt::{Display, Formatter};
-use std::hash::{Hash, Hasher};
-use std::ops::Deref;
-use enquote::enquote;
-use chrono::Duration;
-use lib::{fmt_duration_ms, hash_f64};
-use serde::{Serialize, Deserialize};
 use crate::ast;
-use crate::functions::{AggregateFunction, BuiltinFunction};
-use crate::hir::{
-    AggregateModifier,
-    Operator,
-    GroupModifier,
-    JoinModifier,
-    LabelFilter,
-    LabelFilterOp,
-    ReturnType,
-    VectorMatchCardinality
+use crate::ast::format_num;
+use crate::common::{
+    AggregateModifier, GroupModifier, JoinModifier, LabelFilter, LabelFilterOp, Operator,
+    ReturnType, VectorMatchCardinality,
 };
+use crate::functions::{AggregateFunction, BuiltinFunction, TransformFunction};
+use enquote::enquote;
+use lib::fmt_duration_ms;
+use serde::{Deserialize, Serialize};
+use std::fmt::{Display, Formatter};
+use std::hash::Hash;
+use std::str::FromStr;
+use std::{fmt, iter, ops};
 
-// todo: number => scalar
-/// NumberExpr represents number expression.
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
-pub struct NumberExpr {
-    /// value is the parsed number, i.e. `1.23`, `-234`, etc.
-    pub value: f64,
-}
-
-impl NumberExpr {
-    pub fn new(v: f64) -> Self {
-        NumberExpr {
-            value: v,
-        }
-    }
-    pub fn return_type(&self) -> ReturnType {
-        ReturnType::Scalar
-    }
-}
-
-impl From<f64> for NumberExpr {
-    fn from(value: f64) -> Self {
-        NumberExpr::new(value)
-    }
-}
-
-impl From<ast::NumberExpr> for NumberExpr {
-    fn from(expr: ast::NumberExpr) -> Self {
-        NumberExpr::from(expr.value)
-    }
-}
-
-impl From<&ast::NumberExpr> for NumberExpr {
-    fn from(expr: &ast::NumberExpr) -> Self {
-        NumberExpr::from(expr.value)
-    }
-}
-
-impl PartialEq for NumberExpr {
-    fn eq(&self, other: &Self) -> bool {
-        (self.value - other.value).abs() <= f64::EPSILON
-    }
-}
-
-
-impl Display for NumberExpr {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{}", format_num(self.value))?;
-        Ok(())
-    }
-}
-
-impl Hash for NumberExpr {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        hash_f64(state, self.value);
-    }
-}
-
-
-/// StringExpr represents string expression.
-#[derive(Debug, Clone, Default, Hash, Serialize, Deserialize)]
-pub struct StringExpr {
-    /// contains unquoted value for string expression.
-    pub value: String,
-}
-
-impl StringExpr {
-    pub fn new<S: Into<String>>(s: S) -> Self {
-        StringExpr {
-            value: s.into()
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        self.value.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.value.is_empty()
-    }
-
-    pub fn return_type(&self) -> ReturnType {
-        ReturnType::String
-    }
-}
-
-impl From<String> for StringExpr {
-    fn from(s: String) -> Self {
-        StringExpr::new(s)
-    }
-}
-
-impl From<&str> for StringExpr {
-    fn from(s: &str) -> Self {
-        StringExpr::new(s)
-    }
-}
-
-impl From<ast::StringExpr> for StringExpr {
-    fn from(value: ast::StringExpr) -> Self {
-        StringExpr::from(value.value)
-    }
-}
-
-impl From<&ast::StringExpr> for StringExpr {
-    fn from(value: &ast::StringExpr) -> Self {
-        StringExpr::from(value.value.as_str())
-    }
-}
-
-impl Display for StringExpr {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{}", enquote('"', &*self.value))?;
-        Ok(())
-    }
-}
-
-impl Deref for StringExpr {
-    type Target = String;
-    fn deref(&self) -> &Self::Target {
-        &self.value
-    }
-}
+use crate::parser::{ParseError, ParseResult};
 
 /// DurationExpr contains a duration
 #[derive(Default, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -150,7 +23,7 @@ pub struct DurationExpr {
     pub requires_step: bool,
 }
 
-impl From<&ast::DurationExpr>  for DurationExpr {
+impl From<&ast::DurationExpr> for DurationExpr {
     fn from(value: &ast::DurationExpr) -> Self {
         Self {
             value: value.value,
@@ -193,7 +66,7 @@ impl Display for DurationExpr {
 
 // todo: MetricExpr => Selector
 /// MetricExpr represents MetricsQL metric with optional filters, i.e. `foo{...}`.
-#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, PartialEq, Serialize, Deserialize)]
 pub struct MetricExpr {
     /// LabelFilters contains a list of label filters from curly braces.
     /// Filter or metric name must be the first if present.
@@ -204,7 +77,7 @@ impl MetricExpr {
     pub fn new<S: Into<String>>(name: S) -> MetricExpr {
         let name_filter = LabelFilter::new(LabelFilterOp::Equal, "__name__", name).unwrap();
         MetricExpr {
-            label_filters: vec![name_filter]
+            label_filters: vec![name_filter],
         }
     }
 
@@ -233,9 +106,13 @@ impl MetricExpr {
     }
 
     pub fn name(&self) -> Option<&str> {
-        match self.label_filters.iter().find(|filter| filter.label == "__name__") {
+        match self
+            .label_filters
+            .iter()
+            .find(|filter| filter.label == "__name__")
+        {
             Some(f) => Some(&f.value),
-            None => None
+            None => None,
         }
     }
 
@@ -246,17 +123,17 @@ impl MetricExpr {
 
 impl Display for MetricExpr {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        let mut lfs: &[LabelFilter] = &self.label_filters;
-        if !lfs.is_empty() {
-            let lf = &lfs[0];
+        let mut filters: &[LabelFilter] = &self.label_filters;
+        if !filters.is_empty() {
+            let lf = &filters[0];
             if lf.label == "__name__" && !lf.is_negative() && !lf.is_regexp() {
                 write!(f, "{}", &lf.value)?;
-                lfs = &lfs[1..];
+                filters = &filters[1..];
             }
         }
-        if !lfs.is_empty() {
+        if !filters.is_empty() {
             write!(f, "{{")?;
-            for (i, lf) in lfs.iter().enumerate() {
+            for (i, lf) in filters.iter().enumerate() {
                 if i > 0 {
                     write!(f, ", ")?;
                 }
@@ -270,12 +147,12 @@ impl Display for MetricExpr {
     }
 }
 
-impl From<&ast::MetricExpr> for MetricExpr {
-    fn from(value: &ast::MetricExpr) -> Self {
-        let label_filters = value.label_filters.clone();
-        MetricExpr {
-            label_filters
-        }
+impl TryFrom<&ast::MetricExpr> for MetricExpr {
+    type Error = ParseError;
+
+    fn try_from(value: &ast::MetricExpr) -> Result<Self, Self::Error> {
+        let label_filters = value.to_label_filters()?;
+        Ok(MetricExpr { label_filters })
     }
 }
 
@@ -287,51 +164,8 @@ impl Default for MetricExpr {
     }
 }
 
-
-// TODO: ParensExpr => GroupExpr
-/// Expression(s) explicitly grouped in parens
-#[derive(Default, Debug, Clone, Hash, Serialize, Deserialize)]
-pub struct ParensExpr {
-    pub expressions: Vec<BExpression>,
-    pub return_type: ReturnType
-}
-
-impl ParensExpr {
-    pub fn new(expressions: Vec<BExpression>) -> Self {
-        ParensExpr {
-            expressions,
-            return_type: ReturnType::Scalar
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        self.expressions.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.expressions.is_empty()
-    }
-
-    pub fn return_type(&self) -> ReturnType {
-        self.return_type.clone()
-    }
-}
-
-impl From<&ast::ParensExpr> for ParensExpr {
-    fn from(value: &ast::ParensExpr) -> Self {
-        todo!()
-    }
-}
-
-impl Display for ParensExpr {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write_expression_list(&self.expressions, f)?;
-        Ok(())
-    }
-}
-
 /// FuncExpr represents MetricsQL function such as `rate(...)`
-#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FunctionExpr {
     pub name: String,
 
@@ -340,6 +174,8 @@ pub struct FunctionExpr {
     /// Args contains function args.
     pub args: Vec<BExpression>,
 
+    pub arg_idx_for_optimization: Option<usize>,
+
     /// If keep_metric_names is set to true, then the function should keep metric names.
     pub keep_metric_names: bool,
 
@@ -347,10 +183,36 @@ pub struct FunctionExpr {
 
     pub return_type: ReturnType,
 
-    pub arg_idx_for_optimization: Option<usize>
+    pub sorts_results: bool,
 }
 
 impl FunctionExpr {
+    pub fn new(name: &str, args: Vec<BExpression>) -> ParseResult<Self> {
+        // time() returns scalar in PromQL - see https://prometheus.io/docs/prometheus/latest/querying/functions/#time
+        let lower = name.to_lowercase();
+        let fname = if name.is_empty() { "union" } else { name };
+        let function = BuiltinFunction::new(fname)?;
+        let return_type = ReturnType::Scalar; // TODO
+        let is_scalar = lower == "time"; // todo: what about now() and pi()
+
+        match return_type {
+            ReturnType::Unknown(unknown) => {
+                return Err(ParseError::InvalidExpression(unknown.message))
+            }
+            _ => {}
+        }
+
+        Ok(Self {
+            function,
+            name: name.to_string(),
+            args,
+            arg_idx_for_optimization: None,
+            keep_metric_names: false,
+            is_scalar,
+            return_type,
+            sorts_results: false,
+        })
+    }
 
     pub fn is_aggregate(&self) -> bool {
         self.type_name() == "aggregate"
@@ -367,6 +229,22 @@ impl FunctionExpr {
     pub fn return_type(&self) -> ReturnType {
         self.return_type.clone()
     }
+
+    pub fn get_arg_for_optimization(&self) -> Option<&BExpression> {
+        match self.arg_idx_for_optimization {
+            None => None,
+            Some(idx) => Some(&self.args[idx]),
+        }
+    }
+
+    pub fn default_rollup(arg: Expression) -> ParseResult<Self> {
+        Self::from_single_arg("default_rollup", arg)
+    }
+
+    pub fn from_single_arg(name: &str, arg: Expression) -> ParseResult<Self> {
+        let args = vec![Box::new(arg)];
+        Self::new(name, args)
+    }
 }
 
 impl From<&ast::FuncExpr> for FunctionExpr {
@@ -378,6 +256,7 @@ impl From<&ast::FuncExpr> for FunctionExpr {
             keep_metric_names: value.keep_metric_names,
             is_scalar: value.is_scalar,
             return_type: value.return_type(),
+            sorts_results: value.function.sorts_results(),
             arg_idx_for_optimization: value.get_arg_idx_for_optimization(),
         }
     }
@@ -394,9 +273,8 @@ impl Display for FunctionExpr {
     }
 }
 
-
 /// AggregationExpr represents aggregate function such as `sum(...) by (...)`
-#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AggregationExpr {
     /// the aggregation function enum
     pub function: AggregateFunction,
@@ -418,7 +296,7 @@ pub struct AggregationExpr {
 
     pub keep_metric_names: bool,
 
-    pub arg_idx_for_optimization: Option<usize>
+    pub arg_idx_for_optimization: Option<usize>,
 }
 
 impl AggregationExpr {
@@ -434,8 +312,20 @@ impl AggregationExpr {
         }
     }
 
+    pub fn from_name(name: &str) -> ParseResult<Self> {
+        let function = AggregateFunction::from_str(name)?;
+        Ok(Self::new(&function))
+    }
+
     pub fn return_type(&self) -> ReturnType {
         ReturnType::InstantVector
+    }
+
+    pub fn get_arg_for_optimization(&self) -> Option<&BExpression> {
+        match self.arg_idx_for_optimization {
+            None => None,
+            Some(idx) => Some(&self.args[idx]),
+        }
     }
 }
 
@@ -470,8 +360,7 @@ impl Display for AggregationExpr {
     }
 }
 
-
-#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 /// RollupExpr represents an MetricsQL expression which contains at least `offset` or `[...]` part.
 pub struct RollupExpr {
     /// The expression for the rollup. Usually it is MetricExpr, but may be arbitrary expr
@@ -482,21 +371,18 @@ pub struct RollupExpr {
     /// prometheus terminology
     ///
     /// For example, `http_requests_total[5m]` will have Window value `5m`.
-    #[serde_as(as = "DurationMilliseconds<i64>")]
-    pub window: Option<Duration>,
+    pub window: Option<DurationExpr>,
 
     /// step contains optional step value from square brackets. Equivalent to `resolution`
     /// in the prometheus docs
     ///
     /// For example, `foobar[1h:3m]` will have step value `3m`.
-    #[serde_as(as = "DurationMilliseconds<i64>")]
-    pub step: Option<Duration>,
+    pub step: Option<DurationExpr>,
 
     /// offset contains optional value from `offset` part.
     ///
     /// For example, `foobar{baz="aa"} offset 5m` will have Offset value `5m`.
-    #[serde_as(as = "DurationMilliseconds<i64>")]
-    pub offset: Option<Duration>,
+    pub offset: Option<DurationExpr>,
 
     /// if set to true, then `foo[1h:]` would print the same instead of `foo[1h]`.
     pub inherit_step: bool,
@@ -507,7 +393,7 @@ pub struct RollupExpr {
     /// See https://prometheus.io/docs/prometheus/latest/querying/basics/#modifier
     pub at: Option<BExpression>,
 
-    _return_type: ReturnType
+    pub return_type: ReturnType,
 }
 
 impl RollupExpr {
@@ -519,7 +405,7 @@ impl RollupExpr {
             step: None,
             inherit_step: false,
             at: None,
-            _return_type: ReturnType::String
+            return_type: ReturnType::String,
         }
     }
 
@@ -528,7 +414,7 @@ impl RollupExpr {
     }
 
     pub fn return_type(&self) -> ReturnType {
-        self._return_type.clone()
+        self.return_type.clone()
     }
 }
 
@@ -551,10 +437,16 @@ impl Display for RollupExpr {
         if self.window.is_some() || self.inherit_step || self.step.is_some() {
             write!(f, "[")?;
             if let Some(win) = &self.window {
-                fmt_duration_ms(f, win.as_millis() as i64)?;
+                fmt_duration_ms(f, win.value)?;
+                if win.requires_step {
+                    write!(f, "I")?;
+                }
             }
             if let Some(step) = &self.step {
-                fmt_duration_ms(f, step.as_millis() as i64)?;
+                fmt_duration_ms(f, step.value)?;
+                if step.requires_step {
+                    write!(f, "I")?;
+                }
             } else if self.inherit_step {
                 write!(f, ":")?;
             }
@@ -562,7 +454,7 @@ impl Display for RollupExpr {
         }
         if let Some(offset) = &self.offset {
             write!(f, " offset ")?;
-            fmt_duration_ms(f, offset.as_millis() as i64)?;
+            fmt_duration_ms(f, offset.value as i64)?;
         }
         if let Some(at) = &self.at {
             let parens_needed = at.is_binary_op();
@@ -588,13 +480,13 @@ impl From<&ast::RollupExpr> for RollupExpr {
             offset: None,
             inherit_step: value.inherit_step,
             at: None,
-            _return_type: value.return_type(),
+            return_type: value.return_type(),
         }
     }
 }
 
 /// BinaryOpExpr represents a binary operation.
-#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BinaryExpr {
     /// Op is the operation itself, i.e. `+`, `-`, `*`, etc.
     pub op: Operator,
@@ -615,9 +507,9 @@ pub struct BinaryExpr {
     /// right contains right arg for the `left op right` expression.
     pub right: BExpression,
 
-    pub cardinality: VectorMatchCardinality,
+    pub cardinality: Option<VectorMatchCardinality>,
 
-    _return_type: ReturnType
+    pub return_type: ReturnType,
 }
 
 impl BinaryExpr {
@@ -629,13 +521,13 @@ impl BinaryExpr {
             join_modifier: None,
             group_modifier: None,
             bool_modifier: false,
-            cardinality: VectorMatchCardinality::OneToOne,
-            _return_type: ReturnType::Scalar,
+            cardinality: None,
+            return_type: ReturnType::Scalar,
         }
     }
 
     pub fn return_type(&self) -> ReturnType {
-        self._return_type.clone()
+        self.return_type.clone()
     }
 }
 
@@ -669,15 +561,29 @@ impl Display for BinaryExpr {
 
 impl From<&ast::BinaryExpr> for BinaryExpr {
     fn from(value: &ast::BinaryExpr) -> Self {
+        let (left, right, op) = if value.should_adjust_comparison_op() {
+            (
+                Box::new(Expression::from(value.right.as_ref())),
+                Box::new(Expression::from(value.left.as_ref())),
+                value.op.get_reverse_cmp(),
+            )
+        } else {
+            (
+                Box::new(Expression::from(value.left.as_ref())),
+                Box::new(Expression::from(value.right.as_ref())),
+                value.op,
+            )
+        };
+
         Self {
-            op: value.op,
+            op,
             bool_modifier: value.bool_modifier,
             group_modifier: value.group_modifier.clone(),
             join_modifier: value.join_modifier.clone(),
-            left: Box::new(Default::default()),  // TODO
-            right: Box::new(Default::default()),
-            cardinality: VectorMatchCardinality::OneToOne,
-            _return_type: value.return_type(),
+            left,
+            right,
+            cardinality: value.vector_match_cardinality(),
+            return_type: value.return_type(),
         }
     }
 }
@@ -685,10 +591,10 @@ impl From<&ast::BinaryExpr> for BinaryExpr {
 /// A root expression node.
 ///
 /// These are all valid root expression ast.
-#[derive(Clone, Debug, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Expression {
     /// A single scalar number.
-    Number(NumberExpr),
+    Number(f64),
 
     Duration(DurationExpr),
 
@@ -696,10 +602,7 @@ pub enum Expression {
     ///
     /// Prometheus' docs claim strings aren't currently implemented, but they're
     /// valid as function arguments.
-    String(StringExpr),
-
-    /// A grouped expression wrapped in parentheses
-    Parens(ParensExpr),
+    String(String),
 
     /// A function call
     Function(FunctionExpr),
@@ -722,7 +625,7 @@ pub type BExpression = Box<Expression>;
 impl Expression {
     pub fn is_scalar(expr: &Expression) -> bool {
         match expr {
-            Expression::Duration(_) | Expression::Number(_) | Expression::Duration(_) => true,
+            Expression::Duration(_) | Expression::Number(_) => true,
             Expression::Function(f) => f.is_scalar,
             _ => false,
         }
@@ -733,37 +636,17 @@ impl Expression {
     }
 
     pub fn vectors(&self) -> Box<dyn Iterator<Item = &LabelFilter> + '_> {
-
         match self {
-            Self::MetricExpression(v) => {
-                Box::new(v.label_filters.iter() )
-            },
-            Self::Rollup(re) => {
-                Box::new(
-                    re.expr.vectors().chain(
-                        if let Some(at) = &re.at {
-                            at.vectors()
-                        } else {
-                            Box::new(iter::empty())
-                        }
-                    )
-                )
-            },
-            Self::BinaryOperator(be) => {
-                Box::new(be.left.vectors().chain(be.right.vectors()))
-            },
-            Self::Aggregation(ae) => {
-                Box::new(ae.args.iter().flat_map(|node| node.vectors()))
-            },
-            Self::Function(fe) => {
-                Box::new(fe.args.iter().flat_map(|node| node.vectors()))
-            },
-            Self::Parens(pe) => {
-                Box::new(pe.expressions.iter().flat_map(|node| node.vectors()))
-            },
-            Self::Number(_) |
-            Self::Duration(_) |
-            Self::String(_) => Box::new(iter::empty()),
+            Self::MetricExpression(v) => Box::new(v.label_filters.iter()),
+            Self::Rollup(re) => Box::new(re.expr.vectors().chain(if let Some(at) = &re.at {
+                at.vectors()
+            } else {
+                Box::new(iter::empty())
+            })),
+            Self::BinaryOperator(be) => Box::new(be.left.vectors().chain(be.right.vectors())),
+            Self::Aggregation(ae) => Box::new(ae.args.iter().flat_map(|node| node.vectors())),
+            Self::Function(fe) => Box::new(fe.args.iter().flat_map(|node| node.vectors())),
+            Self::Number(_) | Self::Duration(_) | Self::String(_) => Box::new(iter::empty()),
         }
     }
 
@@ -771,20 +654,20 @@ impl Expression {
     Return an iterator of series names present in this node.
     ```
     let opts = promql::ParserOptions::new()
-    	.allow_periods(false)
-    	.build();
+        .allow_periods(false)
+        .build();
     let query = r#"
-    	sum(1 - something_used{env="production"} / something_total) by (instance)
-    	and ignoring (instance)
-    	sum(rate(some_queries{instance=~"localhost\\d+"} [5m])) > 100
+        sum(1 - something_used{env="production"} / something_total) by (instance)
+        and ignoring (instance)
+        sum(rate(some_queries{instance=~"localhost\\d+"} [5m])) > 100
     "#;
     let ast = promql::parse(query, opts).expect("valid query");
     let series: Vec<String> = ast.series_names().collect();
     assert_eq!(series, vec![
-    		"something_used".to_string(),
-    		"something_total".to_string(),
-    		"some_queries".to_string(),
-    	],
+            "something_used".to_string(),
+            "something_total".to_string(),
+            "some_queries".to_string(),
+        ],
     );
     ```
      */
@@ -803,33 +686,24 @@ impl Expression {
     pub fn contains_subquery(&self) -> bool {
         use Expression::*;
         match self {
-            Function(fe) => {
-                fe.args.iter().any(|e| e.contains_subquery())
-            }
-            BinaryOperator(bo) => {
-                bo.left.contains_subquery() || bo.right.contains_subquery()
-            }
-            Aggregation(aggr) => {
-                aggr.args.iter().any(|e| e.contains_subquery())
-            }
-            Rollup(re) => {
-                re.for_subquery()
-            }
-            _ => false
+            Function(fe) => fe.args.iter().any(|e| e.contains_subquery()),
+            BinaryOperator(bo) => bo.left.contains_subquery() || bo.right.contains_subquery(),
+            Aggregation(aggr) => aggr.args.iter().any(|e| e.contains_subquery()),
+            Rollup(re) => re.for_subquery(),
+            _ => false,
         }
     }
 
     pub fn return_type(&self) -> ReturnType {
         match self {
-            Expression::Number(ne) => ne.return_type(),
+            Expression::Number(_) => ReturnType::Scalar,
             Expression::Duration(dur) => dur.return_type(),
-            Expression::String(se) => se.return_type(),
-            Expression::Parens(pe) => pe.return_type(),
+            Expression::String(_) => ReturnType::String,
             Expression::Function(fe) => fe.return_type(),
             Expression::Aggregation(ae) => ae.return_type(),
             Expression::BinaryOperator(be) => be.return_type(),
             Expression::Rollup(re) => re.return_type(),
-            Expression::MetricExpression(me) => me.return_type()
+            Expression::MetricExpression(me) => me.return_type(),
         }
     }
 
@@ -838,26 +712,25 @@ impl Expression {
             Expression::Number(_) => "Scalar",
             Expression::Duration(_) => "Scalar",
             Expression::String(_) => "String",
-            Expression::Parens(_) => "Group",
             Expression::Function(_) => "Function",
             Expression::Aggregation(_) => "Aggregation",
             Expression::BinaryOperator(_) => "Operator",
             Expression::Rollup(_) => "Rollup",
-            Expression::MetricExpression(_) => "Selector"
+            Expression::MetricExpression(_) => "Selector",
         }
     }
 
     pub fn is_metric_expression(&self) -> bool {
         match self {
             Expression::MetricExpression(_) => true,
-            _ => false
+            _ => false,
         }
     }
 
     pub fn is_binary_op(&self) -> bool {
         match self {
             Expression::BinaryOperator(_) => true,
-            _ => false
+            _ => false,
         }
     }
 
@@ -920,7 +793,7 @@ impl Expression {
     /// Return `self == bool NaN`
     #[allow(clippy::wrong_self_convention)]
     pub fn is_NaN(self) -> Expression {
-        self.eq( Expression::from(f64::NAN) )
+        self.eq(Expression::from(f64::NAN))
     }
 
     /// Return `self != bool NaN`
@@ -932,13 +805,13 @@ impl Expression {
     /// Return `self == bool 1`
     #[allow(clippy::wrong_self_convention)]
     pub fn is_true(self) -> Expression {
-        self.eq( Expression::from(1.0) )
+        self.eq(Expression::from(1.0))
     }
 
     /// Return `self != BOOL 1`
     #[allow(clippy::wrong_self_convention)]
     pub fn is_not_true(self) -> Expression {
-        self.not_eq( Expression::from(1.0) )
+        self.not_eq(Expression::from(1.0))
     }
 
     /// Return `self == bool 0`
@@ -955,12 +828,11 @@ impl Expression {
 impl Display for Expression {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
-            Expression::Number(n) => write!(f, "{}", n)?,
+            Expression::Number(n) => format_num(f, *n)?,
             Expression::Duration(d) => write!(f, "{}", d)?,
-            Expression::String(s) => write!(f, "{}", s)?,
+            Expression::String(s) => write!(f, "{}", enquote('"', s))?,
             Expression::BinaryOperator(be) => write!(f, "{}", be)?,
             Expression::MetricExpression(me) => write!(f, "{}", me)?,
-            Expression::Parens(p) => write!(f, "{}", p)?,
             Expression::Function(func) => write!(f, "{}", func)?,
             Expression::Aggregation(a) => write!(f, "{}", a)?,
             Expression::Rollup(re) => write!(f, "{}", re)?,
@@ -978,52 +850,49 @@ impl Default for Expression {
 
 impl From<f64> for Expression {
     fn from(v: f64) -> Self {
-        Expression::Number(NumberExpr::from(v))
+        Expression::Number(v)
     }
 }
 
 impl From<i64> for Expression {
     fn from(v: i64) -> Self {
-        Expression::Number(NumberExpr::from(v as f64))
-    }
-}
-
-impl From<usize> for Expression {
-    fn from(value: usize) -> Self {
-        Expression::Number(NumberExpr::from(value as f64))
+        Expression::Number(v as f64)
     }
 }
 
 impl From<String> for Expression {
     fn from(s: String) -> Self {
-        Expression::String(StringExpr::from(s))
+        Expression::String(s)
     }
 }
 
 impl From<&str> for Expression {
     fn from(s: &str) -> Self {
-        Expression::String (StringExpr::from(s))
+        Expression::String(s.to_string())
     }
 }
 
 impl From<&ast::Expression> for Expression {
     fn from(value: &ast::Expression) -> Self {
         match value {
-            ast::Expression::Number(num) => Self::Number(NumberExpr::from(num)),
-            ast::Expression::String(str) => Self::String(StringExpr::from(str)),
+            ast::Expression::Number(num) => Self::Number(num.value),
+            ast::Expression::String(str) => Self::String(str.to_string()),
             ast::Expression::Duration(dur) => {
                 if dur.requires_step {
                     Expression::Duration(DurationExpr::from(dur))
                 } else {
-                    Self::Number(NumberExpr::new(dur.value as f64))
+                    Self::Number(dur.value as f64)
                 }
-            },
-            ast::Expression::Parens(parens) => Self::Parens(ParensExpr::from(parens)),
-            ast::Expression::Function(func) => Self::Function(FunctionExpr::from(func)),
+            }
+            ast::Expression::Parens(parens) => simplify_parens(parens),
+            ast::Expression::Function(func) => create_function_from_ast(func),
             ast::Expression::Aggregation(aggr) => Self::Aggregation(AggregationExpr::from(aggr)),
             ast::Expression::BinaryOperator(bexpr) => Self::BinaryOperator(BinaryExpr::from(bexpr)),
             ast::Expression::Rollup(rollup) => Self::Rollup(RollupExpr::from(rollup)),
-            ast::Expression::MetricExpression(me) => Self::MetricExpression(MetricExpr::from(me)),
+            ast::Expression::MetricExpression(_me) => {
+                //Self::MetricExpression(hir::MetricExpr::from(&me))
+                todo!()
+            }
             ast::Expression::With(_) => {
                 unreachable!()
             }
@@ -1031,21 +900,8 @@ impl From<&ast::Expression> for Expression {
     }
 }
 
-impl From<Vec<BExpression>> for Expression {
-    fn from(list: Vec<BExpression>) -> Self {
-        Expression::Parens(ParensExpr::new(list))
-    }
-}
-
-impl From<Vec<Expression>> for Expression {
-    fn from(list: Vec<Expression>) -> Self {
-        let items = list.into_iter().map(|x| Box::new(x)).collect::<Vec<BExpression>>();
-        Expression::Parens(ParensExpr::new(items))
-    }
-}
-
 fn binary_expr(left: Expression, op: Operator, right: Expression) -> Expression {
-    let mut expr = BinaryExpr::new(op,left, right);
+    let mut expr = BinaryExpr::new(op, left, right);
     expr.bool_modifier = op.is_comparison();
     Expression::BinaryOperator(expr)
 }
@@ -1120,7 +976,58 @@ fn write_list<T: Display>(
 }
 
 fn clone_ast_expr_vec(vec: &Vec<ast::BExpression>) -> Vec<BExpression> {
-    vec.iter().map(|x| {
-        Box::new(Expression::from(x.as_ref()))
-    }).collect::<Vec<BExpression>>()
+    vec.iter()
+        .map(|x| Box::new(Expression::from(x.as_ref())))
+        .collect::<Vec<BExpression>>()
+}
+
+fn simplify_parens(pe: &ast::ParensExpr) -> Expression {
+    if pe.len() == 1 {
+        Expression::from(pe.expressions[0].as_ref())
+    } else {
+        // Treat parensExpr as a function with empty name, i.e. union()
+        // todo: how to avoid clone
+        let name = "union";
+        let func = BuiltinFunction::from_str(name).unwrap(); // if union is not defined, we have a fatal issue
+
+        let arg_idx = func.get_arg_idx_for_optimization(pe.len());
+        let expr = FunctionExpr {
+            function: func,
+            name: name.to_string(),
+            args: clone_ast_expr_vec(&pe.expressions),
+            keep_metric_names: false,
+            is_scalar: false,
+            return_type: TransformFunction::Union.return_type(),
+            arg_idx_for_optimization: arg_idx,
+            sorts_results: false,
+        };
+
+        Expression::Function(expr)
+    }
+}
+
+pub(super) fn create_function_from_ast(fe: &ast::FuncExpr) -> Expression {
+    if fe.is_rollup() {
+        let expr = if fe.args.len() == 1 {
+            Expression::from(fe.args[0].as_ref())
+        } else {
+            // todo: does it make sense to have rollup over union?
+            let args = clone_ast_expr_vec(&fe.args);
+            let fe = FunctionExpr {
+                name: "union".to_string(),
+                function: BuiltinFunction::Transform(TransformFunction::Union),
+                args,
+                keep_metric_names: false,
+                is_scalar: false,
+                return_type: TransformFunction::Union.return_type(),
+                arg_idx_for_optimization: None, // TODO: check if it's correct
+                sorts_results: false,
+            };
+            Expression::Function(fe)
+        };
+        let ru = RollupExpr::new(expr);
+        Expression::Rollup(ru)
+    } else {
+        Expression::Function(FunctionExpr::from(fe))
+    }
 }

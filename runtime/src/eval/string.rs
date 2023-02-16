@@ -1,22 +1,20 @@
-use std::sync::Arc;
 use metricsql::functions::{DataType, Volatility};
+use std::sync::Arc;
 
-use crate::{EvalConfig};
 use crate::context::Context;
 use crate::eval::traits::Evaluator;
 use crate::functions::types::AnyValue;
 use crate::runtime_error::RuntimeResult;
+use crate::EvalConfig;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct StringEvaluator {
-    value: String
+    value: String,
 }
 
 impl StringEvaluator {
     pub fn new<S: Into<String>>(expr: S) -> Self {
-        Self {
-            value: expr.into()
-        }
+        Self { value: expr.into() }
     }
 }
 

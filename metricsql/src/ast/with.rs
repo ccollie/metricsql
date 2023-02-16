@@ -1,26 +1,24 @@
+use super::misc::write_list;
+use crate::ast::{BExpression, Expression, ExpressionNode};
+use crate::common::ReturnType;
+use crate::utils::escape_ident;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::{Display, Formatter};
-use crate::ast::{BExpression, Expression, ExpressionNode, ReturnType};
-use crate::lexer::TextSpan;
-use super::misc::write_list;
-use crate::utils::escape_ident;
-use serde::{Serialize, Deserialize};
 
 /// WithExpr represents `with (...)` extension from MetricsQL.
 #[derive(Debug, Clone, Hash, PartialEq, Serialize, Deserialize)]
 pub struct WithExpr {
     pub was: Vec<WithArgExpr>,
     pub expr: BExpression,
-    pub span: TextSpan,
 }
 
 impl WithExpr {
-    pub fn new<S: Into<TextSpan>>(expr: impl ExpressionNode, was: Vec<WithArgExpr>, span: S) -> Self {
+    pub fn new(expr: impl ExpressionNode, was: Vec<WithArgExpr>) -> Self {
         let expression = Expression::cast(expr);
         WithExpr {
             expr: Box::new(expression),
             was,
-            span: span.into(),
         }
     }
 
@@ -55,7 +53,7 @@ impl ExpressionNode for WithExpr {
 pub struct WithArgExpr {
     pub name: String,
     pub args: Vec<String>,
-    pub expr: BExpression,
+    pub expr: Expression,
     pub is_function: bool,
 }
 
@@ -64,8 +62,8 @@ impl WithArgExpr {
         WithArgExpr {
             name: name.into(),
             args,
-            expr: Box::new(expr),
-            is_function: true
+            expr,
+            is_function: true,
         }
     }
 
@@ -73,8 +71,8 @@ impl WithArgExpr {
         WithArgExpr {
             name: name.into(),
             args: vec![],
-            expr: Box::new(expr),
-            is_function: false
+            expr,
+            is_function: false,
         }
     }
 
@@ -90,27 +88,5 @@ impl Display for WithArgExpr {
         write!(f, " = ")?;
         write!(f, "{}", self.expr)?;
         Ok(())
-    }
-}
-
-pub(crate) enum WithExprParam {
-    Function(WithExpr),
-    Value(WithArgExpr)
-}
-
-impl WithExprParam {
-    pub fn function(expr: WithExpr) -> Self {
-        WithExprParam::Function(expr)
-    }
-    
-    pub fn value(arg: WithArgExpr) -> Self {
-        WithExprParam::Value(arg)
-    }
-
-    pub fn expr(&self) -> &Expression {
-        match self {
-            WithExprParam::Function(func) => &func.expr,
-            WithExprParam::Value(val) => &val.expr
-        }
     }
 }

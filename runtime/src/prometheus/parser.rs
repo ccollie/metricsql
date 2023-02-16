@@ -14,13 +14,11 @@ pub struct Rows {
 
 impl Rows {
     pub fn new(s: &str) -> RuntimeResult<Self> {
-        let mut res = Self {
-            rows: vec![]
-        };
+        let mut res = Self { rows: vec![] };
         res.unmarshal(s)?;
         Ok(res)
     }
-    
+
     /// Reset resets rs.
     pub fn reset(&mut self) {
         self.rows.clear();
@@ -35,7 +33,7 @@ impl Rows {
         let no_escapes = s.find('\\').is_none();
         unmarshal_rows(&mut self.rows, s, no_escapes)
     }
-    
+
     pub fn iter(&self) -> Iter<'_, Row> {
         self.rows.iter()
     }
@@ -84,9 +82,12 @@ impl Row {
             s = &s[n + 1..];
             match unmarshal_tags(&mut self.tags, s, no_escapes) {
                 Err(err) => {
-                    return Err(RuntimeError::from(format!("cannot unmarshal tags: {:?}", err)));
+                    return Err(RuntimeError::from(format!(
+                        "cannot unmarshal tags: {:?}",
+                        err
+                    )));
                 }
-                Ok(v) => s = v
+                Ok(v) => s = v,
             }
             if !s.is_empty() && s.chars().next().unwrap() == ' ' {
                 // Fast path - skip whitespace.
@@ -114,9 +115,12 @@ impl Row {
             // There is no timestamp.
             match parse_number(s) {
                 Err(err) => {
-                    return Err(RuntimeError::from(format!("cannot parse value {}: {:?}", s, err)));
+                    return Err(RuntimeError::from(format!(
+                        "cannot parse value {}: {:?}",
+                        s, err
+                    )));
                 }
-                Ok(v) => self.value = v
+                Ok(v) => self.value = v,
             }
             return Ok(());
         }
@@ -125,9 +129,12 @@ impl Row {
         let ts_part = &s[0..n];
         match parse_number(&s[0..n]) {
             Err(err) => {
-                return Err(RuntimeError::from(format!("cannot parse value {}: {:?}", ts_part, err)));
+                return Err(RuntimeError::from(format!(
+                    "cannot parse value {}: {:?}",
+                    ts_part, err
+                )));
             }
-            Ok(v) => self.value = v
+            Ok(v) => self.value = v,
         }
         s = skip_leading_whitespace(&s[n + 1..]);
         if s.len() == 0 {
@@ -137,9 +144,10 @@ impl Row {
         // There are some whitespaces after timestamp
         s = skip_trailing_whitespace(s);
         return match parse_number(s) {
-            Err(err) => {
-                Err(RuntimeError::from(format!("cannot parse timestamp {}: {:?}", s, err)))
-            }
+            Err(err) => Err(RuntimeError::from(format!(
+                "cannot parse timestamp {}: {:?}",
+                s, err
+            ))),
             Ok(v) => {
                 let mut ts = v as i64;
                 if ts >= -1 << 31 && ts < 1 << 31 {
@@ -156,13 +164,10 @@ impl Row {
     }
 }
 
-
 fn skip_trailing_comment(s: &str) -> &str {
     match s.rfind('#') {
         None => s,
-        Some(n) => {
-            &s[0..n]
-        }
+        Some(n) => &s[0..n],
     }
 }
 
@@ -187,16 +192,17 @@ fn next_whitespace(s: &str) -> Option<usize> {
     }
 
     let n = n.unwrap();
-    return Some(
-        match s.find('\t') {
-            None => n,
-            Some(n1) => {
-                if n1 > n { n } else { n1 }
+    return Some(match s.find('\t') {
+        None => n,
+        Some(n1) => {
+            if n1 > n {
+                n
+            } else {
+                n1
             }
         }
-    );
+    });
 }
-
 
 fn unmarshal_rows(dst: &mut Vec<Row>, s: &str, no_escapes: bool) -> RuntimeResult<()> {
     let mut s = s;
@@ -240,7 +246,6 @@ fn unmarshal_row(dst: &mut Vec<Row>, s: &str, no_escapes: bool) -> RuntimeResult
     }
 }
 
-
 fn unmarshal_tags<'a>(dst: &mut Vec<Tag>, s: &'a str, no_escapes: bool) -> RuntimeResult<&'a str> {
     let mut s = s;
 
@@ -265,20 +270,26 @@ fn unmarshal_tags<'a>(dst: &mut Vec<Tag>, s: &'a str, no_escapes: bool) -> Runti
         let n: usize;
         match s.find('=') {
             None => return Err(RuntimeError::from(format!("missing value for tag {}", s))),
-            Some(pos) => n = pos
+            Some(pos) => n = pos,
         }
 
         let key = skip_trailing_whitespace(&s[0..n]);
         s = skip_leading_whitespace(&s[n + 1..]);
         if s.is_empty() || s.chars().next().unwrap() != '"' {
-            return Err(RuntimeError::from(format!("expecting quoted value for tag {}; got {}", key, s)));
+            return Err(RuntimeError::from(format!(
+                "expecting quoted value for tag {}; got {}",
+                key, s
+            )));
         }
         let mut value = &s[1..];
         if no_escapes {
             // Fast path - the line has no escape chars
             match value.find('"') {
                 None => {
-                    return Err(RuntimeError::from(format!("missing closing quote for tag value {}", s)));
+                    return Err(RuntimeError::from(format!(
+                        "missing closing quote for tag value {}",
+                        s
+                    )));
                 }
                 Some(pos) => {
                     (value, s) = s.split_at(pos);
@@ -289,7 +300,10 @@ fn unmarshal_tags<'a>(dst: &mut Vec<Tag>, s: &'a str, no_escapes: bool) -> Runti
             // Slow path - the line contains escape chars
             match find_closing_quote(s) {
                 None => {
-                    return Err(RuntimeError::from(format!("missing closing quote for tag value {}", s)));
+                    return Err(RuntimeError::from(format!(
+                        "missing closing quote for tag value {}",
+                        s
+                    )));
                 }
                 Some(n) => {
                     // todo: fix this
@@ -306,7 +320,10 @@ fn unmarshal_tags<'a>(dst: &mut Vec<Tag>, s: &'a str, no_escapes: bool) -> Runti
             return Ok(&s[1..]);
         }
         if s.is_empty() || s.chars().next().unwrap() != ',' {
-            return Err(RuntimeError::from(format!("missing comma after tag {}={}", key, value)));
+            return Err(RuntimeError::from(format!(
+                "missing comma after tag {}={}",
+                key, value
+            )));
         }
         s = &s[1..]
     }
@@ -325,7 +342,6 @@ impl Tag {
         self.value = "".to_string();
     }
 }
-
 
 fn find_closing_quote(s: &str) -> Option<usize> {
     let mut s = s;
@@ -383,7 +399,7 @@ fn unescape_value(s: &str) -> Cow<str> {
                 b.extend_from_slice(s.as_bytes());
                 break;
             }
-            Some(pos) => n = pos
+            Some(pos) => n = pos,
         }
     }
 
@@ -436,7 +452,6 @@ pub fn prev_backslashes_count(s: &str) -> i64 {
     }
     n
 }
-
 
 fn marshal_metric_name_with_tags(dst: &mut Vec<u8>, r: &Row) {
     dst.extend_from_slice(r.metric.as_bytes());

@@ -1,15 +1,15 @@
+use crate::ast::{Expression, ExpressionNode};
+use crate::common::ReturnType;
+use crate::lexer::parse_duration_value;
+use crate::parser::{ParseError, ParseResult};
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::{Display, Formatter};
-use crate::ast::{Expression, ExpressionNode, ReturnType};
-use crate::lexer::{parse_duration_value, TextSpan};
-use crate::parser::{ParseError, ParseResult};
-use serde::{Serialize, Deserialize};
 
 /// DurationExpr contains a duration
 #[derive(Default, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct DurationExpr {
     pub text: String,
-    pub span: TextSpan,
     pub value: i64,
     pub requires_step: bool,
 }
@@ -26,13 +26,12 @@ impl TryFrom<&str> for DurationExpr {
             text: s.to_string(),
             value: const_value,
             requires_step,
-            span: TextSpan::default(),
         })
     }
 }
 
 impl DurationExpr {
-    pub fn new<S: Into<TextSpan>>(text: &str, span: S) -> ParseResult<DurationExpr> {
+    pub fn new(text: &str) -> ParseResult<DurationExpr> {
         let last_ch: char = text.chars().last().unwrap();
         let requires_step: bool = last_ch == 'i' || last_ch == 'I';
         // todo: the following is icky
@@ -42,7 +41,6 @@ impl DurationExpr {
             text: text.to_string(),
             value: const_value,
             requires_step,
-            span: span.into(),
         })
     }
 

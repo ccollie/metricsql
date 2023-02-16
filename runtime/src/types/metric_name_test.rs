@@ -6,8 +6,11 @@ mod tests {
     fn test_metric_name_string() {
         fn f(mn: &MetricName, result_expected: &str) {
             let result = mn.to_string();
-            assert_eq!(result, result_expected, "unexpected result\ngot\n{}\nwant\n{}",
-                       result, result_expected);
+            assert_eq!(
+                result, result_expected,
+                "unexpected result\ngot\n{}\nwant\n{}",
+                result, result_expected
+            );
         }
 
         f(&MetricName::new("foobar"), "foobar{}");
@@ -23,9 +26,14 @@ mod tests {
         check_metric_name_sort_tags(&["foo"], &["foo"]);
         check_metric_name_sort_tags(&["job"], &["job"]);
         check_metric_name_sort_tags(&["server"], &["server"]);
-        check_metric_name_sort_tags(&["host", "foo", "bar", "service"], &["service", "host", "bar", "foo"]);
-        check_metric_name_sort_tags(&["model", "foo", "job", "host", "server", "instance"],
-                                    &["job", "model", "instance", "host", "server", "foo"])
+        check_metric_name_sort_tags(
+            &["host", "foo", "bar", "service"],
+            &["service", "host", "bar", "foo"],
+        );
+        check_metric_name_sort_tags(
+            &["model", "foo", "job", "host", "server", "instance"],
+            &["job", "model", "instance", "host", "server", "foo"],
+        )
     }
 
     fn check_metric_name_sort_tags(tags: &[&str], expected_tags: &[&str]) {
@@ -36,10 +44,17 @@ mod tests {
         }
         mn.sort_tags();
 
-        let result_tags = mn.tags.iter().map(|x| x.key.clone()).collect::<Vec<String>>();
+        let result_tags = mn
+            .tags
+            .iter()
+            .map(|x| x.key.clone())
+            .collect::<Vec<String>>();
 
-        assert_eq!(result_tags, expected_tags,
-                      "unexpected result_tags\ngot\n{:?}\nwant\n{:?}", result_tags, expected_tags);
+        assert_eq!(
+            result_tags, expected_tags,
+            "unexpected result_tags\ngot\n{:?}\nwant\n{:?}",
+            result_tags, expected_tags
+        );
     }
 
     #[test]
@@ -65,7 +80,11 @@ mod tests {
 
         let mut mn1 = MetricName::default();
         mn1.unmarshal(&mut data).expect("unmarshal");
-        assert_eq!(&mn_expected, &mn1, "unexpected mn unmarshalled;\ngot\n{}\nwant\n{}", &mn1, &mn_expected);
+        assert_eq!(
+            &mn_expected, &mn1,
+            "unexpected mn unmarshalled;\ngot\n{}\nwant\n{}",
+            &mn1, &mn_expected
+        );
     }
 
     fn test_metric_name_marshal_unmarshal() {
@@ -75,7 +94,7 @@ mod tests {
                 for j in 0..tags_count {
                     mn.add_tag(
                         format!("key_{}_{}_\x00\x01\x02", i, j).as_str(),
-                            format!("\x02\x00\x01value_{}_{}", i, j)
+                        format!("\x02\x00\x01value_{}_{}", i, j),
                     );
                 }
                 mn.sort_tags();
@@ -85,14 +104,18 @@ mod tests {
 
                 let mut mn1 = MetricName::default();
                 mn1.unmarshal(&mut data).expect("unmarshal");
-                assert_eq!(mn, mn1, "unexpected mn unmarshalled;\ngot\n{:?}\nwant\n{:?}", &mn1, &mn);
+                assert_eq!(
+                    mn, mn1,
+                    "unexpected mn unmarshalled;\ngot\n{:?}\nwant\n{:?}",
+                    &mn1, &mn
+                );
 
                 // Try unmarshalling MetricName without tag value.
-                let mut broken_data =  b"foobar".to_vec();
+                let mut broken_data = b"foobar".to_vec();
                 match mn1.unmarshal(&mut broken_data) {
                     Ok(_) => {
                         panic!("expecting non-zero error when unmarshalling MetricName without tag value")
-                    },
+                    }
                     _ => {}
                 }
 
@@ -102,12 +125,12 @@ mod tests {
                 match mn1.unmarshal(&mut broken_data) {
                     Ok(_) => {
                         panic!("expecting non-zero error when unmarshalling MetricName with invalid tag key")
-                    },
+                    }
                     _ => {}
                 }
 
                 // Try unmarshalling MetricName with invalid tag value.
-                let mut broken_data =  b"foobar".to_vec();
+                let mut broken_data = b"foobar".to_vec();
                 marshal_tag_value(&mut broken_data, b"aaa");
 
                 let len = broken_data.len();
@@ -116,7 +139,7 @@ mod tests {
                 match mn1.unmarshal(&mut broken_data) {
                     Ok(_) => {
                         panic!("expecting non-zero error when unmarshalling MetricName with invalid tag value")
-                    },
+                    }
                     _ => {}
                 }
             }
@@ -131,7 +154,7 @@ mod tests {
                 for j in 0..tags_count {
                     mn.add_tag(
                         format!("key_{}_{}_\x00\x01\x02", i, j).as_str(),
-                        format!("\x02\x00\x01value_{}_{}", i, j)
+                        format!("\x02\x00\x01value_{}_{}", i, j),
                     )
                 }
                 let mut data: Vec<u8> = vec![];
@@ -141,7 +164,11 @@ mod tests {
                 let mut mn1 = MetricName::default();
                 mn1.unmarshal_raw(&mut data).expect("unmarshal raw");
 
-                assert_eq!(&mn, &mn1, "unexpected mn unmarshalled;\ngot\n{}\nwant\n{}", &mn1, &mn);
+                assert_eq!(
+                    &mn, &mn1,
+                    "unexpected mn unmarshalled;\ngot\n{}\nwant\n{}",
+                    &mn1, &mn
+                );
 
                 let mut broken_data: Vec<u8> = b"foobar".to_vec();
 
@@ -197,7 +224,11 @@ mod tests {
         let mut exp_as_is_mn = MetricName::default();
         exp_as_is_mn.metric_group = "name".to_string();
         exp_as_is_mn.add_tag("key", "value");
-        assert_eq!(exp_as_is_mn, as_is_mn, "expecting {} got {}", &exp_as_is_mn, &as_is_mn);
+        assert_eq!(
+            exp_as_is_mn, as_is_mn,
+            "expecting {} got {}",
+            &exp_as_is_mn, &as_is_mn
+        );
 
         let mut mn = MetricName::default();
         mn.metric_group = "name".to_string();
@@ -218,12 +249,22 @@ mod tests {
         mn.add_tag("foo", "bar");
         mn.add_tag("baz", "qux");
         mn.remove_tag("__name__");
-        assert_eq!(mn.metric_group.len(), 0, "expecting empty metric group got {}", &mn);
+        assert_eq!(
+            mn.metric_group.len(),
+            0,
+            "expecting empty metric group got {}",
+            &mn
+        );
         mn.remove_tag("foo");
 
         let mut exp_mn = MetricName::default();
         exp_mn.add_tag("baz", "qux");
-        assert!(names_equal(&mut exp_mn, &mut mn), "expecting {} got {}", &exp_mn, &mn)
+        assert!(
+            names_equal(&mut exp_mn, &mut mn),
+            "expecting {} got {}",
+            &exp_mn,
+            &mn
+        )
     }
 
     #[test]
@@ -232,26 +273,28 @@ mod tests {
         mn.metric_group = "name".to_string();
         mn.add_tag("foo", "bar");
         mn.add_tag("baz", "qux");
-        mn.remove_tags_ignoring(&vec![
-            "__name__".to_string(),
-            "foo".to_string()
-        ]);
+        mn.remove_tags_ignoring(&vec!["__name__".to_string(), "foo".to_string()]);
         let mut exp_mn = MetricName::default();
         exp_mn.add_tag("baz", "qux");
-        assert!(names_equal(&mut mn, &mut exp_mn), "expecting {} got {}", &exp_mn, &mn)
+        assert!(
+            names_equal(&mut mn, &mut exp_mn),
+            "expecting {} got {}",
+            &exp_mn,
+            &mn
+        )
     }
 
     fn names_equal(a: &mut MetricName, b: &mut MetricName) -> bool {
         if a.tags.len() != b.tags.len() {
-            return false
+            return false;
         }
 
         a.sort_tags();
         b.sort_tags();
 
-        for (x, y) in  a.tags.iter().zip(&b.tags) {
+        for (x, y) in a.tags.iter().zip(&b.tags) {
             if x.key != y.key || x.value != y.value {
-                return false
+                return false;
             }
         }
 

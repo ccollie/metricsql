@@ -11,10 +11,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::{MetricName, RuntimeResult};
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::task::Context;
-use crate::{MetricName, RuntimeResult};
 
 pub type Labels = HashMap<String, String>;
 
@@ -49,27 +49,26 @@ pub trait Appender {
 
 pub trait Appendable {
     fn get_appender(_: Context) -> Box<dyn Appender> {
-        return Box::new(NoopAppender{})
+        return Box::new(NoopAppender {});
     }
 }
 
-pub(crate) struct NoopAppendable{}
-pub struct NoopAppender{}
-
+pub(crate) struct NoopAppendable {}
+pub struct NoopAppender {}
 
 impl Appendable for NoopAppendable {
     fn get_appender(_: Context) -> Box<dyn Appender> {
-        return Box::new(NoopAppender{})
+        return Box::new(NoopAppender {});
     }
 }
 
 impl Appender for NoopAppender {
     fn append(&mut self, _labels: Labels, _ts: i64, _v: f64) -> RuntimeResult<()> {
-        return Ok(())
+        return Ok(());
     }
-    
+
     fn commit(&mut self) -> RuntimeResult<()> {
-        Ok(()) 
+        Ok(())
     }
 
     fn rollback(&mut self) -> RuntimeResult<()> {
@@ -81,7 +80,7 @@ impl Appender for NoopAppender {
 pub struct Sample {
     metric: MetricName,
     t: i64,
-    v: f64
+    v: f64,
 }
 
 impl Sample {
@@ -89,19 +88,19 @@ impl Sample {
         Self {
             metric: labels,
             t,
-            v
+            v,
         }
     }
 
     pub fn from_hashmap(map: &HashMap<String, String>, t: i64, v: f64) -> Self {
         let mut metric_name = MetricName::new("");
-        for (k,v) in map.iter() {
+        for (k, v) in map.iter() {
             metric_name.set_tag(k.as_str(), v)
         }
         Self {
             metric: metric_name,
             t,
-            v
+            v,
         }
     }
 }
@@ -132,7 +131,7 @@ impl Appender for CollectResultAppender {
         self.pending_result.push(Sample::from_hashmap(&l, t, v));
         Ok(())
     }
-    
+
     fn commit(&mut self) -> RuntimeResult<()> {
         self.result.extend_from_slice(&self.pending_result.clone());
         self.pending_result.clear();
@@ -141,19 +140,19 @@ impl Appender for CollectResultAppender {
 
     fn rollback(&mut self) -> RuntimeResult<()> {
         self.rolledback_result = std::mem::take(&mut self.pending_result);
-        Ok(())        
+        Ok(())
     }
 }
 
 impl Display for CollectResultAppender {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        for s in self.result.iter()  {
+        for s in self.result.iter() {
             write!(f, "committed: {} {} {}\n", s.metric, s.v, s.t)?;
         }
-        for s in self.pending_result.iter()  {
+        for s in self.pending_result.iter() {
             write!(f, "pending: {} {} {}\n", s.metric, s.v, s.t)?;
         }
-        for s in self.rolledback_result.iter()  {
+        for s in self.rolledback_result.iter() {
             write!(f, "rolled back: {} {} {}\n", s.metric, s.v, s.t)?;
         }
         Ok(())

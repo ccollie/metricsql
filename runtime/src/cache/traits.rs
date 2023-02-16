@@ -1,4 +1,3 @@
-
 /// Rollup Result Cache operations
 pub trait RollupResultCacheStorage {
     /// Attempt to retrieve a cached value

@@ -1,34 +1,20 @@
+use crate::common::{AggregateModifierOp, GroupModifierOp, JoinModifierOp, LabelFilter, Operator};
 use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::iter::FromIterator;
 use std::vec::Vec;
 
-use crate::ast::{
-    AggregateModifierOp,
-    AggrFuncExpr,
-    Operator,
-    BinaryExpr,
-    Expression,
-    GroupModifierOp,
-    JoinModifierOp,
-    LabelFilter
-};
-use crate::ast::expr_rewriter::{ExprRewriter, RewriteRecursion};
-use crate::ast::expr_visitor::{ExprVisitable, VisitorAdapter};
-use crate::parser::ParseResult;
+use crate::hir::{AggregationExpr, BinaryExpr, Expression};
 
-// todo: investigate
-// https://github.com/apache/arrow-datafusion/tree/master/datafusion/optimizer/src
-// https://github.com/apache/arrow-datafusion/blob/e222bd627b6e7974133364fed4600d74b4da6811/datafusion/optimizer/src/utils.rs
-/// Optimize optimizes e in order to improve its performance.
+/// push_down_filters optimizes e in order to improve its performance.
 ///
 /// It performs the following optimizations:
 ///
 /// - Adds missing filters to `foo{filters1} op bar{filters2}`
 ///   according to https://utcc.utoronto.ca/~cks/space/blog/sysadmin/PrometheusLabelNonOptimization
-pub fn optimize(expr: &Expression) -> Cow<Expression> {
-    if can_optimize(expr) {
+pub fn push_down_filters(expr: &Expression) -> Cow<Expression> {
+    if can_pushdown_filters(expr) {
         let mut clone = expr.clone();
         optimize_inplace(&mut clone);
         Cow::Owned(clone)
@@ -37,56 +23,22 @@ pub fn optimize(expr: &Expression) -> Cow<Expression> {
     }
 }
 
-pub struct PushdownFilterOptimizer {}
-
-impl ExprRewriter for PushdownFilterOptimizer {
-
-    /// Invoked before any children of `expr` are rewritten /
-    /// visited. Default implementation returns `Ok(RewriteRecursion::Continue)`
-    fn pre_visit(&mut self, expr: &Expression) -> ParseResult<RewriteRecursion> {
-        match expr {
-            Expression::Duration(_) |
-            Expression::String(_) |
-            Expression::Number(_) => Ok(RewriteRecursion::Skip),
-            _ => Ok(RewriteRecursion::Mutate)
-        }
-    }
-
-    fn mutate(&mut self, expr: Expression) -> ParseResult<Expression> {
-        todo!()
-    }
-}
-
-/// Recursively inspect an [`Expr`] and all its children.
-///
-/// Performs a pre-visit traversal by recursively calling `f(expr)` on
-/// `expr`, and then on all its children. See [`ExpressionVisitor`]
-/// for more details and more options to control the walk.
-fn can_inspect_expr_pre<F, E>(expr: &Expression, f: F) -> Result<(), E>
-    where
-        F: FnMut(&Expression) -> Result<(), E>,
-{
-    // the visit is fallible, so unwrap here
-    let adapter = expr.accept(VisitorAdapter::new(f) ).unwrap();
-    adapter.err
-}
-
-pub fn can_optimize(e: &Expression) -> bool {
+pub fn can_pushdown_filters(expr: &Expression) -> bool {
     use Expression::*;
 
-    match e {
+    match expr {
         Rollup(re) => match (&re.expr, &re.at) {
-            (expr, Some(at)) => can_optimize(expr) || can_optimize(at),
+            (expr, Some(at)) => can_pushdown_filters(expr) || can_pushdown_filters(at),
             _ => false,
         },
-        Function(f) => f.args.iter().any(|x| can_optimize(x)),
-        Aggregation(agg) => agg.args.iter().any(|x| can_optimize(x)),
+        Function(f) => f.args.iter().any(|x| can_pushdown_filters(x)),
+        Aggregation(agg) => agg.args.iter().any(|x| can_pushdown_filters(x)),
         BinaryOperator(_) => true,
         _ => false,
     }
 }
 
-pub fn optimize_inplace(e: &mut Expression) {
+fn optimize_inplace(e: &mut Expression) {
     use Expression::*;
 
     match e {
@@ -113,14 +65,13 @@ pub fn optimize_inplace(e: &mut Expression) {
             optimize_inplace(&mut be.left);
             optimize_inplace(&mut be.right);
             let mut lfs = get_common_label_filters(e);
-            pushdown_binary_op_filters_in_place(e, &mut lfs);
+            push_down_filters_in_place(e, &mut lfs);
         }
         _ => {}
     }
 }
 
-
-pub(crate) fn get_common_label_filters(e: &Expression) -> Vec<LabelFilter> {
+pub fn get_common_label_filters(e: &Expression) -> Vec<LabelFilter> {
     use Expression::*;
 
     match e {
@@ -213,11 +164,9 @@ pub(crate) fn get_common_label_filters(e: &Expression) -> Vec<LabelFilter> {
     }
 }
 
-fn trim_filters_by_aggr_modifier(lfs: &mut Vec<LabelFilter>, afe: &AggrFuncExpr) {
+fn trim_filters_by_aggr_modifier(lfs: &mut Vec<LabelFilter>, afe: &AggregationExpr) {
     match &afe.modifier {
-        None => {
-            lfs.clear()
-        },
+        None => lfs.clear(),
         Some(modifier) => match modifier.op {
             AggregateModifierOp::By => filter_label_filters_on(lfs, &modifier.args),
             AggregateModifierOp::Without => filter_label_filters_ignoring(lfs, &modifier.args),
@@ -264,23 +213,26 @@ pub fn pushdown_binary_op_filters<'a>(
 ) -> Cow<'a, Expression> {
     // according to pushdown_binary_op_filters_in_place, only the following types need to be
     // handled, so exit otherwise
-    if common_filters.is_empty() || !can_pushdown_op_filters(e){
-        return Cow::Borrowed(e)
+    if common_filters.is_empty() || !can_pushdown_op_filters(e) {
+        return Cow::Borrowed(e);
     }
 
     let mut copy = e.clone();
-    pushdown_binary_op_filters_in_place(&mut copy, common_filters);
+    push_down_filters_in_place(&mut copy, common_filters);
     Cow::Owned(copy)
 }
 
 #[inline]
-pub fn can_pushdown_op_filters(e: &Expression) -> bool {
+fn can_pushdown_op_filters(e: &Expression) -> bool {
     use Expression::*;
     // these are the types handled below in pushdown_binary_op_filters_in_place
-    matches!(e, MetricExpression(_) | Function(_) | Rollup(_) | BinaryOperator(_) | Aggregation(_))
+    matches!(
+        e,
+        MetricExpression(_) | Function(_) | Rollup(_) | BinaryOperator(_) | Aggregation(_)
+    )
 }
 
-fn pushdown_binary_op_filters_in_place(e: &mut Expression, common_filters: &mut Vec<LabelFilter>) {
+fn push_down_filters_in_place(e: &mut Expression, common_filters: &mut Vec<LabelFilter>) {
     use Expression::*;
 
     if common_filters.is_empty() {
@@ -293,31 +245,31 @@ fn pushdown_binary_op_filters_in_place(e: &mut Expression, common_filters: &mut 
             sort_label_filters(&mut me.label_filters);
         }
         Function(fe) => {
-            if let Some(idx) = fe.get_arg_idx_for_optimization() {
+            if let Some(idx) = fe.arg_idx_for_optimization {
                 let val = &fe.args[idx];
                 let mut expr = val.clone();
-                pushdown_binary_op_filters_in_place(&mut expr, common_filters);
+                push_down_filters_in_place(&mut expr, common_filters);
                 fe.args[idx] = expr;
             }
         }
         BinaryOperator(bo) => {
             trim_filters_by_group_modifier(common_filters, bo);
             if !common_filters.is_empty() {
-                pushdown_binary_op_filters_in_place(&mut bo.left, common_filters);
-                pushdown_binary_op_filters_in_place(&mut bo.right, common_filters);
+                push_down_filters_in_place(&mut bo.left, common_filters);
+                push_down_filters_in_place(&mut bo.right, common_filters);
             }
         }
         Aggregation(aggr) => {
             trim_filters_by_aggr_modifier(common_filters, aggr);
             if !common_filters.is_empty() {
-                if let Some(arg_idx) = aggr.get_arg_idx_for_optimization() {
+                if let Some(arg_idx) = aggr.arg_idx_for_optimization {
                     let mut expr = aggr.args[arg_idx].as_mut();
-                    pushdown_binary_op_filters_in_place(&mut expr, common_filters);
+                    push_down_filters_in_place(&mut expr, common_filters);
                 }
             }
         }
         Rollup(re) => {
-            pushdown_binary_op_filters_in_place(&mut re.expr, common_filters);
+            push_down_filters_in_place(&mut re.expr, common_filters);
         }
         _ => {}
     }
@@ -331,7 +283,7 @@ fn get_label_filters_map(filters: &[LabelFilter]) -> HashSet<String> {
 
 fn intersect_label_filters(first: &mut Vec<LabelFilter>, second: &[LabelFilter]) {
     if first.is_empty() || second.is_empty() {
-        return
+        return;
     }
     let set = get_label_filters_map(second);
     first.retain(|x| set.contains(&x.to_string()));

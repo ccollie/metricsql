@@ -5,12 +5,12 @@ use std::str::FromStr;
 
 use phf::phf_map;
 
-use crate::ast::ReturnType;
+use crate::common::ReturnType;
 use crate::functions::data_type::DataType;
-use crate::functions::MAX_ARG_COUNT;
 use crate::functions::signature::{Signature, Volatility};
+use crate::functions::MAX_ARG_COUNT;
 use crate::parser::ParseError;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Aggregation AggregateFunctions
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Hash, Serialize, Deserialize)]
@@ -64,6 +64,7 @@ pub enum AggregateFunction {
     Outliersk,
     OutliersMAD,
     Mode,
+    Share,
     ZScore,
 }
 
@@ -74,11 +75,21 @@ impl AggregateFunction {
 
     pub fn sorts_results(&self) -> bool {
         use AggregateFunction::*;
-        matches!(self,
-        Topk | Bottomk | Outliersk |  TopkMax | TopkMin | TopkAvg |
-        TopkMedian | TopkLast | BottomkMax |
-        BottomkMin | BottomkAvg | BottomkMedian | BottomkLast
-    )
+        matches!(
+            self,
+            Topk | Bottomk
+                | Outliersk
+                | TopkMax
+                | TopkMin
+                | TopkAvg
+                | TopkMedian
+                | TopkLast
+                | BottomkMax
+                | BottomkMin
+                | BottomkAvg
+                | BottomkMedian
+                | BottomkLast
+        )
     }
 
     pub fn name(&self) -> String {
@@ -129,7 +140,8 @@ impl Display for AggregateFunction {
             Outliersk => "outliersk",
             OutliersMAD => "outliers_mad",
             Mode => "mode",
-            ZScore => "score"
+            Share => "share",
+            ZScore => "score",
         };
 
         write!(f, "{}", display)
@@ -173,13 +185,13 @@ static FUNCTION_MAP: phf::Map<&'static str, AggregateFunction> = phf_map! {
     "outliersk" =>       AggregateFunction::Outliersk,
     "outliers_mad" =>    AggregateFunction::OutliersMAD,
     "mode" =>            AggregateFunction::Mode,
+    "share" =>           AggregateFunction::Share,
     "zscore" =>          AggregateFunction::ZScore,
 };
 
 pub fn is_aggr_func(func: &str) -> bool {
     FUNCTION_MAP.contains_key(&func.to_lowercase())
 }
-
 
 impl FromStr for AggregateFunction {
     type Err = ParseError;
@@ -188,8 +200,10 @@ impl FromStr for AggregateFunction {
         let lower = s.to_lowercase();
         match FUNCTION_MAP.get(lower.as_str()) {
             Some(op) => Ok(*op),
-            None => Err(ParseError::InvalidAggregateFunction(
-                format!("Invalid aggregation function: {}", s)))
+            None => Err(ParseError::InvalidAggregateFunction(format!(
+                "Invalid aggregation function: {}",
+                s
+            ))),
         }
     }
 }
@@ -198,27 +212,27 @@ impl FromStr for AggregateFunction {
 pub fn aggregate_function_signature(fun: &AggregateFunction) -> Signature {
     use AggregateFunction::*;
     match fun {
-        CountValues => {
-            Signature::exact(vec![DataType::String, DataType::InstantVector], Volatility::Stable)
-        }
-        Topk | Limitk | Outliersk => {
-            Signature::exact(vec![DataType::Scalar, DataType::InstantVector], Volatility::Stable)
-        }
-        OutliersMAD => {
-            Signature::exact(vec![DataType::Scalar, DataType::InstantVector], Volatility::Stable)
-        }
-        TopkMin | TopkMax | TopkAvg | TopkMedian |
-        BottomkMin | BottomkMax | BottomkAvg | BottomkLast |
-        BottomkMedian => {
-            Signature::exact(vec![
-                DataType::Scalar,
-                DataType::InstantVector,
-                DataType::String,
-            ], Volatility::Stable)
-        }
-        Quantile => {
-            Signature::exact(vec![DataType::Scalar, DataType::InstantVector], Volatility::Stable)
-        }
+        CountValues => Signature::exact(
+            vec![DataType::String, DataType::InstantVector],
+            Volatility::Stable,
+        ),
+        Topk | Limitk | Outliersk => Signature::exact(
+            vec![DataType::Scalar, DataType::InstantVector],
+            Volatility::Stable,
+        ),
+        OutliersMAD => Signature::exact(
+            vec![DataType::Scalar, DataType::InstantVector],
+            Volatility::Stable,
+        ),
+        TopkMin | TopkMax | TopkAvg | TopkMedian | BottomkMin | BottomkMax | BottomkAvg
+        | BottomkLast | BottomkMedian => Signature::exact(
+            vec![DataType::Scalar, DataType::InstantVector, DataType::String],
+            Volatility::Stable,
+        ),
+        Quantile => Signature::exact(
+            vec![DataType::Scalar, DataType::InstantVector],
+            Volatility::Stable,
+        ),
         Quantiles => {
             // todo:
             let mut quantile_types: Vec<DataType> = vec![DataType::Scalar; MAX_ARG_COUNT];
@@ -226,21 +240,22 @@ pub fn aggregate_function_signature(fun: &AggregateFunction) -> Signature {
             quantile_types.push(DataType::InstantVector);
             Signature::variadic_min(quantile_types, 3, Volatility::Volatile)
         }
-        _ => {
-            Signature::variadic_equal(DataType::InstantVector, 1, Volatility::Stable)
-        }
+        _ => Signature::variadic_equal(DataType::InstantVector, 1, Volatility::Stable),
     }
 }
 
-
-pub fn get_aggregate_arg_idx_for_optimization(func: AggregateFunction, arg_count: usize) -> Option<usize> {
+pub fn get_aggregate_arg_idx_for_optimization(
+    func: AggregateFunction,
+    arg_count: usize,
+) -> Option<usize> {
     use AggregateFunction::*;
     // todo: just examine the signature and return the position containing a vector
     match func {
-        Bottomk | BottomkAvg | BottomkMax | BottomkMedian | BottomkLast | BottomkMin | Limitk |
-        Outliersk | OutliersMAD | Quantile | Topk | TopkAvg | TopkMax | TopkMedian | TopkLast | TopkMin => Some(1),
+        Bottomk | BottomkAvg | BottomkMax | BottomkMedian | BottomkLast | BottomkMin | Limitk
+        | Outliersk | OutliersMAD | Quantile | Topk | TopkAvg | TopkMax | TopkMedian | TopkLast
+        | TopkMin => Some(1),
         CountValues => None,
         Quantiles => Some(arg_count - 1),
-        _ => Some(0)
+        _ => Some(0),
     }
 }

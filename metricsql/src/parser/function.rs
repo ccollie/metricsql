@@ -1,60 +1,60 @@
-use std::ops::Deref;
-use crate::ast::{BExpression, Expression, ExpressionNode, FuncExpr, ReturnType, WithArgExpr};
+use crate::ast::{BExpression, Expression, ExpressionNode, FuncExpr, WithArgExpr};
+use crate::common::ReturnType;
 use crate::functions::{BuiltinFunction, DataType};
-use crate::lexer::{TokenKind, unescape_ident};
-use crate::parser::{ParseError, Parser, ParseResult};
+use crate::lexer::{unescape_ident, TokenKind};
 use crate::parser::expr::parse_arg_list;
-
+use crate::parser::{ParseError, ParseResult, Parser};
+use std::ops::Deref;
 
 pub(super) fn parse_func_expr(p: &mut Parser) -> ParseResult<Expression> {
     let token = p.expect_token(TokenKind::Ident)?;
     let name = unescape_ident(token.text);
-    let mut span= token.span;
 
     let args = parse_arg_list(p)?;
 
     let mut keep_metric_names = false;
     if p.at(TokenKind::KeepMetricNames) {
         keep_metric_names = true;
-        p.update_span(&mut span);
         p.bump();
     }
 
-    let mut fe = FuncExpr::new(&name, args, span)?;
+    let mut fe = FuncExpr::new(&name, args)?;
     fe.keep_metric_names = keep_metric_names;
 
     // TODO: !!!! fix validate args
     // validate_args(&fe.function, &fe.args)?;
 
-    Ok(fe.cast())
+    Ok(Expression::Function(fe))
 }
 
 pub(super) fn parse_template_func_expr(p: &mut Parser) -> ParseResult<Expression> {
     let token = p.expect_token(TokenKind::Ident)?;
     let name = unescape_ident(token.text);
-    let mut span= token.span;
 
     let func = p.resolve_template_function(&name);
     if func.is_none() {
         // todo: raise error
     }
 
-    let func = func.unwrap();
+    let func = func.unwrap().clone(); // todo: avoid this
 
     let args = parse_arg_list(p)?;
-    
-    let frame = func.was.iter().zip(args.iter()).map(|(arg, expr)| {
-        WithArgExpr {
-            name: arg.name.clone(),
+
+    let frame = func
+        .args
+        .iter()
+        .zip(args.iter())
+        .map(|(arg, expr)| WithArgExpr {
+            name: arg.clone(),
             args: vec![],
-            expr: expr.clone(),
+            expr: *expr.clone(),
             is_function: false,
-        }
-    }).collect::<Vec<WithArgExpr>>();
+        })
+        .collect::<Vec<WithArgExpr>>();
 
     p.with_stack.push(frame);
 
-    let mut fe = FuncExpr::new(&name, args, span)?;
+    let fe = FuncExpr::new(&name, args)?;
 
     // TODO: !!!! fix validate args
     // validate_args(&fe.function, &fe.args)?;
@@ -62,54 +62,55 @@ pub(super) fn parse_template_func_expr(p: &mut Parser) -> ParseResult<Expression
     Ok(fe.cast())
 }
 
-
 pub(crate) fn validate_args(func: &BuiltinFunction, args: &[BExpression]) -> ParseResult<()> {
-    use ReturnType::*;
-
     let expect = |actual: ReturnType, expected: ReturnType, index: usize| -> ParseResult<()> {
         // Note: we don't use == because we're blocked from deriving PartialEq on ReturnValue because
         // of the Unknown variant
         if actual.to_string() != expected.to_string() {
-            return Err(ParseError::ArgumentError(
-                format!("Invalid argument #{} to {}. {} expected", index, func, expected)
-            ))
+            return Err(ParseError::ArgumentError(format!(
+                "Invalid argument #{} to {}. {} expected",
+                index, func, expected
+            )));
         }
         Ok(())
     };
 
-    let validate_return_type = |return_type: ReturnType, expected: DataType, index: usize| -> ParseResult<()> {
-        match return_type {
-            Unknown(u) => {
-                return Err(ParseError::ArgumentError(
-                    format!("Bug: Cannot determine type of argument #{} to {}. {}", index, func, u.message)
-                ))
-            },
-            _ => {}
-        }
-        match expected {
-            DataType::RangeVector => {
-                return expect(return_type, RangeVector, index);
+    let validate_return_type =
+        |return_type: ReturnType, expected: DataType, index: usize| -> ParseResult<()> {
+            match return_type {
+                ReturnType::Unknown(u) => {
+                    return Err(ParseError::ArgumentError(format!(
+                        "Bug: Cannot determine type of argument #{} to {}. {}",
+                        index, func, u.message
+                    )))
+                }
+                _ => {}
             }
-            DataType::InstantVector => {
-                return match return_type {
-                    // scalar can be converted to InstantVector
-                    Scalar | InstantVector => Ok(()),
-                    _ => expect(return_type, InstantVector, index)
+            match expected {
+                DataType::RangeVector => {
+                    return expect(return_type, ReturnType::RangeVector, index);
+                }
+                DataType::InstantVector => {
+                    return match return_type {
+                        // scalar can be converted to InstantVector
+                        ReturnType::Scalar | ReturnType::InstantVector => Ok(()),
+                        _ => expect(return_type, ReturnType::InstantVector, index),
+                    };
+                }
+                DataType::Scalar => {
+                    if !return_type.is_operator_valid() {
+                        return Err(ParseError::ArgumentError(format!(
+                            "Invalid argument #{} to {}. Scalar or InstantVector expected",
+                            index, func
+                        )));
+                    }
+                }
+                DataType::String => {
+                    return expect(return_type, ReturnType::String, index);
                 }
             }
-            DataType::Scalar => {
-                if !return_type.is_operator_valid() {
-                    return Err(ParseError::ArgumentError(
-                        format!("Invalid argument #{} to {}. Scalar or InstantVector expected", index, func)
-                    ))
-                }
-            }
-            DataType::String => {
-                return expect(return_type, String, index);
-            }
-        }
-        Ok(())
-    };
+            Ok(())
+        };
 
     // validate function args
     let sig = func.signature();
@@ -135,7 +136,7 @@ pub(crate) fn validate_args(func: &BuiltinFunction, args: &[BExpression]) -> Par
                 if expected.is_numeric() {
                     continue;
                 }
-            },
+            }
             _ => {}
         }
 

@@ -2,8 +2,8 @@ use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
+use metricsql::hir::AggregationExpr;
 use phf::phf_map;
-use metricsql::ast::{AggrFuncExpr};
 
 use crate::runtime_error::RuntimeResult;
 use crate::Timeseries;
@@ -87,14 +87,17 @@ pub(crate) struct IncrementalAggrContext {
 type ContextHash = HashMap<u64, HashMap<String, IncrementalAggrContext>>;
 
 pub(crate) struct IncrementalAggrFuncContext<'a> {
-    ae: &'a AggrFuncExpr,
+    ae: &'a AggregationExpr,
     // todo: use Rc/Arc based on cfg
     context_map: RwLock<ContextHash>,
     callbacks: &'static IncrementalAggrFuncCallbacks,
 }
 
 impl<'a> IncrementalAggrFuncContext<'a> {
-    pub(crate) fn new(ae: &'a AggrFuncExpr, callbacks: &'static IncrementalAggrFuncCallbacks) -> Self {
+    pub(crate) fn new(
+        ae: &'a AggregationExpr,
+        callbacks: &'static IncrementalAggrFuncCallbacks,
+    ) -> Self {
         let m: HashMap<u64, HashMap<String, IncrementalAggrContext>> = HashMap::new();
 
         Self {
@@ -133,7 +136,7 @@ impl<'a> IncrementalAggrFuncContext<'a> {
                 let ts_aggr = Timeseries {
                     metric_name: ts.metric_name.clone(),
                     values: vec![0_f64; value_len],
-                    timestamps: Arc::clone(&ts.timestamps)
+                    timestamps: Arc::clone(&ts.timestamps),
                 };
 
                 let mut iac = IncrementalAggrContext {
@@ -164,7 +167,7 @@ impl<'a> IncrementalAggrFuncContext<'a> {
                 match m_global.get_mut(k) {
                     Some(iac_global) => {
                         merge(iac_global, iac);
-                    },
+                    }
                     None => {
                         if self.ae.limit > 0 && m_global.len() >= self.ae.limit {
                             // Skip this time series, since the limit on the number of output time series
@@ -296,7 +299,7 @@ fn update_aggr_max(iac: &mut IncrementalAggrContext, values: &[f64]) {
 }
 
 fn merge_aggr_max(dst: &mut IncrementalAggrContext, src: &IncrementalAggrContext) {
-    for i in 0 .. src.ts.values.len() {
+    for i in 0..src.ts.values.len() {
         let v = src.ts.values[i];
         if src.values[i] == 0.0 {
             continue;
@@ -363,12 +366,11 @@ fn finalize_aggr_avg(iac: &mut IncrementalAggrContext) {
             iac.ts.values[i] = f64::NAN;
             continue;
         }
-        iac.ts.values[i]  = dst_value / v;
+        iac.ts.values[i] = dst_value / v;
     }
 }
 
 fn update_aggr_count(iac: &mut IncrementalAggrContext, values: &[f64]) {
-
     for (i, v) in values.iter().enumerate() {
         if v.is_nan() {
             continue;
@@ -438,7 +440,6 @@ fn merge_aggr_sum2(dst: &mut IncrementalAggrContext, src: &IncrementalAggrContex
 }
 
 fn update_aggr_geomean(iac: &mut IncrementalAggrContext, values: &[f64]) {
-
     for (i, v) in values.iter().enumerate() {
         if v.is_nan() {
             continue;

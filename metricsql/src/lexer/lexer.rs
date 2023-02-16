@@ -1,8 +1,8 @@
-use std::{cmp, fmt};
 use crate::lexer::TokenKind;
 use logos::{Logos, Span};
+use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
-use serde::{Serialize, Deserialize};
+use std::{cmp, fmt};
 
 /// A byte-index tuple representing a span of characters in a string
 ///
@@ -11,7 +11,7 @@ use serde::{Serialize, Deserialize};
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Default, Hash, Serialize, Deserialize)]
 pub struct TextSpan {
     pub start: usize,
-    pub end: usize
+    pub end: usize,
 }
 
 impl From<(usize, usize)> for TextSpan {
@@ -28,7 +28,7 @@ impl TextSpan {
     pub fn at(start: usize, len: usize) -> Self {
         Self {
             start,
-            end: start + len - 1
+            end: start + len - 1,
         }
     }
 
@@ -56,7 +56,6 @@ impl fmt::Display for TextSpan {
         write!(f, "({}, {})", self.start, self.end)
     }
 }
-
 
 /// A token of MetricSql source.
 #[derive(Debug, Clone, PartialEq)]
@@ -99,7 +98,7 @@ impl<'a> Lexer<'a> {
         }
 
         if let Some(token) = self.peeked.pop_front() {
-            return Some(token)
+            return Some(token);
         }
 
         match self.inner.next() {
@@ -111,7 +110,11 @@ impl<'a> Lexer<'a> {
             Some(kind) => {
                 let Span { start, end } = self.inner.span();
                 let span = TextSpan::new(start, end);
-                Some(Token { kind, text: self.inner.slice(), span } )
+                Some(Token {
+                    kind,
+                    text: self.inner.slice(),
+                    span,
+                })
             }
         }
     }

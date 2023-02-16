@@ -191,25 +191,54 @@ impl TokenKind {
     pub fn is_error(&self) -> bool {
         use TokenKind::*;
 
-        matches!(self,
+        matches!(
+            self,
             ErrorStringDoubleQuotedUnterminated
-            | ErrorStringSingleQuotedUnterminated
-            | ErrorStringMissingQuotes
-            | ErrorInvalidToken)
+                | ErrorStringSingleQuotedUnterminated
+                | ErrorStringMissingQuotes
+                | ErrorInvalidToken
+        )
     }
 
     pub fn is_operator(&self) -> bool {
         use TokenKind::*;
 
-        matches!(self, OpAtan2 | OpMul | OpDiv | OpDefault | OpIf | OpIfNot | OpMod | OpPlus | OpMinus | OpLessThan
-            | OpGreaterThan | OpLessThanOrEqual | OpGreaterThanOrEqual | OpEqual | OpNotEqual | OpPow
-            | OpAnd | OpOr | OpUnless)
+        matches!(
+            self,
+            OpAtan2
+                | OpMul
+                | OpDiv
+                | OpDefault
+                | OpIf
+                | OpIfNot
+                | OpMod
+                | OpPlus
+                | OpMinus
+                | OpLessThan
+                | OpGreaterThan
+                | OpLessThanOrEqual
+                | OpGreaterThanOrEqual
+                | OpEqual
+                | OpNotEqual
+                | OpPow
+                | OpAnd
+                | OpOr
+                | OpUnless
+        )
     }
 
     #[inline]
     pub fn is_comparison_op(&self) -> bool {
         use TokenKind::*;
-        matches!(self, OpEqual | OpNotEqual | OpGreaterThanOrEqual | OpGreaterThan | OpLessThanOrEqual | OpLessThan)
+        matches!(
+            self,
+            OpEqual
+                | OpNotEqual
+                | OpGreaterThanOrEqual
+                | OpGreaterThan
+                | OpLessThanOrEqual
+                | OpLessThan
+        )
     }
 
     #[inline]
@@ -240,19 +269,38 @@ impl TokenKind {
     pub fn is_ident_like(&self) -> bool {
         use TokenKind::*;
         // keywords
-        matches!(self, By | Bool | OpDefault | GroupLeft | GroupRight |
-            Ignoring | KeepMetricNames | Limit | On | Offset | With | Without |
-            OpAnd | OpAtan2 | OpIf | OpIfNot | OpOr | OpUnless)
+        matches!(
+            self,
+            By | Bool
+                | OpDefault
+                | GroupLeft
+                | GroupRight
+                | Ignoring
+                | KeepMetricNames
+                | Limit
+                | On
+                | Offset
+                | With
+                | Without
+                | OpAnd
+                | OpAtan2
+                | OpIf
+                | OpIfNot
+                | OpOr
+                | OpUnless
+        )
     }
 
     pub fn is_error_token(&self) -> bool {
         use TokenKind::*;
-        matches!(self,
+        matches!(
+            self,
             ErrorInvalidToken
-            | ErrorInvalidNumber
-            | ErrorStringMissingQuotes
-            | ErrorStringDoubleQuotedUnterminated
-            | ErrorStringSingleQuotedUnterminated)
+                | ErrorInvalidNumber
+                | ErrorStringMissingQuotes
+                | ErrorStringDoubleQuotedUnterminated
+                | ErrorStringSingleQuotedUnterminated
+        )
     }
 }
 
@@ -326,7 +374,7 @@ impl Display for TokenKind {
             // other
             Self::ErrorInvalidToken => "<invalid token>",
             Self::Eof => "<Eof>",
-            Self::ErrorInvalidNumber => "invalid number"
+            Self::ErrorInvalidNumber => "invalid number",
         })
     }
 }
@@ -334,8 +382,8 @@ impl Display for TokenKind {
 #[cfg(test)]
 mod tests {
     use super::{TokenKind::*, *};
+    use crate::lexer::Lexer;
     use test_case::test_case;
-    use crate::lexer::{Lexer};
 
     macro_rules! test_tokens {
     ($src:expr, [$(
@@ -478,7 +526,10 @@ mod tests {
     fn misc_numbers() {
         // Numbers
         let s = r"3+1.2-.23+4.5e5-78e-6+1.24e+45-NaN+Inf";
-        let expected = vec!["3", "+", "1.2", "-", ".23", "+", "4.5e5", "-", "78e-6", "+", "1.24e+45", "-", "NaN", "+", "Inf"];
+        let expected = vec![
+            "3", "+", "1.2", "-", ".23", "+", "4.5e5", "-", "78e-6", "+", "1.24e+45", "-", "NaN",
+            "+", "Inf",
+        ];
         test_success(s, &expected);
 
         let s = "12.34 * 0X34 + 0b11 + 0O77";
@@ -652,8 +703,26 @@ mod tests {
     fn metric_name_with_tag_filters() {
         // Metric name with tag filters
         let s = r#"  metric:12.34{a="foo", b != "bar", c=~ "x.+y", d !~ "zzz"}"#;
-        let expected = vec!["metric:12.34", "{", "a", "=", r#""foo""#, ",", "b",
-                            "!=", r#""bar""#, ",", "c", "=~", r#""x.+y""#, ",", "d", "!~", "zzz", "}"];
+        let expected = vec![
+            "metric:12.34",
+            "{",
+            "a",
+            "=",
+            r#""foo""#,
+            ",",
+            "b",
+            "!=",
+            r#""bar""#,
+            ",",
+            "c",
+            "=~",
+            r#""x.+y""#,
+            ",",
+            "d",
+            "!~",
+            "zzz",
+            "}",
+        ];
 
         test_success(s, &expected);
     }
@@ -662,7 +731,9 @@ mod tests {
     fn function_call() {
         // fn call
         let s = r#"sum  (  metric{x="y"  }  [5m] offset 10h)"#;
-        let expected = vec!["sum", "(", "metric", "{", "x", "=", "y", "}", "[", "5m", "]", "offset", "10h", ")"];
+        let expected = vec![
+            "sum", "(", "metric", "{", "x", "=", "y", "}", "[", "5m", "]", "offset", "10h", ")",
+        ];
         test_success(s, &expected);
     }
 
@@ -670,7 +741,9 @@ mod tests {
     fn binary_op() {
         // Binary op
         let s = "a+b or c % d and e unless f";
-        let expected = vec!["a", "+", "b", "or", "c", "%", "d", "and", "e", "unless", "f"];
+        let expected = vec![
+            "a", "+", "b", "or", "c", "%", "d", "and", "e", "unless", "f",
+        ];
         test_success(s, &expected);
     }
 
@@ -694,7 +767,12 @@ mod tests {
 
         // Strings
         let s = r#""''"#.to_owned() + "``" + r#"\\"  '\\'  "\"" '\''"\\\"\\""#;
-        let expected = vec![r#""""#, "''", "``", r#"\\"", `'\\'", `"\""", `'\''" "\\\"\\"#];
+        let expected = vec![
+            r#""""#,
+            "''",
+            "``",
+            r#"\\"", `'\\'", `"\""", `'\''" "\\\"\\"#,
+        ];
         test_success(&s, &expected);
     }
 

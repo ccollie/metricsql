@@ -15,18 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-//! Expression simplification API
+// https://github.com/apache/arrow-datafusion/tree/master/datafusion/optimizer/src
+// https://github.com/apache/arrow-datafusion/blob/e222bd627b6e7974133364fed4600d74b4da6811/datafusion/optimizer/src/utils.rs
 
-use super::utils::*;
-use crate::ast::expr_rewriter::{ExprRewritable, ExprRewriter, RewriteRecursion};
-use crate::ast::{BinaryExpr, Operator, DurationExpr, Expression, FuncExpr, NumberExpr};
+//! Expression simplification API
+//!
+use super::expr_rewriter::{ExprRewritable, ExprRewriter, RewriteRecursion};
+use super::{BinaryExpr, DurationExpr, Expression, FunctionExpr};
+use crate::ast;
+use crate::binaryop::{eval_binary_op, string_compare};
+use crate::common::Operator;
 use crate::functions::Volatility;
 use crate::parser::{ParseError, ParseResult};
-use crate::prelude::constant_fold_binary_expression;
+
+pub fn simplify_expression(expr: Expression) -> ParseResult<Expression> {
+    let simplifier = ExprSimplifier::new();
+    simplifier.simplify(expr)
+}
+
+pub fn optimize(expr: ast::Expression) -> ParseResult<Expression> {
+    let hir = Expression::from(&expr);
+    simplify_expression(hir)
+}
 
 /// This structure handles API for expression simplification
-pub struct ExprSimplifier {
-}
+pub struct ExprSimplifier {}
 
 impl ExprSimplifier {
     /// Create a new `ExprSimplifier` with the given `info` such as an
@@ -35,7 +48,7 @@ impl ExprSimplifier {
     ///
     /// [`SimplifyContext`]: crate::simplify_expressions::context::SimplifyContext
     pub fn new() -> Self {
-        Self { }
+        Self {}
     }
 
     /// Simplifies this [`Expression`]`s as much as possible, evaluating
@@ -53,10 +66,9 @@ impl ExprSimplifier {
     /// `b > 2`
     ///
     /// ```
-    /// use datafusion_expr::{selector, number, Expr};
-    /// use datafusion_common::Result;
-    /// use datafusion_optimizer::simplify_expressions::{ExprSimplifier};
-    ///
+    /// use metricsql::prelude::ExprSimplifier;
+    /// use super::{selector, number, Expr};
+    /// use crate::hir::{ExprSimplifier};
     ///
     /// // Create the simplifier
     /// let simplifier = ExprSimplifier::new();
@@ -135,7 +147,7 @@ impl ExprRewriter for ConstEvaluator {
         // functions, etc)
         Ok(RewriteRecursion::Continue)
     }
-    
+
     fn mutate(&mut self, expr: Expression) -> ParseResult<Expression> {
         match self.can_evaluate.pop() {
             Some(true) => self.evaluate_to_scalar(expr),
@@ -150,7 +162,9 @@ impl ConstEvaluator {
     /// the time for `now()` are taken from the passed
     /// `execution_props`.
     pub fn new() -> Self {
-        Self { can_evaluate: vec![], }
+        Self {
+            can_evaluate: vec![],
+        }
     }
 
     /// Can a function of the specified volatility be evaluated?
@@ -174,17 +188,18 @@ impl ConstEvaluator {
         match expr {
             // Has no runtime cost, but needed during planning
             Expression::Aggregation { .. }
-            | Expression::MetricExpression{ .. }
-            | Expression::Rollup { .. }
-            | Expression::Parens(_)
-            | Expression::With(_) => false,
-            Expression::Function(FuncExpr { function, .. }) => Self::volatility_ok(
-                function.volatility()),
-            Expression::Function(_) => false,
+            | Expression::MetricExpression { .. }
+            | Expression::Rollup { .. } => false,
+            Expression::Function(FunctionExpr { function, .. }) => {
+                Self::volatility_ok(function.volatility())
+            }
             Expression::Number(_)
             | Expression::String(_)
             | Expression::BinaryOperator { .. }
-            | Expression::Duration(DurationExpr{ requires_step: false, .. }) => true,
+            | Expression::Duration(DurationExpr {
+                requires_step: false,
+                ..
+            }) => true,
             Expression::Duration(_) => false,
         }
     }
@@ -192,17 +207,49 @@ impl ConstEvaluator {
     /// Internal helper to evaluates an Expr
     pub(crate) fn evaluate_to_scalar(&mut self, expr: Expression) -> ParseResult<Expression> {
         match expr {
-            Expression::Number(_) | Expression::String(_) => Ok(expr),
-            Expression::Duration(d) => Ok(Expression::from(d.value)),
-            Expression::BinaryOperator(ref be) => {
-                if let Some(const_value) = constant_fold_binary_expression(be) {
-                    Ok(const_value)
-                } else {
-                    Ok(expr)
-                }
-            },
-            _ => Ok(expr)
+            Expression::BinaryOperator(be) => Self::handle_binary_expr(be),
+            _ => Ok(expr),
         }
+    }
+
+    fn handle_binary_expr(be: BinaryExpr) -> ParseResult<Expression> {
+        match (be.left.as_ref(), be.right.as_ref(), be.op) {
+            (Expression::Duration(ln), Expression::Duration(rn), op)
+                if op == Operator::Add || op == Operator::Sub =>
+            {
+                if ln.requires_step == rn.requires_step {
+                    let n = eval_binary_op(ln.value as f64, rn.value as f64, op, be.bool_modifier)
+                        as i64;
+                    let dur = DurationExpr::new(n, ln.requires_step);
+                    let expr = Expression::Duration(dur);
+                    return Ok(expr);
+                }
+            }
+            (Expression::Number(ln), Expression::Number(rn), op) => {
+                let n = eval_binary_op(*ln, *rn, op, be.bool_modifier);
+                return Ok(Expression::from(n));
+            }
+            (Expression::String(left), Expression::String(right), op) => {
+                if op == Operator::Add {
+                    let val = format!("{}{}", left, right);
+                    let expr = Expression::String(val);
+                    return Ok(expr);
+                }
+                if op.is_comparison() {
+                    let n = if string_compare(&left, &right, op).unwrap_or(false) {
+                        1.0
+                    } else if !be.bool_modifier {
+                        f64::NAN
+                    } else {
+                        0.0
+                    };
+
+                    return Ok(Expression::from(n));
+                }
+            }
+            _ => {}
+        }
+        return Ok(Expression::BinaryOperator(be));
     }
 }
 
@@ -213,14 +260,12 @@ impl ConstEvaluator {
 /// * `expr == false` and `expr != true` to `!expr` when `expr` is of boolean type
 /// * `true == true` and `false == false` to `true`
 /// * `false == true` and `true == false` to `false`
-/// * `!!expr` to `expr`
-/// * `expr = null` and `expr != null` to `null`
-struct Simplifier {
-}
+/// * `expr == NaN` and `expr != NaN` to `NaN`
+struct Simplifier {}
 
 impl Simplifier {
     pub fn new() -> Self {
-        Self { }
+        Self {}
     }
 }
 
@@ -229,50 +274,44 @@ impl Simplifier {
 impl ExprRewriter for Simplifier {
     /// rewrite the expression simplifying any constant expressions
     fn mutate(&mut self, expr: Expression) -> ParseResult<Expression> {
-        use Operator::{
-            And, Div, Mul, Or,
-        };
+        use Operator::{And, Div, Mul, Or};
 
         let new_expr = match expr {
-            Expression::Parens(pe) => {
-                if pe.len() == 1 {
-                    std::mem::take(pe.expressions[0].as_mut())
-                } else {
-                    // Treat parensExpr as a function with empty name, i.e. union()
-                    // todo: how to avoid clone
-                    let fe = FuncExpr::new("", pe.expressions.clone(), expr.span())?;
-                    Expression::Function(fe)
-                }
-            },
-
             //
             // Rules for OR
             //
 
             // (..A..) OR A --> (..A..)
             Expression::BinaryOperator(BinaryExpr {
-                                 left,
-                                 op: Or,
-                                 right, ..
-                             }) if expr_contains(&left, &right, Or) => *left,
+                left,
+                op: Or,
+                right,
+                ..
+            }) if expr_contains(&left, &right, Or) => *left,
+
             // A OR (..A..) --> (..A..)
             Expression::BinaryOperator(BinaryExpr {
-                                 left,
-                               op: Or,
-                                 right, ..
-                             }) if expr_contains(&right, &left, Or) => *right,
+                left,
+                op: Or,
+                right,
+                ..
+            }) if expr_contains(&right, &left, Or) => *right,
+
             // A OR (A AND B) --> A
             Expression::BinaryOperator(BinaryExpr {
-                                 left,
-                                 op: Or,
-                                 right, ..
-                             }) if is_op_with(And, &right, &left) => *left,
+                left,
+                op: Or,
+                right,
+                ..
+            }) if is_op_with(And, &right, &left) => *left,
+
             // (A AND B) OR A --> A
             Expression::BinaryOperator(BinaryExpr {
-                                 left,
-                                op: Or,
-                                 right, ..
-                             }) if is_op_with(And, &left, &right) => *right,
+                left,
+                op: Or,
+                right,
+                ..
+            }) if is_op_with(And, &left, &right) => *right,
 
             //
             // Rules for AND
@@ -280,29 +319,35 @@ impl ExprRewriter for Simplifier {
 
             // (..A..) AND A --> (..A..)
             Expression::BinaryOperator(BinaryExpr {
-                                 left,
-                                 op: And,
-                                 right, ..
-                             }) if expr_contains(&left, &right, And) => *left,
+                left,
+                op: And,
+                right,
+                ..
+            }) if expr_contains(&left, &right, And) => *left,
+
             // A AND (..A..) --> (..A..)
             Expression::BinaryOperator(BinaryExpr {
-                                 left,
-                                 op: And,
-                                 right, ..
-                             }) if expr_contains(&right, &left, And) => *right,
+                left,
+                op: And,
+                right,
+                ..
+            }) if expr_contains(&right, &left, And) => *right,
+
             // A AND (A OR B) --> A
             Expression::BinaryOperator(BinaryExpr {
-                                 left,
-                                 op: And,
-                                 right, ..
-                             }) if is_op_with(Or, &right, &left) => *left,
-            
+                left,
+                op: And,
+                right,
+                ..
+            }) if is_op_with(Or, &right, &left) => *left,
+
             // (A OR B) AND A --> A
             Expression::BinaryOperator(BinaryExpr {
-                                 left,
-                                 op: And,
-                                 right, ..
-                             }) if is_op_with(Or, &left, &right) => *right,
+                left,
+                op: And,
+                right,
+                ..
+            }) if is_op_with(Or, &left, &right) => *right,
 
             //
             // Rules for Multiply
@@ -310,43 +355,51 @@ impl ExprRewriter for Simplifier {
 
             // A * 1 --> A
             Expression::BinaryOperator(BinaryExpr {
-                                 left,
-                                 op: Operator::Mul,
-                                 right, ..
-                             }) if is_one(&right) => *left,
+                left,
+                op: Operator::Mul,
+                right,
+                ..
+            }) if is_one(&right) => *left,
 
             // 1 * A --> A
             Expression::BinaryOperator(BinaryExpr {
-                                 left,
-                                 op: Operator::Mul,
-                                 right, ..
-                             }) if is_one(&left) => *right,
+                left,
+                op: Operator::Mul,
+                right,
+                ..
+            }) if is_one(&left) => *right,
 
             // A * NaN --> NaN
             Expression::BinaryOperator(BinaryExpr {
-                                 left: _,
-                                 op: Operator::Mul,
-                                 right, ..
-                             }) if is_null(&right) => *right,
+                left: _,
+                op: Operator::Mul,
+                right,
+                ..
+            }) if is_null(&right) => *right,
 
             // NaN * A --> NaN
             Expression::BinaryOperator(BinaryExpr {
-                                 left,
-                                 op: Operator::Mul,
-                                 right: _,
-                                 ..
-                             }) if is_null(&left) => *left,
+                left,
+                op: Operator::Mul,
+                right: _,
+                ..
+            }) if is_null(&left) => *left,
 
             // A * 0 --> 0
             Expression::BinaryOperator(BinaryExpr {
-                                 left: _,
-                                 op: Mul,
-                                 right, ..
-                             }) if is_zero(&right) => *right,
-            
+                left: _,
+                op: Mul,
+                right,
+                ..
+            }) if is_zero(&right) => *right,
+
             // 0 * A --> 0
-            Expression::BinaryOperator(BinaryExpr { left, op: Mul, right: _, .. })
-                if is_zero(&left) => *left,
+            Expression::BinaryOperator(BinaryExpr {
+                left,
+                op: Mul,
+                right: _,
+                ..
+            }) if is_zero(&left) => *left,
 
             //
             // Rules for Divide
@@ -354,36 +407,42 @@ impl ExprRewriter for Simplifier {
 
             // A / 1 --> A
             Expression::BinaryOperator(BinaryExpr {
-                                 left,
-                                 op: Div,
-                                 right, ..
-                             }) if is_one(&right) => *left,
-            
+                left,
+                op: Div,
+                right,
+                ..
+            }) if is_one(&right) => *left,
+
             // NaN / A --> NaN
-            Expression::BinaryOperator(BinaryExpr { left, op: Div, right: _, .. })
-                if is_null(&left) => *left,
-            
+            Expression::BinaryOperator(BinaryExpr {
+                left,
+                op: Div,
+                right: _,
+                ..
+            }) if is_null(&left) => *left,
+
             // A / NaN --> NaN
             Expression::BinaryOperator(BinaryExpr {
-                                 left: _,
-                                 op: Div,
-                                 right, ..
-                             }) if is_null(&right) => *right,
-            
+                left: _,
+                op: Div,
+                right,
+                ..
+            }) if is_null(&right) => *right,
+
             // 0 / 0 -> NaN
             Expression::BinaryOperator(BinaryExpr {
-                                 left,
-                                 op: Div,
-                                 right, ..
-                             }) if is_zero(&left) && is_zero(&right) => {
-                Expression::Number(NumberExpr::from(f64::NAN))
-            }
+                left,
+                op: Div,
+                right,
+                ..
+            }) if is_zero(&left) && is_zero(&right) => Expression::Number(f64::NAN),
             // A / 0 -> DivideByZero Error
             Expression::BinaryOperator(BinaryExpr {
-                                 left: _,
-                                 op: Divide,
-                                 right, ..
-                             }) if is_zero(&right) => {
+                left: _,
+                op: Operator::Div,
+                right,
+                ..
+            }) if is_zero(&right) => {
                 return Err(ParseError::DivisionByZero);
             }
 
@@ -393,32 +452,33 @@ impl ExprRewriter for Simplifier {
 
             // A % NaN --> NaN
             Expression::BinaryOperator(BinaryExpr {
-                                 left: _,
-                                 op: Operator::Mod,
-                                 right, ..
-                             }) if is_null(&right) => *right,
+                op: Operator::Mod,
+                right,
+                ..
+            }) if is_null(&right) => *right,
 
             // NaN % A --> NaN
             Expression::BinaryOperator(BinaryExpr {
-                                 left,
-                                 op: Operator::Mod,
-                                 right: _,
-                                 ..
-                             }) if is_null(&left) => *left,
+                left,
+                op: Operator::Mod,
+                right: _,
+                ..
+            }) if is_null(&left) => *left,
             // A % 1 --> 0
             Expression::BinaryOperator(BinaryExpr {
-                                 left: _,
-                                 op: Operator::Mod,
-                                 right, ..
-                             }) if is_one(&right) => Expression::from(0.0),
+                left: _,
+                op: Operator::Mod,
+                right,
+                ..
+            }) if is_one(&right) => Expression::from(0.0),
             // A % 0 --> DivideByZero Error
             Expression::BinaryOperator(BinaryExpr {
-                                 left,
-                                 op: Operator::Mod,
-                                 right, ..
-                             }) if is_zero(&right) => {
-                                    return Err(ParseError::DivisionByZero);
-                                }
+                op: Operator::Mod,
+                right,
+                ..
+            }) if is_zero(&right) => {
+                return Err(ParseError::DivisionByZero);
+            }
 
             // no additional rewrites possible
             expr => expr,
@@ -427,15 +487,52 @@ impl ExprRewriter for Simplifier {
     }
 }
 
+/// returns true if `needle` is found in a chain of search_op
+/// expressions. Such as: (A AND B) AND C
+pub fn expr_contains(expr: &Expression, needle: &Expression, search_op: Operator) -> bool {
+    match expr {
+        Expression::BinaryOperator(BinaryExpr {
+            left, op, right, ..
+        }) if *op == search_op => {
+            expr_contains(left, needle, search_op) || expr_contains(right, needle, search_op)
+        }
+        _ => expr == needle,
+    }
+}
+
+pub fn is_number_value(s: &Expression, val: f64) -> bool {
+    match s {
+        Expression::Number(number) => *number == val,
+        _ => false,
+    }
+}
+
+pub fn is_zero(s: &Expression) -> bool {
+    is_number_value(s, 0.0)
+}
+
+pub fn is_one(s: &Expression) -> bool {
+    is_number_value(s, 1.0)
+}
+
+fn is_null(expr: &Expression) -> bool {
+    is_number_value(expr, f64::NAN)
+}
+
+/// returns true if `haystack` looks like (needle OP X) or (X OP needle)
+pub fn is_op_with(target_op: Operator, haystack: &Expression, needle: &Expression) -> bool {
+    matches!(haystack, Expression::BinaryOperator(BinaryExpr { left, op, right, .. })
+        if op == &target_op && (needle == left.as_ref() || needle == right.as_ref()))
+}
+
 #[cfg(test)]
 mod tests {
     use std::{collections::HashMap, f64, sync::Arc};
 
-    use crate::simplify_expressions::{
-        utils::for_test::{now_expr, to_timestamp_expr}
-    };
+    use crate::simplify_expressions::utils::for_test::{now_expr, to_timestamp_expr};
 
     use super::*;
+    use crate::hir::expr_fn::{binary_expr, number, selector};
     use chrono::{DateTime, TimeZone, Utc};
     use datafusion_common::{assert_contains, cast::as_int32_array};
     use datafusion_expr::*;
@@ -449,7 +546,7 @@ mod tests {
         let simplifier = ExprSimplifier::new();
 
         let expr = number(1.0) + number(2.0);
-        let expected = number(3);
+        let expected = number(3.0);
         assert_eq!(expected, simplifier.simplify(expr).unwrap());
     }
 
@@ -498,7 +595,7 @@ mod tests {
         // true --> true
         test_evaluate(lit(true), lit(true));
         // true or true --> true
-        test_evaluate(lit(true).or(lit(true)), lit(true));
+        test_evaluate(lit(true).or(number(1.0)), lit(true));
         // true or false --> true
         test_evaluate(lit(true).or(lit(false)), lit(true));
 
@@ -510,7 +607,10 @@ mod tests {
         // c = 1 --> c = 1
         test_evaluate(selector("c").eq(number(1.0)), selector("c").eq(number(1.0)));
         // c = 1 + 2 --> c + 3
-        test_evaluate(selector("c").eq(number(1.0) + lit(2)), selector("c").eq(lit(3)));
+        test_evaluate(
+            selector("c").eq(number(1.0) + lit(2)),
+            selector("c").eq(lit(3)),
+        );
         // (foo != foo) OR (c = 1) --> false OR (c = 1)
         test_evaluate(
             (lit("foo").not_eq(lit("foo"))).or(selector("c").eq(number(1.0))),
@@ -569,24 +669,16 @@ mod tests {
 
     #[test]
     fn test_simplify_multiply_by_one() {
-        let expr_a = binary_expr(col("c2"), Operator::Multiply, number(1));
+        let expr_a = binary_expr(col("c2"), Operator::Multiply, number(1.0));
         let expr_b = binary_expr(number(1.0), Operator::Multiply, col("c2"));
         let expected = col("c2");
 
         assert_eq!(simplify(expr_a), expected);
         assert_eq!(simplify(expr_b), expected);
 
-        let expr = binary_expr(
-            selector("c2"),
-            Operator::Multiply,
-            number(1)
-        );
+        let expr = binary_expr(selector("c2"), Operator::Multiply, number(1.0));
         assert_eq!(simplify(expr), expected);
-        let expr = binary_expr(
-            number(1),
-            Operator::Multiply,
-            selector("c2"),
-        );
+        let expr = binary_expr(number(1.0), Operator::Multiply, selector("c2"));
         assert_eq!(simplify(expr), expected);
     }
 
@@ -610,7 +702,7 @@ mod tests {
         // cannot optimize A * null (null * A)
         {
             let expr_a = binary_expr(selector("c2"), Operator::Multiply, number(0.0));
-            let expr_b = binary_expr(number(0), Operator::Multiply, selector("c2"));
+            let expr_b = binary_expr(number(0.0), Operator::Multiply, selector("c2"));
 
             assert_eq!(simplify(expr_a.clone()), expr_a);
             assert_eq!(simplify(expr_b.clone()), expr_b);
@@ -622,29 +714,15 @@ mod tests {
         }
         // A * 0 --> 0 if A is not nullable
         {
-            let expr = binary_expr(selector("c2_non_null"), Operator::Multiply, number(0));
+            let expr = binary_expr(selector("c2_non_null"), Operator::Multiply, number(0.0));
             assert_eq!(simplify(expr), number(0.0));
         }
         // A * 0 --> 0
         {
-            let expr = binary_expr(
-                selector("c2_non_null"),
-                Operator::Multiply,
-                number(0.0),
-            );
-            assert_eq!(
-                simplify(expr),
-                number(0.0)
-            );
-            let expr = binary_expr(
-                number(0.0),
-                Operator::Multiply,
-                selector("c2_non_null"),
-            );
-            assert_eq!(
-                simplify(expr),
-                number(0.0)
-            );
+            let expr = binary_expr(selector("c2_non_null"), Operator::Multiply, number(0.0));
+            assert_eq!(simplify(expr), number(0.0));
+            let expr = binary_expr(number(0.0), Operator::Multiply, selector("c2_non_null"));
+            assert_eq!(simplify(expr), number(0.0));
         }
     }
 
@@ -653,11 +731,7 @@ mod tests {
         let expr = binary_expr(selector("c2"), Operator::Divide, number(1.0));
         let expected = selector("c2");
         assert_eq!(simplify(expr), expected);
-        let expr = binary_expr(
-            selector("c2"),
-            Operator::Divide,
-            number(0.0)
-        );
+        let expr = binary_expr(selector("c2"), Operator::Divide, number(0.0));
         assert_eq!(simplify(expr), expected);
     }
 
@@ -696,7 +770,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-    expected = "called `Result::unwrap()` on an `Err` value: ArrowError(DivideByZero)"
+        expected = "called `Result::unwrap()` on an `Err` value: ArrowError(DivideByZero)"
     )]
     fn test_simplify_divide_by_zero() {
         // A / 0 -> DivideByZeroError
@@ -706,7 +780,7 @@ mod tests {
     }
 
     #[test]
-    fn test_simplify_modulo_by_null() {
+    fn test_simplify_modulo_by_NaN() {
         let null = Expression::from(f64::NAN);
         // A % NaN --> NaN
         {
@@ -732,19 +806,15 @@ mod tests {
     #[test]
     fn test_simplify_modulo_by_one_non_null() {
         let expr = binary_expr(selector("c2_non_null"), Operator::Modulo, number(1.0));
-        let expected = lit(0);
+        let expected = number(0.0);
         assert_eq!(simplify(expr), expected);
-        let expr = binary_expr(
-            selector("c2_non_null"),
-            Operator::Modulo,
-            Expression::Literal(ScalarValue::Decimal128(Some(10000000000), 31, 10)),
-        );
+        let expr = binary_expr(selector("c2_non_null"), Operator::Modulo, number(1.0));
         assert_eq!(simplify(expr), expected);
     }
 
     #[test]
     #[should_panic(
-    expected = "called `Result::unwrap()` on an `Err` value: ArrowError(DivideByZero)"
+        expected = "called `Result::unwrap()` on an `Err` value: ArrowError(DivideByZero)"
     )]
     fn test_simplify_modulo_by_zero_non_null() {
         let expr = binary_expr(selector("c2_non_null"), Operator::Modulo, number(0.0));
@@ -764,12 +834,19 @@ mod tests {
     fn test_simplify_composed_and() {
         // ((c > 5) AND (c1 < 6)) AND (c > 5)
         let expr = binary_expr(
-            binary_expr(selector("c2").gt(number(5.0)), Operator::And, selector("c1").lt(number(6.0))),
+            binary_expr(
+                selector("c2").gt(number(5.0)),
+                Operator::And,
+                selector("c1").lt(number(6.0)),
+            ),
             Operator::And,
             selector("c2").gt(number(5.0)),
         );
-        let expected =
-            binary_expr(selector("c2").gt(number(5.0)), Operator::And, selector("c1").lt(number(6.0)));
+        let expected = binary_expr(
+            selector("c2").gt(number(5.0)),
+            Operator::And,
+            selector("c1").lt(number(6.0)),
+        );
 
         assert_eq!(simplify(expr), expected);
     }
@@ -777,7 +854,11 @@ mod tests {
     #[test]
     fn test_simplify_or_and() {
         let l = selector("c2").gt(number(5.0));
-        let r = binary_expr(selector("c1").lt(number(6.0)), Operator::And, selector("c2").gt(number(5.0)));
+        let r = binary_expr(
+            selector("c1").lt(number(6.0)),
+            Operator::And,
+            selector("c2").gt(number(5.0)),
+        );
 
         // (c2 > 5) OR ((c1 < 6) AND (c2 > 5))
         let expr = binary_expr(l.clone(), Operator::Or, r.clone());
@@ -820,7 +901,11 @@ mod tests {
     #[test]
     fn test_simplify_and_or() {
         let l = selector("c2").gt(number(5.0));
-        let r = binary_expr(selector("c1").lt(number(6.0)), Operator::Or, selector("c2").gt(number(5.0)));
+        let r = binary_expr(
+            selector("c1").lt(number(6.0)),
+            Operator::Or,
+            selector("c2").gt(number(5.0)),
+        );
 
         // (c2 > 5) AND ((c1 < 6) OR (c2 > 5)) --> c2 > 5
         let expr = binary_expr(l.clone(), Operator::And, r.clone());
@@ -895,7 +980,7 @@ mod tests {
         let optimized = simplify(expr);
         assert_eq!(optimized, expected);
     }
-    
+
     // ------------------------------
     // ----- Simplifier tests -------
     // ------------------------------
@@ -909,11 +994,13 @@ mod tests {
     fn simplify(expr: Expr) -> Expr {
         try_simplify(expr).unwrap()
     }
-    
 
     #[test]
     fn simplify_expr_not_not() {
-        assert_eq!(simplify(selector("c2").not().not().not()), selector("c2").not(),);
+        assert_eq!(
+            simplify(selector("c2").not().not().not()),
+            selector("c2").not(),
+        );
     }
 
     #[test]
@@ -926,9 +1013,7 @@ mod tests {
 
         // null != null is always null
         assert_eq!(
-            simplify(
-                lit(ScalarValue::Boolean(None)).not_eq(lit(ScalarValue::Boolean(None)))
-            ),
+            simplify(lit(ScalarValue::Boolean(None)).not_eq(lit(ScalarValue::Boolean(None)))),
             number(f64::NAN),
         );
 
@@ -947,7 +1032,6 @@ mod tests {
 
     #[test]
     fn simplify_expr_eq() {
-
         // true == true -> true
         assert_eq!(simplify(lit(true).eq(number(1.0))), lit(true));
 
@@ -958,7 +1042,10 @@ mod tests {
     #[test]
     fn simplify_expr_eq_skip_nonboolean_type() {
         // don't fold c1 = foo
-        assert_eq!(simplify(selector("c1").eq(lit("foo"))), selector("c1").eq(lit("foo")),);
+        assert_eq!(
+            simplify(selector("c1").eq(lit("foo"))),
+            selector("c1").eq(lit("foo")),
+        );
     }
 
     #[test]
@@ -982,9 +1069,6 @@ mod tests {
         // col || true is always true
         assert_eq!(simplify(selector("c2").or(lit(true))), lit(true),);
 
-        // col || false is always col
-        assert_eq!(simplify(selector("c2").or(lit(false))), selector("c2"),);
-
         // true || null is always true
         assert_eq!(simplify(lit(true).or(lit_bool_null())), lit(true),);
 
@@ -993,29 +1077,5 @@ mod tests {
 
         // false || null is always null
         assert_eq!(simplify(lit(false).or(lit_bool_null())), lit_bool_null(),);
-
-        // null || false is always null
-        assert_eq!(simplify(lit_bool_null().or(lit(false))), lit_bool_null(),);
     }
-
-    #[test]
-    fn simplify_expr_bool_and() {
-        // col & true is always col
-        assert_eq!(simplify(selector("c2").and(lit(true))), selector("c2"),);
-        // col & false is always false
-        assert_eq!(simplify(selector("c2").and(lit(false))), lit(false),);
-
-        // true && NaN is always NaN
-        assert_eq!(simplify(lit(true).and(lit_bool_null())), lit_bool_null(),);
-
-        // NaN && true is always NaN
-        assert_eq!(simplify(lit_bool_null().and(lit(true))), lit_bool_null(),);
-
-        // false && NaN is always false
-        assert_eq!(simplify(lit(false).and(lit_bool_null())), lit(false),);
-
-        // NaN && false is always false
-        assert_eq!(simplify(lit_bool_null().and(lit(false))), lit(false),);
-    }
-
 }

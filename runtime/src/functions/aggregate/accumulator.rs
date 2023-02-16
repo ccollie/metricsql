@@ -1,6 +1,5 @@
 use crate::functions::aggregate::aggr_incremental::IncrementalAggrContext;
 
-
 pub(crate) trait Accumulator {
     fn state(&self) -> &IncrementalAggrContext;
     fn update(values: &[f64]);

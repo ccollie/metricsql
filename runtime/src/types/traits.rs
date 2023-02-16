@@ -1,5 +1,5 @@
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use chrono::prelude::*;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 // Unix timestamp in milliseconds.
 // TODO: make this a newType
@@ -28,9 +28,10 @@ impl TimestampTrait for Timestamp {
     fn from_systemtime(time: SystemTime) -> Timestamp {
         match time.duration_since(UNIX_EPOCH) {
             Ok(duration) => {
-                let val = duration.as_secs() * 1000 + u64::from(duration.subsec_nanos()) / 1_000_000;
+                let val =
+                    duration.as_secs() * 1000 + u64::from(duration.subsec_nanos()) / 1_000_000;
                 val as i64
-            },
+            }
             Err(e) => panic!(
                 "SystemTime before UNIX EPOCH! Difference: {:?}",
                 e.duration()
@@ -58,7 +59,7 @@ impl TimestampTrait for Timestamp {
     fn to_string_millis(&self) -> String {
         match NaiveDateTime::from_timestamp_millis(self / 1000) {
             Some(ts) => ts.format("%Y-%m-%dT%H:%M:%S%.3f").to_string(),
-            None => "".to_string()
+            None => "".to_string(),
         }
     }
 
@@ -67,5 +68,4 @@ impl TimestampTrait for Timestamp {
         let date_time = DateTime::<Utc>::from_utc(naive_date_time, Utc);
         date_time.to_rfc3339()
     }
-
 }

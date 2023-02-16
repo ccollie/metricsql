@@ -2,7 +2,7 @@
 /// under the APACHE License 2.0
 /// http://www.apache.org/licenses/LICENSE-2.0
 /// https://docs.rs/arrow-array/29.0.0/src/arrow_array/lib.rs.html
-use chrono::{DateTime, Duration, NaiveDateTime, NaiveTime, Timelike, TimeZone, Utc};
+use chrono::{DateTime, Duration, NaiveDateTime, NaiveTime, TimeZone, Timelike, Utc};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 /// Number of seconds in a day
@@ -154,9 +154,11 @@ pub fn duration_ns_to_duration(v: i64) -> Duration {
 
 #[cfg(test)]
 mod tests {
-    use chrono::NaiveDateTime;
-    use crate::{NANOSECONDS, timestamp_ms_to_datetime, timestamp_ns_to_datetime, timestamp_us_to_datetime};
     use crate::time::split_second;
+    use crate::{
+        timestamp_ms_to_datetime, timestamp_ns_to_datetime, timestamp_us_to_datetime, NANOSECONDS,
+    };
+    use chrono::NaiveDateTime;
 
     #[test]
     fn negative_input_timestamp_ns_to_datetime() {

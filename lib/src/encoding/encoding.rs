@@ -3,9 +3,7 @@ use std::iter::repeat;
 use std::ops::Deref;
 
 use byte_slice_cast::AsByteSlice;
-use integer_encoding::VarInt;
 
-use crate::{fastnum, get_pooled_buffer};
 use crate::encoding::compress::{compress_lz4, decompress_lz4};
 use crate::encoding::int::{marshal_var_int, unmarshal_var_int};
 use crate::encoding::nearest_delta::{marshal_int64_nearest_delta, unmarshal_int64_nearest_delta};
@@ -13,6 +11,7 @@ use crate::encoding::nearest_delta2::{
     marshal_int64_nearest_delta2, unmarshal_int64_nearest_delta2,
 };
 use crate::error::{Error, Result};
+use crate::{fastnum, get_pooled_buffer};
 
 /// MIN_COMPRESSIBLE_BLOCK_SIZE is the minimum block size in bytes for trying compression.
 ///
@@ -333,7 +332,6 @@ pub fn unmarshal_int64_array(
         }
     }
 }
-
 
 /// ensure_non_decreasing_sequence makes sure the first item in a is v_min, the last
 /// item in a is v_max and all the items in a are non-decreasing.

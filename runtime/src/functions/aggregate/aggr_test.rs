@@ -9,11 +9,19 @@ mod tests {
             let mut values = Vec::from(a);
             let result = mode_no_nans(prev_value, &mut values);
             if result.is_nan() {
-                assert!(expected_result.is_nan(), "unexpected result; got {}; want {}", result, expected_result);
-                return
+                assert!(
+                    expected_result.is_nan(),
+                    "unexpected result; got {}; want {}",
+                    result,
+                    expected_result
+                );
+                return;
             }
             if result != expected_result {
-                panic!("unexpected result; got {}; want {}", result, expected_result)
+                panic!(
+                    "unexpected result; got {}; want {}",
+                    result, expected_result
+                )
             }
         };
 

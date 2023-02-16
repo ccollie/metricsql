@@ -22,7 +22,7 @@ p.addParseErr(range, fmt.Errorf(format, args...))
 
 /// expect_type checks the type of the node and raises an error if it
 /// is not of the expected type.
-fn expect_type(p: &Parser, node: Node, want: ValueType, context: &str) {
+fn expect_type(p: &Parser, node: Expression, want: ValueType, context: &str) {
     let t = p.checkAST(node);
     if t != want {
         p.addParseErrf(node.span, "expected type {} in {}, got {}", DocumentedType(want), context, DocumentedType(t))
@@ -185,10 +185,10 @@ pub fn check_binary_expr(p: &mut Parser, be: &BinaryOpExpr) -> ParseResult<Retur
 
         },
         (String, String) => {
-            if be.op != BinaryOp::Add {
+            if (be.op != BinaryOp::Add) && !be.op.is_comparison() {
                 return ReturnValue::unknown(
                     format!("Operator {} is not valid for (String, String)", be.op),
-                    self.clone().cast()
+                    be.to_string()
                 );
             }
         },

@@ -10,7 +10,11 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use core::{fmt, hash::{BuildHasherDefault, Hasher}, marker::PhantomData};
+use core::{
+    fmt,
+    hash::{BuildHasherDefault, Hasher},
+    marker::PhantomData,
+};
 
 /// A `HashMap` with an integer domain, using `NoHashHasher` to perform no hashing at all.
 ///
@@ -112,7 +116,10 @@ pub struct NoHashHasher<T>(u64, PhantomData<T>);
 impl<T> fmt::Debug for NoHashHasher<T> {
     #[cfg(debug_assertions)]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_tuple("NoHashHasher").field(&self.0).field(&self.1).finish()
+        f.debug_tuple("NoHashHasher")
+            .field(&self.0)
+            .field(&self.1)
+            .finish()
     }
 
     #[cfg(not(debug_assertions))]
@@ -201,19 +208,41 @@ impl<T: IsEnabled> Hasher for NoHashHasher<T> {
         panic!("Invalid use of NoHashHasher")
     }
 
-    fn write_u8(&mut self, n: u8)       { self.0 = u64::from(n) }
-    fn write_u16(&mut self, n: u16)     { self.0 = u64::from(n) }
-    fn write_u32(&mut self, n: u32)     { self.0 = u64::from(n) }
-    fn write_u64(&mut self, n: u64)     { self.0 = n }
-    fn write_usize(&mut self, n: usize) { self.0 = n as u64 }
+    fn write_u8(&mut self, n: u8) {
+        self.0 = u64::from(n)
+    }
+    fn write_u16(&mut self, n: u16) {
+        self.0 = u64::from(n)
+    }
+    fn write_u32(&mut self, n: u32) {
+        self.0 = u64::from(n)
+    }
+    fn write_u64(&mut self, n: u64) {
+        self.0 = n
+    }
+    fn write_usize(&mut self, n: usize) {
+        self.0 = n as u64
+    }
 
-    fn write_i8(&mut self, n: i8)       { self.0 = n as u64 }
-    fn write_i16(&mut self, n: i16)     { self.0 = n as u64 }
-    fn write_i32(&mut self, n: i32)     { self.0 = n as u64 }
-    fn write_i64(&mut self, n: i64)     { self.0 = n as u64 }
-    fn write_isize(&mut self, n: isize) { self.0 = n as u64 }
+    fn write_i8(&mut self, n: i8) {
+        self.0 = n as u64
+    }
+    fn write_i16(&mut self, n: i16) {
+        self.0 = n as u64
+    }
+    fn write_i32(&mut self, n: i32) {
+        self.0 = n as u64
+    }
+    fn write_i64(&mut self, n: i64) {
+        self.0 = n as u64
+    }
+    fn write_isize(&mut self, n: isize) {
+        self.0 = n as u64
+    }
 
-    fn finish(&self) -> u64 { self.0 }
+    fn finish(&self) -> u64 {
+        self.0
+    }
 }
 
 #[cfg(debug_assertions)]

@@ -1,37 +1,33 @@
 mod expression;
-mod label_filter;
-mod return_type;
 mod misc;
 
-mod duration;
-mod string;
-mod number;
-mod selector;
-mod function;
-mod with;
-mod rollup;
-mod binary_expr;
-mod operator;
 mod aggregation;
+mod binary_expr;
+mod duration;
+mod function;
 mod group;
+pub(crate) mod label_filter_expr;
+mod number;
+mod rollup;
+mod segmented_string;
+mod selector;
+mod string;
+mod with;
+
 pub mod utils;
-pub mod expr_visitor;
-pub mod expr_rewriter;
-pub mod segmented_string;
-pub mod label_filter_expr;
 
 pub use aggregation::*;
-pub use expression::*;
 pub use binary_expr::*;
-pub use string::*;
 pub use duration::*;
-pub use group::*;
-pub use number::*;
+pub use expression::*;
 pub use function::*;
+pub use group::*;
+pub use label_filter_expr::*;
+pub use number::*;
 pub use rollup::*;
+pub use segmented_string::*;
 pub use selector::*;
+pub use string::*;
 pub use with::*;
-pub use label_filter::*;
-pub use return_type::*;
-pub use operator::*;
 
+pub(crate) use misc::*;

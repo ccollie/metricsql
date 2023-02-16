@@ -1,8 +1,8 @@
 use std::ops::{Deref};
 
 use crate::ast::*;
+use crate::common::{AggregateModifier, GroupModifier, JoinModifier};
 use crate::parser::{ArgCountError, dedupe_label_filters, ParseError, ParseResult};
-use crate::transform::constant_fold_internal;
 
 
 pub fn expand_with_expr(was: &Vec<WithArgExpr>,
@@ -42,10 +42,6 @@ fn expand_binary(expr: &Expression,
 
     let left = expand_with_expr(was, be.left.as_ref())?;
     let right = expand_with_expr(was, be.right.as_ref())?;
-
-    if let Some(expr) = constant_fold_internal(&left, &right, be.op, be.bool_modifier) {
-        return Ok(expr)
-    }
 
     let mut new_be = be.clone();
     new_be.left = BExpression::from(left);
@@ -115,7 +111,7 @@ fn expand_metric_expr(expr: &Expression,
 
     let wa = {
         let k = &me.label_filters[0].value;  // name
-        get_with_arg_expr(was, k)
+        get_with_arg_expr(was, k.to_string().as_str())
     };
 
     if wa.is_none() {
@@ -178,8 +174,8 @@ pub(crate) fn expand_metric_labels(me: &MetricExpr,
         me_new.label_filters.extend_from_slice(&me.label_filters);
     }
 
-    for lfe in me.label_filter_exprs.iter() {
-        if !lfe.is_init() {
+    for lfe in me.label_filters.iter() {
+        if !lfe.is_resolved() {
             // Expand lfe.label into Vec<LabelFilter>.
             let wa = get_with_arg_expr(was, &lfe.label);
             if wa.is_none() {
@@ -217,28 +213,28 @@ pub(crate) fn expand_metric_labels(me: &MetricExpr,
         // todo(perf) - this seems wasteful to create a wrapped variant only to unpack again.
         // maybe extract logic from expand_string and use that
         // this whole block should be redone
-        let str_expr = Expression::from(lfe.value.as_str());
+        let str_expr = Expression::from(lfe.value.to_string());
         let se = expand_with_expr(was, &str_expr)?;
         let se_extract = expect_variant!(&se, Expression::String);
 
-        let lf = LabelFilter::new(lfe.op, &lfe.label, se_extract.value.clone())?;
+        let lf = LabelFilterExpr::new(lfe.op, &lfe.label, se_extract.clone())?;
         me_new.label_filters.push(lf);
     }
 
-    me_new.label_filter_exprs.clear();
+    me_new.label_filters.clear();
     dedupe_label_filters(&mut me_new.label_filters);
 
     return Ok(me_new);
 }
 
-fn expand_modifier_args(was: &Vec<WithArgExpr>, args: &[String]) -> Result<Vec<String>, ParseError> {
+fn expand_modifier_args(was: &Vec<WithArgExpr>, args: &[String]) -> ParseResult<Vec<String>> {
     if args.is_empty() {
         return Ok(vec![]);
     }
 
     let mut dst_args: Vec<String> = Vec::with_capacity(1);
 
-    let handle_metric_expr = |me: &MetricExpr, dst_args: &mut Vec<String>| -> ParseResult<()> {
+    let handle_metric_expr = |me: &MetricExpr, arg: &str, dst_args: &mut Vec<String>| -> ParseResult<()> {
         if !me.is_only_metric_group() {
             let msg = format!(
                 "cannot use {:?} instead of {:?} in {}",
@@ -269,13 +265,13 @@ fn expand_modifier_args(was: &Vec<WithArgExpr>, args: &[String]) -> Result<Vec<S
                 }
                 match &wa.expr.deref() {
                     Expression::MetricExpression(me) => {
-                        handle_metric_expr(me, &mut dst_args)?
+                        handle_metric_expr(me, arg, &mut dst_args)?
                     }
                     Expression::Parens(pe) => {
-                        for arg in pe.expressions.iter() {
-                            match arg.deref() {
+                        for exp in pe.expressions.iter() {
+                            match exp.deref() {
                                 Expression::MetricExpression(me) => {
-                                    handle_metric_expr(me, &mut dst_args)?;
+                                    handle_metric_expr(me, arg, &mut dst_args)?;
                                 }
                                 _ => {
                                     let msg = "expected metric selector as WITH argument".to_string();

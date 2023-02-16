@@ -1,12 +1,12 @@
-use std::hash::{Hasher};
-use xxhash_rust::xxh3::Xxh3;
 use super::{MetricName, Timestamp};
+use std::hash::Hasher;
+use xxhash_rust::xxh3::Xxh3;
 
 #[derive(Default, Debug, Clone, PartialEq)]
 pub struct Sample {
     pub metric: MetricName,
     pub timestamp: Timestamp,
-    pub value: f64
+    pub value: f64,
 }
 
 impl Sample {

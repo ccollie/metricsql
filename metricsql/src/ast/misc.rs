@@ -1,11 +1,13 @@
-use std::{fmt};
-use std::collections::HashSet;
-use std::fmt::{Display, Formatter};
-use crate::ast::{BExpression};
+use crate::ast::BExpression;
 use crate::utils::escape_ident;
+use std::collections::HashSet;
+use std::fmt;
+use std::fmt::{Display, Formatter};
 
-
-pub(crate) fn write_expression_list(exprs: &[BExpression], f: &mut Formatter) -> Result<(), fmt::Error> {
+pub(crate) fn write_expression_list(
+    exprs: &[BExpression],
+    f: &mut Formatter,
+) -> Result<(), fmt::Error> {
     let mut items: Vec<String> = Vec::with_capacity(exprs.len());
     for expr in exprs {
         items.push(format!("{}", expr));
@@ -48,7 +50,7 @@ pub(crate) fn write_labels(labels: &[String], f: &mut Formatter) -> Result<(), f
 
 pub fn intersection(labels_a: &Vec<String>, labels_b: &Vec<String>) -> Vec<String> {
     if labels_a.is_empty() || labels_b.is_empty() {
-        return vec![]
+        return vec![];
     }
     let unique_a: HashSet<String> = labels_a.clone().into_iter().collect();
     let unique_b: HashSet<String> = labels_b.clone().into_iter().collect();
@@ -58,14 +60,14 @@ pub fn intersection(labels_a: &Vec<String>, labels_b: &Vec<String>) -> Vec<Strin
         .collect::<Vec<_>>()
 }
 
-pub(crate) fn format_num(value: f64) -> &str {
+pub(crate) fn format_num(f: &mut Formatter<'_>, value: f64) -> fmt::Result {
     if value.is_nan() {
-        "NaN"
+        write!(f, "NaN")
     } else if value.is_finite() {
-        format!("{}", value).as_str()
+        write!(f, "{}", value)
     } else if value.is_sign_positive() {
-        "+Inf"
+        write!(f, "+Inf")
     } else {
-        "-Inf"
+        write!(f, "-Inf")
     }
 }

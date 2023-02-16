@@ -1,37 +1,28 @@
+use metricsql::functions::{DataType, Volatility};
+use metricsql::hir::FunctionExpr;
+use metricsql::prelude::TransformFunction;
 use std::str::FromStr;
 use std::sync::Arc;
-use metricsql::ast::FuncExpr;
-use metricsql::functions::{DataType, Volatility};
-use metricsql::prelude::TransformFunction;
-use tracing::{field, Span, trace_span};
+use tracing::{field, trace_span, Span};
 
 use crate::context::Context;
-use crate::eval::ExprEvaluator;
 use crate::eval::arg_list::ArgList;
 use crate::eval::rollup::RollupEvaluator;
 use crate::eval::traits::Evaluator;
-use crate::EvalConfig;
-use crate::functions::{
-    transform::{
-        get_transform_func,
-        TransformFuncArg
-    }
-};
+use crate::eval::ExprEvaluator;
 use crate::functions::transform::TransformFnImplementation;
+use crate::functions::transform::{get_transform_func, TransformFuncArg};
 use crate::functions::types::AnyValue;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
+use crate::EvalConfig;
 
-pub(super) fn create_function_evaluator(fe: &FuncExpr) -> RuntimeResult<ExprEvaluator> {
-    if fe.is_rollup() {
-        Ok(ExprEvaluator::Rollup(RollupEvaluator::from_function(fe)?))
-    } else {
-        let fe = TransformEvaluator::new(fe)?;
-        Ok(ExprEvaluator::Function(fe))
-    }
+pub(super) fn create_function_evaluator(fe: &FunctionExpr) -> RuntimeResult<ExprEvaluator> {
+    let fe = TransformEvaluator::new(fe)?;
+    Ok(ExprEvaluator::Function(fe))
 }
 
 pub struct TransformEvaluator {
-    fe: FuncExpr,
+    fe: FunctionExpr,
     handler: TransformFnImplementation,
     args: ArgList,
     keep_metric_names: bool,
@@ -39,7 +30,7 @@ pub struct TransformEvaluator {
 }
 
 impl TransformEvaluator {
-    pub fn new(fe: &FuncExpr) -> RuntimeResult<Self> {
+    pub fn new(fe: &FunctionExpr) -> RuntimeResult<Self> {
         match TransformFunction::from_str(&fe.name) {
             Ok(function) => {
                 let handler = get_transform_func(function)?;
@@ -57,14 +48,15 @@ impl TransformEvaluator {
                     args,
                     fe: fe.clone(),
                     keep_metric_names,
-                    return_type
+                    return_type,
                 })
-            },
+            }
             _ => {
                 // todo: use a specific variant
-                return Err(RuntimeError::General(
-                    format!("Error constructing TransformEvaluator: {} is not a transform fn", fe.name)
-                ))
+                return Err(RuntimeError::General(format!(
+                    "Error constructing TransformEvaluator: {} is not a transform fn",
+                    fe.name
+                )));
             }
         }
     }
@@ -80,7 +72,8 @@ impl Evaluator for TransformEvaluator {
             trace_span!("transform", function = self.fe.name, series = field::Empty)
         } else {
             Span::none()
-        }.entered();
+        }
+        .entered();
 
         let args = self.args.eval(ctx, ec)?;
         let mut tfa = TransformFuncArg::new(ec, &self.fe, args, self.keep_metric_names);
@@ -88,8 +81,11 @@ impl Evaluator for TransformEvaluator {
         match (self.handler)(&mut tfa) {
             Err(err) => {
                 span.record("series", 0);
-                Err(RuntimeError::from(format!("cannot evaluate {}: {:?}", self.fe, err)))
-            },
+                Err(RuntimeError::from(format!(
+                    "cannot evaluate {}: {:?}",
+                    self.fe, err
+                )))
+            }
             Ok(v) => {
                 span.record("series", v.len());
                 Ok(AnyValue::InstantVector(v))

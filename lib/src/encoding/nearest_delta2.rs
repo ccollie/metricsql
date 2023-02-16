@@ -30,11 +30,7 @@ pub fn marshal_int64_nearest_delta2(
     let mut v = src[1];
     let src = &src[2..];
 
-    let block_len = if src.len() < 64 {
-        64
-    } else {
-        src.len()
-    };
+    let block_len = if src.len() < 64 { 64 } else { src.len() };
 
     let mut is = get_int64s(block_len);
     if precision_bits == 64 {

@@ -17,7 +17,7 @@
 
 //! Expression visitor
 
-use super::{AggrFuncExpr, BinaryExpr, DurationExpr, Expression, FuncExpr, ParensExpr, RollupExpr, WithExpr};
+use crate::hir::{AggregationExpr, BinaryExpr, DurationExpr, Expression, FunctionExpr, RollupExpr};
 use crate::parser::ParseResult;
 
 /// Controls how the visitor recursion should proceed.
@@ -36,8 +36,8 @@ pub enum Recursion<V: ExpressionVisitor> {
 pub trait ExpressionVisitor<E: ExprVisitable = Expression>: Sized {
     /// Invoked before any children of `expr` are visited.
     fn pre_visit(self, expr: &E) -> ParseResult<Recursion<Self>>
-        where
-            Self: ExpressionVisitor;
+    where
+        Self: ExpressionVisitor;
 
     /// Invoked after all children of `expr` are visited. Default
     /// implementation does nothing.
@@ -98,28 +98,24 @@ impl ExprVisitable for Expression {
             | Expression::String(_)
             | Expression::Duration(_)
             | Expression::MetricExpression(_) => self.accept(visitor),
-            Expression::Parens(ParensExpr { expressions, .. }) => expressions
-                .iter()
-                .fold(Ok(visitor), |v, e| v.and_then(|v| e.accept(v))),
             Expression::BinaryOperator(BinaryExpr { left, right, .. }) => {
                 let visitor = left.accept(visitor)?;
                 right.accept(visitor)
-            },
-            Expression::Function( FuncExpr {  args, .. } ) => args
+            }
+            Expression::Function(FunctionExpr { args, .. }) => args
                 .iter()
                 .try_fold(visitor, |visitor, arg| arg.accept(visitor)),
-            Expression::Aggregation( AggrFuncExpr { args, .. }) => {
-                args.iter()
-                    .try_fold(visitor, |visitor, arg| arg.accept(visitor))
-            }
+            Expression::Aggregation(AggregationExpr { args, .. }) => args
+                .iter()
+                .try_fold(visitor, |visitor, arg| arg.accept(visitor)),
             Expression::Rollup(RollupExpr {
-                                   expr,
-                                   window,
-                                   step,
-                                   offset,
-                                   at, ..
-                               }) => {
-
+                expr,
+                window,
+                step,
+                offset,
+                at,
+                ..
+            }) => {
                 visitor = expr.accept(visitor)?;
                 if let Some(at) = at {
                     visitor = at.accept(visitor)?
@@ -128,23 +124,19 @@ impl ExprVisitable for Expression {
                 visitor = accept_optional_duration(step, visitor)?;
                 accept_optional_duration(offset, visitor)
             }
-            Expression::With(WithExpr{ was, expr, .. }) => {
-                visitor = expr.accept(visitor)?;
-                for arg in was.iter() {
-                    visitor = arg.expr.accept(visitor)?
-                }
-                Ok(visitor)
-            }
         }?;
 
         visitor.post_visit(self)
     }
 }
 
-fn accept_optional_duration<V: ExpressionVisitor>(e: &Option<DurationExpr>, visitor: V) -> ParseResult<V> {
+fn accept_optional_duration<V: ExpressionVisitor>(
+    e: &Option<DurationExpr>,
+    visitor: V,
+) -> ParseResult<V> {
     if let Some(duration) = e {
         // hacky !!
-        return Expression::Duration(duration.clone()).accept(visitor)
+        return Expression::Duration(duration.clone()).accept(visitor);
     }
     Ok(visitor)
 }
@@ -156,14 +148,14 @@ pub(crate) struct VisitorAdapter<F, E> {
 }
 
 impl<F, E> VisitorAdapter<F, E> {
-    pub fn new(f: F) -> Self{
+    pub fn new(f: F) -> Self {
         Self { f, err: Ok(()) }
     }
 }
 
 impl<F, E> ExpressionVisitor for VisitorAdapter<F, E>
-    where
-        F: FnMut(&Expression) -> Result<(), E>,
+where
+    F: FnMut(&Expression) -> Result<(), E>,
 {
     fn pre_visit(mut self, expr: &Expression) -> ParseResult<Recursion<Self>> {
         if let Err(e) = (self.f)(expr) {
@@ -183,8 +175,8 @@ impl<F, E> ExpressionVisitor for VisitorAdapter<F, E>
 /// `expr`, and then on all its children. See [`ExpressionVisitor`]
 /// for more details and more options to control the walk.
 pub fn inspect_expr_pre<F, T, E>(expr: &Expression, f: F) -> Result<(), E>
-    where
-        F: FnMut(&Expression) -> Result<(), E>,
+where
+    F: FnMut(&Expression) -> Result<(), E>,
 {
     // the visit is fallible, so unwrap here
     let adapter = expr.accept(VisitorAdapter { f, err: Ok(()) }).unwrap();

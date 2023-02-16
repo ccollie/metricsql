@@ -1,13 +1,14 @@
+use crate::ast::misc::write_expression_list;
+use crate::ast::{BExpression, Expression, ExpressionNode};
+use crate::common::ReturnType;
+use crate::functions::{BuiltinFunction, RollupFunction};
+use crate::parser::{ParseError, ParseResult};
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::{Display, Formatter};
-use crate::ast::{BExpression, Expression, ExpressionNode, ReturnType};
-use crate::ast::misc::write_expression_list;
-use crate::functions::{BuiltinFunction, is_rollup_aggregation_over_time};
-use crate::lexer::TextSpan;
-use crate::parser::{ParseError, ParseResult};
-use serde::{Serialize, Deserialize};
+use std::str::FromStr;
 
-/// FuncExpr represents MetricsQL function such as `rate(...)`
+/// FuncExpr represents a MetricsQL function such as `rate(...)`
 #[derive(Debug, Clone, Hash, PartialEq, Serialize, Deserialize)]
 pub struct FuncExpr {
     pub name: String,
@@ -22,64 +23,59 @@ pub struct FuncExpr {
 
     pub is_scalar: bool,
 
-    pub span: TextSpan,
-
     /// internal only name parsed in WITH expression
     #[serde(skip)]
     pub(crate) with_name: String,
+
+    pub return_type: ReturnType,
 }
 
 impl FuncExpr {
-    pub fn new<S: Into<TextSpan>>(name: &str, args: Vec<BExpression>, span: S) -> ParseResult<Self> {
+    pub fn new(name: &str, args: Vec<BExpression>) -> ParseResult<Self> {
         // time() returns scalar in PromQL - see https://prometheus.io/docs/prometheus/latest/querying/functions/#time
         let lower = name.to_lowercase();
         let fname = if name.is_empty() { "union" } else { name };
         let function = BuiltinFunction::new(fname)?;
+        let return_type = function.return_type(&args);
         let is_scalar = lower == "time"; // todo: what about now() and pi()
 
-        let expr = FuncExpr {
+        match return_type {
+            ReturnType::Unknown(unknown) => {
+                return Err(ParseError::InvalidExpression(unknown.message))
+            }
+            _ => {}
+        }
+
+        Ok(FuncExpr {
             function,
             name: name.to_string(),
             args,
             keep_metric_names: false,
-            span: span.into(),
             is_scalar,
-            with_name: "".to_string()
-        };
-
-        match expr.return_type() {
-            // todo: pass span to error
-            ReturnType::Unknown(unknown) => {
-                Err(ParseError::InvalidExpression(
-                    unknown.message
-                ))
-            }
-            _ => Ok(expr)
-        }
+            return_type,
+            with_name: "".to_string(),
+        })
     }
 
     pub fn default_rollup(arg: Expression) -> ParseResult<Self> {
-        let span = arg.span();
-        FuncExpr::from_single_arg("default_rollup", arg, span)
+        FuncExpr::from_single_arg("default_rollup", arg)
     }
 
-    pub fn from_single_arg<S: Into<TextSpan>>(name: &str, arg: Expression, span: S) -> ParseResult<Self> {
+    pub fn from_single_arg(name: &str, arg: Expression) -> ParseResult<Self> {
         let args = vec![Box::new(arg)];
-        FuncExpr::new(name, args, span)
+        FuncExpr::new(name, args)
     }
 
-    pub fn create<S: Into<TextSpan>>(name: &str, args: &[Expression], span: S) -> ParseResult<Self> {
-        let params =
-            Vec::from(args).into_iter().map(Box::new).collect();
-        FuncExpr::new(name, params, span)
-    }
-
-    pub fn is_aggregate(&self) -> bool {
-        self.type_name() == "aggregate"
+    pub fn create(name: &str, args: &[Expression]) -> ParseResult<Self> {
+        let params = Vec::from(args).into_iter().map(Box::new).collect();
+        FuncExpr::new(name, params)
     }
 
     pub fn is_rollup(&self) -> bool {
-        self.type_name() == "rollup"
+        match RollupFunction::from_str(self.name.as_str()) {
+            Ok(_) => true,
+            Err(_) => false,
+        }
     }
 
     pub fn type_name(&self) -> &'static str {
@@ -87,56 +83,17 @@ impl FuncExpr {
     }
 
     pub fn return_type(&self) -> ReturnType {
-        if self.is_scalar {
-            return ReturnType::Scalar
-        }
-
-        // determine the arg to pass through
-        let arg = self.get_arg_for_optimization();
-
-        let kind = if arg.is_none() {
-            // todo: does this depend on the function type (rollup, transform, aggregation)
-            ReturnType::InstantVector
-        } else {
-            arg.unwrap().return_type()
-        };
-
-        return match self.function {
-            BuiltinFunction::Rollup(rf) => {
-                if is_rollup_aggregation_over_time(rf) {
-                    match kind {
-                        ReturnType::RangeVector => ReturnType::InstantVector,
-                        // ???
-                        ReturnType::InstantVector => ReturnType::InstantVector,
-                        _ => {
-                            // invalid arg
-                            ReturnType::unknown(
-                                format!("aggregation over time is not valid with expression returning {:?}", kind),
-                                // show the arg as the cause
-                                // doesn't follow the usual pattern of showing the parent, but would
-                                // otherwise be ambiguous with multiple args
-                                *arg.unwrap().clone()
-                            )
-                        }
-                    }
-                } else {
-                    kind
-                }
-            },
-            _ => kind
-        }
+        self.return_type.clone()
     }
 
     pub fn get_arg_idx_for_optimization(&self) -> Option<usize> {
-        self.function.get_arg_idx_for_optimization(&self.args)
+        self.function.get_arg_idx_for_optimization(self.args.len())
     }
 
     pub fn get_arg_for_optimization(&self) -> Option<&'_ BExpression> {
         match self.get_arg_idx_for_optimization() {
             None => None,
-            Some(idx) => {
-                Some(&self.args[idx])
-            }
+            Some(idx) => Some(&self.args[idx]),
         }
     }
 }

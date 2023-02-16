@@ -87,7 +87,7 @@ pub fn is_int64_data(a: &[i64], data: &[i64]) -> bool {
     }
     let b = data.as_byte_slice();
     let mut cursor = a;
-    while cursor.len() > 0 {
+    while !cursor.is_empty() {
         let mut n = data.len();
         if n > cursor.len() {
             n = cursor.len()
@@ -111,7 +111,7 @@ pub fn is_float64_data(a: &[f64], data: &[f64]) -> bool {
     }
     let b = data.as_byte_slice();
     let mut cursor = a;
-    while cursor.len() > 0 {
+    while !cursor.is_empty() {
         let mut n = data.len();
         if n > cursor.len() {
             n = cursor.len()

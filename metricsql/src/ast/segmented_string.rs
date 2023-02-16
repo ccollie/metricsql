@@ -1,13 +1,13 @@
-use std::fmt;
-use std::fmt::{Display, Formatter};
 use crate::lexer::TextSpan;
-use serde::{Serialize, Deserialize};
 use crate::prelude::ParseResult;
+use serde::{Deserialize, Serialize};
+use std::fmt::{Display, Formatter};
+use std::{fmt, ops};
 
 #[derive(Debug, Clone, Hash, PartialEq, Serialize, Deserialize)]
 pub enum StringSegment {
     Literal(String),
-    Ident(String)
+    Ident(String),
 }
 
 impl Default for StringSegment {
@@ -20,7 +20,7 @@ impl Display for StringSegment {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             StringSegment::Literal(lit) => write!(f, "{}", enquote::enquote('"', lit))?,
-            StringSegment::Ident(ident) => write!(f, "{}", ident)?
+            StringSegment::Ident(ident) => write!(f, "{}", ident)?,
         }
         Ok(())
     }
@@ -33,7 +33,7 @@ pub struct SegmentedString(Vec<StringSegment>, bool);
 
 impl SegmentedString {
     pub fn new<S: Into<String>, TS: Into<TextSpan>>(s: S) -> Self {
-        let segments = vec![ StringSegment::Literal(s.into()) ];
+        let segments = vec![StringSegment::Literal(s.into())];
         SegmentedString(segments, true)
     }
 
@@ -47,9 +47,10 @@ impl SegmentedString {
                 elem.clear();
                 elem.push_str(s.into().as_str())
             }
+            return;
         }
         self.0.clear();
-        self.0.push( StringSegment::Literal(s.into()));
+        self.0.push(StringSegment::Literal(s.into()));
         self.1 = true
     }
 
@@ -74,6 +75,13 @@ impl SegmentedString {
         self.1 = false;
     }
 
+    pub fn push(&mut self, segment: &StringSegment) {
+        match segment {
+            StringSegment::Literal(s) => self.push_str(&s),
+            StringSegment::Ident(ident) => self.push_ident(&ident),
+        }
+    }
+
     pub fn clear(&mut self) {
         self.0.clear();
         self.1 = true;
@@ -95,25 +103,39 @@ impl SegmentedString {
         self.1
     }
 
-    pub fn resolve<F>(&self, f: F) -> ParseResult<String>
-        where F: FnMut(&str) -> ParseResult<&str> {
-        if self.1 {
-            if let Some(first) = self.0.first() {
-                match first {
-                    StringSegment::Literal(lit) => return Ok(lit.clone()),
-                    _ => panic!("BUG: string segment should be all literal")
-                }
-            } else {
-                return Ok("".to_string())
-            }
+    pub fn is_identifier(&self) -> bool {
+        if self.0.len() == 1 {
+            let first = self.0.first().unwrap();
+            return matches!(first, StringSegment::Ident(_));
         }
-        let min_capacity = self.0.iter().fold(0, |acc, s| {
+        false
+    }
+
+    pub(crate) fn estimate_result_capacity(&self) -> usize {
+        self.0.iter().fold(0, |acc, s| {
             let res = match s {
                 StringSegment::Literal(lit) => lit.len(),
                 StringSegment::Ident(_) => 4, // todo: proper named constant
             };
             acc + res
-        });
+        })
+    }
+
+    pub fn resolve<F>(&self, f: F) -> ParseResult<String>
+    where
+        F: Fn(&str) -> ParseResult<&str>,
+    {
+        if self.is_literal_only() {
+            if let Some(first) = self.0.first() {
+                match first {
+                    StringSegment::Literal(lit) => return Ok(lit.clone()),
+                    _ => panic!("BUG: string segment should be all literal"),
+                }
+            } else {
+                return Ok("".to_string());
+            }
+        }
+        let min_capacity = self.estimate_result_capacity();
 
         let mut res = String::with_capacity(min_capacity);
         for s in self.0.iter() {
@@ -122,11 +144,15 @@ impl SegmentedString {
                 StringSegment::Ident(id) => {
                     let substitute = f(id)?;
                     res.push_str(substitute);
-                },
+                }
             };
         }
 
         Ok(res)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &StringSegment> + '_ {
+        self.0.iter()
     }
 }
 
@@ -161,5 +187,17 @@ impl Display for SegmentedString {
             write!(f, "{}", segment)?;
         }
         Ok(())
+    }
+}
+
+impl ops::Add for SegmentedString {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self {
+        let mut result = self.clone();
+        for item in rhs.0.iter() {
+            result.0.push(item.clone())
+        }
+        result
     }
 }

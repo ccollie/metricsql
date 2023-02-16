@@ -164,7 +164,6 @@ pub fn unmarshal_var_int16(src: &[u8]) -> Result<(i16, &[u8])> {
     unmarshal_var_int::<i16>(src)
 }
 
-
 /// appends marshaled v to dst and returns the result.
 #[inline]
 pub fn marshal_var_usize(dst: &mut Vec<u8>, v: usize) {
@@ -229,7 +228,7 @@ pub fn unmarshal_varint_slice<'a, T: VarInt>(dst: &mut [T], src: &'a [u8]) -> Re
 
 /// marshal_bytes appends marshaled b to dst and returns the result.
 pub fn marshal_bytes(dst: &mut Vec<u8>, b: &[u8]) {
-    let len = b.len() as usize;
+    let len = b.len();
     marshal_var_int(dst, len);
     dst.extend_from_slice(b);
 }

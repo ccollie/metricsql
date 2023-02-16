@@ -1,25 +1,21 @@
+use crate::ast::misc::write_expression_list;
+use crate::ast::{BExpression, Expression, ExpressionNode};
+use crate::common::ReturnType;
+use crate::functions::TransformFunction;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::{Display, Formatter};
-use crate::ast::{BExpression, Expression, ExpressionNode, ReturnType};
-use crate::ast::misc::write_expression_list;
-use crate::functions::TransformFunction;
-use crate::lexer::TextSpan;
-use serde::{Serialize, Deserialize};
 
 // TODO: ParensExpr => GroupExpr
 /// Expression(s) explicitly grouped in parens
 #[derive(Default, Debug, Clone, Hash, PartialEq, Serialize, Deserialize)]
 pub struct ParensExpr {
     pub expressions: Vec<BExpression>,
-    pub span: TextSpan,
 }
 
 impl ParensExpr {
-    pub fn new<S: Into<TextSpan>>(expressions: Vec<BExpression>, span: S) -> Self {
-        ParensExpr {
-            expressions,
-            span: span.into(),
-        }
+    pub fn new(expressions: Vec<BExpression>) -> Self {
+        ParensExpr { expressions }
     }
 
     pub fn len(&self) -> usize {

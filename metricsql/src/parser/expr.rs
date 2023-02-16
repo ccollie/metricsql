@@ -1,18 +1,13 @@
 use std::str::FromStr;
 
-use crate::ast::{BExpression, Operator, BinaryExpr, DurationExpr, Expression,
-                 GroupModifier, GroupModifierOp, JoinModifier, JoinModifierOp,
-                 NumberExpr, ReturnType, StringExpr};
-use crate::ast::Expression::BinaryOperator;
-use crate::ast::segmented_string::SegmentedString;
-use crate::functions::AggregateFunction;
-use crate::lexer::{
-    extract_string_value,
-    parse_duration_value,
-    TokenKind
+use crate::ast::{BExpression, BinaryExpr, DurationExpr, Expression, SegmentedString, StringExpr};
+use crate::common::{
+    GroupModifier, GroupModifierOp, JoinModifier, JoinModifierOp, Operator, ReturnType,
 };
+use crate::functions::AggregateFunction;
+use crate::lexer::{extract_string_value, parse_duration_value, TokenKind};
 use crate::parser::{ParseError, Parser, ParseResult};
-use crate::parser::function::{parse_func_expr};
+use crate::parser::function::parse_func_expr;
 use crate::parser::parser::unexpected;
 use crate::TextSpan;
 
@@ -21,16 +16,14 @@ use super::rollup::parse_rollup_expr;
 use super::selector::parse_metric_expr;
 use super::with_expr::parse_with_expr;
 
-
 pub(super) fn parse_number(p: &mut Parser) -> ParseResult<f64> {
     use TokenKind::*;
     let token = p.current_token()?;
     let kind = token.kind;
 
     fn raise_error(p: &mut Parser, span: TextSpan) -> ParseResult<f64> {
-        return Err(unexpected(p, "expression", "number", Some(span) ))
+        return Err(unexpected(p, "expression", "number", Some(span)));
     }
-
 
     let value = match kind {
         Number => crate::lexer::parse_number(token.text),
@@ -45,7 +38,7 @@ pub(super) fn parse_number(p: &mut Parser) -> ParseResult<f64> {
                 raise_error(p, token.span)
             }
         }
-        _ => raise_error(p, token.span)
+        _ => raise_error(p, token.span),
     };
 
     p.bump();
@@ -54,9 +47,8 @@ pub(super) fn parse_number(p: &mut Parser) -> ParseResult<f64> {
 }
 
 pub(super) fn parse_number_expr(p: &mut Parser) -> ParseResult<Expression> {
-    let span = p.last_token_range().unwrap();
     let value = parse_number(p)?;
-    Ok(Expression::Number(NumberExpr::new(value, span)))
+    Ok(Expression::from(value))
 }
 
 pub(super) fn parse_duration(p: &mut Parser) -> ParseResult<DurationExpr> {
@@ -77,7 +69,7 @@ pub(super) fn parse_duration(p: &mut Parser) -> ParseResult<DurationExpr> {
             } else {
                 crate::lexer::parse_number(token.text)? as i64
             }
-        },
+        }
         Duration => {
             requires_step = last_ch == 'i' || last_ch == 'I';
             parse_duration_value(token.text, 1)?
@@ -87,14 +79,11 @@ pub(super) fn parse_duration(p: &mut Parser) -> ParseResult<DurationExpr> {
             0
         }
     };
-    Ok(
-        DurationExpr {
-            text: token.text.to_string(),
-            span: token.span,
-            value,
-            requires_step,
-        }
-    )
+    Ok(DurationExpr {
+        text: token.text.to_string(),
+        value,
+        requires_step,
+    })
 }
 
 pub(super) fn parse_duration_expr(p: &mut Parser) -> ParseResult<Expression> {
@@ -159,20 +148,28 @@ pub(super) fn parse_expression(p: &mut Parser) -> ParseResult<Expression> {
 
         let right = parse_single_expr(p)?;
 
-        left = balance(left, operator, right, group_modifier, join_modifier, is_bool)?;
+        left = balance(
+            left,
+            operator,
+            right,
+            group_modifier,
+            join_modifier,
+            is_bool,
+        )?;
     }
 
     Ok(left)
 }
 
-
 // see https://github.com/influxdata/promql/blob/eb8f592be73d3164ad7a723b9f3d6a7f565ca780/parse.go#L425
-fn balance(lhs: Expression,
-           op: Operator,
-           rhs: Expression,
-           group_modifier: Option<GroupModifier>,
-           join_modifier: Option<JoinModifier>,
-           return_bool: bool) -> ParseResult<Expression> {
+fn balance(
+    lhs: Expression,
+    op: Operator,
+    rhs: Expression,
+    group_modifier: Option<GroupModifier>,
+    join_modifier: Option<JoinModifier>,
+    return_bool: bool,
+) -> ParseResult<Expression> {
     use ReturnType::*;
 
     fn validate_scalar_op(
@@ -186,9 +183,9 @@ fn balance(lhs: Expression,
             (Scalar, Scalar) => {
                 if op.is_comparison() && !returns_bool {
                     // todo: better error, including position
-                    return Err(
-                        ParseError::General("comparisons between scalars must use BOOL modifier".to_string())
-                    );
+                    return Err(ParseError::General(
+                        "comparisons between scalars must use BOOL modifier".to_string(),
+                    ));
                 }
             }
             _ => {}
@@ -196,21 +193,12 @@ fn balance(lhs: Expression,
         Ok(())
     }
 
-    let span = lhs.span().cover(rhs.span());
-
     match &lhs {
-        BinaryOperator(lhs_be) => {
+        Expression::BinaryOperator(lhs_be) => {
             let precedence = lhs_be.op.precedence() as i16 - op.precedence() as i16;
             if (precedence < 0) || (precedence == 0 && op.is_right_associative()) {
                 let right = lhs_be.right.as_ref().clone();
-                let balanced = balance(
-                    right,
-                    op,
-                    rhs,
-                    group_modifier,
-                    join_modifier,
-                    return_bool,
-                )?;
+                let balanced = balance(right, op, rhs, group_modifier, join_modifier, return_bool)?;
 
                 // validate_scalar_op(&lhs_be.left,
                 //                    &balanced,
@@ -224,11 +212,8 @@ fn balance(lhs: Expression,
                     join_modifier: lhs_be.join_modifier.clone(),
                     group_modifier: lhs_be.group_modifier.clone(),
                     bool_modifier: lhs_be.bool_modifier,
-                    span,
                 };
-                return Ok(
-                    BinaryOperator(expr)
-                );
+                return Ok(Expression::BinaryOperator(expr));
             }
         }
         _ => {}
@@ -243,12 +228,10 @@ fn balance(lhs: Expression,
         join_modifier,
         group_modifier,
         bool_modifier: return_bool,
-        span,
     };
 
-    Ok(BinaryOperator(expr))
+    Ok(Expression::BinaryOperator(expr))
 }
-
 
 fn parse_group_modifier(p: &mut Parser) -> Result<GroupModifier, ParseError> {
     let tok = p.expect_one_of(&[TokenKind::Ignoring, TokenKind::On])?;
@@ -256,7 +239,7 @@ fn parse_group_modifier(p: &mut Parser) -> Result<GroupModifier, ParseError> {
     let op: GroupModifierOp = match tok.kind {
         TokenKind::Ignoring => GroupModifierOp::Ignoring,
         TokenKind::On => GroupModifierOp::On,
-        _ => unreachable!()
+        _ => unreachable!(),
     };
 
     let args = p.parse_ident_list()?;
@@ -270,7 +253,7 @@ fn parse_join_modifier(p: &mut Parser) -> ParseResult<JoinModifier> {
     let op = match tok.kind {
         TokenKind::GroupLeft => JoinModifierOp::GroupLeft,
         TokenKind::GroupRight => JoinModifierOp::GroupRight,
-        _ => unreachable!()
+        _ => unreachable!(),
     };
 
     let labels = if !p.at(TokenKind::LeftParen) {
@@ -280,7 +263,7 @@ fn parse_join_modifier(p: &mut Parser) -> ParseResult<JoinModifier> {
         p.parse_ident_list()?
     };
 
-    Ok( JoinModifier::new(op, labels) )
+    Ok(JoinModifier::new(op, labels))
 }
 
 pub(super) fn parse_single_expr_without_rollup_suffix(p: &mut Parser) -> ParseResult<Expression> {
@@ -298,9 +281,7 @@ pub(super) fn parse_single_expr_without_rollup_suffix(p: &mut Parser) -> ParseRe
         Duration => parse_duration_expr(p),
         OpPlus => parse_unary_plus_expr(p),
         OpMinus => parse_unary_minus_expr(p),
-        _ => {
-            Err(unexpected(p, "", "expression", None))
-        }
+        _ => Err(unexpected(p, "", "expression", None)),
     }
 }
 
@@ -339,41 +320,39 @@ fn parse_unary_plus_expr(p: &mut Parser) -> ParseResult<Expression> {
 
 fn parse_unary_minus_expr(p: &mut Parser) -> ParseResult<Expression> {
     // assert(p.at(TokenKind::Minus)
-    let mut span = p.last_token_range().unwrap();
+    let span = p.last_token_range().unwrap();
     p.bump();
     let expr = parse_single_expr(p)?;
-    span = span.cover(expr.span());
 
     match expr.return_type() {
-        ReturnType::InstantVector |
-        ReturnType::Scalar => {}
+        ReturnType::InstantVector | ReturnType::Scalar => {}
         _ => {
-            let msg = format!("unary expression only allowed on expressions of type scalar or instant vector");
+            let msg = format!(
+                "unary expression only allowed on expressions of type scalar or instant vector"
+            );
             return Err(unexpected(p, "", &msg, Some(span)));
         }
     }
 
     // Substitute `-expr` with `0 - expr`
-    let lhs = Expression::Number(NumberExpr::new(0.0, span));
-    let mut binop_expr = BinaryExpr::new(Operator::Sub, lhs, expr);
-    binop_expr.span = span;
-    Ok(BinaryOperator(binop_expr))
+    let lhs = Expression::from(0.0);
+    let binop_expr = BinaryExpr::new(Operator::Sub, lhs, expr);
+    Ok(Expression::BinaryOperator(binop_expr))
 }
 
 pub(super) fn parse_string_expr(p: &mut Parser) -> ParseResult<StringExpr> {
-    let (str, span) = parse_string_expression(p)?;
-    // todo !!
-    let mut res: String = str.to_string();
-    Ok(StringExpr::new(res, span))
+    let str = parse_string_expression(p)?;
+    // todo: make sure
+    Ok(StringExpr::from(str.to_string()))
 }
 
-pub(super) fn parse_string_expression(p: &mut Parser) -> ParseResult<(SegmentedString, TextSpan)> {
+pub(super) fn parse_string_expression(p: &mut Parser) -> ParseResult<SegmentedString> {
     use TokenKind::*;
 
-    let mut span: TextSpan;
     let mut tok = p.current_token()?;
     let mut result = SegmentedString::default();
-    
+    let mut span: TextSpan;
+
     loop {
         span = tok.span;
 
@@ -381,32 +360,40 @@ pub(super) fn parse_string_expression(p: &mut Parser) -> ParseResult<(SegmentedS
             StringLiteral => {
                 let str = extract_string_value(tok.text)?;
                 result.push_str(&str);
-                span = span.cover(tok.span)
             }
             Ident => {
-                if let Some(wa) = p.lookup_with_expr(tok.text) {
-                    match &*wa.expr() {
+                // clone to avoid borrow issues later
+                let ident = tok.text.to_string();
+                if let Some(wa) = p.lookup_with_expr(&ident) {
+                    match &wa.expr {
                         Expression::String(se) => {
-                            result.push_str(&se.value);
-                        },
+                            for segment in se.iter() {
+                                result.push(segment)
+                            }
+                        }
                         _ => {
-                            result.push_ident(tok.text)
+                            // we'll resolve later
+                            result.push_ident(&ident)
                         }
                     }
                 } else {
-                    result.push_ident(tok.text)
+                    result.push_ident(&ident)
                 }
-                span = span.cover(tok.span);
             }
             _ => {
-                return Err(unexpected(p, "", "string literal or identifier", None));
+                return Err(unexpected(
+                    p,
+                    "",
+                    "string literal or identifier",
+                    Some(span),
+                ));
             }
         }
 
         if let Some(token) = p.next_token() {
             tok = token;
         } else {
-            break
+            break;
         }
 
         if tok.kind != OpPlus {
@@ -421,7 +408,7 @@ pub(super) fn parse_string_expression(p: &mut Parser) -> ParseResult<(SegmentedS
         if let Some(token) = p.next_token() {
             tok = token;
         } else {
-            break
+            break;
         }
 
         if tok.kind == StringLiteral {
@@ -452,8 +439,8 @@ pub(super) fn parse_string_expression(p: &mut Parser) -> ParseResult<(SegmentedS
         // "s" + ident
         tok = p.prev_token().unwrap();
     }
-    
-    Ok((result, span))
+
+    Ok(result)
 }
 
 pub(super) fn parse_parens_expr(p: &mut Parser) -> ParseResult<Expression> {

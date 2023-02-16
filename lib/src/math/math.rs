@@ -19,7 +19,8 @@ pub fn fmod(x: f64, y: f64) -> f64 {
     let mut i;
 
     if uyi << 1 == 0 || y.is_nan() || ex == 0x7ff {
-        return (x * y) / (x * y);
+        let x1 = (x * y) / (x * y);
+        return x1;
     }
     if uxi << 1 <= uyi << 1 {
         if uxi << 1 == uyi << 1 {

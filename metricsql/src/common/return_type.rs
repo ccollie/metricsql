@@ -1,36 +1,34 @@
+use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
-use serde::{Serialize, Deserialize};
-use crate::ast::Expression;
 
-#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, PartialEq, Serialize, Deserialize)]
 pub struct UnknownCause {
     /// An explanation for why this Unknown was returned
     pub message: String,
 
     // would be nice to make this a ref, but we run into wrapping issues
-    /// The expression that caused an Unknown to be returned
-    pub expression: Expression
+    pub expression: String,
 }
 
 /// A predicted return datatype
-#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, PartialEq, Serialize, Deserialize)]
 pub enum ReturnType {
-    Unknown(Box<UnknownCause>),
+    Unknown(UnknownCause),
     Scalar,
     String,
     InstantVector,
-    RangeVector
+    RangeVector,
 }
 
 impl ReturnType {
-    pub fn unknown<S>(message: S, expression: Expression) -> Self
-        where
-            S: Into<String>
+    pub fn unknown<S>(message: S, expression: String) -> Self
+    where
+        S: Into<String>,
     {
-        ReturnType::Unknown(Box::new(UnknownCause {
+        ReturnType::Unknown(UnknownCause {
             message: message.into(),
-            expression
-        }))
+            expression,
+        })
     }
 
     /// Returns true if this `ReturnValue` is a valid sub-expression of an
@@ -48,7 +46,7 @@ impl ReturnType {
     pub fn is_scalar(&self) -> bool {
         match self {
             ReturnType::Scalar => true,
-            _ => false
+            _ => false,
         }
     }
 }
@@ -65,13 +63,13 @@ impl Display for ReturnType {
 
         let name = match self {
             Unknown(u) => {
-                write!(f, "<unknown> - {} : {:?}", u.message, u.expression)?;
-                return Ok(())
-            },
+                write!(f, "<unknown> - {} : {}", u.message, u.expression)?;
+                return Ok(());
+            }
             Scalar => "Scalar",
             String => "String",
             InstantVector => "InstantVector",
-            RangeVector => "RangeVector"
+            RangeVector => "RangeVector",
         };
         write!(f, "{}", name)?;
         Ok(())

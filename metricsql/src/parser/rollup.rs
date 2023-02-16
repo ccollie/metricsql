@@ -1,9 +1,9 @@
-use crate::ast::{DurationExpr, Expression, ReturnType, RollupExpr};
-use crate::lexer::TokenKind;
-use crate::parser::{ParseError, Parser, ParseResult};
-use crate::parser::expr::{parse_duration_expr, parse_single_expr_without_rollup_suffix};
 use super::expr::{parse_duration, parse_positive_duration};
-
+use crate::ast::{DurationExpr, Expression, RollupExpr};
+use crate::common::ReturnType;
+use crate::lexer::TokenKind;
+use crate::parser::expr::{parse_duration_expr, parse_single_expr_without_rollup_suffix};
+use crate::parser::{ParseError, ParseResult, Parser};
 
 pub(super) fn parse_rollup_expr(p: &mut Parser, e: Expression) -> ParseResult<Expression> {
     let mut re = RollupExpr::new(e);
@@ -36,8 +36,6 @@ pub(super) fn parse_rollup_expr(p: &mut Parser, e: Expression) -> ParseResult<Ex
         re.at = Some(Box::new(v))
     }
 
-    p.update_span(&mut re.span);
-
     Ok(Expression::Rollup(re))
 }
 
@@ -46,7 +44,7 @@ fn parse_at_expr(p: &mut Parser) -> ParseResult<Expression> {
 
     p.expect(At)?;
     if p.at_set(&[Number, Duration]) {
-        return parse_duration_expr(p)
+        return parse_duration_expr(p);
     }
 
     let expr = parse_single_expr_without_rollup_suffix(p)?;
@@ -57,9 +55,9 @@ fn parse_at_expr(p: &mut Parser) -> ParseResult<Expression> {
             // todo: pass span
             Err(ParseError::InvalidExpression(cause.message))
         }
-        _ => Err(ParseError::InvalidExpression(
-            String::from("@ modifier expression must return a scalar or instant vector")
-        )) // todo: have InvalidReturnType enum variant
+        _ => Err(ParseError::InvalidExpression(String::from(
+            "@ modifier expression must return a scalar or instant vector",
+        ))), // todo: have InvalidReturnType enum variant
     }
 }
 

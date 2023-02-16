@@ -1,10 +1,10 @@
-use std::sync::Arc;
-use metricsql::ast::*;
+use metricsql::common::LabelFilter;
 use metricsql::functions::{DataType, Signature, Volatility};
-use metricsql::prelude::constant_fold_binary_expression;
+use metricsql::hir::*;
+use std::sync::Arc;
 
 use crate::context::Context;
-use crate::eval::aggregate::{AggregateEvaluator, create_aggr_evaluator};
+use crate::eval::aggregate::{create_aggr_evaluator, AggregateEvaluator};
 use crate::eval::binary::BinaryEvaluator;
 use crate::eval::duration::DurationEvaluator;
 use crate::eval::function::{create_function_evaluator, TransformEvaluator};
@@ -14,8 +14,8 @@ use crate::eval::string::StringEvaluator;
 use crate::functions::types::AnyValue;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::search::Deadline;
+use crate::types::{Timeseries, Timestamp};
 use crate::TimestampTrait;
-use crate::types::{Timestamp, Timeseries};
 
 use super::rollup::RollupEvaluator;
 use super::traits::{Evaluator, NullEvaluator};
@@ -29,7 +29,7 @@ pub enum ExprEvaluator {
     Number(ScalarEvaluator),
     Rollup(RollupEvaluator),
     String(StringEvaluator),
-    InstantVector(InstantVectorEvaluator)
+    InstantVector(InstantVectorEvaluator),
 }
 
 impl ExprEvaluator {
@@ -37,11 +37,9 @@ impl ExprEvaluator {
     /// essentially idempotent
     pub fn is_const(&self) -> bool {
         match self {
-            ExprEvaluator::Number(_) |
-            ExprEvaluator::String(_) |
-            ExprEvaluator::Null(_) => true,
+            ExprEvaluator::Number(_) | ExprEvaluator::String(_) | ExprEvaluator::Null(_) => true,
             ExprEvaluator::Duration(d) => d.is_const(),
-            _ => false
+            _ => false,
         }
     }
 }
@@ -54,9 +52,9 @@ impl Evaluator for ExprEvaluator {
             ExprEvaluator::Duration(de) => de.eval(ctx, ec),
             ExprEvaluator::Function(fe) => fe.eval(ctx, ec),
             ExprEvaluator::Number(n) => n.eval(ctx, ec),
-            ExprEvaluator::Rollup(ref re) => re.eval(ctx, ec),
+            ExprEvaluator::Rollup(re) => re.eval(ctx, ec),
             ExprEvaluator::String(se) => se.eval(ctx, ec),
-            ExprEvaluator::InstantVector(iv) => iv.eval(ctx, ec)
+            ExprEvaluator::InstantVector(iv) => iv.eval(ctx, ec),
         }
     }
 
@@ -68,16 +66,16 @@ impl Evaluator for ExprEvaluator {
             ExprEvaluator::Duration(de) => de.return_type(),
             ExprEvaluator::Function(fe) => fe.return_type(),
             ExprEvaluator::Number(n) => n.return_type(),
-            ExprEvaluator::Rollup(ref re) => re.return_type(),
+            ExprEvaluator::Rollup(re) => re.return_type(),
             ExprEvaluator::String(se) => se.return_type(),
-            ExprEvaluator::InstantVector(iv) => iv.return_type()
+            ExprEvaluator::InstantVector(iv) => iv.return_type(),
         }
     }
 }
 
 impl Default for ExprEvaluator {
     fn default() -> Self {
-        ExprEvaluator::Null(NullEvaluator{})
+        ExprEvaluator::Null(NullEvaluator {})
     }
 }
 
@@ -110,56 +108,34 @@ pub fn create_evaluator(expr: &Expression) -> RuntimeResult<ExprEvaluator> {
 
     match expr {
         Aggregation(ae) => create_aggr_evaluator(ae),
-        MetricExpression(me) => {
-            Ok(ExprEvaluator::Rollup(RollupEvaluator::from_metric_expression(me.clone())?))
-        }
+        MetricExpression(me) => Ok(ExprEvaluator::Rollup(
+            RollupEvaluator::from_metric_expression(me.clone())?,
+        )),
         Rollup(re) => Ok(ExprEvaluator::Rollup(RollupEvaluator::new(re)?)),
         Function(fe) => create_function_evaluator(fe),
         BinaryOperator(be) => create_evaluator_from_binop(be),
-        Number(ne) => Ok(ExprEvaluator::from(ne.value)),
-        String(se) => Ok(ExprEvaluator::from(se.value())),
+        Number(ne) => Ok(ExprEvaluator::from(*ne)),
+        String(se) => Ok(ExprEvaluator::from(se.clone())),
         Duration(de) => {
             if de.requires_step {
                 Ok(ExprEvaluator::Duration(DurationEvaluator::new(de)))
             } else {
                 Ok(ExprEvaluator::from(de.value))
             }
-        },
-        Parens(pe) => create_parens_evaluator(pe),
-        With(_) => {
-            panic!("unexpected WITH expression - {}: Should have been expanded during parsing", expr);
         }
     }
 }
 
-fn create_parens_evaluator(expr: &ParensExpr) -> RuntimeResult<ExprEvaluator> {
-    if expr.len() == 1 {
-        let exp = expr;
-        let res = exp.expressions[0].clone(); // todo: can we take ??
-        return create_evaluator(&res);
-    }
-    // Treat parensExpr as a function with empty name, i.e. union()
-    let fe: FuncExpr;
-    match FuncExpr::new("union", expr.expressions.clone(), expr.span) {
-        Err(_) => return Err(RuntimeError::UnknownFunction("union".to_string())),
-        Ok(f) => fe = f
-    }
-    create_function_evaluator(&fe)
-}
-
 fn create_evaluator_from_binop(be: &BinaryExpr) -> RuntimeResult<ExprEvaluator> {
-    match constant_fold_binary_expression(be) {
-        Some(expr) => create_evaluator(&expr),
-        None => Ok(ExprEvaluator::BinaryOp(BinaryEvaluator::new(be)?))
-    }
+    Ok(ExprEvaluator::BinaryOp(BinaryEvaluator::new(be)?))
 }
 
 pub(crate) fn create_evaluators(vec: &[BExpression]) -> RuntimeResult<Vec<ExprEvaluator>> {
     let mut res: Vec<ExprEvaluator> = Vec::with_capacity(vec.len());
-    for arg in vec {
+    for arg in vec.iter() {
         match create_evaluator(arg) {
             Err(e) => return Err(e),
-            Ok(eval) => { res.push(eval) },
+            Ok(eval) => res.push(eval),
         }
     }
     Ok(res)
@@ -177,8 +153,10 @@ pub(crate) fn validate_max_points_per_timeseries(
 ) -> RuntimeResult<()> {
     let points = (end - start) / step + 1;
     if (max_points_per_timeseries > 0) && points > max_points_per_timeseries as i64 {
-        let msg = format!("too many points for the given step={}, start={} and end={}: {}; cannot exceed {}",
-                          step, start, end, points, max_points_per_timeseries);
+        let msg = format!(
+            "too many points for the given step={}, start={} and end={}: {}; cannot exceed {}",
+            step, start, end, points, max_points_per_timeseries
+        );
         Err(RuntimeError::from(msg))
     } else {
         Ok(())
@@ -228,7 +206,6 @@ pub fn align_start_end(start: Timestamp, end: Timestamp, step: i64) -> (Timestam
     }
     return (new_start, new_end);
 }
-
 
 #[derive(Clone)]
 pub struct EvalConfig {
@@ -376,7 +353,7 @@ impl EvalConfig {
                 self.start,
                 self.end,
                 self.step,
-                self.max_points_per_series as usize
+                self.max_points_per_series as usize,
             )?;
             self._timestamps = Arc::new(ts);
         }
@@ -404,7 +381,7 @@ impl Default for EvalConfig {
             no_stale_markers: true,
             max_points_per_series: 0,
             disable_cache: false,
-            _timestamps: Arc::new(vec![])
+            _timestamps: Arc::new(vec![]),
         }
     }
 }
@@ -417,7 +394,12 @@ impl From<&Context> for EvalConfig {
     }
 }
 
-pub fn get_timestamps(start: Timestamp, end: Timestamp, step: i64, max_timestamps_per_timeseries: usize) -> RuntimeResult<Vec<i64>> {
+pub fn get_timestamps(
+    start: Timestamp,
+    end: Timestamp,
+    step: i64,
+    max_timestamps_per_timeseries: usize,
+) -> RuntimeResult<Vec<i64>> {
     // Sanity checks.
     if step <= 0 {
         let msg = format!("BUG: Step must be bigger than 0; got {}", step);
@@ -429,19 +411,17 @@ pub fn get_timestamps(start: Timestamp, end: Timestamp, step: i64, max_timestamp
         return Err(RuntimeError::from(msg));
     }
 
-    match validate_max_points_per_timeseries(start, end, step, max_timestamps_per_timeseries) {
-        Err(err) => {
-            let msg = format!(
-                "BUG: {:?}; this must be validated before the call to get_timestamps",
-                err
-            );
-            return Err(RuntimeError::from(msg));
-        }
-        _ => (),
+    if let Err(err) =  validate_max_points_per_timeseries(start, end, step, max_timestamps_per_timeseries) {
+        let msg = format!(
+            "BUG: {:?}; this must be validated before the call to get_timestamps",
+            err
+        );
+        return Err(RuntimeError::from(msg));
     }
 
     // Prepare timestamps.
     let n: usize = (1 + (end - start) / step) as usize;
+    // todo: use a pool
     let mut timestamps: Vec<i64> = Vec::with_capacity(n);
     let mut cursor = start;
     while cursor < end {
@@ -454,6 +434,14 @@ pub fn get_timestamps(start: Timestamp, end: Timestamp, step: i64, max_timestamp
 
 pub(crate) fn eval_number(ec: &EvalConfig, n: f64) -> Vec<Timeseries> {
     let timestamps = ec.timestamps();
+    // HACK!!!  ec.ensure_timestamps() should have been called before this function
+    if timestamps.len() == 0 {
+        // todo: this is a hack, we should not call get_timestamps here
+        let timestamps = get_timestamps(ec.start, ec.end, ec.step, ec.max_points_per_series as usize).unwrap();
+        let values = vec![n; timestamps.len()];
+        let ts = Timeseries::new(timestamps, values);
+        return vec![ts]
+    }
     let values = vec![n; timestamps.len()];
     let ts = Timeseries::with_shared_timestamps(&timestamps, &values);
     vec![ts]
@@ -461,7 +449,7 @@ pub(crate) fn eval_number(ec: &EvalConfig, n: f64) -> Vec<Timeseries> {
 
 pub(crate) fn eval_time(ec: &EvalConfig) -> Vec<Timeseries> {
     let mut rv = eval_number(ec, f64::NAN);
-    for i in 0 .. rv[0].timestamps.len() {
+    for i in 0..rv[0].timestamps.len() {
         let ts = rv[0].timestamps[i];
         rv[0].values[i] = ts as f64 / 1e3_f64;
     }
@@ -470,7 +458,7 @@ pub(crate) fn eval_time(ec: &EvalConfig) -> Vec<Timeseries> {
 
 pub(super) fn eval_volatility(sig: &Signature, args: &Vec<ExprEvaluator>) -> Volatility {
     if sig.volatility != Volatility::Immutable {
-        return sig.volatility
+        return sig.volatility;
     }
 
     let mut has_volatile = false;
@@ -489,7 +477,7 @@ pub(super) fn eval_volatility(sig: &Signature, args: &Vec<ExprEvaluator>) -> Vol
             Volatility::Volatile
         } else {
             Volatility::Stable
-        }
+        };
     } else {
         Volatility::Immutable
     }

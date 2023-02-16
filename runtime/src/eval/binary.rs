@@ -3,40 +3,39 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use regex::escape;
-use tracing::{field, Span, span_enabled, Level, trace_span, trace};
+use tracing::{field, span_enabled, trace, trace_span, Level, Span};
 
-use metricsql::ast::*;
+use metricsql::common::{LabelFilter, Operator, ReturnType};
 use metricsql::functions::{DataType, Volatility};
-use metricsql::transform::{
-    pushdown_binary_op_filters
-};
+use metricsql::hir::*;
+use metricsql::optimize::trim_filters_by_group_modifier;
+use metricsql::prelude::pushdown_binary_op_filters;
 
 use crate::context::Context;
-use crate::eval::{create_evaluator, eval_number, ExprEvaluator};
-use crate::eval::binary_op::{BinaryOpFn, BinaryOpFuncArg, get_binary_op_handler};
+use crate::eval::binary_op::{get_binary_op_handler, BinaryOpFn, BinaryOpFuncArg};
 use crate::eval::traits::Evaluator;
-use crate::{EvalConfig, Timeseries};
+use crate::eval::{create_evaluator, eval_number, ExprEvaluator};
 use crate::functions::types::AnyValue;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
+use crate::{EvalConfig, Timeseries};
 
-use crate::types::Tag;
-use metricsql::prelude::trim_filters_by_group_modifier;
 use crate::eval::utils::series_len;
+use crate::types::Tag;
 
 pub struct BinaryEvaluator {
     expr: BinaryExpr,
     lhs: Box<ExprEvaluator>,
     rhs: Box<ExprEvaluator>,
-    handler: Arc<dyn BinaryOpFn<Output=RuntimeResult<Vec<Timeseries>>>>,
+    handler: Arc<dyn BinaryOpFn<Output = RuntimeResult<Vec<Timeseries>>>>,
     can_pushdown_filters: bool,
     can_parallelize: bool,
-    return_type: DataType
+    return_type: DataType,
 }
 
 impl BinaryEvaluator {
     pub fn new(expr: &BinaryExpr) -> RuntimeResult<Self> {
-        let lhs = Box::new( create_evaluator(&expr.left)? );
-        let rhs = Box::new(create_evaluator(&expr.right)? );
+        let lhs = Box::new(create_evaluator(&expr.left)?);
+        let rhs = Box::new(create_evaluator(&expr.right)?);
         let can_pushdown_filters = can_pushdown_common_filters(expr);
         let handler = get_binary_op_handler(expr.op);
         let rv = expr.return_type();
@@ -50,7 +49,7 @@ impl BinaryEvaluator {
             handler,
             can_pushdown_filters,
             can_parallelize,
-            return_type
+            return_type,
         })
     }
 
@@ -58,8 +57,12 @@ impl BinaryEvaluator {
         Volatility::Volatile
     }
 
-    fn eval_args<'a>(&'a self, ctx: &Arc<&Context>, ec: &EvalConfig, swap: bool) -> RuntimeResult<(AnyValue, AnyValue)> {
-
+    fn eval_args<'a>(
+        &'a self,
+        ctx: &Arc<&Context>,
+        ec: &EvalConfig,
+        swap: bool,
+    ) -> RuntimeResult<(AnyValue, AnyValue)> {
         let (first, second, right_expr) = if swap {
             (&self.rhs, &self.lhs, &self.expr.right)
         } else {
@@ -87,13 +90,13 @@ impl BinaryEvaluator {
                 ) {
                     (Ok(first), Ok(second)) => Ok((first, second)),
                     (Err(err), _) => Err(err),
-                    (Ok(_), Err(err)) => Err(err)
+                    (Ok(_), Err(err)) => Err(err),
                 }
             } else {
                 let left = first.eval(ctx, ec)?;
                 let right = second.eval(ctx, ec)?;
                 Ok((left, right))
-            }
+            };
         }
 
         // Execute binary operation in the following way:
@@ -127,10 +130,7 @@ impl BinaryEvaluator {
         // since the "exprFirst op exprSecond" would return an empty result in any case.
         // https://github.com/VictoriaMetrics/VictoriaMetrics/issues/3349
         if first.is_empty() && self.expr.op == Operator::Or {
-            return Ok((
-                AnyValue::empty_vec(),
-                AnyValue::empty_vec()
-            ))
+            return Ok((AnyValue::empty_vec(), AnyValue::empty_vec()));
         }
         let sec = self.pushdown_filters(&mut first, &right_expr, &ec)?;
         return match sec {
@@ -138,25 +138,29 @@ impl BinaryEvaluator {
                 // if it hasn't been modified, default to existing evaluator
                 let other = second.eval(ctx, ec)?;
                 Ok((first, other))
-            },
+            }
             Cow::Owned(expr) => {
                 // todo(perf) !!!!: use ctx.parser_cache ?
                 let evaluator = create_evaluator(&expr)?;
                 let second = evaluator.eval(ctx, ec)?;
                 Ok((first, second))
             }
-        }
+        };
     }
 
     #[inline]
-    fn pushdown_filters<'a>(&self, first: &mut AnyValue, dest: &'a Expression, ec: &EvalConfig) -> RuntimeResult<Cow<'a, Expression>> {
+    fn pushdown_filters<'a>(
+        &self,
+        first: &mut AnyValue,
+        dest: &'a Expression,
+        ec: &EvalConfig,
+    ) -> RuntimeResult<Cow<'a, Expression>> {
         let tss_first = first.as_instant_vec(ec)?;
         let mut lfs = get_common_label_filters(&tss_first[0..]);
         trim_filters_by_group_modifier(&mut lfs, &self.expr);
         let sec = pushdown_binary_op_filters(&dest, &mut lfs);
         Ok(sec)
     }
-
 }
 
 impl Evaluator for BinaryEvaluator {
@@ -171,26 +175,32 @@ impl Evaluator for BinaryEvaluator {
         let is_tracing = span_enabled!(Level::TRACE);
 
         let span = if is_tracing {
-            trace_span!("binary op", "op" = self.expr.op.as_str(), series = field::Empty)
+            trace_span!(
+                "binary op",
+                "op" = self.expr.op.as_str(),
+                series = field::Empty
+            )
         } else {
             Span::none()
-        }.entered();
+        }
+        .entered();
 
         let (left, right) = self.eval_args(ctx, ec, swap)?;
         let left_series = to_vector(ec, left)?;
         let right_series = to_vector(ec, right)?;
 
         let mut bfa = if swap {
-            BinaryOpFuncArg::new(right_series,&self.expr, left_series)
+            BinaryOpFuncArg::new(right_series, &self.expr, left_series)
         } else {
-            BinaryOpFuncArg::new(left_series,&self.expr, right_series)
+            BinaryOpFuncArg::new(left_series, &self.expr, right_series)
         };
 
         let result = match (self.handler)(&mut bfa) {
-            Err(err) => Err(RuntimeError::from(
-                format!("cannot evaluate {}: {:?}", &self.expr, err)
-            )),
-            Ok(v) => Ok(AnyValue::InstantVector(v))
+            Err(err) => Err(RuntimeError::from(format!(
+                "cannot evaluate {}: {:?}",
+                &self.expr, err
+            ))),
+            Ok(v) => Ok(AnyValue::InstantVector(v)),
         }?;
 
         if is_tracing {
@@ -210,7 +220,10 @@ fn to_vector(ec: &EvalConfig, value: AnyValue) -> RuntimeResult<Vec<Timeseries>>
     match value {
         AnyValue::InstantVector(val) => Ok(val.into()), // todo: use std::mem::take ??
         AnyValue::Scalar(n) => Ok(eval_number(ec, n)),
-        _ => unreachable!("Bug: binary_op. Unexpected {} operand", value.data_type_name())
+        _ => unreachable!(
+            "Bug: binary_op. Unexpected {} operand",
+            value.data_type_name()
+        ),
     }
 }
 
@@ -218,7 +231,7 @@ fn should_parallelize_expr(expr: &BExpression) -> bool {
     use Expression::*;
 
     match expr.as_ref() {
-        With(_) | String(_) | Number(_) | Duration(_) => false,
+        String(_) | Number(_) | Duration(_) => false,
         _ => {
             // todo: maybe have a complexity threshold
             true
@@ -228,26 +241,24 @@ fn should_parallelize_expr(expr: &BExpression) -> bool {
 
 fn should_parallelize(be: &BinaryExpr) -> bool {
     if should_parallelize_expr(&be.left) && should_parallelize_expr(&be.right) {
-        return true
+        return true;
     }
 
     match (&be.left.return_type(), &be.right.return_type()) {
         (ReturnType::InstantVector, ReturnType::InstantVector) => true,
-        _ => false
+        _ => false,
     }
 }
 
 fn can_pushdown_common_filters(be: &BinaryExpr) -> bool {
     if !should_parallelize(&be) {
-        return false
+        return false;
     }
     match be.op {
         Operator::Or | Operator::Default => false,
-        _=> {
-            return !(
-                is_aggr_func_without_grouping(&be.left) ||
-                is_aggr_func_without_grouping(&be.right)
-            );
+        _ => {
+            return !(is_aggr_func_without_grouping(&be.left)
+                || is_aggr_func_without_grouping(&be.right));
         }
     }
 }
@@ -260,8 +271,8 @@ fn is_aggr_func_without_grouping(e: &Expression) -> bool {
             } else {
                 true
             }
-        },
-        _ => false
+        }
+        _ => false,
     }
 }
 
@@ -269,7 +280,7 @@ pub(super) fn get_common_label_filters(tss: &[Timeseries]) -> Vec<LabelFilter> {
     // todo(perf): use fnv or xxxhash
     let mut m: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for ts in tss.iter() {
-        for Tag{ key: k, value: v} in ts.metric_name.tags.iter() {
+        for Tag { key: k, value: v } in ts.metric_name.tags.iter() {
             if let Some(set) = m.get_mut(k) {
                 set.insert(v.to_string());
             } else {
@@ -317,12 +328,8 @@ pub(super) fn get_common_label_filters(tss: &[Timeseries]) -> Vec<LabelFilter> {
     lfs
 }
 
-
 fn join_regexp_values(a: &Vec<&String>) -> String {
-    let init_size = a.iter().fold(
-        0,
-        |res, x| res + x.len(),
-    );
+    let init_size = a.iter().fold(0, |res, x| res + x.len());
     let mut res = String::with_capacity(init_size);
     for (i, s) in a.iter().enumerate() {
         let s_quoted = escape(s);
@@ -336,17 +343,16 @@ fn join_regexp_values(a: &Vec<&String>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use metricsql::ast::MetricExpr;
-    use crate::{Rows, Timeseries};
     use crate::eval::binary::get_common_label_filters;
+    use crate::{Rows, Timeseries};
+    use metricsql::hir::MetricExpr;
 
     #[test]
     fn test_get_common_label_filters() {
         let f = |metrics: &str, lfs_expected: &str| {
             let mut tss: Vec<Timeseries> = vec![];
 
-            let mut rows = Rows::try_from(metrics)
-                .expect("error initializing rows from string");
+            let mut rows = Rows::try_from(metrics).expect("error initializing rows from string");
 
             match rows.unmarshal(metrics) {
                 Err(err) => {
@@ -366,19 +372,31 @@ mod tests {
             let me = MetricExpr::with_filters(lfs);
 
             let lfs_marshaled = me.to_string();
-            assert_eq!(lfs_marshaled, lfs_expected,
-                       "unexpected common label filters;\ngot\n{}\nwant\n{}", lfs_marshaled, lfs_expected)
+            assert_eq!(
+                lfs_marshaled, lfs_expected,
+                "unexpected common label filters;\ngot\n{}\nwant\n{}",
+                lfs_marshaled, lfs_expected
+            )
         };
 
         f("", "{}");
         f("m 1", "{}");
         f(r#"m { a="b" } 1"#, r#"{a = "b"}"#);
         f(r#"m { c="d", a="b" } 1"#, r#"{a = "b", c = "d"}"#);
-        f(r#"m1 { a="foo" } 1
-          m2 { a="bar" } 1"#, r#"{a = ~"bar|foo"}"#);
-        f(r#"m1 { a="foo" } 1
-          m2 { b="bar" } 1"#, "{}");
-        f(r#"m1 { a="foo", b="bar" } 1
-          m2 { b="bar", c="x" } 1"#, r#"{b = "bar"}"#);
+        f(
+            r#"m1 { a="foo" } 1
+          m2 { a="bar" } 1"#,
+            r#"{a = ~"bar|foo"}"#,
+        );
+        f(
+            r#"m1 { a="foo" } 1
+          m2 { b="bar" } 1"#,
+            "{}",
+        );
+        f(
+            r#"m1 { a="foo", b="bar" } 1
+          m2 { b="bar", c="x" } 1"#,
+            r#"{b = "bar"}"#,
+        );
     }
 }

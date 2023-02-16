@@ -1,7 +1,7 @@
 use crate::parser::ParseError;
 use phf::phf_map;
+use serde::{Deserialize, Serialize};
 use std::fmt;
-use serde::{Serialize, Deserialize};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Operator {
@@ -85,8 +85,8 @@ impl Operator {
 
     #[inline]
     pub fn kind(self) -> BinaryOpKind {
-        use Operator::*;
         use BinaryOpKind::*;
+        use Operator::*;
 
         match self {
             Add | Sub | Mul | Div | Mod | Pow | Atan2 => Arithmetic,
@@ -125,7 +125,7 @@ impl Operator {
         matches!(self, And | Or | Unless)
     }
 
-    pub fn as_str<'a>(self) -> &'a str {
+    pub fn as_str(&self) -> &'static str {
         use Operator::*;
         match self {
             Add => "+",
@@ -158,11 +158,9 @@ impl TryFrom<&str> for Operator {
         match BINARY_OPS_MAP.get(op.to_lowercase().as_str()) {
             Some(op) => Ok(*op),
             None => {
-                let result = Err(
-                    ParseError::General(format!("Unknown binary op {}", op))
-                );
+                let result = Err(ParseError::General(format!("Unknown binary op {}", op)));
                 result
-            },
+            }
         }
     }
 }
@@ -181,12 +179,11 @@ pub fn is_binary_op(op: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::ast::operator::is_binary_op;
+    use crate::common::is_binary_op;
 
     #[test]
     fn test_is_binary_op_success() {
-        let f = |s: &str| {
-            assert!(is_binary_op(s), "expecting valid binaryOp: {}", s)
-        };
+        let f = |s: &str| assert!(is_binary_op(s), "expecting valid binaryOp: {}", s);
 
         f("and");
         f("AND");

@@ -1,103 +1,11 @@
+use crate::ast::{write_expression_list, BExpression, Expression, ExpressionNode};
+use crate::common::{AggregateModifier, ReturnType};
+use crate::functions::{get_aggregate_arg_idx_for_optimization, AggregateFunction};
+use crate::parser::ParseError;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
-use crate::ast::{BExpression, Expression, ExpressionNode, ReturnType};
-use crate::ast::misc::{write_expression_list, write_labels};
-use crate::functions::{AggregateFunction, get_aggregate_arg_idx_for_optimization};
-use crate::lexer::TextSpan;
-use crate::parser::ParseError;
-use serde::{Serialize, Deserialize};
-
-#[derive(Default, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum AggregateModifierOp {
-    #[default]
-    By,
-    Without,
-}
-
-impl Display for AggregateModifierOp {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        use AggregateModifierOp::*;
-        match self {
-            By => write!(f, "by")?,
-            Without => write!(f, "without")?,
-        }
-        Ok(())
-    }
-}
-
-impl TryFrom<&str> for AggregateModifierOp {
-    type Error = ParseError;
-
-    fn try_from(op: &str) -> Result<Self, Self::Error> {
-        use AggregateModifierOp::*;
-
-        match op.to_lowercase().as_str() {
-            "by" => Ok(By),
-            "without" => Ok(Without),
-            _ => Err(ParseError::General(format!(
-                "Unknown aggregate modifier op: {}",
-                op
-            ))),
-        }
-    }
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct AggregateModifier {
-    /// The modifier operation.
-    pub op: AggregateModifierOp,
-    /// Modifier args from parens.
-    pub args: Vec<String>,
-    pub span: Option<TextSpan>,
-}
-
-impl AggregateModifier {
-    pub fn new(op: AggregateModifierOp, args: Vec<String>) -> Self {
-        AggregateModifier {
-            op,
-            args,
-            span: None,
-        }
-    }
-
-    /// Creates a new AggregateModifier with the Left op
-    pub fn by() -> Self {
-        AggregateModifier::new(AggregateModifierOp::By, vec![])
-    }
-
-    /// Creates a new AggregateModifier with the Right op
-    pub fn without() -> Self {
-        AggregateModifier::new(AggregateModifierOp::Without, vec![])
-    }
-
-    /// Replaces this AggregateModifier's operator
-    pub fn op(mut self, op: AggregateModifierOp) -> Self {
-        self.op = op;
-        self
-    }
-
-    /// Adds a label key to this AggregateModifier
-    pub fn arg<S: Into<String>>(mut self, arg: S) -> Self {
-        self.args.push(arg.into());
-        self
-    }
-
-    /// Replaces this AggregateModifier's args with the given set
-    pub fn args(mut self, args: &[&str]) -> Self {
-        self.args = args.iter().map(|l| (*l).to_string()).collect();
-        self
-    }
-}
-
-impl Display for AggregateModifier {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        // Op is the operation itself, i.e. `+`, `-`, `*`, etc.
-        write!(f, "{} ", self.op)?;
-        write_labels(&self.args, f)?;
-        Ok(())
-    }
-}
 
 /// AggrFuncExpr represents aggregate function such as `sum(...) by (...)`
 #[derive(Debug, Clone, Hash, PartialEq, Serialize, Deserialize)]
@@ -121,8 +29,6 @@ pub struct AggrFuncExpr {
     pub limit: usize,
 
     pub keep_metric_names: bool,
-
-    pub span: TextSpan,
 }
 
 impl AggrFuncExpr {
@@ -134,7 +40,6 @@ impl AggrFuncExpr {
             modifier: None,
             limit: 0,
             keep_metric_names: false,
-            span: TextSpan::default(),
         }
     }
 
@@ -181,9 +86,7 @@ impl AggrFuncExpr {
     pub fn get_arg_for_optimization(&self) -> Option<&'_ BExpression> {
         match self.get_arg_idx_for_optimization() {
             None => None,
-            Some(idx) => {
-                Some(&self.args[idx])
-            }
+            Some(idx) => Some(&self.args[idx]),
         }
     }
 }
@@ -210,4 +113,3 @@ impl ExpressionNode for AggrFuncExpr {
         Expression::Aggregation(self)
     }
 }
-

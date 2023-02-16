@@ -1,9 +1,9 @@
-use std::cmp::Ordering;
+use crate::{RuntimeError, RuntimeResult};
 use chrono::{TimeZone, Utc};
 use chrono_tz::Tz;
 use lib::timestamp_ms_to_datetime;
 use metricsql::utils::parse_number;
-use crate::{RuntimeError, RuntimeResult};
+use std::cmp::Ordering;
 
 pub fn cmp_alpha_numeric(a: &str, b: &str) -> RuntimeResult<Ordering> {
     let (mut a, mut b) = (a, b);
@@ -21,9 +21,9 @@ pub fn cmp_alpha_numeric(a: &str, b: &str) -> RuntimeResult<Ordering> {
         let b_prefix = get_num_prefix(b);
         let a_len = a_prefix.len();
         let b_len = b_prefix.len();
-        
-        a = &a[a_len .. ];
-        b = &b[b_len .. ];
+
+        a = &a[a_len..];
+        b = &b[b_len..];
         if a_len > 0 || b_len > 0 {
             if a_len == 0 {
                 if b_len == 0 {
@@ -42,8 +42,8 @@ pub fn cmp_alpha_numeric(a: &str, b: &str) -> RuntimeResult<Ordering> {
         }
         let a_non_numeric = get_non_num_prefix(a);
         let b_non_numeric_prefix = get_non_num_prefix(b);
-        a = &a[a_non_numeric.len() .. ];
-        b = &b[b_non_numeric_prefix.len() .. ];
+        a = &a[a_non_numeric.len()..];
+        b = &b[b_non_numeric_prefix.len()..];
         if a_non_numeric != b_non_numeric_prefix {
             return Ok(a_non_numeric.cmp(b_non_numeric_prefix));
         }
@@ -51,7 +51,6 @@ pub fn cmp_alpha_numeric(a: &str, b: &str) -> RuntimeResult<Ordering> {
 }
 
 pub(super) fn get_num_prefix(s: &str) -> &str {
-
     let mut s1 = s;
     let mut i = 0;
 
@@ -71,10 +70,10 @@ pub(super) fn get_num_prefix(s: &str) -> &str {
             if !has_dot && ch == '.' {
                 has_dot = true;
                 i += 1;
-                continue
+                continue;
             }
             if !has_num {
-                return ""
+                return "";
             }
             return &s[0..i];
         }
@@ -83,7 +82,7 @@ pub(super) fn get_num_prefix(s: &str) -> &str {
     }
 
     if !has_num {
-        return ""
+        return "";
     }
     s
 }
@@ -94,7 +93,7 @@ fn get_non_num_prefix(s: &str) -> &str {
             return &s[0..i];
         }
     }
-    return s
+    return s;
 }
 
 fn must_parse_num(s: &str) -> RuntimeResult<f64> {
@@ -129,25 +128,29 @@ pub(super) fn clamp_max(val: f64, limit: f64) -> f64 {
 
 pub(crate) fn ru(free_value: f64, max_value: f64) -> f64 {
     // ru(freev, maxv) = clamp_min(maxv - clamp_min(freev, 0), 0) / clamp_min(maxv, 0) * 100
-    clamp_min(max_value - clamp_min(free_value, 0_f64), 0_f64)
-        / clamp_min(max_value, 0_f64) * 100_f64
+    clamp_min(max_value - clamp_min(free_value, 0_f64), 0_f64) / clamp_min(max_value, 0_f64)
+        * 100_f64
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::functions::transform::utils::{cmp_alpha_numeric, get_num_prefix};
+    use metricsql::utils::parse_number;
     use std::cmp::Ordering;
     use std::cmp::Ordering::{Equal, Greater, Less};
-    use metricsql::utils::parse_number;
-    use crate::functions::transform::utils::{cmp_alpha_numeric, get_num_prefix};
 
     fn test_prefix(s: &str, expected_prefix: &str) {
         let prefix = get_num_prefix(s);
-        assert_eq!(prefix, expected_prefix, "unexpected get_num_prefix({}): got {}; want {}", s, prefix, expected_prefix);
+        assert_eq!(
+            prefix, expected_prefix,
+            "unexpected get_num_prefix({}): got {}; want {}",
+            s, prefix, expected_prefix
+        );
         if prefix.len() > 0 {
             parse_number(prefix).expect(format!("unable to parse {} as float", prefix).as_str());
         }
     }
-    
+
     #[test]
     fn test_get_num_prefix() {
         test_prefix("", "");
@@ -174,7 +177,7 @@ mod tests {
         match ordering {
             Less => "less",
             Equal => "equal",
-            Greater => "greater"
+            Greater => "greater",
         }
     }
 
@@ -184,9 +187,15 @@ mod tests {
 
         let f = |a: &str, b: &str, want: Ordering| {
             let got = cmp_alpha_numeric(a, b).unwrap();
-            assert_eq!(got, want, "invalid cmp_alpha_numeric({}, {}) comparison: got {}; want {}", a, b,
-                       order_name(got),
-                       order_name(want));
+            assert_eq!(
+                got,
+                want,
+                "invalid cmp_alpha_numeric({}, {}) comparison: got {}; want {}",
+                a,
+                b,
+                order_name(got),
+                order_name(want)
+            );
         };
 
         // empty strings

@@ -16,11 +16,12 @@ static SECONDS_PER_YEAR: f64 = 365.0 * SECONDS_PER_DAY;
 pub fn positive_duration_value(s: &str, step: i64) -> Result<i64, ParseError> {
     let d = parse_duration_value(s, step)?;
     if d < 0 {
-        return Err(ParseError::InvalidDuration(
-            format!("duration cannot be negative; got {}", s)
-        ));
+        return Err(ParseError::InvalidDuration(format!(
+            "duration cannot be negative; got {}",
+            s
+        )));
     }
-    return Ok(d)
+    return Ok(d);
 }
 
 /// parse_duration_value returns the duration in milliseconds for the given s
@@ -51,7 +52,7 @@ pub fn parse_duration_value(s: &str, step: i64) -> ParseResult<i64> {
             }
 
             if n > cursor.len() as i32 {
-                break
+                break;
             }
             cursor = &cursor[n as usize..];
         }
@@ -71,7 +72,7 @@ pub fn parse_duration_value(s: &str, step: i64) -> ParseResult<i64> {
         Ok(d) => {
             let val = (d * 1000_f64) as i64;
             Ok(val)
-        },
+        }
         Err(_) => scan_value(s, step),
     }
 }
@@ -213,22 +214,26 @@ mod tests {
     fn test_duration_success() {
         fn f(s: &str, step: i64, expected: i64) {
             let d = parse_duration_value(s, step).unwrap();
-            assert_eq!(d, expected, "unexpected duration; got {}; want {}; expr {}", d, expected, s)
+            assert_eq!(
+                d, expected,
+                "unexpected duration; got {}; want {}; expr {}",
+                d, expected, s
+            )
         }
 
         // Integer durations
         f("123ms", 42, 123);
         f("-123ms", 42, -123);
-        f("123s", 42, 123*1000);
-        f("-123s", 42, -123*1000);
+        f("123s", 42, 123 * 1000);
+        f("-123s", 42, -123 * 1000);
         f("123m", 42, 123 * MINUTE);
         f("1h", 42, 1 * HOUR);
         f("2d", 42, 2 * DAY);
         f("3w", 42, 3 * WEEK);
         f("4y", 42, 4 * YEAR);
-        f("1i", 42*1000, 42 * 1000);
-        f("3i", 42, 3*42);
-        f("-3i", 42, -3*42);
+        f("1i", 42 * 1000, 42 * 1000);
+        f("3i", 42, 3 * 42);
+        f("-3i", 42, -3 * 42);
         f("1m34s24ms", 42, 94024);
         f("1m-34s24ms", 42, 25976);
         f("-1m34s24ms", 42, -94024);
@@ -272,7 +277,7 @@ mod tests {
             match parse_duration_value(s, 42) {
                 Ok(d) => {
                     panic!("Expected error, got {} for expr {}", d, s)
-                },
+                }
                 _ => {}
             }
         }
@@ -313,5 +318,4 @@ mod tests {
         // Too big duration
         f("10000000000y")
     }
-
 }
