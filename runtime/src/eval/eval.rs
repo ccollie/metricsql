@@ -185,6 +185,7 @@ fn create_binary_evaluator(be: &BinaryExpr) -> RuntimeResult<ExprEvaluator> {
     use BinaryOpKind::*;
 
     let op_kind = be.op.kind();
+    let keep_metric_names = be.keep_metric_names || should_reset_metric_grouping(be, be.bool_modifier);
     match (be.left.return_type(), op_kind, be.right.return_type()) {
         (ValueType::Scalar, Arithmetic | Comparison, ValueType::Scalar) => {
             assert!(Comparison != op_kind || be.bool_modifier);
@@ -206,7 +207,7 @@ fn create_binary_evaluator(be: &BinaryExpr) -> RuntimeResult<ExprEvaluator> {
                         &be.left,
                         &be.right,
                         be.bool_modifier,
-                        be.keep_metric_names
+                        keep_metric_names
                     )?
                 )
             )
@@ -221,14 +222,14 @@ fn create_binary_evaluator(be: &BinaryExpr) -> RuntimeResult<ExprEvaluator> {
                         &be.left,
                         &be.right,
                         be.bool_modifier,
-                        be.keep_metric_names
+                        keep_metric_names
                     )?
                 )
             )
         }
         (ValueType::InstantVector, Arithmetic | Comparison | Logical, ValueType::InstantVector) => {
             assert!(!be.bool_modifier || Comparison == op_kind);
-            assert!(be.modifier.is_none());
+            debug_assert!(be.modifier.is_none());
             Ok(
                 ExprEvaluator::BinaryOp(BinaryEvaluator::new(be)?)
             )

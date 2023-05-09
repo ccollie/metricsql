@@ -23,7 +23,7 @@ use crate::{EvalConfig, QueryValue, Timeseries};
 use crate::eval::utils::series_len;
 use crate::types::Tag;
 
-pub struct BinaryEvaluator {
+pub struct BinaryEvaluatorVectorVector {
     expr: BinaryExpr,
     lhs: Box<ExprEvaluator>,
     rhs: Box<ExprEvaluator>,
@@ -33,7 +33,7 @@ pub struct BinaryEvaluator {
     return_type: ValueType,
 }
 
-impl BinaryEvaluator {
+impl BinaryEvaluatorVectorVector {
     pub fn new(expr: &BinaryExpr) -> RuntimeResult<Self> {
         let lhs = Box::new(create_evaluator(&expr.left)?);
         let rhs = Box::new(create_evaluator(&expr.right)?);
@@ -169,13 +169,13 @@ impl BinaryEvaluator {
     }
 }
 
-impl Value for BinaryEvaluator {
+impl Value for BinaryEvaluatorVectorVector {
     fn value_type(&self) -> ValueType {
         self.return_type.clone()
     }
 }
 
-impl Evaluator for BinaryEvaluator {
+impl Evaluator for BinaryEvaluatorVectorVector {
     /// Evaluates and returns the result.
     fn eval(&self, ctx: &Arc<Context>, ec: &EvalConfig) -> RuntimeResult<QueryValue> {
         // Determine if we should fetch right-side series at first, since it usually contains

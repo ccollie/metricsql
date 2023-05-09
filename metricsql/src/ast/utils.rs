@@ -18,7 +18,7 @@
 //! Utility functions for expression simplification
 
 use crate::common::Operator;
-use crate::ast::{BinaryExpr, Expr, NumberExpr};
+use crate::ast::{AggregationExpr, BExpr, BinaryExpr, Expr, FunctionExpr, NumberExpr, RollupExpr, WithArgExpr, WithExpr};
 use crate::prelude::MetricExpr;
 
 
@@ -114,6 +114,104 @@ pub fn disjunction(filters: impl IntoIterator<Item =Expr>) -> Option<Expr> {
     filters.into_iter().reduce(|accum, expr| accum.or(expr))
 }
 
+// all this nonsense because f64 used in NumberExpr doesn't implement Eq
+pub fn expr_equals(expr1: &Expr, expr2: &Expr) -> bool {
+    use Expr::*;
+
+    match (expr1, expr2) {
+        (Duration(d1), Duration(d2)) => d1.value == d2.value,
+        (MetricExpression(me1), MetricExpression(me2)) => me1 == me2,
+        (StringLiteral(s1), StringLiteral(s2)) => s1 == s2,
+        (Number(n1), Number(n2)) => {
+            (n1.value - n2.value).abs() < f64::EPSILON
+        },
+        (BinaryOperator(be1), BinaryOperator(be2)) => binary_exprs_equal(be1, be2),
+        (Function(fe1), Function(fe2)) => function_exprs_equal(fe1, fe2),
+        (Aggregation(ae1), Aggregation(ae2)) => aggregation_exprs_equal(ae1, ae2),
+        (Parens(pe1), Parens(pe2)) => expr_vec_equals(&pe1.expressions, &pe2.expressions),
+        (Rollup(re1), Rollup(re2)) =>  rollup_exprs_equal(re1, re2),
+        (With(we1), With(we2)) => with_exprs_equal(we1, we2),
+        (StringExpr(s1), StringExpr(s2)) => s1 == s2,
+        _ => false
+    }
+}
+
+fn optional_exprs_equal(e1: &Option<Expr>, e2: &Option<Expr>) -> bool {
+    match (e1, e2) {
+        (Some(e1), Some(e2)) => expr_equals(e1, e2),
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+fn optional_boxed_exprs_equal(e1: &Option<BExpr>, e2: &Option<BExpr>) -> bool {
+    match (e1, e2) {
+        (Some(e1), Some(e2)) => expr_equals(e1, e2),
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+fn rollup_exprs_equal(re1: &RollupExpr, re2: &RollupExpr) -> bool {
+    re1.inherit_step == re2.inherit_step &&
+        re1.window == re2.window &&
+        re1.step == re2.step &&
+        re1.offset == re2.offset &&
+        expr_equals(&re1.expr, &re2.expr) &&
+        optional_boxed_exprs_equal(&re1.at, &re2.at)
+}
+
+fn aggregation_exprs_equal(ae1: &AggregationExpr, ae2: &AggregationExpr) -> bool {
+    ae1.name == ae2.name &&
+        ae1.limit == ae2.limit &&
+        ae1.keep_metric_names == ae2.keep_metric_names &&
+        ae1.arg_idx_for_optimization ==  ae2.arg_idx_for_optimization &&
+        expr_vec_equals(&ae1.args, &ae2.args)
+}
+
+fn binary_exprs_equal(be1: &BinaryExpr, be2: &BinaryExpr) -> bool {
+    be1.op == be2.op &&
+        be1.bool_modifier == be2.bool_modifier &&
+        be1.group_modifier == be2.group_modifier &&
+        be1.join_modifier == be2.join_modifier &&
+        expr_equals(&be1.left, &be2.left) &&
+        expr_equals(&be1.right, &be2.right) &&
+        be1.modifier == be2.modifier
+}
+
+fn function_exprs_equal(fe1: &FunctionExpr, fe2: &FunctionExpr) -> bool {
+    fe1.name == fe2.name &&
+        fe1.keep_metric_names == fe2.keep_metric_names &&
+        fe1.arg_idx_for_optimization == fe2.arg_idx_for_optimization &&
+        fe1.is_scalar == fe2.is_scalar &&
+        fe1.return_type == fe2.return_type &&
+        expr_vec_equals(&fe1.args, &fe2.args)
+}
+
+fn with_exprs_equal(we1: &WithExpr, we2: &WithExpr) -> bool {
+    expr_equals(&we1.expr, &we2.expr) &&
+    we1.was.len() == we2.was.len() &&
+        we1.was.iter().zip(we2.was.iter()).all(|(w1, w2)| with_arg_exprs_equal(w1, w2))
+}
+
+fn with_arg_exprs_equal(we1: &WithArgExpr, we2: &WithArgExpr) -> bool {
+    we1.name == we2.name &&
+        we1.args == we2.args &&
+        we1.is_function == we2.is_function &&
+        expr_equals(&we1.expr, &we2.expr)
+}
+
+fn expr_vec_equals(exprs1: &[Expr], exprs2: &[Expr]) -> bool {
+    if exprs1.len() != exprs2.len() {
+        return false;
+    }
+    for (e1, e2) in exprs1.iter().zip(exprs2.iter()) {
+        if !expr_equals(e1, e2) {
+            return false;
+        }
+    }
+    true
+}
 
 // todo: use expr_visitor instead
 pub fn visit_all(e: &mut Expr, visitor: fn(&mut Expr) -> ()) {

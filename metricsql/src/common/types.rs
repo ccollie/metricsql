@@ -1,4 +1,5 @@
 use std::collections::btree_set::BTreeSet;
+use std::collections::HashSet;
 use crate::parser::ParseError;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -183,7 +184,7 @@ impl TryFrom<&str> for AggregateModifierOp {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, Hash, Serialize, Deserialize)]
 pub struct AggregateModifier {
     /// The modifier operation.
     pub op: AggregateModifierOp,
@@ -234,6 +235,12 @@ impl Display for AggregateModifier {
     }
 }
 
+impl PartialEq<Self> for AggregateModifier {
+    fn eq(&self, other: &AggregateModifier) -> bool {
+        self.op == other.op && string_vecs_equal_unordered(&self.args, &other.args)
+    }
+}
+
 // See https://prometheus.io/docs/prometheus/latest/querying/operators/#vector-matching
 #[derive(Debug, Clone, PartialEq, Eq, Copy, Hash, Serialize, Deserialize)]
 pub enum GroupModifierOp {
@@ -270,7 +277,7 @@ impl TryFrom<&str> for GroupModifierOp {
 }
 
 /// An operator matching clause
-#[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize, Deserialize)]
+#[derive(Debug, Eq, Clone, Hash, Serialize, Deserialize)]
 pub struct GroupModifier {
     /// Action applied to a list of vectors; whether `on (…)` or `ignored(…)` is used after the operator.
     pub op: GroupModifierOp,
@@ -320,6 +327,12 @@ impl GroupModifier {
     pub fn clear_labels(&mut self) -> &mut Self {
         self.labels.clear();
         self
+    }
+}
+
+impl PartialEq<Self> for GroupModifier {
+    fn eq(&self, other: &GroupModifier) -> bool {
+        self.op == other.op && string_vecs_equal_unordered(&self.labels, &other.labels)
     }
 }
 
@@ -505,4 +518,20 @@ impl Display for JoinModifier {
         write_list(self.labels.iter(), f, true)?;
         Ok(())
     }
+}
+
+impl PartialEq<JoinModifier> for &JoinModifier {
+    fn eq(&self, other: &JoinModifier) -> bool {
+        self.op == other.op &&
+            string_vecs_equal_unordered(&self.labels, &other.labels) &&
+            self.cardinality == other.cardinality
+    }
+}
+
+fn string_vecs_equal_unordered(a: &[String], b: &[String]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let hash_a: HashSet<_> = a.iter().collect();
+    b.iter().all(|x| hash_a.contains(x))
 }

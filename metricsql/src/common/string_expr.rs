@@ -5,7 +5,7 @@ use std::{fmt, ops};
 use crate::common::{ValueType};
 use crate::parser::ParseError;
 
-#[derive(Debug, Clone, Hash, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StringSegment {
     Literal(String),
     Ident(String),
@@ -28,7 +28,7 @@ impl Display for StringSegment {
 }
 
 /// StringExpr represents a string expression which may be composed of multiple segments.
-#[derive(Debug, Clone, Hash, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StringExpr(Vec<StringSegment>, bool);
 
 impl StringExpr {
@@ -175,9 +175,9 @@ impl StringExpr {
     pub fn get_literal(&self) -> ParseResult<Option<&String>> {
         if self.is_literal_only() {
             if let Some(first) = self.0.first() {
-                match first {
-                    StringSegment::Literal(lit) => return Ok(Some(lit)),
-                    _ => return Err(ParseError::General(
+                return match first {
+                    StringSegment::Literal(lit) => Ok(Some(lit)),
+                    _ => Err(ParseError::General(
                         "BUG: string segment should be all literal".to_string()
                     )),
                 }

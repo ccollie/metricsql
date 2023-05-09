@@ -14,6 +14,7 @@ use std::hash::{Hash, Hasher};
 use std::ops::Neg;
 use std::str::FromStr;
 use std::{fmt, iter, ops};
+use std::collections::btree_set::BTreeSet;
 
 use crate::parser::{escape_ident, ParseError, ParseResult};
 use crate::prelude::get_aggregate_arg_idx_for_optimization;
@@ -38,7 +39,14 @@ impl NumberExpr {
     pub fn new(v: f64) -> Self {
         NumberExpr {
             value: v,
-            s: format!("{}", v),
+            s: "".to_string()
+        }
+    }
+
+    pub fn with_token(v: f64, tok: &str) -> Self {
+        NumberExpr {
+            value: v,
+            s: tok.to_string(),
         }
     }
 
@@ -77,7 +85,7 @@ impl Into<f64> for NumberExpr {
     }
 }
 
-impl PartialEq for NumberExpr {
+impl PartialEq<NumberExpr> for NumberExpr {
     fn eq(&self, other: &Self) -> bool {
         (self.value - other.value).abs() <= f64::EPSILON
     }
@@ -91,7 +99,7 @@ impl ExpressionNode for NumberExpr {
 
 impl Display for NumberExpr {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        if self.s.len() > 0 {
+        if !self.s.is_empty() {
             write!(f, "{}", self.s)
         } else {
             format_num(f, self.value)
@@ -159,7 +167,7 @@ impl Display for DurationExpr {
 
 // todo: MetricExpr => Selector
 /// MetricExpr represents MetricsQL metric with optional filters, i.e. `foo{...}`.
-#[derive(Debug, Clone, Hash, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, Eq, Serialize, Deserialize)]
 pub struct MetricExpr {
     /// LabelFilters contains a list of label filters from curly braces.
     /// Filter or metric name must be the first if present.
@@ -282,6 +290,10 @@ impl MetricExpr {
             .filter(|m| m.label.eq_ignore_ascii_case(name))
             .collect()
     }
+
+    pub fn sort_filters(&mut self) {
+        self.label_filters.sort();
+    }
 }
 
 impl Value for MetricExpr {
@@ -292,6 +304,12 @@ impl Value for MetricExpr {
 
 impl Display for MetricExpr {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+
+        if self.is_empty() {
+            write!(f, "{{}}")?;
+            return Ok(());
+        }
+
         let mut name_written = false;
         let mut lfs: &[LabelFilter] = &self.label_filters;
         let mut exprs: &[LabelFilterExpr] = &self.label_filter_expressions;
@@ -337,6 +355,40 @@ impl Default for MetricExpr {
         }
     }
 }
+
+impl PartialEq<MetricExpr> for MetricExpr {
+    fn eq(&self, other: &MetricExpr) -> bool {
+        if self.label_filters.len() != other.label_filters.len() {
+            return false;
+        }
+        if self.label_filter_expressions.len() != other.label_filter_expressions.len() {
+            return false;
+        }
+        if !self.label_filters.is_empty() {
+            let set = self.label_filters
+                .iter()
+                .map(|x| x.to_string())
+                .collect::<BTreeSet<_>>();
+
+            if !other.label_filters.iter().all(|x| set.contains(&x.to_string())) {
+                return false;
+            }
+        }
+        if !self.label_filter_expressions.is_empty() {
+            let set = self.label_filter_expressions
+                .iter()
+                .map(|x| x.to_string())
+                .collect::<BTreeSet<_>>();
+
+            if !other.label_filter_expressions.iter().all(|x| set.contains(&x.to_string())) {
+                return false;
+            }
+        }
+
+        true
+    }
+}
+
 
 impl ExpressionNode for MetricExpr {
     fn cast(self) -> Expr {
@@ -1286,28 +1338,6 @@ impl Expr {
     #[allow(clippy::wrong_self_convention)]
     pub fn is_not_nan(self) -> Expr {
         self.not_eq(Expr::from(f64::NAN))
-    }
-
-    /// Return `self == bool 1`
-    #[allow(clippy::wrong_self_convention)]
-    pub fn is_true(self) -> Expr {
-        self.eq(Expr::from(1.0))
-    }
-
-    /// Return `self != BOOL 1`
-    #[allow(clippy::wrong_self_convention)]
-    pub fn is_not_true(self) -> Expr {
-        self.not_eq(Expr::from(1.0))
-    }
-
-    /// Return `self == bool 0`
-    pub fn is_false(self) -> Expr {
-        self.eq(Expr::from(0.0))
-    }
-
-    /// Return `self != bool 0`
-    pub fn is_not_false(self) -> Expr {
-        self.not_eq(Expr::from(0.0))
     }
 
     pub fn call(func: &str, args: Vec<Expr>) -> ParseResult<Expr> {

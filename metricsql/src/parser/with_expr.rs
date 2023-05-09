@@ -3,7 +3,6 @@ use crate::parser::parse_expression;
 use crate::parser::{ParseError, ParseResult, Parser};
 use crate::parser::tokens::Token;
 use std::collections::HashSet;
-use crate::parser::parse_error::unexpected;
 
 
 /// parses `WITH (withArgExpr...) expr`.
@@ -37,14 +36,8 @@ pub(super) fn parse_with_expr(p: &mut Parser) -> ParseResult<WithExpr> {
                 break;
             }
             _ => {
-                return Err(
-                    unexpected(
-                        "with(expr...) expression",
-                        &tok.kind.to_string(),
-                        ") or ,",
-                        Some(&tok.span)
-                    )
-                );
+                // force error
+                p.expect_one_of(&[Comma, RightParen])?;
             }
         }
     }
@@ -79,9 +72,8 @@ fn parse_with_arg_expr(p: &mut Parser) -> ParseResult<WithArgExpr> {
         let args = p.parse_comma_separated(&[RightParen], |parser| {
             let ident = parser.expect_identifier()?;
             if m.contains(&ident) {
-                // todo: syntax_error()?
                 let msg = format!("withArgExpr: duplicate arg name: {}", ident);
-                return Err(ParseError::General(msg));
+                return Err(parser.syntax_error(&msg));
             } else {
                 m.insert(ident.clone());
             }

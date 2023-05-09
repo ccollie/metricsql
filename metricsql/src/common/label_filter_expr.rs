@@ -6,7 +6,7 @@ use crate::parser::{compile_regexp, escape_ident, is_empty_regex, ParseError, Pa
 
 /// LabelFilterExpr represents `foo <op> ident + "bar"` expression, where <op> is `=`, `!=`, `=~` or `!~`.
 /// For internal use only, in the context of WITH expressions
-#[derive(Default, Debug, Clone, Hash, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Hash, Eq, Serialize, Deserialize)]
 pub struct LabelFilterExpr {
     pub op: LabelFilterOp,
 

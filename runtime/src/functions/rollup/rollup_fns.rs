@@ -33,7 +33,7 @@ pub const MAX_SILENCE_INTERVAL: i64 = 5 * 60 * 1000;
 
 pub type RollupImplementation = Arc<dyn RollupFn<Output = f64>>;
 
-fn get_aggr_fn(f: &RollupFunction) -> RuntimeResult<RollupFunc> {
+fn get_rollup_fn(f: &RollupFunction) -> RuntimeResult<RollupFunc> {
     use RollupFunction::*;
 
     let res = match f {
@@ -95,7 +95,7 @@ fn get_aggr_fn(f: &RollupFunction) -> RuntimeResult<RollupFunc> {
     Ok(res)
 }
 
-fn get_aggr_func_by_name(name: &str) -> RuntimeResult<RollupFunction> {
+fn get_rollup_func_by_name(name: &str) -> RuntimeResult<RollupFunction> {
     match RollupFunction::from_str(name) {
         Err(_) => Err(RuntimeError::UnknownFunction(name.to_string())),
         Ok(func) => Ok(func),
@@ -457,7 +457,7 @@ fn get_rollup_aggr_funcs_impl(fe: &FunctionExpr) -> RuntimeResult<Vec<RollupFunc
     for i in 0..fe.args.len() - 1 {
         let arg = &fe.args[i];
         match arg.deref() {
-            Expr::StringLiteral(name) => match get_aggr_func_by_name(name) {
+            Expr::StringLiteral(name) => match get_rollup_func_by_name(name) {
                 Err(_) => {
                     let msg = format!("{} cannot be used in `aggr_over_time` function; expecting quoted aggregate function name", name);
                     return Err(RuntimeError::General(msg));
@@ -665,7 +665,7 @@ pub(crate) fn get_rollup_configs<'a>(
                             pre_funcs.clear();
                             pre_funcs.push(remove_counter_resets_pre_func);
                         }
-                        let rollup_fn = get_aggr_fn(&rf)?;
+                        let rollup_fn = get_rollup_fn(&rf)?;
                         let handler = RollupHandlerEnum::wrap(rollup_fn);
                         let clone = template.clone_with_fn(&handler, &rf.name());
                         rcs.push(clone);

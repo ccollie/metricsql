@@ -37,7 +37,7 @@ pub struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(input: &'a str) -> ParseResult<Self> {
+    pub fn tokenize(input: &'a str) -> ParseResult<Vec<TokenWithLocation<'a>>> {
         let mut lexer: logos::Lexer<'a, Token> = Token::lexer(input);
 
         let mut tokens = Vec::with_capacity(16); // todo: pre-size
@@ -59,6 +59,12 @@ impl<'a> Parser<'a> {
             }
         }
 
+        Ok(tokens)
+    }
+
+    pub fn new(input: &'a str) -> ParseResult<Self> {
+        let tokens = Self::tokenize(input)?;
+
         Ok(Self {
             cursor: 0,
             tokens,
@@ -66,6 +72,16 @@ impl<'a> Parser<'a> {
             needs_expansion: false,
             with_stack: vec![],
         })
+    }
+
+    pub fn from_tokens(tokens: Vec<TokenWithLocation<'a>>) -> Self {
+        Self {
+            cursor: 0,
+            tokens,
+            template_parsing_depth: 0,
+            needs_expansion: false,
+            with_stack: vec![],
+        }
     }
 
     // next
@@ -105,10 +121,6 @@ impl<'a> Parser<'a> {
 
     pub fn is_eof(&self) -> bool {
         self.cursor >= self.tokens.len()
-    }
-
-    pub(super) fn is_in_template_definition(&self) -> bool {
-        self.template_parsing_depth > 0
     }
 
     pub(super) fn last_token_range(&self) -> Option<Span> {

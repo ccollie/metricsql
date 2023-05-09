@@ -1,4 +1,6 @@
-use crate::QueryValue;
+use metricsql::ast::BinaryExpr;
+use metricsql::common::Operator;
+use crate::{QueryValue, Timeseries};
 
 pub(crate) fn series_len(val: &QueryValue) -> usize {
     match &val {

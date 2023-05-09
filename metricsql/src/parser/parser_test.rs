@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::ast::Expr;
+    use crate::ast::{Expr, optimize};
     use crate::parser::parse;
 
     fn another(s: &str, expected: &str) {
@@ -9,7 +9,8 @@ mod tests {
                 panic!("error parsing q: {};\ngot error\n{:?}", s, err)
             }
             Ok(expr) => {
-                let res = expr.to_string();
+                let optimized = optimize(expr).expect("Error optimizing expression");
+                let res = optimized.to_string();
                 assert_eq!(&res, expected, "\nquery: {}", s)
             }
         }
@@ -364,8 +365,6 @@ mod tests {
         another("1 + -2 - 3", "-4");
         another("1 / 0 + 2", "+Inf");
         another("2 + -1 / 0", "-Inf");
-        another("(-1) ^ 0.5", "NaN");
-        another("-1 ^ 0.5", "-1");
         another("512.5 - (1 + 3) * (2 ^ 2) ^ 3", "256.5");
         another("1 == bool 1 != bool 24 < bool 4 > bool -1", "1");
         another("1 == bOOl 1 != BOOL 24 < Bool 4 > booL -1", "1");
@@ -415,6 +414,9 @@ mod tests {
         same("a / b keep_metric_names");
         same("a / 1 keep_metric_names");
         same("1 / a keep_metric_names");
+
+        another("(-1) ^ 0.5", "NaN");
+        another("-1 ^ 0.5", "-1");
     }
 
     #[test]
@@ -654,7 +656,7 @@ mod tests {
 
     #[test]
     fn test_nested_with_expressions() {
-        // Verify nested with Exprs
+        // Verify nested with expressions
         another("with (f(x) = (with(x=y) x) + x) f(z)", "y + z");
         another("with (x=foo) f(a, with (y=x) y)", "f(a, foo)");
         another(

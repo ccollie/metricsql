@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use crate::parser::{compile_regexp, escape_ident, is_empty_regex, ParseError, quote};
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -9,7 +10,7 @@ pub type LabelName = String;
 
 pub type LabelValue = String;
 
-#[derive(Default, Debug, Clone, PartialEq, Eq, Copy, Hash, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, PartialOrd, Copy, Hash, Serialize, Deserialize)]
 pub enum LabelFilterOp {
     #[default]
     Equal,
@@ -161,9 +162,28 @@ impl LabelFilter {
     }
 }
 
-impl PartialEq for LabelFilter {
+impl PartialEq<Self> for LabelFilter {
     fn eq(&self, other: &Self) -> bool {
-        self.label == other.label && self.op == other.op && self.value == other.value
+        return self.label == other.label && self.op == other.op && self.value == other.value;
+    }
+}
+
+impl PartialOrd for LabelFilter {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        let mut order = self.label.cmp(&other.label);
+        if order == Ordering::Equal {
+            order = self.value.cmp(&other.value);
+            if order == Ordering::Equal {
+                order = self.op.to_string().cmp(&other.op.to_string());
+            }
+        }
+        return Some(order);
+    }
+}
+
+impl Ord for LabelFilter {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.partial_cmp(other).unwrap()
     }
 }
 

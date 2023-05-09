@@ -192,7 +192,7 @@ impl<'a> ExpandRewriter<'a> {
 
         if !me.label_filter_expressions.is_empty() {
             let msg = format!(
-                "BUG: wme.label_filter_exprs must be empty; got {:?}",
+                "BUG: wme.label_filter_expressions must be empty; got {:?}",
                 me.label_filter_expressions
             );
             return Err(ParseError::WithExprExpansionError(msg));

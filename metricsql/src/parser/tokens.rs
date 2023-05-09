@@ -725,7 +725,7 @@ mod tests {
             ",",
             "d",
             "!~",
-            "zzz",
+            r#""zzz""#,
             "}",
         ];
 
@@ -737,7 +737,7 @@ mod tests {
         // fn call
         let s = r#"sum  (  metric{x="y"  }  [5m] offset 10h)"#;
         let expected = vec![
-            "sum", "(", "metric", "{", "x", "=", "y", "}", "[", "5m", "]", "offset", "10h", ")",
+            "sum", "(", "metric", "{", "x", "=", r#""y""#, "}", "[", "5m", "]", "offset", "10h", ")",
         ];
         test_success(s, &expected);
     }
@@ -789,17 +789,26 @@ mod tests {
     }
 
     fn test_success(s: &str, expected_tokens: &[&str]) {
-        let lex = Token::lexer(s);
-
-        let mut i = 0;
-        for tok in lex {
+        let mut lexer = Token::lexer(s);
+        let mut tokens = vec![];
+        while let Some(tok) = lexer.next() {
             match tok {
-                Err(e) => panic!("unexpected error {:?}", e),
-                Ok(v) => {
-                    assert_eq!(v.to_string(), expected_tokens[i]);
-                    i += 1;
+                Ok(_) => {
+                    tokens.push(lexer.slice());
                 }
+                Err(e) => {
+                    panic!("unexpected error {:?}\n {}", e, lexer.slice())
+                },
             }
+        }
+
+        assert_eq!(tokens.len(), expected_tokens.len(), "expected {:?} tokens, got {:?}",
+                   expected_tokens.len(), tokens.len());
+
+        for i in 0..tokens.len() {
+            let actual = tokens[i];
+            let expected = expected_tokens[i];
+            assert_eq!(actual, expected, "expected {:?} at index {}, got {:?}", expected, i, actual);
         }
     }
 }

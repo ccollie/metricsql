@@ -14,7 +14,7 @@ use crate::eval::rollup::{compile_rollup_func_args, RollupEvaluator};
 use crate::functions::aggregate::{get_aggr_func, AggrFn, AggrFuncArg, try_get_incremental_aggr_handler};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::utils::num_cpus;
-use crate::{EvalConfig, QueryValue};
+use crate::{EvalConfig, QueryValue, Timeseries};
 
 use super::{Evaluator, ExprEvaluator};
 
@@ -53,7 +53,7 @@ pub struct AggregateEvaluator {
     args: ArgList,
     /// optional modifier such as `by (...)` or `without (...)`.
     modifier: Option<AggregateModifier>,
-    handler: Arc<dyn AggrFn + 'static>,
+    handler: Arc<dyn AggrFn<Output=RuntimeResult<Vec<Timeseries>>> + 'static>,
     /// Max number of timeseries to return
     pub limit: usize,
     pub may_sort_results: bool,

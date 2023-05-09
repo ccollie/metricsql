@@ -1,6 +1,8 @@
 use crate::common::Operator;
 use crate::parser::{ParseError, ParseResult};
 
+pub type BinopFunc = fn(left: f64, right: f64) -> f64;
+
 /// Eq returns true of left == right.
 #[inline]
 pub fn eq(left: f64, right: f64) -> bool {
@@ -100,6 +102,15 @@ pub fn default(left: f64, right: f64) -> f64 {
     left
 }
 
+/// unless returns NaN if left is NaN. Otherwise right is returned.
+pub fn unless(left: f64, right: f64) -> f64 {
+    // todo: is this correct?
+    if left.is_nan() {
+        return f64::NAN;
+    }
+    right
+}
+
 /// If returns left if right is not NaN. Otherwise NaN is returned.
 #[inline]
 pub fn if_(left: f64, right: f64) -> f64 {
@@ -118,6 +129,7 @@ pub fn if_not(left: f64, right: f64) -> f64 {
     f64::NAN
 }
 
+
 pub fn eval_binary_op(left: f64, right: f64, op: Operator, is_bool: bool) -> f64 {
     return if op.is_comparison() {
         fn eval_cmp(
@@ -126,10 +138,12 @@ pub fn eval_binary_op(left: f64, right: f64, op: Operator, is_bool: bool) -> f64
             is_bool: bool,
             cf: fn(left: f64, right: f64) -> bool,
         ) -> f64 {
-            if is_bool {
-                return if cf(left, right) { 1_f64 } else { 0_f64 };
+            match (cf(left, right), is_bool) {
+                (true, true) => 1_f64,
+                (true, false) => left,
+                (false, true) => 0_f64,
+                (false, false) => f64::NAN,
             }
-            return if cf(left, right) { left } else { f64::NAN };
         }
 
         match op {

@@ -13,7 +13,6 @@ pub mod binaryop;
 pub mod common;
 pub mod functions;
 pub mod parser;
-pub mod transform;
 
 pub mod optimize {
     use crate::ast;

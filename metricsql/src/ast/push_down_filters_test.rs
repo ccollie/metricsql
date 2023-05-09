@@ -99,12 +99,17 @@ mod tests {
 
     #[test]
     fn test_get_common_label_filters() {
-        let f = |q, result_expected: &str| {
+        let get_filters = |q: &str| -> String {
             let e = parse(q).expect(format!("unexpected error in parse({})", q).as_str());
             let expr = optimize(e).expect(format!("unexpected error in optimize({})", q).as_str());
             let lfs = get_common_label_filters(&expr);
-            let me = MetricExpr::with_filters(lfs);
-            let result = me.to_string();
+            let mut me = MetricExpr::with_filters(lfs);
+            me.sort_filters();
+            me.to_string()
+        };
+
+        let f = |q, result_expected: &str| {
+            let result = get_filters(q);
             assert_eq!(
                 result, result_expected, "get_common_label_filters({});", q
             );
@@ -114,14 +119,14 @@ mod tests {
         f(r#"{__name__="foo"}"#, "{}");
         f(r#"{__name__=~"bar"}"#, "{}");
         f(r#"{__name__=~"a|b",x="y"}"#, r#"{x="y"}"#);
-        f(r#"foo{c!="d",a="b"}"#, r#"{c!="d", a="b"}"#);
+        f(r#"foo{c!="d",a="b"}"#, r#"{a="b", c!="d"}"#);
         f(r#"1+foo"#, "{}");
         f(r#"foo + bar{a="b"}"#, r#"{a="b"}"#);
         f(r#"foo + bar / baz{a="b"}"#, r#"{a="b"}"#);
-        f(r#"foo{x!="y"} + bar / baz{a="b"}"#, r#"{x!="y", a="b"}"#);
+        f(r#"foo{x!="y"} + bar / baz{a="b"}"#, r#"{a="b", x!="y"}"#);
         f(
             r#"foo{x!="y"} + bar{x=~"a|b",q!~"we|rt"} / baz{a="b"}"#,
-            r#"{x!="y", x=~"a|b", q!~"we|rt", a="b"}"#,
+            r#"{a="b", q!~"we|rt", x=~"a|b", x!="y"}"#,
         );
         f(r#"{a="b"} + on() {c="d"}"#, "{}");
         f(r#"{a="b"} + on() group_left() {c="d"}"#, r#"{a="b"}"#);

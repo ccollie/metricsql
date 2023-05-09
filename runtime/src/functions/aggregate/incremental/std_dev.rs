@@ -17,6 +17,7 @@ impl IncrementalAggr for IncrementalStdDev {
         let src_values = &src.ts.values;
         let src_counts = &src.values;
 
+        // todo: use zip
         for (i, v) in src_values.iter().enumerate() {
             if src_counts[i] == 0.0 {
                 continue;

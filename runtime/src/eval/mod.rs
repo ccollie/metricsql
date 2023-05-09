@@ -16,6 +16,12 @@ pub use eval::*;
 pub use traits::*;
 
 pub mod binary_op;
+mod hash_helper;
+
+mod binop_scalar_scalar;
+mod binop_scalar_vector;
+mod binop_vector_scalar;
+mod binop_vector_vector;
+
 #[cfg(test)]
 mod eval_test;
-mod hash_helper;

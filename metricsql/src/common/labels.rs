@@ -126,6 +126,8 @@ impl Labels {
     pub fn hash(&self) -> u64 {
         // Use xxh3_64 for fast path as it's faster.
         let mut b = vec![u8, 1024]; // todo: ArrayVec
+        let mut pos = 0;
+
         for (i, v) in ls.iter().enumerate() {
             if b.len() + v.name.len() + v.value.len() + 2 >= b.capacity() {
                 // If labels entry is 1KB+ do not allocate whole entry.
@@ -140,7 +142,7 @@ impl Labels {
             b.push(v.name.as_bytes());
             b.push(SEP);
             b.push(v.value.as_bytes());
-            b.push(seps[0])
+            b.push(SEP)
         }
         xxh3_64(b)
     }

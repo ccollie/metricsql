@@ -53,7 +53,7 @@ pub trait IncrementalAggrHandler {
             }
         }
     }
-    // Whether to keep the original MetricName for every time series during aggregation
+    /// Whether to keep the original MetricName for every time series during aggregation
     fn keep_original(&self) -> bool;
 }
 
@@ -97,7 +97,7 @@ impl<'a> IncrementalAggrFuncContext<'a> {
             ts.metric_name.remove_group_tags(&self.ae.modifier);
         }
 
-        let key = ts.metric_name.to_string();
+        let key = ts.metric_name.to_string(); // todo: use hash() ?
 
         let value_len = ts.values.len();
 
