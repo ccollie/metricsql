@@ -26,7 +26,7 @@ impl ArgList {
         Ok(Self {
             args: _args,
             volatility,
-            parallel: should_parallelize_param_parsing(signature),
+            parallel: should_parallelize_param_eval(signature),
         })
     }
 
@@ -35,7 +35,7 @@ impl ArgList {
         Self {
             args,
             volatility,
-            parallel: should_parallelize_param_parsing(signature),
+            parallel: should_parallelize_param_eval(signature),
         }
     }
 
@@ -85,7 +85,7 @@ fn should_parallelize(t: &ValueType) -> bool {
 
 /// Determines if we should parallelize parameter evaluation. We ignore "lightweight"
 /// parameter types like `String` or `Scalar`
-fn should_parallelize_param_parsing(signature: &Signature) -> bool {
+fn should_parallelize_param_eval(signature: &Signature) -> bool {
     let types = &signature.type_signature;
 
     fn check_args(valid_types: &[ValueType]) -> bool {
@@ -103,7 +103,7 @@ fn should_parallelize_param_parsing(signature: &Signature) -> bool {
             return *number >= 2 && check_args(types);
         }
         TypeSignature::VariadicEqual(data_type, _) => {
-            let types = &[data_type.clone()];
+            let types = &[*data_type];
             check_args(types)
         }
         TypeSignature::Exact(valid_types) => check_args(valid_types),

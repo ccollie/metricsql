@@ -7,12 +7,6 @@ use metricsql::prelude::{BinaryOpKind, ValueType};
 
 use crate::context::Context;
 use crate::eval::aggregate::{AggregateEvaluator, create_aggr_evaluator};
-use crate::eval::binary::{
-    BinaryEvaluator,
-    BinaryEvaluatorScalarScalar,
-    BinaryEvaluatorScalarVector,
-    BinaryEvaluatorVectorScalar
-};
 use crate::eval::duration::DurationEvaluator;
 use crate::eval::function::{create_function_evaluator, TransformEvaluator};
 use crate::eval::instant_vector::InstantVectorEvaluator;
@@ -21,6 +15,11 @@ use crate::eval::string::StringEvaluator;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::search::Deadline;
 use crate::{QueryValue, TimestampTrait};
+use crate::eval::binop_handlers::should_reset_metric_group;
+use crate::eval::binop_scalar_scalar::BinaryEvaluatorScalarScalar;
+use crate::eval::binop_scalar_vector::BinaryEvaluatorScalarVector;
+use crate::eval::binop_vector_scalar::BinaryEvaluatorVectorScalar;
+use crate::eval::binop_vector_vector::BinaryEvaluatorVectorVector;
 use crate::types::{Timeseries, Timestamp};
 
 use super::rollup::RollupEvaluator;
@@ -29,10 +28,10 @@ use super::traits::{Evaluator, NullEvaluator};
 pub enum ExprEvaluator {
     Null(NullEvaluator),
     Aggregate(AggregateEvaluator),
-    BinaryOp(BinaryEvaluator),
     ScalarScalar(BinaryEvaluatorScalarScalar),
     ScalarVector(BinaryEvaluatorScalarVector),
     VectorScalar(BinaryEvaluatorVectorScalar),
+    VectorVector(BinaryEvaluatorVectorVector),
     Duration(DurationEvaluator),
     Function(TransformEvaluator),
     Number(ScalarEvaluator),
@@ -58,7 +57,7 @@ impl Value for ExprEvaluator {
         match self {
             ExprEvaluator::Null(e) => e.value_type(),
             ExprEvaluator::Aggregate(ae) => ae.value_type(),
-            ExprEvaluator::BinaryOp(bo) => bo.value_type(),
+            ExprEvaluator::VectorVector(bo) => bo.value_type(),
             ExprEvaluator::ScalarVector(sv) => sv.value_type(),
             ExprEvaluator::VectorScalar(vs) => vs.value_type(),
             ExprEvaluator::ScalarScalar(ss) => ss.value_type(),
@@ -77,7 +76,7 @@ impl Evaluator for ExprEvaluator {
         match self {
             ExprEvaluator::Null(e) => e.eval(ctx, ec),
             ExprEvaluator::Aggregate(ae) => ae.eval(ctx, ec),
-            ExprEvaluator::BinaryOp(bo) => bo.eval(ctx, ec),
+            ExprEvaluator::VectorVector(bo) => bo.eval(ctx, ec),
             ExprEvaluator::VectorScalar(vs) => vs.eval(ctx, ec),
             ExprEvaluator::ScalarVector(sv) => sv.eval(ctx, ec),
             ExprEvaluator::ScalarScalar(ss) => ss.eval(ctx, ec),
@@ -94,7 +93,7 @@ impl Evaluator for ExprEvaluator {
         match self {
             ExprEvaluator::Null(e) => e.return_type(),
             ExprEvaluator::Aggregate(ae) => ae.return_type(),
-            ExprEvaluator::BinaryOp(bo) => bo.return_type(),
+            ExprEvaluator::VectorVector(bo) => bo.return_type(),
             ExprEvaluator::ScalarVector(sv) => sv.return_type(),
             ExprEvaluator::VectorScalar(vs) => vs.return_type(),
             ExprEvaluator::ScalarScalar(ss) => ss.return_type(),
@@ -185,7 +184,7 @@ fn create_binary_evaluator(be: &BinaryExpr) -> RuntimeResult<ExprEvaluator> {
     use BinaryOpKind::*;
 
     let op_kind = be.op.kind();
-    let keep_metric_names = be.keep_metric_names || should_reset_metric_grouping(be, be.bool_modifier);
+    let keep_metric_names = be.keep_metric_names || should_reset_metric_group(&be.op, be.bool_modifier);
     match (be.left.return_type(), op_kind, be.right.return_type()) {
         (ValueType::Scalar, Arithmetic | Comparison, ValueType::Scalar) => {
             assert!(Comparison != op_kind || be.bool_modifier);
@@ -231,7 +230,7 @@ fn create_binary_evaluator(be: &BinaryExpr) -> RuntimeResult<ExprEvaluator> {
             assert!(!be.bool_modifier || Comparison == op_kind);
             debug_assert!(be.modifier.is_none());
             Ok(
-                ExprEvaluator::BinaryOp(BinaryEvaluator::new(be)?)
+                ExprEvaluator::VectorVector(BinaryEvaluatorVectorVector::new(be)?)
             )
         }
         (lk, ok, rk) => unimplemented!("{:?} {:?} {:?} operation is not supported", lk, ok, rk),

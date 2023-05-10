@@ -1,19 +1,16 @@
-use once_cell::sync::Lazy;
-use std::borrow::{Cow};
+use lib::BuildNoHashHasher;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use lib::{BuildNoHashHasher};
+use once_cell::sync::Lazy;
 
-use metricsql::common::{GroupModifier, JoinModifier, JoinModifierOp, Operator};
-use metricsql::ast::BinaryExpr;
-use metricsql::binaryop::BinopFunc;
 use crate::eval::hash_helper::HashHelper;
+use crate::eval::utils::remove_empty_series;
+use metricsql::ast::BinaryExpr;
+use metricsql::binaryop::{get_scalar_binop_handler, BinopFunc};
+use metricsql::common::{GroupModifier, JoinModifier, JoinModifierOp, Operator};
 
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::types::Timeseries;
-
-trait BinopClosureFn: Fn(f64, f64) -> f64 + Send + Sync {}
-impl<T> BinopClosureFn for T where T: Fn(f64, f64) -> f64 + Send + Sync {}
 
 pub(crate) struct BinaryOpFuncArg<'a> {
     be: &'a BinaryExpr,
@@ -29,194 +26,132 @@ impl<'a> BinaryOpFuncArg<'a> {
 
 pub type BinaryOpFuncResult = RuntimeResult<Vec<Timeseries>>;
 
-pub(crate) trait BinaryOpFn:
-    Fn(&mut BinaryOpFuncArg) -> BinaryOpFuncResult + Send + Sync
-{
-}
+pub(crate) trait BinaryOpFn: Fn(&mut BinaryOpFuncArg) -> BinaryOpFuncResult + Send + Sync {}
 
-impl<T> BinaryOpFn for T where
-    T: Fn(&mut BinaryOpFuncArg) -> BinaryOpFuncResult + Send + Sync
-{
-}
+impl<T> BinaryOpFn for T where T: Fn(&mut BinaryOpFuncArg) -> BinaryOpFuncResult + Send + Sync {}
 
 pub(crate) type BinaryOpFnImplementation = Arc<dyn BinaryOpFn<Output = BinaryOpFuncResult>>;
 
 type TimeseriesHashMap = HashMap<u64, Vec<Timeseries>, BuildNoHashHasher<u64>>;
 
-macro_rules! boxed {
-    ( $af: expr ) => {
-        Arc::new($af)
-    };
+fn add_scalar_handler_to_hashmap(hm: &mut HashMap<String, BinaryOpFnImplementation>, op: Operator) {
+    let bf = get_scalar_binop_handler(op, false);
+    let bf = Arc::new(new_binary_op_func(bf));
+    let name = op.to_string();
+    hm.insert(name, bf);
+    let bf = new_binary_op_func(get_scalar_binop_handler(op, true));
+    hm.insert(format!("{}_bool", op).to_string(), Arc::new(bf));
 }
 
-macro_rules! make_binop_func {
-    ($af: expr) => {
-        Arc::new(new_binary_op_func($af))
-    };
-}
+static HANDLER_MAP: Lazy<RwLock<HashMap<String, BinaryOpFnImplementation>>> =
+    Lazy::new(|| {
+        use Operator::*;
 
-macro_rules! comp_func {
-    ( $af: expr ) => {
-        Arc::new(new_binary_op_cmp_func($af))
-    };
-}
+       let mut m: HashMap<String, BinaryOpFnImplementation> = HashMap::new();
+        add_scalar_handler_to_hashmap(&mut m, Add);
+        add_scalar_handler_to_hashmap(&mut m, Atan2);
+        add_scalar_handler_to_hashmap(&mut m, Sub);
+        add_scalar_handler_to_hashmap(&mut m, Mul);
+        add_scalar_handler_to_hashmap(&mut m, Div);
+        add_scalar_handler_to_hashmap(&mut m, Mod);
+        add_scalar_handler_to_hashmap(&mut m, Pow);
+        add_scalar_handler_to_hashmap(&mut m, Eql);
+        add_scalar_handler_to_hashmap(&mut m, Gt);
+        add_scalar_handler_to_hashmap(&mut m, Lt);
+        add_scalar_handler_to_hashmap(&mut m, Gte);
+        add_scalar_handler_to_hashmap(&mut m, Lte);
 
-macro_rules! make_comparison_func {
-    ($name: ident, $func: expr) => {
-        pub fn $name(left: f64, right: f64) -> f64 {
-            if $func(left, right) { left } else { f64::NAN }
-        }
-    };
-}
+        m.insert(And.to_string(), Arc::new(binary_op_and));
+        m.insert(Or.to_string(), Arc::new(binary_op_or));
+        m.insert(Unless.to_string(), Arc::new(binary_op_unless));
+        m.insert(If.to_string(), Arc::new(binary_op_if));
+        m.insert(IfNot.to_string(), Arc::new(binary_op_if_not));
+        m.insert(Default.to_string(), Arc::new(binary_op_default));
 
-macro_rules! make_comparison_func_bool {
-    ($name: ident, $func: expr) => {
-        pub fn $name(left: f64, right: f64) -> f64 {
-            return if $func(left, right) { 1_f64 } else { 0_f64 }
-        }
-    };
-}
+       RwLock::new(m)
+    });
 
-make_comparison_func!(compare_eq, metricsql::binaryop::eq);
-make_comparison_func!(compare_neq, metricsql::binaryop::neq);
-make_comparison_func!(compare_gt, metricsql::binaryop::gt);
-make_comparison_func!(compare_lt, metricsql::binaryop::lt);
-make_comparison_func!(compare_gte, metricsql::binaryop::gte);
-make_comparison_func!(compare_lte, metricsql::binaryop::lte);
-
-make_comparison_func_bool!(compare_eq_bool, metricsql::binaryop::eq);
-make_comparison_func_bool!(compare_neq_bool, metricsql::binaryop::neq);
-make_comparison_func_bool!(compare_gt_bool, metricsql::binaryop::gt);
-make_comparison_func_bool!(compare_lt_bool, metricsql::binaryop::lt);
-make_comparison_func_bool!(compare_gte_bool, metricsql::binaryop::gte);
-make_comparison_func_bool!(compare_lte_bool, metricsql::binaryop::lte);
-
-fn get_comparison_handler(op: Operator, is_bool: bool) -> BinopFunc {
-    if is_bool {
-        match op {
-            Operator::Eql => compare_eq_bool,
-            Operator::NotEq => compare_neq_bool,
-            Operator::Gt => compare_gt_bool,
-            Operator::Lt => compare_lt_bool,
-            Operator::Gte => compare_gte_bool,
-            Operator::Lte => compare_lte_bool,
-            _ => panic!("unexpected non-comparison op: {:?}", op),
-        }
-    } else {
-        match op {
-            Operator::Eql => compare_eq,
-            Operator::NotEq => compare_neq,
-            Operator::Gt => compare_gt,
-            Operator::Lt => compare_lt,
-            Operator::Gte => compare_gte,
-            Operator::Lte => compare_lte,
-            _ => panic!("unexpected non-comparison op: {:?}", op),
-        }
-    }
-}
-
-pub(crate) fn get_scalar_binop_handler(op: Operator, is_bool: bool) -> BinopFunc {
-    if op.is_comparison() {
-        return get_comparison_handler(op, is_bool);
-    }
-
-    match op {
-        Operator::Add => metricsql::binaryop::plus,
-        Operator::Atan2 => metricsql::binaryop::atan2,
-        Operator::Default => metricsql::binaryop::default,
-        Operator::Div => metricsql::binaryop::div,
-        Operator::Mod => metricsql::binaryop::mod_,
-        Operator::Mul => metricsql::binaryop::mul,
-        Operator::Pow => metricsql::binaryop::pow,
-        Operator::Sub => metricsql::binaryop::minus,
-
-        Operator::And
-        | Operator::Or
-        | Operator::If
-        | Operator::IfNot
-        | Operator::Unless => panic!("unsupported op: {:?}", op),
-        _ => panic!("unexpected op: {:?}", op),
-    }
-}
-
-fn get_hash_key(op: Operator, is_bool: bool) -> String {
-    format!("{}_{}", op, is_bool)
-}
-
-static HANDLER_MAP: Lazy<RwLock<HashMap<Operator, BinaryOpFnImplementation>>> = Lazy::new(|| {
+pub(super) fn get_binary_op_func(op: Operator, is_bool: bool) -> BinaryOpFnImplementation {
     use Operator::*;
-
-    let mut m: HashMap<Operator, BinaryOpFnImplementation> = HashMap::with_capacity(14);
-
-    let arith_ops = vec![Add, Sub, Mul, Div, Mod, Pow, Atan2];
-    let cmp_ops = vec![Eql, NotEq, Gt, Lt, Gte, Lte];
-
-    // arith ops
-    m.insert(Add, make_binop_func!(metricsql::binaryop::plus));
-    m.insert(Sub, make_binop_func!(metricsql::binaryop::minus));
-    m.insert(Mul, make_binop_func!(metricsql::binaryop::mul));
-    m.insert(Div, make_binop_func!(metricsql::binaryop::div));
-    m.insert(Mod, make_binop_func!(metricsql::binaryop::mod_));
-    m.insert(Pow, make_binop_func!(metricsql::binaryop::pow));
-
-    // See https://github.com/prometheus/prometheus/pull/9248
-    m.insert(Atan2, make_binop_func!(metricsql::binaryop::atan2));
-
-    // cmp ops
-    m.insert(Eql, comp_func!(metricsql::binaryop::eq));
-    m.insert(NotEq, comp_func!(metricsql::binaryop::neq));
-    m.insert(Gt, comp_func!(metricsql::binaryop::gt));
-    m.insert(Gte, comp_func!(metricsql::binaryop::gte));
-    m.insert(Lt, comp_func!(metricsql::binaryop::lt));
-    m.insert(Lte, comp_func!(metricsql::binaryop::lte));
-
-    // logical set ops
-    m.insert(And, boxed!(binary_op_and));
-    m.insert(Or, boxed!(binary_op_or));
-    m.insert(Unless, boxed!(binary_op_unless));
-
-    // New ops
-    m.insert(If, boxed!(binary_op_if));
-    m.insert(IfNot, boxed!(binary_op_if_not));
-    m.insert(Default, boxed!(binary_op_default));
-
-    RwLock::new(m)
-});
-
-pub(crate) fn get_binary_op_handler(op: Operator) -> BinaryOpFnImplementation {
     let map = HANDLER_MAP.read().unwrap();
-    map.get(&op).unwrap().clone()
+
+    let key = match op {
+        // logical set ops
+        And | Or | Unless |
+        If | IfNot | Default => op.to_string(),
+        _ => {
+            if is_bool {
+                format!("{}_bool", op.to_string())
+            } else {
+                op.to_string()
+            }
+        }
+    };
+
+    let imp = map.get(&key).unwrap();
+    imp.clone()
 }
 
+fn binop_handler(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    let op = bfa.be.op;
 
-pub const fn create_binary_op_func(op: Operator, is_bool: bool) -> impl BinaryOpFn {
-    use Operator::*;
-
-    match op {
-        // logical set ops
-        And => return binary_op_and,
-        Or => return binary_op_or,
-        Unless => return binary_op_unless,
-        // New ops
-        If => return binary_op_if,
-        IfNot => return binary_op_if_not,
-        Default => return binary_op_default,
-        _=> {}
+    if bfa.left.len() == 0 || bfa.right.len() == 0 {
+        return Ok(vec![]);
     }
 
-    let bf = get_scalar_binop_handler(op, is_bool);
-    new_binary_op_func(bf)
+    // todo: should this also be applied to scalar/vector and vector/scalar?
+    if op.is_comparison() {
+        // Do not remove empty series for comparison operations,
+        // since this may lead to missing result.
+    } else {
+        remove_empty_series(&mut bfa.left);
+        remove_empty_series(&mut bfa.right);
+    }
+
+    let (left, right, mut dst) = adjust_binary_op_tags(bfa)?;
+    if left.len() != right.len() || left.len() != dst.len() {
+        return Err(RuntimeError::InvalidState(format!(
+            "BUG: left.len() must match right.len() and dst.len(); got {} vs {} vs {}",
+            left.len(),
+            right.len(),
+            dst.len()
+        )));
+    }
+
+    let handler = get_scalar_binop_handler(op, bfa.be.bool_modifier);
+
+    for ((left_ts, right_ts), curr_dest) in left.iter().zip(right.iter()).zip(dst.iter_mut()) {
+        let dst_len = curr_dest.values.len();
+        if left_ts.len() != right_ts.len() || left_ts.len() != dst_len {
+            let msg = format!("BUG: left_values.len() must match right_values.len() and dst_values.len(); got {} vs {} vs {}",
+left_ts.len(), right_ts.len(), dst_len);
+            return Err(RuntimeError::InvalidState(msg));
+        }
+
+        for ((left, right), dest) in left_ts
+            .values
+            .iter()
+            .zip(right_ts.values.iter())
+            .zip(curr_dest.values.iter_mut())
+        {
+            *dest = handler(*left, *right);
+        }
+    }
+
+    // do not remove time series containing only NaNs, since then the `(foo op bar) default N`
+    // won't work as expected if `(foo op bar)` results to NaN series.
+    Ok(dst)
 }
 
-// Possibly inline this or make it a macro
 const fn new_binary_op_func(bf: BinopFunc) -> impl BinaryOpFn {
     move |bfa: &mut BinaryOpFuncArg| -> RuntimeResult<Vec<Timeseries>> {
-        let op = bfa.be.op;
+        let BinaryExpr { op, bool_modifier, .. }  = bfa.be;
 
         if bfa.left.len() == 0 || bfa.right.len() == 0 {
             return Ok(vec![]);
         }
 
+        // todo: should this also be applied to scalar/vector and vector/scalar?
         if op.is_comparison() {
             // Do not remove empty series for comparison operations,
             // since this may lead to missing result.
@@ -235,8 +170,9 @@ const fn new_binary_op_func(bf: BinopFunc) -> impl BinaryOpFn {
             )));
         }
 
-        for ((left_ts, right_ts), curr_dest) in left.iter().zip(right.iter()).zip(dst.iter_mut()) {
+        let handler = get_scalar_binop_handler(*op, *bool_modifier);
 
+        for ((left_ts, right_ts), curr_dest) in left.iter().zip(right.iter()).zip(dst.iter_mut()) {
             let dst_len = curr_dest.values.len();
             if left_ts.len() != right_ts.len() || left_ts.len() != dst_len {
                 let msg = format!("BUG: left_values.len() must match right_values.len() and dst_values.len(); got {} vs {} vs {}",
@@ -244,8 +180,12 @@ const fn new_binary_op_func(bf: BinopFunc) -> impl BinaryOpFn {
                 return Err(RuntimeError::InvalidState(msg));
             }
 
-            for ((left, right), dest) in
-                left_ts.values.iter().zip(right_ts.values.iter()).zip(curr_dest.values.iter_mut()) {
+            for ((left, right), dest) in left_ts
+                .values
+                .iter()
+                .zip(right_ts.values.iter())
+                .zip(curr_dest.values.iter_mut())
+            {
                 *dest = bf(*left, *right);
             }
         }
@@ -256,54 +196,14 @@ const fn new_binary_op_func(bf: BinopFunc) -> impl BinaryOpFn {
     }
 }
 
-#[inline]
-pub(crate) fn remove_empty_series(tss: &mut Vec<Timeseries>) {
-    tss.retain(|ts| !ts.values.iter().all(|v| v.is_nan()));
-}
-
-fn adjust_binary_op_tags<'a>(
-    bfa: &'a mut BinaryOpFuncArg,
+fn adjust_binary_op_tags(
+    bfa: &mut BinaryOpFuncArg,
 ) -> RuntimeResult<(
-    Cow<'a, Vec<Timeseries>>,
-    Cow<'a, Vec<Timeseries>>,
-    Vec<Timeseries>,
+    Vec<Timeseries>, // left
+    Vec<Timeseries>, // right
+    Vec<Timeseries>, // dest
 )> {
-    if bfa.be.group_modifier.is_none() && bfa.be.join_modifier.is_none() {
-        if is_scalar(&bfa.left) {
-            // Fast path: `scalar op vector`
-            let mut rvs_left: Vec<Timeseries> = Vec::with_capacity(bfa.right.len());
-            let ts_left = &bfa.left[0];
-
-            // todo(perf): optimize and avoid clone of ts_left in case bfa.right.len() == 1
-            for mut ts_right in bfa.right.iter_mut() {
-                reset_metric_group_if_required(bfa.be, &mut ts_right);
-                rvs_left.push(ts_left.clone());
-            }
-
-            let dst = bfa.right.clone();
-            let right = Cow::Borrowed(&bfa.right);
-            let left = Cow::Owned(rvs_left);
-            return Ok((left, right, dst));
-        }
-
-        if is_scalar(&bfa.right) {
-            // Fast path: `vector op scalar`
-            let mut rvs_right: Vec<Timeseries> = Vec::with_capacity(bfa.left.len());
-            let ts_right = &bfa.right[0];
-            for ts_left in bfa.left.iter_mut() {
-                reset_metric_group_if_required(bfa.be, ts_left);
-                rvs_right.push(ts_right.clone());
-            }
-
-            let left = Cow::Borrowed(&bfa.left);
-            let right = Cow::Owned(rvs_right);
-            let dst = bfa.left.clone();
-
-            return Ok((left, right, dst));
-        }
-    }
-
-    // Slow path: `vector op vector` or `a op {on|ignoring} {group_left|group_right} b`
+    // `vector op vector` or `a op {on|ignoring} {group_left|group_right} b`
     let (mut m_left, mut m_right) = create_timeseries_map_by_tag_set(bfa);
 
     let mut rvs_left: Vec<Timeseries> = Vec::with_capacity(1);
@@ -350,16 +250,14 @@ fn adjust_binary_op_tags<'a>(
         }
     }
 
+    // todo: how to avoid this clone?
     let dst = if is_group_right(&bfa.be) {
         rvs_right.clone()
     } else {
         rvs_left.clone()
     };
 
-    let right = Cow::Owned(rvs_right);
-    let left = Cow::Owned(rvs_left);
-
-    return Ok((left, right, dst));
+    return Ok((rvs_left, rvs_right, dst));
 }
 
 fn ensure_single_timeseries(
@@ -393,13 +291,13 @@ fn ensure_single_timeseries(
     Ok(())
 }
 
-fn group_join<'a>(
+fn group_join(
     single_timeseries_side: &str,
     be: &BinaryExpr,
-    rvs_left: &'a mut Vec<Timeseries>,
-    rvs_right: &'a mut Vec<Timeseries>,
-    tss_left: &'a mut Vec<Timeseries>,
-    tss_right: &'a mut Vec<Timeseries>,
+    rvs_left: &mut Vec<Timeseries>,
+    rvs_right: &mut Vec<Timeseries>,
+    tss_left: &mut Vec<Timeseries>,
+    tss_right: &mut Vec<Timeseries>,
 ) -> RuntimeResult<()> {
     let empty_labels: Vec<String> = vec![];
 
@@ -443,7 +341,7 @@ fn group_join<'a>(
 
         for ts_right in tss_right.into_iter() {
             // todo: Question - do we need to copy? I dont think tss_left and tss_right
-            // are used anymore when we exit this function
+            // are used after we exit this function
             let mut ts_copy = Timeseries::copy(ts_left);
             ts_copy
                 .metric_name
@@ -749,9 +647,10 @@ fn add_left_nans_if_no_right_nans(tss_left: &mut Vec<Timeseries>, tss_right: &Ve
     remove_empty_series(tss_left);
 }
 
-
-fn get_tags_map_with_fn<'a>(hash_helper: &mut HashHelper<'a>, arg: &mut Vec<Timeseries>) -> TimeseriesHashMap
-{
+fn get_tags_map_with_fn<'a>(
+    hash_helper: &mut HashHelper<'a>,
+    arg: &mut Vec<Timeseries>,
+) -> TimeseriesHashMap {
     let mut m: TimeseriesHashMap =
         HashMap::with_capacity_and_hasher(arg.len(), BuildNoHashHasher::default());
 

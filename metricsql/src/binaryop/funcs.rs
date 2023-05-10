@@ -1,6 +1,8 @@
 use crate::common::Operator;
 use crate::parser::{ParseError, ParseResult};
 
+// see https://github.com/VictoriaMetrics/metricsql/blob/master/binary_op.go
+
 pub type BinopFunc = fn(left: f64, right: f64) -> f64;
 
 /// Eq returns true of left == right.
@@ -129,49 +131,93 @@ pub fn if_not(left: f64, right: f64) -> f64 {
     f64::NAN
 }
 
+fn return_left(left: f64, _right: f64) -> f64 {
+    left
+}
 
-pub fn eval_binary_op(left: f64, right: f64, op: Operator, is_bool: bool) -> f64 {
-    return if op.is_comparison() {
-        fn eval_cmp(
-            left: f64,
-            right: f64,
-            is_bool: bool,
-            cf: fn(left: f64, right: f64) -> bool,
-        ) -> f64 {
-            match (cf(left, right), is_bool) {
-                (true, true) => 1_f64,
-                (true, false) => left,
-                (false, true) => 0_f64,
-                (false, false) => f64::NAN,
-            }
+fn return_nan(_left: f64, _right: f64) -> f64 {
+    f64::NAN
+}
+
+macro_rules! make_comparison_func {
+    ($name: ident, $func: expr) => {
+        pub fn $name(left: f64, right: f64) -> f64 {
+            if $func(left, right) { left } else { f64::NAN }
         }
+    };
+}
 
+macro_rules! make_comparison_func_bool {
+    ($name: ident, $func: expr) => {
+        pub fn $name(left: f64, right: f64) -> f64 {
+            return if $func(left, right) { 1_f64 } else { 0_f64 }
+        }
+    };
+}
+
+make_comparison_func!(compare_eq, eq);
+make_comparison_func!(compare_neq, neq);
+make_comparison_func!(compare_gt, gt);
+make_comparison_func!(compare_lt, lt);
+make_comparison_func!(compare_gte, gte);
+make_comparison_func!(compare_lte, lte);
+
+make_comparison_func_bool!(compare_eq_bool, eq);
+make_comparison_func_bool!(compare_neq_bool, neq);
+make_comparison_func_bool!(compare_gt_bool, gt);
+make_comparison_func_bool!(compare_lt_bool, lt);
+make_comparison_func_bool!(compare_gte_bool, gte);
+make_comparison_func_bool!(compare_lte_bool, lte);
+
+fn get_comparison_handler(op: Operator, is_bool: bool) -> BinopFunc {
+    if is_bool {
         match op {
-            Operator::Eql => eval_cmp(left, right, is_bool, eq),
-            Operator::NotEq => eval_cmp(left, right, is_bool, neq),
-            Operator::Gt => eval_cmp(left, right, is_bool, gt),
-            Operator::Lt => eval_cmp(left, right, is_bool, lt),
-            Operator::Gte => eval_cmp(left, right, is_bool, gte),
-            Operator::Lte => eval_cmp(left, right, is_bool, lte),
-            _ => panic!("BUG: unexpected comparison binaryOp: {}", op),
+            Operator::Eql => compare_eq_bool,
+            Operator::NotEq => compare_neq_bool,
+            Operator::Gt => compare_gt_bool,
+            Operator::Lt => compare_lt_bool,
+            Operator::Gte => compare_gte_bool,
+            Operator::Lte => compare_lte_bool,
+            _ => panic!("unexpected non-comparison op: {:?}", op),
         }
     } else {
         match op {
-            Operator::Add => plus(left, right),
-            Operator::Sub => minus(left, right),
-            Operator::Mul => mul(left, right),
-            Operator::Div => div(left, right),
-            Operator::Mod => mod_(left, right),
-            Operator::Pow => pow(left, right),
-            Operator::Atan2 => atan2(left, right),
-            Operator::And | Operator::Or => left,
-            Operator::Unless => f64::NAN, // nothing to do
-            Operator::Default => default(left, right),
-            Operator::If => if_(left, right),
-            Operator::IfNot => if_not(left, right),
+            Operator::Eql => compare_eq,
+            Operator::NotEq => compare_neq,
+            Operator::Gt => compare_gt,
+            Operator::Lt => compare_lt,
+            Operator::Gte => compare_gte,
+            Operator::Lte => compare_lte,
             _ => panic!("unexpected non-comparison op: {:?}", op),
         }
-    };
+    }
+}
+
+pub fn get_scalar_binop_handler(op: Operator, is_bool: bool) -> BinopFunc {
+    if op.is_comparison() {
+        return get_comparison_handler(op, is_bool);
+    }
+
+    match op {
+        Operator::Add => plus,
+        Operator::Atan2 => atan2,
+        Operator::Default => default,
+        Operator::Div => div,
+        Operator::Mod => mod_,
+        Operator::Mul => mul,
+        Operator::Pow => pow,
+        Operator::Sub => minus,
+        Operator::If => if_,
+        Operator::IfNot => if_not,
+        Operator::Unless => return_nan,
+        Operator::And | Operator::Or => return return_left,
+        _ => panic!("unexpected non-comparison op: {:?}", op),
+    }
+}
+
+pub fn eval_binary_op(left: f64, right: f64, op: Operator, is_bool: bool) -> f64 {
+    let handler = get_scalar_binop_handler(op, is_bool);
+    handler(left, right)
 }
 
 pub fn string_compare(a: &str, b: &str, op: Operator) -> ParseResult<bool> {

@@ -3,11 +3,11 @@ use std::str::FromStr;
 
 use phf::phf_map;
 
+use crate::common::ValueType;
 use crate::functions::signature::{Signature, Volatility};
 use crate::functions::MAX_ARG_COUNT;
 use crate::parser::ParseError;
 use serde::{Deserialize, Serialize};
-use crate::common::{ValueType};
 
 /// Built-in Rollup Functions
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Hash, Serialize, Deserialize)]
@@ -178,8 +178,8 @@ impl RollupFunction {
 
     /// the signatures supported by the function `fun`.
     pub fn signature(&self) -> Signature {
-        use ValueType::*;
         use RollupFunction::*;
+        use ValueType::*;
 
         // note: the physical expression must accept the type returned by this function or the execution panics.
         match self {
@@ -198,7 +198,8 @@ impl RollupFunction {
                 quantile_types.insert(0, RangeVector);
                 Signature::variadic_min(quantile_types, 3, Volatility::Volatile)
             }
-            Rollup | RollupDelta | RollupDeriv | RollupIncrease | RollupRate | RollupScrapeInterval | RollupCandlestick => {
+            Rollup | RollupDelta | RollupDeriv | RollupIncrease | RollupRate
+            | RollupScrapeInterval | RollupCandlestick => {
                 Signature::variadic_min(vec![RangeVector, String], 1, Volatility::Volatile)
             }
             _ => {
@@ -245,6 +246,60 @@ impl RollupFunction {
                 | Rate
                 | RollupIncrease
                 | RollupRate
+        )
+    }
+
+    pub fn is_aggregate_function(&self) -> bool {
+        use RollupFunction::*;
+        matches!(
+            self,
+            AbsentOverTime
+                | AscentOverTime
+                | AvgOverTime
+                | Changes
+                | CountOverTime
+                | DecreasesOverTime
+                | DefaultRollup
+                | Delta
+                | Deriv
+                | DerivFast
+                | DescentOverTime
+                | DistinctOverTime
+                | FirstOverTime
+                | GeomeanOverTime
+                | IDelta
+                | IDeriv
+                | Increase
+                | IncreasePure
+                | IncreasesOverTime
+                | Integrate
+                | IRate
+                | Lag
+                | LastOverTime
+                | Lifetime
+                | MaxOverTime
+                | MinOverTime
+                | MedianOverTime
+                | ModeOverTime
+                | PresentOverTime
+                | RangeOverTime
+                | Rate
+                | RateOverSum
+                | Resets
+                | ScrapeInterval
+                | StaleSamplesOverTime
+                | StddevOverTime
+                | StdvarOverTime
+                | SumOverTime
+                | Sum2OverTime
+                | TFirstOverTime
+                | Timestamp
+                | TimestampWithName
+                | TLastChangeOverTime
+                | TLastOverTime
+                | TMaxOverTime
+                | TMinOverTime
+                | ZScoreOverTime
         )
     }
 }
@@ -372,7 +427,7 @@ pub fn is_rollup_func(func: &str) -> bool {
 pub enum RollupTag {
     Min,
     Max,
-    Avg
+    Avg,
 }
 
 impl Display for RollupTag {
@@ -394,12 +449,13 @@ impl FromStr for RollupTag {
             "min" => Ok(RollupTag::Min),
             "max" => Ok(RollupTag::Max),
             "avg" => Ok(RollupTag::Avg),
-            _ => Err(ParseError::InvalidFunction(format!("invalid rollup tag::{}", s))),
+            _ => Err(ParseError::InvalidFunction(format!(
+                "invalid rollup tag::{}",
+                s
+            ))),
         }
     }
 }
-
-
 
 /// get_rollup_arg_idx returns the argument index for the given fe, which accepts the rollup argument.
 ///

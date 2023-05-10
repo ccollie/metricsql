@@ -19,7 +19,7 @@ use metricsql::ast::{Expr, FunctionExpr};
 use metricsql::parser::compile_regexp;
 
 use crate::chrono_tz::Tz;
-use crate::eval::binary_op::merge_non_overlapping_timeseries;
+use crate::eval::binop_handlers::merge_non_overlapping_timeseries;
 use crate::eval::{eval_number, eval_time, EvalConfig};
 use crate::functions::rollup::{linear_regression, mad, stddev, stdvar};
 use crate::functions::transform::utils::{get_timezone_offset, ru};

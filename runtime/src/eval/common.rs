@@ -735,8 +735,8 @@ fn result_metric(
 // The prepSeries function (if provided) can be used to prepare the helper
 // for each series, then passed to each call funcCall.
 fn rangeEval(ev: &Evaluator,
-             prepSeries: |labels: labels.Labels, sh: EvalSeriesHelper| -> EvalSeriesHelper,
-            funcCall: Fn(values: &[parser.Value], [][]EvalSeriesHelper, *EvalNodeHelper) -> Vector,
+             prepSeries: |labels: Labels, sh: EvalSeriesHelper| -> EvalSeriesHelper,
+            funcCall: Fn(values: &[Value], [][]EvalSeriesHelper, *EvalNodeHelper) -> Vector,
             exprs: &[Expression]) -> RuntimeResult<Matrix> {
     let numSteps = int((ev.endTimestamp-ev.startTimestamp)/ev.interval) + 1
     let matrixes = make([]Matrix, exprs.len())

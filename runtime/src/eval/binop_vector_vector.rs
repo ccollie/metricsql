@@ -1,12 +1,9 @@
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
-use std::collections::btree_map::BTreeMap;
-use std::collections::btree_set::BTreeSet;
 use std::sync::Arc;
 
 use regex::escape;
 use tracing::{field, span_enabled, trace, trace_span, Level, Span};
-use metricsql::binaryop::{BinopFunc, eval_binary_op};
 
 use metricsql::common::{LabelFilter, Operator, Value, ValueType};
 use metricsql::functions::{Volatility};
@@ -14,13 +11,13 @@ use metricsql::ast::*;
 use metricsql::optimize::trim_filters_by_group_modifier;
 
 use crate::context::Context;
-use crate::eval::binary_op::{get_binary_op_handler, BinaryOpFn, BinaryOpFuncArg, BinaryOpFuncResult, get_scalar_binop_handler};
+use crate::eval::binop_handlers::{BinaryOpFn, BinaryOpFuncArg, BinaryOpFuncResult, get_binary_op_func};
 use crate::eval::traits::Evaluator;
 use crate::eval::{create_evaluator, eval_number, ExprEvaluator};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::{EvalConfig, QueryValue, Timeseries};
 
-use crate::eval::utils::series_len;
+use crate::eval::utils::{series_len};
 use crate::types::Tag;
 
 pub struct BinaryEvaluatorVectorVector {
@@ -30,6 +27,11 @@ pub struct BinaryEvaluatorVectorVector {
     handler: Arc<dyn BinaryOpFn<Output = BinaryOpFuncResult>>,
     can_pushdown_filters: bool,
     can_parallelize: bool,
+    /// Determine if we should fetch right-side series at first, since it usually contains
+    /// lower number of time series for `and` and `if` operator.
+    /// This should produce more specific label filters for the left side of the query.
+    /// This, in turn, should reduce the time to select series for the left side of the query.
+    swap: bool,
     return_type: ValueType,
 }
 
@@ -38,10 +40,12 @@ impl BinaryEvaluatorVectorVector {
         let lhs = Box::new(create_evaluator(&expr.left)?);
         let rhs = Box::new(create_evaluator(&expr.right)?);
         let can_pushdown_filters = can_pushdown_common_filters(expr);
-        let handler = get_binary_op_handler(expr.op);
+        let handler = get_binary_op_func(expr.op, expr.bool_modifier);
         let rv = expr.return_type();
         let return_type = ValueType::try_from(rv).unwrap_or(ValueType::InstantVector);
         let can_parallelize = should_parallelize(&expr);
+
+        let swap = expr.op == Operator::And || expr.op == Operator::If;
 
         Ok(Self {
             lhs,
@@ -51,6 +55,7 @@ impl BinaryEvaluatorVectorVector {
             can_pushdown_filters,
             can_parallelize,
             return_type,
+            swap
         })
     }
 
@@ -62,9 +67,8 @@ impl BinaryEvaluatorVectorVector {
         &'a self,
         ctx: &Arc<Context>,
         ec: &EvalConfig,
-        swap: bool,
     ) -> RuntimeResult<(QueryValue, QueryValue)> {
-        let (first, second, right_expr) = if swap {
+        let (first, second, right_expr) = if self.swap {
             (&self.rhs, &self.lhs, &self.expr.right)
         } else {
             (&self.lhs, &self.rhs, &self.expr.left)
@@ -133,8 +137,8 @@ impl BinaryEvaluatorVectorVector {
         if first.is_empty() && self.expr.op == Operator::Or {
             return Ok((QueryValue::empty_vec(), QueryValue::empty_vec()));
         }
-        let sec = self.pushdown_filters(&mut first, &right_expr, &ec)?;
-        return match sec {
+        let sec_expr = self.pushdown_filters(&mut first, &right_expr, &ec)?;
+        return match sec_expr {
             Cow::Borrowed(_) => {
                 // if it hasn't been modified, default to existing evaluator
                 let other = second.eval(ctx, ec)?;
@@ -178,12 +182,6 @@ impl Value for BinaryEvaluatorVectorVector {
 impl Evaluator for BinaryEvaluatorVectorVector {
     /// Evaluates and returns the result.
     fn eval(&self, ctx: &Arc<Context>, ec: &EvalConfig) -> RuntimeResult<QueryValue> {
-        // Determine if we should fetch right-side series at first, since it usually contains
-        // lower number of time series for `and` and `if` operator.
-        // This should produce more specific label filters for the left side of the query.
-        // This, in turn, should reduce the time to select series for the left side of the query.
-        let swap = self.expr.op == Operator::And || self.expr.op == Operator::If;
-
         let is_tracing = span_enabled!(Level::TRACE);
 
         let span = if is_tracing {
@@ -197,11 +195,11 @@ impl Evaluator for BinaryEvaluatorVectorVector {
         }
         .entered();
 
-        let (left, right) = self.eval_args(ctx, ec, swap)?;
+        let (left, right) = self.eval_args(ctx, ec)?;
         let left_series = to_vector(ec, left)?;
         let right_series = to_vector(ec, right)?;
 
-        let mut bfa = if swap {
+        let mut bfa = if self.swap {
             BinaryOpFuncArg::new(right_series, &self.expr, left_series)
         } else {
             BinaryOpFuncArg::new(left_series, &self.expr, right_series)
@@ -338,7 +336,7 @@ pub(super) fn get_common_label_filters(tss: &[Timeseries]) -> Vec<LabelFilter> {
         lfs.push(lf);
     }
     // todo(perf): does this need to be sorted ?
-    lfs.sort_by(|a, b| a.label.cmp(&b.label));
+    lfs.sort();
     lfs
 }
 

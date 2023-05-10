@@ -170,6 +170,9 @@ impl PartialEq<Self> for LabelFilter {
 
 impl PartialOrd for LabelFilter {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        if self.is_metric_name_filter() && !other.is_metric_name_filter() {
+            return Some(Ordering::Less);
+        }
         let mut order = self.label.cmp(&other.label);
         if order == Ordering::Equal {
             order = self.value.cmp(&other.value);

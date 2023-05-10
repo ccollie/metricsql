@@ -158,60 +158,6 @@ pub(super) fn rollup_samples_scanned_per_call(rf: &RollupFunction) -> usize {
     };
 }
 
-pub fn is_aggr_function(f: &RollupFunction) -> bool {
-    use RollupFunction::*;
-    matches!(
-        f,
-        AbsentOverTime
-            | AscentOverTime
-            | AvgOverTime
-            | Changes
-            | CountOverTime
-            | DecreasesOverTime
-            | DefaultRollup
-            | Delta
-            | Deriv
-            | DerivFast
-            | DescentOverTime
-            | DistinctOverTime
-            | FirstOverTime
-            | GeomeanOverTime
-            | IDelta
-            | IDeriv
-            | Increase
-            | IncreasePure
-            | IncreasesOverTime
-            | Integrate
-            | IRate
-            | Lag
-            | LastOverTime
-            | Lifetime
-            | MaxOverTime
-            | MinOverTime
-            | MedianOverTime
-            | ModeOverTime
-            | PresentOverTime
-            | RangeOverTime
-            | Rate
-            | RateOverSum
-            | Resets
-            | ScrapeInterval
-            | StaleSamplesOverTime
-            | StddevOverTime
-            | StdvarOverTime
-            | SumOverTime
-            | Sum2OverTime
-            | TFirstOverTime
-            | Timestamp
-            | TimestampWithName
-            | TLastChangeOverTime
-            | TLastOverTime
-            | TMaxOverTime
-            | TMinOverTime
-            | ZScoreOverTime
-    )
-}
-
 // Pre-allocated handlers for closure to save allocations at runtime
 macro_rules! wrap_rollup_fn {
     ( $name: ident, $rf: expr ) => {

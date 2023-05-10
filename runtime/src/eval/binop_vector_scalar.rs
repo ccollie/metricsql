@@ -1,11 +1,10 @@
 use std::sync::Arc;
 use metricsql::ast::Expr;
-use metricsql::binaryop::BinopFunc;
+use metricsql::binaryop::{BinopFunc, get_scalar_binop_handler};
 use metricsql::common::{Operator, Value, ValueType};
 use metricsql::functions::Volatility;
 use crate::eval::{create_evaluator, Evaluator, ExprEvaluator};
 use crate::{Context, EvalConfig, QueryValue, RuntimeError, RuntimeResult};
-use crate::eval::binary_op::get_scalar_binop_handler;
 
 /// BinaryEvaluatorScalarVector
 /// Ex:
@@ -53,7 +52,7 @@ impl Value for BinaryEvaluatorVectorScalar {
 impl Evaluator for BinaryEvaluatorVectorScalar {
     fn eval(&self, ctx: &Arc<Context>, ec: &EvalConfig) -> RuntimeResult<QueryValue> {
         use QueryValue::*;
-        
+
         let right = self.rhs.eval(ctx, ec)?;
         let left = self.lhs.eval(ctx, ec)?;
         match (left, right) {

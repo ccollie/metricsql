@@ -1,10 +1,9 @@
 use std::sync::Arc;
 use metricsql::ast::Expr;
-use metricsql::binaryop::BinopFunc;
+use metricsql::binaryop::{BinopFunc, get_scalar_binop_handler};
 use metricsql::common::{Operator, Value, ValueType};
 use crate::eval::{create_evaluator, Evaluator, ExprEvaluator};
 use crate::{Context, EvalConfig, QueryValue, RuntimeResult};
-use crate::eval::binary_op::get_scalar_binop_handler;
 
 /// BinaryEvaluatorScalarScalar
 /// Ex:
