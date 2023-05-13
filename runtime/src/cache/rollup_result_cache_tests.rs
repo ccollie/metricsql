@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use metricsql::common::{LabelFilter, LabelFilterOp};
-    use metricsql::ast::{AggregationExpr, Expr, FunctionExpr, MetricSelector};
+    use metricsql::ast::{AggregationExpr, Expr, FunctionExpr, MetricExpr};
     use std::sync::Arc;
 
     use crate::cache::rollup_result_cache::{merge_timeseries, RollupResultCache};
@@ -27,13 +27,13 @@ mod tests {
         ec.max_points_per_series = 1e4 as usize;
         ec.set_caching(true);
 
-        let mut me = MetricSelector::default();
+        let mut me = MetricExpr::default();
         me.label_filters = vec![LabelFilter::new(LabelFilterOp::Equal, "aaa", "xxx").unwrap()];
 
         let fe = FunctionExpr::from_single_arg("foo", Expr::MetricExpression(me)).unwrap();
 
-        let mut ae = AggregationExpr::new(&AggregateFunction::Sum);
-        ae.args.push(Box::new(Expr::Function(fe.clone())));
+        let mut ae = AggregationExpr::new(&AggregateFunction::Sum, vec![]);
+        ae.args.push(Expr::Function(fe.clone()));
 
         let cache = RollupResultCache::default();
 

@@ -2,10 +2,15 @@
 mod tests {
     use crate::ast::{Expr, MetricExpr, optimize};
     use crate::ast::push_down_filters::{get_common_label_filters, pushdown_binary_op_filters};
+    use crate::ast::utils::expr_equals;
     use crate::parser::parse;
 
+    fn parse_or_panic(q: &str) -> Expr {
+        parse(q).expect(format!("unexpected error in parse({})", q).as_str())
+    }
+
     fn parse_expr(q: &str) -> Expr {
-        let e = parse(q).expect(format!("unexpected error in parse({})", q).as_str());
+        let e = parse_or_panic(q);
         let expr = optimize(e).expect(format!("unexpected error in optimize({})", q).as_str());
         expr
     }
@@ -13,14 +18,14 @@ mod tests {
     #[test]
     fn test_pushdown_binary_op_filters() {
         let f = |q: &str, filters: &str, result_expected: &str| {
-            let expr = parse_expr(q);
+            let expr = parse_or_panic(q);
             let orig = expr.to_string();
-            let filters_expr = parse_expr(filters);
+            let filters_expr = parse_or_panic(filters);
             match filters_expr {
                 Expr::MetricExpression(mut me) => {
                     let result_expr = pushdown_binary_op_filters(&expr, &mut me.label_filters);
                     let result = result_expr.to_string();
-                    assert_eq!(result, result_expected, "pushdown_binary_op_filters({}, {});",
+                    assert_eq!(result_expected, result, "pushdown_binary_op_filters({}, {});",
                                q, filters);
                     // Verify that the original e didn't change after PushdownBinaryOpFilters() call
                     let s = expr.to_string();
@@ -246,8 +251,8 @@ mod tests {
             r#"foo{a="b", x="y"} * on (a) group_right (x, y) baz{a="b"}"#,
         );
         validate_optimized(
-            r#"f(foo, bar{baz=~"sdf"} + aa{baz=~"axx", aa="b"})"#,
-            r#"f(foo, bar{aa="b", baz=~"axx", baz=~"sdf"} + aa{aa="b", baz=~"axx", baz=~"sdf"})"#,
+            r#"sum(foo, bar{baz=~"sdf"} + aa{baz=~"axx", aa="b"})"#,
+            r#"sum(foo, bar{aa="b", baz=~"axx", baz=~"sdf"} + aa{aa="b", baz=~"axx", baz=~"sdf"})"#,
         );
         validate_optimized(
             r#"sum(foo, bar{baz=~"sdf"} + aa{baz=~"axx", aa="b"})"#,
@@ -601,7 +606,7 @@ mod tests {
     #[test]
     fn test_optimize_unknown_func() {
         // unknown func
-        validate_optimized(r#"f(foo) + bar{baz="a"}"#, r#"f(foo) + bar{baz="a"}"#);
+        validate_optimized(r#"abs(foo) + bar{baz="a"}"#, r#"abs(foo) + bar{baz="a"}"#);
         validate_optimized(
             r#"f(a,b,foo{a="b"} / bar) + baz{x="y"}"#,
             r#"f(a, b, foo{a="b"} / bar{a="b"}) + baz{x="y"}"#,
@@ -640,11 +645,17 @@ mod tests {
     }
 
     fn validate_optimized(q: &str, expected: &str) {
-        let e = parse(q).expect(format!("unexpected error in parse({})", q).as_str());
+        let e = parse_or_panic(q);
         let orig = e.to_string();
         let e_optimized = optimize(e.clone()).expect("unexpected error in optimize()");
         let q_optimized = e_optimized.to_string();
-        assert_eq!(q_optimized, expected, "\nquery: {}", q);
+        let e_expected = parse_or_panic(expected);
+
+        assert!(expr_equals(&e_optimized, &e_expected),
+                "optimize() returned unexpected result;\ngot\n{}\nexpected\n{}",
+                e_optimized, e_expected);
+
+        // assert_eq!(q_optimized, expected, "\nquery: {}", q);
 
         // Make sure the the original e didn't change after Optimize() call
         let s = e.to_string();

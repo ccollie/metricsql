@@ -129,7 +129,6 @@ pub(crate) fn ru(free_value: f64, max_value: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use crate::functions::transform::utils::{cmp_alpha_numeric, get_num_prefix};
-    use metricsql::utils::parse_number;
     use std::cmp::Ordering;
     use std::cmp::Ordering::{Equal, Greater, Less};
     use metricsql::parser::parse_number;

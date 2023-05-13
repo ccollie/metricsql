@@ -1,3 +1,4 @@
+use itertools::izip;
 use super::context::{IncrementalAggrContext, IncrementalAggrHandler};
 
 pub struct IncrementalAggrSum2{}
@@ -20,24 +21,22 @@ impl IncrementalAggrHandler for IncrementalAggrSum2 {
             *dst += v_squared;
         }
     }
+
     fn merge(&self, dst: &mut IncrementalAggrContext, src: &IncrementalAggrContext) {
-        let src_values = &src.ts.values;
-        let src_counts = &src.values;
-
-        for (i, v) in src_values.iter().enumerate() {
-            if src_counts[i] == 0.0 {
+        let iter = izip!(src.values.iter(), dst.values.iter_mut(), src.ts.values.iter(), dst.ts.values.iter_mut());
+        for (src_count, dst_count, v, dst) in iter {
+            if *src_count == 0.0 {
                 continue;
             }
-
-            if dst.values[i] == 0.0 {
-                dst.ts.values[i] = *v;
-                dst.values[i] = 1.0;
+            if *dst_count == 0.0 {
+                *dst_count = 1.0;
+                *dst = *v;
                 continue;
             }
-
-            dst.ts.values[i] += v;
+            *dst += *v;
         }
     }
+
     fn keep_original(&self) -> bool {
         false
     }

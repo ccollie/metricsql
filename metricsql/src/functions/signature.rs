@@ -48,6 +48,8 @@ pub enum TypeSignature {
     /// arbitrary number of arguments of an arbitrary but equal type, with possible minimum
     /// A function such as `array` is `VariadicEqual`
     VariadicEqual(ValueType, usize),
+    /// arbitrary number of arguments of any type, with possible minimum
+    VariadicAny(usize),
     /// fixed number of arguments of an arbitrary type out of a list of valid types
     /// A function of one argument of f64 is `Uniform(1, Float)`
     Uniform(usize, ValueType),
@@ -79,13 +81,14 @@ impl TypeSignature {
         }
 
         return match self {
-            TypeSignature::VariadicEqual(_data_type_, min) => expect_min_args(name, arg_len, *min),
-            TypeSignature::Variadic(_, min) => expect_min_args(name, arg_len, *min),
-            TypeSignature::Uniform(number, _valid_type_) => {
-                expect_arg_count(name, arg_len, *number)
-            }
             TypeSignature::Exact(valid_types) => expect_arg_count(name, arg_len, valid_types.len()),
-            TypeSignature::Any(number) => expect_arg_count(name, arg_len, *number),
+            TypeSignature::Any(min) |
+            TypeSignature::Uniform(min, _) |
+            TypeSignature::VariadicEqual(_, min) |
+            TypeSignature::Variadic(_, min) |
+            TypeSignature::VariadicAny(min) => {
+                expect_min_args(name, arg_len, *min)
+            }
         };
     }
 
@@ -93,6 +96,7 @@ impl TypeSignature {
         match self {
             TypeSignature::Variadic(_, _) => true,
             TypeSignature::VariadicEqual(_, _) => true,
+            TypeSignature::VariadicAny(_) => true,
             _ => false,
         }
     }
@@ -156,10 +160,18 @@ impl Signature {
         }
     }
 
-    /// any - Creates a signature which can a be made of any type but of a specified number
+    /// any - Creates a signature which can a be made of any type but of a fixed number
     pub fn any(arg_count: usize, volatility: Volatility) -> Self {
         Signature {
             type_signature: TypeSignature::Any(arg_count),
+            volatility,
+        }
+    }
+
+    /// variadic_any - creates a variadic signature that represents an arbitrary number of arguments of any type.
+    pub fn variadic_any(min_arg_count: usize, volatility: Volatility) -> Self {
+        Signature {
+            type_signature: TypeSignature::VariadicAny(min_arg_count),
             volatility,
         }
     }
@@ -173,9 +185,10 @@ impl Signature {
         // todo: also return min count
         match &self.type_signature {
             TypeSignature::Variadic(types, min) => (types.clone(), *min),
-            TypeSignature::VariadicEqual(data_type, min) => (vec![data_type.clone(); MAX_ARG_COUNT], *min),
-            TypeSignature::Uniform(count, data_type) => (vec![data_type.clone(); MAX_ARG_COUNT], *count),
+            TypeSignature::VariadicEqual(data_type, min) => (vec![*data_type; MAX_ARG_COUNT], *min),
+            TypeSignature::Uniform(count, data_type) => (vec![*data_type; MAX_ARG_COUNT], *count),
             TypeSignature::Exact(types) => (types.clone(), types.len()),
+            TypeSignature::VariadicAny(min) => (vec![ValueType::InstantVector; MAX_ARG_COUNT], *min),
             TypeSignature::Any(count) => {
                 (vec![ValueType::InstantVector; *count], *count) // TODO:: !!!! have a ValueType::Any
             }
@@ -208,12 +221,12 @@ impl<'a> Iterator for TypeIterator<'a> {
                 }
             }
             VariadicEqual(data_type, _) => {
-                Some(data_type.clone())
+                Some(*data_type)
             }
             Uniform(count, data_type) => {
                 if self.arg_index < *count {
                     self.arg_index += 1;
-                    Some(data_type.clone())
+                    Some(*data_type)
                 } else {
                     None
                 }
@@ -226,6 +239,7 @@ impl<'a> Iterator for TypeIterator<'a> {
                     None
                 }
             }
+            VariadicAny(count) |
             Any(count) => {
                 if self.arg_index < *count {
                     self.arg_index += 1;

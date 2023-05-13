@@ -122,17 +122,24 @@ pub fn expr_equals(expr1: &Expr, expr2: &Expr) -> bool {
         (Duration(d1), Duration(d2)) => d1.value == d2.value,
         (MetricExpression(me1), MetricExpression(me2)) => me1 == me2,
         (StringLiteral(s1), StringLiteral(s2)) => s1 == s2,
-        (Number(n1), Number(n2)) => {
-            (n1.value - n2.value).abs() < f64::EPSILON
-        },
+        (Number(n1), Number(n2)) => n1 == n2,
         (BinaryOperator(be1), BinaryOperator(be2)) => binary_exprs_equal(be1, be2),
         (Function(fe1), Function(fe2)) => function_exprs_equal(fe1, fe2),
         (Aggregation(ae1), Aggregation(ae2)) => aggregation_exprs_equal(ae1, ae2),
         (Parens(pe1), Parens(pe2)) => expr_vec_equals(&pe1.expressions, &pe2.expressions),
-        (Rollup(re1), Rollup(re2)) =>  rollup_exprs_equal(re1, re2),
+        (Rollup(re1), Rollup(re2)) => rollup_exprs_equal(re1, re2),
         (With(we1), With(we2)) => with_exprs_equal(we1, we2),
         (StringExpr(s1), StringExpr(s2)) => s1 == s2,
-        _ => false
+        // special case: (x) == x. I don't know if i like this
+        (Parens(p), e) => {
+            p.len() == 1 && expr_equals(&p.expressions[0], e)
+        },
+        (e, Parens(p)) => {
+            p.len() == 1 && expr_equals(e, &p.expressions[0])
+        },
+        _ => {
+            false
+        }
     }
 }
 

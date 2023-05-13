@@ -11,6 +11,7 @@ use once_cell::sync::Lazy;
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use rand_distr::num_traits::FloatConst;
 use rand_distr::{Exp1, StandardNormal};
+use regex::internal::Input;
 use regex::Regex;
 
 use lib::{copysign, fmod, from_float, get_float64s, get_pooled_buffer, isinf, modf};

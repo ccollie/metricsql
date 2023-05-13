@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use tracing::{Span, trace_span};
 use metricsql::ast::Expr;
 use metricsql::binaryop::{BinopFunc, get_scalar_binop_handler};
 use metricsql::common::{Operator, Value, ValueType};
@@ -52,6 +53,16 @@ impl Value for BinaryEvaluatorVectorScalar {
 impl Evaluator for BinaryEvaluatorVectorScalar {
     fn eval(&self, ctx: &Arc<Context>, ec: &EvalConfig) -> RuntimeResult<QueryValue> {
         use QueryValue::*;
+
+        let _ = if ctx.trace_enabled() {
+            trace_span!(
+                "vector scalar binary op",
+                "op" = self.expr.op.as_str(),
+                series = field::Empty
+            )
+        } else {
+            Span::none()
+        }.entered();
 
         let right = self.rhs.eval(ctx, ec)?;
         let left = self.lhs.eval(ctx, ec)?;

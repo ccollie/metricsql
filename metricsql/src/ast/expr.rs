@@ -87,7 +87,7 @@ impl Into<f64> for NumberExpr {
 
 impl PartialEq<NumberExpr> for NumberExpr {
     fn eq(&self, other: &Self) -> bool {
-        (self.value - other.value).abs() <= f64::EPSILON
+        self.value == other.value || self.value.is_nan() && other.value.is_nan()
     }
 }
 
@@ -389,7 +389,6 @@ impl PartialEq<MetricExpr> for MetricExpr {
     }
 }
 
-
 impl ExpressionNode for MetricExpr {
     fn cast(self) -> Expr {
         Expr::MetricExpression(self)
@@ -420,12 +419,13 @@ impl FunctionExpr {
         let func_name = if name.is_empty() { "union" } else { name };
         let function = BuiltinFunction::new(func_name)?;
         let return_type = function.return_type(&args)?; // TODO
-        let is_scalar = function.is_scalar(); // todo: what about now() and pi()
+        let is_scalar = function.is_scalar();
+        let arg_idx = function.get_arg_idx_for_optimization(args.len());
 
         Ok(Self {
             name: name.to_string(),
             args,
-            arg_idx_for_optimization: None,
+            arg_idx_for_optimization: arg_idx,
             keep_metric_names: false,
             is_scalar,
             return_type,
@@ -433,7 +433,7 @@ impl FunctionExpr {
     }
 
     pub fn return_type(&self) -> ValueType {
-        self.return_type.clone()
+        self.return_type
     }
 
     pub fn get_arg_for_optimization(&self) -> Option<&Expr> {
@@ -679,9 +679,7 @@ impl Display for RollupExpr {
         let need_parens = match self.expr.as_ref() {
             Expr::Rollup(_) => true,
             Expr::BinaryOperator(_) => true,
-            Expr::Aggregation(ae) => {
-                ae.modifier.is_some()
-            },
+            Expr::Aggregation(ae) => ae.modifier.is_some(),
             _ => false,
         };
         if need_parens {
@@ -1233,10 +1231,10 @@ impl Expr {
             Expr::StringLiteral(_) | Expr::StringExpr(_) => "String",
             Expr::Function(_) => "Function",
             Expr::Aggregation(_) => "Aggregation",
-            Expr::BinaryOperator(_) => "Operator",
+            Expr::BinaryOperator(_) => "BinaryOperator",
             Expr::Rollup(_) => "Rollup",
             Expr::Parens(_) => "Parens",
-            Expr::MetricExpression(_) => "Selector",
+            Expr::MetricExpression(_) => "VectorSelector",
             Expr::With(_) => "With",
         }
     }

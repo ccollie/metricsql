@@ -34,6 +34,7 @@ impl IncrementalAggrHandler for IncrementalAggrSum {
             *dst += *v;
         }
     }
+
     fn keep_original(&self) -> bool {
         false
     }

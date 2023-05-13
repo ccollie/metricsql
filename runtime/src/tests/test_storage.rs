@@ -1,7 +1,8 @@
-use crate::{MetricName, Sample};
+use crate::{MetricName};
 use metricsql::prelude::LabelFilter;
 use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
+use prometheus_parse::Sample;
 
 pub struct TestSample {
     labels: Rc<MetricName>,

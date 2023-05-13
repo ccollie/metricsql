@@ -1,13 +1,17 @@
 use crate::common::{
-    AggregateModifierOp, GroupModifierOp, JoinModifierOp, LabelFilter, Operator, NAME_LABEL,
+    AggregateModifierOp,
+    GroupModifierOp,
+    JoinModifierOp,
+    LabelFilter,
+    Operator,
+    NAME_LABEL,
 };
 use std::borrow::Cow;
-use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::iter::FromIterator;
 use std::vec::Vec;
 
-use crate::ast::{AggregationExpr, BinaryExpr, Expr};
+use crate::ast::{AggregationExpr, BinaryExpr, Expr, RollupExpr};
 
 /// push_down_filters optimizes e in order to improve its performance.
 ///
@@ -29,9 +33,12 @@ pub fn can_pushdown_filters(expr: &Expr) -> bool {
     use Expr::*;
 
     match expr {
-        Rollup(re) => match (&re.expr, &re.at) {
-            (expr, Some(at)) => can_pushdown_filters(expr) || can_pushdown_filters(at),
-            _ => false,
+        Rollup(RollupExpr { expr, at , .. }) => {
+            if let Some(at) = at {
+                can_pushdown_filters(expr) || can_pushdown_filters(at)
+            } else {
+                can_pushdown_filters(expr)
+            }
         },
         Function(f) => f.args.iter().any(|x| can_pushdown_filters(x)),
         Aggregation(agg) => agg.args.iter().any(|x| can_pushdown_filters(x)),
@@ -243,7 +250,7 @@ pub fn push_down_binary_op_filters_in_place(e: &mut Expr, common_filters: &mut V
     match e {
         MetricExpression(me) => {
             union_label_filters(&mut me.label_filters, common_filters);
-            sort_label_filters(&mut me.label_filters);
+            me.label_filters.sort();
         }
         Function(fe) => {
             if let Some(idx) = fe.arg_idx_for_optimization {
@@ -309,20 +316,6 @@ fn union_label_filters(a: &mut Vec<LabelFilter>, b: &Vec<LabelFilter>) {
             a.push(label.clone());
         }
     }
-}
-
-fn sort_label_filters(lfs: &mut [LabelFilter]) {
-    lfs.sort_by(|a, b| {
-        // Make sure the first label filter is __name__ (if any)
-        if a.is_metric_name_filter() && !b.is_metric_name_filter() {
-            return Ordering::Less;
-        }
-        let mut order = a.label.cmp(&b.label);
-        if order == Ordering::Equal {
-            order = a.value.cmp(&b.value);
-        }
-        order
-    })
 }
 
 fn filter_label_filters_on(lfs: &mut Vec<LabelFilter>, args: &[String]) {

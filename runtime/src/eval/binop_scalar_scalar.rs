@@ -20,8 +20,8 @@ pub struct BinaryEvaluatorScalarScalar {
 
 impl BinaryEvaluatorScalarScalar {
     pub(crate) fn new(op: Operator, left: &Expr, right: &Expr, is_bool: bool) -> RuntimeResult<Self> {
-        assert_eq!(left.return_type(), ValueType::Scalar);
-        assert_eq!(right.return_type(), ValueType::Scalar);
+        debug_assert!(left.return_type() == ValueType::Scalar);
+        debug_assert!(right.return_type() == ValueType::Scalar);
         let lhs = Box::new(create_evaluator(left)?);
         let rhs = Box::new(create_evaluator(right)?);
         let handler = get_scalar_binop_handler(op, is_bool);
@@ -39,9 +39,7 @@ impl Evaluator for BinaryEvaluatorScalarScalar {
     fn eval(&self, ctx: &Arc<Context>, ec: &EvalConfig) -> RuntimeResult<QueryValue> {
         use QueryValue::*;
 
-        let left = self.lhs.eval(ctx, ec)?;
-        let right = self.rhs.eval(ctx, ec)?;
-        match (left, right) {
+        match (self.lhs.eval(ctx, ec)?, self.rhs.eval(ctx, ec)?) {
             (Scalar(left), Scalar(right)) => {
                 let res = (self.handler)(left, right);
                 Ok(Scalar(res))

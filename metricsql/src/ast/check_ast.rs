@@ -1,10 +1,14 @@
 // integrate checks from
 // https://github.com/prometheus/prometheus/blob/fa6e05903fd3ce52e374a6e1bf4eb98c9f1f45a7/promql/parser/parse.go#L436
 
-use std::cmp::Ordering;
-use crate::common::{BinModifier, NAME_LABEL, StringExpr, Value, ValueType, VectorMatchCardinality};
+use crate::ast::{
+    AggregationExpr, BExpression, BinaryExpr, Expr, FunctionExpr, MetricExpr, NumberExpr,
+    ParensExpr, RollupExpr, WithExpr,
+};
+use crate::common::{
+    BinModifier, StringExpr, Value, ValueType, VectorMatchCardinality, NAME_LABEL,
+};
 use crate::functions::BuiltinFunction;
-use crate::ast::{AggregationExpr, BExpression, BinaryExpr, Expr, FunctionExpr, MetricExpr, NumberExpr, ParensExpr, RollupExpr, WithExpr};
 
 /// check_ast checks the validity of the provided AST. This includes type checking.
 /// Recursively check correct typing for child nodes and raise errors in case of bad typing.
@@ -74,15 +78,16 @@ fn check_ast_for_string_expr(expr: StringExpr) -> Result<Expr, String> {
 /// the original logic is redundant in prometheus, and the following coding blocks
 /// have been optimized for readability, but all logic SHOULD be covered.
 fn check_ast_for_binary_expr(mut ex: BinaryExpr) -> Result<Expr, String> {
+    let is_comparison = ex.op.is_comparison();
 
-    if ex.returns_bool() && !ex.op.is_comparison() {
+    if ex.returns_bool() && !is_comparison {
         return Err("bool modifier can only be used on comparison operators".into());
     }
 
     let left_type = ex.left.value_type();
     let right_type = ex.right.value_type();
 
-    if ex.op.is_comparison() {
+    if is_comparison {
         match (&left_type, &right_type, ex.returns_bool()) {
             (ValueType::Scalar, ValueType::Scalar, false) => {
                 return Err("comparisons between scalars must use BOOL modifier".into());
@@ -90,7 +95,7 @@ fn check_ast_for_binary_expr(mut ex: BinaryExpr) -> Result<Expr, String> {
             (ValueType::String, ValueType::String, false) => {
                 return Err("comparisons between strings must use BOOL modifier".into());
             }
-            _=> {}
+            _ => {}
         }
     }
 
@@ -100,7 +105,8 @@ fn check_ast_for_binary_expr(mut ex: BinaryExpr) -> Result<Expr, String> {
         if let Some(labels) = ex.intersect_labels() {
             if let Some(label) = labels.first() {
                 return Err(format!(
-                    "label '{}' must not occur in ON and GROUP clause at once", label
+                    "label '{}' must not occur in ON and GROUP clause at once",
+                    label
                 ));
             }
         };
@@ -109,7 +115,8 @@ fn check_ast_for_binary_expr(mut ex: BinaryExpr) -> Result<Expr, String> {
     if ex.op.is_set_operator() {
         if left_type == ValueType::Scalar || right_type == ValueType::Scalar {
             return Err(format!(
-                "set operator '{}' not allowed in binary scalar expression", ex.op
+                "set operator '{}' not allowed in binary scalar expression",
+                ex.op
             ));
         }
 
@@ -139,6 +146,7 @@ fn check_ast_for_binary_expr(mut ex: BinaryExpr) -> Result<Expr, String> {
     if left_type != ValueType::Scalar && left_type != ValueType::InstantVector {
         return Err("binary expression must contain only scalar and instant vector types".into());
     }
+
     if right_type != ValueType::Scalar && right_type != ValueType::InstantVector {
         return Err("binary expression must contain only scalar and instant vector types".into());
     }
@@ -157,21 +165,26 @@ fn check_ast_for_rollup(mut ex: RollupExpr) -> Result<Expr, String> {
     let value_type = ex.expr.return_type();
     if value_type != ValueType::InstantVector {
         return Err(format!(
-            "subquery is only allowed on instant vector, got {} instead", value_type
+            "subquery is only allowed on instant vector, got {} instead",
+            value_type
         ));
     }
     if let Some(at) = &ex.at {
         let at_type = at.return_type();
         if at_type != ValueType::Scalar {
             return Err(format!(
-                "subquery at modifier must be a scalar, got {} instead", at_type
+                "subquery at modifier must be a scalar, got {} instead",
+                at_type
             ));
         }
         match at.as_ref() {
-            Expr::Number(NumberExpr { value, .. } ) => {
-                if value.is_infinite() || value.is_nan() ||
-                    value >= &(i64::MAX as f64) || value <= &(i64::MIN as f64) {
-                    return Err(format!("timestamp out of bounds for @ modifier: {}", value))
+            Expr::Number(NumberExpr { value, .. }) => {
+                if value.is_infinite()
+                    || value.is_nan()
+                    || value >= &(i64::MAX as f64)
+                    || value <= &(i64::MIN as f64)
+                {
+                    return Err(format!("timestamp out of bounds for @ modifier: {}", value));
                 }
             }
             _ => {}
@@ -191,18 +204,12 @@ fn check_ast_for_vector_selector(ex: MetricExpr) -> Result<Expr, String> {
     let mut du = ex.find_matchers(NAME_LABEL);
     if du.len() >= 2 {
         // this is to ensure that the err information can be predicted with fixed order
-        du.sort_by(|a, b| {
-            let cmp = a.label.cmp(&b.label);
-            if cmp == Ordering::Equal {
-                a.value.cmp(&b.value)
-            } else {
-                cmp
-            }
-        });
+        du.sort();
+
         return Err(format!(
-               "metric name must not be set twice: '{}' or '{}'",
-               du[0], du[1]
-         ));
+            "metric name must not be set twice: '{}' or '{}'",
+            du[0], du[1]
+        ));
     }
 
     Ok(Expr::MetricExpression(ex))

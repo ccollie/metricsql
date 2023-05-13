@@ -20,8 +20,7 @@ mod tests {
         get_rollup_function_factory_by_name, RollupConfig, RollupFuncArg, RollupHandler,
         RollupHandlerEnum,
     };
-    use crate::functions::types::AnyValue;
-    use crate::{compare_floats, compare_values, test_rows_equal, Timeseries};
+    use crate::{compare_floats, compare_values, QueryValue, test_rows_equal, Timeseries};
     use metricsql::functions::RollupFunction;
     use std::str::FromStr;
     use speculate::speculate;
@@ -244,7 +243,7 @@ mod tests {
         test_rows_equal(&values, &timestamps, &values_expected, &timestamps);
     }
 
-    fn test_rollup_func(func_name: &str, args: Vec<AnyValue>, expected: f64) {
+    fn test_rollup_func(func_name: &str, args: Vec<QueryValue>, expected: f64) {
         let func = RollupFunction::from_str(func_name).unwrap();
         let nrf = get_rollup_function_factory_by_name(func_name).unwrap();
         let rf = nrf(&args).unwrap();
@@ -271,8 +270,8 @@ mod tests {
     #[test]
     fn test_rollup_duration_over_time() {
         let f = |max_interval: f64, expected: f64| {
-            let max_intervals = AnyValue::from(max_interval);
-            let args = vec![AnyValue::from(0), max_intervals];
+            let max_intervals = QueryValue::from(max_interval);
+            let args = vec![QueryValue::from(0), max_intervals];
             test_rollup_func("duration_over_time", args, expected)
         };
 
@@ -289,8 +288,8 @@ mod tests {
     #[test]
     fn test_rollup_share_le_over_time() {
         let f = |le: f64, expected: f64| {
-            let les = AnyValue::from(le);
-            let args = vec![AnyValue::from(0), les];
+            let les = QueryValue::from(le);
+            let args = vec![QueryValue::from(0), les];
             test_rollup_func("share_le_over_time", args, expected)
         };
 
@@ -308,8 +307,8 @@ mod tests {
     #[test]
     fn test_rollup_share_gt_over_time() {
         let f = |gt: f64, v_expected: f64| {
-            let gts = AnyValue::from(gt);
-            let args = vec![AnyValue::from(0), gts];
+            let gts = QueryValue::from(gt);
+            let args = vec![QueryValue::from(0), gts];
             test_rollup_func("share_gt_over_time", args, v_expected)
         };
 
@@ -327,8 +326,8 @@ mod tests {
     #[test]
     fn test_rollup_count_le_over_time() {
         let f = |le: f64, expected: f64| {
-            let le_param = AnyValue::from(le);
-            let args = vec![AnyValue::from(0), le_param];
+            let le_param = QueryValue::from(le);
+            let args = vec![QueryValue::from(0), le_param];
             test_rollup_func("count_le_over_time", args, expected);
         };
 
@@ -346,8 +345,8 @@ mod tests {
     #[test]
     fn test_rollup_count_gt_over_time() {
         let f = |gt: f64, expected: f64| {
-            let gt_param = AnyValue::from(gt);
-            let args = vec![AnyValue::from(0), gt_param];
+            let gt_param = QueryValue::from(gt);
+            let args = vec![QueryValue::from(0), gt_param];
             test_rollup_func("count_gt_over_time", args, expected)
         };
 
@@ -365,8 +364,8 @@ mod tests {
     #[test]
     fn test_rollup_count_eq_over_time() {
         let f = |eq: f64, v_expected: f64| {
-            let eqs = AnyValue::from(eq);
-            let args = vec![AnyValue::from(0), eqs];
+            let eqs = QueryValue::from(eq);
+            let args = vec![QueryValue::from(0), eqs];
             test_rollup_func("count_eq_over_time", args, v_expected)
         };
 
@@ -380,8 +379,8 @@ mod tests {
     #[test]
     fn test_rollup_count_ne_over_time() {
         let f = |ne: f64, expected: f64| {
-            let nes = AnyValue::from(ne);
-            let args = vec![AnyValue::from(0), nes];
+            let nes = QueryValue::from(ne);
+            let args = vec![QueryValue::from(0), nes];
             test_rollup_func("count_ne_over_time", args, expected)
         };
 
@@ -395,8 +394,8 @@ mod tests {
     #[test]
     fn test_rollup_quantile_over_time() {
         let f = |phi: f64, expected: f64| {
-            let phis = AnyValue::from(phi);
-            let args = vec![phis, AnyValue::from(0)];
+            let phis = QueryValue::from(phi);
+            let args = vec![phis, QueryValue::from(0)];
             test_rollup_func("quantile_over_time", args, expected)
         };
 
@@ -413,8 +412,8 @@ mod tests {
     #[test]
     fn test_rollup_predict_linear() {
         let f = |sec: f64, expected: f64| {
-            let secs = AnyValue::from(sec);
-            let args = vec![AnyValue::from(0), secs];
+            let secs = QueryValue::from(sec);
+            let args = vec![QueryValue::from(0), secs];
             test_rollup_func("predict_linear", args, expected)
         };
 
@@ -446,9 +445,9 @@ mod tests {
     #[test]
     fn test_rollup_holt_winters() {
         let f = |sf: f64, tf: f64, expected: f64| {
-            let sf_param = AnyValue::from(sf);
-            let tf_param = AnyValue::from(tf);
-            let args = vec![AnyValue::from(0), sf_param, tf_param];
+            let sf_param = QueryValue::from(sf);
+            let tf_param = QueryValue::from(tf);
+            let args = vec![QueryValue::from(0), sf_param, tf_param];
             test_rollup_func("holt_winters", args, expected)
         };
 
@@ -471,8 +470,8 @@ mod tests {
     #[test]
     fn test_rollup_hoeffding_bound_lower() {
         let f = |phi: f64, expected: f64| {
-            let phis = AnyValue::from(phi);
-            let args = vec![phis, AnyValue::from(0)];
+            let phis = QueryValue::from(phi);
+            let args = vec![phis, QueryValue::from(0)];
             test_rollup_func("hoeffding_bound_lower", args, expected)
         };
 
@@ -488,8 +487,8 @@ mod tests {
     #[test]
     fn test_rollup_hoeffding_bound_upper() {
         let f = |phi: f64, expected: f64| {
-            let phis = AnyValue::from(phi);
-            let args = vec![phis, AnyValue::from(0)];
+            let phis = QueryValue::from(phi);
+            let args = vec![phis, QueryValue::from(0)];
             test_rollup_func("hoeffding_bound_upper", args, expected)
         };
 
@@ -505,7 +504,7 @@ mod tests {
     #[test]
     fn test_rollup_new_rollup_func_success() {
         let f = |func_name: &str, expected: f64| {
-            let args = vec![AnyValue::from(0)];
+            let args = vec![QueryValue::from(0)];
             test_rollup_func(func_name, args, expected)
         };
 
@@ -560,7 +559,7 @@ mod tests {
         let nrf = get_rollup_function_factory_by_name("non-existing-func");
         assert!(nrf.is_err(), "expecting err; got a factory function");
 
-        let f = |func_name: &str, args: &[AnyValue]| {
+        let f = |func_name: &str, args: &[QueryValue]| {
             let nrf = get_rollup_function_factory_by_name(func_name).unwrap();
             let args = Vec::from(args);
             let rf = (nrf)(&args);
@@ -577,10 +576,10 @@ mod tests {
         f("quantiles_over_time", &[]);
 
         // Invalid arg type
-        let scalar_ts = AnyValue::InstantVector(vec![Timeseries::new(vec![123], vec![321_f64])]);
-        let me = AnyValue::from(0);
-        let _123 = AnyValue::from(123);
-        let _321 = AnyValue::from(321);
+        let scalar_ts = QueryValue::InstantVector(vec![Timeseries::new(vec![123], vec![321_f64])]);
+        let me = QueryValue::from(0);
+        let _123 = QueryValue::from(123);
+        let _321 = QueryValue::from(321);
         f("holt_winters", &[_123.clone(), _123.clone(), _123.clone()]);
         f("holt_winters", &[me.clone(), _123.clone(), _321.clone()]);
         f("holt_winters", &[me.clone(), scalar_ts, _321.clone()]);

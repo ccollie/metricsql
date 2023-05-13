@@ -475,15 +475,17 @@ impl TransformFunction {
                 Volatility::Stable,
             ),
             HistogramQuantiles => {
-                todo!()
+                // histogram_quantiles("phiLabel", phi1, ..., phiN, buckets)
+                // todo: need a better way to handle variadic args with specific types
+                Signature::variadic_any(3, Volatility::Stable)
             }
             // histogram_share(le, buckets)
             HistogramShare => Signature::exact(
                 vec![ValueType::Scalar, ValueType::InstantVector],
                 Volatility::Stable,
             ),
-            LabelCopy | LabelDel | LabelJoin | LabelKeep | LabelLowercase | LabelMap
-            | LabelMatch | LabelMove | LabelSet => {
+            LabelCopy | LabelDel | LabelJoin | LabelKeep | LabelLowercase |
+            LabelMap | LabelMatch | LabelMove | LabelSet => {
                 let mut types = vec![ValueType::String; MAX_ARG_COUNT];
                 types.insert(0, ValueType::InstantVector);
                 Signature::exact(types, Volatility::Stable)

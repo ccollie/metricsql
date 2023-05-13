@@ -56,7 +56,6 @@ impl Evaluator for BinaryEvaluatorScalarVector {
         let left = self.lhs.eval(ctx, ec)?;
         match (left, right) {
             (Scalar(scalar), InstantVector(mut vector)) => {
-                // should not happen, but we can handle it
                 for v in vector.iter_mut() {
                     if !self.keep_metric_names {
                         v.metric_name.reset_metric_group();

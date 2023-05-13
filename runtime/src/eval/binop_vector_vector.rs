@@ -1,5 +1,6 @@
 use std::borrow::Cow;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::btree_set::BTreeSet;
 use std::sync::Arc;
 
 use regex::escape;
@@ -175,14 +176,14 @@ impl BinaryEvaluatorVectorVector {
 
 impl Value for BinaryEvaluatorVectorVector {
     fn value_type(&self) -> ValueType {
-        self.return_type.clone()
+        self.return_type
     }
 }
 
 impl Evaluator for BinaryEvaluatorVectorVector {
     /// Evaluates and returns the result.
     fn eval(&self, ctx: &Arc<Context>, ec: &EvalConfig) -> RuntimeResult<QueryValue> {
-        let is_tracing = span_enabled!(Level::TRACE);
+        let is_tracing = ctx.trace_enabled();
 
         let span = if is_tracing {
             trace_span!(
@@ -222,7 +223,7 @@ impl Evaluator for BinaryEvaluatorVectorVector {
     }
 
     fn return_type(&self) -> ValueType {
-        self.return_type.clone()
+        self.return_type
     }
 }
 
@@ -288,16 +289,12 @@ fn is_aggr_func_without_grouping(e: &Expr) -> bool {
 
 pub(super) fn get_common_label_filters(tss: &[Timeseries]) -> Vec<LabelFilter> {
     // todo(perf): use fnv or xxxhash
-    let mut m: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut m: HashMap<String, BTreeSet<String>> = HashMap::new();
     for ts in tss.iter() {
         for Tag { key: k, value: v } in ts.metric_name.tags.iter() {
-            if let Some(set) = m.get_mut(&*k) {
-                set.insert(v.to_string());
-            } else {
-                let mut set = BTreeSet::new();
-                set.insert(v.to_string());
-                m.insert(k.to_string(), set);
-            }
+            m.entry(k.to_string())
+                .or_insert_with(BTreeSet::new)
+                .insert(v.to_string());
         }
     }
 

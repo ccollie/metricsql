@@ -150,7 +150,7 @@ macro_rules! make_comparison_func {
 macro_rules! make_comparison_func_bool {
     ($name: ident, $func: expr) => {
         pub fn $name(left: f64, right: f64) -> f64 {
-            return if $func(left, right) { 1_f64 } else { 0_f64 }
+            if $func(left, right) { 1_f64 } else { 0_f64 }
         }
     };
 }

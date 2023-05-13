@@ -170,6 +170,7 @@ impl PartialEq<Self> for LabelFilter {
 
 impl PartialOrd for LabelFilter {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        // Make sure the first label filter is __name__ (if any)
         if self.is_metric_name_filter() && !other.is_metric_name_filter() {
             return Some(Ordering::Less);
         }

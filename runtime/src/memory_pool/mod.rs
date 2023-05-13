@@ -332,7 +332,7 @@ mod tests {
         a1.initialize("a2", &pool);
         {
             let locked = a1.0.lock();
-            let name = locked.as_ref().unwrap().consumer.name();
+            let name = locked.unwrap().as_ref().unwrap().consumer.name();
             assert_eq!(name, "a1");
         }
 
