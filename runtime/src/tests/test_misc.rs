@@ -52,9 +52,7 @@ fn isAtModifierUnsafeFunctions() -> bool {
 
 
 /// Point represents a single data point for a given timestamp.
-/// If H is not nil, then this is a histogram point and only (T, H) is valid.
-/// If H is nil, then only (T, V) is valid.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, PartialEq, PartialOrd, Eq, Ord)]
 struct Point {
     t: i64,
     v: f64
@@ -119,14 +117,14 @@ impl Test {
     }
 
     /// parse the given command sequence and appends it to the test.
-    fn parse(&mut self, input: String) -> RuntimeResult<()> {
+    fn parse(&mut self, input: &str) -> RuntimeResult<()> {
         let lines = get_lines(input);
         // Scan for steps line by line.
         for (i, line) in lines.iter().enumerate() {
             if line.is_empty() {
                 continue;
             }
-            let cmd_str = Strings::toLower(patSpace.split(l, 2)[0]);
+            let cmd_str = Strings::toLower(PATTERN_SPACE.split(l, 2)[0]);
             let cmd: TestCommand;
 
             match cmd_str {
@@ -160,8 +158,8 @@ impl Test {
         }
         self.storage = TestStorage::new(t);
         let opts = EngineOpts {
-            MaxSamples: 10000,
-            Timeout: 100 * time.Second,
+            max_samples: 10000,
+            timeout: 100 * time.Second,
             NoStepSubqueryIntervalFn: Duration::from_millis(1000 * 60)
         };
 
@@ -197,7 +195,7 @@ impl Test {
     }
 
     fn parse_eval(&mut self, lines: &[String], i: usize) -> RuntimeResult<(usize, EvalCmd)> {
-        if !patEvalInstant.MatchString(lines[i]) {
+        if !PATTERN_EVAL_INSTANT.MatchString(lines[i]) {
             return raise(i, "invalid evaluation command. (eval[_fail|_ordered] instant [at <offset:duration>] <query>")
         }
         let parts = patEvalInstant.FindStringSubmatch(lines[i]);
@@ -237,7 +235,7 @@ impl Test {
                 i -= 1;
                 break
             }
-            if let Some(f) = parse_number(def_line) {
+            if let Some(f) = parse_number(def_line, false) {
                 self.expect(0, nil, SequenceValue{value: f, omitted: false });
                 break
             }
@@ -263,10 +261,10 @@ impl Test {
 
 
 fn raise(line: usize, err: String) -> RuntimeResult<()> {
-    return ParseErr {
+    return Err(ParseErr {
         line_offset: line,
         err,
-    }
+    })
 }
 
 fn parse_load(lines: &[String], i: usize) -> RuntimeResult<(usize, LoadCmd)> {
@@ -275,11 +273,13 @@ fn parse_load(lines: &[String], i: usize) -> RuntimeResult<(usize, LoadCmd)> {
     }
     let parts = PATTERN_LOAD.match(lines[i]);
 
-    let gap = duration_value(parts[1], 1);
-    if let Err(err) = gap {
-        return raise(i, format!("invalid step definition {}: {}", parts[1], err))
-    }
-    let gap = gap.unwrap();
+    let gap = match duration_value(parts[1], 1) {
+        Ok(d) => Some(d),
+        Err(err) => {
+            return raise(i, format!("invalid step definition {}: {}", parts[1], err))
+        },
+    };
+
     let cmd = LoadCmd::new(time.Duration(gap));
     while i+1 < lines.len() {
         i += 1;
@@ -312,7 +312,6 @@ fn get_lines(input: String) -> Vec<String> {
     }
     return lines
 }
-
 
 
 /// SequenceValue is an omittable value in a sequence of time series values.
@@ -418,7 +417,6 @@ struct Entry {
     vals: Vec<SequenceValue>
 }
 
-
 impl Display for Entry {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}: {}", self.pos, self.vals.join(","))
@@ -440,7 +438,7 @@ impl EvalCmd {
 
     /// expect adds a new metric with a sequence of values to the set of expected
     /// results for the query.
-    pub fn expect(&mut self, pos: usize, m: Labels, vals: &[SequenceValue]) {
+    pub fn expect(&mut self, pos: usize, m: MetricName, vals: &[SequenceValue]) {
         if m.is_empty() {
             self.expected.set(0, Entry{ pos, vals });
             return
@@ -482,10 +480,10 @@ impl EvalCmd {
 
             // Check query returns same result in range mode,
             // by checking against the middle step.
-            let q, err = self.queryEngine.new_range_query(self.storage, iq.expr,
+            let q = self.queryEngine.new_range_query(self.storage, iq.expr,
                 iq.eval_time.add(-time.Minute),
                 iq.eval_time.add(time.Minute),
-                time.Minute)
+                time.Minute)?;
 
             let range_res = q.exec(t.context);
 
@@ -499,12 +497,12 @@ impl EvalCmd {
                 // Ordering isn't defined for range queries.
                 continue
             }
-            let mat = range_res.Value.(Matrix)
+            let mat = range_res.value.as_range_vector();
 
             let vec = Vec::with_capacity(mat.len());
             for series in mat {
                 for point in series.points.iter() {
-                    if point.t == timeMilliseconds(iq.eval_time) {
+                    if point.t == iq.eval_time {
                         vec.push(Sample{metric: series.metric, point});
                         break
                     }
@@ -526,10 +524,10 @@ impl EvalCmd {
     /// compare_result compares the result value with the defined expectation.
     fn compare_result(&self, result: AnyValue) -> RuntimeResult<()> {
         match result {
-            AnyValue::RangeVector(_) => {
+            QueryValue::RangeVector(_) => {
                 return Err(RuntimeError::from("received range result on instant evaluation"));
             },
-            AnyValue::InstantVector(vector) => {
+            QueryValue::InstantVector(vector) => {
                 let seen: BTreeSet<u64> = Default::default();
                 for (pos, v) in val.iter().enumerate() {
                     let fp = self.metric.hash();
@@ -562,7 +560,7 @@ impl EvalCmd {
                     }
                 }
             },
-            AnyValue::Scalar(v) => {
+            QueryValue::Scalar(v) => {
                 if !almost_equal(self.expected[0].vals[0].value, val.v) {
                     let msg = format!("expected Scalar {} but got {}",
                                       val.v, ev.expected[0].vals[0].value);
@@ -612,7 +610,7 @@ struct AtModifierTestCase {
 }
 
 fn at_modifier_test_cases(expr_str: String, eval_time: timestamp) -> RuntimeResult<Vec<AtModifierTestCase>> {
-    let expr = parser.ParseExpr(exprStr)?;
+    let expr = parse(exprStr)?;
     let ts = timestamp.FromTime(eval_time);
 
     let contains_non_step_invariant = false;
@@ -620,20 +618,20 @@ fn at_modifier_test_cases(expr_str: String, eval_time: timestamp) -> RuntimeResu
     // If there is a subquery, then the selectors inside it don't get the @ timestamp.
     // If any selector already has the @ timestamp set, then it is untouched.
     parser.inspect(expr, |node: Node, path: &[Node]| -> RuntimeResult<()> {
-        _, _, subqTs = subqueryTimes(path);
-if subqTs != nil {
-// There is a subquery with timestamp in the path,
-// hence don't change any timestamps further.
-return nil
-}
+        let subqTs = subqueryTimes(path);
+        if subqTs != nil {
+            // There is a subquery with timestamp in the path,
+            // hence don't change any timestamps further.
+            return nil
+        }
         match node {
             Expression::MetricExpression(me) => {
-            if n.timestamp == nil {
-                n.timestamp = makeInt64Pointer(ts)
-            }
+                if n.timestamp == nil {
+                    n.timestamp = makeInt64Pointer(ts)
+                }
 
             Expression::MatrixSelector(me) => {
-                    if vs = n.VectorSelector.(*parser.VectorSelector);
+                if vs = n.VectorSelector.(*parser.VectorSelector);
                     vs.timestamp == 0 {
                         vs.timestamp = makeInt64Pointer(ts)
                     }
@@ -647,10 +645,9 @@ return nil
             }
         },
     Expression::Function(fe) => {
-        _, ok := AtModifierUnsafeFunctions[n.Func.Name];
+        ok := AtModifierUnsafeFunctions[n.Func.Name];
         contains_non_step_invariant = contains_non_step_invariant || ok
     }
-return nil
 })
 
     if contains_non_step_invariant {
@@ -740,7 +737,7 @@ impl LazyLoader {
             if line.is_empty() {
                 continue;
             }
-            if strings.ToLower(patSpace.Split(l, 2)[0]) == "load" {
+            if strings.ToLower(patSpace.split(l, 2)[0]) == "load" {
                 self.load_cmd = parse_load(lines, i)?;
                 Ok(())
             }
@@ -792,7 +789,7 @@ impl LazyLoader {
                 }
             }
         }
-        return app.commit()
+        app.commit()
     }
 
     // Close closes resources associated with the LazyLoader.
@@ -805,7 +802,7 @@ impl LazyLoader {
     // with_samples_till loads the samples till given timestamp and executes the given function.
     fn with_samples_till(&mut self, ts: timestamp, func: fn(RuntimeError)) {
         let ts_milli = ts.Sub(time.Unix(0, 0).UTC()) / time.Millisecond;
-        func(self.append_till(int64(ts_milli)));
+        func(self.append_till(ts_milli as i64));
     }
 
     /// Queryable allows querying the LazyLoader's data.

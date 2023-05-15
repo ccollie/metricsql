@@ -225,7 +225,11 @@ pub fn aggregate_function_signature(fun: &AggregateFunction) -> Signature {
         ),
         TopkMin | TopkMax | TopkAvg | TopkMedian | BottomkMin | BottomkMax | BottomkAvg
         | BottomkLast | BottomkMedian => Signature::exact(
-            vec![ValueType::Scalar, ValueType::InstantVector, ValueType::String],
+            vec![
+                ValueType::Scalar,
+                ValueType::InstantVector,
+                ValueType::String,
+            ],
             Volatility::Stable,
         ),
         Quantile => Signature::exact(

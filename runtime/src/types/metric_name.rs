@@ -29,7 +29,7 @@ const LABEL_SEP: u8 = 0xfe;
 const SEP: u8 = 0xff;
 
 /// Tag represents a (key, value) tag for metric.
-#[derive(Debug, Default, PartialEq, Eq, Clone, Hash, Serialize, Deserialize)]
+#[derive(Debug, Default, PartialEq, Eq, Clone, Hash, Ord, Serialize, Deserialize)]
 pub struct Tag {
     pub key: String,
     pub value: String,
@@ -634,34 +634,10 @@ impl MetricName {
     }
 
     pub fn sort_tags(&mut self) {
-        if self.sorted {
-            return;
+        if !self.sorted {
+            self.tags.sort();
+            self.sorted = true;
         }
-        self.tags.sort_by(|a, b| {
-            if a.key == b.key {
-                return a.value.cmp(&b.value);
-            }
-            return a.key.cmp(&b.key);
-        });
-        self.sorted = true;
-    }
-
-    pub fn to_string(&self) -> String {
-        // todo(perf): preallocate result buf
-        let mut result = String::new();
-        result.push_str(&self.metric_group);
-        result.push_str("{");
-        let len = self.tags.len();
-        let mut i = 0;
-        for Tag { key: k, value: v } in self.tags.iter() {
-            result.push_str(format!("{}={}", k, enquote('"', &v)).as_str());
-            if i < len - 1 {
-                result.push_str(",");
-            }
-            i += 1;
-        }
-        result.push_str("}");
-        result
     }
 
     pub fn hash_with_labels(&self, buf: &mut Vec<u8>, hasher: &mut Xxh3, names: &[String]) -> u64 {
@@ -671,16 +647,21 @@ impl MetricName {
         hasher.digest()
     }
 
-    pub fn hash_without_labels(&self, buf: &mut Vec<u8>, hasher: &mut Xxh3, names: &[String]) -> u64 {
+    pub fn hash_without_labels(
+        &self,
+        buf: &mut Vec<u8>,
+        hasher: &mut Xxh3,
+        names: &[String],
+    ) -> u64 {
         hasher.reset();
         self.bytes_without_labels(buf, names);
         hasher.update(buf);
         hasher.digest()
     }
 
-    // bytes_without_labels is just as bytes(), but only for labels not matching names.
-    // 'names' have to be sorted in ascending order.
-    pub fn bytes_without_labels(&self, buf: &mut Vec<u8>, names: &[String]) {
+    /// bytes_without_labels is just as bytes(), but only for labels not matching names.
+    /// 'names' have to be sorted in ascending order.
+    fn bytes_without_labels(&self, buf: &mut Vec<u8>, names: &[String]) {
         buf.clear();
         buf.push(LABEL_SEP);
 
@@ -702,15 +683,15 @@ impl MetricName {
         }
     }
 
-    // bytes_with_labels is just like Bytes(), but only for labels matching names.
-    // 'names' have to be sorted in ascending order.
-    pub fn bytes_with_labels(&self, buf: &mut Vec<u8>, names: &[String]) {
+    /// bytes_with_labels is just like Bytes(), but only for labels matching names.
+    /// 'names' have to be sorted in ascending order.
+    fn bytes_with_labels(&self, buf: &mut Vec<u8>, names: &[String]) {
         buf.clear();
         buf.push(LABEL_SEP);
-        let mut ts_iter = self.tags.iter();
+        let mut tag_iter = self.tags.iter();
         let mut names_iter = names.iter();
 
-        let mut tag = ts_iter.next();
+        let mut tag = tag_iter.next();
         let mut name = names_iter.next();
         loop {
             match (tag, name) {
@@ -718,16 +699,14 @@ impl MetricName {
                     if *_name < _tag.key {
                         name = names_iter.next();
                     } else if _tag.key < *_name {
-                        tag = ts_iter.next();
+                        tag = tag_iter.next();
                     } else {
                         add_tag_to_buf(buf, _tag);
                         name = names_iter.next();
-                        tag = ts_iter.next();
+                        tag = tag_iter.next();
                     }
                 }
-                _ => {
-                    break
-                }
+                _ => break,
             }
         }
     }
@@ -778,11 +757,10 @@ impl PartialOrd for MetricName {
         // Metric names for a and b match. Compare tags.
         // Tags must be already sorted by the caller, so just compare them.
         for (a, b) in self.tags.iter().zip(&other.tags) {
-            if a.key != b.key {
-                return Some(a.key.cmp(&b.key));
-            }
-            if a.value != b.value {
-                return Some(a.value.cmp(&b.value));
+            if let Some(ord) = a.partial_cmp(b) {
+                if ord != Ordering::Equal {
+                    return Some(ord);
+                }
             }
         }
 

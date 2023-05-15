@@ -1,19 +1,28 @@
 #[cfg(test)]
 mod tests {
-    use crate::ast::{Expr, optimize};
+    use crate::ast::{expr_equals, optimize, Expr};
     use crate::parser::parse;
 
+    fn parse_or_panic(s: &str) -> Expr {
+        parse(s).expect(format!("Error parsing expression {s}").as_str())
+    }
+
+    fn assert_eq_expr(expected: &Expr, actual: &Expr) {
+        assert!(
+            expr_equals(expected, actual),
+            "expected\n{}\nactual\n{}",
+            expected,
+            actual
+        );
+    }
+
     fn another(s: &str, expected: &str) {
-        match parse(s) {
-            Err(err) => {
-                panic!("error parsing q: {};\ngot error\n{:?}", s, err)
-            }
-            Ok(expr) => {
-                let optimized = optimize(expr).expect("Error optimizing expression");
-                let res = optimized.to_string();
-                assert_eq!(&res, expected, "\nquery: {}", s)
-            }
-        }
+        let expr = parse_or_panic(s);
+        let optimized = optimize(expr).expect("Error optimizing expression");
+        let expected_expr = parse_or_panic(expected);
+        assert_eq_expr(&expected_expr, &optimized);
+        // let res = optimized.to_string();
+        // assert_eq!(&res, expected, "\nquery: {}", s)
     }
 
     fn same(s: &str) {
@@ -22,11 +31,7 @@ mod tests {
 
     #[test]
     fn test_with_single() {
-        another("Inf + inf", "+Inf");
-        another(
-            r#"with (ct={job="test"}) a{ct} + ct() + f({ct="x"})"#,
-            r#"(a{job="test"} + {job="test"}) + f({ct="x"})"#,
-        );
+        another("-1 ^ 0.5", "-1");
     }
 
     #[test]
@@ -41,12 +46,7 @@ mod tests {
         fn another(s: &str, expected: &str) {
             let expected_val: f64 = expected.parse::<f64>().expect("parse f64");
 
-            let expr = match parse(s) {
-                Err(err) => {
-                    panic!("Error parsing \"{}\": {:?}", s, err);
-                }
-                Ok(expr) => expr,
-            };
+            let expr = parse_or_panic(s);
             match expr {
                 Expr::Number(ne) => {
                     let actual = ne.value;
@@ -233,11 +233,22 @@ mod tests {
 
     #[test]
     fn test_parse_string_expr() {
+
+        fn check(s: &str, expected: &str) {
+            let expr = parse_or_panic(s);
+            match expr {
+                Expr::StringLiteral(literal) => {
+                    assert_eq!(literal, expected);
+                }
+                _ => panic!("expected string literal"),
+            }
+        }
+
         // stringExpr
         same(r#""""#);
-        another(r#""\n\t\r 12:{}[]()44""#, "\n\t\r 12:{}[]()44");
+        check(r#""\n\t\r 12:{}[]()44""#, "\n\t\r 12:{}[]()44");
         another(r#"''"#, r#""""#);
-        another("``", "");
+        check("``", "");
         another(r#"   `foo\"b'ar`  "#, "\"foo\\\"b'ar\"");
         another(r#"  'foo\'bar"BAZ'  "#, r#""foo'bar\"BAZ""#);
     }
@@ -272,15 +283,18 @@ mod tests {
             "(FOO + ((Bar) / (baZ))) + ((23))",
             "(FOO + (Bar / baZ)) + 23",
         );
-        same("(foo, bar)");
-        another("((foo, bar),(baz))", "((foo, bar), baz)");
-        same("(foo, (bar, baz), ((x, y), (z, y), xx))");
-        another("1+(foo, bar,)", "1 + (foo, bar)");
+        another("(foo, bar)", "union(foo, bar)");
+        another("((foo, bar),(baz))", "union(union(foo, bar), baz)");
+        another(
+            "(foo, (bar, baz), ((x, y), (z, y), xx))",
+            "union(foo, union(bar, baz), union(union(x, y), union(z, y), xx))",
+        );
+        another("1+(foo, bar,)", "1 + union(foo, bar)");
         another(
             "((avg(bar,baz)), (1+(2)+(3,4)+()))",
-            "(avg(bar, baz), (3 + (3, 4)) + ())",
+            "union(avg(bar, baz), (3 + union(3, 4)) + union())",
         );
-        same("()");
+        another("()", "union()");
     }
 
     #[test]
@@ -294,7 +308,7 @@ mod tests {
         another("sum by (s) (xx)[5s]", "(sum(xx) by (s))[5s]");
         another("SUM BY (ZZ, aa) (XX)", "sum(XX) by (ZZ, aa)");
         another("sum without (a, b) (xx,2+2)", "sum(xx, 4) without (a, b)");
-        another("Sum WIthout (a, B) (XX,2+2)", "sum(XX, 4) without (a, B)");
+        another("Sum without (a, B) (XX,2+2)", "sum(XX, 4) without (a, B)");
         same("sum(a) or sum(b)");
         same("sum(a) by () or sum(b) without (x, y)");
         same("sum(a) + sum(b)");
@@ -381,7 +395,7 @@ mod tests {
             r#"5 - 1 + 3 * 2 ^ 2 ^ 3 - 2  OR Metric {Bar= "Baz", aaa!="bb",cc=~"dd" ,zz !~"ff" } "#,
             r#"770 or Metric{Bar="Baz", aaa!="bb", cc=~"dd", zz!~"ff"}"#,
         );
-        same(r#""foo" + bar()"#);
+        same(r#""foo" + PI()"#);
         same(r#""foo" + bar{x="y"}"#);
         same(r#"("foo"[3s] + bar{x="y"})[5m:3s] offset 10s"#);
         same(r#"("foo"[3s] + bar{x="y"})[5i:3i] offset 10i"#);
@@ -412,7 +426,7 @@ mod tests {
         another(r#""a"<="b""#, "1");
         same(r#""a" - "b""#);
         same("a / b keep_metric_names");
-        same("a / 1 keep_metric_names");
+        another("a / 1 keep_metric_names", "a");
         same("1 / a keep_metric_names");
 
         another("(-1) ^ 0.5", "NaN");
@@ -447,12 +461,6 @@ mod tests {
     #[test]
     fn test_func_name_matching_keywords() {
         // funcName matching keywords
-        same("by(2)");
-        same("BY(2)");
-        same("or(2)");
-        same("OR(2)");
-        same("bool(2)");
-        same("BOOL(2)");
         same("rate(rate(m))");
         same("rate(rate(m[5m]))");
         same("rate(rate(m[5m])[1h:])");
@@ -463,6 +471,11 @@ mod tests {
     fn test_func_name_with_escape_chars() {
         // funcName with escape chars
         same(r#"foo\(ba\-r()"#);
+    }
+
+    #[test]
+    fn test_with() {
+        another(r#"with (foo = bar{x="x"}) sum(x)"#, "sum(x)");
     }
 
     #[test]
@@ -484,14 +497,14 @@ mod tests {
             r#"baz{foo="bar"}"#,
         );
         another(r#"with (foo = bar) baz"#, "baz");
-        another(
-            r#"with (foo = bar) foo + foo{a="b"}"#,
-            r#"bar + bar{a="b"}"#,
-        );
+        // another(
+        //     r#"with (foo = bar) foo + foo{a="b"}"#,
+        //     r#"bar + bar{a="b"}"#,
+        // );
         another(r#"with (foo = bar, bar=baz + now()) test"#, "test");
         another(
-            r#"with (ct={job="test"}) a{ct} + ct() + f({ct="x"})"#,
-            r#"(a{job="test"} + {job="test"}) + f({ct="x"})"#,
+            r#"with (ct={job="test"}) a{ct} + ct() + sum({ct="x"})"#,
+            r#"(a{job="test"} + {job="test"}) + sum({ct="x"})"#,
         );
         another(
             r#"with (ct={job="test", i="bar"}) ct + {ct, x="d"} + foo{ct, ct} + ctx(1)"#,

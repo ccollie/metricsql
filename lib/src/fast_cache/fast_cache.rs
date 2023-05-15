@@ -1,5 +1,5 @@
 use crate::{get_pooled_buffer, IntMap};
-use std::collections::{HashSet};
+use std::collections::HashSet;
 use std::mem::size_of;
 
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -38,11 +38,11 @@ const MAX_SUB_VALUE_LEN: usize = CHUNK_SIZE - 16 - 4 - 1;
 /// MAX_KEY_LEN is the maximum size of key.
 ///
 /// - 16 bytes are for (hash + value_len)
-/// - 4 bytes are for key.len()+len(sub key)
+/// - 4 bytes are for encoding key.len()+sub_key.len()
 /// - 1 byte is implementation detail of FastCache
 const MAX_KEY_LEN: usize = CHUNK_SIZE - 16 - 4 - 1;
 
-// const BIG_CACHE_SIZE_MIN: usize = 32 * 1024 * 1024;
+const BIG_CACHE_SIZE_MIN: usize = 32 * 1024 * 1024;
 const SMALL_CACHE_SIZE_MIN: usize = 4 * 1024 * 1024;
 
 /// Stats represents cache stats.
@@ -167,12 +167,12 @@ impl BigStats {
     }
 }
 
-/// Cache is a fast thread-safe in-memory cache optimized for big number
+/// FastCache is a fast thread-safe in-memory cache optimized for big number
 /// of entries.
 ///
 /// It has much lower impact on alloc/fragmentation comparing to a simple `HashMap<str,[u8]>`.
 ///
-/// Multiple threads may call any Cache methods on the same cache instance.
+/// Multiple threads may call any methods on the same cache instance.
 ///
 /// Call reset when the cache is no longer needed. This reclaims the allocated
 /// memory.
@@ -181,12 +181,12 @@ pub struct FastCache {
     big_stats: BigStats,
 }
 
-/// New returns new cache with the given maxBytes capacity in bytes.
+/// new() returns new cache with the given maxBytes capacity in bytes.
 ///
 /// max_bytes must be smaller than the available RAM size for the app,
 /// since the cache holds data in memory.
 ///
-/// If maxBytes is less than MIN_CACHE_SIZE, then the minimum cache capacity is MIN_CACHE_SIZE.
+/// If max_bytes is less than MIN_CACHE_SIZE, then the minimum cache capacity is MIN_CACHE_SIZE.
 impl FastCache {
     pub fn new(max_bytes: usize) -> Self {
         let max_bytes = {
@@ -273,7 +273,7 @@ impl FastCache {
 
     /// get appends value by the key k to dst and returns the result.
     ///
-    /// Get returns only values stored via `set`.
+    /// get returns only values stored via `set`.
     pub fn get(&self, k: &[u8], dst: &mut Vec<u8>) -> bool {
         let h = xxh3_64(k);
         let bucket = self._get_bucket(h);
@@ -283,7 +283,7 @@ impl FastCache {
     /// Searches for the value for the given k, appends it to dst
     /// and returns the result.
     ///
-    /// Returns only values stored via SetBig. It doesn't work
+    /// Returns only values stored via set_big(). It doesn't work
     /// with values stored via other methods.
     ///
     /// k contents may be modified after returning from get_big.
@@ -349,14 +349,14 @@ impl FastCache {
         true
     }
 
-    /// Has returns true if entry for the given key k exists in the cache.
+    /// has returns true if entry for the given key k exists in the cache.
     pub fn has(&self, k: &[u8]) -> bool {
         let h = xxh3_64(k);
         let bucket = self._get_bucket(h);
         bucket.has(k, h)
     }
 
-    /// UpdateStats adds cache stats to s.
+    /// update_stats adds cache stats to s.
     ///
     /// call s.reset() before calling update_stats if s is re-used.
     pub fn update_stats(&self, s: &mut Stats) {
@@ -390,7 +390,7 @@ impl FastCache {
         self.big_stats.reset();
     }
 
-    // Del deletes value for the given k from the cache.
+    // del deletes value for the given k from the cache.
     //
     // k contents may be modified after returning from Del.
     pub fn del(&self, k: &[u8]) {

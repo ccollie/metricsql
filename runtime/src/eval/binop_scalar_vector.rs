@@ -1,10 +1,10 @@
-use std::sync::Arc;
-use metricsql::ast::Expr;
-use metricsql::binaryop::{BinopFunc, get_scalar_binop_handler};
-use metricsql::common::{Operator, Value, ValueType};
-use metricsql::functions::Volatility;
 use crate::eval::{create_evaluator, Evaluator, ExprEvaluator};
 use crate::{Context, EvalConfig, QueryValue, RuntimeError, RuntimeResult};
+use metricsql::ast::Expr;
+use metricsql::binaryop::{get_scalar_binop_handler, BinopFunc};
+use metricsql::common::{Operator, Value, ValueType};
+use metricsql::functions::Volatility;
+use std::sync::Arc;
 
 /// BinaryEvaluatorScalarVector
 /// Ex:
@@ -15,7 +15,7 @@ pub struct BinaryEvaluatorScalarVector {
     lhs: Box<ExprEvaluator>,
     rhs: Box<ExprEvaluator>,
     keep_metric_names: bool,
-    handler: BinopFunc
+    handler: BinopFunc,
 }
 
 impl BinaryEvaluatorScalarVector {
@@ -24,7 +24,7 @@ impl BinaryEvaluatorScalarVector {
         left: &Expr,
         right: &Expr,
         bool_modifier: bool,
-        keep_metric_names: bool
+        keep_metric_names: bool,
     ) -> RuntimeResult<Self> {
         debug_assert!(right.return_type() == ValueType::InstantVector);
 
@@ -37,7 +37,7 @@ impl BinaryEvaluatorScalarVector {
             lhs,
             rhs,
             keep_metric_names,
-            handler
+            handler,
         })
     }
 }
@@ -66,9 +66,13 @@ impl Evaluator for BinaryEvaluatorScalarVector {
                 }
                 Ok(InstantVector(std::mem::take(&mut vector)))
             }
-            _=> {
-                let msg = format!("Invalid argument type for binary operation: {} {} {}",
-                                  self.lhs.return_type(), self.op, self.rhs.return_type());
+            _ => {
+                let msg = format!(
+                    "Invalid argument type for binary operation: {} {} {}",
+                    self.lhs.return_type(),
+                    self.op,
+                    self.rhs.return_type()
+                );
                 Err(RuntimeError::ArgumentError(msg))
             }
         }

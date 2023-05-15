@@ -116,7 +116,6 @@ pub(crate) fn exec_internal(
     }
 }
 
-
 /// executes q for the given config.
 pub fn exec(
     context: &Arc<Context>,
@@ -192,6 +191,7 @@ pub(crate) fn timeseries_to_result(
             continue;
         }
 
+        // todo: use hash
         let key = ts.metric_name.to_string();
 
         if m.contains(&key) {

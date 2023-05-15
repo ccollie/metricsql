@@ -1,8 +1,8 @@
-use metricsql::ast::NumberExpr;
-use metricsql::functions::{Volatility};
-use std::sync::Arc;
+use metricsql::ast::NumberLiteral;
 use metricsql::common::Value;
+use metricsql::functions::Volatility;
 use metricsql::prelude::ValueType;
+use std::sync::Arc;
 
 use crate::context::Context;
 use crate::eval::traits::Evaluator;
@@ -13,7 +13,7 @@ use crate::{EvalConfig, QueryValue};
 pub struct ScalarEvaluator(f64);
 
 impl ScalarEvaluator {
-    pub fn new(expr: &NumberExpr) -> Self {
+    pub fn new(expr: &NumberLiteral) -> Self {
         Self(expr.value)
     }
 }

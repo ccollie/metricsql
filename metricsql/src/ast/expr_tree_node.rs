@@ -17,38 +17,31 @@
 
 //! Tree node implementation for logical expr
 
-use crate::common::{TreeNode, VisitRecursion};
 use crate::ast::{
-    AggregationExpr,
-    BExpression,
-    BinaryExpr,
-    Expr,
-    FunctionExpr,
-    ParensExpr,
-    RollupExpr,
-    WithArgExpr,
-    WithExpr
+    AggregationExpr, BExpression, BinaryExpr, Expr, FunctionExpr, ParensExpr, RollupExpr,
+    WithArgExpr, WithExpr,
 };
+use crate::common::{TreeNode, VisitRecursion};
 use crate::parser::ParseResult;
 
 pub type Result<T> = ParseResult<T>;
 
 impl TreeNode for Expr {
     fn apply_children<F>(&self, op: &mut F) -> Result<VisitRecursion>
-        where
-            F: FnMut(&Self) -> Result<VisitRecursion>,
+    where
+        F: FnMut(&Self) -> Result<VisitRecursion>,
     {
         let children = match self {
-            Expr::StringLiteral(_) |
-            Expr::StringExpr(_) |
-            Expr::Number(_) |
-            Expr::MetricExpression(_) |
-            Expr::Duration(_) => vec![],
+            Expr::StringLiteral(_)
+            | Expr::StringExpr(_)
+            | Expr::Number(_)
+            | Expr::MetricExpression(_)
+            | Expr::Duration(_) => vec![],
             Expr::BinaryOperator(BinaryExpr { left, right, .. }) => {
                 vec![left.as_ref().clone(), right.as_ref().clone()]
             }
             Expr::Aggregation(AggregationExpr { args, .. })
-            | Expr::Function(FunctionExpr{ args, .. }) => {
+            | Expr::Function(FunctionExpr { args, .. }) => {
                 let expr_vec = args.clone();
                 expr_vec
             }
@@ -83,21 +76,21 @@ impl TreeNode for Expr {
     }
 
     fn map_children<F>(self, transform: F) -> Result<Self>
-        where
-            F: FnMut(Self) -> Result<Self>,
+    where
+        F: FnMut(Self) -> Result<Self>,
     {
         let mut transform = transform;
 
         // recurse into all sub expressions(and cover all expression types)
         let expr = match self {
             Expr::Aggregation(AggregationExpr {
-                                        name,
-                                        args,
-                                        modifier,
-                                        limit,
-                                        keep_metric_names,
-                                        arg_idx_for_optimization,
-                                    }) => Expr::Aggregation(AggregationExpr {
+                name,
+                args,
+                modifier,
+                limit,
+                keep_metric_names,
+                arg_idx_for_optimization,
+            }) => Expr::Aggregation(AggregationExpr {
                 name,
                 args: transform_vec(args, &mut transform)?,
                 modifier,
@@ -106,15 +99,15 @@ impl TreeNode for Expr {
                 arg_idx_for_optimization,
             }),
             Expr::BinaryOperator(BinaryExpr {
-                                           group_modifier,
-                                           join_modifier,
-                                           left,
-                                           op,
-                                           right,
-                                           bool_modifier,
-                                           modifier,
-                                           keep_metric_names
-                                       }) => Expr::BinaryOperator(BinaryExpr {
+                group_modifier,
+                join_modifier,
+                left,
+                op,
+                right,
+                bool_modifier,
+                modifier,
+                keep_metric_names,
+            }) => Expr::BinaryOperator(BinaryExpr {
                 left: transform_boxed(left, &mut transform)?,
                 op,
                 bool_modifier,
@@ -122,33 +115,35 @@ impl TreeNode for Expr {
                 right: transform_boxed(right, &mut transform)?,
                 join_modifier,
                 modifier,
-                keep_metric_names
+                keep_metric_names,
             }),
             Expr::Duration(_) => self.clone(),
             Expr::Function(FunctionExpr {
-                                     name,
-                                     args,
-                                     keep_metric_names,
-                                     is_scalar,
-                                     arg_idx_for_optimization,
-                                     return_type,
-                                 }) => Expr::Function(FunctionExpr {
+                name,
+                args,
+                keep_metric_names,
+                is_scalar,
+                arg_idx_for_optimization,
+                function_type,
+                return_type,
+            }) => Expr::Function(FunctionExpr {
                 name,
                 args: transform_vec(args, &mut transform)?,
                 keep_metric_names,
                 is_scalar,
                 arg_idx_for_optimization,
+                function_type,
                 return_type,
             }),
             Expr::Number(_) => self.clone(),
             Expr::Rollup(RollupExpr {
-                                   expr,
-                                   window,
-                                   step,
-                                   offset,
-                                   inherit_step,
-                                   at,
-                               }) => Expr::Rollup(RollupExpr {
+                expr,
+                window,
+                step,
+                offset,
+                inherit_step,
+                at,
+            }) => Expr::Rollup(RollupExpr {
                 expr: transform_boxed(expr, &mut transform)?,
                 window,
                 step,
@@ -168,7 +163,7 @@ impl TreeNode for Expr {
                         name: wa.name.clone(),
                         args: wa.args.clone(),
                         expr: transform(wa.expr)?,
-                        is_function: wa.is_function,
+                        token_range: wa.token_range,
                     };
                     was.push(new_wa);
                 }
@@ -177,7 +172,7 @@ impl TreeNode for Expr {
                     expr: Box::new(transform(*w.expr)?),
                 };
                 Expr::With(with)
-            },
+            }
         };
 
         Ok(expr)
@@ -186,8 +181,8 @@ impl TreeNode for Expr {
 
 #[allow(clippy::boxed_local)]
 fn transform_boxed<F>(boxed_expr: Box<Expr>, transform: &mut F) -> Result<BExpression>
-    where
-        F: FnMut(Expr) -> Result<Expr>,
+where
+    F: FnMut(Expr) -> Result<Expr>,
 {
     // TODO:
     // It might be possible to avoid an allocation (the Box::new) below by reusing the box.
@@ -200,8 +195,8 @@ fn transform_option_box<F>(
     option_box: Option<BExpression>,
     transform: &mut F,
 ) -> Result<Option<BExpression>>
-    where
-        F: FnMut(Expr) -> Result<Expr>,
+where
+    F: FnMut(Expr) -> Result<Expr>,
 {
     option_box
         .map(|expr| transform_boxed(expr, transform))
@@ -210,8 +205,8 @@ fn transform_option_box<F>(
 
 /// &mut transform a `Vec` of `Expr`s
 fn transform_vec<F>(v: Vec<Expr>, transform: &mut F) -> Result<Vec<Expr>>
-    where
-        F: FnMut(Expr) -> Result<Expr>,
+where
+    F: FnMut(Expr) -> Result<Expr>,
 {
     v.into_iter().map(transform).collect()
 }

@@ -459,7 +459,11 @@ impl TransformFunction {
                 Volatility::Immutable,
             ),
             Clamp => Signature::exact(
-                vec![ValueType::InstantVector, ValueType::Scalar, ValueType::Scalar],
+                vec![
+                    ValueType::InstantVector,
+                    ValueType::Scalar,
+                    ValueType::Scalar,
+                ],
                 Volatility::Volatile,
             ),
             ClampMax | ClampMin => Signature::exact(
@@ -484,8 +488,8 @@ impl TransformFunction {
                 vec![ValueType::Scalar, ValueType::InstantVector],
                 Volatility::Stable,
             ),
-            LabelCopy | LabelDel | LabelJoin | LabelKeep | LabelLowercase |
-            LabelMap | LabelMatch | LabelMove | LabelSet => {
+            LabelCopy | LabelDel | LabelJoin | LabelKeep | LabelLowercase | LabelMap
+            | LabelMatch | LabelMove | LabelSet => {
                 let mut types = vec![ValueType::String; MAX_ARG_COUNT];
                 types.insert(0, ValueType::InstantVector);
                 Signature::exact(types, Volatility::Stable)
@@ -526,7 +530,11 @@ impl TransformFunction {
                 Volatility::Stable,
             ),
             LimitOffset => Signature::exact(
-                vec![ValueType::Scalar, ValueType::Scalar, ValueType::InstantVector],
+                vec![
+                    ValueType::Scalar,
+                    ValueType::Scalar,
+                    ValueType::InstantVector,
+                ],
                 Volatility::Stable,
             ),
             Now => Signature::exact(vec![], Volatility::Stable),
@@ -579,9 +587,9 @@ impl TransformFunction {
 
     pub fn return_type(&self) -> ValueType {
         match self {
-            TransformFunction::Time |
-            TransformFunction::Pi |
-            TransformFunction::Now => ValueType::Scalar,
+            TransformFunction::Time | TransformFunction::Pi | TransformFunction::Now => {
+                ValueType::Scalar
+            }
             _ => ValueType::InstantVector,
         }
     }

@@ -1,9 +1,9 @@
-use std::sync::Arc;
-use metricsql::ast::Expr;
-use metricsql::binaryop::{BinopFunc, get_scalar_binop_handler};
-use metricsql::common::{Operator, Value, ValueType};
 use crate::eval::{create_evaluator, Evaluator, ExprEvaluator};
 use crate::{Context, EvalConfig, QueryValue, RuntimeResult};
+use metricsql::ast::Expr;
+use metricsql::binaryop::{get_scalar_binop_handler, BinopFunc};
+use metricsql::common::{Operator, Value, ValueType};
+use std::sync::Arc;
 
 /// BinaryEvaluatorScalarScalar
 /// Ex:
@@ -19,13 +19,23 @@ pub struct BinaryEvaluatorScalarScalar {
 }
 
 impl BinaryEvaluatorScalarScalar {
-    pub(crate) fn new(op: Operator, left: &Expr, right: &Expr, is_bool: bool) -> RuntimeResult<Self> {
+    pub(crate) fn new(
+        op: Operator,
+        left: &Expr,
+        right: &Expr,
+        is_bool: bool,
+    ) -> RuntimeResult<Self> {
         debug_assert!(left.return_type() == ValueType::Scalar);
         debug_assert!(right.return_type() == ValueType::Scalar);
         let lhs = Box::new(create_evaluator(left)?);
         let rhs = Box::new(create_evaluator(right)?);
         let handler = get_scalar_binop_handler(op, is_bool);
-        Ok(Self { op, lhs, rhs, handler })
+        Ok(Self {
+            op,
+            lhs,
+            rhs,
+            handler,
+        })
     }
 }
 

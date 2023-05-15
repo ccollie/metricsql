@@ -1,4 +1,3 @@
-
 use crate::{QueryValue, Timeseries};
 
 pub(crate) fn series_len(val: &QueryValue) -> usize {

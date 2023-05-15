@@ -12,6 +12,7 @@
 // limitations under the License.
 
 use crate::{MetricName, RuntimeResult};
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::task::Context;
@@ -78,9 +79,9 @@ impl Appender for NoopAppender {
 
 #[derive(Clone, Debug, Default)]
 pub struct Sample {
-    metric: MetricName,
-    t: i64,
-    v: f64,
+    pub metric: MetricName,
+    pub t: i64,
+    pub v: f64,
 }
 
 impl Sample {
@@ -102,6 +103,24 @@ impl Sample {
             t,
             v,
         }
+    }
+}
+
+impl PartialEq<Sample> for Sample {
+    fn eq(&self, other: &Sample) -> bool {
+        self.t == other.t
+            && (self.v == other.v || self.v.is_nan() && other.v.is_nan())
+            && self.metric == other.metric
+    }
+}
+
+impl PartialOrd<Sample> for Sample {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        let val = self.t.cmp(&other.t);
+        if val != Ordering::Equal {
+            return Some(val);
+        }
+        self.metric.partial_cmp(&other.metric)
     }
 }
 

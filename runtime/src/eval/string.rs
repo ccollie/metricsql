@@ -1,6 +1,6 @@
-use metricsql::functions::{Volatility};
-use std::sync::Arc;
 use metricsql::common::{Value, ValueType};
+use metricsql::functions::Volatility;
+use std::sync::Arc;
 
 use crate::context::Context;
 use crate::eval::traits::Evaluator;

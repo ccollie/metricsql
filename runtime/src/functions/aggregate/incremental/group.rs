@@ -1,7 +1,7 @@
-use super::count::{merge_count, update_count};
 use super::context::{IncrementalAggrContext, IncrementalAggrHandler};
+use super::count::{merge_count, update_count};
 
-pub struct IncrementalAggrGroup{}
+pub struct IncrementalAggrGroup {}
 
 impl IncrementalAggrHandler for IncrementalAggrGroup {
     fn update(&self, iac: &mut IncrementalAggrContext, values: &[f64]) {

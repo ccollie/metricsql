@@ -1,20 +1,21 @@
+use crate::parser::{ParseError, ParseResult};
+use crate::prelude::syntax_error;
 use logos::{Lexer, Logos};
 use std::fmt::{Display, Formatter};
-use crate::parser::{
-    ParseResult,
-    ParseError
-};
-use crate::prelude::syntax_error;
 
 fn unterminated_string_literal(_: &mut Lexer<Token>) -> ParseResult<()> {
-    return Err(ParseError::SyntaxError("unterminated string literal".to_string()));
+    return Err(ParseError::SyntaxError(
+        "unterminated string literal".to_string(),
+    ));
 }
 
 fn invalid_number(lex: &mut Lexer<Token>) -> ParseResult<()> {
     let span = lex.span();
-    Err(syntax_error(format!("Invalid number: \"{}\"", lex.slice()).as_str(),
-                     &span,
-                     "".to_string()))
+    Err(syntax_error(
+        format!("Invalid number: \"{}\"", lex.slice()).as_str(),
+        &span,
+        "".to_string(),
+    ))
 }
 
 #[derive(Logos, Debug, PartialEq, Clone, Copy)]
@@ -26,7 +27,7 @@ fn invalid_number(lex: &mut Lexer<Token>) -> ParseResult<()> {
 #[logos(subpattern float = r"-?(?:([0-9]*[.])?[0-9]+)(?:[eE][+-]?\d+)?")]
 #[logos(subpattern duration = r"-?(?:([0-9]*[.])?[0-9]+)(ms|s|m|h|d|w|y|i)")]
 #[logos(skip r"[ \t\n\f]+")]
-#[logos(skip r"#[^\r\n]*(\r\n|\n)?")]  // single line comment
+#[logos(skip r"#[^\r\n]*(\r\n|\n)?")] // single line comment
 pub enum Token {
     #[token("and", ignore(ascii_case))]
     OpAnd,
@@ -187,11 +188,10 @@ pub enum Token {
     ErrorInvalidNumber,
 
     /// Marker for end of stream.
-    Eof
+    Eof,
 }
 
 impl Token {
-
     pub fn is_operator(&self) -> bool {
         use Token::*;
 
@@ -353,13 +353,13 @@ impl Display for Token {
 
 #[cfg(test)]
 mod tests {
+    use super::Token;
+    use super::Token::*;
     use logos::source::Source;
     use logos::Logos;
-    use super::{Token::*};
-    use test_case::test_case;
     use std::fmt;
     use std::ops::Range;
-    use super::Token as Token;
+    use test_case::test_case;
 
     pub fn assert_lex<'a, Token>(
         source: &'a Token::Source,
@@ -383,7 +383,6 @@ mod tests {
 
         assert_eq!(lex.next(), None);
     }
-
 
     macro_rules! test_tokens {
     ($src:expr, [$(
@@ -737,7 +736,8 @@ mod tests {
         // fn call
         let s = r#"sum  (  metric{x="y"  }  [5m] offset 10h)"#;
         let expected = vec![
-            "sum", "(", "metric", "{", "x", "=", r#""y""#, "}", "[", "5m", "]", "offset", "10h", ")",
+            "sum", "(", "metric", "{", "x", "=", r#""y""#, "}", "[", "5m", "]", "offset", "10h",
+            ")",
         ];
         test_success(s, &expected);
     }
@@ -798,17 +798,26 @@ mod tests {
                 }
                 Err(e) => {
                     panic!("unexpected error {:?}\n {}", e, lexer.slice())
-                },
+                }
             }
         }
 
-        assert_eq!(tokens.len(), expected_tokens.len(), "expected {:?} tokens, got {:?}",
-                   expected_tokens.len(), tokens.len());
+        assert_eq!(
+            tokens.len(),
+            expected_tokens.len(),
+            "expected {:?} tokens, got {:?}",
+            expected_tokens.len(),
+            tokens.len()
+        );
 
         for i in 0..tokens.len() {
             let actual = tokens[i];
             let expected = expected_tokens[i];
-            assert_eq!(actual, expected, "expected {:?} at index {}, got {:?}", expected, i, actual);
+            assert_eq!(
+                actual, expected,
+                "expected {:?} at index {}, got {:?}",
+                expected, i, actual
+            );
         }
     }
 }

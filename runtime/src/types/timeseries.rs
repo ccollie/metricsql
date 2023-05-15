@@ -7,7 +7,7 @@ use integer_encoding::VarInt;
 
 use lib::{marshal_var_int, unmarshal_uint16};
 
-use super::{MetricName};
+use super::MetricName;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 
 #[derive(Default, Debug, Clone, PartialEq)]

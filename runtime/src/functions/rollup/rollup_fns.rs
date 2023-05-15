@@ -6,8 +6,8 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use lib::{get_float64s, is_stale_nan};
-use metricsql::functions::{can_adjust_window, RollupFunction};
 use metricsql::ast::{Expr, FunctionExpr};
+use metricsql::functions::{can_adjust_window, RollupFunction};
 
 use crate::eval::validate_max_points_per_timeseries;
 use crate::functions::rollup::types::RollupHandlerFactory;
@@ -16,9 +16,9 @@ use crate::functions::rollup::{
 };
 use crate::functions::types::{get_scalar_param_value, get_string_param_value};
 use crate::functions::{mode_no_nans, quantile, quantiles};
+use crate::get_timestamps;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::types::{get_timeseries, Timestamp};
-use crate::{get_timestamps};
 use crate::QueryValue;
 
 use super::timeseries_map::TimeseriesMap;
@@ -354,7 +354,6 @@ pub(crate) fn rollup_func_keeps_metric_name(name: &str) -> bool {
 
 // todo: use in optimize so its cached in the ast
 pub(crate) fn get_rollup_aggr_funcs(expr: &Expr) -> RuntimeResult<Vec<RollupFunction>> {
-
     fn raise_err(expr: &Expr) -> RuntimeResult<Vec<RollupFunction>> {
         let msg = format!(
             "BUG: unexpected expression; want FunctionExpr; got {}; value: {}",
@@ -429,23 +428,33 @@ fn get_rollup_tag(expr: &Expr) -> RuntimeResult<Option<&String>> {
             return Ok(None);
         }
         if fe.args.len() != 2 {
-            let msg = format!("unexpected number of args for rollup function {}; got {:?}; want {}",
-                              fe.name, fe.args, 2);
+            let msg = format!(
+                "unexpected number of args for rollup function {}; got {:?}; want {}",
+                fe.name, fe.args, 2
+            );
             return Err(RuntimeError::General(msg));
         }
         let arg = &fe.args[1];
         if let Expr::StringLiteral(se) = arg {
             if se.is_empty() {
-                return Err(RuntimeError::ArgumentError("unexpected empty rollup tag value".to_string()));
+                return Err(RuntimeError::ArgumentError(
+                    "unexpected empty rollup tag value".to_string(),
+                ));
             }
             Ok(Some(se))
         } else {
-            Err(RuntimeError::ArgumentError(format!("unexpected rollup tag value {}; wanted min, max or avg", arg)))
+            Err(RuntimeError::ArgumentError(format!(
+                "unexpected rollup tag value {}; wanted min, max or avg",
+                arg
+            )))
         }
     } else {
-        let msg = format!("BUG: unexpected expression; want FunctionExpr; got {};", expr);
+        let msg = format!(
+            "BUG: unexpected expression; want FunctionExpr; got {};",
+            expr
+        );
         Err(RuntimeError::ArgumentError(msg))
-    }
+    };
 }
 
 pub(crate) type PreFunction = fn(&mut [f64], &[i64]) -> ();
@@ -546,7 +555,10 @@ pub(crate) fn get_rollup_configs<'a>(
                 "max" => dst.push(new_rollup_config(&FN_MAX, "max")),
                 "avg" => dst.push(new_rollup_config(&FN_AVG, "avg")),
                 _ => {
-                    let msg = format!("unexpected rollup tag value {}; wanted min, max or avg", tag);
+                    let msg = format!(
+                        "unexpected rollup tag value {}; wanted min, max or avg",
+                        tag
+                    );
                     return Err(RuntimeError::ArgumentError(msg));
                 }
             }
@@ -563,7 +575,7 @@ pub(crate) fn get_rollup_configs<'a>(
     match func {
         RollupFunction::Rollup => {
             append_rollup_configs(&mut rcs, expr)?;
-        },
+        }
         RollupFunction::RollupRate | RollupFunction::RollupDeriv => {
             pre_funcs.push(deriv_values);
             append_rollup_configs(&mut rcs, expr)?;
@@ -581,7 +593,10 @@ pub(crate) fn get_rollup_configs<'a>(
                     "low" => rcs.push(new_rollup_config(&FN_LOW, "low")),
                     "high" => rcs.push(new_rollup_config(&FN_HIGH, "high")),
                     _ => {
-                        let msg = format!("unexpected rollup tag value {}; wanted open, close, low or high", tag);
+                        let msg = format!(
+                            "unexpected rollup tag value {}; wanted open, close, low or high",
+                            tag
+                        );
                         return Err(RuntimeError::ArgumentError(msg));
                     }
                 }

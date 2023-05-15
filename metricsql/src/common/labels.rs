@@ -13,6 +13,7 @@
 
 use std::collections::HashMap;
 use xxhash_rust::xxh3::Xxh3;
+use tinyvec::*;
 
 
 /// Well-known label names used by Prometheus components.
@@ -78,14 +79,7 @@ impl Labels {
     }
     
     pub fn sort(&mut self) -> Self {
-        self.0.sort_by(|a, b| {
-            let res = a.name.cmp(b.name);
-            if res == Ordering::Equal {
-                a.value.cmp(b.value)
-            } else {
-                res
-            }
-        });
+        self.0.sort();
         self
     }
 

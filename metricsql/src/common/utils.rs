@@ -13,9 +13,8 @@ pub(crate) fn format_num(f: &mut Formatter<'_>, value: f64) -> fmt::Result {
     }
 }
 
-
 pub(crate) fn write_list<T: Display>(
-    values: impl Iterator<Item=T>,
+    values: impl Iterator<Item = T>,
     f: &mut Formatter,
     use_parens: bool,
 ) -> Result<(), fmt::Error> {

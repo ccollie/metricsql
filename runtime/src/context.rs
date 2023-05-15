@@ -93,7 +93,7 @@ pub struct SessionConfig {
     /// should we log query stats
     pub stats_enabled: bool,
 
-    /// Whether to disable response caching. This may be useful during data backfilling"
+    /// Whether to disable response caching. This may be useful during data back filling"
     pub disable_cache: bool,
 
     /// Whether query tracing is enabled.
@@ -108,7 +108,7 @@ pub struct SessionConfig {
 
     /// The maximum amount of memory a single query may consume. Queries requiring more memory are
     /// rejected. The total memory limit for concurrently executed queries can be estimated as
-    /// -search.maxMemoryPerQuery multiplied by -search.maxConcurrentQueries
+    /// max_memory_per_query multiplied by -search.maxConcurrentQueries
     pub max_memory_per_query: usize,
 
     /// Set this flag to true if the database doesn't contain Prometheus stale markers, so there is
@@ -136,7 +136,7 @@ pub struct SessionConfig {
     pub max_unique_timeseries: usize,
 
     /// Synonym to -search.lookback-delta from Prometheus.
-    /// The value is dynamically detected from interval between time series datapoints if not set.
+    /// The value is dynamically detected from interval between time series data-points if not set.
     /// It can be overridden on per-query basis via max_lookback arg.
     /// See also 'max_staleness_interval' flag, which has the same meaning due to historical reasons"
     pub max_lookback: Duration,

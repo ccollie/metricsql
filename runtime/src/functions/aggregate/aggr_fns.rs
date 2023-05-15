@@ -562,32 +562,31 @@ fn aggr_func_mode(tss: &mut Vec<Timeseries>) {
 fn aggr_func_share(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut tss = get_aggr_timeseries(&afa.args)?;
 
-    let afe =
-        |tss: &mut Vec<Timeseries>, _: &Option<AggregateModifier>| -> Vec<Timeseries> {
-            for i in 0..tss[0].values.len() {
-                // Calculate sum for non-negative points at position i.
-                let mut sum: f64 = 0.0;
-                for ts in tss.iter() {
-                    // todo(perf): how to eliminate bounds check ?
-                    let v = ts.values[i];
-                    if v.is_nan() || v < 0.0 {
-                        continue;
-                    }
-                    sum += v;
+    let afe = |tss: &mut Vec<Timeseries>, _: &Option<AggregateModifier>| -> Vec<Timeseries> {
+        for i in 0..tss[0].values.len() {
+            // Calculate sum for non-negative points at position i.
+            let mut sum: f64 = 0.0;
+            for ts in tss.iter() {
+                // todo(perf): how to eliminate bounds check ?
+                let v = ts.values[i];
+                if v.is_nan() || v < 0.0 {
+                    continue;
                 }
-                // Divide every non-negative value at position i by sum in order to get its' share.
-                for ts in tss.iter_mut() {
-                    let v = ts.values[i];
-                    ts.values[i] = if v.is_nan() || v < 0.0 {
-                        f64::NAN
-                    } else {
-                        v / sum
-                    }
+                sum += v;
+            }
+            // Divide every non-negative value at position i by sum in order to get its' share.
+            for ts in tss.iter_mut() {
+                let v = ts.values[i];
+                ts.values[i] = if v.is_nan() || v < 0.0 {
+                    f64::NAN
+                } else {
+                    v / sum
                 }
             }
+        }
 
-            std::mem::take(tss)
-        };
+        std::mem::take(tss)
+    };
 
     return aggr_func_ext(afe, &mut tss, &afa.modifier, afa.limit, true);
 }

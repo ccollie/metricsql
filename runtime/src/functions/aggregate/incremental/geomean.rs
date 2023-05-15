@@ -1,6 +1,6 @@
 use super::context::{IncrementalAggrContext, IncrementalAggrHandler};
 
-pub struct IncrementalAggrGeomean{}
+pub struct IncrementalAggrGeomean {}
 
 impl IncrementalAggrHandler for IncrementalAggrGeomean {
     fn update(&self, iac: &mut IncrementalAggrContext, values: &[f64]) {

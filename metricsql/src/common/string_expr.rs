@@ -1,9 +1,9 @@
+use crate::common::ValueType;
+use crate::parser::ParseError;
 use crate::prelude::ParseResult;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::{fmt, ops};
-use crate::common::{ValueType};
-use crate::parser::ParseError;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StringSegment {
@@ -152,8 +152,7 @@ impl StringExpr {
                     } else {
                         let msg = format!(
                             "unknown identifier {:?} in string expression of {:?}",
-                            ident,
-                            self
+                            ident, self
                         );
                         return Err(ParseError::WithExprExpansionError(msg));
                     }
@@ -178,9 +177,9 @@ impl StringExpr {
                 return match first {
                     StringSegment::Literal(lit) => Ok(Some(lit)),
                     _ => Err(ParseError::General(
-                        "BUG: string segment should be all literal".to_string()
+                        "BUG: string segment should be all literal".to_string(),
                     )),
-                }
+                };
             }
         }
         Ok(None)

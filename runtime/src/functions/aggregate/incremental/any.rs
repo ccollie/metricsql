@@ -1,6 +1,6 @@
 use super::context::{IncrementalAggrContext, IncrementalAggrHandler};
 
-pub struct IncrementalAggrAny{}
+pub struct IncrementalAggrAny {}
 
 impl IncrementalAggrHandler for IncrementalAggrAny {
     fn update(&self, iac: &mut IncrementalAggrContext, values: &[f64]) {

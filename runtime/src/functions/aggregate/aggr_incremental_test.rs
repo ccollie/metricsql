@@ -8,9 +8,9 @@ mod tests {
 
     use metricsql::ast::AggregationExpr;
 
-    use crate::functions::aggregate::{ IncrementalAggrFuncContext };
-    use crate::{compare_values, RuntimeError, RuntimeResult, Timeseries};
     use crate::functions::aggregate::incremental::try_get_incremental_aggr_handler;
+    use crate::functions::aggregate::IncrementalAggrFuncContext;
+    use crate::{compare_values, RuntimeError, RuntimeResult, Timeseries};
 
     const NAN: f64 = f64::NAN;
 

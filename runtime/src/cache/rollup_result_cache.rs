@@ -13,8 +13,8 @@ use lib::{
     compress_lz4, decompress_lz4, get_pooled_buffer, marshal_fixed_int, marshal_var_int,
     unmarshal_fixed_int, unmarshal_var_int, AtomicCounter, RelaxedU64Counter,
 };
-use metricsql::common::LabelFilter;
 use metricsql::ast::Expr;
+use metricsql::common::LabelFilter;
 
 use crate::cache::default_result_cache_storage::DefaultResultCacheStorage;
 use crate::cache::traits::RollupResultCacheStorage;
@@ -658,7 +658,9 @@ impl RollupResultCacheMetaInfo {
             // todo: remove panic. return Result instead
             panic!("BUG: start cannot exceed end; got {} vs {}", start, end)
         }
-        self.entries.iter().any(|entry| start >= entry.start && end <= entry.end)
+        self.entries
+            .iter()
+            .any(|entry| start >= entry.start && end <= entry.end)
     }
 
     fn get_best_key(&self, start: i64, end: i64) -> RuntimeResult<RollupResultCacheKey> {

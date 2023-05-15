@@ -15,8 +15,8 @@ use regex::internal::Input;
 use regex::Regex;
 
 use lib::{copysign, fmod, from_float, get_float64s, get_pooled_buffer, isinf, modf};
-use metricsql::functions::TransformFunction;
 use metricsql::ast::{Expr, FunctionExpr};
+use metricsql::functions::TransformFunction;
 use metricsql::parser::compile_regexp;
 
 use crate::chrono_tz::Tz;
@@ -24,11 +24,13 @@ use crate::eval::binop_handlers::merge_non_overlapping_timeseries;
 use crate::eval::{eval_number, eval_time, EvalConfig};
 use crate::functions::rollup::{linear_regression, mad, stddev, stdvar};
 use crate::functions::transform::utils::{get_timezone_offset, ru};
-use crate::functions::utils::{float_to_int_bounded, get_first_non_nan_index, get_last_non_nan_index};
+use crate::functions::utils::{
+    float_to_int_bounded, get_first_non_nan_index, get_last_non_nan_index,
+};
 use crate::functions::{quantile, quantile_sorted};
 use crate::rand_distr::Distribution;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::{remove_empty_series, MetricName, Timeseries, METRIC_NAME_LABEL, QueryValue};
+use crate::{remove_empty_series, MetricName, QueryValue, Timeseries, METRIC_NAME_LABEL};
 
 const INF: f64 = f64::INFINITY;
 const NAN: f64 = f64::NAN;
@@ -342,11 +344,12 @@ fn transform_clamp(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>>
     let maxs = get_scalar(tfa, 2)?;
     // todo: are these guaranteed to be of equal length ?
     let tf = |values: &mut [f64]| {
-        mins.iter().zip(maxs.iter()).zip(values.iter_mut()).for_each(
-            |((min, max), v)| {
+        mins.iter()
+            .zip(maxs.iter())
+            .zip(values.iter_mut())
+            .for_each(|((min, max), v)| {
                 *v = v.clamp(*min, *max);
-            },
-        );
+            });
     };
 
     let mut series = get_series(tfa, 0)?;
@@ -680,7 +683,6 @@ pub(crate) fn vmrange_buckets_to_le(tss: Vec<Timeseries>) -> Vec<Timeseries> {
 
         let mut uniq_ts: HashMap<String, usize> = HashMap::with_capacity(xss.len());
         for mut xs in xss.into_iter() {
-
             if is_zero_ts(&xs.ts) {
                 // Skip time series with zeros. They are substituted by xss_new below.
                 // Skip buckets with zero values - they will be merged into a single bucket
@@ -1138,8 +1140,8 @@ fn transform_range_linear_regression(tfa: &mut TransformFuncArg) -> RuntimeResul
         }
         let intercept_timestamp = timestamps[0];
         let (v, k) = linear_regression(&ts.values, &timestamps, intercept_timestamp);
-        for (i, t) in ts.timestamps.iter().enumerate() {
-            ts.values[i] = v + k * ((t - intercept_timestamp) as f64 / 1e3)
+        for (value, timestamp) in ts.values.iter_mut().zip(timestamps.iter()) {
+            *value = v + k * ((timestamp - intercept_timestamp) as f64 / 1e3)
         }
     }
 
@@ -1558,7 +1560,6 @@ fn transform_keep_next_value(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Ti
 fn transform_interpolate(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut tss = get_series(tfa, 0)?;
     for ts in tss.iter_mut() {
-
         if ts.len() == 0 {
             continue;
         }
@@ -1803,19 +1804,19 @@ fn transform_union(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>>
     let len = series.len();
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(len);
     let mut m: HashSet<String> = HashSet::with_capacity(len);
-    // todo:: tinyvec
-    let mut bb = get_pooled_buffer(512).to_vec();
-    for i in 1..tfa.args.len() {
-        let other_series = tfa.args[i].get_instant_vector()?;
+
+    for arg in tfa.args.iter_mut().skip(1) {
+        let other_series = arg.get_instant_vector()?;
         for mut ts in other_series.into_iter() {
+            // todo: get into a pre-allocated buffer
             let key = ts.metric_name.to_string();
 
             if m.insert(key) {
                 rvs.push(std::mem::take(&mut ts));
             }
-            bb.clear();
         }
     }
+
     return Ok(rvs);
 }
 

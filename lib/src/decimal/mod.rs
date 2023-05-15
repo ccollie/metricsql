@@ -385,7 +385,7 @@ pub fn get_decimal_and_scale(u: u64) -> (i64, i16) {
     let mut u = u;
     while u >= 1 << 55 {
         // Remove trailing garbage bits left after f64->u64 conversion,
-        // since float64 contains only 53 significant bits.
+        // since f64 contains only 53 significant bits.
         // See https://en.wikipedia.org/wiki/Double-precision_floating-point_format
         u /= 10;
         scale += 1;

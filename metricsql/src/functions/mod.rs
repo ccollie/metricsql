@@ -12,11 +12,11 @@ pub use rollup::*;
 pub use signature::*;
 pub use transform::*;
 
-use crate::parser::{ParseError, ParseResult, validate_function_args};
+use crate::parser::{validate_function_args, ParseError, ParseResult};
 
+use crate::ast::Expr;
 use crate::common::ValueType;
 use serde::{Deserialize, Serialize};
-use crate::ast::Expr;
 
 /// Maximum number of arguments permitted in a rollup function. This really only applies
 /// to variadic functions like `aggr_over_time` and `quantiles_over_time`
@@ -27,6 +27,30 @@ pub enum BuiltinFunction {
     Aggregate(AggregateFunction),
     Rollup(RollupFunction),
     Transform(TransformFunction),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum BuiltinFunctionType {
+    Aggregate,
+    Rollup,
+    Transform,
+}
+
+impl BuiltinFunctionType {
+    pub fn to_str(&self) -> &'static str {
+        match self {
+            BuiltinFunctionType::Aggregate => "aggregate",
+            BuiltinFunctionType::Rollup => "rollup",
+            BuiltinFunctionType::Transform => "transform",
+        }
+    }
+}
+
+impl Display for BuiltinFunctionType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.to_str())?;
+        Ok(())
+    }
 }
 
 impl BuiltinFunction {
@@ -52,8 +76,8 @@ impl BuiltinFunction {
     pub fn name(&self) -> String {
         use BuiltinFunction::*;
         match self {
-            Aggregate(af) => af.to_string(),
-            Rollup(rf) => rf.to_string(),
+            Aggregate(af) => af.name(),
+            Rollup(rf) => rf.name(),
             Transform(tf) => tf.to_string(),
         }
     }
@@ -82,10 +106,15 @@ impl BuiltinFunction {
 
     pub fn type_name(&self) -> &'static str {
         use BuiltinFunction::*;
+        self.get_type().to_str()
+    }
+
+    pub fn get_type(&self) -> BuiltinFunctionType {
+        use BuiltinFunction::*;
         match self {
-            Aggregate(_) => "aggregate",
-            Rollup(_) => "rollup",
-            Transform(_) => "transform",
+            Aggregate(_) => BuiltinFunctionType::Aggregate,
+            Rollup(_) => BuiltinFunctionType::Rollup,
+            Transform(_) => BuiltinFunctionType::Transform,
         }
     }
 
@@ -158,18 +187,17 @@ impl BuiltinFunction {
                         ValueType::InstantVector => Ok(ValueType::InstantVector),
                         _ => {
                             // invalid arg
-                            Err(
-                                ParseError::General(
-                                    format!("aggregation over time is not valid with Expr returning {:?}", kind)
-                                )
-                            )
+                            Err(ParseError::General(format!(
+                                "aggregation over time is not valid with Expr returning {:?}",
+                                kind
+                            )))
                         }
                     }
                 } else {
                     Ok(kind)
                 }
             }
-            _ => Ok(kind)
+            _ => Ok(kind),
         };
     }
 }

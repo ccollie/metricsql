@@ -142,7 +142,11 @@ fn return_nan(_left: f64, _right: f64) -> f64 {
 macro_rules! make_comparison_func {
     ($name: ident, $func: expr) => {
         pub fn $name(left: f64, right: f64) -> f64 {
-            if $func(left, right) { left } else { f64::NAN }
+            if $func(left, right) {
+                left
+            } else {
+                f64::NAN
+            }
         }
     };
 }
@@ -150,7 +154,11 @@ macro_rules! make_comparison_func {
 macro_rules! make_comparison_func_bool {
     ($name: ident, $func: expr) => {
         pub fn $name(left: f64, right: f64) -> f64 {
-            if $func(left, right) { 1_f64 } else { 0_f64 }
+            if $func(left, right) {
+                1_f64
+            } else {
+                0_f64
+            }
         }
     };
 }
@@ -210,7 +218,7 @@ pub fn get_scalar_binop_handler(op: Operator, is_bool: bool) -> BinopFunc {
         Operator::If => if_,
         Operator::IfNot => if_not,
         Operator::Unless => return_nan,
-        Operator::And | Operator::Or => return return_left,
+        Operator::And | Operator::Or => return_left,
         _ => panic!("unexpected non-comparison op: {:?}", op),
     }
 }

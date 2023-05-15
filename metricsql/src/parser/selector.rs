@@ -1,10 +1,11 @@
-use crate::ast::{Expr, MetricExpr, WithArgExpr};
-use crate::common::{LabelFilter, LabelFilterExpr, LabelFilterOp, NAME_LABEL};
-use crate::parser::expr::parse_string_expr;
-use crate::parser::{ParseError, ParseResult, Parser};
 use super::tokens::Token;
-use std::collections::HashSet;
+use crate::ast::{Expr, MetricExpr};
+use crate::common::{LabelFilterExpr, LabelFilterOp, StringExpr, NAME_LABEL};
+use crate::parser::expr::parse_string_expr;
 use crate::parser::parse_error::unexpected;
+use crate::parser::{ParseResult, Parser};
+use std::collections::HashSet;
+use crate::prelude::LabelFilter;
 
 /// parse_metric_expr parses a metric.
 ///
@@ -13,26 +14,37 @@ use crate::parser::parse_error::unexpected;
 ///
 pub fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expr> {
     let mut me = MetricExpr::default();
+    let can_expand = p.can_lookup();
 
     if p.at(&Token::Identifier) {
         let token = p.expect_identifier()?;
-        let resolved = resolve_metric_name(p, &token)?.unwrap_or(token);
 
-        let filter =
-            LabelFilter::new(LabelFilterOp::Equal, NAME_LABEL, resolved)?;
-        me.label_filters.push(filter);
+        if can_expand {
+            p.needs_expansion = true;
+            let filter =
+                LabelFilterExpr::new(LabelFilterOp::Equal, NAME_LABEL, StringExpr::from(token))?;
+
+            me.label_filter_expressions.push(filter);
+        } else {
+            let filter = LabelFilter::new(LabelFilterOp::Equal, NAME_LABEL, token)?;
+            me.label_filters.push(filter);
+        }
 
         if !p.at(&Token::LeftBrace) {
             return Ok(Expr::MetricExpression(me));
         }
     }
+
     let filters = parse_label_filters(p)?;
-    for filter in filters.into_iter() {
-        if !filter.is_resolved() {
-            me.label_filter_expressions.push(filter);
-        } else {
-            me.label_filters.push(filter.to_label_filter()?);
+    // symbol table is empty and we're not parsing a WITH statement
+    if !can_expand {
+        for filter in filters {
+            let resolved = filter.to_label_filter()?;
+            me.label_filters.push(resolved);
         }
+    } else {
+        p.needs_expansion = true;
+        me.label_filter_expressions.extend_from_slice(&filters);
     }
 
     Ok(Expr::MetricExpression(me))
@@ -45,9 +57,7 @@ pub fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expr> {
 fn parse_label_filters(p: &mut Parser) -> ParseResult<Vec<LabelFilterExpr>> {
     use Token::*;
     p.expect(&LeftBrace)?;
-    let vec = p.parse_comma_separated(&[RightBrace], parse_label_filter)?;
-    let mut filters = vec.into_iter().flatten().collect::<Vec<LabelFilterExpr>>();
-
+    let mut filters = p.parse_comma_separated(&[RightBrace], parse_label_filter)?;
     dedupe_label_filters(&mut filters);
     Ok(filters)
 }
@@ -56,69 +66,37 @@ fn parse_label_filters(p: &mut Parser) -> ParseResult<Vec<LabelFilterExpr>> {
 ///
 ///   <label_name> <match_op> <match_string> | identifier
 ///
-fn parse_label_filter(p: &mut Parser) -> ParseResult<Vec<LabelFilterExpr>> {
+fn parse_label_filter(p: &mut Parser) -> ParseResult<LabelFilterExpr> {
     use Token::*;
 
-    let label = p.expect_identifier()?;
+    let mut filter: LabelFilterExpr = LabelFilterExpr::default();
+    filter.label = p.expect_identifier()?;
+    filter.op = LabelFilterOp::Equal;
+
     let tok = p.current_token()?;
-
-    if tok.kind == RightBrace {
-        // we have something like
-        // WITH (x = {foo="bar"}) metric{x}
-        // label here would be 'x'
-        return if let Some(wae) = p.lookup_with_expr(&label) {
-            match &wae.expr {
-                Expr::MetricExpression(me) => {
-                    if has_non_empty_metric_group(&me) {
-                        // we have something like WITH (x = cpu{foo="bar"}) metric{x}
-                        // which we don't allow
-                        // return Err()
-                        let msg = format!(
-                            "cannot expand a selector with a metric group ({:?}) to a label filter",
-                            me
-                        );
-                        return Err(ParseError::General(msg));
-                    }
-
-                    Ok(me.label_filter_expressions.clone())
-                }
-                _ => Err(unexpected("label filter",
-                                    &wae.expr.to_string(),
-                                    "selector Expr",
-                                    Some(&tok.span)))
-            }
-        } else {
-            let err = format!("variable {} not found in Expr", label);
-            Err(ParseError::General(err))
-        };
-    }
-
-    let op = match tok.kind {
-        Equal => LabelFilterOp::Equal,
-        OpNotEqual => LabelFilterOp::NotEqual,
-        RegexEqual => LabelFilterOp::RegexEqual,
-        RegexNotEqual => LabelFilterOp::RegexNotEqual,
-        _ => return Err(
-            unexpected(
+    match tok.kind {
+        Equal => filter.op = LabelFilterOp::Equal,
+        OpNotEqual => filter.op = LabelFilterOp::NotEqual,
+        RegexEqual => filter.op = LabelFilterOp::RegexEqual,
+        RegexNotEqual => filter.op = LabelFilterOp::RegexNotEqual,
+        Comma | RightBrace => return Ok(filter),
+        _ => {
+            return Err(unexpected(
                 "label filter",
-                &tok.kind.to_string(),
+                &tok.text,
                 "=, !=, =~ or !~",
-                Some(&tok.span)
-            )
-        ),
+                Some(&tok.span),
+            ))
+        }
     };
 
     p.bump();
 
     // todo: if we're parsing a WITH, we can accept an ident. IOW, we can have metric{s=ident}
-    let value = parse_string_expr(p)?;
-    let filter = LabelFilterExpr {
-        op,
-        label,
-        value
-    };
+    filter.value = parse_string_expr(p)?;
+
     // todo: validate if regex
-    Ok(vec![filter])
+    Ok(filter)
 }
 
 fn dedupe_label_filters(lfs: &mut Vec<LabelFilterExpr>) {
@@ -131,71 +109,4 @@ fn dedupe_label_filters(lfs: &mut Vec<LabelFilterExpr>) {
         set.insert(key);
         true
     })
-}
-
-// todo: COW
-fn resolve_metric_name(p: &Parser, name: &str) -> ParseResult<Option<String>> {
-    let wa = p.lookup_with_expr(name);
-    if wa.is_none() {
-        return Ok(None);
-    }
-
-    let wa = wa.unwrap();
-    // todo: handle wa.args.len() > 0
-
-    // let e_new = expand_with_expr_ext(was, wa, None)?;
-
-    let handle_metric_expr = |me: &MetricExpr, wa: &WithArgExpr| -> ParseResult<String> {
-        if !is_only_metric_group(me) {
-            let msg = format!(
-                "cannot expand {:?} to non-metric Expr {:?}",
-                me, wa.expr
-            );
-            return Err(ParseError::General(msg));
-        }
-        Ok(me.name().unwrap_or_default().to_string())
-    };
-
-    match &wa.expr {
-        Expr::StringExpr(se) => {
-            return Ok(Some(se.to_string()));
-        }
-        Expr::StringLiteral(_se) => {
-            // let resolved = resolve()
-            // return Ok(se.to_string())
-        }
-        Expr::MetricExpression(me) => {
-            return Ok(Some(handle_metric_expr(me, wa)?));
-        }
-        _ => {}
-    };
-
-    let msg = format!(
-        "cannot resolve {} as string parsing metric name. Found {:?}",
-        name, wa.expr
-    );
-    Err(ParseError::General(msg))
-}
-
-
-pub fn is_only_metric_group(me: &MetricExpr) -> bool {
-    if !has_non_empty_metric_group(me) {
-        return false;
-    }
-    if !me.label_filters.is_empty() {
-        me.label_filters.len() == 1
-    } else {
-        me.label_filter_expressions.len() == 1
-    }
-}
-
-fn has_non_empty_metric_group(me: &MetricExpr) -> bool {
-    if !me.label_filters.is_empty() {
-        // we should have at least the name filter
-        return me.label_filters[0].is_metric_name_filter();
-    }
-    if me.label_filter_expressions.is_empty() {
-        return false;
-    }
-    me.label_filter_expressions[0].is_metric_name_filter()
 }

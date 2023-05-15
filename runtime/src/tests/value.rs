@@ -98,6 +98,7 @@ impl Display for Point {
 
 
 /// Sample is a single sample belonging to a metric.
+#[derive(Clone, Debug, Eq)]
 pub(crate) struct Sample {
     pub point: Point,
     pub metric: MetricName
@@ -113,7 +114,8 @@ impl Display for Sample {
 
 /// Vector is basically only an alias for model.Samples, but the
 /// contract is that in a Vector, all Samples have the same timestamp.
-pub(crate) struct  Vector(Vec<Sample>);
+#[derive(Clone, Debug, Eq)]
+pub(crate) struct Vector(Vec<Sample>);
 
 impl Display for Vector {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -153,6 +155,7 @@ impl Vector {
 
 /// Matrix is a slice of Series that implements sort.Interface and
 /// has a String method.
+#[derive(Clone, Debug, Eq)]
 pub(crate) struct Matrix(Vec<Series>);
 
 impl Matrix {
@@ -197,7 +200,20 @@ impl Matrix {
     }
 }
 
-fn (m Matrix) Less(i, j int) bool { return labels.Compare(m[i].Metric, m[j].Metric) < 0 }
+impl PartialEq<Matrix> for Matrix {
+    fn eq(&self, other: &Matrix) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl PartialOrd<Matrix> for Matrix {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        let cmp = self.0.zip(other.0).map(|(a, b)| a.cmp(b)).find(|o| *o != Ordering::Equal)
+        Some(cmp)
+    }
+}
+
+fn (m Matrix) Less(i, j int) bool { return labels.Compare(m[i].metric, m[j].metric) < 0 }
 
 
 // Result holds the resulting value of an execution or an error
@@ -205,7 +221,6 @@ fn (m Matrix) Less(i, j int) bool { return labels.Compare(m[i].Metric, m[j].Metr
 pub(crate) struct QueryResult {
     err: Option<RuntimeError>,
     value: Value,
-    warnings: storage.Warnings
 }
 
 impl QueryResult {

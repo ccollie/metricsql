@@ -1,7 +1,7 @@
+use metricsql::common::ValueType;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
-use metricsql::common::ValueType;
 
 use metricsql::functions::{Signature, Volatility};
 

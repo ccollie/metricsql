@@ -2,7 +2,7 @@
 // https://github.com/prometheus/prometheus/blob/fa6e05903fd3ce52e374a6e1bf4eb98c9f1f45a7/promql/parser/parse.go#L436
 
 use crate::ast::{
-    AggregationExpr, BExpression, BinaryExpr, Expr, FunctionExpr, MetricExpr, NumberExpr,
+    AggregationExpr, BExpression, BinaryExpr, Expr, FunctionExpr, MetricExpr, NumberLiteral,
     ParensExpr, RollupExpr, WithExpr,
 };
 use crate::common::{
@@ -178,7 +178,7 @@ fn check_ast_for_rollup(mut ex: RollupExpr) -> Result<Expr, String> {
             ));
         }
         match at.as_ref() {
-            Expr::Number(NumberExpr { value, .. }) => {
+            Expr::Number(NumberLiteral { value, .. }) => {
                 if value.is_infinite()
                     || value.is_nan()
                     || value >= &(i64::MAX as f64)

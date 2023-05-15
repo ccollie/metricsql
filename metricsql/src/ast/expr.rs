@@ -8,16 +8,17 @@ use enquote::enquote;
 use lib::{fmt_duration_ms, hash_f64};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
+use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
-use std::ops::Neg;
+use std::ops::{Deref, Neg, Range};
 use std::str::FromStr;
 use std::{fmt, iter, ops};
-use std::collections::btree_set::BTreeSet;
+use crate::ast::expr_equals;
 
 use crate::parser::{escape_ident, ParseError, ParseResult};
-use crate::prelude::get_aggregate_arg_idx_for_optimization;
+use crate::prelude::{BuiltinFunctionType, get_aggregate_arg_idx_for_optimization};
 
 pub type BExpr = Box<Expr>;
 
@@ -28,23 +29,23 @@ pub trait ExpressionNode {
 
 /// NumberExpr represents number expression.
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
-pub struct NumberExpr {
+pub struct NumberLiteral {
     /// value is the parsed number, i.e. `1.23`, `-234`, etc.
     pub value: f64,
     /// the original token value
     s: String,
 }
 
-impl NumberExpr {
+impl NumberLiteral {
     pub fn new(v: f64) -> Self {
-        NumberExpr {
+        NumberLiteral {
             value: v,
-            s: "".to_string()
+            s: "".to_string(),
         }
     }
 
     pub fn with_token(v: f64, tok: &str) -> Self {
-        NumberExpr {
+        NumberLiteral {
             value: v,
             s: tok.to_string(),
         }
@@ -55,49 +56,49 @@ impl NumberExpr {
     }
 }
 
-impl Value for NumberExpr {
+impl Value for NumberLiteral {
     fn value_type(&self) -> ValueType {
         ValueType::Scalar
     }
 }
 
-impl From<f64> for NumberExpr {
+impl From<f64> for NumberLiteral {
     fn from(value: f64) -> Self {
-        NumberExpr::new(value)
+        NumberLiteral::new(value)
     }
 }
 
-impl From<i64> for NumberExpr {
+impl From<i64> for NumberLiteral {
     fn from(value: i64) -> Self {
-        NumberExpr::new(value as f64)
+        NumberLiteral::new(value as f64)
     }
 }
 
-impl From<usize> for NumberExpr {
+impl From<usize> for NumberLiteral {
     fn from(value: usize) -> Self {
-        NumberExpr::new(value as f64)
+        NumberLiteral::new(value as f64)
     }
 }
 
-impl Into<f64> for NumberExpr {
+impl Into<f64> for NumberLiteral {
     fn into(self) -> f64 {
         self.value
     }
 }
 
-impl PartialEq<NumberExpr> for NumberExpr {
+impl PartialEq<NumberLiteral> for NumberLiteral {
     fn eq(&self, other: &Self) -> bool {
         self.value == other.value || self.value.is_nan() && other.value.is_nan()
     }
 }
 
-impl ExpressionNode for NumberExpr {
+impl ExpressionNode for NumberLiteral {
     fn cast(self) -> Expr {
         Expr::Number(self.clone())
     }
 }
 
-impl Display for NumberExpr {
+impl Display for NumberLiteral {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         if !self.s.is_empty() {
             write!(f, "{}", self.s)
@@ -107,21 +108,29 @@ impl Display for NumberExpr {
     }
 }
 
-impl Hash for NumberExpr {
+impl Hash for NumberLiteral {
     fn hash<H: Hasher>(&self, state: &mut H) {
         hash_f64(state, self.value);
     }
 }
 
-impl Neg for NumberExpr {
+impl Neg for NumberLiteral {
     type Output = Self;
 
     fn neg(self) -> Self::Output {
         let value = -self.value;
-        NumberExpr {
+        NumberLiteral {
             value,
             s: value.to_string(),
         }
+    }
+}
+
+impl Deref for NumberLiteral {
+    type Target = f64;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
     }
 }
 
@@ -206,10 +215,14 @@ impl MetricExpr {
     }
 
     pub fn has_non_empty_metric_group(&self) -> bool {
-        if self.label_filters.is_empty() {
+        if !self.label_filters.is_empty() {
+            // we should have at least the name filter
+            return self.label_filters[0].is_metric_name_filter();
+        }
+        if self.label_filter_expressions.is_empty() {
             return false;
         }
-        self.label_filters[0].is_metric_name_filter()
+        self.label_filter_expressions[0].is_metric_name_filter()
     }
 
     pub fn is_only_metric_group(&self) -> bool {
@@ -252,10 +265,6 @@ impl MetricExpr {
 
     pub fn is_expanded(&self) -> bool {
         self.label_filter_expressions.is_empty()
-            || self
-                .label_filter_expressions
-                .iter()
-                .all(|x| x.is_resolved())
     }
 
     pub fn to_label_filters(&self) -> ParseResult<Vec<LabelFilter>> {
@@ -304,7 +313,6 @@ impl Value for MetricExpr {
 
 impl Display for MetricExpr {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-
         if self.is_empty() {
             write!(f, "{{}}")?;
             return Ok(());
@@ -365,22 +373,32 @@ impl PartialEq<MetricExpr> for MetricExpr {
             return false;
         }
         if !self.label_filters.is_empty() {
-            let set = self.label_filters
+            let set = self
+                .label_filters
                 .iter()
                 .map(|x| x.to_string())
                 .collect::<BTreeSet<_>>();
 
-            if !other.label_filters.iter().all(|x| set.contains(&x.to_string())) {
+            if !other
+                .label_filters
+                .iter()
+                .all(|x| set.contains(&x.to_string()))
+            {
                 return false;
             }
         }
         if !self.label_filter_expressions.is_empty() {
-            let set = self.label_filter_expressions
+            let set = self
+                .label_filter_expressions
                 .iter()
                 .map(|x| x.to_string())
                 .collect::<BTreeSet<_>>();
 
-            if !other.label_filter_expressions.iter().all(|x| set.contains(&x.to_string())) {
+            if !other
+                .label_filter_expressions
+                .iter()
+                .all(|x| set.contains(&x.to_string()))
+            {
                 return false;
             }
         }
@@ -411,6 +429,7 @@ pub struct FunctionExpr {
 
     pub is_scalar: bool,
 
+    pub function_type: BuiltinFunctionType,
     pub return_type: ValueType,
 }
 
@@ -428,6 +447,7 @@ impl FunctionExpr {
             arg_idx_for_optimization: arg_idx,
             keep_metric_names: false,
             is_scalar,
+            function_type: function.get_type(),
             return_type,
         })
     }
@@ -453,10 +473,7 @@ impl FunctionExpr {
     }
 
     pub fn is_rollup(&self) -> bool {
-        match RollupFunction::from_str(self.name.as_str()) {
-            Ok(_) => true,
-            Err(_) => false,
-        }
+        self.function_type == BuiltinFunctionType::Rollup
     }
 }
 
@@ -646,11 +663,11 @@ impl RollupExpr {
 
     fn validate(&self) -> Result<(), String> {
         // range + subquery is not allowed (however this is syntactically invalid)
-        if self.window.is_some() && self.for_subquery() {
-            return Err(
-                "range and subquery are not allowed together in a rollup expression".to_string(),
-            );
-        }
+        // if self.window.is_some() && self.for_subquery() {
+        //     return Err(
+        //         "range and subquery are not allowed together in a rollup expression".to_string(),
+        //     );
+        // }
         Ok(())
     }
 
@@ -661,7 +678,8 @@ impl RollupExpr {
             (false, true) => ValueType::RangeVector,
             (true, false) => ValueType::RangeVector,
             (true, true) => {
-                unreachable!("range and subquery are not allowed together in a rollup expression")
+                ValueType::RangeVector
+                // unreachable!("range and subquery are not allowed together in a rollup expression")
             }
         };
     }
@@ -963,6 +981,7 @@ impl ParensExpr {
             keep_metric_names: false,
             is_scalar: false,
             return_type: TransformFunction::Union.return_type(),
+            function_type: func.get_type(),
             arg_idx_for_optimization: arg_idx,
         }
     }
@@ -1040,12 +1059,21 @@ impl ExpressionNode for WithExpr {
 }
 
 /// WithArgExpr represents a single entry from WITH expression.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WithArgExpr {
     pub name: String,
     pub args: Vec<String>,
     pub expr: Expr,
-    pub is_function: bool,
+    pub(crate) token_range: Range<usize>,
+}
+
+impl PartialEq for WithArgExpr {
+    fn eq(&self, other: &Self) -> bool {
+        let res = self.name == other.name &&
+            self.args == other.args &&
+            expr_equals(&self.expr, &other.expr);
+        res
+    }
 }
 
 impl WithArgExpr {
@@ -1054,17 +1082,25 @@ impl WithArgExpr {
             name: name.into(),
             args,
             expr,
-            is_function: true,
+            token_range: Default::default(),
         }
     }
 
-    pub fn new<S: Into<String>>(name: S, expr: Expr) -> Self {
+    pub fn new<S: Into<String>>(name: S, expr: Expr, args: Vec<String>) -> Self {
         WithArgExpr {
             name: name.into(),
-            args: vec![],
+            args,
             expr,
-            is_function: false,
+            token_range: Default::default(),
         }
+    }
+
+    pub fn new_number<S: Into<String>>(name: S, value: f64) -> Self {
+        Self::new(name, Expr::from(value), vec![])
+    }
+
+    pub fn new_string<S: Into<String>>(name: S, value: String) -> Self {
+        Self::new(name, Expr::from(value), vec![])
     }
 
     pub fn return_value(&self) -> ValueType {
@@ -1082,8 +1118,7 @@ impl Display for WithArgExpr {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "{}", escape_ident(&self.name))?;
         write_list(self.args.iter(), f, !self.args.is_empty())?;
-        write!(f, " = ")?;
-        write!(f, "{}", self.expr)?;
+        write!(f, " = {}", self.expr)?;
         Ok(())
     }
 }
@@ -1094,7 +1129,7 @@ impl Display for WithArgExpr {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Expr {
     /// A single scalar number.
-    Number(NumberExpr),
+    Number(NumberLiteral),
 
     Duration(DurationExpr),
 
@@ -1146,6 +1181,18 @@ impl Expr {
 
     pub fn is_number(expr: &Expr) -> bool {
         matches!(expr, Expr::Number(_))
+    }
+
+    pub fn is_string(expr: &Expr) -> bool {
+        matches!(expr, Expr::StringLiteral(_))
+    }
+
+    pub fn is_primitive(expr: &Expr) -> bool {
+        matches!(expr, Expr::Number(_) | Expr::StringLiteral(_))
+    }
+
+    pub fn is_duration(expr: &Expr) -> bool {
+        matches!(expr, Expr::Duration(_))
     }
 
     pub fn vectors(&self) -> Box<dyn Iterator<Item = &LabelFilter> + '_> {
@@ -1326,22 +1373,30 @@ impl Expr {
         binary_expr(self, Operator::Mod, other)
     }
 
-    /// Return `self == bool NaN`
-    #[allow(clippy::wrong_self_convention)]
-    pub fn is_nan(self) -> Expr {
-        self.eq(Expr::from(f64::NAN))
-    }
-
-    /// Return `self != bool NaN`
-    #[allow(clippy::wrong_self_convention)]
-    pub fn is_not_nan(self) -> Expr {
-        self.not_eq(Expr::from(f64::NAN))
-    }
-
     pub fn call(func: &str, args: Vec<Expr>) -> ParseResult<Expr> {
         let expr = FunctionExpr::new(func, args)?;
         Ok(Expr::Function(expr))
     }
+
+    pub fn new_binary_expr(
+        lhs: Expr,
+        op: Operator,
+        modifier: Option<BinModifier>,
+        rhs: Expr,
+    ) -> Result<Expr, String> {
+        let ex = BinaryExpr {
+            left: Box::new(lhs),
+            right: Box::new(rhs),
+            op,
+            bool_modifier: false,
+            keep_metric_names: false,
+            group_modifier: None,
+            modifier,
+            join_modifier: None,
+        };
+        Ok(Expr::BinaryOperator(ex))
+    }
+
 }
 
 impl Display for Expr {
@@ -1390,7 +1445,7 @@ impl Default for Expr {
 
 impl From<f64> for Expr {
     fn from(v: f64) -> Self {
-        Expr::Number(NumberExpr::new(v))
+        Expr::Number(NumberLiteral::new(v))
     }
 }
 

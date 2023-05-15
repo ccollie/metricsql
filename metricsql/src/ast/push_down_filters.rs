@@ -1,10 +1,5 @@
 use crate::common::{
-    AggregateModifierOp,
-    GroupModifierOp,
-    JoinModifierOp,
-    LabelFilter,
-    Operator,
-    NAME_LABEL,
+    AggregateModifierOp, GroupModifierOp, JoinModifierOp, LabelFilter, Operator, NAME_LABEL,
 };
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -33,13 +28,13 @@ pub fn can_pushdown_filters(expr: &Expr) -> bool {
     use Expr::*;
 
     match expr {
-        Rollup(RollupExpr { expr, at , .. }) => {
+        Rollup(RollupExpr { expr, at, .. }) => {
             if let Some(at) = at {
                 can_pushdown_filters(expr) || can_pushdown_filters(at)
             } else {
                 can_pushdown_filters(expr)
             }
-        },
+        }
         Function(f) => f.args.iter().any(|x| can_pushdown_filters(x)),
         Aggregation(agg) => agg.args.iter().any(|x| can_pushdown_filters(x)),
         BinaryOperator(_) => true,

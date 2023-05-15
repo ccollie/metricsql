@@ -17,10 +17,10 @@
 
 //! Signature module contains foundational types that are used to represent signatures, types,
 //! and return types of functions in DataFusion.
-use serde::{Deserialize, Serialize};
 use crate::common::ValueType;
 use crate::functions::MAX_ARG_COUNT;
 use crate::parser::{ParseError, ParseResult};
+use serde::{Deserialize, Serialize};
 
 ///A function's volatility, which defines the functions eligibility for certain optimizations
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
@@ -51,7 +51,7 @@ pub enum TypeSignature {
     /// arbitrary number of arguments of any type, with possible minimum
     VariadicAny(usize),
     /// fixed number of arguments of an arbitrary type out of a list of valid types
-    /// A function of one argument of f64 is `Uniform(1, Float)`
+    /// A function of one argument of f64 is `Uniform(1, ValueType::Scalar)`
     Uniform(usize, ValueType),
     /// exact number of arguments of an exact type
     Exact(Vec<ValueType>),
@@ -65,7 +65,7 @@ impl TypeSignature {
         fn expect_arg_count(name: &str, arg_len: usize, expected: usize) -> ParseResult<()> {
             if arg_len != expected {
                 return Err(ParseError::ArgumentError(format!(
-                    "The function {name} expected {expected} arguments but received {arg_len}",
+                    "The function {name}() expected {expected} arguments but received {arg_len}",
                 )));
             }
             Ok(())
@@ -74,7 +74,7 @@ impl TypeSignature {
         fn expect_min_args(name: &str, args_len: usize, min: usize) -> ParseResult<()> {
             if args_len < min {
                 return Err(ParseError::ArgumentError(format!(
-                    "The function {name} expected a minimum of {min} arguments but received {args_len}",
+                    "The function {name}() expected a minimum of {min} arguments but received {args_len}",
                 )));
             }
             Ok(())
@@ -82,13 +82,11 @@ impl TypeSignature {
 
         return match self {
             TypeSignature::Exact(valid_types) => expect_arg_count(name, arg_len, valid_types.len()),
-            TypeSignature::Any(min) |
-            TypeSignature::Uniform(min, _) |
-            TypeSignature::VariadicEqual(_, min) |
-            TypeSignature::Variadic(_, min) |
-            TypeSignature::VariadicAny(min) => {
-                expect_min_args(name, arg_len, *min)
-            }
+            TypeSignature::Any(min)
+            | TypeSignature::Uniform(min, _)
+            | TypeSignature::VariadicEqual(_, min)
+            | TypeSignature::Variadic(_, min)
+            | TypeSignature::VariadicAny(min) => expect_min_args(name, arg_len, *min),
         };
     }
 
@@ -188,7 +186,9 @@ impl Signature {
             TypeSignature::VariadicEqual(data_type, min) => (vec![*data_type; MAX_ARG_COUNT], *min),
             TypeSignature::Uniform(count, data_type) => (vec![*data_type; MAX_ARG_COUNT], *count),
             TypeSignature::Exact(types) => (types.clone(), types.len()),
-            TypeSignature::VariadicAny(min) => (vec![ValueType::InstantVector; MAX_ARG_COUNT], *min),
+            TypeSignature::VariadicAny(min) => {
+                (vec![ValueType::InstantVector; MAX_ARG_COUNT], *min)
+            }
             TypeSignature::Any(count) => {
                 (vec![ValueType::InstantVector; *count], *count) // TODO:: !!!! have a ValueType::Any
             }
@@ -220,9 +220,7 @@ impl<'a> Iterator for TypeIterator<'a> {
                     Some(types[types.len() - 1].clone())
                 }
             }
-            VariadicEqual(data_type, _) => {
-                Some(*data_type)
-            }
+            VariadicEqual(data_type, _) => Some(*data_type),
             Uniform(count, data_type) => {
                 if self.arg_index < *count {
                     self.arg_index += 1;
@@ -239,8 +237,7 @@ impl<'a> Iterator for TypeIterator<'a> {
                     None
                 }
             }
-            VariadicAny(count) |
-            Any(count) => {
+            VariadicAny(count) | Any(count) => {
                 if self.arg_index < *count {
                     self.arg_index += 1;
                     // ?? TODO: !!!! have a ValueType::Any

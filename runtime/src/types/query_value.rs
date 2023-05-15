@@ -1,9 +1,9 @@
-use std::borrow::Cow;
-use std::str::FromStr;
-use metricsql::common::{Value, ValueType};
-use crate::{EvalConfig, RuntimeError, RuntimeResult, Timeseries};
 use crate::eval::eval_number;
 use crate::functions::types::get_single_timeseries;
+use crate::{EvalConfig, RuntimeError, RuntimeResult, Timeseries};
+use metricsql::common::{Value, ValueType};
+use std::borrow::Cow;
+use std::str::FromStr;
 
 #[derive(Debug, PartialEq)]
 pub enum QueryValue {

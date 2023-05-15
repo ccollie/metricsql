@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use chrono::Duration;
 
-use metricsql::common::LabelFilter;
 use metricsql::ast::{DurationExpr, Expr};
+use metricsql::common::LabelFilter;
 
 use crate::eval::{adjust_start_end, validate_max_points_per_timeseries};
 use crate::exec::parse_promql_internal;
@@ -19,7 +19,7 @@ use crate::{
 const DEFAULT_STEP: i64 = 5 * 60 * 1000;
 const TWO_DAYS_MSECS: i64 = 2 * 24 * 3600 * 1000;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct QueryParams {
     pub query: String,
     pub may_cache: bool,

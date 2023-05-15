@@ -17,10 +17,7 @@ pub mod parser;
 pub mod optimize {
     use crate::ast;
     pub use ast::{
-        get_common_label_filters,
-        optimize,
-        push_down_filters,
-        simplify_expression,
+        get_common_label_filters, optimize, push_down_filters, simplify_expression,
         trim_filters_by_group_modifier,
     };
 }
@@ -33,9 +30,9 @@ pub mod prelude {
     use crate::parser;
 
     pub use ast::*;
+    pub use ast::*;
     pub use binaryop::*;
     pub use common::*;
     pub use functions::*;
-    pub use ast::*;
     pub use parser::*;
 }

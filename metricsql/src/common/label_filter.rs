@@ -1,6 +1,7 @@
-use std::cmp::Ordering;
-use crate::parser::{compile_regexp, escape_ident, is_empty_regex, ParseError, quote};
+use crate::parser::{compile_regexp, escape_ident, is_empty_regex, quote, ParseError};
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
+use std::collections::HashSet;
 use std::fmt;
 use std::ops::Deref;
 
@@ -144,7 +145,7 @@ impl LabelFilter {
             RegexEqual => {
                 let str = self.value.to_string();
                 is_empty_regex(&str)
-            },
+            }
             RegexNotEqual => {
                 let str = self.value.to_string();
                 is_empty_regex(&str)
@@ -219,4 +220,17 @@ impl Deref for MatcherList {
     fn deref(&self) -> &Self::Target {
         &self.0
     }
+}
+
+pub fn remove_duplicate_label_filters(filters: &mut Vec<LabelFilter>) {
+    let mut set: HashSet<String> = HashSet::with_capacity(filters.len());
+    filters.retain(|filters| {
+        let key = filters.to_string();
+        if !set.contains(&key) {
+            set.insert(key);
+            true
+        } else {
+            false
+        }
+    })
 }

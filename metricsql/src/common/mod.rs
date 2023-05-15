@@ -1,20 +1,20 @@
 mod label_filter;
-mod operator;
-mod value;
-mod types;
-mod tree_node;
-pub mod string_expr;
 pub mod label_filter_expr;
+mod operator;
+pub mod string_expr;
+mod tree_node;
+mod types;
 mod utils;
+mod value;
 
+use crate::parser::ParseError;
 pub use label_filter::*;
 pub use label_filter_expr::*;
 pub use operator::*;
-pub use value::*;
-pub use types::*;
-pub use tree_node::*;
 pub use string_expr::*;
+pub use tree_node::*;
+pub use types::*;
 pub(crate) use utils::*;
-use crate::parser::ParseError;
+pub use value::*;
 
 pub type Result<T> = std::result::Result<T, ParseError>;

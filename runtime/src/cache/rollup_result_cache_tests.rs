@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use metricsql::common::{LabelFilter, LabelFilterOp};
     use metricsql::ast::{AggregationExpr, Expr, FunctionExpr, MetricExpr};
+    use metricsql::common::{LabelFilter, LabelFilterOp};
     use std::sync::Arc;
 
     use crate::cache::rollup_result_cache::{merge_timeseries, RollupResultCache};

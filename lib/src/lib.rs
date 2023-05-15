@@ -23,6 +23,7 @@ mod math;
 mod no_hash;
 mod pool;
 mod random;
+mod range;
 mod time;
 
 pub use atomic_counter::*;
@@ -34,10 +35,11 @@ pub use encoding::*;
 pub use fast_cache::*;
 pub use fastnum::*;
 pub use math::*;
+pub use no_hash::{BuildNoHashHasher, IntMap, IntSet, NoHashHasher};
 pub use pool::*;
 pub use random::*;
+pub use range::*;
 pub use time::*;
-pub use no_hash::{IntMap, IntSet, NoHashHasher, BuildNoHashHasher};
 
 #[cfg(test)]
 pub(crate) mod tests;

@@ -3,15 +3,17 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tracing::{field, trace_span, Span};
 
+use metricsql::ast::{AggregationExpr, Expr, FunctionExpr, MetricExpr};
 use metricsql::common::{AggregateModifier, ValueType};
 use metricsql::functions::{AggregateFunction, BuiltinFunction, RollupFunction, Volatility};
-use metricsql::ast::{AggregationExpr, Expr, FunctionExpr, MetricExpr};
 use metricsql::prelude::Value;
 
 use crate::context::Context;
 use crate::eval::arg_list::ArgList;
 use crate::eval::rollup::{compile_rollup_func_args, RollupEvaluator};
-use crate::functions::aggregate::{get_aggr_func, AggrFn, AggrFuncArg, try_get_incremental_aggr_handler};
+use crate::functions::aggregate::{
+    get_aggr_func, try_get_incremental_aggr_handler, AggrFn, AggrFuncArg,
+};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::utils::num_cpus;
 use crate::{EvalConfig, QueryValue, Timeseries};
@@ -49,11 +51,11 @@ pub(super) fn create_aggr_evaluator(ae: &AggregationExpr) -> RuntimeResult<ExprE
 
 pub struct AggregateEvaluator {
     pub expr: String,
-    pub function: String,   // smol_str ?
+    pub function: String, // smol_str ?
     args: ArgList,
     /// optional modifier such as `by (...)` or `without (...)`.
     modifier: Option<AggregateModifier>,
-    handler: Arc<dyn AggrFn<Output=RuntimeResult<Vec<Timeseries>>> + 'static>,
+    handler: Arc<dyn AggrFn<Output = RuntimeResult<Vec<Timeseries>>> + 'static>,
     /// Max number of timeseries to return
     pub limit: usize,
     pub may_sort_results: bool,
@@ -188,9 +190,7 @@ fn try_get_arg_rollup_func_with_metric_expr(
                         }
                         Some(arg) => {
                             match arg.deref() {
-                                Expr::MetricExpression(me) => {
-                                    create_func(me, e, &fe.name, false)
-                                }
+                                Expr::MetricExpression(me) => create_func(me, e, &fe.name, false),
                                 Expr::Rollup(re) => {
                                     match &*re.expr {
                                         Expr::MetricExpression(me) => {

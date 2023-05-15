@@ -1,8 +1,8 @@
 use std::fmt;
 
-use serde::{Deserialize, Serialize};
-use crate::common::{LabelFilter, LabelFilterOp, LabelName, NAME_LABEL, StringExpr};
+use crate::common::{LabelFilter, LabelFilterOp, LabelName, StringExpr, NAME_LABEL};
 use crate::parser::{compile_regexp, escape_ident, is_empty_regex, ParseError, ParseResult};
+use serde::{Deserialize, Serialize};
 
 /// LabelFilterExpr represents `foo <op> ident + "bar"` expression, where <op> is `=`, `!=`, `=~` or `!~`.
 /// For internal use only, in the context of WITH expressions
@@ -94,7 +94,7 @@ impl LabelFilterExpr {
             RegexEqual => {
                 let str = self.value.to_string();
                 is_empty_regex(&str)
-            },
+            }
             RegexNotEqual => {
                 let str = self.value.to_string();
                 is_empty_regex(&str)
@@ -103,12 +103,13 @@ impl LabelFilterExpr {
     }
 
     pub fn to_label_filter(&self) -> ParseResult<LabelFilter> {
-        let value = self.value.get_literal()?.unwrap().to_string();
-        Ok(LabelFilter {
-            label: self.label.clone(),
-            op: self.op,
-            value,
-        })
+        let empty_str = "".to_string();
+        let value = self
+            .value
+            .get_literal()?
+            .unwrap_or_else(|| &empty_str)
+            .to_string();
+        LabelFilter::new(self.op, &self.label, value)
     }
 }
 

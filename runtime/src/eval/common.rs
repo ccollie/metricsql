@@ -241,7 +241,7 @@ pub(crate) fn intersect(
             take_left.push(lIdx);
             corresponding_right.push(right_idx);
             if matching.On && matching.card == VectorMatchingCardinality::OneToOne && matching.labels.len() > 0 {
-                ls.Tags = ls.tags.with_keys(matching.MatchingLabels)
+                ls.tags = ls.tags.with_keys(matching.MatchingLabels)
             }
             left_metas.push(ls);
         }
@@ -308,9 +308,9 @@ fn merge_indices(
         // add the sample.
         let r = id_function(meta);
         if let Some(matching_index) = left_sigs.get(r) {
-            r_indices[i] = matching_index
+            r_indices.push(matching_index);
         } else {
-            r_indices[i] = r_index;
+            r_indices.push(r_index);
             r_index += 1;
             lhs.push(meta)
         }

@@ -1,10 +1,12 @@
 use crate::eval::Evaluator;
 use crate::search::join_tag_filter_list;
-use crate::{Context, EvalConfig, QueryResults, QueryValue, RuntimeResult, SearchQuery, Timeseries};
+use crate::{
+    Context, EvalConfig, QueryResults, QueryValue, RuntimeResult, SearchQuery, Timeseries,
+};
 use metricsql::ast::{DurationExpr, MetricExpr};
 use metricsql::common::{LabelFilter, Value};
-use std::sync::Arc;
 use metricsql::prelude::ValueType;
+use std::sync::Arc;
 
 /// An evaluator for a selector NOT containing a subquery or rollup
 pub struct InstantVectorEvaluator {

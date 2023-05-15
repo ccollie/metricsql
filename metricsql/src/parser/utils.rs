@@ -1,6 +1,6 @@
-use std::borrow::Cow;
 use crate::parser::{ParseError, ParseResult};
 use enquote::{enquote, unescape};
+use std::borrow::Cow;
 use std::str;
 
 #[inline]

@@ -1,10 +1,10 @@
-use std::collections::btree_set::BTreeSet;
-use std::collections::HashSet;
+use crate::common::write_list;
 use crate::parser::ParseError;
 use serde::{Deserialize, Serialize};
+use std::collections::btree_set::BTreeSet;
+use std::collections::HashSet;
 use std::fmt;
 use std::fmt::{Display, Formatter};
-use crate::common::write_list;
 
 pub type Labels = BTreeSet<String>;
 
@@ -114,7 +114,6 @@ impl BinModifier {
     pub fn is_matching_labels_not_empty(&self) -> bool {
         matches!(&self.matching, Some(matching) if !matching.labels().is_empty())
     }
-
 }
 
 impl Display for BinModifier {
@@ -127,11 +126,11 @@ impl Display for BinModifier {
             ManyToOne(labels) => {
                 write!(f, " group_left")?;
                 write_list(labels.iter(), f, true)?;
-            },
+            }
             OneToMany(labels) => {
                 write!(f, " group_right")?;
                 write_list(labels.iter(), f, true)?;
-            },
+            }
             _ => {}
         }
         if let Some(matching) = &self.matching {
@@ -139,18 +138,18 @@ impl Display for BinModifier {
                 VectorMatchModifier::On(labels) => {
                     write!(f, " on")?;
                     write_list(labels.iter(), f, true)?;
-                },
+                }
                 VectorMatchModifier::Ignoring(labels) => {
                     write!(f, " ignoring")?;
                     write_list(labels.iter(), f, true)?;
-                },
+                }
             }
         }
         Ok(())
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AggregateModifierOp {
     By,
     Without,
@@ -316,7 +315,7 @@ impl GroupModifier {
     pub fn labels(&self) -> &[String] {
         &self.labels
     }
-    
+
     /// Replaces this GroupModifier's labels with the given set
     pub fn set_labels(&mut self, labels: Vec<String>) -> &mut Self {
         self.labels = labels;
@@ -522,9 +521,9 @@ impl Display for JoinModifier {
 
 impl PartialEq<JoinModifier> for &JoinModifier {
     fn eq(&self, other: &JoinModifier) -> bool {
-        self.op == other.op &&
-            string_vecs_equal_unordered(&self.labels, &other.labels) &&
-            self.cardinality == other.cardinality
+        self.op == other.op
+            && string_vecs_equal_unordered(&self.labels, &other.labels)
+            && self.cardinality == other.cardinality
     }
 }
 

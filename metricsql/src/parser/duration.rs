@@ -1,5 +1,5 @@
-use std::str;
 use crate::parser::{ParseError, ParseResult};
+use std::str;
 
 static SECONDS_PER_MS: f64 = 1e-3;
 static SECONDS_PER_MINUTE: f64 = 60.0;

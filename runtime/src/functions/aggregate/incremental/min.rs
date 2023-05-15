@@ -1,11 +1,15 @@
-use itertools::izip;
 use super::{IncrementalAggrContext, IncrementalAggrHandler};
+use itertools::izip;
 
 pub struct IncrementalAggrMin {}
 
 impl IncrementalAggrHandler for IncrementalAggrMin {
     fn update(&self, iac: &mut IncrementalAggrContext, values: &[f64]) {
-        let iter = izip!(values.iter(), iac.ts.values.iter_mut(), iac.values.iter_mut());
+        let iter = izip!(
+            values.iter(),
+            iac.ts.values.iter_mut(),
+            iac.values.iter_mut()
+        );
         for (v, dst, dst_count) in iter {
             if v.is_nan() {
                 continue;
@@ -22,7 +26,12 @@ impl IncrementalAggrHandler for IncrementalAggrMin {
     }
 
     fn merge(&self, dst: &mut IncrementalAggrContext, src: &IncrementalAggrContext) {
-        let iter = izip!(src.values.iter(), dst.values.iter_mut(), src.ts.values.iter(), dst.ts.values.iter_mut());
+        let iter = izip!(
+            src.values.iter(),
+            dst.values.iter_mut(),
+            src.ts.values.iter(),
+            dst.ts.values.iter_mut()
+        );
         for (src_count, dst_count, v, dst) in iter {
             if *src_count == 0.0 {
                 continue;

@@ -20,10 +20,10 @@ mod tests {
         get_rollup_function_factory_by_name, RollupConfig, RollupFuncArg, RollupHandler,
         RollupHandlerEnum,
     };
-    use crate::{compare_floats, compare_values, QueryValue, test_rows_equal, Timeseries};
+    use crate::{compare_floats, compare_values, test_rows_equal, QueryValue, Timeseries};
     use metricsql::functions::RollupFunction;
-    use std::str::FromStr;
     use speculate::speculate;
+    use std::str::FromStr;
 
     #[test]
     fn test_rollup_ideriv_duplicate_timestamps() {

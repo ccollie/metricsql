@@ -21,8 +21,8 @@ use std::sync::{Arc, Mutex};
 mod pool;
 pub mod proxy;
 
-pub use pool::*;
 use crate::{RuntimeError, RuntimeResult};
+pub use pool::*;
 
 /// The pool of memory on which [`MemoryReservation`] record their memory reservations
 pub trait MemoryPool: Send + Sync + std::fmt::Debug {
@@ -181,12 +181,8 @@ impl TryGrow for SharedMemoryReservation {
     /// Try to increase the size of this reservation by `capacity` bytes
     fn try_grow(&self, capacity: usize) -> RuntimeResult<()> {
         match self.0.lock() {
-            Ok(mut reservation) => {
-                reservation.try_grow(capacity)
-            },
-            Err(_) => {
-                Err(RuntimeError::Internal("Poisoned lock".to_string()))
-            },
+            Ok(mut reservation) => reservation.try_grow(capacity),
+            Err(_) => Err(RuntimeError::Internal("Poisoned lock".to_string())),
         }
     }
 }
@@ -204,10 +200,10 @@ impl SharedOptionalMemoryReservation {
                 if reservation.is_none() {
                     *reservation = Some(MemoryConsumer::new(name).register(pool));
                 }
-            },
+            }
             Err(_) => {
                 // Do nothing
-            },
+            }
         }
     }
 }
@@ -216,16 +212,15 @@ impl TryGrow for SharedOptionalMemoryReservation {
     /// Try to increase the size of this reservation by `capacity` bytes
     fn try_grow(&self, capacity: usize) -> RuntimeResult<()> {
         match self.0.lock() {
-            Ok(mut reservation) => {
-                reservation.as_mut().ok_or_else(|| {
+            Ok(mut reservation) => reservation
+                .as_mut()
+                .ok_or_else(|| {
                     RuntimeError::Internal("inner memory reservation not initialized".to_string())
-                })?.try_grow(capacity)
-            },
-            Err(_) => {
-               Err( RuntimeError::Internal(
-                    "inner memory reservation not initialized. Poisoned lock".to_string(),
-                ))
-            },
+                })?
+                .try_grow(capacity),
+            Err(_) => Err(RuntimeError::Internal(
+                "inner memory reservation not initialized. Poisoned lock".to_string(),
+            )),
         }
     }
 }
@@ -331,8 +326,9 @@ mod tests {
         a1.initialize("a1", &pool);
         a1.initialize("a2", &pool);
         {
-            let locked = a1.0.lock();
-            let name = locked.unwrap().as_ref().unwrap().consumer.name();
+            let locked = &a1.0.lock().unwrap();
+            let reservation = locked.as_ref().unwrap();
+            let name = reservation.consumer.name();
             assert_eq!(name, "a1");
         }
 

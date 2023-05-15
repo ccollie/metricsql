@@ -1,11 +1,11 @@
-use std::sync::Arc;
-use tracing::{Span, trace_span};
-use metricsql::ast::Expr;
-use metricsql::binaryop::{BinopFunc, get_scalar_binop_handler};
-use metricsql::common::{Operator, Value, ValueType};
-use metricsql::functions::Volatility;
 use crate::eval::{create_evaluator, Evaluator, ExprEvaluator};
 use crate::{Context, EvalConfig, QueryValue, RuntimeError, RuntimeResult};
+use metricsql::ast::Expr;
+use metricsql::binaryop::{get_scalar_binop_handler, BinopFunc};
+use metricsql::common::{Operator, Value, ValueType};
+use metricsql::functions::Volatility;
+use std::sync::Arc;
+use tracing::{trace_span, Span, field};
 
 /// BinaryEvaluatorScalarVector
 /// Ex:
@@ -16,7 +16,7 @@ pub struct BinaryEvaluatorVectorScalar {
     lhs: Box<ExprEvaluator>,
     rhs: Box<ExprEvaluator>,
     keep_metric_names: bool,
-    handler: BinopFunc
+    handler: BinopFunc,
 }
 
 impl BinaryEvaluatorVectorScalar {
@@ -25,7 +25,7 @@ impl BinaryEvaluatorVectorScalar {
         left: &Expr,
         right: &Expr,
         bool_modifier: bool,
-        keep_metric_names: bool
+        keep_metric_names: bool,
     ) -> RuntimeResult<Self> {
         debug_assert!(left.return_type() == ValueType::InstantVector);
         debug_assert!(right.return_type() == ValueType::Scalar);
@@ -39,7 +39,7 @@ impl BinaryEvaluatorVectorScalar {
             lhs,
             rhs,
             keep_metric_names,
-            handler
+            handler,
         })
     }
 }
@@ -57,12 +57,13 @@ impl Evaluator for BinaryEvaluatorVectorScalar {
         let _ = if ctx.trace_enabled() {
             trace_span!(
                 "vector scalar binary op",
-                "op" = self.expr.op.as_str(),
+                "op" = self.op.as_str(),
                 series = field::Empty
             )
         } else {
             Span::none()
-        }.entered();
+        }
+        .entered();
 
         let right = self.rhs.eval(ctx, ec)?;
         let left = self.lhs.eval(ctx, ec)?;
@@ -74,14 +75,18 @@ impl Evaluator for BinaryEvaluatorVectorScalar {
                         v.metric_name.reset_metric_group();
                     }
                     for value in v.values.iter_mut() {
-                        *value = (self.handler)(*value,  scalar);
+                        *value = (self.handler)(*value, scalar);
                     }
                 }
                 Ok(InstantVector(std::mem::take(&mut vector)))
             }
-            _=> {
-                let msg = format!("Invalid argument type for binary operation: {} {} {}",
-                                  self.lhs.return_type(), self.op, self.rhs.return_type());
+            _ => {
+                let msg = format!(
+                    "Invalid argument type for binary operation: {} {} {}",
+                    self.lhs.return_type(),
+                    self.op,
+                    self.rhs.return_type()
+                );
                 Err(RuntimeError::ArgumentError(msg))
             }
         }

@@ -1,17 +1,20 @@
-use crate::{MetricName};
+use crate::tests::helpers::Sample;
+use crate::MetricName;
 use metricsql::prelude::LabelFilter;
 use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
-use prometheus_parse::Sample;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
+pub struct Point {
+    t: i64,
+    v: f64,
+}
 
 pub struct TestSample {
     labels: Rc<MetricName>,
     t: i64,
     v: f64,
-}
-pub struct Point {
-    pub t: i64,
-    pub v: f64,
 }
 
 pub struct TestStorage {
@@ -41,8 +44,8 @@ impl TestStorage {
             .entry(metric_id)
             .or_default()
             .push(Point {
-                t: sample.timestamp,
-                v: sample.value,
+                t: sample.t,
+                v: sample.v,
             });
 
         self.need_sort.insert(metric_id);

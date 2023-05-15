@@ -1,11 +1,11 @@
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use crate::functions::transform::get_timezone_offset;
     use crate::{exec, test_results_equal, Context, Deadline, EvalConfig, MetricName, QueryResult};
     use chrono::Duration;
     use chrono_tz::Tz;
     use speculate::speculate;
+    use std::sync::Arc;
 
     const NAN: f64 = f64::NAN;
     const INF: f64 = f64::INFINITY;
@@ -153,7 +153,7 @@ mod tests {
     }
 
     #[test]
-    fn timezone_offset__Local() {
+    fn timezone_offset_local() {
         let q = r#"timezone_offset("Local")"#;
         let tz: Tz = "Local".parse().unwrap();
         let offset = get_timezone_offset(&tz, TIMESTAMPS_EXPECTED[0]).unwrap();
@@ -1013,7 +1013,7 @@ mod tests {
     }
 
     #[test]
-    fn label_copy__same_tag_nonexisting_src() {
+    fn label_copy_same_tag_non_existing_src() {
         let q = r##"label_copy(
         label_set(time(), "#tagname", "foobar"),
         "non-existing-tag", "tagname"
@@ -1024,7 +1024,7 @@ mod tests {
     }
 
     #[test]
-    fn label_move_same_tag_nonexisting_src() {
+    fn label_move_same_tag_non_existing_src() {
         let q = r##"label_move(
         label_set(time(), "#tagname", "foobar"),
         "non-existing-tag", "tagname"
@@ -1166,7 +1166,7 @@ mod tests {
     }
 
     #[test]
-    fn label_del_nolabels() {
+    fn label_del_no_labels() {
         assert_result_eq(
             r##"label_del(time(), "#foo", "bar")"##,
             &[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0],
@@ -3409,7 +3409,8 @@ mod tests {
 
     #[test]
     fn interpolate_tail_head_and_middle() {
-        let q = "interpolate(time() > 1100 and time() < 1300 default time() > 1700 and time() < 1900)";
+        let q =
+            "interpolate(time() > 1100 and time() < 1300 default time() > 1700 and time() < 1900)";
         assert_result_eq(q, &[NAN, 1200.0, 1400.0, 1600.0, 1800.0, NAN]);
     }
 
@@ -3608,7 +3609,7 @@ mod tests {
     }
 
     #[test]
-    fn outliers_mad__1() {
+    fn outliers_mad_1() {
         let q = r##"outliers_mad(1, (
         alias(time(), "#metric1"),
         alias(time()*1.5, "metric2"),
@@ -3620,7 +3621,7 @@ mod tests {
     }
 
     #[test]
-    fn outliers_mad__5() {
+    fn outliers_mad_5() {
         let q = r##"outliers_mad(5, (
         alias(time(), "#metric1"),
         alias(time()*1.5, "metric2"),
@@ -3630,7 +3631,7 @@ mod tests {
     }
 
     #[test]
-    fn outliersk__0() {
+    fn outliersk_0() {
         let q = r##"outliersk(0, (
         label_set(1300, "#foo", "bar"),
         label_set(time(), "baz", "sss"),
@@ -3639,7 +3640,7 @@ mod tests {
     }
 
     #[test]
-    fn outliersk__1() {
+    fn outliersk_1() {
         let q = r##"outliersk(1, (
         label_set(2000.0, "#foo", "bar"),
         label_set(time(), "baz", "sss"),
@@ -4193,7 +4194,7 @@ mod tests {
     #[test]
     fn rollup_rate_avg() {
         let q = r#"rollup_rate((2000-time())[600s], "avg")"#;
-        let mut r = make_result(&[5_f64, 4.0, 3.0, 2.0, 1.0, 0.0]);
+        let r = make_result(&[5_f64, 4.0, 3.0, 2.0, 1.0, 0.0]);
         test_query(q, vec![r]);
     }
 
@@ -4212,7 +4213,7 @@ mod tests {
     #[test]
     fn rollup_deriv_max() {
         let q = r#"sort(rollup_deriv(time()[100s:50s], "max"))"#;
-        let mut r = make_result(&[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
+        let r = make_result(&[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
         test_query(q, vec![r]);
     }
 

@@ -1,7 +1,7 @@
 use lib::BuildNoHashHasher;
+use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use once_cell::sync::Lazy;
 
 use crate::eval::hash_helper::HashHelper;
 use crate::eval::utils::remove_empty_series;
@@ -26,7 +26,10 @@ impl<'a> BinaryOpFuncArg<'a> {
 
 pub type BinaryOpFuncResult = RuntimeResult<Vec<Timeseries>>;
 
-pub(crate) trait BinaryOpFn: Fn(&mut BinaryOpFuncArg) -> BinaryOpFuncResult + Send + Sync {}
+pub(crate) trait BinaryOpFn:
+    Fn(&mut BinaryOpFuncArg) -> BinaryOpFuncResult + Send + Sync
+{
+}
 
 impl<T> BinaryOpFn for T where T: Fn(&mut BinaryOpFuncArg) -> BinaryOpFuncResult + Send + Sync {}
 
@@ -43,33 +46,32 @@ fn add_scalar_handler_to_hashmap(hm: &mut HashMap<String, BinaryOpFnImplementati
     hm.insert(format!("{}_bool", op).to_string(), Arc::new(bf));
 }
 
-static HANDLER_MAP: Lazy<RwLock<HashMap<String, BinaryOpFnImplementation>>> =
-    Lazy::new(|| {
-        use Operator::*;
+static HANDLER_MAP: Lazy<RwLock<HashMap<String, BinaryOpFnImplementation>>> = Lazy::new(|| {
+    use Operator::*;
 
-       let mut m: HashMap<String, BinaryOpFnImplementation> = HashMap::new();
-        add_scalar_handler_to_hashmap(&mut m, Add);
-        add_scalar_handler_to_hashmap(&mut m, Atan2);
-        add_scalar_handler_to_hashmap(&mut m, Sub);
-        add_scalar_handler_to_hashmap(&mut m, Mul);
-        add_scalar_handler_to_hashmap(&mut m, Div);
-        add_scalar_handler_to_hashmap(&mut m, Mod);
-        add_scalar_handler_to_hashmap(&mut m, Pow);
-        add_scalar_handler_to_hashmap(&mut m, Eql);
-        add_scalar_handler_to_hashmap(&mut m, Gt);
-        add_scalar_handler_to_hashmap(&mut m, Lt);
-        add_scalar_handler_to_hashmap(&mut m, Gte);
-        add_scalar_handler_to_hashmap(&mut m, Lte);
+    let mut m: HashMap<String, BinaryOpFnImplementation> = HashMap::new();
+    add_scalar_handler_to_hashmap(&mut m, Add);
+    add_scalar_handler_to_hashmap(&mut m, Atan2);
+    add_scalar_handler_to_hashmap(&mut m, Sub);
+    add_scalar_handler_to_hashmap(&mut m, Mul);
+    add_scalar_handler_to_hashmap(&mut m, Div);
+    add_scalar_handler_to_hashmap(&mut m, Mod);
+    add_scalar_handler_to_hashmap(&mut m, Pow);
+    add_scalar_handler_to_hashmap(&mut m, Eql);
+    add_scalar_handler_to_hashmap(&mut m, Gt);
+    add_scalar_handler_to_hashmap(&mut m, Lt);
+    add_scalar_handler_to_hashmap(&mut m, Gte);
+    add_scalar_handler_to_hashmap(&mut m, Lte);
 
-        m.insert(And.to_string(), Arc::new(binary_op_and));
-        m.insert(Or.to_string(), Arc::new(binary_op_or));
-        m.insert(Unless.to_string(), Arc::new(binary_op_unless));
-        m.insert(If.to_string(), Arc::new(binary_op_if));
-        m.insert(IfNot.to_string(), Arc::new(binary_op_if_not));
-        m.insert(Default.to_string(), Arc::new(binary_op_default));
+    m.insert(And.to_string(), Arc::new(binary_op_and));
+    m.insert(Or.to_string(), Arc::new(binary_op_or));
+    m.insert(Unless.to_string(), Arc::new(binary_op_unless));
+    m.insert(If.to_string(), Arc::new(binary_op_if));
+    m.insert(IfNot.to_string(), Arc::new(binary_op_if_not));
+    m.insert(Default.to_string(), Arc::new(binary_op_default));
 
-       RwLock::new(m)
-    });
+    RwLock::new(m)
+});
 
 pub(super) fn get_binary_op_func(op: Operator, is_bool: bool) -> BinaryOpFnImplementation {
     use Operator::*;
@@ -77,8 +79,7 @@ pub(super) fn get_binary_op_func(op: Operator, is_bool: bool) -> BinaryOpFnImple
 
     let key = match op {
         // logical set ops
-        And | Or | Unless |
-        If | IfNot | Default => op.to_string(),
+        And | Or | Unless | If | IfNot | Default => op.to_string(),
         _ => {
             if is_bool {
                 format!("{}_bool", op.to_string())
@@ -92,60 +93,9 @@ pub(super) fn get_binary_op_func(op: Operator, is_bool: bool) -> BinaryOpFnImple
     imp.clone()
 }
 
-fn binop_handler(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let op = bfa.be.op;
-
-    if bfa.left.len() == 0 || bfa.right.len() == 0 {
-        return Ok(vec![]);
-    }
-
-    // todo: should this also be applied to scalar/vector and vector/scalar?
-    if op.is_comparison() {
-        // Do not remove empty series for comparison operations,
-        // since this may lead to missing result.
-    } else {
-        remove_empty_series(&mut bfa.left);
-        remove_empty_series(&mut bfa.right);
-    }
-
-    let (left, right, mut dst) = adjust_binary_op_tags(bfa)?;
-    if left.len() != right.len() || left.len() != dst.len() {
-        return Err(RuntimeError::InvalidState(format!(
-            "BUG: left.len() must match right.len() and dst.len(); got {} vs {} vs {}",
-            left.len(),
-            right.len(),
-            dst.len()
-        )));
-    }
-
-    let handler = get_scalar_binop_handler(op, bfa.be.bool_modifier);
-
-    for ((left_ts, right_ts), curr_dest) in left.iter().zip(right.iter()).zip(dst.iter_mut()) {
-        let dst_len = curr_dest.values.len();
-        if left_ts.len() != right_ts.len() || left_ts.len() != dst_len {
-            let msg = format!("BUG: left_values.len() must match right_values.len() and dst_values.len(); got {} vs {} vs {}",
-left_ts.len(), right_ts.len(), dst_len);
-            return Err(RuntimeError::InvalidState(msg));
-        }
-
-        for ((left, right), dest) in left_ts
-            .values
-            .iter()
-            .zip(right_ts.values.iter())
-            .zip(curr_dest.values.iter_mut())
-        {
-            *dest = handler(*left, *right);
-        }
-    }
-
-    // do not remove time series containing only NaNs, since then the `(foo op bar) default N`
-    // won't work as expected if `(foo op bar)` results to NaN series.
-    Ok(dst)
-}
-
 const fn new_binary_op_func(bf: BinopFunc) -> impl BinaryOpFn {
     move |bfa: &mut BinaryOpFuncArg| -> RuntimeResult<Vec<Timeseries>> {
-        let BinaryExpr { op, bool_modifier, .. }  = bfa.be;
+        let op = bfa.be.op;
 
         if bfa.left.len() == 0 || bfa.right.len() == 0 {
             return Ok(vec![]);
@@ -169,8 +119,6 @@ const fn new_binary_op_func(bf: BinopFunc) -> impl BinaryOpFn {
                 dst.len()
             )));
         }
-
-        let handler = get_scalar_binop_handler(*op, *bool_modifier);
 
         for ((left_ts, right_ts), curr_dest) in left.iter().zip(right.iter()).zip(dst.iter_mut()) {
             let dst_len = curr_dest.values.len();
@@ -350,6 +298,7 @@ fn group_join(
             let key = hash_helper.hash(&mut ts_copy.metric_name);
 
             // todo: check specifically for error
+            // todo: Entry API is not ideal here, we don't need to copy the key
             match map.get_mut(&key) {
                 None => {
                     map.insert(
@@ -470,7 +419,7 @@ fn binary_op_and(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
         match m_left.get_mut(&k) {
             None => continue,
             Some(tss_left) => {
-                // Add gaps to tss_left if there are gaps at tssRight.
+                // Add gaps to tss_left if there are gaps at tss_right.
                 add_right_nans_to_left(tss_left, &tss_right);
                 rvs.extend(tss_left.drain(0..));
             }
@@ -677,10 +626,7 @@ pub(super) fn is_scalar(arg: &[Timeseries]) -> bool {
         return false;
     }
     let mn = &arg[0].metric_name;
-    if mn.metric_group.len() > 0 {
-        return false;
-    }
-    mn.tags.len() == 0
+    mn.tags.is_empty() && mn.metric_group.is_empty()
 }
 
 fn series_by_key<'a>(m: &'a TimeseriesHashMap, key: &u64) -> Option<&'a Vec<Timeseries>> {

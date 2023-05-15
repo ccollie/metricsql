@@ -1,5 +1,5 @@
 use crate::ast::*;
-use crate::common::{AggregateModifier, GroupModifier, JoinModifier, LabelFilter, LabelFilterOp, NAME_LABEL, StringExpr};
+use crate::common::{AggregateModifier, GroupModifier, JoinModifier, LabelFilter, LabelFilterOp, StringExpr, NAME_LABEL, TreeNodeRewriter};
 use crate::parser::{ParseError, ParseResult};
 use std::collections::HashSet;
 
@@ -40,7 +40,8 @@ impl<'a> ExpandRewriter<'a> {
             StringExpr(str) => {
                 let ss = self.resolve_string_expr(&str)?;
                 Ok(StringLiteral(ss))
-            },
+            }
+            // With(_) => self.expand_with(expr),
             _ => Ok(expr),
         }
     }
@@ -95,13 +96,14 @@ impl<'a> ExpandRewriter<'a> {
         match expr {
             Expr::StringExpr(se) => {
                 let value = self.resolve_string_expr(se)?;
-                return Ok(Some(vec![value]))
-            },
+                return Ok(Some(vec![value]));
+            }
             Expr::MetricExpression(me) => return handle_metric_expr(me),
             Expr::Rollup(rollup) => {
                 if rollup.for_subquery() {
                     let msg = format!(
-                        "Cannot substitute {:?} for {} string in {:?}", rollup, arg, expr
+                        "Cannot substitute {:?} for {} string in {:?}",
+                        rollup, arg, expr
                     );
                     return Err(ParseError::General(msg));
                 }
@@ -128,11 +130,7 @@ impl<'a> ExpandRewriter<'a> {
         return Err(ParseError::General(msg));
     }
 
-    fn resolve_string_internal(
-        &self,
-        expr: &Expr,
-        name: &str,
-    ) -> ParseResult<Option<String>> {
+    fn resolve_string_internal(&self, expr: &Expr, name: &str) -> ParseResult<Option<String>> {
         let mut values = self.resolve_strings(expr, name)?;
         if let Some(vals) = values.as_mut() {
             if vals.len() == 1 {
@@ -227,7 +225,7 @@ impl<'a> ExpandRewriter<'a> {
             me_new.label_filters.push(LabelFilter {
                 op: lfe.op,
                 label: label.unwrap_or(lfe.label.to_string()),
-                value
+                value,
             });
         }
 

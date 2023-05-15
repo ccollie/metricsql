@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use std::borrow::{Borrow};
+use std::borrow::Borrow;
 use std::hash::Hash;
 
 use clone_dyn::clone_dyn;

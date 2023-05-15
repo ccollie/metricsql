@@ -1,7 +1,7 @@
 use once_cell::sync::OnceCell;
 
 use crate::ast::{Expr, WithArgExpr};
-use crate::parser::expr::{parse_expression};
+use crate::parser::expr::parse_expression;
 use crate::parser::with_expr::{check_duplicate_with_arg_names, must_parse_with_arg_expr};
 
 pub use duration::parse_duration_value;
@@ -14,6 +14,7 @@ pub use selector::parse_metric_expr;
 pub use utils::{escape_ident, extract_string_value, quote, unescape_ident};
 
 mod aggregation;
+mod expand;
 mod expr;
 mod function;
 mod regexp_cache;
@@ -21,23 +22,21 @@ mod rollup;
 mod selector;
 mod with_expr;
 
+pub mod duration;
+pub mod number;
 pub mod parse_error;
 pub mod parser;
-pub mod number;
-pub mod duration;
-pub mod utils;
+pub mod symbol_provider;
 pub mod tokens;
+pub mod utils;
 
 // tests
-mod expand_expr;
 #[cfg(test)]
 mod expand_with_test;
 #[cfg(test)]
 mod parser_example_test;
 #[cfg(test)]
 mod parser_test;
-#[cfg(test)]
-mod lexer_tests;
 
 pub fn parse(input: &str) -> ParseResult<Expr> {
     let mut parser = Parser::new(input)?;

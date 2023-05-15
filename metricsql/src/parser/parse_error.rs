@@ -1,10 +1,10 @@
+use logos::Span;
 use std::fmt;
 use std::fmt::{Display, Formatter};
-use logos::Span;
 use thiserror::Error;
 
-use crate::parser::{TokenWithLocation};
 use crate::parser::tokens::Token;
+use crate::parser::TokenWithLocation;
 
 pub type ParseResult<T> = Result<T, ParseError>;
 
@@ -40,7 +40,7 @@ pub enum ParseError {
     DivisionByZero,
     #[default]
     #[error("Parse error")]
-    Other
+    Other,
 }
 
 /// ParseErr wraps a parsing error with line and position context.
@@ -118,11 +118,7 @@ pub(crate) fn invalid_token_error(
     ParseError::SyntaxError(res)
 }
 
-pub(crate) fn syntax_error(
-    msg: &str,
-    range: &Span,
-    context: String,
-) -> ParseError {
+pub(crate) fn syntax_error(msg: &str, range: &Span, context: String) -> ParseError {
     let mut res = String::with_capacity(100);
     if !context.is_empty() {
         res.push_str(format!("{} :", context).as_str())
@@ -166,7 +162,6 @@ pub(super) fn unexpected(
     ParseError::Unexpected(ParseErr::new(&err_msg, span))
 }
 
-
 /// Occurs when a function is called with the wrong number of arguments
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub struct ArgCountError {
@@ -194,7 +189,12 @@ impl ArgCountError {
     /// * `signature` - Function call signature
     /// * `min` - Smallest allowed number of arguments
     /// * `max` - Largest allowed number of arguments
-    pub fn new_with_token(token: &TokenWithLocation, signature: &str, min: usize, max: usize) -> Self {
+    pub fn new_with_token(
+        token: &TokenWithLocation,
+        signature: &str,
+        min: usize,
+        max: usize,
+    ) -> Self {
         Self::new_with_index(Some(usize::from(token.span.start)), signature, min, max)
     }
 
@@ -257,16 +257,11 @@ impl Display for ArgCountError {
 
 #[cfg(test)]
 mod tests {
-    use logos::Span;
     use crate::parser::invalid_token_error;
     use crate::parser::tokens::Token;
+    use logos::Span;
 
-    fn check(
-        expected: Vec<Token>,
-        found: Option<Token>,
-        range: Span,
-        output: &str,
-    ) {
+    fn check(expected: Vec<Token>, found: Option<Token>, range: Span, output: &str) {
         let error = invalid_token_error(&expected, found, &range, "".to_string());
         assert_eq!(format!("{}", error), output);
     }

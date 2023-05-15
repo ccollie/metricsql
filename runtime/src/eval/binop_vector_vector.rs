@@ -1,24 +1,25 @@
 use std::borrow::Cow;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::collections::btree_set::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
 use regex::escape;
-use tracing::{field, span_enabled, trace, trace_span, Level, Span};
+use tracing::{field, trace, trace_span, Level, Span};
 
-use metricsql::common::{LabelFilter, Operator, Value, ValueType};
-use metricsql::functions::{Volatility};
 use metricsql::ast::*;
+use metricsql::common::{LabelFilter, Operator, Value, ValueType};
+use metricsql::functions::Volatility;
 use metricsql::optimize::trim_filters_by_group_modifier;
 
 use crate::context::Context;
-use crate::eval::binop_handlers::{BinaryOpFn, BinaryOpFuncArg, BinaryOpFuncResult, get_binary_op_func};
+use crate::eval::binop_handlers::{
+    get_binary_op_func, BinaryOpFn, BinaryOpFuncArg, BinaryOpFuncResult,
+};
 use crate::eval::traits::Evaluator;
 use crate::eval::{create_evaluator, eval_number, ExprEvaluator};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::{EvalConfig, QueryValue, Timeseries};
 
-use crate::eval::utils::{series_len};
+use crate::eval::utils::series_len;
 use crate::types::Tag;
 
 pub struct BinaryEvaluatorVectorVector {
@@ -56,7 +57,7 @@ impl BinaryEvaluatorVectorVector {
             can_pushdown_filters,
             can_parallelize,
             return_type,
-            swap
+            swap,
         })
     }
 
@@ -167,7 +168,7 @@ impl BinaryEvaluatorVectorVector {
                 trim_filters_by_group_modifier(&mut common_filters, &self.expr);
                 let mut copy = dest.clone();
                 push_down_binary_op_filters_in_place(&mut copy, &mut common_filters);
-                return Ok(Cow::Owned(copy))
+                return Ok(Cow::Owned(copy));
             }
         }
         Ok(Cow::Borrowed(dest))
@@ -312,7 +313,6 @@ pub(super) fn get_common_label_filters(tss: &[Timeseries]) -> Vec<LabelFilter> {
         }
 
         let mut vals: Vec<&String> = values.iter().collect::<Vec<_>>();
-        vals.sort();
 
         let str_value: String;
         let mut is_regex = false;
@@ -349,7 +349,6 @@ fn join_regexp_values(a: &Vec<&String>) -> String {
     }
     res
 }
-
 
 //#[cfg(test)]
 /*

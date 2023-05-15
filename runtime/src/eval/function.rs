@@ -1,23 +1,22 @@
-use metricsql::functions::{Volatility};
 use metricsql::ast::FunctionExpr;
-use metricsql::prelude::TransformFunction;
+use metricsql::common::{Value, ValueType};
+use metricsql::functions::Volatility;
+use metricsql::prelude::{BuiltinFunctionType, TransformFunction};
 use std::str::FromStr;
 use std::sync::Arc;
 use tracing::{field, trace_span, Span};
-use metricsql::common::{Value, ValueType};
 
 use crate::context::Context;
 use crate::eval::arg_list::ArgList;
 use crate::eval::traits::Evaluator;
 use crate::eval::ExprEvaluator;
-use crate::functions::transform::{get_transform_func, TransformFuncArg, TransformFnImplementation};
+use crate::functions::transform::{
+    get_transform_func, TransformFnImplementation, TransformFuncArg,
+};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::{EvalConfig, QueryValue};
+use crate::eval::rollup::RollupEvaluator;
 
-pub(super) fn create_function_evaluator(fe: &FunctionExpr) -> RuntimeResult<ExprEvaluator> {
-    let fe = TransformEvaluator::new(fe)?;
-    Ok(ExprEvaluator::Function(fe))
-}
 
 pub struct TransformEvaluator {
     fe: FunctionExpr,

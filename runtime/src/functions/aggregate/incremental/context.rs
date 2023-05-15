@@ -1,9 +1,9 @@
+use crate::functions::aggregate::Handler;
+use crate::{RuntimeResult, Timeseries};
+use metricsql::ast::AggregationExpr;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use metricsql::ast::AggregationExpr;
-use crate::{RuntimeResult, Timeseries};
-use crate::functions::aggregate::Handler;
 
 pub enum IncrementalAggrFuncKind {
     Any,
@@ -67,10 +67,7 @@ pub struct IncrementalAggrFuncContext<'a> {
 }
 
 impl<'a> IncrementalAggrFuncContext<'a> {
-    pub(crate) fn new(
-        ae: &'a AggregationExpr,
-        handler: &'a Handler,
-    ) -> Self {
+    pub(crate) fn new(ae: &'a AggregationExpr, handler: &'a Handler) -> Self {
         let m: HashMap<u64, HashMap<String, IncrementalAggrContext>> = HashMap::new();
 
         Self {

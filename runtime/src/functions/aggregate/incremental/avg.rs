@@ -1,5 +1,5 @@
-use itertools::izip;
 use super::context::{IncrementalAggrContext, IncrementalAggrHandler};
+use itertools::izip;
 
 pub struct IncrementalAggrAvg {}
 
@@ -8,7 +8,11 @@ impl IncrementalAggrHandler for IncrementalAggrAvg {
         // do not use `Rapid calculation methods` at https://en.wikipedia.org/wiki/Standard_deviation,
         // since it is slower and has no obvious benefits in increased precision.
 
-        for (v, count, dst) in izip!(values.iter(), iac.values.iter_mut(), iac.ts.values.iter_mut()) {
+        for (v, count, dst) in izip!(
+            values.iter(),
+            iac.values.iter_mut(),
+            iac.ts.values.iter_mut()
+        ) {
             if v.is_nan() {
                 continue;
             }
@@ -25,7 +29,12 @@ impl IncrementalAggrHandler for IncrementalAggrAvg {
     }
 
     fn merge(&self, dst: &mut IncrementalAggrContext, src: &IncrementalAggrContext) {
-        let iter = izip!(src.values.iter(), dst.values.iter_mut(), src.ts.values.iter(), dst.ts.values.iter_mut());
+        let iter = izip!(
+            src.values.iter(),
+            dst.values.iter_mut(),
+            src.ts.values.iter(),
+            dst.ts.values.iter_mut()
+        );
         for (src_count, dst_count, v, dst) in iter {
             if *src_count == 0.0 {
                 continue;
@@ -41,7 +50,6 @@ impl IncrementalAggrHandler for IncrementalAggrAvg {
             *dst_count += *src_count;
         }
     }
-
 
     fn finalize(&self, iac: &mut IncrementalAggrContext) {
         let counts = &iac.values;

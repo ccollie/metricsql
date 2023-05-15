@@ -17,10 +17,12 @@
 
 //! Utility functions for expression simplification
 
+use crate::ast::{
+    AggregationExpr, BExpr, BinaryExpr, Expr, FunctionExpr, NumberLiteral, RollupExpr, WithArgExpr,
+    WithExpr,
+};
 use crate::common::Operator;
-use crate::ast::{AggregationExpr, BExpr, BinaryExpr, Expr, FunctionExpr, NumberExpr, RollupExpr, WithArgExpr, WithExpr};
 use crate::prelude::MetricExpr;
-
 
 /// Create a selector expression based on a qualified or unqualified column name
 ///
@@ -46,8 +48,8 @@ pub fn number(val: f64) -> Expr {
 pub fn expr_contains(expr: &Expr, needle: &Expr, search_op: Operator) -> bool {
     match expr {
         Expr::BinaryOperator(BinaryExpr {
-                                 left, op, right, ..
-                             }) if *op == search_op => {
+            left, op, right, ..
+        }) if *op == search_op => {
             expr_contains(left, needle, search_op) || expr_contains(right, needle, search_op)
         }
         _ => expr == needle,
@@ -56,7 +58,7 @@ pub fn expr_contains(expr: &Expr, needle: &Expr, search_op: Operator) -> bool {
 
 pub fn is_number_value(s: &Expr, val: f64) -> bool {
     match s {
-        Expr::Number(NumberExpr { value, .. }) => *value == val,
+        Expr::Number(NumberLiteral { value, .. }) => *value == val,
         _ => false,
     }
 }
@@ -70,7 +72,10 @@ pub fn is_one(s: &Expr) -> bool {
 }
 
 pub fn is_null(expr: &Expr) -> bool {
-    is_number_value(expr, f64::NAN)
+    match expr {
+        Expr::Number(NumberLiteral { value, .. }) => value.is_nan(),
+        _ => false,
+    }
 }
 
 /// returns true if `haystack` looks like (needle OP X) or (X OP needle)
@@ -90,18 +95,18 @@ pub fn is_op_with(target_op: Operator, haystack: &Expr, needle: &Expr) -> bool {
 /// # use crate::hir::expr_fn::{selector, number};
 /// # use crate::hir::utils::conjunction;
 /// // a=1 AND b=2
-/// let expr = selector("a").eq(number(1)).and(selector("b").eq(number(2)));
+/// let expr = selector("a").eq(number(1.0)).and(selector("b").eq(number(2.0)));
 ///
 /// // [a=1, b=2]
 /// let split = vec![
-///   selector("a").eq(number(1)),
-///   selector("b").eq(number(2)),
+///   selector("a").eq(number(1.0)),
+///   selector("b").eq(number(2.0)),
 /// ];
 ///
 /// // use conjunction to join them together with `AND`
 /// assert_eq!(conjunction(split), Some(expr));
 /// ```
-pub fn conjunction(filters: impl IntoIterator<Item =Expr>) -> Option<Expr> {
+pub fn conjunction(filters: impl IntoIterator<Item = Expr>) -> Option<Expr> {
     filters.into_iter().reduce(|accum, expr| accum.and(expr))
 }
 
@@ -110,7 +115,7 @@ pub fn conjunction(filters: impl IntoIterator<Item =Expr>) -> Option<Expr> {
 /// logical OR.
 ///
 /// Returns None if the filters array is empty.
-pub fn disjunction(filters: impl IntoIterator<Item =Expr>) -> Option<Expr> {
+pub fn disjunction(filters: impl IntoIterator<Item = Expr>) -> Option<Expr> {
     filters.into_iter().reduce(|accum, expr| accum.or(expr))
 }
 
@@ -131,22 +136,8 @@ pub fn expr_equals(expr1: &Expr, expr2: &Expr) -> bool {
         (With(we1), With(we2)) => with_exprs_equal(we1, we2),
         (StringExpr(s1), StringExpr(s2)) => s1 == s2,
         // special case: (x) == x. I don't know if i like this
-        (Parens(p), e) => {
-            p.len() == 1 && expr_equals(&p.expressions[0], e)
-        },
-        (e, Parens(p)) => {
-            p.len() == 1 && expr_equals(e, &p.expressions[0])
-        },
-        _ => {
-            false
-        }
-    }
-}
-
-fn optional_exprs_equal(e1: &Option<Expr>, e2: &Option<Expr>) -> bool {
-    match (e1, e2) {
-        (Some(e1), Some(e2)) => expr_equals(e1, e2),
-        (None, None) => true,
+        (Parens(p), e) => p.len() == 1 && expr_equals(&p.expressions[0], e),
+        (e, Parens(p)) => p.len() == 1 && expr_equals(e, &p.expressions[0]),
         _ => false,
     }
 }
@@ -160,52 +151,54 @@ fn optional_boxed_exprs_equal(e1: &Option<BExpr>, e2: &Option<BExpr>) -> bool {
 }
 
 fn rollup_exprs_equal(re1: &RollupExpr, re2: &RollupExpr) -> bool {
-    re1.inherit_step == re2.inherit_step &&
-        re1.window == re2.window &&
-        re1.step == re2.step &&
-        re1.offset == re2.offset &&
-        expr_equals(&re1.expr, &re2.expr) &&
-        optional_boxed_exprs_equal(&re1.at, &re2.at)
+    re1.inherit_step == re2.inherit_step
+        && re1.window == re2.window
+        && re1.step == re2.step
+        && re1.offset == re2.offset
+        && expr_equals(&re1.expr, &re2.expr)
+        && optional_boxed_exprs_equal(&re1.at, &re2.at)
 }
 
 fn aggregation_exprs_equal(ae1: &AggregationExpr, ae2: &AggregationExpr) -> bool {
-    ae1.name == ae2.name &&
-        ae1.limit == ae2.limit &&
-        ae1.keep_metric_names == ae2.keep_metric_names &&
-        ae1.arg_idx_for_optimization ==  ae2.arg_idx_for_optimization &&
-        expr_vec_equals(&ae1.args, &ae2.args)
+    ae1.name == ae2.name
+        && ae1.limit == ae2.limit
+        && ae1.keep_metric_names == ae2.keep_metric_names
+        && ae1.arg_idx_for_optimization == ae2.arg_idx_for_optimization
+        && expr_vec_equals(&ae1.args, &ae2.args)
 }
 
 fn binary_exprs_equal(be1: &BinaryExpr, be2: &BinaryExpr) -> bool {
-    be1.op == be2.op &&
-        be1.bool_modifier == be2.bool_modifier &&
-        be1.group_modifier == be2.group_modifier &&
-        be1.join_modifier == be2.join_modifier &&
-        expr_equals(&be1.left, &be2.left) &&
-        expr_equals(&be1.right, &be2.right) &&
-        be1.modifier == be2.modifier
+    be1.op == be2.op
+        && be1.bool_modifier == be2.bool_modifier
+        && be1.group_modifier == be2.group_modifier
+        && be1.join_modifier == be2.join_modifier
+        && be1.keep_metric_names == be2.keep_metric_names
+        && expr_equals(&be1.left, &be2.left)
+        && expr_equals(&be1.right, &be2.right)
+        && be1.modifier == be2.modifier
 }
 
 fn function_exprs_equal(fe1: &FunctionExpr, fe2: &FunctionExpr) -> bool {
-    fe1.name == fe2.name &&
-        fe1.keep_metric_names == fe2.keep_metric_names &&
-        fe1.arg_idx_for_optimization == fe2.arg_idx_for_optimization &&
-        fe1.is_scalar == fe2.is_scalar &&
-        fe1.return_type == fe2.return_type &&
-        expr_vec_equals(&fe1.args, &fe2.args)
+    fe1.name == fe2.name
+        && fe1.keep_metric_names == fe2.keep_metric_names
+        && fe1.arg_idx_for_optimization == fe2.arg_idx_for_optimization
+        && fe1.is_scalar == fe2.is_scalar
+        && fe1.return_type == fe2.return_type
+        && expr_vec_equals(&fe1.args, &fe2.args)
 }
 
 fn with_exprs_equal(we1: &WithExpr, we2: &WithExpr) -> bool {
-    expr_equals(&we1.expr, &we2.expr) &&
-    we1.was.len() == we2.was.len() &&
-        we1.was.iter().zip(we2.was.iter()).all(|(w1, w2)| with_arg_exprs_equal(w1, w2))
+    expr_equals(&we1.expr, &we2.expr)
+        && we1.was.len() == we2.was.len()
+        && we1
+            .was
+            .iter()
+            .zip(we2.was.iter())
+            .all(|(w1, w2)| with_arg_exprs_equal(w1, w2))
 }
 
 fn with_arg_exprs_equal(we1: &WithArgExpr, we2: &WithArgExpr) -> bool {
-    we1.name == we2.name &&
-        we1.args == we2.args &&
-        we1.is_function == we2.is_function &&
-        expr_equals(&we1.expr, &we2.expr)
+    we1.name == we2.name && we1.args == we2.args && expr_equals(&we1.expr, &we2.expr)
 }
 
 fn expr_vec_equals(exprs1: &[Expr], exprs2: &[Expr]) -> bool {
@@ -220,49 +213,9 @@ fn expr_vec_equals(exprs1: &[Expr], exprs2: &[Expr]) -> bool {
     true
 }
 
-// todo: use expr_visitor instead
-pub fn visit_all(e: &mut Expr, visitor: fn(&mut Expr) -> ()) {
-    match e {
-        Expr::BinaryOperator(be) => {
-            visit_all(&mut be.left, visitor);
-            visit_all(&mut be.right, visitor);
-        }
-        Expr::Function(fe) => {
-            for arg in fe.args.iter_mut() {
-                visit_all(arg, visitor)
-            }
-        }
-        Expr::Aggregation(ae) => {
-            for arg in ae.args.iter_mut() {
-                visit_all(arg, visitor)
-            }
-        }
-        Expr::With(we) => {
-            visit_all(&mut we.expr, visitor);
-            for wa in we.was.iter_mut() {
-                visit_all(&mut wa.expr, visitor)
-            }
-        }
-        Expr::Parens(pe) => {
-            for arg in pe.expressions.iter_mut() {
-                visit_all(arg, visitor)
-            }
-        }
-        Expr::Rollup(re) => {
-            visit_all(&mut re.expr, visitor);
-            if let Some(at) = &mut re.at {
-                visit_all(at, visitor)
-            }
-        },
-        _ => {}
-    }
-    visitor(e);
-}
-
-
 #[cfg(test)]
 pub mod tests {
-    use crate::ast::utils::{selector, conjunction, disjunction};
+    use crate::ast::utils::{conjunction, disjunction, selector};
 
     #[test]
     fn test_conjunction_empty() {
@@ -275,10 +228,16 @@ pub mod tests {
         let expr = conjunction(vec![selector("a"), selector("b"), selector("c")]);
 
         // --> `(A AND B) AND C`
-        assert_eq!(expr, Some(selector("a").and(selector("b")).and(selector("c"))));
+        assert_eq!(
+            expr,
+            Some(selector("a").and(selector("b")).and(selector("c")))
+        );
 
         // which is different than `A AND (B AND C)`
-        assert_ne!(expr, Some(selector("a").and(selector("b").and(selector("c")))));
+        assert_ne!(
+            expr,
+            Some(selector("a").and(selector("b").and(selector("c"))))
+        );
     }
 
     #[test]
@@ -292,9 +251,15 @@ pub mod tests {
         let expr = disjunction(vec![selector("a"), selector("b"), selector("c")]);
 
         // --> `(A OR B) OR C`
-        assert_eq!(expr, Some(selector("a").or(selector("b")).or(selector("c"))));
+        assert_eq!(
+            expr,
+            Some(selector("a").or(selector("b")).or(selector("c")))
+        );
 
         // which is different than `A OR (B OR C)`
-        assert_ne!(expr, Some(selector("a").or(selector("b").or(selector("c")))));
+        assert_ne!(
+            expr,
+            Some(selector("a").or(selector("b").or(selector("c"))))
+        );
     }
 }

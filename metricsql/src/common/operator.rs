@@ -1,8 +1,8 @@
+use crate::parser::tokens::Token;
 use crate::parser::ParseError;
 use phf::phf_map;
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use crate::parser::tokens::Token;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Operator {
@@ -152,7 +152,6 @@ impl Operator {
     }
 }
 
-
 impl TryFrom<&str> for Operator {
     type Error = ParseError;
 
@@ -171,7 +170,6 @@ impl TryFrom<Token> for Operator {
     type Error = ParseError;
 
     fn try_from(token: Token) -> Result<Self, Self::Error> {
-
         match token {
             Token::OpAnd => Ok(Operator::And),
             Token::OpAtan2 => Ok(Operator::Atan2),
@@ -192,9 +190,10 @@ impl TryFrom<Token> for Operator {
             Token::OpPow => Ok(Operator::Pow),
             Token::OpUnless => Ok(Operator::Unless),
             Token::OpPlus => Ok(Operator::Add),
-            _ => {
-                Err(ParseError::General(format!("Unknown binary op {:?}", token)))
-            }
+            _ => Err(ParseError::General(format!(
+                "Unknown binary op {:?}",
+                token
+            ))),
         }
     }
 }

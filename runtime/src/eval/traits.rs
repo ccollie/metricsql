@@ -1,7 +1,7 @@
-use metricsql::functions::{Volatility};
-use std::sync::Arc;
 use metricsql::common::ValueType;
+use metricsql::functions::Volatility;
 use metricsql::prelude::Value;
+use std::sync::Arc;
 
 use crate::context::Context;
 use crate::runtime_error::RuntimeResult;

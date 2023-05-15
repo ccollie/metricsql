@@ -1,56 +1,29 @@
-use crate::ast::{Expr, FunctionExpr, WithArgExpr};
+use crate::ast::{Expr, FunctionExpr};
 use crate::common::ValueType;
-use crate::functions::{BuiltinFunction};
-use crate::parser::expr::parse_arg_list;
+use crate::functions::BuiltinFunction;
+use crate::parser::tokens::Token;
 use crate::parser::{ParseError, ParseResult, Parser};
 use std::ops::Deref;
-use crate::parser::tokens::Token;
 
 pub(super) fn parse_func_expr(p: &mut Parser) -> ParseResult<Expr> {
     let name = p.expect_identifier()?;
-    let args = parse_arg_list(p)?;
+    let args = p.parse_arg_list()?;
 
-    let mut keep_metric_names = false;
-    if p.at(&Token::KeepMetricNames) {
-        keep_metric_names = true;
-        p.bump();
+    // with (f(x) = sum(x * 2))  f(x{a="b"}) => sum(x{a="b"}) * 2)
+    // check if we have a function with the same name in the with stack
+    if p.can_lookup() {
+        if let Some(expr) = p.resolve_ident( &name, &args)? {
+            return Ok(expr);
+        }
     }
 
     let mut fe = FunctionExpr::new(&name, args)?;
-    fe.keep_metric_names = keep_metric_names;
-
-    // TODO: !!!! fix validate args
-    // validate_args(&fe.function, &fe.args)?;
-
-    Ok(Expr::Function(fe))
-}
-
-pub(super) fn parse_template_func_expr(p: &mut Parser) -> ParseResult<Expr> {
-    let name = p.expect_identifier()?;
-    let func = p.resolve_template_function(&name);
-    if func.is_none() {
-        // todo: raise error
-    }
-
-    let func = func.unwrap().clone(); // todo: avoid this
-
-    let args = parse_arg_list(p)?;
-
-    let frame = func
-        .args
-        .iter()
-        .zip(args.iter())
-        .map(|(arg, expr)| WithArgExpr {
-            name: arg.clone(),
-            args: vec![],
-            expr: expr.clone(),
-            is_function: false,
-        })
-        .collect::<Vec<WithArgExpr>>();
-
-    p.with_stack.push(frame);
-
-    let fe = FunctionExpr::new(&name, args)?;
+    fe.keep_metric_names = if p.at(&Token::KeepMetricNames) {
+        p.bump();
+        true
+    } else {
+        false
+    };
 
     // TODO: !!!! fix validate args
     // validate_args(&fe.function, &fe.args)?;
@@ -63,7 +36,9 @@ pub fn validate_function_args(func: &BuiltinFunction, args: &[Expr]) -> ParseRes
         if actual != expected {
             return Err(ParseError::ArgumentError(format!(
                 "Invalid argument #{} to {}. {} expected",
-                index, func, expected
+                index + 1,
+                func,
+                expected
             )));
         }
         Ok(())
@@ -86,7 +61,8 @@ pub fn validate_function_args(func: &BuiltinFunction, args: &[Expr]) -> ParseRes
                     if !return_type.is_operator_valid() {
                         return Err(ParseError::ArgumentError(format!(
                             "Invalid argument #{} to {}. Scalar or InstantVector expected",
-                            index, func
+                            index + 1,
+                            func
                         )));
                     }
                 }
@@ -107,8 +83,7 @@ pub fn validate_function_args(func: &BuiltinFunction, args: &[Expr]) -> ParseRes
 
         match *actual.deref() {
             // technically should not occur as a function parameter
-            Expr::Duration(_) |
-            Expr::Number(_) => {
+            Expr::Duration(_) | Expr::Number(_) => {
                 if expected_type.is_scalar() {
                     continue;
                 }

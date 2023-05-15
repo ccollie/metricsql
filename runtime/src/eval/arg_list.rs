@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use tracing::info;
 use metricsql::common::ValueType;
+use tracing::info;
 
+use metricsql::ast::Expr;
 use metricsql::functions::{Signature, TypeSignature, Volatility};
-use metricsql::ast::{Expr};
 
 use crate::context::Context;
 use crate::eval::eval::eval_volatility;
@@ -109,6 +109,13 @@ fn should_parallelize_param_eval(signature: &Signature) -> bool {
         TypeSignature::Exact(valid_types) => check_args(valid_types),
         TypeSignature::Any(number) => {
             if *number < 2 {
+                return false;
+            }
+            true
+        }
+        TypeSignature::VariadicAny(x) => {
+            // todo: better heuristic
+            if *x < 2 {
                 return false;
             }
             true

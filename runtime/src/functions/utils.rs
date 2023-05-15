@@ -79,7 +79,7 @@ pub fn skip_leading_nans(values: &[f64]) -> &[f64] {
             break;
         }
     }
-    return &values[i..]
+    return &values[i..];
 }
 
 pub fn skip_trailing_nans(values: &[f64]) -> &[f64] {

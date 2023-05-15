@@ -5,9 +5,11 @@ use crate::functions::aggregate::incremental::geomean::IncrementalAggrGeomean;
 use crate::functions::aggregate::incremental::group::IncrementalAggrGroup;
 use crate::functions::aggregate::incremental::max::IncrementalAggrMax;
 use crate::functions::aggregate::incremental::min::IncrementalAggrMin;
-use crate::functions::aggregate::incremental::sum2::IncrementalAggrSum2;
 use crate::functions::aggregate::incremental::sum::IncrementalAggrSum;
-use crate::functions::aggregate::{IncrementalAggrContext, IncrementalAggrFuncKind, IncrementalAggrHandler};
+use crate::functions::aggregate::incremental::sum2::IncrementalAggrSum2;
+use crate::functions::aggregate::{
+    IncrementalAggrContext, IncrementalAggrFuncKind, IncrementalAggrHandler,
+};
 
 /// all the incremental aggregation functions
 /// Using an enum because this needs to be Send

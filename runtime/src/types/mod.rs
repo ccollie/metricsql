@@ -1,15 +1,14 @@
 mod metric_name;
+mod query_value;
 mod timeseries;
 mod traits;
-mod query_value;
 
 pub use metric_name::*;
+pub use query_value::*;
 pub use timeseries::*;
 pub use traits::*;
-pub use query_value::*;
 
 #[cfg(test)]
 mod metric_name_test;
 #[cfg(test)]
 mod timeseries_test;
-

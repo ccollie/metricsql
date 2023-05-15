@@ -1,26 +1,26 @@
 use std::sync::Arc;
 
-use metricsql::common::{LabelFilter, Value};
-use metricsql::functions::{Signature, Volatility};
 use metricsql::ast::*;
+use metricsql::common::{LabelFilter, Value};
+use metricsql::functions::{BuiltinFunctionType, Signature, Volatility};
 use metricsql::prelude::{BinaryOpKind, ValueType};
 
 use crate::context::Context;
-use crate::eval::aggregate::{AggregateEvaluator, create_aggr_evaluator};
-use crate::eval::duration::DurationEvaluator;
-use crate::eval::function::{create_function_evaluator, TransformEvaluator};
-use crate::eval::instant_vector::InstantVectorEvaluator;
-use crate::eval::scalar::ScalarEvaluator;
-use crate::eval::string::StringEvaluator;
-use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::search::Deadline;
-use crate::{QueryValue, TimestampTrait};
+use crate::eval::aggregate::{create_aggr_evaluator, AggregateEvaluator};
 use crate::eval::binop_handlers::should_reset_metric_group;
 use crate::eval::binop_scalar_scalar::BinaryEvaluatorScalarScalar;
 use crate::eval::binop_scalar_vector::BinaryEvaluatorScalarVector;
 use crate::eval::binop_vector_scalar::BinaryEvaluatorVectorScalar;
 use crate::eval::binop_vector_vector::BinaryEvaluatorVectorVector;
+use crate::eval::duration::DurationEvaluator;
+use crate::eval::function::TransformEvaluator;
+use crate::eval::instant_vector::InstantVectorEvaluator;
+use crate::eval::scalar::ScalarEvaluator;
+use crate::eval::string::StringEvaluator;
+use crate::runtime_error::{RuntimeError, RuntimeResult};
+use crate::search::Deadline;
 use crate::types::{Timeseries, Timestamp};
+use crate::{QueryValue, TimestampTrait};
 
 use super::rollup::RollupEvaluator;
 use super::traits::{Evaluator, NullEvaluator};
@@ -171,67 +171,75 @@ pub fn create_evaluator(expr: &Expr) -> RuntimeResult<ExprEvaluator> {
     }
 }
 
+fn create_function_evaluator(fe: &FunctionExpr) -> RuntimeResult<ExprEvaluator> {
+    match fe.function_type {
+        BuiltinFunctionType::Rollup => {
+            let eval = RollupEvaluator::from_function(fe)?;
+            Ok(ExprEvaluator::Rollup(eval))
+        },
+        // note: aggregations produce another ast node type, so we don't need to handle them here
+        _ => {
+            let fe = TransformEvaluator::new(fe)?;
+            Ok(ExprEvaluator::Function(fe))
+        },
+    }
+}
+
 fn create_parens_evaluator(pe: &ParensExpr) -> RuntimeResult<ExprEvaluator> {
     return if pe.len() == 1 {
         create_evaluator(&pe.expressions[0])
     } else {
         let func = pe.clone().to_function();
         create_function_evaluator(&func)
-    }
+    };
 }
 
 fn create_binary_evaluator(be: &BinaryExpr) -> RuntimeResult<ExprEvaluator> {
     use BinaryOpKind::*;
 
     let op_kind = be.op.kind();
-    let keep_metric_names = be.keep_metric_names || should_reset_metric_group(&be.op, be.bool_modifier);
+    let keep_metric_names =
+        be.keep_metric_names || should_reset_metric_group(&be.op, be.bool_modifier);
     match (be.left.return_type(), op_kind, be.right.return_type()) {
         (ValueType::Scalar, Arithmetic | Comparison, ValueType::Scalar) => {
             assert!(Comparison != op_kind || be.bool_modifier);
             debug_assert!(be.modifier.is_none());
-            Ok(ExprEvaluator::ScalarScalar(BinaryEvaluatorScalarScalar::new(
-                be.op,
-                &be.left,
-                &be.right,
-                be.bool_modifier
-            )?))
+            Ok(ExprEvaluator::ScalarScalar(
+                BinaryEvaluatorScalarScalar::new(be.op, &be.left, &be.right, be.bool_modifier)?,
+            ))
         }
         (ValueType::Scalar, Arithmetic | Comparison, ValueType::InstantVector) => {
             assert!(!be.bool_modifier || Comparison == op_kind);
             debug_assert!(be.modifier.is_none());
-            Ok(
-                ExprEvaluator::ScalarVector(
-                    BinaryEvaluatorScalarVector::new(
-                        be.op,
-                        &be.left,
-                        &be.right,
-                        be.bool_modifier,
-                        keep_metric_names
-                    )?
-                )
-            )
+            Ok(ExprEvaluator::ScalarVector(
+                BinaryEvaluatorScalarVector::new(
+                    be.op,
+                    &be.left,
+                    &be.right,
+                    be.bool_modifier,
+                    keep_metric_names,
+                )?,
+            ))
         }
         (ValueType::InstantVector, Arithmetic | Comparison, ValueType::Scalar) => {
             assert!(!be.bool_modifier || Comparison == op_kind);
             debug_assert!(be.modifier.is_none());
-            Ok(
-                ExprEvaluator::VectorScalar(
-                    BinaryEvaluatorVectorScalar::new(
-                        be.op,
-                        &be.left,
-                        &be.right,
-                        be.bool_modifier,
-                        keep_metric_names
-                    )?
-                )
-            )
+            Ok(ExprEvaluator::VectorScalar(
+                BinaryEvaluatorVectorScalar::new(
+                    be.op,
+                    &be.left,
+                    &be.right,
+                    be.bool_modifier,
+                    keep_metric_names,
+                )?,
+            ))
         }
         (ValueType::InstantVector, Arithmetic | Comparison | Logical, ValueType::InstantVector) => {
             assert!(!be.bool_modifier || Comparison == op_kind);
             debug_assert!(be.modifier.is_none());
-            Ok(
-                ExprEvaluator::VectorVector(BinaryEvaluatorVectorVector::new(be)?)
-            )
+            Ok(ExprEvaluator::VectorVector(
+                BinaryEvaluatorVectorVector::new(be)?,
+            ))
         }
         (lk, ok, rk) => unimplemented!("{:?} {:?} {:?} operation is not supported", lk, ok, rk),
     }
@@ -518,7 +526,9 @@ pub fn get_timestamps(
         return Err(RuntimeError::from(msg));
     }
 
-    if let Err(err) = validate_max_points_per_timeseries(start, end, step, max_timestamps_per_timeseries) {
+    if let Err(err) =
+        validate_max_points_per_timeseries(start, end, step, max_timestamps_per_timeseries)
+    {
         let msg = format!(
             "BUG: {:?}; this must be validated before the call to get_timestamps",
             err
@@ -545,7 +555,8 @@ pub(crate) fn eval_number(ec: &EvalConfig, n: f64) -> Vec<Timeseries> {
     // HACK!!!  ec.ensure_timestamps() should have been called before this function
     if timestamps.len() == 0 {
         // todo: this is a hack, we should not call get_timestamps here
-        let timestamps = get_timestamps(ec.start, ec.end, ec.step, ec.max_points_per_series as usize).unwrap();
+        let timestamps =
+            get_timestamps(ec.start, ec.end, ec.step, ec.max_points_per_series as usize).unwrap();
         let ts = Timeseries::new(timestamps, values);
         return vec![ts];
     }

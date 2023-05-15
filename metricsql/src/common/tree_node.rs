@@ -18,8 +18,8 @@
 //! This module provides common traits for visiting or rewriting tree
 //! data structures easily.
 
-use std::sync::Arc;
 use crate::parser::ParseResult;
+use std::sync::Arc;
 
 pub type Result<T> = ParseResult<T>;
 
@@ -39,8 +39,8 @@ pub trait TreeNode: Sized {
     /// The `op` closure can be used to collect some info from the
     /// tree node or do some checking for the tree node.
     fn apply<F>(&self, op: &mut F) -> Result<VisitRecursion>
-        where
-            F: FnMut(&Self) -> Result<VisitRecursion>,
+    where
+        F: FnMut(&Self) -> Result<VisitRecursion>,
     {
         match op(self)? {
             VisitRecursion::Continue => {}
@@ -81,10 +81,7 @@ pub trait TreeNode: Sized {
     ///
     /// If using the default [`TreeNodeVisitor::post_visit`] that does
     /// nothing, [`Self::apply`] should be preferred.
-    fn visit<V: TreeNodeVisitor<N = Self>>(
-        &self,
-        visitor: &mut V,
-    ) -> Result<VisitRecursion> {
+    fn visit<V: TreeNodeVisitor<N = Self>>(&self, visitor: &mut V) -> Result<VisitRecursion> {
         match visitor.pre_visit(self)? {
             VisitRecursion::Continue => {}
             // If the recursion should skip, do not apply to its children. And let the recursion continue
@@ -108,8 +105,8 @@ pub trait TreeNode: Sized {
     /// When `op` does not apply to a given node, it is left unchanged.
     /// The default tree traversal direction is transform_up(Postorder Traversal).
     fn transform<F>(self, op: &F) -> Result<Self>
-        where
-            F: Fn(Self) -> Result<Transformed<Self>>,
+    where
+        F: Fn(Self) -> Result<Transformed<Self>>,
     {
         self.transform_up(op)
     }
@@ -118,8 +115,8 @@ pub trait TreeNode: Sized {
     /// children(Preorder Traversal).
     /// When the `op` does not apply to a given node, it is left unchanged.
     fn transform_down<F>(self, op: &F) -> Result<Self>
-        where
-            F: Fn(Self) -> Result<Transformed<Self>>,
+    where
+        F: Fn(Self) -> Result<Transformed<Self>>,
     {
         let after_op = op(self)?.into();
         after_op.map_children(|node| node.transform_down(op))
@@ -129,8 +126,8 @@ pub trait TreeNode: Sized {
     /// children and then itself(Postorder Traversal).
     /// When the `op` does not apply to a given node, it is left unchanged.
     fn transform_up<F>(self, op: &F) -> Result<Self>
-        where
-            F: Fn(Self) -> Result<Transformed<Self>>,
+    where
+        F: Fn(Self) -> Result<Transformed<Self>>,
     {
         let after_op_children = self.map_children(|node| node.transform_up(op))?;
 
@@ -186,13 +183,13 @@ pub trait TreeNode: Sized {
 
     /// Apply the closure `F` to the node's children
     fn apply_children<F>(&self, op: &mut F) -> Result<VisitRecursion>
-        where
-            F: FnMut(&Self) -> Result<VisitRecursion>;
+    where
+        F: FnMut(&Self) -> Result<VisitRecursion>;
 
     /// Apply transform `F` to the node's children, the transform `F` might have a direction(Preorder or Postorder)
     fn map_children<F>(self, transform: F) -> Result<Self>
-        where
-            F: FnMut(Self) -> Result<Self>;
+    where
+        F: FnMut(Self) -> Result<Self>;
 }
 
 /// Implements the [visitor
@@ -319,8 +316,8 @@ pub trait DynTreeNode {
 /// [`DynTreeNode`] (such as [`Arc<dyn PhysicalExpr>`])
 impl<T: DynTreeNode + ?Sized> TreeNode for Arc<T> {
     fn apply_children<F>(&self, op: &mut F) -> Result<VisitRecursion>
-        where
-            F: FnMut(&Self) -> Result<VisitRecursion>,
+    where
+        F: FnMut(&Self) -> Result<VisitRecursion>,
     {
         for child in self.arc_children() {
             match op(&child)? {
@@ -334,13 +331,12 @@ impl<T: DynTreeNode + ?Sized> TreeNode for Arc<T> {
     }
 
     fn map_children<F>(self, transform: F) -> Result<Self>
-        where
-            F: FnMut(Self) -> Result<Self>,
+    where
+        F: FnMut(Self) -> Result<Self>,
     {
         let children = self.arc_children();
         if !children.is_empty() {
-            let new_children: Result<Vec<_>> =
-                children.into_iter().map(transform).collect();
+            let new_children: Result<Vec<_>> = children.into_iter().map(transform).collect();
             let arc_self = Arc::clone(&self);
             self.with_new_arc_children(arc_self, new_children?)
         } else {

@@ -10,9 +10,9 @@ use rayon::prelude::IntoParallelRefIterator;
 use tracing::{field, span_enabled, trace_span, Level, Span};
 
 use lib::{is_stale_nan, AtomicCounter, RelaxedU64Counter};
+use metricsql::ast::*;
 use metricsql::common::{Value, ValueType};
 use metricsql::functions::{RollupFunction, Volatility};
-use metricsql::ast::*;
 
 use crate::cache::rollup_result_cache::merge_timeseries;
 use crate::context::Context;
@@ -21,6 +21,7 @@ use crate::eval::{
     align_start_end, create_evaluator, eval_number, validate_max_points_per_timeseries,
     ExprEvaluator,
 };
+use crate::functions::aggregate::{Handler, IncrementalAggrFuncContext};
 use crate::functions::rollup::{
     eval_prefuncs, get_rollup_configs, get_rollup_function_factory, rollup_func_keeps_metric_name,
     rollup_func_requires_config, RollupConfig, RollupHandlerEnum, RollupHandlerFactory,
@@ -31,7 +32,6 @@ use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::search::{join_tag_filter_list, QueryResult, QueryResults, SearchQuery};
 use crate::{get_timeseries, get_timestamps, EvalConfig, MetricName, QueryValue};
 use crate::{Timeseries, Timestamp};
-use crate::functions::aggregate::{IncrementalAggrFuncContext, Handler};
 
 use super::traits::Evaluator;
 
@@ -94,7 +94,7 @@ impl RollupEvaluator {
         Ok(res)
     }
 
-    pub fn from_function(expr: &FunctionExpr) -> RuntimeResult<Self> {
+    pub(crate) fn from_function(expr: &FunctionExpr) -> RuntimeResult<Self> {
         let (mut args, re) = compile_rollup_func_args(expr)?;
         // todo: tinyvec
 
@@ -998,11 +998,7 @@ pub(super) fn adjust_eval_range(
 /// Values for returned series are set to nan if at least a single tss series contains nan at that point.
 /// This means that tss contains a series with non-empty results at that point.
 /// This follows Prometheus logic - see https://github.com/VictoriaMetrics/VictoriaMetrics/issues/2130
-fn aggregate_absent_over_time(
-    ec: &EvalConfig,
-    expr: &Expr,
-    tss: &[Timeseries],
-) -> Vec<Timeseries> {
+fn aggregate_absent_over_time(ec: &EvalConfig, expr: &Expr, tss: &[Timeseries]) -> Vec<Timeseries> {
     let mut rvs = get_absent_timeseries(ec, expr);
     if tss.len() == 0 {
         return rvs;
@@ -1021,9 +1017,7 @@ fn aggregate_absent_over_time(
 fn get_keep_metric_names(expr: &Expr) -> bool {
     // todo: move to optimize stage. put result in ast node
     return match expr {
-        Expr::BinaryOperator(be) => {
-            return be.keep_metric_names
-        }
+        Expr::BinaryOperator(be) => return be.keep_metric_names,
         Expr::Aggregation(ae) => {
             if ae.keep_metric_names {
                 return rollup_func_keeps_metric_name(&ae.name);
@@ -1058,7 +1052,7 @@ where
             f(ts, &mut values, &mut timestamps)
         })
         .collect::<Vec<_>>();
-    
+
     let mut series: Vec<Timeseries> = Vec::with_capacity(tss.len());
     let mut sample_total = 0_u64;
     for r in res.into_iter() {

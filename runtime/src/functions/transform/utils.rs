@@ -2,8 +2,8 @@ use crate::{RuntimeError, RuntimeResult};
 use chrono::{TimeZone, Utc};
 use chrono_tz::Tz;
 use lib::timestamp_ms_to_datetime;
-use std::cmp::Ordering;
 use metricsql::parser::parse_number;
+use std::cmp::Ordering;
 
 pub fn cmp_alpha_numeric(a: &str, b: &str) -> RuntimeResult<Ordering> {
     let (mut a, mut b) = (a, b);
@@ -129,9 +129,9 @@ pub(crate) fn ru(free_value: f64, max_value: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use crate::functions::transform::utils::{cmp_alpha_numeric, get_num_prefix};
+    use metricsql::parser::parse_number;
     use std::cmp::Ordering;
     use std::cmp::Ordering::{Equal, Greater, Less};
-    use metricsql::parser::parse_number;
 
     fn test_prefix(s: &str, expected_prefix: &str) {
         let prefix = get_num_prefix(s);

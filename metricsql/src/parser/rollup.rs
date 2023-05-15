@@ -1,10 +1,9 @@
-use logos::Span;
-use super::expr::{parse_duration, parse_positive_duration};
 use crate::ast::{DurationExpr, Expr, RollupExpr};
 use crate::common::ValueType;
-use crate::parser::expr::{parse_single_expr_without_rollup_suffix};
-use crate::parser::{ParseError, ParseResult, Parser, syntax_error};
+use crate::parser::expr::parse_single_expr_without_rollup_suffix;
 use crate::parser::tokens::Token;
+use crate::parser::{syntax_error, ParseError, ParseResult, Parser};
+use logos::Span;
 
 pub(super) fn parse_rollup_expr(p: &mut Parser, e: Expr) -> ParseResult<Expr> {
     let mut re = RollupExpr::new(e);
@@ -55,18 +54,15 @@ fn parse_at_expr(p: &mut Parser) -> ParseResult<Expr> {
                 _ => Err(syntax_error(
                     "@ modifier Expr must return a scalar or instant vector",
                     &span,
-                    "".to_string())), // todo: have InvalidReturnType enum variant
+                    "".to_string(),
+                )), // todo: have InvalidReturnType enum variant
             }
-        },
-        Err(e) => {
-            Err(
-                syntax_error(
-                    format!("cannot parse @ modifier Expr: {}", e).as_str(), 
-                    &span, 
-                    "".to_string()
-                )
-            )
-        },
+        }
+        Err(e) => Err(syntax_error(
+            format!("cannot parse @ modifier Expr: {}", e).as_str(),
+            &span,
+            "".to_string(),
+        )),
     }
 }
 
@@ -78,7 +74,7 @@ fn parse_window_and_step(
     let mut window: Option<DurationExpr> = None;
 
     if !p.at(&Token::Colon) {
-        window = Some(parse_positive_duration(p)?);
+        window = Some(p.parse_positive_duration()?);
     }
 
     let mut step: Option<DurationExpr> = None;
@@ -91,7 +87,7 @@ fn parse_window_and_step(
             inherit_step = true;
         }
         if !p.at(&Token::RightBracket) {
-            step = Some(parse_positive_duration(p)?);
+            step = Some(p.parse_positive_duration()?);
         }
     }
     p.expect(&Token::RightBracket)?;
@@ -101,5 +97,5 @@ fn parse_window_and_step(
 
 fn parse_offset(p: &mut Parser) -> ParseResult<DurationExpr> {
     p.expect(&Token::Offset)?;
-    parse_duration(p)
+    p.parse_duration()
 }
