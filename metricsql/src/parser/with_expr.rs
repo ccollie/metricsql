@@ -11,14 +11,12 @@ pub(super) fn parse_with_expr(p: &mut Parser) -> ParseResult<WithExpr> {
     p.expect(&With)?;
     p.expect(&LeftParen)?;
 
-    p.with_parsing_depth += 1;
     p.needs_expansion = true;
 
     push_stack(p);
 
     loop {
         if p.at(&RightParen) {
-            p.with_parsing_depth -= 1;
             p.bump();
             break;
         }
@@ -32,7 +30,6 @@ pub(super) fn parse_with_expr(p: &mut Parser) -> ParseResult<WithExpr> {
                 continue;
             }
             RightParen => {
-                p.with_parsing_depth -= 1;
                 p.bump();
                 break;
             }

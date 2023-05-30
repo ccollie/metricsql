@@ -243,7 +243,11 @@ pub fn aggregate_function_signature(fun: &AggregateFunction) -> Signature {
             quantile_types.push(ValueType::InstantVector);
             Signature::variadic_min(quantile_types, 3, Volatility::Volatile)
         }
-        _ => Signature::variadic_equal(ValueType::InstantVector, 1, Volatility::Stable),
+        _ => Signature::variadic_min(
+            vec![ValueType::InstantVector, ValueType::Scalar],
+            1,
+            Volatility::Stable,
+        ),
     }
 }
 

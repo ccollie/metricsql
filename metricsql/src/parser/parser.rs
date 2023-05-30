@@ -39,7 +39,6 @@ pub struct Parser<'a> {
     tokens: Vec<TokenWithLocation<'a>>,
     symbol_provider: SymbolProviderRef,
     pub(super) cursor: usize,
-    pub(super) with_parsing_depth: usize,
     pub(super) needs_expansion: bool,
     pub(super) with_stack: Vec<Vec<WithArgExpr>>,
 }
@@ -74,7 +73,6 @@ impl<'a> Parser<'a> {
         Ok(Self {
             cursor: 0,
             tokens,
-            with_parsing_depth: 0,
             needs_expansion: false,
             with_stack: vec![],
             symbol_provider: Arc::new(HashMapSymbolProvider::new()),
@@ -85,7 +83,6 @@ impl<'a> Parser<'a> {
         Self {
             cursor: 0,
             tokens,
-            with_parsing_depth: 0,
             needs_expansion: false,
             with_stack: vec![],
             symbol_provider: Arc::new(HashMapSymbolProvider::new()),

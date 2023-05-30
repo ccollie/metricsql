@@ -31,10 +31,6 @@ pub(super) fn parse_single_expr(p: &mut Parser) -> ParseResult<Expr> {
         return Ok(Expr::With(with));
     }
     let mut expr = parse_single_expr_without_rollup_suffix(p)?;
-    if p.can_lookup() && should_expand(&expr) {
-        let empty = vec![];
-        let was = p.with_stack.last().unwrap_or(&empty);
-    }
     if p.peek_kind().is_rollup_start() {
         let re = parse_rollup_expr(p, expr)?;
         return Ok(re);

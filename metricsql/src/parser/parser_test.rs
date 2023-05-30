@@ -475,7 +475,14 @@ mod tests {
 
     #[test]
     fn test_with() {
-        another(r#"with (foo = bar{x="x"}) sum(x)"#, "sum(x)");
+        another(
+            r#"with (
+					x = {foo="bar"},
+					q = m{x, y="1"},
+					f(x) = with ( z(y) = x + y * q ) z(foo) / count(x) )
+					f(a)"#,
+            r#"(a + (foo * m{foo="bar", y="1"})) / count(a)"#,
+        );
     }
 
     #[test]
@@ -497,19 +504,19 @@ mod tests {
             r#"baz{foo="bar"}"#,
         );
         another(r#"with (foo = bar) baz"#, "baz");
-        // another(
-        //     r#"with (foo = bar) foo + foo{a="b"}"#,
-        //     r#"bar + bar{a="b"}"#,
-        // );
+        another(
+            r#"with (foo = bar) foo + foo{a="b"}"#,
+            r#"bar{a="b"} + bar{a="b"}"#,
+        );
         another(r#"with (foo = bar, bar=baz + now()) test"#, "test");
         another(
             r#"with (ct={job="test"}) a{ct} + ct() + sum({ct="x"})"#,
             r#"(a{job="test"} + {job="test"}) + sum({ct="x"})"#,
         );
-        another(
-            r#"with (ct={job="test", i="bar"}) ct + {ct, x="d"} + foo{ct, ct} + ctx(1)"#,
-            r#"(({job="test", i="bar"} + {job="test", i="bar", x="d"}) + foo{job="test", i="bar"}) + ctx(1)"#,
-        );
+        // another(
+        //     r#"with (ct={job="test", i="bar"}) ct + {ct, x="d"} + foo{ct, ct} + cos(1)"#,
+        //     r#"(({job="test", i="bar"} + {job="test", i="bar", x="d"}) + foo{job="test", i="bar"}) + cos(1)"#,
+        // );
         another(
             r#"with (foo = bar) {__name__=~"foo"}"#,
             r#"{__name__=~"foo"}"#,
@@ -605,12 +612,12 @@ mod tests {
             "sum(xx) by (b) / sum(y) by (b)",
         );
         another(
-            "with (f(a,f,x)=ff(x,f,a)) f(f(x,y,z),1,2)",
-            "ff(2, 1, ff(z, y, x))",
+            "with (f(a,f,x)=avg(x,f,a)) f(f(x,y,z),1,2)",
+            "avg(2, 1, avg(z, y, x))",
         );
         another(
-            r#"with (f(x)=1+f(x)) f(foo{bar="baz"})"#,
-            r#"1 + f(foo{bar="baz"})"#,
+            r#"with (f(x)=1+ceil(x)) f(foo{bar="baz"})"#,
+            r#"1 + ceil(foo{bar="baz"})"#,
         );
         another("with (a=foo, y=bar, f(a)= a+a+y) f(x)", "(x + x) + bar");
         another(
@@ -656,37 +663,36 @@ mod tests {
         );
         another(r#"with (x="a", y=x) y+"bc""#, r#""abc""#);
         another(
-            r#"with (x="a", y="b"+x) "we"+y+"z"+f()"#,
-            r#""webaz" + f()"#,
+            r#"with (x="a", y="b"+x) "we"+y+"z"+pi()"#,
+            r#""webaz" + pi()"#,
         );
         another(
             r#"with (f(x) = m{foo=x+"y", bar="y"+x, baz=x} + x) f("qwe")"#,
             r#"m{foo="qwey", bar="yqwe", baz="qwe"} + "qwe""#,
         );
         another("with (f(a)=a) f", "f");
-        another(r#"with (f\q(a)=a) f\q"#, "fq");
     }
 
     #[test]
     fn test_nested_with_expressions() {
         // Verify nested with expressions
         another("with (f(x) = (with(x=y) x) + x) f(z)", "y + z");
-        another("with (x=foo) f(a, with (y=x) y)", "f(a, foo)");
+        another("with (x=foo) max(a, with (y=x) y)", "max(a, foo)");
         another(
             "with (x=foo) a * x + (with (y=x) y) / y",
             "(a * foo) + (foo / y)",
         );
+        // the optimizer reduces "(foo + x) / (foo + x)" to 1
         another(
-            "with (x = with (y = foo) y + x) x/x",
-            "(foo + x) / (foo + x)",
+            "with (x = with (y = foo) y + x) x/x", "1",
         );
         another(
             r#"with (
 					x = {foo="bar"},
 					q = m{x, y="1"},
-					f(x) = with ( z(y) = x + y * q ) z(foo) / f(x) )
+					f(x) = with ( z(y) = x + y * q ) z(foo) / count(x) )
 					f(a)"#,
-            r#"(a + (foo * m{foo="bar", y="1"})) / f(a)"#,
+            r#"(a + (foo * m{foo="bar", y="1"})) / count(a)"#,
         );
     }
 

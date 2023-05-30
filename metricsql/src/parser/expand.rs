@@ -172,7 +172,7 @@ pub(super) fn expand_metric_expression(
             let mut has_non_empty_metric_group = false;
             let wme = match e_new {
                 Expr::MetricExpression(ref me) => {
-                    has_non_empty_metric_group = !me.is_only_metric_group();
+                    has_non_empty_metric_group = me.has_non_empty_metric_group();
                     Some(me)
                 }
                 _ => None,
@@ -293,11 +293,12 @@ fn expand_aggregation(
         // new name is also an aggregate
         return expand_with_expr_ext(symbols, was, wa.unwrap(), &args);
     }
+    ae.args = args;
 
     if let Some(modifier) = &ae.modifier {
         let new_args = expand_modifier_args(symbols, was, &modifier.args)?;
         if new_args != modifier.args {
-            ae.modifier = Some(AggregateModifier::new(modifier.op.clone(), new_args));
+            ae.modifier = Some(AggregateModifier::new(modifier.op, new_args));
         }
     }
 
@@ -531,22 +532,3 @@ fn expand_with_expr_ext(
 
     expand_with_expr(symbols, &was_new, &wa.expr)
 }
-
-// fn get_symbol_as_with_arg_expr(symbols: &SymbolProviderRef, s: &str) -> Option<WithArgExpr> {
-//     let symbol = symbols.get(s);
-//     if symbol.is_none() {
-//         return None;
-//     }
-//     let symbol = symbol.unwrap();
-//     if symbol.expr.is_none() {
-//         return None;
-//     }
-//
-//     let expr = expand_with_expr(symbols, &vec![], &s.expr)?;
-//     Ok(WithArgExpr {
-//         name: s.name.to_string(),
-//         args,
-//         expr,
-//         token_range: Default::default(),
-//     })
-// }

@@ -201,16 +201,13 @@ fn with_arg_exprs_equal(we1: &WithArgExpr, we2: &WithArgExpr) -> bool {
     we1.name == we2.name && we1.args == we2.args && expr_equals(&we1.expr, &we2.expr)
 }
 
-fn expr_vec_equals(exprs1: &[Expr], exprs2: &[Expr]) -> bool {
+fn expr_vec_equals(exprs1: &Vec<Expr>, exprs2: &Vec<Expr>) -> bool {
     if exprs1.len() != exprs2.len() {
         return false;
     }
-    for (e1, e2) in exprs1.iter().zip(exprs2.iter()) {
-        if !expr_equals(e1, e2) {
-            return false;
-        }
-    }
-    true
+    exprs1.iter()
+        .zip(exprs2.iter())
+        .all(|(e1, e2)| expr_equals(e1, e2))
 }
 
 #[cfg(test)]
