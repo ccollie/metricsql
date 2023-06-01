@@ -3,7 +3,7 @@ use crate::common::{
     JoinModifier, LabelFilter, LabelFilterExpr, LabelFilterOp, Operator, StringExpr, Value,
     ValueType, VectorMatchCardinality, NAME_LABEL,
 };
-use crate::functions::{AggregateFunction, BuiltinFunction, RollupFunction, TransformFunction};
+use crate::functions::{AggregateFunction, BuiltinFunction, TransformFunction};
 use enquote::enquote;
 use lib::{fmt_duration_ms, hash_f64};
 use serde::{Deserialize, Serialize};
@@ -32,22 +32,12 @@ pub trait ExpressionNode {
 pub struct NumberLiteral {
     /// value is the parsed number, i.e. `1.23`, `-234`, etc.
     pub value: f64,
-    /// the original token value
-    s: String,
 }
 
 impl NumberLiteral {
     pub fn new(v: f64) -> Self {
         NumberLiteral {
             value: v,
-            s: "".to_string(),
-        }
-    }
-
-    pub fn with_token(v: f64, tok: &str) -> Self {
-        NumberLiteral {
-            value: v,
-            s: tok.to_string(),
         }
     }
 
@@ -100,11 +90,7 @@ impl ExpressionNode for NumberLiteral {
 
 impl Display for NumberLiteral {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        if !self.s.is_empty() {
-            write!(f, "{}", self.s)
-        } else {
-            format_num(f, self.value)
-        }
+        format_num(f, self.value)
     }
 }
 
@@ -121,7 +107,6 @@ impl Neg for NumberLiteral {
         let value = -self.value;
         NumberLiteral {
             value,
-            s: value.to_string(),
         }
     }
 }
@@ -502,7 +487,7 @@ pub struct AggregationExpr {
     pub modifier: Option<AggregateModifier>,
 
     /// optional limit for the number of output time series.
-    /// This is MetricsQL extension.
+    /// This is an MetricsQL extension.
     ///
     /// Example: `sum(...) by (...) limit 10` would return maximum 10 time series.
     pub limit: usize,

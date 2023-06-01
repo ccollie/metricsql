@@ -19,6 +19,7 @@ impl IncrementalAggrHandler for IncrementalAggrGeomean {
             iac.values[i] += 1.0;
         }
     }
+
     fn merge(&self, dst: &mut IncrementalAggrContext, src: &IncrementalAggrContext) {
         let src_values = &src.ts.values;
         let src_counts = &src.values;
@@ -38,6 +39,7 @@ impl IncrementalAggrHandler for IncrementalAggrGeomean {
             dst.values[i] += src_counts[i]
         }
     }
+
     fn finalize(&self, iac: &mut IncrementalAggrContext) {
         let counts = &iac.values;
 
@@ -49,6 +51,7 @@ impl IncrementalAggrHandler for IncrementalAggrGeomean {
             *v = v.powf(1.0 / count);
         }
     }
+
     fn keep_original(&self) -> bool {
         false
     }

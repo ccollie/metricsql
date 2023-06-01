@@ -11,19 +11,18 @@ use once_cell::sync::Lazy;
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use rand_distr::num_traits::FloatConst;
 use rand_distr::{Exp1, StandardNormal};
-use regex::internal::Input;
 use regex::Regex;
 
 use lib::{copysign, fmod, from_float, get_float64s, get_pooled_buffer, isinf, modf};
 use metricsql::ast::{Expr, FunctionExpr};
 use metricsql::functions::TransformFunction;
-use metricsql::parser::compile_regexp;
+use metricsql::parser::{compile_regexp, parse_number};
 
 use crate::chrono_tz::Tz;
 use crate::eval::binop_handlers::merge_non_overlapping_timeseries;
 use crate::eval::{eval_number, eval_time, EvalConfig};
 use crate::functions::rollup::{linear_regression, mad, stddev, stdvar};
-use crate::functions::transform::utils::{get_timezone_offset, ru};
+use super::utils::{get_timezone_offset, ru};
 use crate::functions::utils::{
     float_to_int_bounded, get_first_non_nan_index, get_last_non_nan_index,
 };
@@ -75,6 +74,21 @@ impl<T> TransformFn for T where
 }
 
 pub type TransformFnImplementation = Arc<dyn TransformFn<Output = RuntimeResult<Vec<Timeseries>>>>;
+
+macro_rules! create_func_1_arg {
+    ($name: ident, $func: expr) => {
+        pub fn $name(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+            fn tfe(values: &mut [f64]) {
+                for value in values.iter_mut() {
+                    *value = $func(*value)
+                }
+            }
+
+            let mut series = get_series(tfa, 0)?;
+            do_transform_values(&mut series, tfe, tfa.keep_metric_names)
+        }
+    };
+}
 
 macro_rules! create_func_one_arg {
     ($f:expr) => {
@@ -272,7 +286,7 @@ fn new_transform_func_one_arg(tf: fn(v: f64) -> f64) -> impl TransformFn {
     }
 }
 
-#[inline]
+
 fn do_transform_values(
     arg: &mut Vec<Timeseries>,
     mut tf: impl TransformValuesFn,
@@ -299,6 +313,7 @@ fn transform_absent(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>
     if series.len() == 0 {
         return Ok(rvs);
     }
+
     for i in 0..series[0].values.len() {
         let mut is_absent = true;
         for ts in series.iter() {
@@ -344,12 +359,9 @@ fn transform_clamp(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>>
     let maxs = get_scalar(tfa, 2)?;
     // todo: are these guaranteed to be of equal length ?
     let tf = |values: &mut [f64]| {
-        mins.iter()
-            .zip(maxs.iter())
-            .zip(values.iter_mut())
-            .for_each(|((min, max), v)| {
-                *v = v.clamp(*min, *max);
-            });
+        for ((min, max), v) in mins.iter().zip(maxs.iter()).zip(values.iter_mut()) {
+            *v = v.clamp(*min, *max);
+        }
     };
 
     let mut series = get_series(tfa, 0)?;
@@ -359,11 +371,11 @@ fn transform_clamp(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>>
 fn transform_clamp_max(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let maxes = get_scalar(tfa, 1)?;
     let tf = |values: &mut [f64]| {
-        values.iter_mut().zip(maxes.iter()).for_each(|(v, max)| {
+        for (v, max) in values.iter_mut().zip(maxes.iter()) {
             if *v > *max {
                 *v = *max
             }
-        });
+        }
     };
 
     let mut series = get_series(tfa, 0)?;
@@ -1566,7 +1578,7 @@ fn transform_interpolate(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timese
 
         // skip leading and trailing NaNs
         let mut i = 0;
-        for v in &ts.values[0..] {
+        for v in ts.values.iter() {
             if v.is_nan() {
                 i += 1;
             }
@@ -1629,18 +1641,16 @@ fn new_transform_func_running(rf: fn(a: f64, b: f64, idx: usize) -> f64) -> impl
         for ts in res.iter_mut() {
             ts.metric_name.reset_metric_group();
 
-            let len = ts.values.len();
-            let i = get_first_non_nan_index(&ts.values);
-            if i >= len - 1 {
-                continue;
-            }
-            let mut prev_value = ts.values[i];
-            for j in i + 1..len {
-                let v = ts.values[j];
-                if !v.is_nan() {
-                    prev_value = rf(prev_value, v, i + 1)
+            // skip NaN values
+            let mut iter = ts.values.iter_mut().skip_while(|v| v.is_nan());
+
+            if let Some(prev_value) = iter.next() {
+                for (i, v) in iter.enumerate() {
+                    if v.is_nan() {
+                        continue;
+                    }
+                    *v = rf(*prev_value, *v, i + 1);
                 }
-                ts.values[j] = prev_value
             }
         }
 
@@ -2381,7 +2391,7 @@ fn transform_scalar(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>
         // Verify whether the arg is a string.
         // Then try converting the string to number.
         QueryValue::String(s) => {
-            let n = match s.parse::<f64>() {
+            let n = match parse_number(&s) {
                 Ok(n) => n,
                 Err(_) => f64::NAN,
             };
@@ -2406,8 +2416,8 @@ fn new_transform_func_sort_by_label(is_desc: bool) -> impl TransformFn {
         let mut labels: Vec<String> = Vec::with_capacity(1);
         let mut series = get_series(tfa, 0)?;
 
-        for i in 1..tfa.args.len() {
-            let label = tfa.args[i].get_string()?;
+        for arg in tfa.args.iter().skip(1) {
+            let label = arg.get_string()?;
             labels.push(label);
         }
 
@@ -2532,16 +2542,18 @@ pub fn compare_str_alphanumeric<A: AsRef<str>, B: AsRef<str>>(a: A, b: B) -> Ord
             }
         };
 
+        let bzero = f64::from(b'0');
+
         if ('0'..='9').contains(&ca) && ('0'..='9').contains(&cb) {
-            let mut da = f64::from(ca as u32) - f64::from(b'0');
-            let mut db = f64::from(cb as u32) - f64::from(b'0');
+            let mut da = f64::from(ca as u32) - bzero;
+            let mut db = f64::from(cb as u32) - bzero;
 
             // this counter is to handle something like "001" > "01"
             let mut dc = 0isize;
 
             for ca in c1.by_ref() {
                 if ('0'..='9').contains(&ca) {
-                    da = da * 10.0 + (f64::from(ca as u32) - f64::from(b'0'));
+                    da = da * 10.0 + (f64::from(ca as u32) - bzero);
                     dc += 1;
                 } else {
                     v1 = Some(ca);
@@ -2551,7 +2563,7 @@ pub fn compare_str_alphanumeric<A: AsRef<str>, B: AsRef<str>>(a: A, b: B) -> Ord
 
             for cb in c2.by_ref() {
                 if ('0'..='9').contains(&cb) {
-                    db = db * 10.0 + (f64::from(cb as u32) - f64::from(b'0'));
+                    db = db * 10.0 + (f64::from(cb as u32) - bzero);
                     dc -= 1;
                 } else {
                     v2 = Some(cb);
@@ -2772,11 +2784,8 @@ fn new_transform_bitmap(bitmap_func: fn(a: u64, b: u64) -> u64) -> impl Transfor
         let ns = get_scalar(&tfa, 1)?;
 
         let tf = move |values: &mut [f64]| {
-            let mut i = 0;
-            for v in values {
-                let b = ns[i];
-                *v = bitmap_func(*v as u64, b as u64) as f64;
-                i += 1;
+            for (v, b) in values.iter_mut().zip(ns.iter()) {
+                *v = bitmap_func(*v as u64, *b as u64) as f64;
             }
         };
 

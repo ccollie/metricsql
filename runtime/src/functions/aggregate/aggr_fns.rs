@@ -270,11 +270,8 @@ fn aggr_func_any(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let afe = move |tss: &mut Vec<Timeseries>, _modifier_: &Option<AggregateModifier>| {
         tss.drain(0..).collect()
     };
-    let mut limit = afa.limit;
-    if limit > 1 {
-        // Only a single time series per group must be returned
-        limit = 1
-    }
+    // Only a single time series per group must be returned
+    let limit = afa.limit.max(1);
     aggr_func_ext(afe, &mut tss, &afa.modifier, limit, true)
 }
 
@@ -871,14 +868,9 @@ fn get_int_k(k: f64, k_max: usize) -> usize {
 
 fn min_value(values: &[f64]) -> f64 {
     let mut min = f64::NAN;
-    let mut i: usize = 0;
-    while i < values.len() && values[i].is_nan() {
-        i += 1;
-    }
-    for k in i..values.len() {
-        let v = values[k];
-        if !v.is_nan() && v < min {
-            min = v
+    for v in values.iter() {
+        if !v.is_nan() && *v < min {
+            min = *v
         }
     }
     return min;
@@ -886,15 +878,9 @@ fn min_value(values: &[f64]) -> f64 {
 
 fn max_value(values: &[f64]) -> f64 {
     let mut max = f64::NAN;
-    let values = &values;
-    let mut i = 0;
-    while i < values.len() && values[i].is_nan() {
-        i += 1;
-    }
-    for k in i..values.len() {
-        let v = values[k];
-        if !v.is_nan() && v > max {
-            max = v
+    for v in values {
+        if !v.is_nan() && *v > max {
+            max = *v
         }
     }
     return max;

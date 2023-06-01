@@ -4,7 +4,8 @@ mod tests {
 
     const NAN: f64 = f64::NAN;
 
-    fn test_mode_no_na_ns() {
+    #[test]
+    fn test_mode_no_nans() {
         let f = |prev_value: f64, a: &[f64], expected_result: f64| {
             let mut values = Vec::from(a);
             let result = mode_no_nans(prev_value, &mut values);

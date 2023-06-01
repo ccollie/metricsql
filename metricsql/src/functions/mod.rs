@@ -76,7 +76,7 @@ impl BuiltinFunction {
     pub fn name(&self) -> String {
         use BuiltinFunction::*;
         match self {
-            Aggregate(af) => af.name(),
+            Aggregate(af) => af.to_string(),
             Rollup(rf) => rf.name(),
             Transform(tf) => tf.to_string(),
         }
@@ -105,7 +105,6 @@ impl BuiltinFunction {
     }
 
     pub fn type_name(&self) -> &'static str {
-        use BuiltinFunction::*;
         self.get_type().to_str()
     }
 

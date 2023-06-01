@@ -3,7 +3,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
 use regex::escape;
-use tracing::{field, trace, trace_span, Level, Span};
+use tracing::{field, trace, trace_span, Span};
 
 use metricsql::ast::*;
 use metricsql::common::{LabelFilter, Operator, Value, ValueType};
@@ -312,7 +312,7 @@ pub(super) fn get_common_label_filters(tss: &[Timeseries]) -> Vec<LabelFilter> {
             continue;
         }
 
-        let mut vals: Vec<&String> = values.iter().collect::<Vec<_>>();
+        let vals: Vec<&String> = values.iter().collect::<Vec<_>>();
 
         let str_value: String;
         let mut is_regex = false;

@@ -54,7 +54,13 @@ impl Evaluator for BinaryEvaluatorScalarScalar {
                 let res = (self.handler)(left, right);
                 Ok(Scalar(res))
             }
-            _ => unreachable!(), // todo: panic !
+            (lhs, rhs) => {
+                let msg = format!(
+                    "expected scalar args for binary operator {:?}; got {:?} and {:?}",
+                    self.op, lhs, rhs
+                );
+                unreachable!("{}", msg)
+            }
         }
     }
 

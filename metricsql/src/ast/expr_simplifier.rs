@@ -244,14 +244,7 @@ impl ConstEvaluator {
                     return Ok(Expr::from(val));
                 }
                 if op.is_comparison() {
-                    let n = if string_compare(&left, &right, op).unwrap_or(false) {
-                        1.0
-                    } else if !be.bool_modifier {
-                        f64::NAN
-                    } else {
-                        0.0
-                    };
-
+                    let n = string_compare(&left, &right, op, be.bool_modifier)?;
                     return Ok(Expr::from(n));
                 }
             }

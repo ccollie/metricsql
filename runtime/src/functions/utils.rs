@@ -12,7 +12,8 @@ use lib::get_float64s;
 /// The function modifies contents for a, so the caller must prepare it accordingly.
 ///
 /// See https://en.wikipedia.org/wiki/Mode_(statistics)
-pub fn mode_no_nans(mut prev_value: f64, a: &mut Vec<f64>) -> f64 {
+pub fn mode_no_nans(prev_value: f64, a: &mut Vec<f64>) -> f64 {
+    let mut prev_value = prev_value;
     if a.len() == 0 {
         return prev_value;
     }

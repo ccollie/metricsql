@@ -7,47 +7,37 @@ use crate::common::{
     StringExpr, StringSegment,
 };
 use crate::parser::symbol_provider::SymbolProviderRef;
-use crate::parser::{syntax_error, ParseError, ParseResult, Parser};
+use crate::parser::{syntax_error, ParseError, ParseResult};
 use std::collections::HashSet;
 
 pub fn expand_with(
     symbols: &SymbolProviderRef,
     was: &Vec<WithArgExpr>,
-    we: &WithExpr,
+    we: WithExpr,
 ) -> ParseResult<Expr> {
     let mut was_new = Vec::with_capacity(was.len() + we.was.len());
     was_new.append(&mut was.clone());
     was_new.append(&mut we.was.clone());
-    expand_with_expr(symbols, &was_new, &we.expr)
+    expand_with_expr(symbols, &was_new, *we.expr)
 }
 
 pub(super) fn expand_with_expr(
     symbols: &SymbolProviderRef,
     was: &Vec<WithArgExpr>,
-    expr: &Expr,
+    expr: Expr,
 ) -> ParseResult<Expr> {
     use Expr::*;
     match expr {
-        BinaryOperator(be) => expand_binary_operator(symbols, was, be.clone()),
-        Function(fe) => expand_function(symbols, was, fe.clone()),
-        Aggregation(ae) => expand_aggregation(symbols, was, ae.clone()),
+        BinaryOperator(be) => expand_binary_operator(symbols, was, be),
+        Function(fe) => expand_function(symbols, was, fe),
+        Aggregation(ae) => expand_aggregation(symbols, was, ae),
         Parens(pe) => expand_parens(symbols, was, pe),
-        Rollup(re) => expand_rollup(symbols, was, re.clone()),
+        Rollup(re) => expand_rollup(symbols, was, re),
         StringExpr(se) => expand_string_expr(symbols, was, &se),
-        MetricExpression(me) => expand_metric_expression(symbols, was, me.clone()),
-        With(we) => expand_with(symbols, was, &we),
-        _ => Ok(expr.clone()),
+        MetricExpression(me) => expand_metric_expression(symbols, was, me),
+        With(we) => expand_with(symbols, was, we),
+        _ => Ok(expr),
     }
-}
-
-pub(super) fn expand_expr(
-    symbols: &SymbolProviderRef,
-    p: &Parser,
-    expr: &Expr,
-) -> ParseResult<Expr> {
-    let empty_args = vec![];
-    let was = p.with_stack.last().unwrap_or(&empty_args);
-    expand_with_expr(symbols, was, expr)
 }
 
 pub fn should_expand(expr: &Expr) -> bool {
@@ -57,7 +47,6 @@ pub fn should_expand(expr: &Expr) -> bool {
         StringLiteral(_) | Number(_) | Duration(_) => false,
         BinaryOperator(be) => should_expand(&be.left) || should_expand(&be.right),
         StringExpr(se) => !se.is_expanded(),
-        MetricExpression(me) => !me.is_expanded(),
         Parens(pe) => !pe.expressions.is_empty() && pe.expressions.iter().any(|x| should_expand(x)),
         Rollup(re) => {
             if should_expand(&re.expr) {
@@ -75,7 +64,7 @@ pub fn should_expand(expr: &Expr) -> bool {
 fn expand_with_args(
     symbols: &SymbolProviderRef,
     was: &Vec<WithArgExpr>,
-    args: &[Expr],
+    args: Vec<Expr>,
 ) -> ParseResult<Vec<Expr>> {
     let mut dst_args: Vec<Expr> = Vec::with_capacity(args.len());
     for arg in args {
@@ -85,6 +74,19 @@ fn expand_with_args(
     Ok(dst_args)
 }
 
+fn expand_with_expr_box(
+    symbols: &SymbolProviderRef,
+    was: &Vec<WithArgExpr>,
+    expr: Box<Expr>,
+) -> ParseResult<Box<Expr>> {
+    if should_expand(&expr) {
+        let dst_expr = expand_with_expr(symbols, was, *expr)?;
+        Ok(Box::new(dst_expr))
+    } else {
+        Ok(expr)
+    }
+}
+
 fn expand_binary_operator(
     symbols: &SymbolProviderRef,
     was: &Vec<WithArgExpr>,
@@ -92,8 +94,8 @@ fn expand_binary_operator(
 ) -> ParseResult<Expr> {
     let mut be = be;
 
-    be.left = Box::new(expand_with_expr(symbols, was, &be.left)?);
-    be.right = Box::new(expand_with_expr(symbols, was, &be.right)?);
+    be.left = expand_with_expr_box(symbols, was, be.left)?;
+    be.right = expand_with_expr_box(symbols, was, be.right)?;
 
     if let Some(modifier) = &be.group_modifier {
         let labels = expand_modifier_args(symbols, was, &modifier.labels)?;
@@ -138,6 +140,7 @@ pub(super) fn expand_metric_expression(
         ensure_filters_resolved(&wme)?;
 
         let mut filters = wme.label_filters.clone();
+
         for i in (1..src.label_filters.len()).rev() {
             filters.push(src.label_filters.remove(i));
         }
@@ -152,7 +155,6 @@ pub(super) fn expand_metric_expression(
         return Ok(Expr::MetricExpression(me));
     }
 
-    let empty_args = vec![];
     let mut new_selector: MetricExpr = MetricExpr::default();
     new_selector.label_filters = me.label_filters.clone();
 
@@ -167,7 +169,7 @@ pub(super) fn expand_metric_expression(
                 let msg = format!("missing {} value inside {}", lfe.label, new_selector);
                 return Err(ParseError::General(msg));
             }
-            let e_new = expand_with_expr_ext(symbols, was, wa.unwrap(), &empty_args)?;
+            let e_new = expand_with_expr_ext(symbols, was, wa.unwrap(), vec![])?;
 
             let mut has_non_empty_metric_group = false;
             let wme = match e_new {
@@ -212,7 +214,7 @@ pub(super) fn expand_metric_expression(
         return Ok(Expr::MetricExpression(new_selector));
     }
 
-    let expanded = expand_with_expr_ext(symbols, was, wa.unwrap(), &empty_args)?;
+    let expanded = expand_with_expr_ext(symbols, was, wa.unwrap(), vec![])?;
 
     let wme = match &expanded {
         Expr::MetricExpression(me) => {
@@ -270,14 +272,21 @@ fn expand_function(
     was: &Vec<WithArgExpr>,
     func: FunctionExpr,
 ) -> ParseResult<Expr> {
-    let args = expand_with_args(symbols, was, &func.args)?;
     let wa = get_with_arg_expr(symbols, was, &func.name);
+    let args = expand_with_args(symbols, was, func.args)?;
     if wa.is_some() {
-        return expand_with_expr_ext(symbols, was, wa.unwrap(), &args);
+        return expand_with_expr_ext(symbols, was, wa.unwrap(), args);
     }
-    let mut func = func;
-    func.args = args;
-    Ok(Expr::Function(func))
+    let res = FunctionExpr{
+        name: func.name,
+        args,
+        arg_idx_for_optimization: func.arg_idx_for_optimization,
+        keep_metric_names: func.keep_metric_names,
+        is_scalar: func.is_scalar,
+        function_type: func.function_type,
+        return_type: func.return_type,
+    };
+    Ok(Expr::Function(res))
 }
 
 fn expand_aggregation(
@@ -286,12 +295,12 @@ fn expand_aggregation(
     ae: AggregationExpr,
 ) -> ParseResult<Expr> {
     let mut ae = ae;
-    let args = expand_with_args(symbols, was, &ae.args)?;
+    let args = expand_with_args(symbols, was, ae.args)?;
     let wa = get_with_arg_expr(symbols, was, &ae.name);
     if wa.is_some() {
         // TODO:: if were in this method at all, Its a confirmed aggregate, so we should ensure
         // new name is also an aggregate
-        return expand_with_expr_ext(symbols, was, wa.unwrap(), &args);
+        return expand_with_expr_ext(symbols, was, wa.unwrap(), args);
     }
     ae.args = args;
 
@@ -308,9 +317,9 @@ fn expand_aggregation(
 fn expand_parens(
     symbols: &SymbolProviderRef,
     was: &Vec<WithArgExpr>,
-    p: &ParensExpr,
+    p: ParensExpr,
 ) -> ParseResult<Expr> {
-    let mut exprs = expand_with_args(symbols, was, &p.expressions)?;
+    let mut exprs = expand_with_args(symbols, was, p.expressions)?;
     if exprs.len() == 1 {
         return Ok(exprs.remove(0));
     }
@@ -325,9 +334,9 @@ fn expand_rollup(
 ) -> ParseResult<Expr> {
     let mut re = re;
 
-    re.expr = Box::new(expand_with_expr(symbols, was, &re.expr)?);
+    re.expr = expand_with_expr_box(symbols, was, re.expr)?;
     if let Some(at) = re.at {
-        let expr = expand_with_expr(symbols, was, &at)?;
+        let expr = expand_with_expr(symbols, was, *at)?;
         re.at = Some(Box::new(expr));
     }
     Ok(Expr::Rollup(re))
@@ -354,8 +363,6 @@ pub(super) fn expand_string_expr(
         return Ok(Expr::StringLiteral("".to_string()));
     }
 
-    let empty_args = vec![];
-
     // todo: calculate size
     let mut b = String::with_capacity(64);
     for token in se.iter() {
@@ -365,7 +372,7 @@ pub(super) fn expand_string_expr(
                 continue;
             }
             StringSegment::Ident(ident) => {
-                let expr = resolve_ident(symbols, was, ident, &empty_args)?;
+                let expr = resolve_ident(symbols, was, ident, vec![])?;
                 if expr.is_none() {
                     let msg = format!("missing {} value inside string expression", ident);
                     return Err(ParseError::General(msg));
@@ -384,7 +391,7 @@ pub(super) fn resolve_ident(
     symbols: &SymbolProviderRef,
     was: &Vec<WithArgExpr>,
     ident: &str,
-    args: &[Expr],
+    args: Vec<Expr>,
 ) -> ParseResult<Option<Expr>> {
     let wa = get_with_arg_expr(symbols, was, ident);
     if wa.is_none() {
@@ -494,7 +501,7 @@ fn expand_with_expr_ext(
     symbols: &SymbolProviderRef,
     was: &Vec<WithArgExpr>,
     wa: &WithArgExpr,
-    args: &[Expr],
+    args: Vec<Expr>,
 ) -> ParseResult<Expr> {
     if wa.args.len() != args.len() {
         if args.is_empty() {
@@ -530,5 +537,5 @@ fn expand_with_expr_ext(
         });
     }
 
-    expand_with_expr(symbols, &was_new, &wa.expr)
+    expand_with_expr(symbols, &was_new, wa.expr.clone())
 }

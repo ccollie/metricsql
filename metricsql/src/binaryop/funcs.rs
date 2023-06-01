@@ -139,14 +139,22 @@ fn return_nan(_left: f64, _right: f64) -> f64 {
     f64::NAN
 }
 
+/// convert true to x, false to NaN.
+#[inline]
+pub fn to_comparison_value(b: bool, x: f64) -> f64 {
+    return if b { x } else { f64::NAN };
+}
+
+/// convert true to 1, false to 0.
+#[inline]
+fn to_float(b: bool) -> f64 {
+    return if b { 1_f64 } else { 0_f64 };
+}
+
 macro_rules! make_comparison_func {
     ($name: ident, $func: expr) => {
         pub fn $name(left: f64, right: f64) -> f64 {
-            if $func(left, right) {
-                left
-            } else {
-                f64::NAN
-            }
+            to_comparison_value($func(left, right), left)
         }
     };
 }
@@ -154,11 +162,7 @@ macro_rules! make_comparison_func {
 macro_rules! make_comparison_func_bool {
     ($name: ident, $func: expr) => {
         pub fn $name(left: f64, right: f64) -> f64 {
-            if $func(left, right) {
-                1_f64
-            } else {
-                0_f64
-            }
+            to_float($func(left, right))
         }
     };
 }
@@ -228,8 +232,8 @@ pub fn eval_binary_op(left: f64, right: f64, op: Operator, is_bool: bool) -> f64
     handler(left, right)
 }
 
-pub fn string_compare(a: &str, b: &str, op: Operator) -> ParseResult<bool> {
-    match op {
+pub fn string_compare(a: &str, b: &str, op: Operator, is_bool: bool) -> ParseResult<f64> {
+    let res = match op {
         Operator::Eql => Ok(a == b),
         Operator::NotEq => Ok(a != b),
         Operator::Lt => Ok(a < b),
@@ -240,5 +244,18 @@ pub fn string_compare(a: &str, b: &str, op: Operator) -> ParseResult<bool> {
             "unexpected operator {} in string comparison",
             op
         ))),
+    };
+    match res {
+        Ok(b) => {
+            let result = if b {
+                1_f64
+            } else if is_bool {
+                0_f64
+            } else {
+                f64::NAN
+            };
+            Ok(result)
+        },
+        Err(e) => Err(e),
     }
 }

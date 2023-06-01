@@ -25,13 +25,12 @@ impl IncrementalAggrHandler for IncrementalAggrSum2 {
     }
 
     fn merge(&self, dst: &mut IncrementalAggrContext, src: &IncrementalAggrContext) {
-        let iter = izip!(
+        for (src_count, dst_count, v, dst) in izip!(
             src.values.iter(),
             dst.values.iter_mut(),
             src.ts.values.iter(),
             dst.ts.values.iter_mut()
-        );
-        for (src_count, dst_count, v, dst) in iter {
+        ) {
             if *src_count == 0.0 {
                 continue;
             }

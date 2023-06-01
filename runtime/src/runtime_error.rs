@@ -20,8 +20,6 @@ pub enum RuntimeError {
     InvalidArgCount(ArgCountError),
     #[error("{0}")]
     General(String),
-    #[error("{0}")]
-    InvalidInvariant(String), // aka BUG
     #[error("Invalid regex: {0}")]
     InvalidRegex(String),
     #[error("Aggregate Error: {0}")]

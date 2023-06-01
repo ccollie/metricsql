@@ -430,16 +430,7 @@ impl<'a> Parser<'a> {
         self.is_parsing_with() || self.has_symbols()
     }
 
-    pub(super) fn lookup_with_expr(&self, name: &str) -> Option<&WithArgExpr> {
-        for frame in self.with_stack.iter().rev() {
-            if let Some(expr) = frame.iter().find(|x| x.name == name) {
-                return Some(expr);
-            }
-        }
-        None
-    }
-
-    pub(super) fn resolve_ident(&self, ident: &str, args: &[Expr]) -> ParseResult<Option<Expr>> {
+    pub(super) fn resolve_ident(&self, ident: &str, args: Vec<Expr>) -> ParseResult<Option<Expr>> {
         let empty = vec![];
         let was = self.with_stack.last().unwrap_or(&empty);
         let expr = resolve_ident(&self.symbol_provider, was, ident, args)?;
@@ -449,7 +440,7 @@ impl<'a> Parser<'a> {
     pub(super) fn expand_if_needed(&self, expr: Expr) -> ParseResult<Expr> {
         if self.needs_expansion {
             let was: Vec<WithArgExpr> = vec![];
-            expand_with_expr(&self.symbol_provider, &was, &expr)
+            expand_with_expr(&self.symbol_provider, &was, expr)
         } else {
             Ok(expr)
         }

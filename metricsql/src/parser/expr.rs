@@ -3,7 +3,6 @@ use crate::common::{
     GroupModifier, GroupModifierOp, JoinModifier, JoinModifierOp, Operator, StringExpr, ValueType,
 };
 use crate::functions::AggregateFunction;
-use crate::parser::expand::should_expand;
 use crate::parser::function::parse_func_expr;
 use crate::parser::parse_error::unexpected;
 use crate::parser::tokens::Token;
@@ -30,7 +29,7 @@ pub(super) fn parse_single_expr(p: &mut Parser) -> ParseResult<Expr> {
         let with = parse_with_expr(p)?;
         return Ok(Expr::With(with));
     }
-    let mut expr = parse_single_expr_without_rollup_suffix(p)?;
+    let expr = parse_single_expr_without_rollup_suffix(p)?;
     if p.peek_kind().is_rollup_start() {
         let re = parse_rollup_expr(p, expr)?;
         return Ok(re);

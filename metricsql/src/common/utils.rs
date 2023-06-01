@@ -1,7 +1,7 @@
 use std::fmt;
 use std::fmt::{Display, Formatter};
 
-pub(crate) fn format_num(f: &mut Formatter<'_>, value: f64) -> fmt::Result {
+pub fn format_num(f: &mut Formatter<'_>, value: f64) -> fmt::Result {
     if value.is_finite() {
         write!(f, "{}", value)
     } else if value.is_nan() {

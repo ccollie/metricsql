@@ -12,7 +12,8 @@ pub(super) fn parse_func_expr(p: &mut Parser) -> ParseResult<Expr> {
     // with (f(x) = sum(x * 2))  f(x{a="b"}) => sum(x{a="b"}) * 2)
     // check if we have a function with the same name in the with stack
     if p.can_lookup() {
-        if let Some(expr) = p.resolve_ident( &name, &args)? {
+        let args_clone = args.clone();
+        if let Some(expr) = p.resolve_ident( &name, args_clone)? {
             return Ok(expr);
         }
     }

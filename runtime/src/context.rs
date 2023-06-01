@@ -108,7 +108,7 @@ pub struct SessionConfig {
 
     /// The maximum amount of memory a single query may consume. Queries requiring more memory are
     /// rejected. The total memory limit for concurrently executed queries can be estimated as
-    /// max_memory_per_query multiplied by -search.maxConcurrentQueries
+    /// `max_memory_per_query` multiplied by -search.maxConcurrentQueries
     pub max_memory_per_query: usize,
 
     /// Set this flag to true if the database doesn't contain Prometheus stale markers, so there is
@@ -124,7 +124,7 @@ pub struct SessionConfig {
     /// the median interval between samples. This could be useful for tuning Prometheus data model
     /// closer to Influx-style data model.
     /// See https://prometheus.io/docs/prometheus/latest/querying/basics/#staleness for details.
-    /// See also 'set_lookback_to_step' flag
+    /// See also `set_lookback_to_step` flag
     pub max_staleness_interval: Duration,
 
     /// The minimum interval for staleness calculations. This could be useful for removing gaps on
@@ -138,7 +138,7 @@ pub struct SessionConfig {
     /// Synonym to -search.lookback-delta from Prometheus.
     /// The value is dynamically detected from interval between time series data-points if not set.
     /// It can be overridden on per-query basis via max_lookback arg.
-    /// See also 'max_staleness_interval' flag, which has the same meaning due to historical reasons"
+    /// See also `max_staleness_interval` flag, which has the same meaning due to historical reasons
     pub max_lookback: Duration,
 
     /// Whether to fix lookback interval to `step` query arg value.

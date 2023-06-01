@@ -91,20 +91,10 @@ impl AggregateFunction {
         )
     }
 
-    pub fn name(&self) -> String {
-        self.to_string()
-    }
-
-    pub fn return_type(&self) -> ValueType {
-        ValueType::InstantVector
-    }
-}
-
-impl Display for AggregateFunction {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    pub fn name(&self) -> &'static str {
         use AggregateFunction::*;
 
-        let display = match self {
+        match self {
             Sum => "sum",
             Min => "min",
             Max => "max",
@@ -141,9 +131,17 @@ impl Display for AggregateFunction {
             Mode => "mode",
             Share => "share",
             ZScore => "score",
-        };
+        }
+    }
 
-        write!(f, "{}", display)
+    pub fn return_type(&self) -> ValueType {
+        ValueType::InstantVector
+    }
+}
+
+impl Display for AggregateFunction {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name())
     }
 }
 

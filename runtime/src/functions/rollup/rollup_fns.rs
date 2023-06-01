@@ -8,6 +8,7 @@ use std::sync::Arc;
 use lib::{get_float64s, is_stale_nan};
 use metricsql::ast::{Expr, FunctionExpr};
 use metricsql::functions::{can_adjust_window, RollupFunction};
+use metricsql::prelude::BinopFunc;
 
 use crate::eval::validate_max_points_per_timeseries;
 use crate::functions::rollup::types::RollupHandlerFactory;
@@ -399,8 +400,7 @@ fn get_rollup_aggr_funcs_impl(fe: &FunctionExpr) -> RuntimeResult<Vec<RollupFunc
     }
 
     let mut aggr_funcs: Vec<RollupFunction> = Vec::with_capacity(1);
-    for i in 0..fe.args.len() - 1 {
-        let arg = &fe.args[i];
+    for arg in fe.args.iter() {
         match arg.deref() {
             Expr::StringLiteral(name) => match get_rollup_func_by_name(name) {
                 Err(_) => {
@@ -458,6 +458,8 @@ fn get_rollup_tag(expr: &Expr) -> RuntimeResult<Option<&String>> {
 }
 
 pub(crate) type PreFunction = fn(&mut [f64], &[i64]) -> ();
+
+type FloatComparisonFunction = fn(left: f64, right: f64) -> bool;
 
 #[inline]
 pub(crate) fn eval_prefuncs(fns: &Vec<PreFunction>, values: &mut [f64], timestamps: &[i64]) {
@@ -1212,61 +1214,18 @@ fn new_rollup_duration_over_time(args: &Vec<QueryValue>) -> RuntimeResult<Rollup
 }
 
 fn new_rollup_share_le(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEnum> {
-    new_rollup_share_filter(args, "share_le_over_time", "le", count_filter_le)
-}
-
-fn count_filter_le(values: &[f64], le: f64) -> i32 {
-    let mut n = 0;
-    for v in values.iter() {
-        if *v <= le {
-            n += 1;
-        }
-    }
-    n
+    new_rollup_share_filter(args, "share_le_over_time", "le", |x, v| x <= v)
 }
 
 fn new_rollup_share_gt(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEnum> {
-    new_rollup_share_filter(args, "share_gt_over_time", "gt", count_filter_gt)
-}
-
-#[inline]
-fn count_filter_gt(values: &[f64], gt: f64) -> i32 {
-    let mut n = 0;
-    for v in values.iter() {
-        if *v > gt {
-            n += 1;
-        }
-    }
-    n
-}
-
-#[inline]
-fn count_filter_eq(values: &[f64], eq: f64) -> i32 {
-    let mut n = 0;
-    for v in values.iter() {
-        if *v == eq {
-            n += 1;
-        }
-    }
-    n
-}
-
-#[inline]
-fn count_filter_ne(values: &[f64], ne: f64) -> i32 {
-    let mut n = 0;
-    for v in values.iter() {
-        if *v != ne {
-            n += 1;
-        }
-    }
-    n
+    new_rollup_share_filter(args, "share_gt_over_time", "gt", |x, v| x > v)
 }
 
 fn new_rollup_share_filter(
     args: &Vec<QueryValue>,
     func_name: &str,
     param_name: &str,
-    count_filter: fn(values: &[f64], limit: f64) -> i32,
+    count_filter: FloatComparisonFunction,
 ) -> RuntimeResult<RollupHandlerEnum> {
     let rf = new_rollup_count_filter(args, func_name, param_name, count_filter)?;
     let f = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
@@ -1278,28 +1237,27 @@ fn new_rollup_share_filter(
 }
 
 fn new_rollup_count_le(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEnum> {
-    new_rollup_count_filter(args, "count_le_over_time", "le", count_filter_le)
+    new_rollup_count_filter(args, "count_le_over_time", "le", |x, v| x <= v)
 }
 
 fn new_rollup_count_gt(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEnum> {
-    new_rollup_count_filter(args, "count_gt_over_time", "gt", count_filter_gt)
+    new_rollup_count_filter(args, "count_gt_over_time", "gt", |x, v| x > v)
 }
 
 fn new_rollup_count_eq(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEnum> {
-    new_rollup_count_filter(args, "count_eq_over_time", "eq", count_filter_eq)
+    new_rollup_count_filter(args, "count_eq_over_time", "eq", |x, v| x == v)
 }
 
 fn new_rollup_count_ne(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEnum> {
-    new_rollup_count_filter(args, "count_ne_over_time", "ne", count_filter_ne)
+    new_rollup_count_filter(args, "count_ne_over_time", "ne", |x, v| x != v)
 }
 
 fn new_rollup_count_filter(
     args: &Vec<QueryValue>,
     func_name: &str,
     param_name: &str,
-    count_filter: fn(values: &[f64], limit: f64) -> i32,
+    count_predicate: FloatComparisonFunction,
 ) -> RuntimeResult<RollupHandlerEnum> {
-    // `unwrap()` is sound since parameters are checked before this function is called
     let limit = get_scalar_param_value(&args[1], func_name, param_name)?;
 
     let handler = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
@@ -1309,7 +1267,14 @@ fn new_rollup_count_filter(
             return NAN;
         }
 
-        count_filter(&rfa.values, limit) as f64
+        let mut n = 0;
+        for v in rfa.values.iter() {
+            if count_predicate(*v, limit) {
+                n += 1;
+            }
+        }
+
+        n as f64
     });
 
     Ok(RollupHandlerEnum::General(handler))
@@ -1377,11 +1342,11 @@ fn new_rollup_quantiles(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEn
     // todo: smallvec ??
     let mut phi_strs: Vec<String> = Vec::with_capacity(cap);
 
-    for i in 1..args.len() {
+    for arg in args.iter().skip(1) {
         // unwrap should be safe, since parameters types are checked before calling the function
-        let v = get_scalar_param_value(&args[i], "quantiles", "phi").unwrap();
-        phis[i] = v;
-        phi_strs[i] = format!("{}", v);
+        let v = get_scalar_param_value(&arg, "quantiles", "phi").unwrap();
+        phis.push(v);
+        phi_strs.push(format!("{}", v));
     }
 
     let f: Box<dyn RollupFn<Output = f64>> = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
@@ -1862,7 +1827,7 @@ pub(super) fn rollup_deriv_slow(rfa: &mut RollupFuncArg) -> f64 {
     // Use linear regression like Prometheus does.
     // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/73
     let (_, k) = linear_regression(&rfa.values, &rfa.timestamps, rfa.curr_timestamp);
-    return k;
+    k
 }
 
 pub(super) fn rollup_deriv_fast(rfa: &mut RollupFuncArg) -> f64 {
@@ -2035,13 +2000,14 @@ pub(super) fn rollup_changes(rfa: &mut RollupFuncArg) -> f64 {
         start = 1;
         n += 1;
     }
-    for i in start..rfa.values.len() {
-        let v = rfa.values[i];
-        if v != rfa.prev_value {
+
+    for v in rfa.values.iter().skip(start) {
+        if *v != rfa.prev_value {
             n += 1;
-            rfa.prev_value = v;
+            rfa.prev_value = *v;
         }
     }
+
     return n as f64;
 }
 
@@ -2063,14 +2029,15 @@ pub(super) fn rollup_increases(rfa: &mut RollupFuncArg) -> f64 {
     if rfa.values.len() == start {
         return 0.0;
     }
+
     let mut n = 0;
-    for i in start..rfa.values.len() {
-        let v = rfa.values[i];
-        if v > rfa.prev_value {
+    for v in rfa.values.iter().skip(start) {
+        if *v > rfa.prev_value {
             n += 1;
         }
-        rfa.prev_value = v;
+        rfa.prev_value = *v;
     }
+
     return n as f64;
 }
 
@@ -2096,14 +2063,15 @@ pub(super) fn rollup_resets(rfa: &mut RollupFuncArg) -> f64 {
     if values.len() - start == 0 {
         return 0.0;
     }
+
     let mut n = 0;
-    for cursor in start..values.len() {
-        let v = values[cursor];
-        if v < prev_value {
+    for v in values.iter().skip(start) {
+        if *v < prev_value {
             n += 1;
         }
-        prev_value = v;
+        prev_value = *v;
     }
+
     return n as f64;
 }
 
@@ -2243,13 +2211,12 @@ pub(super) fn rollup_descent_over_time(rfa: &mut RollupFuncArg) -> f64 {
     }
 
     let mut s: f64 = 0.0;
-    for i in ofs..rfa.values.len() {
-        let v = rfa.values[i];
-        let d = rfa.prev_value - v;
+    for v in &rfa.values[ofs..] {
+        let d = rfa.prev_value - *v;
         if d > 0.0 {
-            s += d
+            s += d;
         }
-        rfa.prev_value = v;
+        rfa.prev_value = *v;
     }
 
     s
@@ -2338,14 +2305,15 @@ pub(super) fn rollup_integrate(rfa: &mut RollupFuncArg) -> f64 {
         values = &values[1..];
         timestamps = &timestamps[1..];
     }
+
     let mut sum: f64 = 0.0;
-    for (i, v) in values.iter().enumerate() {
-        let timestamp = timestamps[i];
-        let dt = (timestamp - prev_timestamp) as f64 / 1e3_f64;
+    for (v, ts) in values.iter().zip(timestamps.iter()) {
+        let dt = (ts - prev_timestamp) as f64 / 1e3_f64;
         sum += prev_value * dt;
-        prev_timestamp = timestamp;
+        prev_timestamp = *ts;
         prev_value = v;
     }
+
     let dt = (&rfa.curr_timestamp - prev_timestamp) as f64 / 1e3_f64;
     sum += prev_value * dt;
     return sum;

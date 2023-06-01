@@ -39,7 +39,7 @@ impl TryFrom<&str> for IncrementalAggrFuncKind {
 #[derive(Default)]
 pub struct IncrementalAggrContext {
     pub ts: Timeseries,
-    pub values: Vec<f64>,
+    pub values: Vec<f64>, // todo: smallvec?
 }
 
 pub trait IncrementalAggrHandler {

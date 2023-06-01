@@ -256,11 +256,19 @@ mod tests {
         if func.should_remove_counter_resets() {
             remove_counter_resets(&mut rfa.values)
         }
+        let args_as_string = args
+            .iter()
+            .map(|v| v.to_string())
+            .collect::<Vec<String>>()
+            .join(", ");
+
         (0..5).for_each(|_| {
             let v = rf.eval(&mut rfa);
             assert!(
                 compare_floats(expected, v),
-                "unexpected value; got {}; want {}",
+                "unexpected value for {}({}); got {}; want {}",
+                func_name,
+                args_as_string,
                 v,
                 expected
             );

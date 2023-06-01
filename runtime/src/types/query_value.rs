@@ -3,7 +3,9 @@ use crate::functions::types::get_single_timeseries;
 use crate::{EvalConfig, RuntimeError, RuntimeResult, Timeseries};
 use metricsql::common::{Value, ValueType};
 use std::borrow::Cow;
+use std::fmt::{Display, Formatter};
 use std::str::FromStr;
+use crate::utils::format_number;
 
 #[derive(Debug, PartialEq)]
 pub enum QueryValue {
@@ -220,6 +222,17 @@ impl Clone for QueryValue {
             QueryValue::InstantVector(series) => QueryValue::InstantVector(series.clone()),
             QueryValue::Scalar(f) => QueryValue::Scalar(*f),
             QueryValue::String(s) => QueryValue::String(s.clone()),
+        }
+    }
+}
+
+impl Display for QueryValue {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            QueryValue::RangeVector(m) => write!(f, "{:?}", m),
+            QueryValue::InstantVector(series) => write!(f, "{:?}", series),
+            QueryValue::Scalar(n) => format_number(f, *n),
+            QueryValue::String(s) => write!(f, "{}", s),
         }
     }
 }

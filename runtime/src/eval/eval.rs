@@ -540,39 +540,37 @@ pub fn get_timestamps(
     let n: usize = (1 + (end - start) / step) as usize;
     // todo: use a pool
     let mut timestamps: Vec<i64> = Vec::with_capacity(n);
-    let mut cursor = start;
-    while cursor < end {
-        timestamps.push(cursor);
-        cursor += step;
+    for ts in (start..=end).step_by(step as usize) {
+        timestamps.push(ts);
     }
 
     return Ok(timestamps);
 }
 
 pub(crate) fn eval_number(ec: &EvalConfig, n: f64) -> Vec<Timeseries> {
-    let timestamps = ec.timestamps();
-    let values = vec![n; timestamps.len()];
+    let mut timestamps = ec.timestamps();
     // HACK!!!  ec.ensure_timestamps() should have been called before this function
     if timestamps.len() == 0 {
         // todo: this is a hack, we should not call get_timestamps here
         let timestamps =
             get_timestamps(ec.start, ec.end, ec.step, ec.max_points_per_series as usize).unwrap();
+        let values = vec![n; timestamps.len()];
         let ts = Timeseries::new(timestamps, values);
         return vec![ts];
     }
     let ts = Timeseries {
         metric_name: Default::default(),
         timestamps: timestamps.clone(),
-        values,
+        values: vec![n; timestamps.len()],
     };
     vec![ts]
 }
 
 pub(crate) fn eval_time(ec: &EvalConfig) -> Vec<Timeseries> {
     let mut rv = eval_number(ec, f64::NAN);
-    for i in 0..rv[0].timestamps.len() {
-        let ts = rv[0].timestamps[i];
-        rv[0].values[i] = ts as f64 / 1e3_f64;
+    let timestamps = rv[0].timestamps.clone(); // this is an Arc, so it's cheap to clone
+    for (ts, val) in timestamps.iter().zip(rv[0].values.iter_mut()) {
+        *val = (*ts  as f64) / 1e3_f64;
     }
     rv
 }
