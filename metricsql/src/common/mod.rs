@@ -6,6 +6,7 @@ mod tree_node;
 mod types;
 mod utils;
 mod value;
+mod labels;
 
 use crate::parser::ParseError;
 pub use label_filter::*;

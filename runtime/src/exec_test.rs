@@ -348,7 +348,7 @@ mod tests {
     }
 
     #[test]
-    fn minute__series_with_NaNs() {
+    fn minute_series_with_NaNs() {
         assert_result_eq(
             "minute(time() <= 1200 or time() > 1600)",
             &[16.0, 20.0, NAN, NAN, 30.0, 33.0],
@@ -4071,7 +4071,7 @@ mod tests {
 
     #[test]
     fn aggr_over_time_single_func() {
-        let q = r##"round(aggr_over_time("#increase", rand(0)[:10s]),0.01)"##;
+        let q = r##"round(aggr_over_time("increase", rand(0)[:10s]),0.01)"##;
         let mut r1 = make_result(&[5.47, 6.64, 6.84, 7.24, 5.17, 6.59]);
         r1.metric_name.set_tag("rollup", "increase");
         test_query(q, vec![r1]);
@@ -4079,7 +4079,7 @@ mod tests {
 
     #[test]
     fn aggr_over_time_multi_func() {
-        let q = r##"sort(aggr_over_time(("#min_over_time", "count_over_time", "max_over_time"), round(rand(0),0.1)[:10s]))"##;
+        let q = r##"sort(aggr_over_time(("min_over_time", "count_over_time", "max_over_time"), round(rand(0),0.1)[:10s]))"##;
         let mut r1 = make_result(&[0_f64, 0.0, 0.0, 0.0, 0.0, 0.0]);
         r1.metric_name.set_tag("rollup", "min_over_time");
         let mut r2 = make_result(&[0.8, 0.9, 1.0, 0.9, 1.0, 0.9]);
@@ -4092,11 +4092,11 @@ mod tests {
 
     #[test]
     fn test_avg() {
-        let q = r##"avg(aggr_over_time(("#min_over_time", "max_over_time"), time()[:10s]))"##;
+        let q = r##"avg(aggr_over_time(("min_over_time", "max_over_time"), time()[:10s]))"##;
         assert_result_eq(q, &[905.0, 1105.0, 1305.0, 1505.0, 1705.0, 1905.0]);
 
         // avg(aggr_over_time(multi-func)) by (rollup)
-        let q = r##"sort(avg(aggr_over_time(("#min_over_time", "max_over_time"), time()[:10s])) by (rollup))"##;
+        let q = r##"sort(avg(aggr_over_time(("min_over_time", "max_over_time"), time()[:10s])) by (rollup))"##;
         let mut r1 = make_result(&[810_f64, 1010.0, 1210.0, 1410.0, 1610.0, 1810.0]);
         r1.metric_name.set_tag("rollup", "min_over_time");
         let mut r2 = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);

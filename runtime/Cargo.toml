@@ -19,7 +19,6 @@ byte-pool = "0.2.4"
 clone_dyn = "0.1.0"
 chrono = { workspace = true }
 chrono-tz = { workspace = true }
-once_cell = { workspace = true }
 effective-limits = "0.5.5"
 integer-encoding = "3.0.4"
 itertools = { workspace = true }

@@ -1,7 +1,6 @@
+
 use crate::error::{Error, Result};
-use byte_pool::{Block, BytePool};
 use integer_encoding::{FixedInt, VarInt};
-use once_cell::sync::Lazy;
 
 /// marshal_fixed_int appends marshaled v to dst and returns the result.
 pub fn marshal_fixed_int<T: FixedInt>(dst: &mut Vec<u8>, v: T) {
@@ -248,22 +247,4 @@ pub fn unmarshal_bytes(src: &[u8]) -> Result<(&[u8], &[u8])> {
         }
         Err(err) => Err(Error::new(format!("cannot unmarshal string size: {}", err))),
     }
-}
-
-static F64_POOL: Lazy<BytePool<Vec<f64>>> = Lazy::new(BytePool::<Vec<f64>>::new);
-
-static INT64_POOL: Lazy<BytePool<Vec<i64>>> = Lazy::new(BytePool::<Vec<i64>>::new);
-
-/// get_int64s returns an int64 slice with the given size.
-pub fn get_int64s(size: usize) -> Block<'static, Vec<i64>> {
-    let mut v = INT64_POOL.alloc(size);
-    v.clear();
-    v
-}
-
-/// get_int64s returns an int64 slice with the given size.
-pub fn get_float64s(size: usize) -> Block<'static, Vec<f64>> {
-    let mut v = F64_POOL.alloc(size);
-    v.clear();
-    v
 }

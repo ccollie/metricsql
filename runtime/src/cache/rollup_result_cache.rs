@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 use std::hash::Hasher;
-use std::ops::{Deref, DerefMut};
-use std::sync::{Arc, Mutex};
+use std::ops::{DerefMut};
+use std::sync::{Arc, Mutex, OnceLock};
 
-use once_cell::sync::Lazy;
 /// import commonly used items from the prelude:
 use rand::prelude::*;
 use tracing::{field, info, span_enabled, trace_span, Level, Span};
@@ -31,7 +30,15 @@ use crate::{marshal_timeseries_fast, EvalConfig, Timeseries};
 /// TODO: move to EvalConfig
 static CACHE_TIMESTAMP_OFFSET: i64 = 5000;
 
-static ROLLUP_RESULT_CACHE_KEY_PREFIX: Lazy<u64> = Lazy::new(|| random::<u64>());
+static ROLLUP_RESULT_CACHE_KEY_PREFIX: OnceLock<u64> = OnceLock::new();
+
+fn get_rollup_result_cache_key_prefix() -> u64 {
+    *ROLLUP_RESULT_CACHE_KEY_PREFIX.get_or_init(|| {
+        // todo: some sort of uid
+        let mut rng = thread_rng();
+        rng.gen::<u64>()
+    })
+}
 
 fn get_default_cache_size() -> u64 {
     // todo: tune this
@@ -159,7 +166,9 @@ impl RollupResultCache {
             &ec.enforced_tag_filters,
         );
 
-        if !inner.cache.get(&hash.to_ne_bytes(), &mut meta_info_buf) || meta_info_buf.len() == 0 {
+        let hash_key = hash.to_ne_bytes();
+
+        if !inner.cache.get(&hash_key, &mut meta_info_buf) || meta_info_buf.len() == 0 {
             info!("nothing found");
             return Ok((None, ec.start));
         }
@@ -180,7 +189,7 @@ impl RollupResultCache {
             return Ok((None, ec.start));
         }
 
-        let mut bb = get_pooled_buffer(2048);
+        let mut bb = get_pooled_buffer(64);
         key.marshal(&mut bb);
 
         let mut compressed_result_buf = get_pooled_buffer(2048);
@@ -192,17 +201,10 @@ impl RollupResultCache {
         {
             mi.remove_key(key);
             mi.marshal(&mut meta_info_buf);
-            let hash = marshal_rollup_result_cache_key(
-                &mut inner.hasher,
-                expr,
-                window,
-                ec.step,
-                &ec.enforced_tag_filters,
-            );
 
             inner
                 .cache
-                .set(&hash.to_ne_bytes(), meta_info_buf.as_slice());
+                .set(&hash_key, meta_info_buf.as_slice());
 
             info!("missing cache entry");
             return Ok((None, ec.start));
@@ -449,6 +451,7 @@ impl RollupResultCache {
         inner
             .cache
             .set(meta_info_key.as_slice(), meta_info_buf.as_slice());
+
         return Ok(());
     }
 }
@@ -467,7 +470,7 @@ fn marshal_rollup_result_cache_key(
 ) -> u64 {
     hasher.reset();
 
-    let prefix: u64 = *ROLLUP_RESULT_CACHE_KEY_PREFIX.deref();
+    let prefix: u64 = get_rollup_result_cache_key_prefix();
     hasher.write_u64(prefix);
     hasher.write_u8(ROLLUP_RESULT_CACHE_VERSION);
     hasher.write_i64(window);
@@ -476,7 +479,9 @@ fn marshal_rollup_result_cache_key(
 
     for etf in etfs.iter() {
         for f in etf {
-            hasher.write(f.as_string().as_bytes())
+            hasher.write(&f.label.as_bytes());
+            hasher.write(&f.op.as_str().as_bytes());
+            hasher.write(&f.value.as_bytes());
         }
     }
 
@@ -805,7 +810,7 @@ impl RollupResultCacheKey {
     fn new(suffix: u64) -> Self {
         // not sure if this is safe
         RollupResultCacheKey {
-            prefix: *ROLLUP_RESULT_CACHE_KEY_PREFIX.deref(),
+            prefix: get_rollup_result_cache_key_prefix(),
             suffix,
         }
     }

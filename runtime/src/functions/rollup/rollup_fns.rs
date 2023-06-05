@@ -8,7 +8,6 @@ use std::sync::Arc;
 use lib::{get_float64s, is_stale_nan};
 use metricsql::ast::{Expr, FunctionExpr};
 use metricsql::functions::{can_adjust_window, RollupFunction};
-use metricsql::prelude::BinopFunc;
 
 use crate::eval::validate_max_points_per_timeseries;
 use crate::functions::rollup::types::RollupHandlerFactory;

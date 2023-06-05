@@ -1,7 +1,6 @@
 use lib::BuildNoHashHasher;
-use once_cell::sync::Lazy;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, OnceLock};
 
 use crate::eval::hash_helper::HashHelper;
 use crate::eval::utils::remove_empty_series;
@@ -46,9 +45,10 @@ fn add_scalar_handler_to_hashmap(hm: &mut HashMap<String, BinaryOpFnImplementati
     hm.insert(format!("{}_bool", op).to_string(), Arc::new(bf));
 }
 
-static HANDLER_MAP: Lazy<RwLock<HashMap<String, BinaryOpFnImplementation>>> = Lazy::new(|| {
-    use Operator::*;
+static HANDLERS: OnceLock<HashMap<String, BinaryOpFnImplementation>> = OnceLock::new();
 
+fn create_handler_map() -> HashMap<String, BinaryOpFnImplementation> {
+    use Operator::*;
     let mut m: HashMap<String, BinaryOpFnImplementation> = HashMap::new();
     add_scalar_handler_to_hashmap(&mut m, Add);
     add_scalar_handler_to_hashmap(&mut m, Atan2);
@@ -69,13 +69,13 @@ static HANDLER_MAP: Lazy<RwLock<HashMap<String, BinaryOpFnImplementation>>> = La
     m.insert(If.to_string(), Arc::new(binary_op_if));
     m.insert(IfNot.to_string(), Arc::new(binary_op_if_not));
     m.insert(Default.to_string(), Arc::new(binary_op_default));
+    m
+}
 
-    RwLock::new(m)
-});
 
 pub(super) fn get_binary_op_func(op: Operator, is_bool: bool) -> BinaryOpFnImplementation {
     use Operator::*;
-    let map = HANDLER_MAP.read().unwrap();
+    let map = HANDLERS.get_or_init(create_handler_map);
 
     let key = match op {
         // logical set ops

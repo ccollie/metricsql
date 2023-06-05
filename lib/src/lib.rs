@@ -4,7 +4,6 @@ extern crate core;
 extern crate integer_encoding;
 extern crate lockfree_object_pool;
 extern crate lz4_flex;
-extern crate once_cell;
 extern crate q_compress;
 extern crate rand;
 #[cfg(feature = "xxh64")]

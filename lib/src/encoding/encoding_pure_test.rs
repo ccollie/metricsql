@@ -17,6 +17,7 @@ mod tests {
         for precision_bits in 1..17 {
             ensure_marshal_unmarshal_int64_array(&va, precision_bits, NearestDelta)
         }
+
         for precision_bits in 23..65 {
             ensure_marshal_unmarshal_int64_array(&va, precision_bits, NearestDelta)
         }

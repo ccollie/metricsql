@@ -31,6 +31,15 @@ impl LabelFilterOp {
             LabelFilterOp::RegexEqual | LabelFilterOp::RegexNotEqual
         )
     }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            LabelFilterOp::Equal => "=",
+            LabelFilterOp::NotEqual => "!=",
+            LabelFilterOp::RegexEqual => "=~",
+            LabelFilterOp::RegexNotEqual => "!~",
+        }
+    }
 }
 
 impl TryFrom<&str> for LabelFilterOp {
@@ -52,12 +61,7 @@ impl TryFrom<&str> for LabelFilterOp {
 
 impl fmt::Display for LabelFilterOp {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            LabelFilterOp::Equal => write!(f, "="),
-            LabelFilterOp::NotEqual => write!(f, "!="),
-            LabelFilterOp::RegexEqual => write!(f, "=~"),
-            LabelFilterOp::RegexNotEqual => write!(f, "!~"),
-        }
+        write!(f, "{}", self.as_str())
     }
 }
 

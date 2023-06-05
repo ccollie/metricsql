@@ -7,7 +7,6 @@ extern crate enquote;
 extern crate integer_encoding;
 extern crate lockfree_object_pool;
 extern crate lru_time_cache;
-extern crate once_cell;
 extern crate phf;
 extern crate prometheus_parse;
 extern crate q_compress;

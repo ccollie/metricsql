@@ -32,12 +32,12 @@ static UPPER_BUCKET_RANGE: Lazy<String> = Lazy::new(|| format!("{:.3}...+Inf", U
 const EPSILON: f64 = 0.000001;
 
 
-/// AtModifierUnsafeFunctions are the functions whose result
+/// is_at_modifier_unsafe_functions are the functions whose result
 /// can vary if evaluation time is changed when the arguments are
 /// step invariant. It also includes functions that use the timestamps
 /// of the passed instant vector argument to calculate a result since
 /// that can also change with change in eval time.
-fn isAtModifierUnsafeFunctions() -> bool {
+fn is_at_modifier_unsafe_functions() -> bool {
 
 }
 
@@ -195,7 +195,7 @@ impl Test {
     }
 
     fn parse_eval(&mut self, lines: &[String], i: usize) -> RuntimeResult<(usize, EvalCmd)> {
-        if !PATTERN_EVAL_INSTANT.MatchString(lines[i]) {
+        if !PATTERN_EVAL_INSTANT.is_match(lines[i]) {
             return raise(i, "invalid evaluation command. (eval[_fail|_ordered] instant [at <offset:duration>] <query>")
         }
         let parts = patEvalInstant.FindStringSubmatch(lines[i]);

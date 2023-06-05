@@ -30,7 +30,7 @@ mod tests {
         let mut me = MetricExpr::default();
         me.label_filters = vec![LabelFilter::new(LabelFilterOp::Equal, "aaa", "xxx").unwrap()];
 
-        let fe = FunctionExpr::from_single_arg("foo", Expr::MetricExpression(me)).unwrap();
+        let fe = FunctionExpr::from_single_arg("avg", Expr::MetricExpression(me)).unwrap();
 
         let mut ae = AggregationExpr::new(&AggregateFunction::Sum, vec![]);
         ae.args.push(Expr::Function(fe.clone()));

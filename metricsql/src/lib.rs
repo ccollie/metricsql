@@ -2,11 +2,14 @@
 extern crate core;
 extern crate enquote;
 extern crate logos;
-extern crate once_cell;
 extern crate phf;
 extern crate regex;
 extern crate serde;
 extern crate thiserror;
+#[macro_use]
+extern crate tinyvec;
+#[cfg(feature = "xxh64")]
+extern crate xxhash_rust;
 
 pub mod ast;
 pub mod binaryop;
@@ -29,7 +32,6 @@ pub mod prelude {
     use crate::functions;
     use crate::parser;
 
-    pub use ast::*;
     pub use ast::*;
     pub use binaryop::*;
     pub use common::*;

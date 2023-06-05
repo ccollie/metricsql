@@ -69,6 +69,11 @@ impl Tag {
         }
         Ok(src)
     }
+
+    fn update_hash(&self, h: &mut Xxh3) {
+        h.update(self.key.as_bytes());
+        h.update(self.value.as_bytes());
+    }
 }
 
 impl PartialOrd for Tag {
@@ -78,12 +83,6 @@ impl PartialOrd for Tag {
         }
         Some(self.key.cmp(&other.key))
     }
-}
-
-pub fn marshal_tag_value_no_trailing_tag_separator(dst: &mut Vec<u8>, src: &str) {
-    marshal_tag_value(dst, src.as_bytes());
-    // Remove trailing TAG_SEPARATOR_CHAR
-    let _ = dst.remove(dst.len() - 1);
 }
 
 pub fn marshal_tag_value(dst: &mut Vec<u8>, src: &[u8]) {
@@ -123,7 +122,7 @@ fn u8_index_of(haystack: &[u8], needle: u8) -> Option<usize> {
 }
 
 // Todo(perf) use different serialization. This is just to make things work
-pub fn unmarshal_tag_value<'a>(src: &'a [u8]) -> RuntimeResult<(String, &'a [u8])> {
+pub fn unmarshal_tag_value(src: &[u8]) -> RuntimeResult<(String, &[u8])> {
     let n = u8_index_of(src, TAG_SEPARATOR_CHAR);
     if n.is_none() {
         return Err(RuntimeError::General(
@@ -308,7 +307,7 @@ impl MetricName {
         self.tags.iter().filter(move |tag| !map.contains(&tag.key))
     }
 
-    /// remove_tags_on removes all the tags not included to onTags.
+    /// remove_tags_on removes all the tags not included to on_tags.
     pub fn remove_tags_on(&mut self, on_tags: &Vec<String>) {
         let set: HashSet<_> = HashSet::from_iter(on_tags);
         // written this way to avoid an allocation
@@ -321,7 +320,7 @@ impl MetricName {
         self.hash = None;
     }
 
-    /// remove_tags_ignoring removes all the tags included in ignoringTags.
+    /// remove_tags_ignoring removes all the tags included in ignoring_tags.
     pub fn remove_tags_ignoring(&mut self, ignoring_tags: &Vec<String>) {
         let set: HashSet<_> = HashSet::from_iter(ignoring_tags);
         if set.iter().any(|x| x.as_str() == METRIC_NAME_LABEL) {
@@ -617,9 +616,8 @@ impl MetricName {
     pub fn fast_hash(&self) -> u64 {
         let mut hasher: Xxh3 = Xxh3::new();
         hasher.update(self.metric_group.as_bytes());
-        for Tag { key: k, value: v } in self.tags.iter() {
-            hasher.update(k.as_bytes());
-            hasher.update(v.as_bytes());
+        for tag in self.tags.iter() {
+            tag.update_hash(&mut hasher);
         }
         hasher.digest()
     }
@@ -640,76 +638,38 @@ impl MetricName {
         }
     }
 
-    pub fn hash_with_labels(&self, buf: &mut Vec<u8>, hasher: &mut Xxh3, names: &[String]) -> u64 {
+    pub fn with_labels_iter<'a>(&'a self, names: &'a [String]) -> impl Iterator<Item=&Tag> {
+        WithLabelsIterator::new(self, names)
+    }
+
+    pub fn without_labels_iter<'a>(&'a self, names: &'a [String]) -> impl Iterator<Item=&Tag> {
+        WithoutLabelsIterator::new(self, names)
+    }
+
+    /// 'names' have to be sorted in ascending order.
+    pub fn hash_with_labels(&self, hasher: &mut Xxh3, names: &[String]) -> u64 {
         hasher.reset();
-        self.bytes_with_labels(buf, names);
-        hasher.update(buf);
+        // todo: do we need metric group here?
+        self.with_labels_iter(names).for_each(|tag| {
+            tag.update_hash(hasher);
+        });
         hasher.digest()
     }
 
+    /// 'names' have to be sorted in ascending order.
     pub fn hash_without_labels(
         &self,
-        buf: &mut Vec<u8>,
         hasher: &mut Xxh3,
         names: &[String],
     ) -> u64 {
         hasher.reset();
-        self.bytes_without_labels(buf, names);
-        hasher.update(buf);
+        // todo: do we need metric group here?
+        self.without_labels_iter(names).for_each(|tag| {
+            tag.update_hash(hasher);
+        });
         hasher.digest()
     }
 
-    /// bytes_without_labels is just as bytes(), but only for labels not matching names.
-    /// 'names' have to be sorted in ascending order.
-    fn bytes_without_labels(&self, buf: &mut Vec<u8>, names: &[String]) {
-        buf.clear();
-        buf.push(LABEL_SEP);
-
-        let mut names_iter = names.iter();
-        let mut ls_iter = self.tags.iter();
-
-        while let Some(label) = ls_iter.next() {
-            while let Some(name) = names_iter.next() {
-                if *name < label.key {
-                    names_iter.next();
-                } else if *name == label.key {
-                    continue;
-                } else {
-                    break;
-                }
-            }
-
-            add_tag_to_buf(buf, label);
-        }
-    }
-
-    /// bytes_with_labels is just like Bytes(), but only for labels matching names.
-    /// 'names' have to be sorted in ascending order.
-    fn bytes_with_labels(&self, buf: &mut Vec<u8>, names: &[String]) {
-        buf.clear();
-        buf.push(LABEL_SEP);
-        let mut tag_iter = self.tags.iter();
-        let mut names_iter = names.iter();
-
-        let mut tag = tag_iter.next();
-        let mut name = names_iter.next();
-        loop {
-            match (tag, name) {
-                (Some(_tag), Some(_name)) => {
-                    if *_name < _tag.key {
-                        name = names_iter.next();
-                    } else if _tag.key < *_name {
-                        tag = tag_iter.next();
-                    } else {
-                        add_tag_to_buf(buf, _tag);
-                        name = names_iter.next();
-                        tag = tag_iter.next();
-                    }
-                }
-                _ => break,
-            }
-        }
-    }
 }
 
 fn add_tag_to_buf(b: &mut Vec<u8>, tag: &Tag) {
@@ -765,5 +725,96 @@ impl PartialOrd for MetricName {
         }
 
         return Some(self.tags.len().cmp(&other.tags.len()));
+    }
+}
+
+pub struct WithLabelsIterator<'a> {
+    metric_name: &'a MetricName,
+    names: &'a [String],
+    name_idx: usize,
+    tag_idx: usize,
+    handled_name: bool,
+}
+
+impl<'a> WithLabelsIterator<'a> {
+    pub fn new(metric_name: &'a MetricName, names: &'a [String]) -> Self {
+        // todo: sort names here ?
+        Self {
+            metric_name,
+            names,
+            name_idx: 0,
+            tag_idx: 0,
+            handled_name: false,
+        }
+    }
+}
+
+impl<'a> Iterator for WithLabelsIterator<'a> {
+    type Item = &'a Tag;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.tag_idx < self.metric_name.tags.len() {
+            let tag = &self.metric_name.tags[self.tag_idx];
+            while self.name_idx < self.names.len() {
+                let name = &self.names[self.name_idx];
+                if name < &tag.key {
+                    self.name_idx += 1;
+                } else if name == &tag.key {
+                    return Some(tag);
+                } else {
+                    break;
+                }
+            }
+            self.tag_idx += 1;
+        }
+        None
+    }
+}
+
+
+pub struct WithoutLabelsIterator<'a> {
+    metric_name: &'a MetricName,
+    names: &'a [String],
+    name_idx: usize,
+    tag_idx: usize,
+    handled_name: bool,
+}
+
+impl<'a> WithoutLabelsIterator<'a> {
+    pub fn new(metric_name: &'a MetricName, names: &'a [String]) -> Self {
+        Self {
+            metric_name,
+            names,
+            name_idx: 0,
+            tag_idx: 0,
+            handled_name: false,
+        }
+    }
+}
+
+impl<'a> Iterator for WithoutLabelsIterator<'a> {
+    type Item = &'a Tag;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.tag_idx < self.metric_name.tags.len() {
+            let tag = &self.metric_name.tags[self.tag_idx];
+            while self.name_idx < self.names.len() {
+                let name = &self.names[self.name_idx];
+                match name.cmp(&tag.key) {
+                    Ordering::Less => {
+                        self.name_idx += 1;
+                    },
+                    Ordering::Greater => {
+                        break;
+                    },
+                    Ordering::Equal => {
+                        continue;
+                    }
+                }
+            }
+            self.tag_idx += 1;
+            return Some(tag);
+        }
+        None
     }
 }

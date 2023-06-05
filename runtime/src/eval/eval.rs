@@ -548,7 +548,7 @@ pub fn get_timestamps(
 }
 
 pub(crate) fn eval_number(ec: &EvalConfig, n: f64) -> Vec<Timeseries> {
-    let mut timestamps = ec.timestamps();
+    let timestamps = ec.timestamps();
     // HACK!!!  ec.ensure_timestamps() should have been called before this function
     if timestamps.len() == 0 {
         // todo: this is a hack, we should not call get_timestamps here

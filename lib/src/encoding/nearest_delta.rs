@@ -1,8 +1,7 @@
-use crate::bit_len64;
+use crate::{bit_len64, get_int64s};
 use crate::encoding::{
     compress::{compress_quantile, decompress_quantile_auto},
     encoding::check_precision_bits,
-    int::get_int64s,
 };
 use crate::error::Error;
 use q_compress::CompressorConfig;

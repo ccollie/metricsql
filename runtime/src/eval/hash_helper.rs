@@ -3,7 +3,6 @@ use metricsql::common::{GroupModifier, GroupModifierOp};
 use xxhash_rust::xxh3::Xxh3;
 
 pub(super) struct HashContext<'a> {
-    buf: Vec<u8>,
     hasher: Xxh3,
     names: &'a [String],
     op: GroupModifierOp,
@@ -18,7 +17,6 @@ impl<'a> HashContext<'a> {
 
     pub fn new(op: GroupModifierOp, names: &'a [String]) -> Self {
         HashContext {
-            buf: Vec::with_capacity(128),
             hasher: Xxh3::new(),
             names,
             op,
@@ -28,10 +26,10 @@ impl<'a> HashContext<'a> {
     pub fn hash(&mut self, labels: &MetricName) -> u64 {
         match self.op {
             GroupModifierOp::On => {
-                labels.hash_with_labels(&mut self.buf, &mut self.hasher, self.names)
+                labels.hash_with_labels(&mut self.hasher, self.names)
             }
             GroupModifierOp::Ignoring => {
-                labels.hash_without_labels(&mut self.buf, &mut self.hasher, self.names)
+                labels.hash_without_labels(&mut self.hasher, self.names)
             }
         }
     }

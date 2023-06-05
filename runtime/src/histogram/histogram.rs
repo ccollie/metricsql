@@ -1,7 +1,7 @@
 use lockfree_object_pool::{LinearObjectPool, LinearReusable};
-use once_cell::sync::{Lazy, OnceCell};
 use std::fmt;
 use std::fmt::Display;
+use std::sync::OnceLock;
 
 const E10MIN: i32 = -9;
 const E10MAX: i32 = 18;
@@ -13,8 +13,8 @@ const LOWER_MIN: f64 = 1e-9;
 const UPPER_MAX: f64 = 1e18;
 const BUCKET_MULTIPLIER: f64 = 10_i32.pow((1 / BUCKETS_PER_DECIMAL) as u32) as f64;
 
-static LOWER_BUCKET_RANGE: Lazy<String> = Lazy::new(|| format!("0...{:.3}", LOWER_MIN));
-static UPPER_BUCKET_RANGE: Lazy<String> = Lazy::new(|| format!("{:.3}...+Inf", UPPER_MAX));
+static LOWER_BUCKET_RANGE: &str = "0...0.000";
+static UPPER_BUCKET_RANGE: &str = "1000000000000000000.000...+Inf";
 
 pub trait HistogramBucketVisitor {
     fn visit(vm_range: &str, count: u64);
@@ -251,7 +251,7 @@ impl<'a> Iterator for NonZeroBuckets<'a> {
             }
 
             let bucket_idx = self.index * BUCKETS_PER_DECIMAL + self.offset;
-            let ranges = &*BUCKET_RANGES;
+            let ranges = get_bucket_ranges();
             let vm_range = &ranges[bucket_idx];
             let count = bucket[self.offset];
 
@@ -267,7 +267,9 @@ fn format_float(v: f64) -> String {
     format!("{:.3}", v)
 }
 
-static BUCKET_RANGES: Lazy<Vec<String>> = Lazy::new(|| {
+static BUCKET_RANGES: OnceLock<Vec<String>> = OnceLock::new();
+
+fn create_bucket_ranges() -> Vec<String> {
     let mut ranges: Vec<String> = Vec::with_capacity(BUCKETS_COUNT);
     let mut v: f64 = LOWER_MIN;
     let mut start = format_float(v);
@@ -280,7 +282,11 @@ static BUCKET_RANGES: Lazy<Vec<String>> = Lazy::new(|| {
         i += 1;
     }
     ranges
-});
+}
+
+fn get_bucket_ranges() -> &'static Vec<String> {
+    BUCKET_RANGES.get_or_init(create_bucket_ranges)
+}
 
 // todo: move to utils ?
 // todo - return slices instead
@@ -312,7 +318,7 @@ fn add_tag(name: &str, tag: String) -> String {
 }
 
 fn get_pool() -> &'static LinearObjectPool<Histogram> {
-    static INSTANCE: OnceCell<LinearObjectPool<Histogram>> = OnceCell::new();
+    static INSTANCE: OnceLock<LinearObjectPool<Histogram>> = OnceLock::new();
     INSTANCE.get_or_init(|| LinearObjectPool::<Histogram>::new(Histogram::new, |v| v.reset()))
 }
 

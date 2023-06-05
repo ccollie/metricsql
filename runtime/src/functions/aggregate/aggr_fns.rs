@@ -1,10 +1,9 @@
 use std::borrow::BorrowMut;
 use std::collections::{BTreeMap, HashMap};
 use std::ops::{Deref, DerefMut};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, OnceLock};
 
 use lockfree_object_pool::LinearReusable;
-use once_cell::sync::Lazy;
 use tinyvec::*;
 
 use crate::eval::eval_number;
@@ -67,9 +66,10 @@ macro_rules! create_simple_fn {
     };
 }
 
-static HANDLER_MAP: Lazy<
-    RwLock<HashMap<AggregateFunction, Arc<dyn AggrFn<Output = AggrFunctionResult>>>>,
-> = Lazy::new(|| {
+static HANDLERS: OnceLock<HashMap<AggregateFunction, Arc<dyn AggrFn<Output = AggrFunctionResult>>>>
+    = OnceLock::new();
+
+fn create_handler_map() -> HashMap<AggregateFunction, Arc<dyn AggrFn<Output = AggrFunctionResult>>> {
     use AggregateFunction::*;
 
     let mut m: HashMap<AggregateFunction, Arc<dyn AggrFn<Output = AggrFunctionResult>>> =
@@ -111,10 +111,11 @@ static HANDLER_MAP: Lazy<
     m.insert(OutliersMAD, create_aggr_func(OutliersMAD));
     m.insert(Mode, create_aggr_func(Mode));
     m.insert(ZScore, create_aggr_func(ZScore));
-    RwLock::new(m)
-});
+    
+    m
+}
 
-pub fn create_aggr_func(_fn: AggregateFunction) -> Arc<dyn AggrFn<Output = AggrFunctionResult>> {
+fn create_aggr_func(_fn: AggregateFunction) -> Arc<dyn AggrFn<Output = AggrFunctionResult>> {
     use AggregateFunction::*;
     match _fn {
         Sum => create_aggr_fn!(aggr_func_sum),
@@ -161,7 +162,7 @@ pub fn create_aggr_func(_fn: AggregateFunction) -> Arc<dyn AggrFn<Output = AggrF
 pub fn get_aggr_func(
     op: &AggregateFunction,
 ) -> RuntimeResult<Arc<dyn AggrFn<Output = AggrFunctionResult>>> {
-    let map = HANDLER_MAP.read().unwrap();
+    let map = HANDLERS.get_or_init(create_handler_map);
     let res = map.get(&op);
     match res {
         Some(aggr_func) => Ok(Arc::clone(&aggr_func)),

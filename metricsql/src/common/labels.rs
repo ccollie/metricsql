@@ -11,40 +11,61 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashMap;
+use std::cmp::Ordering;
+use std::collections::{HashMap, HashSet};
+use std::vec;
+use xxhash_rust::xxh3::xxh3_64;
 use xxhash_rust::xxh3::Xxh3;
 use tinyvec::*;
+use crate::parser::ParseResult;
 
 
 /// Well-known label names used by Prometheus components.
-const METRIC_NAME_LABEL: String = "__name__";
+const METRIC_NAME_LABEL: &str = "__name__";
 const LABEL_SEP: u8 = 0xfe;
 const SEP: u8 = 0xff;
 
 /// Label is a key/value pair of strings.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct Label<'a> {
-    name: &'a str,
-    value: &'a str
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Ord)]
+pub struct Label {
+    name: String,
+    value: String
 }
 
-impl<'a> PartialOrd for Label<'a> {
+impl Label {
+    pub fn as_bytes(&self) -> Vec<u8> {
+        let mut b = Vec::with_capacity(self.name.len() + self.value.len() + 2);
+        self.get_bytes(&mut b);
+        b
+    }
+
+    fn get_bytes(&self, dst: &mut Vec<u8>) {
+        if dst.len() > 1 {
+            dst.push(SEP)
+        }
+        dst.extend_from_slice(self.name.as_bytes());
+        dst.push(SEP);
+        dst.extend_from_slice(self.value.as_bytes());
+    }
+}
+
+impl PartialOrd for Label {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        if self.key == other.key {
+        if self.name == other.name {
             return Some(self.value.cmp(&other.value));
         }
-        Some(self.key.cmp(&other.key))
+        Some(self.name.cmp(&other.name))
     }
 }
 
 // Labels is a sorted set of labels. Order has to be guaranteed upon
 // instantiation.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Labels(Vec<Label>);
 
 impl Labels {
-    pub fn new() -> Labels {
-        Labels(Vec::new())
+    pub fn new(labels: Vec<Label>) -> Labels {
+        Labels(labels)
     }
 
     /// from_map returns new sorted Labels from the given map.
@@ -53,7 +74,7 @@ impl Labels {
         for (k, v) in m {
             labels.push(Label{ name: k, value: v });
         }
-        labels.sort_by(|a, b| a.name.cmp(b.name));
+        labels.sort_by(|a, b| a.name.cmp(&b.name));
         Labels(labels)
     }
 
@@ -66,84 +87,80 @@ impl Labels {
     }
 
     /// has returns true if the label with the given name is present.
-    fn has(&self, name: &str) -> bool {
-        self.0.iter().any(|l| l.name == name);
+    pub fn has(&self, name: &str) -> bool {
+        self.0.iter().any(|l| l.name == name)
     }
 
     /// get returns the value for the label with the given name.
     /// Returns an empty string if the label doesn't exist.
-    fn get(&self, name: &str) -> Option<&String> {
+    pub fn get(&self, name: &str) -> Option<&String> {
         self.0.iter()
             .find(|label| label.name == name)
-            .map(|label| label.value)
-    }
-    
-    pub fn sort(&mut self) -> Self {
-        self.0.sort();
-        self
+            .map(|label| &label.value)
     }
 
-    // Bytes returns itself as a byte slice.
+    pub fn add(&mut self, name: String, value: String) {
+        self.0.push(Label{ name, value });
+    }
+
+    pub fn sort(&mut self) {
+        self.0.sort();
+    }
+
+    // as_bytes returns itself as a byte slice.
     // It uses an byte invalid character as a separator and so should not be used for printing.
     pub fn as_bytes(&self) -> Vec<u8> {
         let mut b = Vec::new();
         b.push(LABEL_SEP);
         for elem in &self.0[0..] {
-            if i > 0 {
-                b.push(SEP);
-            }
-            b.extend_from_slice(elem.name.as_bytes());
-            b.push(SEP);
-            b.extend_from_slice(elem.value.as_bytes());
+            elem.get_bytes(&mut b);
         }
+
         b
     }
 
     /// match_labels returns a subset of Labels that matches/does not match with the provided label names based on the 'on' boolean.
     /// If on is set to true, it returns the subset of labels that match with the provided label names and its inverse when 'on' is set to false.
     pub fn match_labels(&mut self, on: bool, names: &[String]) -> Labels {
-        let matched_labels: Vec<Label> = Vec::with_capacity(self.0.len());
+        let mut matched_labels: Vec<Label> = Vec::with_capacity(self.0.len());
 
-        let name_set = BtreeSet::from_iter(names.iter());
+        let name_set: HashSet<&String> = HashSet::from_iter(names.iter());
         for v in self.0.iter() {
-            let ok = name_set.get(v.name).is_some();
+            let ok = name_set.get(&v.name).is_some();
             if on == ok && (on || v.name != METRIC_NAME_LABEL) {
-                matched_labels.push(v);
+                matched_labels.push(v.clone());
             }
         }
 
-        return matched_labels
+        Labels(matched_labels)
     }
 
     /// hash returns a hash value for the label set.
-    /// Note: the result is not guaranteed to be consistent across different runs.
-    pub fn hash(&self) -> u64 {
-        // Use xxh3_64 for fast path as it's faster.
-        let mut b = vec![u8, 1024]; // todo: ArrayVec
-        let mut pos = 0;
-
-        for (i, v) in ls.iter().enumerate() {
-            if b.len() + v.name.len() + v.value.len() + 2 >= b.capacity() {
-                // If labels entry is 1KB+ do not allocate whole entry.
-                let mut h = Xxh3::new();
-                h.update(b);
-                for v in &ls[i..] {
-                    push_label(b,h, v);
-                }
-                return h.digest();
-            }
-
-            b.push(v.name.as_bytes());
-            b.push(SEP);
-            b.push(v.value.as_bytes());
-            b.push(SEP)
-        }
-        xxh3_64(b)
-    }
+    // pub fn hash(&self) -> u64 {
+    //     // Use xxh3_64 for fast path as it's faster.
+    //     let mut b = tiny_vec!([u8; 512]);
+    //
+    //     for (i, v) in self.0.iter().enumerate() {
+    //         if b.len() + v.name.len() + v.value.len() + 2 >= b.capacity() {
+    //             // If labels entry is 1KB+ do not allocate whole entry.
+    //             let mut h = Xxh3::new();
+    //             h.update(&b);
+    //             for label in &self.0[i..] {
+    //                 h.update(&[SEP]);
+    //                 h.update(label.name.as_bytes());
+    //                 h.update(&[SEP]);
+    //                 h.update(label.value.as_bytes());
+    //             }
+    //             return h.digest();
+    //         }
+    //         push_label(&mut b, v);
+    //     }
+    //     xxh3_64(&b)
+    // }
 
     /// hash_for_labels returns a hash value for the labels matching the provided names.
     /// 'names' have to be sorted in ascending order.
-    pub fn hash_for_labels(&self, b: &mut Vec<u8>, names: &[string]) -> u64 {
+    pub fn hash_for_labels(&self, b: &mut Vec<u8>, names: &[String]) -> u64 {
         b.clear();
 
         let mut ls_iter = self.0.iter();
@@ -154,12 +171,12 @@ impl Labels {
         loop {
             match (label_, name_) {
                 (Some(label), Some(name)) => {
-                    if name < label.name {
+                    if name < &label.name {
                         name_ = names_iter.next(); 
-                    } else if label.name < name {
+                    } else if label.name < *name {
                         label_ = ls_iter.next();
                     } else {
-                        push_label(b, label.name, label.value);
+                        push_label(b, label);
                         name_ = names_iter.next();
                         label_ = ls_iter.next();
                     }
@@ -178,15 +195,23 @@ impl Labels {
     /// 'names' have to be sorted in ascending order.
     pub fn hash_without_labels(&self, b: &mut Vec<u8>, names: &[String]) -> u64 {
         b.clear();
-        let mut j = 0;
+        let mut names_iter = names.iter();
+
         for lbl in self.0.iter() {
-            while j < names.len() && names[j] < lbl.name {
-                j += 1;
-            }
-            if lbl.name == METRIC_NAME_LABEL || (j < names.len() && lbl.name == names[j]) {
+            let _ = names_iter.clone().skip_while(|name| *name < &lbl.name);
+            let current = names_iter.next();
+
+            if lbl.name == METRIC_NAME_LABEL {
                 continue
             }
-            push_label(b, lbl.name, lbl.value);
+
+            if let Some(name) = current {
+                if lbl.name.cmp(name) == Ordering::Equal {
+                    continue
+                }
+            }
+
+            push_label(b, lbl);
         }
 
         xxh3_64(&b)
@@ -194,16 +219,35 @@ impl Labels {
 
     /// without_labels returns the labelset without empty labels.
     /// May return the same labelset.
+    /// 'names' have to be sorted in ascending order.
     pub fn without_labels(&self, names: &[String]) -> Labels {
         let mut b = Vec::new();
-        self.hash_without_labels(&mut b, names)
+        let mut names_iter = names.iter();
+        for lbl in self.0.iter() {
+            let _ = names_iter.clone().skip_while(|name| *name < &lbl.name);
+            let current = names_iter.next();
+            if lbl.name == METRIC_NAME_LABEL {
+                continue
+            }
+            if let Some(name) = current {
+                if lbl.name.cmp(name) == Ordering::Equal {
+                    continue
+                }
+            }
+            b.push(Label{
+                name: lbl.name.clone(),
+                value: lbl.value.clone(),
+            });
+        }
+        
+        Labels(b)
     }
 
     /// Map returns a string map of the labels.
-    pub fn as_map(&mut self) -> HashMap<String, String>  {
-        let m = HashMap::with_capacity(ls.len());
+    pub fn as_map(&mut self) -> HashMap<&String, String>  {
+        let mut m = HashMap::with_capacity(self.len());
         for label in self.0.iter() {
-            m.insert(l.name, l.value);
+            m.insert(&label.name, label.value.clone());
         }
         m
     }
@@ -212,18 +256,17 @@ impl Labels {
         let mut els = Vec::with_capacity(self.0.len());
         for label in self.0.iter() {
             if label.value != "" {
-                els.push(label);
+                els.push(label.clone());
             }
         }
-        els
+        Labels(els)
     }
 
     /// has_duplicate_label_names returns whether this instance has duplicate label names.
     /// It assumes that the labelset is sorted.
     pub fn has_duplicate_label_names(&self) -> (&str, bool) {
-        let prev = self.0[0];
-        for i in 1..self.0.len() {
-            let curr = self.0[i];
+        let mut prev = &self.0[0];
+        for curr in self.0.iter().skip(1) {
             if curr.name == prev.name {
                 return (&curr.name, true)
             }
@@ -234,7 +277,7 @@ impl Labels {
 
     /// validate calls f on each label. If f returns a non-nil error, then it returns that error
     /// cancelling the iteration.
-    pub fn validate(&self, f: fn(l: Label) -> Result<()>) -> Result<()> {
+    pub fn validate(&self, f: fn(l: &Label) -> ParseResult<()>) -> ParseResult<()> {
         for l in self.0.iter() {
             f(l)?;
         }
@@ -242,52 +285,37 @@ impl Labels {
     }
 }
 
-fn push_label(b: &mut Vec<u8>, name: &str, value: &str) {
-    if b.len() > 1 {
-        b.push(SEP)
+impl Default for Labels {
+    fn default() -> Self {
+        Labels(Vec::new())
     }
-    b.extend_with_slice(&name);
-    b.push(SEP);
-    b.extend_with_slice(&value.as_bytes());
 }
 
-// isValid checks if the metric name or label names are valid.
-fn is_valid() -> bool {
-    for l in ls {
-        if l.name == METRIC_NAME_LABEL && !model.IsValidMetricname(model.LabelValue(l.value)) {
-            return false
-        }
-        if !model.Labelname(l.name).IsValid() || !model.LabelValue(l.value).IsValid() {
-            return false
-        }
-    }
-    return true
+fn push_label(b: &mut Vec<u8>, label: &Label) {
+    label.get_bytes(b);
 }
+
 
 // Compare compares the two label sets.
 // The result will be 0 if a==b, <0 if a < b, and >0 if a > b.
 pub fn compare_labels(a: Labels, b: Labels) -> Ordering {
-    for (a, b) in a.iter().zip(b.iter()) {
-        if a.name != b.name {
-            if a.name < b.name {
-                return Ordering::Less;
-            }
-            return Ordering::Greater;
+    for (a, b) in a.0.iter().zip(b.0.iter()) {
+        let mut cmp = a.name.cmp(&b.name);
+        if cmp == Ordering::Equal {
+            cmp = a.value.cmp(&b.value);
         }
-        if a.value != b.value {
-            if a.value < b.value {
-                return Ordering::Less;
-            }
-            return Ordering::Greater;
+        if cmp != Ordering::Equal {
+            return cmp
         }
     }
+    Ordering::Equal
 }
 
 
 // Builder allows modifying Labels.
 pub struct Builder {
     base: Labels,
-    del:  Vec<String>,
+    del:  HashSet<String>,
     add:  Vec<Label>
 }
 
@@ -295,8 +323,8 @@ impl Builder {
     pub fn new(base: Labels) -> Self {
         Self {
             base,
-            del: Vec::new(),
-            add: Vec::new(),
+            del: HashSet::with_capacity(16),
+            add: vec![],
         }
     }
 
@@ -305,9 +333,9 @@ impl Builder {
         self.base = base;
         self.del.clear();
         self.add.clear();
-        for l in &self.base {
+        for l in self.base.0.iter() {
             if l.value.is_empty() {
-                self.del.push(l.name.clone());
+                self.del.insert(l.name.clone());
             }
         }
     }
@@ -320,7 +348,7 @@ impl Builder {
                     self.add.remove(i);
                 }
             }
-            self.del.push(n.clone());
+            self.del.insert(n.clone());
         }
         self
     }
@@ -329,7 +357,7 @@ impl Builder {
     /// The names are not sorted.
     /// The names are not de-duplicated.
     pub fn keep(&mut self, ns: &[String]) -> &mut Self {
-        for l in &self.base {
+        for l in self.base.0.iter() {
             let mut found = false;
             for n in ns {
                 if l.name == *n {
@@ -338,7 +366,7 @@ impl Builder {
                 }
             }
             if !found {
-                self.del.push(l.name.clone());
+                self.del.insert(l.name.clone());
             }
         }
         self
@@ -363,20 +391,12 @@ impl Builder {
     /// Labels returns the labels from the builder, adding them to res if non-nil.
     /// Argument res can be the same as b.base, if caller wants to overwrite that slice.
     /// If no modifications were made, the original labels are returned.
-    pub fn get_labels(self) -> Labels {
-        let mut res = self.base;
-        for n in self.del {
-            for i in 0..res.len() {
-                if res[i].name == n {
-                    res.remove(i);
-                    break;
-                }
-            }
+    pub fn get_labels(&mut self) -> &Labels {
+        self.base.0.retain(|l| !self.del.contains(&l.name));
+        for add in self.add.iter() {
+            self.base.0.push(add.clone());
         }
-        for add in self.add {
-            res.push(add);
-        }
-        res.sort();
-        res
+        self.base.sort();
+        &self.base
     }
 }

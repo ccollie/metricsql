@@ -2,8 +2,8 @@ use crate::{
     append_float64_ones, append_float64_zeros, append_int64_ones, append_int64_zeros, frexp,
     is_float64_ones, is_float64_zeros, is_int64_ones, is_int64_zeros, isinf, LN10_F64,
 };
-use once_cell::sync::Lazy;
 use std::cmp::Ordering;
+use std::sync::OnceLock;
 
 pub(crate) const V_INF_POS: i64 = 1 << (63 - 1);
 pub(crate) const V_INF_NEG: i64 = -1 << 63;
@@ -22,11 +22,16 @@ pub const STALE_NAN_BITS: u64 = 0x7ff0000000000002;
 
 /// using Lazy because of the following error
 /// error: `core::f64::<impl f64>::from_bits` is not yet stable as a const fn
-pub static STALE_NAN: Lazy<f64> = Lazy::new(|| f64::from_bits(STALE_NAN_BITS));
+pub static STALE_NAN: OnceLock<f64> = OnceLock::new();
+
+fn get_stale_nan() -> f64 {
+    *STALE_NAN.get_or_init(|| f64::from_bits(STALE_NAN_BITS))
+}
 
 pub(crate) const V_MAX: i64 = 1 << (63 - 3);
 pub(crate) const V_MIN: i64 = (-1 << 63) + 1;
 pub(crate) const CONVERSION_PRECISION: f64 = 1e12;
+
 
 #[inline]
 pub fn is_special_value(v: i64) -> bool {
@@ -135,7 +140,7 @@ pub fn append_decimal_to_float(dst: &mut Vec<f64>, va: &[i64], e: i16) {
             } else if v == F_INF_NEG {
                 x = f64::NEG_INFINITY;
             } else {
-                x = *STALE_NAN
+                x = f64::from_bits(STALE_NAN_BITS)
             }
         }
         dst.push(x);
@@ -180,10 +185,12 @@ pub fn append_float_to_decimal(dst: &mut Vec<i64>, src: &[f64]) -> i16 {
     if src.is_empty() {
         return 0;
     }
+
     if is_float64_zeros(src) {
         append_int64_zeros(dst, src.len());
         return 0;
     }
+
     if is_float64_ones(src) {
         append_int64_ones(dst, src.len());
         return 0;
@@ -196,10 +203,10 @@ pub fn append_float_to_decimal(dst: &mut Vec<i64>, src: &[f64]) -> i16 {
 
     // Determine the minimum exponent across all src items.
     let mut min_exp = (1 << (15 - 1)) as i16;
-    for (i, f) in src.iter().enumerate() {
+    for f in src.iter() {
         let (v, exp) = from_float(*f);
-        vaev.va[i] = v;
-        vaev.ea[i] = exp;
+        vaev.va.push(v);
+        vaev.ea.push(exp);
         if exp < min_exp && !is_special_value(v) {
             min_exp = exp
         }
@@ -209,8 +216,7 @@ pub fn append_float_to_decimal(dst: &mut Vec<i64>, src: &[f64]) -> i16 {
     // If not, adjust minExp accordingly.
     let mut down_exp: i16 = 0;
 
-    for (i, v) in vaev.va.iter().enumerate() {
-        let exp = vaev.ea[i];
+    for ( v, exp) in vaev.va.iter().zip(vaev.ea.iter()) {
         let up_exp = exp - min_exp;
         let max_up_exp = max_up_exponent(*v);
         if up_exp - max_up_exp > down_exp {
@@ -223,14 +229,12 @@ pub fn append_float_to_decimal(dst: &mut Vec<i64>, src: &[f64]) -> i16 {
     dst.reserve(src.len());
 
     // Scale each item in src to minExp and append it to dst.
-    let mut i: usize = 0;
-    for v in vaev.va.iter_mut() {
+    for (v, exp) in vaev.va.iter_mut().zip(vaev.ea.iter()) {
         if is_special_value(*v) {
             // There is no need in scaling special values.
             dst.push(*v);
             continue;
         }
-        let exp = vaev.ea[i];
         let mut adj_exp = exp - min_exp;
         while adj_exp > 0 {
             *v *= 10;
@@ -241,7 +245,6 @@ pub fn append_float_to_decimal(dst: &mut Vec<i64>, src: &[f64]) -> i16 {
             adj_exp += 1;
         }
         dst.push(*v);
-        i += 1;
     }
 
     min_exp
@@ -315,7 +318,7 @@ pub fn to_float(v: i64, e: i16) -> f64 {
         if v == V_INF_NEG {
             return f64::NEG_INFINITY;
         }
-        return *STALE_NAN;
+        return f64::from_bits(STALE_NAN_BITS)
     }
     let f = v as f64;
     // increase conversion precision for negative exponents by dividing by e10

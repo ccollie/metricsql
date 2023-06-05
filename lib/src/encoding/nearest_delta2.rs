@@ -1,8 +1,8 @@
 use crate::encoding::encoding::check_precision_bits;
-use crate::encoding::int::{get_int64s, marshal_var_int, marshal_var_int_array};
+use crate::encoding::int::{marshal_var_int, marshal_var_int_array};
 use crate::encoding::nearest_delta::{get_trailing_zeros, nearest_delta};
 use crate::error::Error;
-use crate::unmarshal_var_int;
+use crate::{get_int64s, unmarshal_var_int};
 
 /// marshal_int64_nearest_delta2 encodes src using `nearest delta2` encoding
 /// with the given precision_bits and appends the encoded value to dst.

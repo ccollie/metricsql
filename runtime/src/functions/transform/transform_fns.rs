@@ -3,17 +3,15 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::default::Default;
 use std::ops::Deref;
-use std::str::FromStr;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, OnceLock};
 
 use chrono::{DateTime, Datelike, NaiveDateTime, TimeZone, Timelike, Utc, Weekday};
-use once_cell::sync::Lazy;
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use rand_distr::num_traits::FloatConst;
 use rand_distr::{Exp1, StandardNormal};
 use regex::Regex;
 
-use lib::{copysign, fmod, from_float, get_float64s, get_pooled_buffer, isinf, modf};
+use lib::{copysign, fmod, from_float, get_float64s, isinf, modf};
 use metricsql::ast::{Expr, FunctionExpr};
 use metricsql::functions::TransformFunction;
 use metricsql::parser::{compile_regexp, parse_number};
@@ -109,165 +107,156 @@ macro_rules! boxed {
 }
 
 // todo: parking_lot rwlock
+static HANDLERS: OnceLock<HashMap<TransformFunction, TransformFnImplementation>> = OnceLock::new();
 
-static HANDLER_MAP: Lazy<RwLock<HashMap<TransformFunction, TransformFnImplementation>>> =
-    Lazy::new(|| {
-        use TransformFunction::*;
+fn create_handler_map() -> HashMap<TransformFunction, TransformFnImplementation> {
+    use TransformFunction::*;
 
-        let mut m: HashMap<TransformFunction, TransformFnImplementation> =
-            HashMap::with_capacity(100);
-        m.insert(Abs, create_func_one_arg!(transform_abs));
-        m.insert(Absent, boxed!(transform_absent));
-        m.insert(Acos, create_func_one_arg!(transform_acos));
-        m.insert(Acosh, create_func_one_arg!(transform_acosh));
-        m.insert(Alias, boxed!(transform_alias));
-        m.insert(Asin, create_func_one_arg!(transform_asin));
-        m.insert(Asinh, create_func_one_arg!(transform_asinh));
-        m.insert(Atan, create_func_one_arg!(transform_atan));
-        m.insert(Atanh, create_func_one_arg!(transform_atanh));
-        m.insert(BitmapAnd, boxed!(new_transform_bitmap(bitmap_and)));
-        m.insert(BitmapOr, boxed!(new_transform_bitmap(bitmap_or)));
-        m.insert(BitmapXor, boxed!(new_transform_bitmap(bitmap_xor)));
-        m.insert(BucketsLimit, boxed!(transform_buckets_limit));
-        m.insert(Ceil, create_func_one_arg!(transform_ceil));
-        m.insert(Clamp, boxed!(transform_clamp));
-        m.insert(ClampMax, boxed!(transform_clamp_max));
-        m.insert(ClampMin, boxed!(transform_clamp_min));
-        m.insert(Cos, create_func_one_arg!(transform_cos));
-        m.insert(Cosh, create_func_one_arg!(transform_cosh));
-        m.insert(
-            DayOfMonth,
-            boxed!(new_transform_func_datetime(transform_day_of_month)),
-        );
-        m.insert(
-            DayOfWeek,
-            boxed!(new_transform_func_datetime(transform_day_of_week)),
-        );
-        m.insert(
-            DaysInMonth,
-            boxed!(new_transform_func_datetime(transform_days_in_month)),
-        );
-        m.insert(Deg, create_func_one_arg!(transform_deg));
-        m.insert(DropCommonLabels, boxed!(transform_drop_common_labels));
-        m.insert(End, create_func_zero_args!(transform_end));
-        m.insert(Exp, create_func_one_arg!(transform_exp));
-        m.insert(Floor, create_func_one_arg!(transform_floor));
-        m.insert(HistogramAvg, boxed!(transform_histogram_avg));
-        m.insert(HistogramQuantile, boxed!(transform_histogram_quantile));
-        m.insert(HistogramQuantiles, boxed!(transform_histogram_quantiles));
-        m.insert(HistogramShare, boxed!(transform_histogram_share));
-        m.insert(HistogramStddev, boxed!(transform_histogram_stddev));
-        m.insert(HistogramStdvar, boxed!(transform_histogram_stdvar));
-        m.insert(Hour, boxed!(new_transform_func_datetime(transform_hour)));
-        m.insert(Interpolate, boxed!(transform_interpolate));
-        m.insert(KeepLastValue, boxed!(transform_keep_last_value));
-        m.insert(KeepNextValue, boxed!(transform_keep_next_value));
-        m.insert(LabelCopy, boxed!(transform_label_copy));
-        m.insert(LabelDel, boxed!(transform_label_del));
-        m.insert(LabelGraphiteGroup, boxed!(transform_label_graphite_group));
-        m.insert(LabelJoin, boxed!(transform_label_join));
-        m.insert(LabelKeep, boxed!(transform_label_keep));
-        m.insert(LabelLowercase, boxed!(transform_label_lowercase));
-        m.insert(LabelMap, boxed!(transform_label_map));
-        m.insert(LabelMatch, boxed!(transform_label_match));
-        m.insert(LabelMismatch, boxed!(transform_label_mismatch));
-        m.insert(LabelMove, boxed!(transform_label_move));
-        m.insert(LabelReplace, boxed!(transform_label_replace));
-        m.insert(LabelSet, boxed!(transform_label_set));
-        m.insert(LabelTransform, boxed!(transform_label_transform));
-        m.insert(LabelUppercase, boxed!(transform_label_uppercase));
-        m.insert(LabelValue, boxed!(transform_label_value));
-        m.insert(LimitOffset, boxed!(transform_limit_offset));
-        m.insert(Ln, create_func_one_arg!(transform_ln));
-        m.insert(Log2, create_func_one_arg!(transform_log2));
-        m.insert(Log10, create_func_one_arg!(transform_log10));
-        m.insert(
-            Minute,
-            boxed!(new_transform_func_datetime(transform_minute)),
-        );
-        m.insert(Month, boxed!(new_transform_func_datetime(transform_month)));
-        m.insert(Now, boxed!(transform_now));
-        m.insert(Pi, boxed!(transform_pi));
-        m.insert(PrometheusBuckets, boxed!(transform_prometheus_buckets));
-        m.insert(Rad, create_func_one_arg!(transform_rad));
-        m.insert(Random, boxed!(transform_rand));
-        m.insert(RandExponential, boxed!(transform_rand_exp));
-        m.insert(
-            RangeLinearRegression,
-            boxed!(transform_range_linear_regression),
-        );
-        m.insert(RandNormal, boxed!(transform_rand_norm));
-        m.insert(RangeAvg, boxed!(new_transform_func_range(running_avg)));
-        m.insert(RangeFirst, boxed!(transform_range_first));
-        m.insert(RangeLast, boxed!(transform_range_last));
-        m.insert(RangeMax, boxed!(new_transform_func_range(running_max)));
-        m.insert(RangeMedian, boxed!(transform_range_median));
-        m.insert(RangeMin, boxed!(new_transform_func_range(running_min)));
-        m.insert(RangeNormalize, boxed!(transform_range_normalize));
-        m.insert(RangeQuantile, boxed!(transform_range_quantile));
-        m.insert(RangeStdDev, boxed!(transform_range_stddev));
-        m.insert(RangeStdVar, boxed!(transform_range_stdvar));
-        m.insert(RangeSum, boxed!(new_transform_func_range(running_sum)));
-        m.insert(RangeTrimOutliers, boxed!(transform_range_trim_outliers));
-        m.insert(RangeTrimSpikes, boxed!(transform_range_trim_spikes));
-        m.insert(RangeTrimZscore, boxed!(transform_range_trim_zscore));
-        m.insert(RangeZscore, boxed!(transform_range_zscore));
-        m.insert(RemoveResets, boxed!(transform_remove_resets));
-        m.insert(Round, boxed!(transform_round));
-        m.insert(Ru, boxed!(transform_range_ru));
-        m.insert(RunningAvg, boxed!(new_transform_func_running(running_avg)));
-        m.insert(RunningMax, boxed!(new_transform_func_running(running_max)));
-        m.insert(RunningMin, boxed!(new_transform_func_running(running_min)));
-        m.insert(RunningSum, boxed!(new_transform_func_running(running_sum)));
-        m.insert(Scalar, boxed!(transform_scalar));
-        m.insert(Sgn, boxed!(transform_sgn));
-        m.insert(Sin, create_func_one_arg!(transform_sin));
-        m.insert(Sinh, create_func_one_arg!(transform_sinh));
-        m.insert(SmoothExponential, boxed!(transform_smooth_exponential));
-        m.insert(Sort, boxed!(new_transform_func_sort(false)));
-        m.insert(SortByLabel, boxed!(new_transform_func_sort_by_label(false)));
-        m.insert(
-            SortByLabelDesc,
-            boxed!(new_transform_func_sort_by_label(true)),
-        );
-        m.insert(
-            SortByLabelNumeric,
-            boxed!(new_transform_func_alpha_numeric_sort(false)),
-        );
-        m.insert(
-            SortByLabelNumericDesc,
-            boxed!(new_transform_func_alpha_numeric_sort(true)),
-        );
-        m.insert(SortDesc, boxed!(new_transform_func_sort(true)));
-        m.insert(Sqrt, create_func_one_arg!(transform_sqrt));
-        m.insert(Start, create_func_zero_args!(transform_start));
-        m.insert(Step, create_func_zero_args!(transform_step));
-        m.insert(Tan, create_func_one_arg!(transform_tan));
-        m.insert(Tanh, create_func_one_arg!(transform_tanh));
-        m.insert(Time, boxed!(transform_time));
-        // m.insert(timestamp" has been moved to rollup funcs. See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/415
-        m.insert(TimezoneOffset, boxed!(transform_timezone_offset));
-        m.insert(Union, boxed!(transform_union));
-        m.insert(Vector, boxed!(transform_vector));
-        m.insert(Year, boxed!(new_transform_func_datetime(transform_year)));
+    let mut m: HashMap<TransformFunction, TransformFnImplementation> =
+        HashMap::with_capacity(100);
+    m.insert(Abs, create_func_one_arg!(transform_abs));
+    m.insert(Absent, boxed!(transform_absent));
+    m.insert(Acos, create_func_one_arg!(transform_acos));
+    m.insert(Acosh, create_func_one_arg!(transform_acosh));
+    m.insert(Alias, boxed!(transform_alias));
+    m.insert(Asin, create_func_one_arg!(transform_asin));
+    m.insert(Asinh, create_func_one_arg!(transform_asinh));
+    m.insert(Atan, create_func_one_arg!(transform_atan));
+    m.insert(Atanh, create_func_one_arg!(transform_atanh));
+    m.insert(BitmapAnd, boxed!(new_transform_bitmap(bitmap_and)));
+    m.insert(BitmapOr, boxed!(new_transform_bitmap(bitmap_or)));
+    m.insert(BitmapXor, boxed!(new_transform_bitmap(bitmap_xor)));
+    m.insert(BucketsLimit, boxed!(transform_buckets_limit));
+    m.insert(Ceil, create_func_one_arg!(transform_ceil));
+    m.insert(Clamp, boxed!(transform_clamp));
+    m.insert(ClampMax, boxed!(transform_clamp_max));
+    m.insert(ClampMin, boxed!(transform_clamp_min));
+    m.insert(Cos, create_func_one_arg!(transform_cos));
+    m.insert(Cosh, create_func_one_arg!(transform_cosh));
+    m.insert(
+        DayOfMonth,
+        boxed!(new_transform_func_datetime(transform_day_of_month)),
+    );
+    m.insert(
+        DayOfWeek,
+        boxed!(new_transform_func_datetime(transform_day_of_week)),
+    );
+    m.insert(
+        DaysInMonth,
+        boxed!(new_transform_func_datetime(transform_days_in_month)),
+    );
+    m.insert(Deg, create_func_one_arg!(transform_deg));
+    m.insert(DropCommonLabels, boxed!(transform_drop_common_labels));
+    m.insert(End, create_func_zero_args!(transform_end));
+    m.insert(Exp, create_func_one_arg!(transform_exp));
+    m.insert(Floor, create_func_one_arg!(transform_floor));
+    m.insert(HistogramAvg, boxed!(transform_histogram_avg));
+    m.insert(HistogramQuantile, boxed!(transform_histogram_quantile));
+    m.insert(HistogramQuantiles, boxed!(transform_histogram_quantiles));
+    m.insert(HistogramShare, boxed!(transform_histogram_share));
+    m.insert(HistogramStddev, boxed!(transform_histogram_stddev));
+    m.insert(HistogramStdvar, boxed!(transform_histogram_stdvar));
+    m.insert(Hour, boxed!(new_transform_func_datetime(transform_hour)));
+    m.insert(Interpolate, boxed!(transform_interpolate));
+    m.insert(KeepLastValue, boxed!(transform_keep_last_value));
+    m.insert(KeepNextValue, boxed!(transform_keep_next_value));
+    m.insert(LabelCopy, boxed!(transform_label_copy));
+    m.insert(LabelDel, boxed!(transform_label_del));
+    m.insert(LabelGraphiteGroup, boxed!(transform_label_graphite_group));
+    m.insert(LabelJoin, boxed!(transform_label_join));
+    m.insert(LabelKeep, boxed!(transform_label_keep));
+    m.insert(LabelLowercase, boxed!(transform_label_lowercase));
+    m.insert(LabelMap, boxed!(transform_label_map));
+    m.insert(LabelMatch, boxed!(transform_label_match));
+    m.insert(LabelMismatch, boxed!(transform_label_mismatch));
+    m.insert(LabelMove, boxed!(transform_label_move));
+    m.insert(LabelReplace, boxed!(transform_label_replace));
+    m.insert(LabelSet, boxed!(transform_label_set));
+    m.insert(LabelTransform, boxed!(transform_label_transform));
+    m.insert(LabelUppercase, boxed!(transform_label_uppercase));
+    m.insert(LabelValue, boxed!(transform_label_value));
+    m.insert(LimitOffset, boxed!(transform_limit_offset));
+    m.insert(Ln, create_func_one_arg!(transform_ln));
+    m.insert(Log2, create_func_one_arg!(transform_log2));
+    m.insert(Log10, create_func_one_arg!(transform_log10));
+    m.insert(
+        Minute,
+        boxed!(new_transform_func_datetime(transform_minute)),
+    );
+    m.insert(Month, boxed!(new_transform_func_datetime(transform_month)));
+    m.insert(Now, boxed!(transform_now));
+    m.insert(Pi, boxed!(transform_pi));
+    m.insert(PrometheusBuckets, boxed!(transform_prometheus_buckets));
+    m.insert(Rad, create_func_one_arg!(transform_rad));
+    m.insert(Random, boxed!(transform_rand));
+    m.insert(RandExponential, boxed!(transform_rand_exp));
+    m.insert(
+        RangeLinearRegression,
+        boxed!(transform_range_linear_regression),
+    );
+    m.insert(RandNormal, boxed!(transform_rand_norm));
+    m.insert(RangeAvg, boxed!(new_transform_func_range(running_avg)));
+    m.insert(RangeFirst, boxed!(transform_range_first));
+    m.insert(RangeLast, boxed!(transform_range_last));
+    m.insert(RangeMax, boxed!(new_transform_func_range(running_max)));
+    m.insert(RangeMedian, boxed!(transform_range_median));
+    m.insert(RangeMin, boxed!(new_transform_func_range(running_min)));
+    m.insert(RangeNormalize, boxed!(transform_range_normalize));
+    m.insert(RangeQuantile, boxed!(transform_range_quantile));
+    m.insert(RangeStdDev, boxed!(transform_range_stddev));
+    m.insert(RangeStdVar, boxed!(transform_range_stdvar));
+    m.insert(RangeSum, boxed!(new_transform_func_range(running_sum)));
+    m.insert(RangeTrimOutliers, boxed!(transform_range_trim_outliers));
+    m.insert(RangeTrimSpikes, boxed!(transform_range_trim_spikes));
+    m.insert(RangeTrimZscore, boxed!(transform_range_trim_zscore));
+    m.insert(RangeZscore, boxed!(transform_range_zscore));
+    m.insert(RemoveResets, boxed!(transform_remove_resets));
+    m.insert(Round, boxed!(transform_round));
+    m.insert(Ru, boxed!(transform_range_ru));
+    m.insert(RunningAvg, boxed!(new_transform_func_running(running_avg)));
+    m.insert(RunningMax, boxed!(new_transform_func_running(running_max)));
+    m.insert(RunningMin, boxed!(new_transform_func_running(running_min)));
+    m.insert(RunningSum, boxed!(new_transform_func_running(running_sum)));
+    m.insert(Scalar, boxed!(transform_scalar));
+    m.insert(Sgn, boxed!(transform_sgn));
+    m.insert(Sin, create_func_one_arg!(transform_sin));
+    m.insert(Sinh, create_func_one_arg!(transform_sinh));
+    m.insert(SmoothExponential, boxed!(transform_smooth_exponential));
+    m.insert(Sort, boxed!(new_transform_func_sort(false)));
+    m.insert(SortByLabel, boxed!(new_transform_func_sort_by_label(false)));
+    m.insert(
+        SortByLabelDesc,
+        boxed!(new_transform_func_sort_by_label(true)),
+    );
+    m.insert(
+        SortByLabelNumeric,
+        boxed!(new_transform_func_alpha_numeric_sort(false)),
+    );
+    m.insert(
+        SortByLabelNumericDesc,
+        boxed!(new_transform_func_alpha_numeric_sort(true)),
+    );
+    m.insert(SortDesc, boxed!(new_transform_func_sort(true)));
+    m.insert(Sqrt, create_func_one_arg!(transform_sqrt));
+    m.insert(Start, create_func_zero_args!(transform_start));
+    m.insert(Step, create_func_zero_args!(transform_step));
+    m.insert(Tan, create_func_one_arg!(transform_tan));
+    m.insert(Tanh, create_func_one_arg!(transform_tanh));
+    m.insert(Time, boxed!(transform_time));
+    // m.insert(timestamp" has been moved to rollup funcs. See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/415
+    m.insert(TimezoneOffset, boxed!(transform_timezone_offset));
+    m.insert(Union, boxed!(transform_union));
+    m.insert(Vector, boxed!(transform_vector));
+    m.insert(Year, boxed!(new_transform_func_datetime(transform_year)));
 
-        RwLock::new(m)
-    });
-
-pub fn get_transform_func(f: TransformFunction) -> RuntimeResult<TransformFnImplementation> {
-    let map = HANDLER_MAP.read().unwrap();
-    let imp = map.get(&f).unwrap();
-    Ok(imp.clone())
+    m
 }
 
-pub fn get_transform_func_by_name(s: &str) -> RuntimeResult<TransformFnImplementation> {
-    match TransformFunction::from_str(s) {
-        Err(_) => Err(RuntimeError::UnknownFunction(format!(
-            "Unknown transform function: {}",
-            s
-        ))),
-        Ok(tf) => get_transform_func(tf),
-    }
+
+pub fn get_transform_func(f: TransformFunction) -> RuntimeResult<TransformFnImplementation> {
+    let map = HANDLERS.get_or_init(create_handler_map);
+    let imp = map.get(&f).unwrap();
+    Ok(imp.clone())
 }
 
 trait TransformValuesFn: FnMut(&mut [f64]) -> () {}
