@@ -22,6 +22,7 @@ use crate::types::{copy_timeseries_shallow, unmarshal_timeseries_fast};
 use crate::types::{Timestamp, TimestampTrait};
 use crate::utils::{memory_limit, MemoryLimiter};
 use crate::{marshal_timeseries_fast, EvalConfig, Timeseries};
+use crate::cache::serialization::deserialize_series_between;
 
 /// The maximum duration since the current time for response data, which is always queried from the
 /// original raw data, without using the response cache. Increase this value if you see gaps in responses
@@ -158,34 +159,16 @@ impl RollupResultCache {
 
         let mut inner = self.inner.lock().unwrap();
 
-        let hash = marshal_rollup_result_cache_key(
-            &mut inner.hasher,
-            expr,
-            window,
-            ec.step,
-            &ec.enforced_tag_filters,
-        );
-
-        let hash_key = hash.to_ne_bytes();
-
-        if !inner.cache.get(&hash_key, &mut meta_info_buf) || meta_info_buf.len() == 0 {
-            info!("nothing found");
+        let res = self.get_cache_metadata(&mut inner, ec, expr, window)?;
+        if res.is_none() {
+            info!("not found in the cache");
             return Ok((None, ec.start));
         }
-        let mut mi: RollupResultCacheMetaInfo;
-
-        match RollupResultCacheMetaInfo::from_buf(meta_info_buf.as_slice()) {
-            Err(err) => {
-                let msg = format!("BUG: cannot unmarshal RollupResultCacheMetaInfo; {:?}", err);
-                return Err(RuntimeError::SerializationError(msg));
-            }
-            Ok(m) => mi = m,
-        }
-
+        let (mut mi, hash) = res.unwrap();
         let key = mi.get_best_key(ec.start, ec.end)?;
         if key.prefix == 0 && key.suffix == 0 {
             // todo: add start, end properties ?
-            info!("nothing found on the timeRange");
+            info!("nothing found in the timeRange");
             return Ok((None, ec.start));
         }
 
@@ -201,6 +184,8 @@ impl RollupResultCache {
         {
             mi.remove_key(key);
             mi.marshal(&mut meta_info_buf);
+
+            let hash_key = hash.to_ne_bytes();
 
             inner
                 .cache
@@ -219,63 +204,37 @@ impl RollupResultCache {
             compressed_result_buf.len()
         );
 
-        let mut tss = match decompress_lz4(&compressed_result_buf) {
-            Ok(uncompressed) => {
-                info!("unpack the entry into {} bytes", uncompressed.len());
-                match unmarshal_timeseries_fast(&uncompressed) {
-                    Ok(tss) => tss,
-                    Err(_) => {
-                        let msg = format!("BUG: cannot unmarshal timeseries from RollupResultCache:; it looks like it was improperly saved");
-                        return Err(RuntimeError::from(msg));
-                    }
-                }
-            }
-            Err(err) => {
-                return Err(RuntimeError::from(
-                    format!("BUG: cannot decompress resultBuf from RollupResultCache: {:?}; it looks like it was improperly saved", err)
-                ));
-            }
-        };
+        // Extract values for the matching timestamps
+        let mut tss = deserialize_series_between(
+            &compressed_result_buf,
+            ec.start,
+            ec.end,
+        ).or_else(|err| {
+            let msg = format!("BUG: cannot deserialize from RollupResultCache: {:?}; it looks like it was improperly saved", err);
+            Err(RuntimeError::SerializationError(msg))
+        })?;
 
         info!("unmarshal {} series", tss.len());
 
-        // Extract values for the matching timestamps
-        let mut i = 0;
-        let mut j;
-        {
-            let timestamps = &tss[0].timestamps;
-            while i < timestamps.len() && timestamps[i] < ec.start {
-                i += 1
-            }
-            if i == timestamps.len() {
-                // no matches.
-                info!("no data-points found in the cached series on the given timeRange");
-                return Ok((None, ec.start));
-            }
-            if timestamps[i] != ec.start {
-                // The cached range doesn't cover the requested range.
-                info!("cached series don't cover the given timeRange");
-                return Ok((None, ec.start));
-            }
-
-            j = timestamps.len() - 1;
-            while j > 0 && timestamps[j] > ec.end {
-                j -= 1;
-            }
-            if j <= i {
-                // no matches.
-                return Ok((None, ec.start));
-            }
-        }
-
-        for ts in tss.iter_mut() {
-            let ts_slice = &ts.timestamps[i..j];
-            let value_slice = &ts.values[i..j];
-            ts.timestamps = Arc::new(ts_slice.to_vec());
-            ts.values = value_slice.to_vec();
+        if tss.is_empty() {
+            info!("no timeseries found in the cached series on the given timeRange");
+            return Ok((None, ec.start));
         }
 
         let timestamps = &tss[0].timestamps;
+        if timestamps.is_empty() {
+            // no matches.
+            info!("no data-points found in the cached series on the given timeRange");
+            return Ok((None, ec.start));
+        }
+
+        // is this right ??  - cc
+        if timestamps[0] != ec.start {
+            // The cached range doesn't cover the requested range.
+            info!("cached series don't cover the given timeRange");
+            return Ok((None, ec.start));
+        }
+
         let new_start = timestamps[timestamps.len() - 1] + ec.step;
 
         if is_tracing {
@@ -320,7 +279,12 @@ impl RollupResultCache {
         }
         .entered();
 
-        if tss.len() == 0 || !ec.may_cache() {
+        if tss.is_empty() {
+            info!("nothing to store in the cache");
+            return Ok(())
+        }
+
+        if !ec.may_cache() {
             info!("do not store series to cache, since it is disabled in the current context");
             return Ok(());
         }
@@ -365,23 +329,9 @@ impl RollupResultCache {
 
         let mut inner = self.inner.lock().unwrap();
 
-        let hash = marshal_rollup_result_cache_key(
-            &mut inner.hasher,
-            expr,
-            window,
-            ec.step,
-            &ec.enforced_tag_filters,
-        );
-
-        let found = inner.cache.get(&hash.to_ne_bytes(), &mut meta_info_buf);
-        let mut mi = if found && meta_info_buf.len() > 0 {
-            match RollupResultCacheMetaInfo::from_buf(meta_info_buf.deref_mut()) {
-                Err(_) => {
-                    let msg = "BUG: cannot unmarshal RollupResultCacheMetaInfo; it looks like it was improperly saved";
-                    return Err(RuntimeError::SerializationError(msg.to_string()));
-                }
-                Ok(mi) => mi,
-            }
+        let res = self.get_cache_metadata(&mut inner, ec, expr, window)?;
+        let mut mi = if let Some((mi, _)) = res {
+            mi
         } else {
             RollupResultCacheMetaInfo::new()
         };
@@ -454,6 +404,35 @@ impl RollupResultCache {
 
         return Ok(());
     }
+
+    fn get_cache_metadata(&self,
+                    inner: &mut Inner,
+                    ec: &EvalConfig,
+                    expr: &Expr,
+                    window: i64) -> RuntimeResult<Option<(RollupResultCacheMetaInfo, u64)>> {
+
+        let hash = marshal_rollup_result_cache_key(
+            &mut inner.hasher,
+            expr,
+            window,
+            ec.step,
+            &ec.enforced_tag_filters,
+        );
+        let mut meta_info_buf = get_pooled_buffer(512);
+        let found = inner.cache.get(&hash.to_ne_bytes(), &mut meta_info_buf);
+        if found && meta_info_buf.len() > 0 {
+            match RollupResultCacheMetaInfo::from_buf(meta_info_buf.deref_mut()) {
+                Err(_) => {
+                    let msg = "BUG: cannot unmarshal RollupResultCacheMetaInfo; it looks like it was improperly saved";
+                    return Err(RuntimeError::SerializationError(msg.to_string()));
+                }
+                Ok(mi) => Ok(Some((mi, hash)))
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
 }
 
 // let resultBufPool = ByteBufferPool

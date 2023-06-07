@@ -8,12 +8,11 @@ use std::ops::Deref;
 use enquote::enquote;
 use xxhash_rust::xxh3::Xxh3;
 
-use lib::{marshal_string_fast, unmarshal_string_fast, unmarshal_var_int};
 use metricsql::common::{AggregateModifier, AggregateModifierOp, GroupModifier, GroupModifierOp};
 
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::{marshal_bytes_fast, unmarshal_bytes_fast};
 use serde::{Deserialize, Serialize};
+use crate::utils::{read_string, read_usize, write_string, write_usize};
 
 /// The maximum length of label name.
 ///
@@ -22,11 +21,9 @@ pub const MAX_LABEL_NAME_LEN: usize = 256;
 
 pub const METRIC_NAME_LABEL: &str = "__name__";
 
-const ESCAPE_CHAR: u8 = 0_u8;
-const TAG_SEPARATOR_CHAR: u8 = 1_u8;
-const KV_SEPARATOR_CHAR: u8 = 2_u8;
-const LABEL_SEP: u8 = 0xfe;
-const SEP: u8 = 0xff;
+// for tag manipulation (removing, adding, etc), name vectors longer than this will be converted to a hashmap
+// for comparison, otherwise we do a linear search
+const SET_SEARCH_MIN_THRESHOLD: usize = 8;
 
 /// Tag represents a (key, value) tag for metric.
 #[derive(Debug, Default, PartialEq, Eq, Clone, Hash, Ord, Serialize, Deserialize)]
@@ -43,30 +40,16 @@ impl Tag {
         }
     }
 
-    pub fn unmarshal<'a>(&mut self, src: &'a [u8]) -> RuntimeResult<&'a [u8]> {
-        let mut src = src;
-        match unmarshal_tag_value(src) {
-            Ok((v, rest)) => {
-                self.key = v.to_string();
-                src = rest;
-            }
-            Err(_) => {
-                return Err(RuntimeError::SerializationError(
-                    "error reading tag key".to_string(),
-                ));
-            }
-        }
-        match unmarshal_tag_value(src) {
-            Ok((v, rest)) => {
-                self.key = v.to_string();
-                src = rest;
-            }
-            Err(_) => {
-                return Err(RuntimeError::SerializationError(
-                    "error reading tag value".to_string(),
-                ));
-            }
-        }
+    pub fn marshal(&self, buf: &mut Vec<u8>) {
+        write_string(buf, &self.key);
+        write_string(buf, &self.value);
+    }
+
+    fn unmarshal<'a>(&mut self, src: &'a [u8]) -> RuntimeResult<&'a [u8]> {
+        let (src, key ) = read_string(src, "tag key")?;
+        let (src, value ) = read_string(src, "tag value")?;
+        self.key = key;
+        self.value = value;
         Ok(src)
     }
 
@@ -85,98 +68,15 @@ impl PartialOrd for Tag {
     }
 }
 
-pub fn marshal_tag_value(dst: &mut Vec<u8>, src: &[u8]) {
-    let n1 = src
-        .iter()
-        .position(|x| *x == ESCAPE_CHAR || *x == TAG_SEPARATOR_CHAR || *x == KV_SEPARATOR_CHAR);
-    if n1.is_none() {
-        // Fast path.
-        dst.extend_from_slice(src);
-        dst.push(TAG_SEPARATOR_CHAR);
-    }
-    // Slow path.
-    for ch in src.iter() {
-        match *ch {
-            ESCAPE_CHAR => {
-                dst.push(ESCAPE_CHAR);
-                dst.push(0_u8);
-            }
-            TAG_SEPARATOR_CHAR => {
-                dst.push(ESCAPE_CHAR);
-                dst.push(1_u8);
-            }
-            KV_SEPARATOR_CHAR => {
-                dst.push(ESCAPE_CHAR);
-                dst.push(2_u8);
-            }
-            _ => dst.push(*ch),
-        }
-    }
-
-    dst.push(TAG_SEPARATOR_CHAR)
-}
-
-#[inline]
-fn u8_index_of(haystack: &[u8], needle: u8) -> Option<usize> {
-    haystack.iter().position(|x| *x == needle)
-}
-
-// Todo(perf) use different serialization. This is just to make things work
-pub fn unmarshal_tag_value(src: &[u8]) -> RuntimeResult<(String, &[u8])> {
-    let n = u8_index_of(src, TAG_SEPARATOR_CHAR);
-    if n.is_none() {
-        return Err(RuntimeError::General(
-            "cannot find the end of tag value".to_string(),
-        ));
-    }
-
-    // todo: use a stack based buffer
-    let mut dst: Vec<u8> = Vec::with_capacity(120); // ???
-
-    let n = n.unwrap();
-    let mut src = src;
-    let mut b = &src[0..n];
-    src = &src[n + 1..];
-
-    loop {
-        let n = u8_index_of(b, ESCAPE_CHAR);
-        if n.is_none() {
-            dst.extend_from_slice(b);
-            return match String::from_utf8(dst) {
-                Ok(v) => Ok((v, src)),
-                Err(_) => Err(RuntimeError::General("invalid utf8 string".to_string())),
-            };
-        }
-
-        let n = n.unwrap();
-        dst.extend_from_slice(&b[0..n]);
-        b = &b[n + 1..];
-        if b.len() == 0 {
-            return Err(RuntimeError::General("missing escaped char".to_string()));
-        }
-        let ch = b[0];
-        match ch {
-            0 => dst.push(ESCAPE_CHAR),
-            1 => dst.push(TAG_SEPARATOR_CHAR),
-            2 => dst.push(KV_SEPARATOR_CHAR),
-            _ => {
-                return Err(RuntimeError::General(format!(
-                    "unsupported escaped char: {}",
-                    ch
-                )));
-            }
-        }
-        b = &b[1..];
-    }
-}
-
 /// MetricName represents a metric name.
 #[derive(Debug, PartialEq, Eq, Clone, Default, Hash, Serialize, Deserialize)]
 pub struct MetricName {
     pub metric_group: String,
     // todo: Consider https://crates.io/crates/btree-slab or heapless btree to minimize allocations
     pub tags: Vec<Tag>,
+    #[serde(skip)]
     pub(crate) hash: Option<u64>,
+    #[serde(skip)]
     sorted: bool,
 }
 
@@ -289,24 +189,6 @@ impl MetricName {
             .and_then(|v| Some(&v.value))
     }
 
-    pub fn without_keys_iter(&self, names: &[String]) -> impl Iterator<Item = &Tag> + '_ {
-        // todo: optimize for small number of names
-        let mut map: HashSet<String> = HashSet::with_capacity(names.len());
-        for name in names {
-            map.insert(name.to_string());
-        }
-        self.tags.iter().filter(move |tag| !map.contains(&tag.key))
-    }
-
-    pub fn with_keys_iter(&self, names: &[String]) -> impl Iterator<Item = &Tag> + '_ {
-        // todo: optimize for small number of names
-        let mut map: HashSet<String> = HashSet::with_capacity(names.len());
-        for name in names {
-            map.insert(name.to_string());
-        }
-        self.tags.iter().filter(move |tag| !map.contains(&tag.key))
-    }
-
     /// remove_tags_on removes all the tags not included to on_tags.
     pub fn remove_tags_on(&mut self, on_tags: &Vec<String>) {
         let set: HashSet<_> = HashSet::from_iter(on_tags);
@@ -315,19 +197,30 @@ impl MetricName {
         if !set.iter().any(|x| *x == METRIC_NAME_LABEL) {
             self.reset_metric_group()
         }
-        self.tags.retain(|tag| set.contains(&tag.key));
-        self.sorted = false;
+        if on_tags.len() >= SET_SEARCH_MIN_THRESHOLD {
+            let set: HashSet<_> = HashSet::from_iter(on_tags);
+            self.tags.retain(|tag| set.contains(&tag.key));
+        } else {
+            self.tags.retain(|tag| on_tags.contains(&tag.key));
+        }
         self.hash = None;
     }
 
     /// remove_tags_ignoring removes all the tags included in ignoring_tags.
     pub fn remove_tags_ignoring(&mut self, ignoring_tags: &Vec<String>) {
-        let set: HashSet<_> = HashSet::from_iter(ignoring_tags);
-        if set.iter().any(|x| x.as_str() == METRIC_NAME_LABEL) {
+        if ignoring_tags.is_empty() {
+            return;
+        }
+        if ignoring_tags.iter().any(|x| x.as_str() == METRIC_NAME_LABEL) {
             self.reset_metric_group();
         }
-        self.tags.retain(|tag| !set.contains(&tag.key));
-        self.sorted = false;
+
+        if ignoring_tags.len() >= SET_SEARCH_MIN_THRESHOLD {
+            let set: HashSet<_> = HashSet::from_iter(ignoring_tags);
+            self.tags.retain(|tag| !set.contains(&tag.key));
+        } else {
+            self.tags.retain(|tag| !ignoring_tags.contains(&tag.key));
+        }
         self.hash = None;
     }
 
@@ -395,10 +288,24 @@ impl MetricName {
     }
 
     pub(crate) fn marshal_tags_fast(&self, dst: &mut Vec<u8>) {
-        for Tag { key: k, value: v } in self.tags.iter() {
-            marshal_bytes_fast(dst, k.as_bytes());
-            marshal_bytes_fast(dst, v.as_bytes());
+        // Calculate the required size and pre-allocate space in dst
+        let required_size = self.tags.iter().fold(0, |acc, tag| acc + tag.key.len() + tag.value.len() + 8);
+        dst.reserve(required_size + 4);
+        write_usize(dst, self.tags.len());
+        for tag in self.tags.iter() {
+            tag.marshal(dst);
         }
+    }
+
+    fn unmarshal_tags<'a>(&mut self, src: &'a [u8]) -> RuntimeResult<&'a [u8]> {
+        let (mut src, len) = read_usize(src, "tag count")?;
+        self.tags = Vec::with_capacity(len);
+        for _ in 0..len {
+            let mut tag = Tag::default();
+            src = tag.unmarshal(src)?;
+            self.tags.push(tag);
+        }
+        Ok(src)
     }
 
     /// marshal appends marshaled mn to dst.
@@ -407,166 +314,23 @@ impl MetricName {
     /// in order to sort and de-duplicate tags.
     pub fn marshal(&self, dst: &mut Vec<u8>) {
         // Calculate the required size and pre-allocate space in dst
-        let mut required_size = self.metric_group.len() + 1;
-        for Tag { key: k, value: v } in self.tags.iter() {
-            required_size += k.len() + v.len() + 2
-        }
-
+        let required_size = self.metric_group.len() + 8;
         dst.reserve(required_size);
 
-        marshal_tag_value(dst, &self.metric_group.as_bytes());
-        for Tag { key: k, value: v } in self.tags.iter() {
-            required_size += k.len() + v.len() + 2
-        }
-
-        marshal_string_fast(dst, &self.metric_group);
+        write_string(dst, &self.metric_group);
         self.marshal_tags_fast(dst);
     }
 
     /// unmarshal unmarshals mn from src.
     /// Todo(perf) this is not necessarily as performant as can be, even for
     /// simple serialization
-    pub fn unmarshal(&mut self, src: &[u8]) -> RuntimeResult<()> {
-        // Unmarshal MetricGroup.
-        let mut src = src;
-        match unmarshal_tag_value(src) {
-            Err(_) => {
-                return Err(RuntimeError::SerializationError(format!(
-                    "cannot unmarshal metric group"
-                )))
-            }
-            Ok((str, tail)) => {
-                src = tail;
-                self.metric_group = str;
-            }
-        }
-        while src.len() > 0 {
-            let mut tag = Tag::default();
-            src = tag.unmarshal(src)?;
-            self.tags.push(tag);
-        }
-        Ok(())
-    }
+    pub fn unmarshal(src: &[u8]) -> RuntimeResult<(&[u8], MetricName)> {
+        let mut mn = MetricName::default();
+        let (mut src, group) = read_string(src, "metric group")?;
 
-    /// marshal_raw marshals mn to dst and returns the result.
-    ///
-    /// The results may be unmarshalled with MetricName.UnmarshalRaw.
-    ///
-    /// This function is for testing purposes. MarshalMetricNameRaw must be used
-    /// in prod instead.
-    pub(crate) fn marshal_raw(&mut self, dst: &mut Vec<u8>) {
-        marshal_bytes_fast(dst, &self.metric_group.as_bytes());
-        self.sort_tags();
-        for tag in self.tags.iter() {
-            marshal_bytes_fast(dst, tag.key.as_bytes());
-            marshal_bytes_fast(dst, &tag.value.as_bytes());
-        }
-    }
-
-    /// UnmarshalRaw unmarshals mn encoded with MarshalMetricNameRaw.
-    pub(crate) fn unmarshal_raw(&mut self, src: &[u8]) -> RuntimeResult<()> {
-        self.reset();
-        let mut src = src;
-        while src.len() > 0 {
-            let (tail, key) = unmarshal_bytes_fast(src)?;
-            src = tail;
-
-            let (tail, value) = unmarshal_bytes_fast(src)?;
-            src = tail;
-
-            let val = String::from_utf8_lossy(value);
-            if key.len() == 0 {
-                self.metric_group = val.to_string();
-            } else {
-                let key = String::from_utf8_lossy(key);
-                self.add_tag(&key, val);
-            }
-        }
-        Ok(())
-    }
-
-    /// unmarshal mn from src, so mn members hold references to src.
-    ///
-    /// It is unsafe modifying src while mn is in use.
-    pub fn unmarshal_fast(src: &[u8]) -> RuntimeResult<(MetricName, &[u8])> {
-        let mut mn: MetricName = MetricName::default();
-        let tail = mn.unmarshal_fast_internal(src)?;
-        return Ok((mn, tail));
-    }
-
-    /// unmarshal mn from src
-    pub(crate) fn unmarshal_fast_internal<'a>(&mut self, src: &'a [u8]) -> RuntimeResult<&'a [u8]> {
-        let mut src = src;
-
-        match unmarshal_bytes_fast(src) {
-            Err(err) => {
-                return Err(RuntimeError::SerializationError(format!(
-                    "cannot unmarshal MetricGroup: {:?}",
-                    err
-                )));
-            }
-            Ok((tail, metric_group)) => {
-                src = tail;
-                self.metric_group = String::from_utf8_lossy(metric_group).to_string();
-            }
-        }
-
-        if src.len() < 2 {
-            return Err(RuntimeError::SerializationError(format!(
-                "not enough bytes for unmarshalling len(tags); need at least 2 bytes; got {} bytes",
-                src.len()
-            )));
-        }
-
-        let tags_len: u16;
-
-        match unmarshal_var_int::<u16>(src) {
-            Ok((len, tail)) => {
-                src = tail;
-                tags_len = len;
-            }
-            Err(err) => {
-                return Err(RuntimeError::SerializationError(format!(
-                    "error reading tags length: {}",
-                    err
-                )));
-            }
-        }
-
-        let mut key: String;
-        let mut val: String;
-
-        for i in 0..tags_len {
-            match unmarshal_string_fast(&mut src) {
-                Err(_) => {
-                    return Err(RuntimeError::SerializationError(format!(
-                        "cannot unmarshal key for tag[{}]",
-                        i
-                    )));
-                }
-                Ok((t, v)) => {
-                    src = v;
-                    key = t;
-                }
-            }
-
-            match unmarshal_string_fast(&mut src) {
-                Err(_) => {
-                    return Err(RuntimeError::SerializationError(format!(
-                        "cannot unmarshal value for tag[{}]",
-                        i
-                    )));
-                }
-                Ok((t, v)) => {
-                    src = v;
-                    val = t;
-                }
-            }
-
-            self.set_tag(&key, &val);
-        }
-
-        Ok(src)
+        mn.metric_group = group;
+        src = &mn.unmarshal_tags(src)?;
+        Ok((src, mn))
     }
 
     pub(crate) fn serialized_size(&self) -> usize {
@@ -646,40 +410,29 @@ impl MetricName {
         WithoutLabelsIterator::new(self, names)
     }
 
-    /// 'names' have to be sorted in ascending order.
+    /// `names` have to be sorted in ascending order.
     pub fn hash_with_labels(&self, hasher: &mut Xxh3, names: &[String]) -> u64 {
         hasher.reset();
-        // todo: do we need metric group here?
         self.with_labels_iter(names).for_each(|tag| {
             tag.update_hash(hasher);
         });
         hasher.digest()
     }
 
-    /// 'names' have to be sorted in ascending order.
+    /// `names` have to be sorted in ascending order.
     pub fn hash_without_labels(
         &self,
         hasher: &mut Xxh3,
         names: &[String],
     ) -> u64 {
         hasher.reset();
-        // todo: do we need metric group here?
         self.without_labels_iter(names).for_each(|tag| {
             tag.update_hash(hasher);
         });
         hasher.digest()
     }
-
 }
 
-fn add_tag_to_buf(b: &mut Vec<u8>, tag: &Tag) {
-    if b.len() > 1 {
-        b.push(SEP)
-    }
-    b.extend_from_slice(&tag.key.as_bytes());
-    b.push(SEP);
-    b.extend_from_slice(&tag.value.as_bytes());
-}
 
 fn count_label_value(
     hm: &mut HashMap<String, HashMap<String, usize>>,
@@ -733,7 +486,6 @@ pub struct WithLabelsIterator<'a> {
     names: &'a [String],
     name_idx: usize,
     tag_idx: usize,
-    handled_name: bool,
 }
 
 impl<'a> WithLabelsIterator<'a> {
@@ -744,7 +496,6 @@ impl<'a> WithLabelsIterator<'a> {
             names,
             name_idx: 0,
             tag_idx: 0,
-            handled_name: false,
         }
     }
 }
@@ -757,12 +508,17 @@ impl<'a> Iterator for WithLabelsIterator<'a> {
             let tag = &self.metric_name.tags[self.tag_idx];
             while self.name_idx < self.names.len() {
                 let name = &self.names[self.name_idx];
-                if name < &tag.key {
-                    self.name_idx += 1;
-                } else if name == &tag.key {
-                    return Some(tag);
-                } else {
-                    break;
+                match name.cmp(&tag.key) {
+                    Ordering::Less => {
+                        self.name_idx += 1;
+                    }
+                    Ordering::Equal => {
+                        self.tag_idx += 1;
+                        return Some(tag);
+                    }
+                    Ordering::Greater => {
+                        break;
+                    }
                 }
             }
             self.tag_idx += 1;

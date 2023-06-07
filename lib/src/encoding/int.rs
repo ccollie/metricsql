@@ -22,32 +22,32 @@ pub fn unmarshal_fixed_int<T: FixedInt>(src: &[u8]) -> Result<(T, &[u8])> {
 }
 
 /// marshal_i16 appends marshaled v to dst and returns the result.
-pub fn marshal_int16(dst: &mut Vec<u8>, u: i16) {
+pub fn marshal_i16(dst: &mut Vec<u8>, u: i16) {
     marshal_fixed_int(dst, u);
 }
 
-/// unmarshal_int16 returns unmarshalled int16 from src.
-pub fn unmarshal_int16(src: &[u8]) -> Result<(i16, &[u8])> {
+/// unmarshal_i16 returns unmarshalled int16 from src.
+pub fn unmarshal_i16(src: &[u8]) -> Result<(i16, &[u8])> {
     unmarshal_fixed_int::<i16>(src)
 }
 
 /// marshals a u16 to dst.
-pub fn marshal_uint16(dst: &mut Vec<u8>, v: u16) {
+pub fn marshal_u16(dst: &mut Vec<u8>, v: u16) {
     marshal_fixed_int::<u16>(dst, v)
 }
 
 /// unmarshal_uint16 returns unmarshalled: u16 from src.
-pub fn unmarshal_uint16(src: &[u8]) -> Result<(u16, &[u8])> {
+pub fn unmarshal_u16(src: &[u8]) -> Result<(u16, &[u8])> {
     unmarshal_fixed_int::<u16>(src)
 }
 
 /// marshals a u32 to dst.
-pub fn marshal_uint32(dst: &mut Vec<u8>, v: u32) {
+pub fn marshal_u32(dst: &mut Vec<u8>, v: u32) {
     marshal_fixed_int::<u32>(dst, v)
 }
 
-/// unmarshal_uint32 returns unmarshalled: u32 from src.
-pub fn unmarshal_uint32(src: &[u8]) -> Result<(u32, &[u8])> {
+/// unmarshal_u32 returns unmarshalled: u32 from src.
+pub fn unmarshal_u32(src: &[u8]) -> Result<(u32, &[u8])> {
     unmarshal_fixed_int::<u32>(src)
 }
 
@@ -61,23 +61,23 @@ pub fn unmarshal_usize(src: &[u8]) -> Result<(usize, &[u8])> {
     unmarshal_fixed_int::<usize>(src)
 }
 
-/// marshal_uint64 appends marshaled v to dst and returns the result.
-pub fn marshal_uint64(dst: &mut Vec<u8>, u: u64) {
+/// marshal_u64 appends marshaled v to dst and returns the result.
+pub fn marshal_u64(dst: &mut Vec<u8>, u: u64) {
     marshal_fixed_int::<u64>(dst, u);
 }
 
-/// unmarshal_uint64 returns unmarshalled u64 from src.
-pub fn unmarshal_uint64(src: &[u8]) -> Result<(u64, &[u8])> {
+/// unmarshal_u64 returns unmarshalled u64 from src.
+pub fn unmarshal_u64(src: &[u8]) -> Result<(u64, &[u8])> {
     unmarshal_fixed_int::<u64>(src)
 }
 
-/// marshal_int64 appends marshaled v to dst and returns the result.
-pub fn marshal_int64(dst: &mut Vec<u8>, u: i64) {
+/// marshal_i64 appends marshaled v to dst and returns the result.
+pub fn marshal_i64(dst: &mut Vec<u8>, u: i64) {
     marshal_fixed_int::<i64>(dst, u);
 }
 
-/// unmarshal_uint64 returns unmarshalled u64 from src.
-pub fn unmarshal_int64(src: &[u8]) -> Result<(i64, &[u8])> {
+/// unmarshal_u64 returns unmarshalled u64 from src.
+pub fn unmarshal_i64(src: &[u8]) -> Result<(i64, &[u8])> {
     unmarshal_fixed_int::<i64>(src)
 }
 
@@ -98,68 +98,68 @@ pub fn unmarshal_var_int<T: VarInt>(src: &[u8]) -> Result<(T, &[u8])> {
 
 /// appends marshaled v to dst and returns the result.
 #[inline]
-pub fn marshal_var_int64(dst: &mut Vec<u8>, v: i64) {
+pub fn marshal_var_i64(dst: &mut Vec<u8>, v: i64) {
     marshal_var_int(dst, v)
 }
 
-/// unmarshal_var_int64 returns unmarshalled int64 from src and returns
+/// unmarshal_var_i64 returns unmarshalled int64 from src and returns
 /// the remaining tail from src.
-pub fn unmarshal_var_int64(src: &[u8]) -> Result<(i64, &[u8])> {
+pub fn unmarshal_var_i64(src: &[u8]) -> Result<(i64, &[u8])> {
     unmarshal_var_int::<i64>(src)
 }
 
 /// appends marshaled v to dst and returns the result.
 #[inline]
-pub fn marshal_var_uint64(dst: &mut Vec<u8>, v: u64) {
+pub fn marshal_var_u64(dst: &mut Vec<u8>, v: u64) {
     marshal_var_int(dst, v)
 }
 
 /// returns unmarshalled u64 from src and returns the remaining tail from src.
-pub fn unmarshal_var_uint64(src: &[u8]) -> Result<(u64, &[u8])> {
+pub fn unmarshal_var_u64(src: &[u8]) -> Result<(u64, &[u8])> {
     unmarshal_var_int::<u64>(src)
 }
 
 /// appends marshaled v to dst and returns the result.
 #[inline]
-pub fn marshal_var_uint32(dst: &mut Vec<u8>, v: u32) {
+pub fn marshal_var_u32(dst: &mut Vec<u8>, v: u32) {
     marshal_var_int(dst, v)
 }
 
 /// returns unmarshalled u32 from src and returns the remaining tail from src.
-pub fn unmarshal_var_uint32(src: &[u8]) -> Result<(u32, &[u8])> {
+pub fn unmarshal_var_u32(src: &[u8]) -> Result<(u32, &[u8])> {
     unmarshal_var_int::<u32>(src)
 }
 
 /// appends marshaled v to dst and returns the result.
 #[inline]
-pub fn marshal_var_int32(dst: &mut Vec<u8>, v: i32) {
+pub fn marshal_var_i32(dst: &mut Vec<u8>, v: i32) {
     marshal_var_int(dst, v)
 }
 
 /// returns unmarshalled i32 from src and returns the remaining tail from src.
-pub fn unmarshal_var_int32(src: &[u8]) -> Result<(i32, &[u8])> {
+pub fn unmarshal_var_i32(src: &[u8]) -> Result<(i32, &[u8])> {
     unmarshal_var_int::<i32>(src)
 }
 
 /// appends marshaled v to dst and returns the result.
 #[inline]
-pub fn marshal_var_uint16(dst: &mut Vec<u8>, v: u16) {
+pub fn marshal_var_u16(dst: &mut Vec<u8>, v: u16) {
     marshal_var_int(dst, v)
 }
 
 /// returns unmarshalled u16 from src and returns the remaining tail from src.
-pub fn unmarshal_var_uint16(src: &[u8]) -> Result<(u16, &[u8])> {
+pub fn unmarshal_var_u16(src: &[u8]) -> Result<(u16, &[u8])> {
     unmarshal_var_int::<u16>(src)
 }
 
 /// appends marshaled v to dst and returns the result.
 #[inline]
-pub fn marshal_var_int16(dst: &mut Vec<u8>, v: i16) {
+pub fn marshal_var_i16(dst: &mut Vec<u8>, v: i16) {
     marshal_var_int(dst, v)
 }
 
 /// returns unmarshalled i16 from src and returns the remaining tail from src.
-pub fn unmarshal_var_int16(src: &[u8]) -> Result<(i16, &[u8])> {
+pub fn unmarshal_var_i16(src: &[u8]) -> Result<(i16, &[u8])> {
     unmarshal_var_int::<i16>(src)
 }
 
@@ -229,13 +229,16 @@ pub fn unmarshal_varint_slice<'a, T: VarInt>(dst: &mut [T], src: &'a [u8]) -> Re
 pub fn marshal_bytes(dst: &mut Vec<u8>, b: &[u8]) {
     let len = b.len();
     marshal_var_int(dst, len);
-    dst.extend_from_slice(b);
+    if len > 0 {
+        dst.extend_from_slice(b);
+    }
 }
 
 /// unmarshal_bytes returns unmarshalled bytes from src.
+/// returns (bytes, remaining tail from src).
 pub fn unmarshal_bytes(src: &[u8]) -> Result<(&[u8], &[u8])> {
     match unmarshal_var_int::<usize>(src) {
-        Ok((n, _)) => {
+        Ok((n, tail)) => {
             if src.len() < n {
                 return Err(Error::from(format!(
                     "src is too short for reading string with size {}; src.len()={}",
@@ -243,7 +246,9 @@ pub fn unmarshal_bytes(src: &[u8]) -> Result<(&[u8], &[u8])> {
                     src.len()
                 )));
             }
-            Ok(src.split_at(n))
+            let str_bytes = &tail[..n];
+            let tail = &tail[n..];
+            Ok((str_bytes, tail))
         }
         Err(err) => Err(Error::new(format!("cannot unmarshal string size: {}", err))),
     }

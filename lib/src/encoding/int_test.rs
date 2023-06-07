@@ -1,10 +1,10 @@
 #[cfg(test)]
 mod tests {
     use crate::{
-        marshal_bytes, marshal_int16, marshal_int64, marshal_uint16, marshal_uint32,
-        marshal_uint64, marshal_var_int64, marshal_var_uint64, unmarshal_bytes, unmarshal_int16,
-        unmarshal_int64, unmarshal_uint16, unmarshal_uint32, unmarshal_uint64, unmarshal_var_int64,
-        unmarshal_var_uint64,
+        marshal_bytes, marshal_i16, marshal_i64, marshal_u16, marshal_u32,
+        marshal_u64, marshal_var_i64, marshal_var_u64, unmarshal_bytes, unmarshal_i16,
+        unmarshal_i64, unmarshal_u16, unmarshal_u32, unmarshal_u64, unmarshal_var_i64,
+        unmarshal_var_u64,
     };
     use std::fmt::Display;
 
@@ -24,7 +24,7 @@ mod tests {
     }
 
     #[test]
-    fn test_marshal_unmarshal_uint16() {
+    fn test_marshal_unmarshal_u16() {
         test_u16(0);
         test_u16(1);
         test_u16(((1_u32 << 16) - 1) as u16);
@@ -39,7 +39,7 @@ mod tests {
 
     fn test_u16(u: u16) {
         let mut b: Vec<u8> = vec![];
-        marshal_uint16(&mut b, u);
+        marshal_u16(&mut b, u);
         assert_eq!(
             b.len(),
             2,
@@ -47,7 +47,7 @@ mod tests {
             b.len(),
             2
         );
-        let (u_new, _) = unmarshal_uint16(&b).expect("Error unmarshalling u16");
+        let (u_new, _) = unmarshal_u16(&b).expect("Error unmarshalling u16");
         assert_eq!(
             u_new, u,
             "unexpected u_new from b={:?}; got {}; expecting {}",
@@ -57,16 +57,17 @@ mod tests {
         let prefix = [1, 2, 3];
         let mut b1: Vec<u8> = Vec::from(prefix);
 
-        marshal_uint16(&mut b1, u);
+        marshal_u16(&mut b1, u);
 
         check_prefix_suffix(u, &b, &b1, &prefix);
     }
 
     #[test]
-    fn test_marshal_unmarshal_uint32() {
+    fn test_marshal_unmarshal_u32() {
         test_u32(0);
         test_u32(1);
-        test_u32(((1_u64 << 32) - 1) as u32);
+        let large = (1_u64 << 32) - 1;
+        test_u32(large as u32);
         test_u32((1 << 31) + 1);
         test_u32((1 << 31) - 1);
         test_u32(1 << 31);
@@ -78,7 +79,7 @@ mod tests {
 
     fn test_u32(u: u32) {
         let mut b: Vec<u8> = vec![];
-        marshal_uint32(&mut b, u);
+        marshal_u32(&mut b, u);
         assert_eq!(
             b.len(),
             4,
@@ -86,7 +87,7 @@ mod tests {
             b.len(),
             4
         );
-        let (u_new, _) = unmarshal_uint32(&b).expect("error unmarshalling u32");
+        let (u_new, _) = unmarshal_u32(&b).expect("error unmarshalling u32");
         assert_eq!(
             u_new, u,
             "unexpected u_new from b={:?}; got {}; expecting {}",
@@ -94,14 +95,14 @@ mod tests {
         );
 
         let prefix = [1, 2, 3];
-        let mut b1: Vec<u8> = vec![];
-        marshal_uint32(&mut b1, u);
+        let mut b1: Vec<u8> = Vec::from(prefix);
+        marshal_u32(&mut b1, u);
 
         check_prefix_suffix(u, &b, &b1, &prefix);
     }
 
     #[test]
-    fn test_marshal_unmarshal_uint64() {
+    fn test_marshal_unmarshal_u64() {
         test_u64(0);
         test_u64(1);
         test_u64(u64::MAX - 1);
@@ -116,7 +117,7 @@ mod tests {
 
     fn test_u64(u: u64) {
         let mut b: Vec<u8> = vec![];
-        marshal_uint64(&mut b, u);
+        marshal_u64(&mut b, u);
         assert_eq!(
             b.len(),
             8,
@@ -124,7 +125,7 @@ mod tests {
             b.len(),
             8
         );
-        let (u_new, _) = unmarshal_uint64(&b).expect("Error unmarshalling u64");
+        let (u_new, _) = unmarshal_u64(&b).expect("Error unmarshalling u64");
         assert_eq!(
             u_new, u,
             "unexpected u_new from b={:?}; got {}; expecting {}",
@@ -133,13 +134,13 @@ mod tests {
 
         let prefix = [1, 2, 3];
         let mut b1: Vec<u8> = Vec::from(prefix);
-        marshal_uint64(&mut b1, u);
+        marshal_u64(&mut b1, u);
 
         check_prefix_suffix(u, &b, &b1, &prefix);
     }
 
     #[test]
-    fn test_marshal_unmarshal_int16() {
+    fn test_marshal_unmarshal_i16() {
         test_i16(0);
         test_i16(1);
         test_i16(-1);
@@ -155,7 +156,7 @@ mod tests {
 
     fn test_i16(v: i16) {
         let mut b: Vec<u8> = vec![];
-        marshal_int16(&mut b, v);
+        marshal_i16(&mut b, v);
         assert_eq!(
             b.len(),
             2,
@@ -163,7 +164,7 @@ mod tests {
             b.len(),
             2
         );
-        let (v_new, _) = unmarshal_int16(&b).expect("error unmarshalling i16");
+        let (v_new, _) = unmarshal_i16(&b).expect("error unmarshalling i16");
         assert_eq!(
             v_new, v,
             "unexpected v_new from b={:?}; got {}; expecting {}",
@@ -172,13 +173,13 @@ mod tests {
 
         let prefix = [1, 2, 3];
         let mut b1: Vec<u8> = Vec::from(prefix);
-        marshal_int16(&mut b1, v);
+        marshal_i16(&mut b1, v);
 
         check_prefix_suffix(v, &b, &b1, &prefix);
     }
 
     #[test]
-    fn test_marshal_unmarshal_int64() {
+    fn test_marshal_unmarshal_i64() {
         test_i64(0);
         test_i64(1);
         test_i64(-1);
@@ -194,7 +195,7 @@ mod tests {
 
     fn test_i64(v: i64) {
         let mut b: Vec<u8> = vec![];
-        marshal_int64(&mut b, v);
+        marshal_i64(&mut b, v);
         assert_eq!(
             b.len(),
             8,
@@ -203,7 +204,7 @@ mod tests {
             8
         );
 
-        let (v_new, _) = unmarshal_int64(&b).expect("Error unmarshalling i64");
+        let (v_new, _) = unmarshal_i64(&b).expect("Error unmarshalling i64");
         assert_eq!(
             v_new, v,
             "unexpected v_new from b={:?}; got {}; expecting {}",
@@ -212,13 +213,13 @@ mod tests {
         let prefix = [1, 2, 3];
 
         let mut b1: Vec<u8> = Vec::from(prefix);
-        marshal_int64(&mut b1, v);
+        marshal_i64(&mut b1, v);
 
         check_prefix_suffix(v, &b, &b1, &prefix);
     }
 
     #[test]
-    fn test_marshal_unmarshal_var_int64() {
+    fn test_marshal_unmarshal_var_i64() {
         test_varint_i64(0);
         test_varint_i64(1);
         test_varint_i64(-1);
@@ -246,8 +247,8 @@ mod tests {
 
     fn test_varint_i64(v: i64) {
         let mut b: Vec<u8> = vec![];
-        marshal_var_int64(&mut b, v);
-        let (v_new, tail) = unmarshal_var_int64(&b).unwrap_or_else(|_| {
+        marshal_var_i64(&mut b, v);
+        let (v_new, tail) = unmarshal_var_i64(&b).unwrap_or_else(|_| {
             panic!("unexpected error when unmarshalling v={} from b={:?}", v, b)
         });
         assert_eq!(
@@ -266,13 +267,13 @@ mod tests {
 
         let prefix = [1, 2, 3];
         let mut b1: Vec<u8> = Vec::from(prefix);
-        marshal_var_int64(&mut b1, v);
+        marshal_var_i64(&mut b1, v);
 
         check_prefix_suffix(v, &b, &b1, &prefix);
     }
 
     #[test]
-    fn test_marshal_unmarshal_var_uint64() {
+    fn test_marshal_unmarshal_var_u64() {
         test_varint_u64(0);
         test_varint_u64(1);
         test_varint_u64((1 << 63) - 1);
@@ -291,8 +292,8 @@ mod tests {
 
     fn test_varint_u64(u: u64) {
         let mut b: Vec<u8> = vec![];
-        marshal_var_uint64(&mut b, u);
-        let (u_new, tail) = unmarshal_var_uint64(&b).unwrap_or_else(|_| {
+        marshal_var_u64(&mut b, u);
+        let (u_new, tail) = unmarshal_var_u64(&b).unwrap_or_else(|_| {
             panic!("unexpected error when unmarshalling u={} from b={:?}", u, b)
         });
         assert_eq!(
@@ -311,7 +312,7 @@ mod tests {
 
         let prefix = [1, 2, 3];
         let mut b1: Vec<u8> = Vec::from(prefix);
-        marshal_var_uint64(&mut b1, u);
+        marshal_var_u64(&mut b1, u);
 
         check_prefix_suffix(u, &b, &b1, &prefix);
     }
@@ -333,7 +334,7 @@ mod tests {
     fn test_bytes(s: &str) {
         let mut b: Vec<u8> = vec![];
         marshal_bytes(&mut b, s.as_bytes());
-        let (tail, b_new) = unmarshal_bytes(&b).unwrap_or_else(|_| {
+        let (b_new, tail) = unmarshal_bytes(&b).unwrap_or_else(|_| {
             panic!("unexpected error when unmarshalling s={} from b={:?}", s, b)
         });
 

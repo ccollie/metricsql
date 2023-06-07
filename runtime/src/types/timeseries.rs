@@ -5,7 +5,7 @@ use std::sync::Arc;
 use byte_slice_cast::{AsByteSlice, AsSliceOf};
 use integer_encoding::VarInt;
 
-use lib::{marshal_var_int, unmarshal_uint16};
+use lib::{marshal_var_int, unmarshal_u16};
 
 use super::MetricName;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
@@ -101,10 +101,8 @@ impl Timeseries {
     ///
     /// The result must be unmarshalled with unmarshal_fast_no_timestamps.
     pub fn marshal_fast_no_timestamps(&self, dst: &mut Vec<u8>) {
-        marshal_bytes_fast(dst, self.metric_name.metric_group.as_bytes());
-        marshal_var_int::<usize>(dst, self.tag_count() as usize);
         // There is no need in tags' sorting - they must be sorted after unmarshalling.
-        self.metric_name.marshal_tags_fast(dst);
+        self.metric_name.marshal(dst);
 
         // do not marshal ts.values.len(), since it is already encoded as ts.timestamps.len()
         // during marshal_fast_timestamps.
@@ -129,7 +127,7 @@ impl Timeseries {
         src: &'a [u8],
         timestamps: &Arc<Vec<i64>>,
     ) -> RuntimeResult<(Timeseries, &'a [u8])> {
-        let (metric_name, tail) = MetricName::unmarshal_fast(src)?;
+        let (tail, metric_name) = MetricName::unmarshal(src)?;
         let src = tail;
 
         let mut ts = Timeseries {
@@ -285,43 +283,6 @@ where
     Ok(src)
 }
 
-/// unmarshal_fast_no_timestamps unmarshals ts from src, so ts members reference src.
-///
-/// It is expected that ts.timestamps is already unmarshaled.
-pub(crate) fn unmarshal_fast_no_timestamps<'a>(
-    ts: &mut Timeseries,
-    src: &'a [u8],
-) -> RuntimeResult<&'a [u8]> {
-    // ts members point to src, so they cannot be re-used.
-
-    let tail;
-    match ts.metric_name.unmarshal_fast_internal(src) {
-        Err(e) => {
-            return Err(RuntimeError::from(format!(
-                "cannot unmarshal MetricName: {:?}",
-                e
-            )))
-        }
-        Ok(t) => tail = t,
-    }
-
-    let src = tail;
-    let values_count = ts.timestamps.len();
-    if values_count == 0 {
-        return Ok(src);
-    }
-    let buf_size = values_count * 8;
-    if src.len() < buf_size {
-        let msg = format!(
-            "cannot unmarshal values; got {} bytes; want at least {} bytes",
-            src.len(),
-            buf_size
-        );
-        return Err(RuntimeError::from(msg));
-    }
-
-    unmarshal_fast_values(tail, &mut ts.values)
-}
 
 pub fn marshal_bytes_fast(dst: &mut Vec<u8>, s: &[u8]) {
     marshal_var_int::<usize>(dst, s.len());
@@ -335,7 +296,7 @@ pub fn unmarshal_bytes_fast(src: &[u8]) -> RuntimeResult<(&[u8], &[u8])> {
         )));
     }
 
-    match unmarshal_uint16(src) {
+    match unmarshal_u16(src) {
         Ok((len, tail)) => {
             if tail.len() < len as usize {
                 return Err(RuntimeError::SerializationError(format!(
@@ -416,11 +377,11 @@ pub(crate) fn assert_identical_timestamps(tss: &[Timeseries], step: i64) -> Runt
             // Fast path - shared timestamps.
             continue;
         }
-        for i in 0..ts.timestamps.len() {
-            if ts.timestamps[i] != ts_golden.timestamps[i] {
+        for (ts, golden) in ts.timestamps.iter().zip(ts_golden.timestamps.iter()) {
+            if ts != golden {
                 let msg = format!(
-                    "BUG: timestamps mismatch at position {}; got {}; want {};",
-                    i, ts.timestamps[i], ts_golden.timestamps[i]
+                    "BUG: timestamps mismatch; got {}; want {};",
+                    ts, golden
                 );
                 return Err(RuntimeError::from(msg));
             }

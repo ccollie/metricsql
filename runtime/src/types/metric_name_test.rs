@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use crate::{marshal_tag_value, MetricName};
+    use crate::{MetricName};
+    use crate::utils::write_string;
 
     #[test]
     fn test_metric_name_string() {
@@ -78,8 +79,7 @@ mod tests {
         let mut data: Vec<u8> = vec![];
         mn.marshal(&mut data);
 
-        let mut mn1 = MetricName::default();
-        mn1.unmarshal(&mut data).expect("unmarshal");
+        let (tail, mn1) = MetricName::unmarshal(&mut data).expect("unmarshal");
         assert_eq!(
             &mn_expected, &mn1,
             "unexpected mn unmarshalled;\ngot\n{}\nwant\n{}",
@@ -102,8 +102,7 @@ mod tests {
                 let mut data: Vec<u8> = vec![];
                 mn.marshal(&mut data);
 
-                let mut mn1 = MetricName::default();
-                mn1.unmarshal(&mut data).expect("unmarshal");
+                let (tail, mn1) = MetricName::unmarshal(&mut &data).expect("unmarshal");
                 assert_eq!(
                     mn, mn1,
                     "unexpected mn unmarshalled;\ngot\n{:?}\nwant\n{:?}",
@@ -112,7 +111,7 @@ mod tests {
 
                 // Try unmarshalling MetricName without tag value.
                 let mut broken_data = b"foobar".to_vec();
-                match mn1.unmarshal(&mut broken_data) {
+                match MetricName::unmarshal(&mut broken_data) {
                     Ok(_) => {
                         panic!("expecting non-zero error when unmarshalling MetricName without tag value")
                     }
@@ -122,7 +121,7 @@ mod tests {
                 let len = broken_data.len();
                 // Try unmarshalling MetricName with invalid tag key.
                 broken_data[len - 1] = 123;
-                match mn1.unmarshal(&mut broken_data) {
+                match MetricName::unmarshal(&mut broken_data) {
                     Ok(_) => {
                         panic!("expecting non-zero error when unmarshalling MetricName with invalid tag key")
                     }
@@ -131,12 +130,12 @@ mod tests {
 
                 // Try unmarshalling MetricName with invalid tag value.
                 let mut broken_data = b"foobar".to_vec();
-                marshal_tag_value(&mut broken_data, b"aaa");
+                write_string(&mut broken_data, "aaa");
 
                 let len = broken_data.len();
                 broken_data[len - 1] = 123;
 
-                match mn1.unmarshal(&mut broken_data) {
+                match MetricName::unmarshal(&mut broken_data) {
                     Ok(_) => {
                         panic!("expecting non-zero error when unmarshalling MetricName with invalid tag value")
                     }
@@ -146,65 +145,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_metric_name_marshal_unmarshal_raw() {
-        for i in 0..10 {
-            for tags_count in 0..10 {
-                let mut mn = MetricName::default();
-                for j in 0..tags_count {
-                    mn.add_tag(
-                        format!("key_{}_{}_\x00\x01\x02", i, j).as_str(),
-                        format!("\x02\x00\x01value_{}_{}", i, j),
-                    )
-                }
-                let mut data: Vec<u8> = vec![];
-
-                mn.marshal_raw(&mut data);
-
-                let mut mn1 = MetricName::default();
-                mn1.unmarshal_raw(&mut data).expect("unmarshal raw");
-
-                assert_eq!(
-                    &mn, &mn1,
-                    "unexpected mn unmarshalled;\ngot\n{}\nwant\n{}",
-                    &mn1, &mn
-                );
-
-                let mut broken_data: Vec<u8> = b"foobar".to_vec();
-
-                // Try unmarshalling MetricName without tag value.
-                match mn1.unmarshal_raw(&mut broken_data) {
-                    Ok(_) => {
-                        panic!("expecting non-zero error when unmarshalling MetricName without tag value")
-                    }
-                    _ => {}
-                }
-
-                // Try unmarshalling MetricName with invalid tag key.
-                let len = broken_data.len();
-                broken_data[len - 1] = 123;
-                match mn1.unmarshal_raw(&mut broken_data) {
-                    Ok(_) => {
-                        panic!("expecting non-zero error when unmarshalling MetricName with invalid tag key")
-                    }
-                    _ => {}
-                }
-
-                // Try unmarshalling MetricName with invalid tag value.
-                let mut broken_data: Vec<u8> = b"foobar".to_vec();
-                marshal_tag_value(&mut broken_data, b"aaa");
-                let len = broken_data.len();
-                broken_data[len - 1] = 123;
-
-                match mn1.unmarshal_raw(&mut broken_data) {
-                    Ok(_) => {
-                        panic!("expecting non-zero error when unmarshalling MetricName with invalid tag value")
-                    }
-                    _ => {}
-                }
-            }
-        }
-    }
 
     #[test]
     fn test_metric_name_remove_tags_on() {

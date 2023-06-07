@@ -36,8 +36,7 @@ impl<'a> HashContext<'a> {
 }
 
 /// Helper for hashing metric names and labels.
-/// Used mainly to minimize allocations. We can make this completely alloc-free
-/// if we use hasher.update() on each tag rather than accumulating a buffer.
+/// Used mainly to minimize allocations.
 pub(super) enum HashHelper<'a> {
     None,
     Group(HashContext<'a>),
