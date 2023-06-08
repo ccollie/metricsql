@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use crate::{MetricName};
     use crate::utils::write_string;
+    use crate::MetricName;
 
     #[test]
     fn test_metric_name_string() {
@@ -37,7 +37,7 @@ mod tests {
         )
     }
 
-    fn check_metric_name_sort_tags(tags: &[&str], expected_tags: &[&str]) {
+    fn check_metric_name_sort_tags(tags: &[&str], _expected_tags: &[&str]) {
         let expected_tags = tags.iter().map(|x| x.to_string()).collect::<Vec<String>>();
         let mut mn = MetricName::default();
         for t in tags.iter() {
@@ -79,7 +79,7 @@ mod tests {
         let mut data: Vec<u8> = vec![];
         mn.marshal(&mut data);
 
-        let (tail, mn1) = MetricName::unmarshal(&mut data).expect("unmarshal");
+        let (_, mn1) = MetricName::unmarshal(&mut data).expect("unmarshal");
         assert_eq!(
             &mn_expected, &mn1,
             "unexpected mn unmarshalled;\ngot\n{}\nwant\n{}",
@@ -87,6 +87,7 @@ mod tests {
         );
     }
 
+    #[test]
     fn test_metric_name_marshal_unmarshal() {
         for i in 0..10 {
             for tags_count in 0..10 {
@@ -97,12 +98,11 @@ mod tests {
                         format!("\x02\x00\x01value_{}_{}", i, j),
                     );
                 }
-                mn.sort_tags();
 
                 let mut data: Vec<u8> = vec![];
                 mn.marshal(&mut data);
 
-                let (tail, mn1) = MetricName::unmarshal(&mut &data).expect("unmarshal");
+                let (_, mn1) = MetricName::unmarshal(&mut &data).expect("unmarshal");
                 assert_eq!(
                     mn, mn1,
                     "unexpected mn unmarshalled;\ngot\n{:?}\nwant\n{:?}",
@@ -144,7 +144,6 @@ mod tests {
             }
         }
     }
-
 
     #[test]
     fn test_metric_name_remove_tags_on() {

@@ -299,36 +299,10 @@ impl MockSeries {
     }
 }
 
-
-/// ChunkSeriesSet contains a set of chunked series.
-pub trait ChunkSeriesSet {
-    fn next(self) -> Option<ChunkSeries>;
-    // A collection of warnings for the whole set.
-    // Warnings could be return even iteration has not failed with error.
-    fn warnings(self) -> Warnings;
-}
-
-/// ChunkSeries exposes a single time series and allows iterating over chunks.
-pub trait ChunkSeries {
-Labels,
-ChunkIterable
-}
-
 // Labels represents an item that has labels e.g. time series.
 pub trait Labels {
     // Labels returns the complete set of labels. For series it means all labels identifying the series.
     fn labels(&self) -> Labels;
-}
-
-pub trait SampleIterable {
-    // Iterator returns a new, independent iterator of the data of the series.
-    Iterator() chunkenc.Iterator
-}
-
-pub trait ChunkIterable {
-    /// Iterator returns a new, independent iterator that iterates over potentially overlapping
-    /// chunks of the series, sorted by min time.
-    Iterator() chunks.Iterator
 }
 
 pub type Warnings = Vec<RuntimeError>;

@@ -44,6 +44,52 @@ mod tests {
         check_broken_buckets(&[5.0, 10.0, 4.0, 3.0], &[3.0, 3.0, 3.0, 3.0]);
     }
 
+    fn check_vmrange_buckets_to_le(buckets: &str, buckets_expected: &str) {
+        let tss = prom_metrics_to_timeseries(buckets);
+        let result = vmrange_buckets_to_le(tss);
+        let result_buckets = timeseries_to_prom_metrics(&result);
+        assert_eq!(
+            result_buckets, buckets_expected,
+            "unexpected vmrange_buckets_to_le(); got\n{:?}\nwant\n{}",
+            result_buckets, buckets_expected
+        );
+    }
+
+    #[test]
+    fn test_vmrange_buckets_to_le_single_non_empty_bucket() {
+        // A single non-empty vmrange bucket
+        check_vmrange_buckets_to_le(
+            r#"foo{vmrange="4.084e+02...4.642e+02"} 2 123"#,
+            r#"foo{le="4.084e+02"} 0 123
+        foo{le="4.642e+02"} 2 123
+        foo{le="+Inf"} 2 123"#,
+        );
+
+        check_vmrange_buckets_to_le(
+            r#"foo{vmrange="0...+Inf"} 5 123"#,
+            r#"foo{le="+Inf"} 5 123"#,
+        );
+
+        check_vmrange_buckets_to_le(
+            r#"foo{vmrange="-Inf...0"} 4 123"#,
+            r#"foo{le="-Inf"} 0 123
+        foo{le="0"} 4 123
+        foo{le="+Inf"} 4 123"#,
+        );
+
+        check_vmrange_buckets_to_le(
+            r#"foo{vmrange="-Inf...+Inf"} 1.23 456"#,
+            r#"foo{le="-Inf"} 0 456
+        foo{le="+Inf"} 1.23 456"#,
+        );
+
+        check_vmrange_buckets_to_le(
+            r#"foo{vmrange="0...0"} 5.3 0"#,
+            r#"foo{le="0"} 5.3 0
+        foo{le="+Inf"} 5.3 0"#,
+        );
+    }
+
     #[test]
     fn test_vmrange_buckets_to_le() {
         let f = |buckets: &str, buckets_expected: &str| {
@@ -56,38 +102,6 @@ mod tests {
                 result_buckets, buckets_expected
             );
         };
-
-        // A single non-empty vmrange bucket
-        f(
-            r#"foo{vmrange="4.084e+02...4.642e+02"} 2 123"#,
-            r#"foo{le="4.084e+02"} 0 123
-        foo{le="4.642e+02"} 2 123
-        foo{le="+Inf"} 2 123"#,
-        );
-
-        f(
-            r#"foo{vmrange="0...+Inf"} 5 123"#,
-            r#"foo{le="+Inf"} 5 123"#,
-        );
-
-        f(
-            r#"foo{vmrange="-Inf...0"} 4 123"#,
-            r#"foo{le="-Inf"} 0 123
-        foo{le="0"} 4 123
-        foo{le="+Inf"} 4 123"#,
-        );
-
-        f(
-            r#"foo{vmrange="-Inf...+Inf"} 1.23 456"#,
-            r#"foo{le="-Inf"} 0 456
-        foo{le="+Inf"} 1.23 456"#,
-        );
-
-        f(
-            r#"foo{vmrange="0...0"} 5.3 0"#,
-            r#"foo{le="0"} 5.3 0
-        foo{le="+Inf"} 5.3 0"#,
-        );
 
         // Adjacent empty vmrange bucket
         f(
@@ -188,13 +202,13 @@ mod tests {
     // }
 
     fn prom_metrics_to_timeseries(s: &str) -> Vec<Timeseries> {
-        let mut rows = s
+        let _rows = s
             .split("\r\n")
             .filter(|x| x.len() > 0)
             .map(LineInfo::parse)
             .collect::<Vec<LineInfo>>();
 
-        let mut tss: Vec<Timeseries> = vec![];
+        let tss: Vec<Timeseries> = vec![];
         // for row in rows.iter() {
         //     match row {
         //         LineInfo::Sample(sample) => {

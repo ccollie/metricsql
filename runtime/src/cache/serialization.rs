@@ -1,15 +1,14 @@
-use std::io::Write;
-use crate::{
-    MetricName, RuntimeError, RuntimeResult, Timeseries
-};
+use crate::utils::{read_usize, write_usize};
+use crate::{MetricName, RuntimeError, RuntimeResult, Timeseries};
+use lib::error::Error;
+use lib::{marshal_var_i64, unmarshal_var_i64};
 use q_compress::data_types::NumberLike;
-use q_compress::errors::{QCompressError};
+use q_compress::errors::QCompressError;
 use q_compress::wrapped::{ChunkSpec, Compressor, Decompressor};
+use q_compress::CompressorConfig;
+use std::io::Write;
 use std::mem::size_of;
 use std::sync::Arc;
-use lib::{marshal_var_i64, unmarshal_var_i64};
-use lib::error::Error;
-use crate::utils::{read_usize, write_usize};
 
 fn get_value_compressor(values: &[f64]) -> Compressor<f64> {
     Compressor::<f64>::from_config(q_compress::auto_compressor_config(
@@ -18,7 +17,7 @@ fn get_value_compressor(values: &[f64]) -> Compressor<f64> {
     ))
 }
 
-pub(crate) fn compress_series(series: &[Timeseries]) -> RuntimeResult<Vec<u8>> {
+pub(crate) fn compress_series(series: &[Timeseries], buf: &mut Vec<u8>) -> RuntimeResult<()> {
     const DATA_PAGE_SIZE: usize = 3000;
 
     let series_count = series.len();
@@ -35,32 +34,30 @@ pub(crate) fn compress_series(series: &[Timeseries]) -> RuntimeResult<Vec<u8>> {
 
     let chunk_spec = ChunkSpec::default().with_page_sizes(data_page_sizes.clone());
 
-    let mut t_compressor = Compressor::<i64>::from_config(q_compress::auto_compressor_config(
-        &q_timestamps,
-        q_compress::DEFAULT_COMPRESSION_LEVEL,
-    ));
+    // the caller ensures that timestamps are equally spaced, so we can use delta encoding
+    let ts_compressor_config = CompressorConfig::default().with_delta_encoding_order(2);
+
+    let mut t_compressor = Compressor::<i64>::from_config(ts_compressor_config);
 
     let mut value_compressors: Vec<_> = series
         .iter()
         .map(|s| get_value_compressor(&s.values))
         .collect();
 
-    let mut res = Vec::with_capacity(512);
-
     // timestamp metadata
-    write_metatadata(&mut t_compressor, &mut res, &q_timestamps, &chunk_spec)?;
+    write_metatadata(&mut t_compressor, buf, &q_timestamps, &chunk_spec)?;
 
     // write out series count
-    write_usize(&mut res, series_count);
+    write_usize(buf, series_count);
 
     // write out value chunk metadata
     for (compressor, series) in value_compressors.iter_mut().zip(series.iter()) {
-        write_metatadata(compressor, &mut res, &series.values, &chunk_spec)?;
+        write_metatadata(compressor, buf, &series.values, &chunk_spec)?;
     }
 
     // write out series labels
     for series in series.iter() {
-        series.metric_name.marshal(&mut res);
+        series.metric_name.marshal(buf);
     }
 
     let mut idx = 0;
@@ -74,7 +71,7 @@ pub(crate) fn compress_series(series: &[Timeseries]) -> RuntimeResult<Vec<u8>> {
         // 6. values page
 
         // 1.
-        write_usize(&mut res, *page_size);
+        write_usize(buf, *page_size);
 
         // 2.
         // There's no reason you have to serialize the timestamp metadata in the
@@ -82,8 +79,8 @@ pub(crate) fn compress_series(series: &[Timeseries]) -> RuntimeResult<Vec<u8>> {
         let t_min = q_timestamps[idx];
         idx += page_size;
         let t_max = q_timestamps[idx - 1];
-        write_timestamp(&mut res, t_min);
-        write_timestamp(&mut res, t_max);
+        write_timestamp(buf, t_min);
+        write_timestamp(buf, t_max);
 
         // for ease of seeking by date range, we write out the full compressed data page size (timestamps and data)
         t_compressor.data_page().map_err(map_err)?;
@@ -95,41 +92,40 @@ pub(crate) fn compress_series(series: &[Timeseries]) -> RuntimeResult<Vec<u8>> {
             + size_of::<usize>()
             + value_compressors
                 .iter_mut()
-                .map(|mut c| c.byte_size() + size_of::<usize>())
+                .map(|c| c.byte_size() + size_of::<usize>())
                 .sum::<usize>();
 
-        write_usize(&mut res, data_size);
+        write_usize(buf, data_size);
 
         // 3.
-        write_usize(&mut res, t_compressor.byte_size());
+        write_usize(buf, t_compressor.byte_size());
 
         // 4.
-        res.extend(t_compressor.drain_bytes());
+        buf.extend(t_compressor.drain_bytes());
 
         for v_compressor in value_compressors.iter_mut() {
             // 5.
-            write_usize(&mut res, v_compressor.byte_size());
+            write_usize(buf, v_compressor.byte_size());
 
             // 6.
-            res.extend(v_compressor.drain_bytes());
+            buf.extend(v_compressor.drain_bytes());
         }
     }
 
-    Ok(res)
+    Ok(())
 }
 
 pub(crate) fn deserialize_series_between(
-    mut compressed: &[u8],
+    compressed: &[u8],
     t0: i64,
     t1: i64,
 ) -> RuntimeResult<Vec<Timeseries>> {
     let mut t_decompressor = Decompressor::<i64>::default();
 
-    #[warn(unused_assignments)]
-    let mut size = 0;
+    let mut size: usize = 0;
 
     // read timestamp metadata
-    compressed = read_metadata(&mut t_decompressor, compressed)?;
+    let mut compressed = read_metadata(&mut t_decompressor, compressed)?;
 
     // read series count
     (compressed, size) = read_usize(compressed, "series count")?;
@@ -201,7 +197,7 @@ pub(crate) fn deserialize_series_between(
 
                 compressed = &compressed[size..];
 
-                // todo: this can be faster
+                // todo: this can probably be faster
                 let filtered = page_t
                     .iter()
                     .zip(page_v)
@@ -222,19 +218,42 @@ pub(crate) fn deserialize_series_between(
     Ok(res)
 }
 
-fn write_metatadata<T: NumberLike>(compressor: &mut Compressor<T>,
-                                   dest: &mut Vec<u8>,
-                                   values: &[T],
-                                   chunk_spec: &ChunkSpec) -> RuntimeResult<()> {
+pub(super) fn estimate_size(tss: &[Timeseries]) -> usize {
+    if tss.is_empty() {
+        return 0;
+    }
+    // estimate size of labels
+    let labels_size = tss
+        .iter()
+        .fold(0, |acc, ts| acc + ts.metric_name.serialized_size());
+    let value_size = tss.iter().fold(0, |acc, ts| acc + ts.values.len() * 8);
+    let timestamp_size = 8 * tss[0].timestamps.len();
+
+    // Calculate the required size for marshaled tss.
+    let size = labels_size + value_size + timestamp_size;
+    size
+}
+
+fn write_metatadata<T: NumberLike>(
+    compressor: &mut Compressor<T>,
+    dest: &mut Vec<u8>,
+    values: &[T],
+    chunk_spec: &ChunkSpec,
+) -> RuntimeResult<()> {
     // timestamp metadata
     compressor.header().map_err(map_err)?;
-    compressor.chunk_metadata(values, chunk_spec).map_err(map_err)?;
+    compressor
+        .chunk_metadata(values, chunk_spec)
+        .map_err(map_err)?;
     write_usize(dest, compressor.byte_size());
     dest.extend(compressor.drain_bytes());
     Ok(())
 }
 
-fn read_metadata<'a, T: NumberLike>(decompressor: &mut Decompressor<T>, compressed: &'a [u8]) -> RuntimeResult<&'a [u8]> {
+fn read_metadata<'a, T: NumberLike>(
+    decompressor: &mut Decompressor<T>,
+    compressed: &'a [u8],
+) -> RuntimeResult<&'a [u8]> {
     let (mut tail, size) = read_usize(compressed, "metatdata length")?;
     decompressor.write_all(&tail[..size]).unwrap();
     decompressor.header().map_err(map_err)?;
@@ -247,18 +266,14 @@ fn map_err(e: QCompressError) -> RuntimeError {
     RuntimeError::SerializationError(e.to_string())
 }
 
-fn map_marshal_err(e: Error, what: &str) -> RuntimeError {
-    let msg = format!("error writing {}: {:?}", what, e);
-    RuntimeError::SerializationError(msg)
-}
-
 fn map_unmarshal_err(e: Error, what: &str) -> RuntimeError {
     let msg = format!("error reading {}: {:?}", what, e);
     RuntimeError::SerializationError(msg)
 }
 
 fn read_timestamp(compressed: &[u8]) -> RuntimeResult<(&[u8], i64)> {
-    let (val, tail) = unmarshal_var_i64(compressed).map_err(|e| map_marshal_err(e, "timestamp"))?;
+    let (val, tail) =
+        unmarshal_var_i64(compressed).map_err(|e| map_unmarshal_err(e, "timestamp"))?;
     Ok((tail, val))
 }
 
@@ -266,25 +281,26 @@ fn write_timestamp(dest: &mut Vec<u8>, ts: i64) {
     marshal_var_i64(dest, ts);
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn test_series(tss: &[Timeseries]) {
-        let data = compress_series(tss).unwrap();
-        let tss2 = deserialize_series_between(&data, 0, 100000).unwrap();
+        let mut buffer: Vec<u8> = Vec::new();
+        compress_series(tss, &mut buffer).unwrap();
+        let tss2 = deserialize_series_between(&buffer, 0, 100000).unwrap();
 
-        assert_eq!(tss, tss2,
-            "unexpected timeseries unmarshaled\ngot\n{:?}\nwant\n{:?}", tss2[0], tss[0])
+        assert_eq!(
+            tss, tss2,
+            "unexpected timeseries unmarshaled\ngot\n{:?}\nwant\n{:?}",
+            tss2[0], tss[0]
+        )
     }
-
 
     // Single series
     #[test]
     fn single_series() {
-        let mut series = Timeseries::default();
+        let series = Timeseries::default();
         test_series(&[series]);
 
         let mut series = Timeseries::default();
@@ -316,5 +332,4 @@ mod tests {
 
         test_series(&[series, series2]);
     }
-
 }

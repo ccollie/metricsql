@@ -1,5 +1,7 @@
 #[cfg(test)]
 mod tests {
+    use rs_unit::rs_unit;
+
     const NAN: f64 = f64::NAN;
     const INF: f64 = f64::INFINITY;
     const TEST_VALUES: [f64; 12] = [
@@ -12,9 +14,8 @@ mod tests {
         rollup_changes, rollup_changes_prometheus, rollup_count, rollup_default, rollup_delta,
         rollup_delta_prometheus, rollup_deriv_fast, rollup_deriv_slow, rollup_distinct,
         rollup_first, rollup_idelta, rollup_ideriv, rollup_integrate, rollup_lag, rollup_last,
-        rollup_lifetime, rollup_mad, rollup_max, rollup_min, rollup_mode_over_time,
-        rollup_rate_over_sum, rollup_resets, rollup_scrape_interval, rollup_stddev, rollup_sum,
-        rollup_zscore_over_time,
+        rollup_lifetime, rollup_max, rollup_min, rollup_mode_over_time, rollup_rate_over_sum,
+        rollup_resets, rollup_scrape_interval, rollup_stddev, rollup_sum, rollup_zscore_over_time,
     };
     use crate::functions::rollup::{
         get_rollup_function_factory_by_name, RollupConfig, RollupFuncArg, RollupHandler,
@@ -22,7 +23,6 @@ mod tests {
     };
     use crate::{compare_floats, compare_values, test_rows_equal, QueryValue, Timeseries};
     use metricsql::functions::RollupFunction;
-    use speculate::speculate;
     use std::str::FromStr;
 
     #[test]
@@ -570,7 +570,7 @@ mod tests {
         let f = |func_name: &str, args: &[QueryValue]| {
             let nrf = get_rollup_function_factory_by_name(func_name).unwrap();
             let args = Vec::from(args);
-            let rf = (nrf)(&args);
+            let _rf = (nrf)(&args);
             // if rf != nil {
             //     panic!("expecting nil rf; got {}", rf)
             // }
@@ -617,9 +617,9 @@ mod tests {
         )
     }
 
-    speculate! {
-        describe "rollup no window" {
-            it "beforeStart" {
+    rs_unit! {
+        describe "rollup no window no points" {
+            test "beforeStart" {
                 let mut rc = RollupConfig::default();
                 rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
                 rc.start = 0;
@@ -629,7 +629,7 @@ mod tests {
                 test_rollup(&mut rc, &[NAN, NAN, NAN, NAN, NAN], &[0, 1, 2, 3, 4]);
             }
 
-            it "afterEnd" {
+            test "afterEnd" {
                 let mut rc = RollupConfig::default();
                 rc.handler = RollupHandlerEnum::Wrapped(rollup_delta);
                 rc.start = 120;
@@ -643,609 +643,572 @@ mod tests {
                 )
             }
         }
+
+        describe "window no points" {
+            test "beforeStart" {
+                let mut rc = RollupConfig::default();
+                rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
+                rc.start = 0;
+                rc.end = 4;
+                rc.step = 1;
+                rc.window = 3;
+                test_rollup(&mut rc, &[NAN, NAN, NAN, NAN, NAN], &[0, 1, 2, 3, 4]);
+            }
+
+            test "afterEnd" {
+                let mut rc = RollupConfig::default();
+                rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
+                rc.start = 161;
+                rc.end = 191;
+                rc.step = 10;
+                rc.window = 3;
+                test_rollup(&mut rc, &[NAN, NAN, NAN, NAN], &[161, 171, 181, 191]);
+            }
+        }
+
+        describe "no window partial points" {
+            test "beforeStart" {
+                let mut rc = RollupConfig::default();
+                rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
+                rc.start = 0;
+                rc.end = 25;
+                rc.step = 5;
+                rc.window = 0;
+                test_rollup(
+                    &mut rc,
+                    &[NAN, 123.0, NAN, 34.0, NAN, 44.0],
+                    &[0, 5, 10, 15, 20, 25],
+                );
+            }
+
+            test "afterEnd" {
+                let mut rc = RollupConfig::default();
+                rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
+                rc.start = 100;
+                rc.end = 160;
+                rc.step = 20;
+                rc.window = 0;
+                rc.max_points_per_series = 10000;
+                test_rollup(&mut rc, &[44_f64, 32.0, 34.0, NAN], &[100, 120, 140, 160]);
+            }
+
+            test "middle" {
+                let mut rc = RollupConfig::default();
+                rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
+                rc.start = -50;
+                rc.end = 150;
+                rc.step = 50;
+                rc.window = 0;
+                test_rollup(
+                    &mut rc,
+                    &[NAN, NAN, 123.0, 34.0, 32.0],
+                    &[-50, 0, 50, 100, 150],
+                );
+            }
+        }
+
+        describe "window partial points" {
+            test "beforeStart" {
+                let mut rc = RollupConfig::default();
+                rc.handler = RollupHandlerEnum::Wrapped(rollup_last);
+                rc.start = 0;
+                rc.end = 20;
+                rc.step = 5;
+                rc.window = 8;
+                test_rollup(
+                    &mut rc,
+                    &[NAN, 123_f64, 123_f64, 34_f64, 34_f64],
+                    &[0, 5, 10, 15, 20],
+                );
+            }
+
+            test "afterEnd" {
+                let mut rc = RollupConfig::default();
+                rc.handler = RollupHandlerEnum::Wrapped(rollup_last);
+                rc.start = 100;
+                rc.end = 160;
+                rc.step = 20;
+                rc.window = 18;
+                test_rollup(
+                    &mut rc,
+                    &[44_f64, 34_f64, 34_f64, NAN],
+                    &[100, 120, 140, 160],
+                );
+            }
+
+            test "middle" {
+                let mut rc = RollupConfig::default();
+                rc.handler = RollupHandlerEnum::Wrapped(rollup_last);
+                rc.start = 0;
+                rc.end = 150;
+                rc.step = 50;
+                rc.window = 19;
+                test_rollup(&mut rc, &[NAN, 54_f64, 44_f64, NAN], &[0, 50, 100, 150]);
+            }
+        }
+
+        describe "lookback delta" {
+            test "one" {
+                let mut rc = RollupConfig::default();
+                rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
+                rc.start = 80;
+                rc.end = 140;
+                rc.step = 10;
+                rc.lookback_delta = 1;
+                test_rollup(
+                    &mut rc,
+                    &[99_f64, NAN, 44.0, NAN, 32.0, 34.0, NAN],
+                    &[80, 90, 100, 110, 120, 130, 140],
+                );
+            }
+
+            test "seven" {
+                let mut rc = RollupConfig::default();
+                rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
+                rc.start = 80;
+                rc.end = 140;
+                rc.step = 10;
+                rc.lookback_delta = 7;
+                test_rollup(
+                    &mut rc,
+                    &[99_f64, NAN, 44.0, NAN, 32.0, 34.0, NAN],
+                    &[80, 90, 100, 110, 120, 130, 140],
+                );
+            }
+
+            test "zero" {
+                let mut rc = RollupConfig::default();
+                rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
+                rc.start = 80;
+                rc.end = 140;
+                rc.step = 10;
+                rc.lookback_delta = 0;
+                test_rollup(
+                    &mut rc,
+                    &[99_f64, NAN, 44.0, NAN, 32.0, 34.0, NAN],
+                    &[80, 90, 100, 110, 120, 130, 140],
+                );
+            }
+        }
+
     }
 
     #[test]
-    fn test_rollup_no_window_no_points() {
-        fn before_start() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
-            rc.start = 0;
-            rc.end = 4;
-            rc.step = 1;
-            rc.window = 0;
-            test_rollup(&mut rc, &[NAN, NAN, NAN, NAN, NAN], &[0, 1, 2, 3, 4]);
-        }
-
-        #[test]
-        fn after_end() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_delta);
-            rc.start = 120;
-            rc.end = 148;
-            rc.step = 4;
-            rc.window = 0;
-            test_rollup(
-                &mut rc,
-                &[2_f64, 0.0, 0.0, 0.0, NAN, NAN, NAN, NAN],
-                &[120, 124, 128, 132, 136, 140, 144, 148],
-            )
-        }
+    fn test_rollup_last_no_window() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandlerEnum::Wrapped(rollup_last);
+        rc.start = 0;
+        rc.end = 160;
+        rc.step = 40;
+        rc.window = 0;
+        test_rollup(
+            &mut rc,
+            &[NAN, 34.0, 32.0, 34.0, 44.0],
+            &[0, 40, 80, 120, 160],
+        );
     }
 
     #[test]
-    fn test_rollup_window_no_points() {
-        fn before_start() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
-            rc.start = 0;
-            rc.end = 4;
-            rc.step = 1;
-            rc.window = 3;
-            test_rollup(&mut rc, &[NAN, NAN, NAN, NAN, NAN], &[0, 1, 2, 3, 4]);
-        }
-
-        fn after_end() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
-            rc.start = 161;
-            rc.end = 191;
-            rc.step = 10;
-            rc.window = 3;
-            test_rollup(&mut rc, &[NAN, NAN, NAN, NAN], &[161, 171, 181, 191]);
-        }
+    fn test_rollup_count_no_window() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandlerEnum::Wrapped(rollup_count);
+        rc.start = 0;
+        rc.end = 160;
+        rc.step = 40;
+        rc.window = 0;
+        test_rollup(&mut rc, &[NAN, 4.0, 4.0, 3.0, 1.0], &[0, 40, 80, 120, 160]);
     }
 
     #[test]
-    fn test_rollup_no_window_partial_points() {
-        #[test]
-        fn before_start() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
-            rc.start = 0;
-            rc.end = 25;
-            rc.step = 5;
-            rc.window = 0;
-            test_rollup(
-                &mut rc,
-                &[NAN, 123.0, NAN, 34.0, NAN, 44.0],
-                &[0, 5, 10, 15, 20, 25],
-            );
-        }
-
-        #[test]
-        fn after_end() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
-            rc.start = 100;
-            rc.end = 160;
-            rc.step = 20;
-            rc.window = 0;
-            rc.max_points_per_series = 10000;
-            test_rollup(&mut rc, &[44_f64, 32.0, 34.0, NAN], &[100, 120, 140, 160]);
-        }
-
-        fn middle() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
-            rc.start = -50;
-            rc.end = 150;
-            rc.step = 50;
-            rc.window = 0;
-            test_rollup(
-                &mut rc,
-                &[NAN, NAN, 123.0, 34.0, 32.0],
-                &[-50, 0, 50, 100, 150],
-            );
-        }
+    fn test_rollup_min_no_window() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandlerEnum::Wrapped(rollup_min);
+        rc.start = 0;
+        rc.end = 160;
+        rc.step = 40;
+        rc.window = 0;
+        test_rollup(
+            &mut rc,
+            &[NAN, 21.0, 12.0, 32.0, 34.0],
+            &[0, 40, 80, 120, 160],
+        );
     }
 
     #[test]
-    fn test_rollup_window_partial_points() {
-        fn before_start() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_last);
-            rc.start = 0;
-            rc.end = 20;
-            rc.step = 5;
-            rc.window = 8;
-            test_rollup(
-                &mut rc,
-                &[NAN, 123_f64, 123_f64, 34_f64, 34_f64],
-                &[0, 5, 10, 15, 20],
-            );
-        }
-
-        fn after_end() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_last);
-            rc.start = 100;
-            rc.end = 160;
-            rc.step = 20;
-            rc.window = 18;
-            test_rollup(
-                &mut rc,
-                &[44_f64, 34_f64, 34_f64, NAN],
-                &[100, 120, 140, 160],
-            );
-        }
-
-        #[test]
-        fn middle() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_last);
-            rc.start = 0;
-            rc.end = 150;
-            rc.step = 50;
-            rc.window = 19;
-            test_rollup(&mut rc, &[NAN, 54_f64, 44_f64, NAN], &[0, 50, 100, 150]);
-        }
+    fn test_rollup_max_no_window() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandlerEnum::Wrapped(rollup_max);
+        rc.start = 0;
+        rc.end = 160;
+        rc.step = 40;
+        rc.window = 0;
+        test_rollup(
+            &mut rc,
+            &[NAN, 123.0, 99.0, 44.0, 34.0],
+            &[0, 40, 80, 120, 160],
+        );
     }
 
     #[test]
-    fn test_rollup_funcs_lookback_delta() {
-        fn one() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
-            rc.start = 80;
-            rc.end = 140;
-            rc.step = 10;
-            rc.lookback_delta = 1;
-            test_rollup(
-                &mut rc,
-                &[99_f64, NAN, 44.0, NAN, 32.0, 34.0, NAN],
-                &[80, 90, 100, 110, 120, 130, 140],
-            );
-        }
-
-        fn seven() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
-            rc.start = 80;
-            rc.end = 140;
-            rc.step = 10;
-            rc.lookback_delta = 7;
-            test_rollup(
-                &mut rc,
-                &[99_f64, NAN, 44.0, NAN, 32.0, 34.0, NAN],
-                &[80, 90, 100, 110, 120, 130, 140],
-            );
-        }
-
-        fn eight() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
-            rc.start = 80;
-            rc.end = 140;
-            rc.step = 10;
-            rc.lookback_delta = 0;
-            test_rollup(
-                &mut rc,
-                &[99_f64, NAN, 44.0, NAN, 32.0, 34.0, NAN],
-                &[80, 90, 100, 110, 120, 130, 140],
-            );
-        }
+    fn test_rollup_sum_no_window() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandlerEnum::Wrapped(rollup_sum);
+        rc.start = 0;
+        rc.end = 160;
+        rc.step = 40;
+        rc.window = 0;
+        rc.max_points_per_series = 10000;
+        test_rollup(
+            &mut rc,
+            &[NAN, 222.0, 199.0, 110.0, 34.0],
+            &[0, 40, 80, 120, 160],
+        );
     }
 
     #[test]
-    fn test_rollup_funcs_no_window() {
-        fn first() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
-            rc.start = 0;
-            rc.end = 160;
-            rc.step = 40;
-            rc.window = 0;
-            test_rollup(
-                &mut rc,
-                &[NAN, 123.0, 54.0, 44.0, 34.0],
-                &[0, 40, 80, 120, 160],
-            );
-        }
+    fn test_rollup_delta_no_window() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandlerEnum::Wrapped(rollup_delta);
+        rc.start = 0;
+        rc.end = 160;
+        rc.step = 40;
+        rc.window = 0;
+        test_rollup(
+            &mut rc,
+            &[NAN, 21.0, -9.0, 22.0, 0.0],
+            &[0, 40, 80, 120, 160],
+        );
+    }
 
-        #[test]
-        fn count() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_count);
-            rc.start = 0;
-            rc.end = 160;
-            rc.step = 40;
-            rc.window = 0;
-            test_rollup(&mut rc, &[NAN, 4.0, 4.0, 3.0, 1.0], &[0, 40, 80, 120, 160]);
-        }
+    #[test]
+    fn test_rollup_delta_prometheus_no_window() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandlerEnum::Wrapped(rollup_delta_prometheus);
+        rc.start = 0;
+        rc.end = 160;
+        rc.step = 40;
+        rc.window = 0;
+        test_rollup(
+            &mut rc,
+            &[NAN, -102.0, -42.0, -10.0, NAN],
+            &[0, 40, 80, 120, 160],
+        );
+    }
 
-        #[test]
-        fn min() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_min);
-            rc.start = 0;
-            rc.end = 160;
-            rc.step = 40;
-            rc.window = 0;
-            test_rollup(
-                &mut rc,
-                &[NAN, 21.0, 12.0, 32.0, 34.0],
-                &[0, 40, 80, 120, 160],
-            );
-        }
+    #[test]
+    fn test_rollup_idelta_no_window() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandlerEnum::Wrapped(rollup_idelta);
+        rc.start = 10;
+        rc.end = 130;
+        rc.step = 40;
+        rc.window = 0;
+        test_rollup(&mut rc, &[123_f64, 33.0, -87.0, 0.0], &[10, 50, 90, 130]);
+    }
 
-        #[test]
-        fn max() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_max);
-            rc.start = 0;
-            rc.end = 160;
-            rc.step = 40;
-            rc.window = 0;
-            test_rollup(
-                &mut rc,
-                &[NAN, 123.0, 99.0, 44.0, 34.0],
-                &[0, 40, 80, 120, 160],
-            );
-        }
+    #[test]
+    fn test_rollup_lag_no_window() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandlerEnum::Wrapped(rollup_lag);
+        rc.start = 0;
+        rc.end = 160;
+        rc.step = 40;
+        rc.window = 0;
+        test_rollup(
+            &mut rc,
+            &[NAN, 0.004, 0.0, 0.0, 0.03],
+            &[0, 40, 80, 120, 160],
+        );
+    }
 
-        #[test]
-        fn sum() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_sum);
-            rc.start = 0;
-            rc.end = 160;
-            rc.step = 40;
-            rc.window = 0;
-            rc.max_points_per_series = 10000;
-            test_rollup(
-                &mut rc,
-                &[NAN, 222.0, 199.0, 110.0, 34.0],
-                &[0, 40, 80, 120, 160],
-            );
-        }
+    #[test]
+    fn test_rollup_lifetime_1_no_window() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandlerEnum::Wrapped(rollup_lifetime);
+        rc.start = 0;
+        rc.end = 160;
+        rc.step = 40;
+        rc.window = 0;
+        test_rollup(
+            &mut rc,
+            &[NAN, 0.031, 0.044, 0.04, 0.01],
+            &[0, 40, 80, 120, 160],
+        );
+    }
 
-        #[test]
-        fn delta() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_sum);
-            rc.start = 0;
-            rc.end = 160;
-            rc.step = 40;
-            rc.window = 0;
-            test_rollup(
-                &mut rc,
-                &[NAN, 21.0, -9.0, 22.0, 0.0],
-                &[0, 40, 80, 120, 160],
-            );
-        }
+    #[test]
+    fn test_rollup_lifetime_2_no_window() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandlerEnum::Wrapped(rollup_lifetime);
+        rc.start = 0;
+        rc.end = 160;
+        rc.step = 40;
+        rc.window = 200;
+        test_rollup(
+            &mut rc,
+            &[NAN, 0.031, 0.075, 0.115, 0.125],
+            &[0, 40, 80, 120, 160],
+        );
+    }
 
-        #[test]
-        fn delta_prometheus() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_delta_prometheus);
-            rc.start = 0;
-            rc.end = 160;
-            rc.step = 40;
-            rc.window = 0;
-            test_rollup(
-                &mut rc,
-                &[NAN, -102.0, -42.0, -10.0, NAN],
-                &[0, 40, 80, 120, 160],
-            );
-        }
+    #[test]
+    fn test_rollup_scrape_interval_1_no_window() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandlerEnum::Wrapped(rollup_scrape_interval);
+        rc.start = 0;
+        rc.end = 160;
+        rc.step = 40;
+        rc.window = 0;
+        test_rollup(
+            &mut rc,
+            &[NAN, 0.010333333333333333, 0.011, 0.013333333333333334, 0.01],
+            &[0, 40, 80, 120, 160],
+        );
+    }
 
-        #[test]
-        fn idelta() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_idelta);
-            rc.start = 10;
-            rc.end = 130;
-            rc.step = 40;
-            rc.window = 0;
-            test_rollup(&mut rc, &[123_f64, 33.0, -87.0, 0.0], &[10, 50, 90, 130]);
-        }
+    #[test]
+    fn test_rollup_scrape_interval_2_no_window() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandlerEnum::Wrapped(rollup_scrape_interval);
+        rc.start = 0;
+        rc.end = 160;
+        rc.step = 40;
+        rc.window = 80;
+        test_rollup(
+            &mut rc,
+            &[
+                NAN,
+                0.010333333333333333,
+                0.010714285714285714,
+                0.012,
+                0.0125,
+            ],
+            &[0, 40, 80, 120, 160],
+        );
+    }
 
-        #[test]
-        fn lag() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_lag);
-            rc.start = 0;
-            rc.end = 160;
-            rc.step = 40;
-            rc.window = 0;
-            test_rollup(
-                &mut rc,
-                &[NAN, 0.004, 0.0, 0.0, 0.03],
-                &[0, 40, 80, 120, 160],
-            );
-        }
+    #[test]
+    fn test_rollup_changes_no_window() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandlerEnum::Wrapped(rollup_changes);
+        rc.start = 0;
+        rc.end = 160;
+        rc.step = 40;
+        rc.window = 0;
+        test_rollup(&mut rc, &[NAN, 4.0, 4.0, 3.0, 0.0], &[0, 40, 80, 120, 160]);
+    }
 
-        #[test]
-        fn lifetime_1() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_lifetime);
-            rc.start = 0;
-            rc.end = 160;
-            rc.step = 40;
-            rc.window = 0;
-            test_rollup(
-                &mut rc,
-                &[NAN, 0.031, 0.044, 0.04, 0.01],
-                &[0, 40, 80, 120, 160],
-            );
-        }
+    #[test]
+    fn test_rollup_changes_prometheus_no_window() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandlerEnum::Wrapped(rollup_changes_prometheus);
+        rc.start = 0;
+        rc.end = 160;
+        rc.step = 40;
+        rc.window = 0;
+        test_rollup(&mut rc, &[NAN, 3.0, 3.0, 2.0, 0.0], &[0, 40, 80, 120, 160]);
+    }
 
-        #[test]
-        fn lifetime_2() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_lifetime);
-            rc.start = 0;
-            rc.end = 160;
-            rc.step = 40;
-            rc.window = 200;
-            test_rollup(
-                &mut rc,
-                &[NAN, 0.031, 0.075, 0.115, 0.125],
-                &[0, 40, 80, 120, 160],
-            );
-        }
+    #[test]
+    fn test_rollup_changes_small_window_no_window() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandlerEnum::Wrapped(rollup_changes);
+        rc.start = 0;
+        rc.end = 45;
+        rc.step = 9;
+        rc.window = 9;
+        test_rollup(
+            &mut rc,
+            &[NAN, 1.0, 1.0, 1.0, 1.0, 0.0],
+            &[0, 9, 18, 27, 36, 45],
+        );
+    }
 
-        #[test]
-        fn scrape_interval_1() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_scrape_interval);
-            rc.start = 0;
-            rc.end = 160;
-            rc.step = 40;
-            rc.window = 0;
-            test_rollup(
-                &mut rc,
-                &[NAN, 0.010333333333333333, 0.011, 0.013333333333333334, 0.01],
-                &[0, 40, 80, 120, 160],
-            );
-        }
+    #[test]
+    fn test_rollup_resets_no_window() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandlerEnum::Wrapped(rollup_resets);
+        rc.start = 0;
+        rc.end = 160;
+        rc.step = 40;
+        rc.window = 0;
+        test_rollup(&mut rc, &[NAN, 2.0, 2.0, 1.0, 0.0], &[0, 40, 80, 120, 160]);
+    }
 
-        #[test]
-        fn scrape_interval_2() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_scrape_interval);
-            rc.start = 0;
-            rc.end = 160;
-            rc.step = 40;
-            rc.window = 80;
-            test_rollup(
-                &mut rc,
-                &[
-                    NAN,
-                    0.010333333333333333,
-                    0.010714285714285714,
-                    0.012,
-                    0.0125,
-                ],
-                &[0, 40, 80, 120, 160],
-            );
-        }
+    #[test]
+    fn test_rollup_avg_no_window() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandlerEnum::Wrapped(rollup_avg);
+        rc.start = 0;
+        rc.end = 160;
+        rc.step = 40;
+        rc.window = 0;
+        test_rollup(
+            &mut rc,
+            &[NAN, 55.5, 49.75, 36.666666666666664, 34.0],
+            &[0, 40, 80, 120, 160],
+        );
+    }
 
-        #[test]
-        fn changes() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_changes);
-            rc.start = 0;
-            rc.end = 160;
-            rc.step = 40;
-            rc.window = 0;
-            test_rollup(&mut rc, &[NAN, 4.0, 4.0, 3.0, 0.0], &[0, 40, 80, 120, 160]);
-        }
+    #[test]
+    fn test_rollup_deriv_no_window() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandlerEnum::Wrapped(rollup_deriv_slow);
+        rc.start = 0;
+        rc.end = 160;
+        rc.step = 40;
+        rc.window = 0;
+        test_rollup(
+            &mut rc,
+            &[
+                NAN,
+                -2879.310344827588,
+                127.87627310448904,
+                -496.5831435079728,
+                0.0,
+            ],
+            &[0, 40, 80, 120, 160],
+        );
+    }
 
-        #[test]
-        fn changes_prometheus() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_changes_prometheus);
-            rc.start = 0;
-            rc.end = 160;
-            rc.step = 40;
-            rc.window = 0;
-            test_rollup(&mut rc, &[NAN, 3.0, 3.0, 2.0, 0.0], &[0, 40, 80, 120, 160]);
-        }
+    #[test]
+    fn test_rollup_deriv_fast_no_window() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandlerEnum::Wrapped(rollup_deriv_fast);
+        rc.start = 0;
+        rc.end = 20;
+        rc.step = 4;
+        rc.window = 0;
+        test_rollup(
+            &mut rc,
+            &[NAN, NAN, NAN, 0.0, -8900.0, 0.0],
+            &[0, 4, 8, 12, 16, 20],
+        );
+    }
 
-        #[test]
-        fn changes_small_window() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_changes);
-            rc.start = 0;
-            rc.end = 45;
-            rc.step = 9;
-            rc.window = 9;
-            test_rollup(
-                &mut rc,
-                &[NAN, 1.0, 1.0, 1.0, 1.0, 0.0],
-                &[0, 9, 18, 27, 36, 45],
-            );
-        }
+    #[test]
+    fn test_rollup_ideriv_no_window() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandlerEnum::Wrapped(rollup_ideriv);
+        rc.start = 0;
+        rc.end = 160;
+        rc.step = 40;
+        rc.window = 0;
+        test_rollup(
+            &mut rc,
+            &[NAN, -1916.6666666666665, -43500.0, 400.0, 0.0],
+            &[0, 40, 80, 120, 160],
+        );
+    }
 
-        #[test]
-        fn resets() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_resets);
-            rc.start = 0;
-            rc.end = 160;
-            rc.step = 40;
-            rc.window = 0;
-            test_rollup(&mut rc, &[NAN, 2.0, 2.0, 1.0, 0.0], &[0, 40, 80, 120, 160]);
-        }
+    #[test]
+    fn test_rollup_stddev_no_window() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandlerEnum::Wrapped(rollup_stddev);
+        rc.start = 0;
+        rc.end = 160;
+        rc.step = 40;
+        rc.window = 0;
+        rc.max_points_per_series = 10000;
+        test_rollup(
+            &mut rc,
+            &[
+                NAN,
+                39.81519810323691,
+                32.080952292598795,
+                5.2493385826745405,
+                0.0,
+            ],
+            &[0, 40, 80, 120, 160],
+        );
+    }
 
-        #[test]
-        fn avg() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_avg);
-            rc.start = 0;
-            rc.end = 160;
-            rc.step = 40;
-            rc.window = 0;
-            test_rollup(
-                &mut rc,
-                &[NAN, 55.5, 49.75, 36.666666666666664, 34.0],
-                &[0, 40, 80, 120, 160],
-            );
-        }
+    #[test]
+    fn test_rollup_integrate_no_window() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandlerEnum::Wrapped(rollup_integrate);
+        rc.start = 0;
+        rc.end = 160;
+        rc.step = 40;
+        rc.window = 0;
+        test_rollup(
+            &mut rc,
+            &[NAN, 2.148, 1.593, 1.156, 1.36],
+            &[0, 40, 80, 120, 160],
+        );
+    }
 
-        #[test]
-        fn deriv() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_deriv_slow);
-            rc.start = 0;
-            rc.end = 160;
-            rc.step = 40;
-            rc.window = 0;
-            test_rollup(
-                &mut rc,
-                &[
-                    NAN,
-                    -2879.310344827588,
-                    127.87627310448904,
-                    -496.5831435079728,
-                    0.0,
-                ],
-                &[0, 40, 80, 120, 160],
-            );
-        }
+    #[test]
+    fn test_rollup_distinct_over_time_1_no_window() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandlerEnum::Wrapped(rollup_distinct);
+        rc.start = 0;
+        rc.end = 160;
+        rc.step = 40;
+        rc.window = 0;
+        test_rollup(&mut rc, &[NAN, 4.0, 4.0, 3.0, 1.0], &[0, 40, 80, 120, 160]);
+    }
 
-        #[test]
-        fn deriv_fast() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_deriv_fast);
-            rc.start = 0;
-            rc.end = 20;
-            rc.step = 4;
-            rc.window = 0;
-            test_rollup(
-                &mut rc,
-                &[NAN, NAN, NAN, 0.0, -8900.0, 0.0],
-                &[0, 4, 8, 12, 16, 20],
-            );
-        }
+    #[test]
+    fn test_rollup_distinct_over_time_2_no_window() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandlerEnum::Wrapped(rollup_distinct);
+        rc.start = 0;
+        rc.end = 160;
+        rc.step = 40;
+        rc.window = 80;
+        test_rollup(&mut rc, &[NAN, 4.0, 7.0, 6.0, 3.0], &[0, 40, 80, 120, 160]);
+    }
 
-        #[test]
-        fn ideriv() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_ideriv);
-            rc.start = 0;
-            rc.end = 160;
-            rc.step = 40;
-            rc.window = 0;
-            test_rollup(
-                &mut rc,
-                &[NAN, -1916.6666666666665, -43500.0, 400.0, 0.0],
-                &[0, 40, 80, 120, 160],
-            );
-        }
+    #[test]
+    fn test_rollup_mode_over_time_no_window() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandlerEnum::Wrapped(rollup_mode_over_time);
+        rc.start = 0;
+        rc.end = 160;
+        rc.step = 40;
+        rc.window = 80;
+        test_rollup(
+            &mut rc,
+            &[NAN, 21.0, 34.0, 34.0, 34.0],
+            &[0, 40, 80, 120, 160],
+        );
+    }
 
-        #[test]
-        fn stddev() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_stddev);
-            rc.start = 0;
-            rc.end = 160;
-            rc.step = 40;
-            rc.window = 0;
-            test_rollup(
-                &mut rc,
-                &[
-                    NAN,
-                    39.81519810323691,
-                    32.080952292598795,
-                    5.2493385826745405,
-                    0.0,
-                ],
-                &[0, 40, 80, 120, 160],
-            );
-        }
+    #[test]
+    fn test_rollup_rate_over_sum_no_window() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandlerEnum::Wrapped(rollup_rate_over_sum);
+        rc.start = 0;
+        rc.end = 160;
+        rc.step = 40;
+        rc.window = 80;
+        test_rollup(
+            &mut rc,
+            &[NAN, 2775.0, 5262.5, 3862.5, 1800.0],
+            &[0, 40, 80, 120, 160],
+        );
+    }
 
-        #[test]
-        fn integrate() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_integrate);
-            rc.start = 0;
-            rc.end = 160;
-            rc.step = 40;
-            rc.window = 0;
-            test_rollup(
-                &mut rc,
-                &[NAN, 2.148, 1.593, 1.156, 1.36],
-                &[0, 40, 80, 120, 160],
-            );
-        }
-
-        #[test]
-        fn distinct_over_time_1() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_distinct);
-            rc.start = 0;
-            rc.end = 160;
-            rc.step = 40;
-            rc.window = 0;
-            test_rollup(&mut rc, &[NAN, 4.0, 4.0, 3.0, 1.0], &[0, 40, 80, 120, 160]);
-        }
-
-        #[test]
-        fn distinct_over_time_2() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_distinct);
-            rc.start = 0;
-            rc.end = 160;
-            rc.step = 40;
-            rc.window = 80;
-            test_rollup(&mut rc, &[NAN, 4.0, 7.0, 6.0, 3.0], &[0, 40, 80, 120, 160]);
-        }
-
-        #[test]
-        fn mode_over_time() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_mode_over_time);
-            rc.start = 0;
-            rc.end = 160;
-            rc.step = 40;
-            rc.window = 80;
-            test_rollup(
-                &mut rc,
-                &[NAN, 21.0, 34.0, 34.0, 34.0],
-                &[0, 40, 80, 120, 160],
-            );
-        }
-
-        #[test]
-        fn rate_over_sum() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_rate_over_sum);
-            rc.start = 0;
-            rc.end = 160;
-            rc.step = 40;
-            rc.window = 80;
-            test_rollup(
-                &mut rc,
-                &[NAN, 2775.0, 5262.5, 3862.5, 1800.0],
-                &[0, 40, 80, 120, 160],
-            );
-        }
-
-        #[test]
-        fn zscore_over_time() {
-            let mut rc = RollupConfig::default();
-            rc.handler = RollupHandlerEnum::Wrapped(rollup_zscore_over_time);
-            rc.start = 0;
-            rc.end = 160;
-            rc.step = 40;
-            rc.window = 80;
-            test_rollup(
-                &mut rc,
-                &[
-                    NAN,
-                    -0.86650328627136,
-                    -1.1200838283548589,
-                    -0.40035755084856683,
-                    NAN,
-                ],
-                &[0, 40, 80, 120, 160],
-            );
-        }
-
-        // todo: call all fns
+    #[test]
+    fn test_rollup_zscore_over_time_no_window() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandlerEnum::Wrapped(rollup_zscore_over_time);
+        rc.start = 0;
+        rc.end = 160;
+        rc.step = 40;
+        rc.window = 80;
+        test_rollup(
+            &mut rc,
+            &[
+                NAN,
+                -0.86650328627136,
+                -1.1200838283548589,
+                -0.40035755084856683,
+                NAN,
+            ],
+            &[0, 40, 80, 120, 160],
+        );
     }
 
     #[test]

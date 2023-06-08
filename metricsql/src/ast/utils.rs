@@ -28,7 +28,7 @@ use crate::prelude::MetricExpr;
 ///
 /// example:
 /// ```
-/// use crate::hir::*;
+/// use crate::ast::*;
 /// let c = selector("latency");
 /// ```
 pub fn selector(ident: impl Into<String>) -> Expr {
@@ -93,7 +93,7 @@ pub fn is_op_with(target_op: Operator, haystack: &Expr, needle: &Expr) -> bool {
 /// # Example
 /// ```
 /// # use crate::hir::expr_fn::{selector, number};
-/// # use crate::hir::utils::conjunction;
+/// # use crate::ast::utils::conjunction;
 /// // a=1 AND b=2
 /// let expr = selector("a").eq(number(1.0)).and(selector("b").eq(number(2.0)));
 ///
@@ -160,7 +160,7 @@ fn rollup_exprs_equal(re1: &RollupExpr, re2: &RollupExpr) -> bool {
 }
 
 fn aggregation_exprs_equal(ae1: &AggregationExpr, ae2: &AggregationExpr) -> bool {
-    ae1.name == ae2.name
+    ae1.function == ae2.function
         && ae1.limit == ae2.limit
         && ae1.keep_metric_names == ae2.keep_metric_names
         && ae1.arg_idx_for_optimization == ae2.arg_idx_for_optimization
@@ -205,10 +205,12 @@ fn expr_vec_equals(exprs1: &Vec<Expr>, exprs2: &Vec<Expr>) -> bool {
     if exprs1.len() != exprs2.len() {
         return false;
     }
-    exprs1.iter()
+    exprs1
+        .iter()
         .zip(exprs2.iter())
         .all(|(e1, e2)| expr_equals(e1, e2))
 }
+
 
 #[cfg(test)]
 pub mod tests {

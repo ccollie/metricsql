@@ -12,7 +12,7 @@ use crate::types::{MetricName, Timeseries};
 pub(crate) struct TimeseriesMap {
     origin: Timeseries,
     hist: Histogram,
-    pub(crate) series: HashMap<String, Timeseries>,
+    pub series: HashMap<String, Timeseries>,
 }
 
 impl TimeseriesMap {
@@ -72,11 +72,11 @@ impl TimeseriesMap {
         }
     }
 
-    pub(crate) fn reset(&mut self) {
+    pub fn reset(&mut self) {
         self.hist.reset();
     }
 
-    pub(crate) fn values_mut(&mut self) -> ValuesMut<'_, String, Timeseries> {
+    pub fn values_mut(&mut self) -> ValuesMut<'_, String, Timeseries> {
         self.series.values_mut()
     }
 

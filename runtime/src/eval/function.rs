@@ -1,23 +1,19 @@
 use metricsql::ast::FunctionExpr;
 use metricsql::common::{Value, ValueType};
-use metricsql::functions::TransformFunction;
-use metricsql::functions::Volatility;
-use std::str::FromStr;
+use metricsql::functions::{BuiltinFunction, Volatility};
 use std::sync::Arc;
 use tracing::{field, trace_span, Span};
 
 use crate::context::Context;
 use crate::eval::arg_list::ArgList;
 use crate::eval::traits::Evaluator;
-use crate::functions::transform::{
-    get_transform_func, TransformFnImplementation, TransformFuncArg,
-};
+use crate::functions::transform::{get_transform_func, TransformFuncArg, TransformFuncHandler};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::{EvalConfig, QueryValue};
 
 pub struct TransformEvaluator {
     fe: FunctionExpr,
-    handler: TransformFnImplementation,
+    handler: TransformFuncHandler,
     args: ArgList,
     keep_metric_names: bool,
     return_type: ValueType,
@@ -26,35 +22,31 @@ pub struct TransformEvaluator {
 
 impl TransformEvaluator {
     pub fn new(fe: &FunctionExpr) -> RuntimeResult<Self> {
-        match TransformFunction::from_str(&fe.name) {
-            Ok(function) => {
-                let handler = get_transform_func(function)?;
-                let signature = function.signature();
+        let function = match fe.function {
+            BuiltinFunction::Transform(tf) => Ok(tf),
+            _ => Err(RuntimeError::General(format!(
+                "Error constructing TransformEvaluator: {} is not a transform fn",
+                fe.name
+            ))),
+        }?;
+        let handler = get_transform_func(function);
+        let signature = function.signature();
 
-                // todo: validate count
-                let args = ArgList::new(&signature, &fe.args)?;
-                let keep_metric_names = fe.keep_metric_names || function.keep_metric_name();
+        // todo: validate count
+        let args = ArgList::new(&signature, &fe.args)?;
+        let keep_metric_names = fe.keep_metric_names || function.keep_metric_name();
 
-                let rv = fe.return_type();
-                let return_type = ValueType::try_from(rv).unwrap_or(ValueType::RangeVector);
+        let rv = fe.return_type();
+        let return_type = ValueType::try_from(rv).unwrap_or(ValueType::RangeVector);
 
-                Ok(Self {
-                    handler,
-                    args,
-                    fe: fe.clone(),
-                    keep_metric_names,
-                    return_type,
-                    may_sort_results: function.may_sort_results(),
-                })
-            }
-            _ => {
-                // todo: use a specific variant
-                return Err(RuntimeError::General(format!(
-                    "Error constructing TransformEvaluator: {} is not a transform fn",
-                    fe.name
-                )));
-            }
-        }
+        Ok(Self {
+            handler,
+            args,
+            fe: fe.clone(),
+            keep_metric_names,
+            return_type,
+            may_sort_results: function.may_sort_results(),
+        })
     }
 
     pub fn is_idempotent(&self) -> bool {

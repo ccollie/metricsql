@@ -1,9 +1,14 @@
-use crate::tests::helpers::Sample;
-use crate::MetricName;
-use metricsql::prelude::LabelFilter;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::btree_map::BTreeMap;
+use std::collections::btree_set::BTreeSet;
 use std::rc::Rc;
+
 use serde::{Deserialize, Serialize};
+
+use metricsql::prelude::LabelFilter;
+
+use crate::MetricName;
+use crate::signature::Signature;
+use crate::tests::helpers::Sample;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
 pub struct Point {
@@ -19,9 +24,9 @@ pub struct TestSample {
 
 pub struct TestStorage {
     /// metric names by hash
-    labels_hash: BTreeMap<u64, Rc<MetricName>>,
-    sample_values: BTreeMap<u64, Vec<Point>>,
-    need_sort: BTreeSet<u64>,
+    labels_hash: BTreeMap<Signature, Rc<MetricName>>,
+    sample_values: BTreeMap<Signature, Vec<Point>>,
+    need_sort: BTreeSet<Signature>,
 }
 
 impl TestStorage {
@@ -34,7 +39,7 @@ impl TestStorage {
     }
 
     pub fn add_sample(&mut self, sample: &mut Sample) {
-        let metric_id = sample.metric.get_hash();
+        let metric_id = sample.metric.signature();
         self.labels_hash
             .entry(metric_id)
             .or_insert_with(|| Rc::new(sample.metric.clone()));
@@ -58,7 +63,7 @@ impl TestStorage {
     }
 
     pub fn search(&mut self, start: i64, end: i64, filters: &[LabelFilter]) -> Vec<TestSample> {
-        let mut ids: BTreeSet<u64> = BTreeSet::new();
+        let mut ids: BTreeSet<Signature> = BTreeSet::new();
         let mut res: Vec<TestSample> = vec![];
 
         let _ = filters
@@ -88,7 +93,7 @@ impl TestStorage {
         res
     }
 
-    fn sort_if_needed(&mut self, id: u64) {
+    fn sort_if_needed(&mut self, id: Signature) {
         if self.need_sort.contains(&id) {
             self.need_sort.remove(&id);
             if let Some(points) = self.sample_values.get_mut(&id) {
@@ -97,7 +102,7 @@ impl TestStorage {
         }
     }
 
-    fn get_metric_ids_matching(&self, filter: &LabelFilter, dst: &mut BTreeSet<u64>) {
+    fn get_metric_ids_matching(&self, filter: &LabelFilter, dst: &mut BTreeSet<Signature>) {
         for (k, labels) in &self.labels_hash {
             if matches_filter(&labels, filter) {
                 dst.insert(*k);
@@ -106,7 +111,7 @@ impl TestStorage {
     }
 }
 
-fn matches_filter(mn: &MetricName, filter: &LabelFilter) -> bool {
+fn matches_filter(_mn: &MetricName, _filter: &LabelFilter) -> bool {
     todo!()
 }
 

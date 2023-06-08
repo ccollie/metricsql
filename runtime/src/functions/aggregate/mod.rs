@@ -1,7 +1,7 @@
 mod aggr_fns;
 mod incremental;
 
-pub(crate) use aggr_fns::{get_aggr_func, AggrFn, AggrFuncArg};
+pub(crate) use aggr_fns::{exec_aggregate_fn, AggrFuncArg};
 pub(crate) use incremental::*;
 
 #[cfg(test)]

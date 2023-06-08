@@ -145,11 +145,9 @@ pub fn exec(
     };
 
     let mut result = timeseries_to_result(&mut rv, may_sort)?;
-    let mut rounded = false;
 
     let n = ec.round_digits as u8;
     if n < 100 {
-        rounded = true;
         for r in result.iter_mut() {
             for v in r.values.iter_mut() {
                 *v = round_to_decimal_digits(*v, n);
@@ -160,13 +158,6 @@ pub fn exec(
     info!("sorted = {}, round_digits = {}", may_sort, ec.round_digits);
 
     Ok(result)
-}
-
-fn truncate(s: &str, max_chars: usize) -> &str {
-    match s.char_indices().nth(max_chars) {
-        None => s,
-        Some((idx, _)) => &s[..idx],
-    }
 }
 
 fn may_sort_results(e: &ExprEvaluator, _tss: &[Timeseries]) -> bool {

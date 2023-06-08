@@ -1,8 +1,11 @@
 use std::fmt;
+use std::hash::Hasher;
 
-use crate::common::{LabelFilter, LabelFilterOp, LabelName, StringExpr, NAME_LABEL};
-use crate::parser::{compile_regexp, escape_ident, is_empty_regex, ParseError, ParseResult};
 use serde::{Deserialize, Serialize};
+use xxhash_rust::xxh3::Xxh3;
+
+use crate::common::{LabelFilter, LabelFilterOp, LabelName, NAME_LABEL, StringExpr};
+use crate::parser::{compile_regexp, escape_ident, is_empty_regex, ParseError, ParseResult};
 
 /// LabelFilterExpr represents `foo <op> ident + "bar"` expression, where <op> is `=`, `!=`, `=~` or `!~`.
 /// For internal use only, in the context of WITH expressions
@@ -110,6 +113,12 @@ impl LabelFilterExpr {
             .unwrap_or_else(|| &empty_str)
             .to_string();
         LabelFilter::new(self.op, &self.label, value)
+    }
+
+    pub(crate) fn update_hash(&self, hasher: &mut Xxh3) {
+        hasher.write(self.label.as_bytes());
+        self.value.update_hash(hasher);
+        hasher.write(self.op.as_str().as_bytes())
     }
 }
 

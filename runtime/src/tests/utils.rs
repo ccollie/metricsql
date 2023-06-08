@@ -1,4 +1,5 @@
 use crate::{MetricName, QueryResult, RuntimeResult, Timeseries};
+use itertools::izip;
 
 pub fn test_results_equal(result: &Vec<QueryResult>, result_expected: &Vec<QueryResult>) {
     assert_eq!(
@@ -48,35 +49,38 @@ pub fn test_rows_equal(
         timestamps.len()
     );
 
-    let mut i = 0;
-    while i < values.len() {
-        let ts = timestamps[i];
-        let ts_expected = timestamps_expected[i];
-        assert_eq!(ts, ts_expected,
-                   "unexpected timestamp at timestamps[{}]; got {}; want {}\ntimestamps=\n{:?}\ntimestamps_expected=\n{:?}",
-                   i, ts, ts_expected, timestamps, timestamps_expected);
+    for (i, val, val_expected, ts, ts_expected) in izip!(
+        0..1000,
+        values.iter(),
+        values_expected.iter(),
+        timestamps.iter(),
+        timestamps_expected.iter()
+    ) {
+        assert_eq!(
+            ts, ts_expected,
+            "unexpected timestamp at timestamps[{}]; got {}; want {}\ntimestamps=\n{:?}\ntimestamps_expected=\n{:?}",
+            i, ts, ts_expected, timestamps, timestamps_expected
+        );
 
-        let v = values[i];
-        let v_expected = values_expected[i];
-        if v.is_nan() {
-            assert!(v_expected.is_nan(),
+        if val.is_nan() {
+            assert!(val_expected.is_nan(),
                     "unexpected nan value at values[{}]; want %{}\nvalues=\n{:?}\nvalues_expected=\n{:?}",
-                    i, v_expected, values, values_expected);
+                    i, val_expected, values, values_expected);
             continue;
         }
-        if v_expected.is_nan() {
-            assert!(v.is_nan(), "unexpected value at values[{}]; got {}; want nan\nvalues=\n{:?}\nvalues_expected=\n{:?}",
-                    i, v, values, values_expected);
+        if val_expected.is_nan() {
+            assert!(val.is_nan(), "unexpected value at values[{}]; got {}; want nan\nvalues=\n{:?}\nvalues_expected=\n{:?}",
+                    i, val, values, values_expected);
             continue;
         }
+
         // Compare values with the reduced precision because of different precision errors
         // on different OS/architectures. See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/1738
         // and https://github.com/VictoriaMetrics/VictoriaMetrics/issues/1653
-        if (v - v_expected).abs() / (v_expected).abs() > 1e-13 {
+        if (val - val_expected).abs() / (val_expected).abs() > 1e-13 {
             panic!("unexpected value at values[{}]; got {}; want {}\nvalues=\n{:?}\nvalues_expected=\n{:?}",
-                   i, v, v_expected, values, values_expected)
+                   i, val, val_expected, values, values_expected)
         }
-        i += 1;
     }
 }
 
@@ -145,8 +149,7 @@ pub fn compare_values(vs1: &[f64], vs2: &[f64]) -> RuntimeResult<()> {
         vs1.len(),
         vs2.len()
     );
-    for (i, v1) in vs1.iter().enumerate() {
-        let v2 = &vs2[i];
+    for (v1, v2) in vs1.iter().zip(vs2.iter()) {
         assert!(
             compare_floats(*v2, *v1),
             "unexpected value; got {}; want {}",
@@ -158,9 +161,6 @@ pub fn compare_values(vs1: &[f64], vs2: &[f64]) -> RuntimeResult<()> {
 }
 
 pub fn compare_floats(expected: f64, actual: f64) -> bool {
-    if actual == expected {
-        return true;
-    }
     return match (expected.is_finite(), actual.is_finite()) {
         (true, true) => {
             let eps = (actual - expected).abs();

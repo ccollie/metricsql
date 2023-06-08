@@ -2,12 +2,11 @@ use std::sync::Arc;
 
 use metricsql::ast::*;
 use metricsql::common::{LabelFilter, Value};
-use metricsql::functions::{BuiltinFunctionType, Signature, Volatility};
+use metricsql::functions::{BuiltinFunction, Signature, Volatility};
 use metricsql::prelude::{BinaryOpKind, ValueType};
 
 use crate::context::Context;
 use crate::eval::aggregate::{create_aggr_evaluator, AggregateEvaluator};
-use crate::eval::binop_handlers::should_reset_metric_group;
 use crate::eval::binop_scalar_scalar::BinaryEvaluatorScalarScalar;
 use crate::eval::binop_scalar_vector::BinaryEvaluatorScalarVector;
 use crate::eval::binop_vector_scalar::BinaryEvaluatorVectorScalar;
@@ -172,16 +171,16 @@ pub fn create_evaluator(expr: &Expr) -> RuntimeResult<ExprEvaluator> {
 }
 
 fn create_function_evaluator(fe: &FunctionExpr) -> RuntimeResult<ExprEvaluator> {
-    match fe.function_type {
-        BuiltinFunctionType::Rollup => {
+    match fe.function {
+        BuiltinFunction::Rollup(_) => {
             let eval = RollupEvaluator::from_function(fe)?;
             Ok(ExprEvaluator::Rollup(eval))
-        },
+        }
         // note: aggregations produce another ast node type, so we don't need to handle them here
         _ => {
             let fe = TransformEvaluator::new(fe)?;
             Ok(ExprEvaluator::Function(fe))
-        },
+        }
     }
 }
 
@@ -198,8 +197,7 @@ fn create_binary_evaluator(be: &BinaryExpr) -> RuntimeResult<ExprEvaluator> {
     use BinaryOpKind::*;
 
     let op_kind = be.op.kind();
-    let keep_metric_names =
-        be.keep_metric_names || should_reset_metric_group(&be.op, be.bool_modifier);
+    let keep_metric_names = be.keep_metric_names || be.should_reset_metric_group(); // TODO: seems fishy
     match (be.left.return_type(), op_kind, be.right.return_type()) {
         (ValueType::Scalar, Arithmetic | Comparison, ValueType::Scalar) => {
             assert!(Comparison != op_kind || be.bool_modifier);
@@ -443,7 +441,7 @@ impl EvalConfig {
     pub fn update_from_context(&mut self, ctx: &Context) {
         let state_config = &ctx.config;
         self.disable_cache = state_config.disable_cache;
-        self.max_points_per_series = state_config.max_points_subquery_per_timeseries as usize;
+        self.max_points_per_series = state_config.max_points_subquery_per_timeseries;
         self.no_stale_markers = state_config.no_stale_markers;
         self.lookback_delta = state_config.max_lookback.num_milliseconds();
         self.max_series = state_config.max_unique_timeseries;
@@ -464,12 +462,7 @@ impl EvalConfig {
 
     pub(crate) fn ensure_timestamps(&mut self) -> RuntimeResult<()> {
         if self._timestamps.len() == 0 {
-            let ts = get_timestamps(
-                self.start,
-                self.end,
-                self.step,
-                self.max_points_per_series as usize,
-            )?;
+            let ts = get_timestamps(self.start, self.end, self.step, self.max_points_per_series)?;
             self._timestamps = Arc::new(ts);
         }
         Ok(())
@@ -517,12 +510,12 @@ pub fn get_timestamps(
 ) -> RuntimeResult<Vec<i64>> {
     // Sanity checks.
     if step <= 0 {
-        let msg = format!("BUG: Step must be bigger than 0; got {}", step);
+        let msg = format!("Step must be bigger than 0; got {}", step);
         return Err(RuntimeError::from(msg));
     }
 
     if start > end {
-        let msg = format!("BUG: Start cannot exceed End; got {} vs {}", start, end);
+        let msg = format!("Start cannot exceed End; got {} vs {}", start, end);
         return Err(RuntimeError::from(msg));
     }
 
@@ -553,7 +546,7 @@ pub(crate) fn eval_number(ec: &EvalConfig, n: f64) -> Vec<Timeseries> {
     if timestamps.len() == 0 {
         // todo: this is a hack, we should not call get_timestamps here
         let timestamps =
-            get_timestamps(ec.start, ec.end, ec.step, ec.max_points_per_series as usize).unwrap();
+            get_timestamps(ec.start, ec.end, ec.step, ec.max_points_per_series).unwrap();
         let values = vec![n; timestamps.len()];
         let ts = Timeseries::new(timestamps, values);
         return vec![ts];
@@ -570,7 +563,7 @@ pub(crate) fn eval_time(ec: &EvalConfig) -> Vec<Timeseries> {
     let mut rv = eval_number(ec, f64::NAN);
     let timestamps = rv[0].timestamps.clone(); // this is an Arc, so it's cheap to clone
     for (ts, val) in timestamps.iter().zip(rv[0].values.iter_mut()) {
-        *val = (*ts  as f64) / 1e3_f64;
+        *val = (*ts as f64) / 1e3_f64;
     }
     rv
 }

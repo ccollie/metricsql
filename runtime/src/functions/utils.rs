@@ -25,6 +25,7 @@ pub fn mode_no_nans(prev_value: f64, a: &mut Vec<f64>) -> f64 {
     let mut mode = prev_value;
     for v in a.iter_mut() {
         if prev_value == *v {
+            i += 1;
             continue;
         }
         let d = i - j;
@@ -44,42 +45,43 @@ pub fn mode_no_nans(prev_value: f64, a: &mut Vec<f64>) -> f64 {
 }
 
 pub fn remove_nan_values_in_place(values: &mut Vec<f64>, timestamps: &mut Vec<i64>) {
-    if !values.iter().any(|x| x.is_nan()) {
+    let len = values.len();
+
+    if len == 0 {
         return;
     }
 
     // Slow path: drop nans from values.
     let mut k = 0;
-    for i in 0..values.len() {
+    let mut nan_found = false;
+    for i in 0..len {
         let v = values[i];
         if v.is_nan() {
             values[k] = v;
             timestamps[k] = timestamps[i];
             k += 1;
+            nan_found = true;
         }
     }
 
-    values.truncate(k);
-    timestamps.truncate(k);
+    if nan_found {
+        values.truncate(k);
+        timestamps.truncate(k);
+    }
 }
 
 #[inline]
 pub fn get_first_non_nan_index(values: &[f64]) -> usize {
-    let mut i = 0;
-    while i < values.len() && values[i].is_nan() {
-        i += 1;
+    for (index, v) in values.iter().enumerate() {
+        if !v.is_nan() {
+            return index;
+        }
     }
-    i
+    0
 }
 
 pub fn skip_leading_nans(values: &[f64]) -> &[f64] {
-    let mut i = 0;
-    for (index, v) in values.iter().enumerate() {
-        if !v.is_nan() {
-            i = index;
-            break;
-        }
-    }
+    let i = get_first_non_nan_index(values);
     return &values[i..];
 }
 
@@ -150,8 +152,8 @@ fn prepare_tv_for_quantile_float64(dst: &mut TinyVec<[f64; 64]>, src: &[f64]) {
 /// It is expected that values won't contain NaN items.
 /// The implementation mimics Prometheus implementation for compatibility's sake.
 pub fn quantiles_sorted(qs: &mut [f64], phis: &[f64], values: &[f64]) {
-    for (i, phi) in phis.iter().enumerate() {
-        qs[i] = quantile_sorted(*phi, values);
+    for (phi, qs) in phis.iter().zip(qs.iter_mut()) {
+        *qs = quantile_sorted(*phi, values);
     }
 }
 

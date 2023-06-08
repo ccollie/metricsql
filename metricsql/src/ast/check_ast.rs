@@ -28,33 +28,31 @@ pub fn check_ast(expr: Expr) -> Result<Expr, String> {
 }
 
 pub fn validate_func_args(func: &BuiltinFunction, args: &[Expr]) -> Result<(), String> {
-    match func.validate_args(args) {
-        Ok(()) => Ok(()),
-        Err(e) => Err(e.to_string()),
-    }
+    func.validate_args(args).map_err(|e| e.to_string())
 }
 
 fn check_ast_for_aggregate_expr(ex: AggregationExpr) -> Result<Expr, String> {
     let func = BuiltinFunction::new(&ex.name);
     if let Ok(func) = func {
         if !func.is_aggregation() {
-            return Err(format!("aggregation function expected: got '{}'", ex.name));
+            return Err(format!(
+                "aggregation function expected: got '{}'",
+                ex.function
+            ));
         }
         validate_func_args(&func, &ex.args)?;
     } else {
-        return Err(format!("aggregation function expected: got '{}'", ex.name));
+        return Err(format!(
+            "aggregation function expected: got '{}'",
+            ex.function
+        ));
     }
     Ok(Expr::Aggregation(ex))
 }
 
 fn check_ast_for_call(expr: FunctionExpr) -> Result<Expr, String> {
-    match BuiltinFunction::new(&expr.name) {
-        Ok(func) => {
-            validate_func_args(&func, &expr.args)?;
-            Ok(Expr::Function(expr))
-        }
-        Err(e) => Err(e.to_string()),
-    }
+    validate_func_args(&expr.function, &expr.args)?;
+    Ok(Expr::Function(expr))
 }
 
 fn check_ast_for_parens(expr: ParensExpr) -> Result<Expr, String> {

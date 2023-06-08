@@ -1,10 +1,12 @@
-use crate::common::write_list;
-use crate::parser::ParseError;
-use serde::{Deserialize, Serialize};
 use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
 use std::fmt;
 use std::fmt::{Display, Formatter};
+
+use serde::{Deserialize, Serialize};
+
+use crate::common::write_list;
+use crate::parser::ParseError;
 
 pub type Labels = BTreeSet<String>;
 
@@ -149,94 +151,77 @@ impl Display for BinModifier {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum AggregateModifierOp {
-    By,
-    Without,
-}
-
-impl Display for AggregateModifierOp {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        use AggregateModifierOp::*;
-        match self {
-            By => write!(f, "by")?,
-            Without => write!(f, "without")?,
-        }
-        Ok(())
-    }
-}
-
-impl TryFrom<&str> for AggregateModifierOp {
-    type Error = ParseError;
-
-    fn try_from(op: &str) -> Result<Self, Self::Error> {
-        use AggregateModifierOp::*;
-
-        match op.to_lowercase().as_str() {
-            "by" => Ok(By),
-            "without" => Ok(Without),
-            _ => Err(ParseError::General(format!(
-                "Unknown aggregate modifier op: {}",
-                op
-            ))),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Eq, Hash, Serialize, Deserialize)]
-pub struct AggregateModifier {
-    /// The modifier operation.
-    pub op: AggregateModifierOp,
-    /// Modifier args from parens.
-    pub args: Vec<String>,
+pub enum AggregateModifier {
+    // todo: use BtreeSet<String>, since thee runtime expects these to be sorted
+    By(Vec<String>),
+    Without(Vec<String>),
 }
 
 impl AggregateModifier {
-    pub fn new(op: AggregateModifierOp, args: Vec<String>) -> Self {
-        AggregateModifier { op, args }
-    }
-
     /// Creates a new AggregateModifier with the Left op
     pub fn by() -> Self {
-        AggregateModifier::new(AggregateModifierOp::By, vec![])
+        AggregateModifier::By(vec![])
     }
 
     /// Creates a new AggregateModifier with the Right op
     pub fn without() -> Self {
-        AggregateModifier::new(AggregateModifierOp::Without, vec![])
-    }
-
-    /// Replaces this AggregateModifier's operator
-    pub fn op(mut self, op: AggregateModifierOp) -> Self {
-        self.op = op;
-        self
+        AggregateModifier::Without(vec![])
     }
 
     /// Adds a label key to this AggregateModifier
-    pub fn arg<S: Into<String>>(mut self, arg: S) -> Self {
-        self.args.push(arg.into());
-        self
+    pub fn arg<S: Into<String>>(&mut self, arg: S) {
+        match self {
+            AggregateModifier::By(ref mut args) => {
+                args.push(arg.into());
+                args.sort();
+            }
+            AggregateModifier::Without(ref mut args) => {
+                args.push(arg.into());
+                args.sort();
+            }
+        }
     }
 
-    /// Replaces this AggregateModifier's args with the given set
-    pub fn args(mut self, args: &[&str]) -> Self {
-        self.args = args.iter().map(|l| (*l).to_string()).collect();
-        self
+    pub fn get_args(&self) -> &Vec<String> {
+        match self {
+            AggregateModifier::By(val) => val,
+            AggregateModifier::Without(val) => val,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.get_args().is_empty()
     }
 }
 
 impl Display for AggregateModifier {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        // Op is the operation itself, i.e. `+`, `-`, `*`, etc.
-        write!(f, "{} ", self.op)?;
-        write_list(self.args.iter(), f, true)?;
+        match self {
+            AggregateModifier::By(vec) => {
+                write!(f, "by ")?;
+                write_list(vec.iter(), f, true)?;
+            },
+            AggregateModifier::Without(vec) => {
+                write!(f, "without ")?;
+                write_list(vec.iter(), f, true)?;
+            }
+        }
         Ok(())
     }
 }
 
 impl PartialEq<Self> for AggregateModifier {
     fn eq(&self, other: &AggregateModifier) -> bool {
-        self.op == other.op && string_vecs_equal_unordered(&self.args, &other.args)
+        match (self, other) {
+            (AggregateModifier::Without(left), AggregateModifier::Without(right)) => {
+                string_vecs_equal_unordered(left, right)
+            }
+            (AggregateModifier::By(left), AggregateModifier::By(right)) => {
+                string_vecs_equal_unordered(left, right)
+            },
+            _ => false
+        }
     }
 }
 
@@ -287,17 +272,23 @@ pub struct GroupModifier {
 
 impl GroupModifier {
     pub fn new(op: GroupModifierOp, labels: Vec<String>) -> Self {
-        GroupModifier { op, labels }
+        let mut result = GroupModifier { op, labels };
+        result.labels.sort();
+        result
     }
 
     /// Creates a GroupModifier cause with the On operator
     pub fn on(labels: Vec<String>) -> Self {
-        GroupModifier::new(GroupModifierOp::On, labels)
+        let mut res = GroupModifier::new(GroupModifierOp::On, labels);
+        res.labels.sort();
+        res
     }
 
     /// Creates a GroupModifier clause using the Ignoring operator
     pub fn ignoring(labels: Vec<String>) -> Self {
-        GroupModifier::new(GroupModifierOp::Ignoring, labels)
+        let mut res = GroupModifier::new(GroupModifierOp::Ignoring, labels);
+        res.labels.sort();
+        res
     }
 
     /// Replaces this GroupModifier's operator
@@ -309,6 +300,7 @@ impl GroupModifier {
     /// Adds a label key to this GroupModifier
     pub fn label<S: Into<String>>(mut self, label: S) -> Self {
         self.labels.push(label.into());
+        self.labels.sort();
         self
     }
 
@@ -319,6 +311,7 @@ impl GroupModifier {
     /// Replaces this GroupModifier's labels with the given set
     pub fn set_labels(&mut self, labels: Vec<String>) -> &mut Self {
         self.labels = labels;
+        self.labels.sort();
         self
     }
 

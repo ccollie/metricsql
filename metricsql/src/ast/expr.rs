@@ -1,22 +1,26 @@
-use crate::common::{
-    format_num, write_list, AggregateModifier, BinModifier, GroupModifier, GroupModifierOp,
-    JoinModifier, LabelFilter, LabelFilterExpr, LabelFilterOp, Operator, StringExpr, Value,
-    ValueType, VectorMatchCardinality, NAME_LABEL,
-};
-use crate::functions::{AggregateFunction, BuiltinFunction, TransformFunction};
-use enquote::enquote;
-use lib::{fmt_duration_ms, hash_f64};
-use serde::{Deserialize, Serialize};
+use std::{fmt, iter, ops};
 use std::borrow::Cow;
+use std::cmp::Ordering;
 use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::ops::{Deref, Neg, Range};
 use std::str::FromStr;
-use std::{fmt, iter, ops};
-use crate::ast::expr_equals;
 
+use enquote::enquote;
+use serde::{Deserialize, Serialize};
+use xxhash_rust::xxh3::Xxh3;
+
+use lib::{fmt_duration_ms, hash_f64};
+
+use crate::ast::expr_equals;
+use crate::common::{
+    AggregateModifier, BinModifier, format_num, GroupModifier, GroupModifierOp, JoinModifier,
+    LabelFilter, LabelFilterExpr, LabelFilterOp, NAME_LABEL, Operator, StringExpr, Value,
+    ValueType, VectorMatchCardinality, write_list,
+};
+use crate::functions::{AggregateFunction, BuiltinFunction, TransformFunction};
 use crate::parser::{escape_ident, ParseError, ParseResult};
 use crate::prelude::{BuiltinFunctionType, get_aggregate_arg_idx_for_optimization};
 
@@ -36,9 +40,7 @@ pub struct NumberLiteral {
 
 impl NumberLiteral {
     pub fn new(v: f64) -> Self {
-        NumberLiteral {
-            value: v,
-        }
+        NumberLiteral { value: v }
     }
 
     pub fn return_type(&self) -> ValueType {
@@ -105,9 +107,7 @@ impl Neg for NumberLiteral {
 
     fn neg(self) -> Self::Output {
         let value = -self.value;
-        NumberLiteral {
-            value,
-        }
+        NumberLiteral { value }
     }
 }
 
@@ -161,7 +161,7 @@ impl Display for DurationExpr {
 
 // todo: MetricExpr => Selector
 /// MetricExpr represents MetricsQL metric with optional filters, i.e. `foo{...}`.
-#[derive(Debug, Clone, Hash, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
 pub struct MetricExpr {
     /// LabelFilters contains a list of label filters from curly braces.
     /// Filter or metric name must be the first if present.
@@ -286,7 +286,20 @@ impl MetricExpr {
     }
 
     pub fn sort_filters(&mut self) {
-        self.label_filters.sort();
+        self.label_filters.sort_by(|a, b| {
+            let mut res = a.label.cmp(&b.label);
+            match res {
+                Ordering::Equal => {
+                    res = a.value.cmp(&b.value);
+                    if res == Ordering::Equal {
+                        let right = b.op.as_str();
+                        res = a.op.as_str().cmp(right)
+                    }
+                    res
+                },
+                _ => res
+            }
+        });
     }
 }
 
@@ -357,34 +370,41 @@ impl PartialEq<MetricExpr> for MetricExpr {
         if self.label_filter_expressions.len() != other.label_filter_expressions.len() {
             return false;
         }
-        if !self.label_filters.is_empty() {
-            let set = self
-                .label_filters
-                .iter()
-                .map(|x| x.to_string())
-                .collect::<BTreeSet<_>>();
+        let mut hasher: Xxh3 = Xxh3::new();
 
-            if !other
-                .label_filters
-                .iter()
-                .all(|x| set.contains(&x.to_string()))
-            {
-                return false;
+        if !self.label_filters.is_empty() {
+            let mut set: BTreeSet<u64> = BTreeSet::new();
+            for filter in &self.label_filters {
+                hasher.reset();
+                filter.update_hash(&mut hasher);
+                set.insert(hasher.digest());
+            }
+
+            for filter in &other.label_filters {
+                hasher.reset();
+                filter.update_hash(&mut hasher);
+                let hash = hasher.digest();
+                if !set.contains(&hash) {
+                    return false
+                }
             }
         }
-        if !self.label_filter_expressions.is_empty() {
-            let set = self
-                .label_filter_expressions
-                .iter()
-                .map(|x| x.to_string())
-                .collect::<BTreeSet<_>>();
 
-            if !other
-                .label_filter_expressions
-                .iter()
-                .all(|x| set.contains(&x.to_string()))
-            {
-                return false;
+        if !self.label_filter_expressions.is_empty() {
+            let mut set: BTreeSet<u64> = BTreeSet::new();
+            for filter in &self.label_filter_expressions {
+                hasher.reset();
+                filter.update_hash(&mut hasher);
+                set.insert(hasher.digest());
+            }
+
+            for filter in &other.label_filter_expressions {
+                hasher.reset();
+                filter.update_hash(&mut hasher);
+                let hash = hasher.digest();
+                if !set.contains(&hash) {
+                    return false
+                }
             }
         }
 
@@ -403,6 +423,8 @@ impl ExpressionNode for MetricExpr {
 pub struct FunctionExpr {
     pub name: String,
 
+    pub function: BuiltinFunction,
+
     /// Args contains function args.
     pub args: Vec<Expr>,
 
@@ -414,7 +436,6 @@ pub struct FunctionExpr {
 
     pub is_scalar: bool,
 
-    pub function_type: BuiltinFunctionType,
     pub return_type: ValueType,
 }
 
@@ -432,13 +453,17 @@ impl FunctionExpr {
             arg_idx_for_optimization: arg_idx,
             keep_metric_names: false,
             is_scalar,
-            function_type: function.get_type(),
+            function,
             return_type,
         })
     }
 
     pub fn return_type(&self) -> ValueType {
         self.return_type
+    }
+
+    pub fn function_type(&self) -> BuiltinFunctionType {
+        self.function.get_type()
     }
 
     pub fn get_arg_for_optimization(&self) -> Option<&Expr> {
@@ -458,13 +483,13 @@ impl FunctionExpr {
     }
 
     pub fn is_rollup(&self) -> bool {
-        self.function_type == BuiltinFunctionType::Rollup
+        self.function_type() == BuiltinFunctionType::Rollup
     }
 }
 
 impl Display for FunctionExpr {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{}", self.name)?;
+        write!(f, "{}", self.function.name())?;
         write_list(&mut self.args.iter(), f, true)?;
         if self.keep_metric_names {
             write!(f, " keep_metric_names")?;
@@ -478,6 +503,9 @@ impl Display for FunctionExpr {
 pub struct AggregationExpr {
     /// name is the aggregation function name.
     pub name: String,
+
+    /// function is the aggregation function.
+    pub function: AggregateFunction,
 
     /// function args.
     pub args: Vec<Expr>,
@@ -496,24 +524,32 @@ pub struct AggregationExpr {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub arg_idx_for_optimization: Option<usize>,
+
+    pub can_incrementally_eval: bool,
 }
 
 impl AggregationExpr {
-    pub fn new(function: &AggregateFunction, args: Vec<Expr>) -> AggregationExpr {
+    pub fn new(function: AggregateFunction, args: Vec<Expr>) -> AggregationExpr {
         let arg_len = args.len();
-        AggregationExpr {
+        let can_incrementally_eval = Self::can_incrementally_eval(&args);
+        let mut ae = AggregationExpr {
             name: function.to_string(),
             args,
             modifier: None,
             limit: 0,
+            function: function.clone(),
             keep_metric_names: false,
-            arg_idx_for_optimization: get_aggregate_arg_idx_for_optimization(*function, arg_len),
-        }
+            arg_idx_for_optimization: get_aggregate_arg_idx_for_optimization(function, arg_len),
+            can_incrementally_eval,
+        };
+
+        ae.set_keep_metric_names();
+        ae
     }
 
     pub fn from_name(name: &str) -> ParseResult<Self> {
         let function = AggregateFunction::from_str(name)?;
-        Ok(Self::new(&function, vec![]))
+        Ok(Self::new(function, vec![]))
     }
 
     pub fn with_modifier(mut self, modifier: AggregateModifier) -> Self {
@@ -528,9 +564,6 @@ impl AggregationExpr {
     }
 
     fn set_keep_metric_names(&mut self) {
-        // Extract: RollupFunc(...) from aggrFunc(rollupFunc(...)).
-        // This case is possible when optimized aggrfn calculations are used
-        // such as `sum(rate(...))`
         if self.args.len() != 1 {
             self.keep_metric_names = false;
             return;
@@ -538,6 +571,9 @@ impl AggregationExpr {
         match &self.args[0] {
             Expr::Function(fe) => {
                 self.keep_metric_names = fe.keep_metric_names;
+            }
+            Expr::Aggregation(ae) => {
+                self.keep_metric_names = ae.keep_metric_names;
             }
             _ => self.keep_metric_names = false,
         }
@@ -553,11 +589,59 @@ impl AggregationExpr {
             Some(idx) => Some(&self.args[idx]),
         }
     }
+
+    // Check if args[0] contains one of the following:
+    // - metricExpr
+    // - metricExpr[d]
+    // -: RollupFunc(metricExpr)
+    // -: RollupFunc(metricExpr[d])
+    fn can_incrementally_eval(args: &Vec<Expr>) -> bool {
+        if args.len() != 1 {
+            return false;
+        }
+
+        fn validate(me: &MetricExpr, for_subquery: bool) -> bool {
+            if me.is_empty() || for_subquery {
+                return false;
+            }
+
+            return true;
+        }
+
+        return match &args[0] {
+            Expr::MetricExpression(me) => validate(me, false),
+            Expr::Rollup(re) => {
+                match re.expr.deref() {
+                    // e = metricExpr[d]
+                    Expr::MetricExpression(me) => validate(me, re.for_subquery()),
+                    _ => false,
+                }
+            }
+            Expr::Function(fe) => match fe.function {
+                BuiltinFunction::Rollup(_) => {
+                    return if let Some(arg) = fe.get_arg_for_optimization() {
+                        match arg.deref() {
+                            Expr::MetricExpression(me) => validate(me, false),
+                            Expr::Rollup(re) => match &*re.expr {
+                                Expr::MetricExpression(me) => validate(me, re.for_subquery()),
+                                _ => false,
+                            },
+                            _ => false,
+                        }
+                    } else {
+                        false
+                    };
+                }
+                _ => false,
+            },
+            _ => false,
+        };
+    }
 }
 
 impl Display for AggregationExpr {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{}", self.name)?;
+        write!(f, "{}", self.function.to_string())?;
         let args_len = self.args.len();
         if args_len > 0 {
             write_list(&mut self.args.iter(), f, true)?;
@@ -595,7 +679,7 @@ pub struct RollupExpr {
 
     /// offset contains optional value from `offset` part.
     ///
-    /// For example, `foobar{baz="aa"} offset 5m` will have Offset value `5m`.
+    /// For example, `foobar{baz="aa"} offset 5m` will have offset value `5m`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offset: Option<DurationExpr>,
 
@@ -792,10 +876,6 @@ impl BinaryExpr {
         matches!(&self.modifier, Some(modifier) if modifier.is_matching_labels_not_empty())
     }
 
-    pub fn return_bool(&self) -> bool {
-        matches!(&self.modifier, Some(modifier) if modifier.return_bool)
-    }
-
     /// check if labels of card and matching are joint
     pub fn is_labels_joint(&self) -> bool {
         matches!(&self.modifier, Some(modifier) if modifier.is_labels_joint())
@@ -834,6 +914,18 @@ impl BinaryExpr {
             return false;
         }
         true
+    }
+
+    pub fn should_reset_metric_group(&self) -> bool {
+        let op = self.op;
+        if op.is_comparison() && !self.bool_modifier {
+            // do not reset MetricGroup for non-boolean `compare` binary ops like Prometheus does.
+            return false;
+        }
+        match op {
+            Operator::Default | Operator::If | Operator::IfNot => false,
+            _ => true,
+        }
     }
 
     pub fn return_type(&self) -> ValueType {
@@ -966,7 +1058,7 @@ impl ParensExpr {
             keep_metric_names: false,
             is_scalar: false,
             return_type: TransformFunction::Union.return_type(),
-            function_type: func.get_type(),
+            function: func,
             arg_idx_for_optimization: arg_idx,
         }
     }
@@ -1054,9 +1146,9 @@ pub struct WithArgExpr {
 
 impl PartialEq for WithArgExpr {
     fn eq(&self, other: &Self) -> bool {
-        let res = self.name == other.name &&
-            self.args == other.args &&
-            expr_equals(&self.expr, &other.expr);
+        let res = self.name == other.name
+            && self.args == other.args
+            && expr_equals(&self.expr, &other.expr);
         res
     }
 }
@@ -1381,7 +1473,6 @@ impl Expr {
         };
         Ok(Expr::BinaryOperator(ex))
     }
-
 }
 
 impl Display for Expr {

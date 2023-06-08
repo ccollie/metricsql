@@ -1,10 +1,11 @@
+use std::str::FromStr;
+
 use crate::ast::{AggregationExpr, Expr};
-use crate::common::{AggregateModifier, AggregateModifierOp};
+use crate::common::AggregateModifier;
 use crate::functions::{AggregateFunction, BuiltinFunction};
+use crate::parser::{Parser, ParseResult};
 use crate::parser::function::validate_function_args;
 use crate::parser::tokens::Token;
-use crate::parser::{ParseResult, Parser};
-use std::str::FromStr;
 
 /// parse_aggr_func_expr parses an aggregation Expr.
 ///
@@ -29,7 +30,7 @@ pub(super) fn parse_aggr_func_expr(p: &mut Parser) -> ParseResult<Expr> {
         let args = p.parse_arg_list()?;
 
         validate_function_args(&BuiltinFunction::Aggregate(func), &args)?;
-        let mut ae = AggregationExpr::new(&func, args);
+        let mut ae = AggregationExpr::new(func, args);
         let kind = p.peek_kind();
         // Verify whether func suffix exists.
         ae.modifier = if modifier.is_none() && kind.is_aggregate_modifier() {
@@ -56,15 +57,16 @@ pub(super) fn parse_aggr_func_expr(p: &mut Parser) -> ParseResult<Expr> {
 }
 
 fn parse_aggregate_modifier(p: &mut Parser) -> ParseResult<AggregateModifier> {
-    let tok = p.expect_one_of(&[Token::By, Token::Without])?;
-    let op = match tok.kind {
-        Token::By => AggregateModifierOp::By,
-        Token::Without => AggregateModifierOp::Without,
-        _ => unreachable!(),
-    };
+    let tok = p.expect_one_of(&[Token::By, Token::Without])?.kind;
 
-    let args = p.parse_ident_list()?;
-    let res = AggregateModifier::new(op, args);
+    let mut args = p.parse_ident_list()?;
+    args.sort();
+
+    let res = match tok {
+        Token::By => AggregateModifier::By(args),
+        Token::Without => AggregateModifier::Without(args),
+        _ => unreachable!()
+    };
 
     Ok(res)
 }

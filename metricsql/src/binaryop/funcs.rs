@@ -181,7 +181,7 @@ make_comparison_func_bool!(compare_lt_bool, lt);
 make_comparison_func_bool!(compare_gte_bool, gte);
 make_comparison_func_bool!(compare_lte_bool, lte);
 
-fn get_comparison_handler(op: Operator, is_bool: bool) -> BinopFunc {
+pub const fn get_scalar_comparison_handler(op: Operator, is_bool: bool) -> BinopFunc {
     if is_bool {
         match op {
             Operator::Eql => compare_eq_bool,
@@ -190,7 +190,7 @@ fn get_comparison_handler(op: Operator, is_bool: bool) -> BinopFunc {
             Operator::Lt => compare_lt_bool,
             Operator::Gte => compare_gte_bool,
             Operator::Lte => compare_lte_bool,
-            _ => panic!("unexpected non-comparison op: {:?}", op),
+            _ => unreachable!(),
         }
     } else {
         match op {
@@ -200,16 +200,12 @@ fn get_comparison_handler(op: Operator, is_bool: bool) -> BinopFunc {
             Operator::Lt => compare_lt,
             Operator::Gte => compare_gte,
             Operator::Lte => compare_lte,
-            _ => panic!("unexpected non-comparison op: {:?}", op),
+            _ => unreachable!(),
         }
     }
 }
 
-pub fn get_scalar_binop_handler(op: Operator, is_bool: bool) -> BinopFunc {
-    if op.is_comparison() {
-        return get_comparison_handler(op, is_bool);
-    }
-
+pub const fn get_scalar_binop_handler(op: Operator, is_bool: bool) -> BinopFunc {
     match op {
         Operator::Add => plus,
         Operator::Atan2 => atan2,
@@ -223,7 +219,12 @@ pub fn get_scalar_binop_handler(op: Operator, is_bool: bool) -> BinopFunc {
         Operator::IfNot => if_not,
         Operator::Unless => return_nan,
         Operator::And | Operator::Or => return_left,
-        _ => panic!("unexpected non-comparison op: {:?}", op),
+        Operator::Eql => get_scalar_comparison_handler(Operator::Eql, is_bool),
+        Operator::NotEq => get_scalar_comparison_handler(Operator::NotEq, is_bool),
+        Operator::Gt => get_scalar_comparison_handler(Operator::Gt, is_bool),
+        Operator::Lt => get_scalar_comparison_handler(Operator::Lt, is_bool),
+        Operator::Gte => get_scalar_comparison_handler(Operator::Gte, is_bool),
+        Operator::Lte => get_scalar_comparison_handler(Operator::Lte, is_bool),
     }
 }
 
@@ -255,7 +256,7 @@ pub fn string_compare(a: &str, b: &str, op: Operator, is_bool: bool) -> ParseRes
                 f64::NAN
             };
             Ok(result)
-        },
+        }
         Err(e) => Err(e),
     }
 }

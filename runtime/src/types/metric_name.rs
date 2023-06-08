@@ -2,16 +2,17 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fmt::Display;
-use std::hash::Hash;
+use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 
 use enquote::enquote;
+use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::Xxh3;
 
-use metricsql::common::{AggregateModifier, AggregateModifierOp, GroupModifier, GroupModifierOp};
+use metricsql::common::{AggregateModifier, GroupModifier, GroupModifierOp};
 
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use serde::{Deserialize, Serialize};
+use crate::signature::Signature;
 use crate::utils::{read_string, read_usize, write_string, write_usize};
 
 /// The maximum length of label name.
@@ -20,6 +21,8 @@ use crate::utils::{read_string, read_usize, write_string, write_usize};
 pub const MAX_LABEL_NAME_LEN: usize = 256;
 
 pub const METRIC_NAME_LABEL: &str = "__name__";
+
+const SEP: u8 = 0xff;
 
 // for tag manipulation (removing, adding, etc), name vectors longer than this will be converted to a hashmap
 // for comparison, otherwise we do a linear search
@@ -46,15 +49,16 @@ impl Tag {
     }
 
     fn unmarshal<'a>(&mut self, src: &'a [u8]) -> RuntimeResult<&'a [u8]> {
-        let (src, key ) = read_string(src, "tag key")?;
-        let (src, value ) = read_string(src, "tag value")?;
+        let (src, key) = read_string(src, "tag key")?;
+        let (src, value) = read_string(src, "tag value")?;
         self.key = key;
         self.value = value;
         Ok(src)
     }
 
-    fn update_hash(&self, h: &mut Xxh3) {
+    pub(crate) fn update_hash(&self, h: &mut Xxh3) {
         h.update(self.key.as_bytes());
+        h.write_u8(SEP);
         h.update(self.value.as_bytes());
     }
 }
@@ -86,7 +90,7 @@ impl MetricName {
             metric_group: name.to_string(),
             tags: vec![],
             hash: None,
-            sorted: false,
+            sorted: true,
         }
     }
 
@@ -118,7 +122,7 @@ impl MetricName {
         self.metric_group = "".to_string();
         self.tags.clear();
         self.hash = None;
-        self.sorted = false;
+        self.sorted = true;
     }
 
     pub fn set_metric_group(&mut self, value: &str) {
@@ -131,13 +135,32 @@ impl MetricName {
             self.metric_group = value.into();
             return;
         }
-        let tag = Tag {
-            key: key.to_string(),
-            value: value.into(),
-        };
+        self.upsert(key, value.into());
         self.hash = None;
-        self.sorted = false;
-        self.tags.push(tag);
+    }
+
+    pub fn add_tags_from_hashmap(&mut self, tags: &HashMap<String, String>) {
+        for (key, value) in tags {
+            if key == METRIC_NAME_LABEL {
+                self.metric_group = value.into();
+                return;
+            }
+            self.upsert(key, value.clone());
+        }
+        self.hash = None;
+    }
+
+    fn upsert(&mut self, key: &str, value: String) {
+        match self.tags.binary_search_by_key(&key, |tag| &tag.key) {
+            Ok(idx) => self.tags[idx].value = value,
+            Err(idx) => {
+                let tag = Tag {
+                    key: key.to_string(),
+                    value,
+                };
+                self.tags.insert(idx, tag);
+            }
+        }
     }
 
     /// adds new tag to mn with the given key and value.
@@ -147,16 +170,7 @@ impl MetricName {
             self.hash = None;
             return;
         } else {
-            for dst_tag in self.tags.iter_mut() {
-                if dst_tag.key == key {
-                    dst_tag.value = value.into();
-                    self.hash = None;
-                    return;
-                }
-            }
-            let tag = Tag::new(key, value.into());
-            self.tags.push(tag);
-            self.sorted = false;
+            self.upsert(key, value.into());
         }
     }
 
@@ -168,10 +182,9 @@ impl MetricName {
             let count = self.tags.len();
             self.tags.retain(|x| x.key != key);
             if count != self.tags.len() {
-                self.sorted = false;
+                self.hash = None;
             }
         }
-        self.hash = None;
     }
 
     pub fn has_tag(&self, key: &str) -> bool {
@@ -184,9 +197,9 @@ impl MetricName {
             return Some(&self.metric_group);
         }
         self.tags
-            .iter()
-            .find(|tag| tag.key == key)
-            .and_then(|v| Some(&v.value))
+            .binary_search_by_key(&key, |tag| &tag.key)
+            .ok()
+            .map(|index| &self.tags[index].value)
     }
 
     /// remove_tags_on removes all the tags not included to on_tags.
@@ -211,7 +224,10 @@ impl MetricName {
         if ignoring_tags.is_empty() {
             return;
         }
-        if ignoring_tags.iter().any(|x| x.as_str() == METRIC_NAME_LABEL) {
+        if ignoring_tags
+            .iter()
+            .any(|x| x.as_str() == METRIC_NAME_LABEL)
+        {
             self.reset_metric_group();
         }
 
@@ -246,7 +262,6 @@ impl MetricName {
             }
         }
         self.tags.retain(|tag| set.contains(&tag.key));
-        self.sorted = false;
         self.hash = None;
     }
 
@@ -289,7 +304,10 @@ impl MetricName {
 
     pub(crate) fn marshal_tags_fast(&self, dst: &mut Vec<u8>) {
         // Calculate the required size and pre-allocate space in dst
-        let required_size = self.tags.iter().fold(0, |acc, tag| acc + tag.key.len() + tag.value.len() + 8);
+        let required_size = self
+            .tags
+            .iter()
+            .fold(0, |acc, tag| acc + tag.key.len() + tag.value.len() + 8);
         dst.reserve(required_size + 4);
         write_usize(dst, self.tags.len());
         for tag in self.tags.iter() {
@@ -344,24 +362,18 @@ impl MetricName {
     }
 
     pub fn remove_group_tags(&mut self, modifier: &Option<AggregateModifier>) {
-        let mut group_op = AggregateModifierOp::By;
-        let mut labels = &vec![]; // zero alloc
-
         if let Some(m) = modifier.deref() {
-            group_op = m.op.clone();
-            labels = &m.args
+            match m {
+                AggregateModifier::By(labels) => {
+                    self.remove_tags_on(labels);
+                }
+                AggregateModifier::Without(labels) => {
+                    self.remove_tags(labels);
+                    // Reset metric group as Prometheus does on `aggr(...) without (...)` call.
+                    self.reset_metric_group();
+                }
+            }
         };
-
-        match group_op {
-            AggregateModifierOp::By => {
-                self.remove_tags_on(labels);
-            }
-            AggregateModifierOp::Without => {
-                self.remove_tags(labels);
-                // Reset metric group as Prometheus does on `aggr(...) without (...)` call.
-                self.reset_metric_group();
-            }
-        }
     }
 
     pub(crate) fn count_label_values(&self, hm: &mut HashMap<String, HashMap<String, usize>>) {
@@ -377,22 +389,17 @@ impl MetricName {
         }
     }
 
-    pub fn fast_hash(&self) -> u64 {
-        let mut hasher: Xxh3 = Xxh3::new();
+    pub(crate) fn fast_hash(&self, hasher: &mut Xxh3) -> u64 {
+        hasher.reset();
         hasher.update(self.metric_group.as_bytes());
         for tag in self.tags.iter() {
-            tag.update_hash(&mut hasher);
+            tag.update_hash(hasher);
         }
         hasher.digest()
     }
 
-    pub fn get_hash(&mut self) -> u64 {
-        self.hash.unwrap_or_else(|| {
-            self.sort_tags();
-            let hash = self.fast_hash();
-            self.hash = Some(hash);
-            hash
-        })
+    pub(crate) fn signature(&self) -> Signature {
+        Signature::new(self)
     }
 
     pub fn sort_tags(&mut self) {
@@ -411,28 +418,27 @@ impl MetricName {
     }
 
     /// `names` have to be sorted in ascending order.
-    pub fn hash_with_labels(&self, hasher: &mut Xxh3, names: &[String]) -> u64 {
-        hasher.reset();
-        self.with_labels_iter(names).for_each(|tag| {
-            tag.update_hash(hasher);
-        });
-        hasher.digest()
+    pub fn signature_with_labels(&self, names: &[String]) -> Signature {
+        Signature::from_tag_iter(self.with_labels_iter(names))
     }
 
-    /// `names` have to be sorted in ascending order.
-    pub fn hash_without_labels(
+    pub fn signature_without_labels(&self, names: &[String]) -> Signature {
+        Signature::from_tag_iter(self.without_labels_iter(names))
+    }
+
+    pub fn signature_by_group_modifier(
         &self,
-        hasher: &mut Xxh3,
-        names: &[String],
-    ) -> u64 {
-        hasher.reset();
-        self.without_labels_iter(names).for_each(|tag| {
-            tag.update_hash(hasher);
-        });
-        hasher.digest()
+        modifier: &Option<GroupModifier>,
+    ) -> Signature {
+        match modifier {
+            None => self.signature(),
+            Some(m) => match m.op {
+                GroupModifierOp::On => self.signature_with_labels(m.labels()),
+                GroupModifierOp::Ignoring => self.signature_without_labels(m.labels()),
+            },
+        }
     }
 }
-
 
 fn count_label_value(
     hm: &mut HashMap<String, HashMap<String, usize>>,
@@ -482,20 +488,16 @@ impl PartialOrd for MetricName {
 }
 
 pub struct WithLabelsIterator<'a> {
-    metric_name: &'a MetricName,
-    names: &'a [String],
-    name_idx: usize,
-    tag_idx: usize,
+    tag_iter: std::slice::Iter<'a, Tag>,
+    names_iter: std::slice::Iter<'a, String>,
 }
 
 impl<'a> WithLabelsIterator<'a> {
     pub fn new(metric_name: &'a MetricName, names: &'a [String]) -> Self {
         // todo: sort names here ?
         Self {
-            metric_name,
-            names,
-            name_idx: 0,
-            tag_idx: 0,
+            names_iter: names.iter(),
+            tag_iter: metric_name.tags.iter(),
         }
     }
 }
@@ -504,16 +506,13 @@ impl<'a> Iterator for WithLabelsIterator<'a> {
     type Item = &'a Tag;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while self.tag_idx < self.metric_name.tags.len() {
-            let tag = &self.metric_name.tags[self.tag_idx];
-            while self.name_idx < self.names.len() {
-                let name = &self.names[self.name_idx];
+        while let Some(tag) = self.tag_iter.next() {
+            while let Some(name) = self.names_iter.next() {
                 match name.cmp(&tag.key) {
                     Ordering::Less => {
-                        self.name_idx += 1;
+                        continue;
                     }
                     Ordering::Equal => {
-                        self.tag_idx += 1;
                         return Some(tag);
                     }
                     Ordering::Greater => {
@@ -521,29 +520,24 @@ impl<'a> Iterator for WithLabelsIterator<'a> {
                     }
                 }
             }
-            self.tag_idx += 1;
         }
+
         None
     }
 }
 
-
 pub struct WithoutLabelsIterator<'a> {
-    metric_name: &'a MetricName,
+    tag_iter: std::slice::Iter<'a, Tag>,
     names: &'a [String],
-    name_idx: usize,
-    tag_idx: usize,
-    handled_name: bool,
+    last_name: Option<&'a String>,
 }
 
 impl<'a> WithoutLabelsIterator<'a> {
     pub fn new(metric_name: &'a MetricName, names: &'a [String]) -> Self {
         Self {
-            metric_name,
             names,
-            name_idx: 0,
-            tag_idx: 0,
-            handled_name: false,
+            tag_iter: metric_name.tags.iter(),
+            last_name: names.last(),
         }
     }
 }
@@ -552,24 +546,15 @@ impl<'a> Iterator for WithoutLabelsIterator<'a> {
     type Item = &'a Tag;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while self.tag_idx < self.metric_name.tags.len() {
-            let tag = &self.metric_name.tags[self.tag_idx];
-            while self.name_idx < self.names.len() {
-                let name = &self.names[self.name_idx];
-                match name.cmp(&tag.key) {
-                    Ordering::Less => {
-                        self.name_idx += 1;
-                    },
-                    Ordering::Greater => {
-                        break;
-                    },
-                    Ordering::Equal => {
-                        continue;
-                    }
+        while let Some(tag) = self.tag_iter.next() {
+            if let Some(name) = self.last_name {
+                if &tag.key > name {
+                    return None;
                 }
             }
-            self.tag_idx += 1;
-            return Some(tag);
+            if !self.names.contains(&tag.key) {
+                return Some(tag);
+            }
         }
         None
     }

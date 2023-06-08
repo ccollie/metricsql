@@ -85,18 +85,22 @@ impl TreeNode for Expr {
         let expr = match self {
             Expr::Aggregation(AggregationExpr {
                 name,
+                function,
                 args,
                 modifier,
                 limit,
                 keep_metric_names,
                 arg_idx_for_optimization,
+                can_incrementally_eval,
             }) => Expr::Aggregation(AggregationExpr {
                 name,
+                function,
                 args: transform_vec(args, &mut transform)?,
                 modifier,
                 limit,
                 keep_metric_names,
                 arg_idx_for_optimization,
+                can_incrementally_eval,
             }),
             Expr::BinaryOperator(BinaryExpr {
                 group_modifier,
@@ -124,7 +128,7 @@ impl TreeNode for Expr {
                 keep_metric_names,
                 is_scalar,
                 arg_idx_for_optimization,
-                function_type,
+                function,
                 return_type,
             }) => Expr::Function(FunctionExpr {
                 name,
@@ -132,7 +136,7 @@ impl TreeNode for Expr {
                 keep_metric_names,
                 is_scalar,
                 arg_idx_for_optimization,
-                function_type,
+                function,
                 return_type,
             }),
             Expr::Number(_) => self.clone(),

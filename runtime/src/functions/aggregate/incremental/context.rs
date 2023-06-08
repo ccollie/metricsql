@@ -1,6 +1,7 @@
 use crate::functions::aggregate::Handler;
 use crate::{RuntimeResult, Timeseries};
 use metricsql::ast::AggregationExpr;
+use metricsql::functions::AggregateFunction;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -32,6 +33,28 @@ impl TryFrom<&str> for IncrementalAggrFuncKind {
             "any" => Ok(IncrementalAggrFuncKind::Any),
             "group" => Ok(IncrementalAggrFuncKind::Group),
             _ => Err(format!("unknown incremental aggregate function: {}", value)),
+        }
+    }
+}
+
+impl TryFrom<AggregateFunction> for IncrementalAggrFuncKind {
+    type Error = String;
+
+    fn try_from(value: AggregateFunction) -> Result<Self, Self::Error> {
+        match value {
+            AggregateFunction::Count => Ok(IncrementalAggrFuncKind::Count),
+            AggregateFunction::GeoMean => Ok(IncrementalAggrFuncKind::Geomean),
+            AggregateFunction::Min => Ok(IncrementalAggrFuncKind::Min),
+            AggregateFunction::Max => Ok(IncrementalAggrFuncKind::Max),
+            AggregateFunction::Avg => Ok(IncrementalAggrFuncKind::Avg),
+            AggregateFunction::Sum => Ok(IncrementalAggrFuncKind::Sum),
+            AggregateFunction::Sum2 => Ok(IncrementalAggrFuncKind::Sum2),
+            AggregateFunction::Any => Ok(IncrementalAggrFuncKind::Any),
+            AggregateFunction::Group => Ok(IncrementalAggrFuncKind::Group),
+            _ => Err(format!(
+                "unknown incremental aggregate function: {:?}",
+                value
+            )),
         }
     }
 }

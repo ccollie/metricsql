@@ -1,11 +1,11 @@
 use crate::eval::eval_number;
 use crate::functions::types::get_single_timeseries;
+use crate::utils::format_number;
 use crate::{EvalConfig, RuntimeError, RuntimeResult, Timeseries};
 use metricsql::common::{Value, ValueType};
 use std::borrow::Cow;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
-use crate::utils::format_number;
 
 #[derive(Debug, PartialEq)]
 pub enum QueryValue {

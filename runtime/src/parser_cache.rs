@@ -2,8 +2,8 @@ use lru_time_cache::LruCache;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use metricsql::ast::Expr;
-use metricsql::optimize;
+use metricsql::ast::{optimize, Expr};
+use metricsql::parser;
 use metricsql::parser::ParseError;
 
 use crate::eval::{create_evaluator, ExprEvaluator};
@@ -87,9 +87,9 @@ impl ParseCache {
     }
 
     fn parse_internal(q: &str) -> ParseCacheValue {
-        match metricsql::parser::parse(q) {
+        match parser::parse(q) {
             Ok(expr) => {
-                let optimized = optimize::optimize(expr);
+                let optimized = optimize(expr);
                 if let Ok(expression) = optimized {
                     match create_evaluator(&expression) {
                         Ok(evaluator) => {

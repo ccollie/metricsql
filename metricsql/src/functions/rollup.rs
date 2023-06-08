@@ -2,12 +2,12 @@ use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 use phf::phf_map;
+use serde::{Deserialize, Serialize};
 
 use crate::common::ValueType;
-use crate::functions::signature::{Signature, Volatility};
 use crate::functions::MAX_ARG_COUNT;
+use crate::functions::signature::{Signature, Volatility};
 use crate::parser::ParseError;
-use serde::{Deserialize, Serialize};
 
 /// Built-in Rollup Functions
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Hash, Serialize, Deserialize)]
@@ -82,7 +82,8 @@ pub enum RollupFunction {
     // in order to properly handle offset and timestamps unaligned to the current step.
     // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/415 for details.
     Timestamp,
-    TimestampWithName, // + rollupFuncsKeepMetricName
+    TimestampWithName,
+    // + rollupFuncsKeepMetricName
     TLastChangeOverTime,
     TLastOverTime,
     TMaxOverTime,
@@ -92,7 +93,13 @@ pub enum RollupFunction {
 
 impl Display for RollupFunction {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let display = match self {
+        write!(f, "{}", self.name())
+    }
+}
+
+impl RollupFunction {
+    pub fn name(&self) -> &'static str {
+        match self {
             RollupFunction::AbsentOverTime => "absent_over_time",
             RollupFunction::AggrOverTime => "aggr_over_time",
             RollupFunction::AscentOverTime => "ascent_over_time",
@@ -166,14 +173,7 @@ impl Display for RollupFunction {
             RollupFunction::TMaxOverTime => "tmax_over_time",
             RollupFunction::TMinOverTime => "tmin_over_time",
             RollupFunction::ZScoreOverTime => "zscore_over_time",
-        };
-        write!(f, "{}", display)
-    }
-}
-
-impl RollupFunction {
-    pub fn name(&self) -> String {
-        self.to_string()
+        }
     }
 
     /// the signatures supported by the function `fun`.
@@ -476,7 +476,6 @@ pub fn get_rollup_arg_idx_for_optimization(
     // This must be kept in sync with GetRollupArgIdx()
     use RollupFunction::*;
     match func {
-        AbsentOverTime => None,
         QuantileOverTime | AggrOverTime | HoeffdingBoundLower | HoeffdingBoundUpper => Some(1),
         QuantilesOverTime => Some(arg_count - 1),
         _ => Some(0),

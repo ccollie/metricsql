@@ -9,6 +9,7 @@ chrono = { workspace = true }
 enquote = { workspace = true }
 logos = "0.13.0"
 logos-derive = "0.13.0"
+num-traits = { workspace = true }
 phf = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true }

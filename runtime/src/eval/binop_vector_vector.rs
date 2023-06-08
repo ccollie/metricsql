@@ -1,32 +1,28 @@
 use std::borrow::Cow;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::btree_set::BTreeSet;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use regex::escape;
-use tracing::{field, trace, trace_span, Span};
+use tracing::{field, Span, trace, trace_span};
 
-use metricsql::ast::*;
 use metricsql::common::{LabelFilter, Operator, Value, ValueType};
 use metricsql::functions::Volatility;
-use metricsql::optimize::trim_filters_by_group_modifier;
+use metricsql::prelude::*;
 
-use crate::context::Context;
-use crate::eval::binop_handlers::{
-    get_binary_op_func, BinaryOpFn, BinaryOpFuncArg, BinaryOpFuncResult,
-};
-use crate::eval::traits::Evaluator;
-use crate::eval::{create_evaluator, eval_number, ExprEvaluator};
-use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::{EvalConfig, QueryValue, Timeseries};
-
+use crate::context::Context;
+use crate::eval::{create_evaluator, eval_number, ExprEvaluator};
+use crate::eval::binop_handlers::{BinaryOpFuncArg, exec_binop};
+use crate::eval::traits::Evaluator;
 use crate::eval::utils::series_len;
+use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::types::Tag;
 
 pub struct BinaryEvaluatorVectorVector {
     expr: BinaryExpr,
     lhs: Box<ExprEvaluator>,
     rhs: Box<ExprEvaluator>,
-    handler: Arc<dyn BinaryOpFn<Output = BinaryOpFuncResult>>,
     can_pushdown_filters: bool,
     can_parallelize: bool,
     /// Determine if we should fetch right-side series at first, since it usually contains
@@ -42,7 +38,6 @@ impl BinaryEvaluatorVectorVector {
         let lhs = Box::new(create_evaluator(&expr.left)?);
         let rhs = Box::new(create_evaluator(&expr.right)?);
         let can_pushdown_filters = can_pushdown_common_filters(expr);
-        let handler = get_binary_op_func(expr.op, expr.bool_modifier);
         let rv = expr.return_type();
         let return_type = ValueType::try_from(rv).unwrap_or(ValueType::InstantVector);
         let can_parallelize = should_parallelize(&expr);
@@ -53,7 +48,6 @@ impl BinaryEvaluatorVectorVector {
             lhs,
             rhs,
             expr: expr.clone(), // todo: store as arc on parse result and clone Arc
-            handler,
             can_pushdown_filters,
             can_parallelize,
             return_type,
@@ -207,13 +201,9 @@ impl Evaluator for BinaryEvaluatorVectorVector {
             BinaryOpFuncArg::new(left_series, &self.expr, right_series)
         };
 
-        let result = match (self.handler)(&mut bfa) {
-            Err(err) => Err(RuntimeError::from(format!(
-                "cannot evaluate {}: {:?}",
-                &self.expr, err
-            ))),
-            Ok(v) => Ok(QueryValue::InstantVector(v)),
-        }?;
+        let result = exec_binop(&mut bfa)
+            .map_err(|err| RuntimeError::from(format!("cannot evaluate {}: {:?}", &self.expr, err)))
+            .and_then(|v| Ok(QueryValue::InstantVector(v)))?;
 
         if is_tracing {
             let series_count = series_len(&result);
@@ -279,7 +269,7 @@ fn is_aggr_func_without_grouping(e: &Expr) -> bool {
     match e {
         Expr::Aggregation(afe) => {
             if let Some(modifier) = &afe.modifier {
-                modifier.args.len() == 0
+                modifier.is_empty()
             } else {
                 true
             }
@@ -290,17 +280,18 @@ fn is_aggr_func_without_grouping(e: &Expr) -> bool {
 
 pub(super) fn get_common_label_filters(tss: &[Timeseries]) -> Vec<LabelFilter> {
     // todo(perf): use fnv or xxxhash
-    let mut m: HashMap<String, BTreeSet<String>> = HashMap::new();
+    let mut kv_map: HashMap<String, BTreeSet<String>> = HashMap::new();
     for ts in tss.iter() {
         for Tag { key: k, value: v } in ts.metric_name.tags.iter() {
-            m.entry(k.to_string())
+            kv_map
+                .entry(k.to_string())
                 .or_insert_with(BTreeSet::new)
                 .insert(v.to_string());
         }
     }
 
-    let mut lfs: Vec<LabelFilter> = Vec::with_capacity(m.len());
-    for (key, values) in m {
+    let mut lfs: Vec<LabelFilter> = Vec::with_capacity(kv_map.len());
+    for (key, values) in kv_map {
         if values.len() != tss.len() {
             // Skip the tag, since it doesn't belong to all the time series.
             continue;

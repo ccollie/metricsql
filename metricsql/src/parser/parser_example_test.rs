@@ -21,7 +21,7 @@ mod tests {
 
     fn show_func_expr(fe: &FunctionExpr) {
         let arg = fe.args.get(0).expect("fe.args[0] should not be None");
-        println!("func: name={}, arg={}\n", fe.name, arg);
+        println!("func: name={}, arg={}\n", fe.function, arg);
         match arg.deref() {
             Expr::Rollup(re) => show_rollup(re),
             _ => {
@@ -47,7 +47,7 @@ mod tests {
     fn show_metric_expr(me: &MetricExpr) {
         println!(
             "metric: labelFilter1={}, labelFilter2={}",
-            me.label_filter_expressions[0], me.label_filter_expressions[1]
+            me.label_filters[0], me.label_filters[1]
         );
     }
 
