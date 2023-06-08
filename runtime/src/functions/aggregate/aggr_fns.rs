@@ -5,6 +5,7 @@ use std::sync::{Arc, OnceLock};
 
 use lockfree_object_pool::LinearReusable;
 use tinyvec::*;
+use xxhash_rust::xxh3::Xxh3;
 
 use crate::eval::eval_number;
 use crate::exec::remove_empty_series;
@@ -66,10 +67,12 @@ macro_rules! create_simple_fn {
     };
 }
 
-static HANDLERS: OnceLock<HashMap<AggregateFunction, Arc<dyn AggrFn<Output = AggrFunctionResult>>>>
-    = OnceLock::new();
+static HANDLERS: OnceLock<
+    HashMap<AggregateFunction, Arc<dyn AggrFn<Output = AggrFunctionResult>>>,
+> = OnceLock::new();
 
-fn create_handler_map() -> HashMap<AggregateFunction, Arc<dyn AggrFn<Output = AggrFunctionResult>>> {
+fn create_handler_map() -> HashMap<AggregateFunction, Arc<dyn AggrFn<Output = AggrFunctionResult>>>
+{
     use AggregateFunction::*;
 
     let mut m: HashMap<AggregateFunction, Arc<dyn AggrFn<Output = AggrFunctionResult>>> =
@@ -111,7 +114,7 @@ fn create_handler_map() -> HashMap<AggregateFunction, Arc<dyn AggrFn<Output = Ag
     m.insert(OutliersMAD, create_aggr_func(OutliersMAD));
     m.insert(Mode, create_aggr_func(Mode));
     m.insert(ZScore, create_aggr_func(ZScore));
-    
+
     m
 }
 
@@ -419,6 +422,7 @@ fn aggr_func_max(tss: &mut Vec<Timeseries>) {
 
     for i in 0..tss[0].values.len() {
         let max = tss[0].values[i];
+
         for j in 0..tss.len() {
             let v = tss[j].values[i];
             if max.is_nan() || v > max {
@@ -826,8 +830,7 @@ fn get_remaining_sum_timeseries(
         let mut sum: f64 = 0.0;
         let mut count = 0;
 
-        for j in 0..tss.len() - kn {
-            let ts = &tss[j];
+        for ts in &tss[0..tss.len() - kn] {
             let v = ts.values[i];
             if v.is_nan() {
                 continue;
@@ -835,6 +838,7 @@ fn get_remaining_sum_timeseries(
             sum += v;
             count = count + 1;
         }
+
         if count == 0 {
             sum = f64::NAN;
         }
@@ -846,10 +850,9 @@ fn get_remaining_sum_timeseries(
 fn fill_nans_at_idx(idx: usize, k: f64, tss: &mut Vec<Timeseries>) {
     let kn = get_int_k(k, tss.len());
 
-    let mut i = 0;
-    while i < tss.len() - kn {
-        tss[i].values[idx] = f64::NAN;
-        i += 1;
+    let len = tss.len() - kn;
+    for ts in tss[0..len].iter_mut() {
+        ts.values[idx] = f64::NAN;
     }
 }
 
@@ -925,8 +928,8 @@ fn aggr_func_outliersk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> 
         // Return topK time series with the highest variance from median.
         let f = |values: &[f64]| -> f64 {
             let mut sum2 = 0_f64;
-            for (n, v) in values.iter().enumerate() {
-                let d = v - medians[n];
+            for (v, median) in values.iter().zip(medians.iter()) {
+                let d = v - median;
                 sum2 += d * d;
             }
             sum2
@@ -952,11 +955,12 @@ fn aggr_func_limitk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let afe = |tss: &mut Vec<Timeseries>, _modifier: &Option<AggregateModifier>| {
         let mut map: BTreeMap<u64, Timeseries> = BTreeMap::new();
 
+        let mut hasher = Xxh3::new();
         // Sort series by metricName hash in order to get consistent set of output series
         // across multiple calls to limitk() function.
         // Sort series by hash in order to guarantee uniform selection across series.
         for ts in tss.into_iter() {
-            let digest = ts.metric_name.fast_hash();
+            let digest = ts.metric_name.fast_hash(&mut hasher);
             map.insert(digest, std::mem::take(ts));
         }
 
@@ -972,8 +976,8 @@ fn aggr_func_quantiles(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> 
     let dst_label = afa.args[0].get_string()?;
 
     let mut phis: Vec<f64> = Vec::with_capacity(afa.args.len() - 2);
-    for i in 1..afa.args.len() - 1 {
-        phis.push(afa.args[i].get_scalar()?);
+    for arg in afa.args[1..afa.args.len() - 1].iter() {
+        phis.push(arg.get_scalar()?);
     }
 
     let afe = |tss: &mut Vec<Timeseries>, _modifier: &Option<AggregateModifier>| {
@@ -1061,18 +1065,16 @@ fn aggr_func_outliers_mad(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries
         // Calculate MAD values multiplied by tolerance for each point across tss.
         // See https://en.wikipedia.org/wiki/Median_absolute_deviation
         let mut mads = get_per_point_mads(tss, &medians);
-        let mut n = 0;
-        for mad in mads.iter_mut() {
-            *mad *= tolerances[n];
-            n += 1;
+
+        for (mad, tolerance) in mads.iter_mut().zip(tolerances.iter()) {
+            *mad *= tolerance;
         }
 
         // Leave only time series with at least a single peak above the MAD multiplied by tolerance.
         tss.retain(|ts| {
-            for (n, v) in ts.values.iter().enumerate() {
-                let ad = (v - medians[n]).abs();
-                let mad = mads[n];
-                if ad > mad {
+            for ((v, median), mad) in ts.values.iter().zip(medians.iter()).zip(mads.iter()) {
+                let ad = (v - median).abs();
+                if ad > *mad {
                     return true;
                 }
             }

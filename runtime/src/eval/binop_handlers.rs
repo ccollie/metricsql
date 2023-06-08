@@ -1,8 +1,8 @@
 use lib::BuildNoHashHasher;
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
+use xxhash_rust::xxh3::Xxh3;
 
-use crate::eval::hash_helper::HashHelper;
 use crate::eval::utils::remove_empty_series;
 use metricsql::ast::BinaryExpr;
 use metricsql::binaryop::{get_scalar_binop_handler, BinopFunc};
@@ -71,7 +71,6 @@ fn create_handler_map() -> HashMap<String, BinaryOpFnImplementation> {
     m.insert(Default.to_string(), Arc::new(binary_op_default));
     m
 }
-
 
 pub(super) fn get_binary_op_func(op: Operator, is_bool: bool) -> BinaryOpFnImplementation {
     use Operator::*;
@@ -260,7 +259,7 @@ fn group_join(
         right: Timeseries,
     }
 
-    let mut hash_helper = HashHelper::new(&be.group_modifier);
+    let mut hasher = Xxh3::new();
 
     let mut map: HashMap<u64, TsPair, BuildNoHashHasher<u64>> =
         HashMap::with_capacity_and_hasher(tss_left.len(), BuildNoHashHasher::default());
@@ -295,7 +294,9 @@ fn group_join(
                 .metric_name
                 .set_tags(join_tags, &mut ts_right.metric_name);
 
-            let key = hash_helper.hash(&mut ts_copy.metric_name);
+            let key = ts_copy
+                .metric_name
+                .get_hash_by_group_modifier(&mut hasher, &be.group_modifier);
 
             // todo: check specifically for error
             // todo: Entry API is not ideal here, we don't need to copy the key
@@ -597,14 +598,15 @@ fn add_left_nans_if_no_right_nans(tss_left: &mut Vec<Timeseries>, tss_right: &Ve
 }
 
 fn get_tags_map_with_fn<'a>(
-    hash_helper: &mut HashHelper<'a>,
+    hasher: &mut Xxh3,
     arg: &mut Vec<Timeseries>,
+    modifier: &Option<GroupModifier>,
 ) -> TimeseriesHashMap {
     let mut m: TimeseriesHashMap =
         HashMap::with_capacity_and_hasher(arg.len(), BuildNoHashHasher::default());
 
     for ts in arg.into_iter() {
-        let key = hash_helper.hash(&mut ts.metric_name);
+        let key = ts.metric_name.get_hash_by_group_modifier(hasher, modifier);
         m.entry(key).or_insert(vec![]).push(std::mem::take(ts));
     }
 
@@ -614,10 +616,11 @@ fn get_tags_map_with_fn<'a>(
 fn create_timeseries_map_by_tag_set(
     bfa: &mut BinaryOpFuncArg,
 ) -> (TimeseriesHashMap, TimeseriesHashMap) {
-    let mut hasher = HashHelper::new(&bfa.be.group_modifier);
+    let mut hasher = Xxh3::new();
 
-    let m_left = get_tags_map_with_fn(&mut hasher, &mut bfa.left);
-    let m_right = get_tags_map_with_fn(&mut hasher, &mut bfa.right);
+    let modifier = &bfa.be.group_modifier;
+    let m_left = get_tags_map_with_fn(&mut hasher, &mut bfa.left, modifier);
+    let m_right = get_tags_map_with_fn(&mut hasher, &mut bfa.right, modifier);
     return (m_left, m_right);
 }
 

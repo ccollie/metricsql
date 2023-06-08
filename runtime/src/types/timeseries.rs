@@ -1,11 +1,5 @@
 use std::fmt::Debug;
-use std::mem::size_of;
 use std::sync::Arc;
-
-use byte_slice_cast::{AsByteSlice, AsSliceOf};
-use integer_encoding::VarInt;
-
-use lib::{marshal_var_int, unmarshal_u16};
 
 use super::MetricName;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
@@ -74,255 +68,14 @@ impl Timeseries {
         self.values.len()
     }
 
-    /// unmarshal_timeseries_fast unmarshals timeseries from src.
-    ///
-    /// The returned timeseries refer to src, so it is unsafe to modify it
-    /// until timeseries are in use.
-    pub fn unmarshal_fast(src: &[u8]) -> RuntimeResult<Vec<Timeseries>> {
-        let mut timestamps: Vec<i64> = Vec::with_capacity(4);
-        let mut src = unmarshal_fast_timestamps(src, &mut timestamps)?;
-
-        let mut tss: Vec<Timeseries> = Vec::with_capacity(1);
-        let timestamps: Arc<Vec<i64>> = Arc::new(timestamps.into());
-
-        while src.len() > 0 {
-            let (ts, tail) = Timeseries::unmarshal_fast_no_timestamps(src, &timestamps)?;
-            src = tail;
-
-            tss.push(ts)
-        }
-
-        Ok(tss)
-    }
-
-    /// appends marshaled ts to dst and returns the result.
-    ///
-    /// It doesn't marshal timestamps.
-    ///
-    /// The result must be unmarshalled with unmarshal_fast_no_timestamps.
-    pub fn marshal_fast_no_timestamps(&self, dst: &mut Vec<u8>) {
-        // There is no need in tags' sorting - they must be sorted after unmarshalling.
-        self.metric_name.marshal(dst);
-
-        // do not marshal ts.values.len(), since it is already encoded as ts.timestamps.len()
-        // during marshal_fast_timestamps.
-        if self.values.len() > 0 {
-            let values_buf = self.values.as_byte_slice();
-            dst.extend_from_slice(values_buf);
-        }
-    }
-
-    /// marshaled_fast_size_no_timestamps returns the size of marshaled ts
-    /// returned from marshal_fast_no_timestamps.
-    pub fn marshaled_fast_size_no_timestamps(&self) -> usize {
-        let mut n = self.metric_name.serialized_size();
-        n += size_of::<f64>() * self.values.len();
-        return n;
-    }
-
-    /// unmarshalFastNoTimestamps unmarshal ts from src, so ts members reference src.
-    ///
-    /// It is expected that ts.timestamps is already unmarshalled.
-    pub fn unmarshal_fast_no_timestamps<'a>(
-        src: &'a [u8],
-        timestamps: &Arc<Vec<i64>>,
-    ) -> RuntimeResult<(Timeseries, &'a [u8])> {
-        let (tail, metric_name) = MetricName::unmarshal(src)?;
-        let src = tail;
-
-        let mut ts = Timeseries {
-            metric_name,
-            values: vec![],
-            timestamps: Arc::clone(&timestamps),
-        };
-
-        if timestamps.len() == 0 {
-            return Ok((ts, src));
-        }
-
-        let buf_size = timestamps.len() * 8;
-        if src.len() < buf_size {
-            return Err(RuntimeError::SerializationError(format!(
-                "cannot unmarshal values; got {} bytes; want at least {} bytes",
-                src.len(),
-                buf_size
-            )));
-        }
-
-        match src[0..buf_size].as_slice_of::<f64>() {
-            Err(e) => {
-                return Err(RuntimeError::SerializationError(format!(
-                    "cannot unmarshal Timestamp::values from byte slice: {:?}",
-                    e
-                )));
-            }
-            Ok(values) => {
-                ts.values = Vec::from(values);
-            }
-        }
-
-        let src = &src[buf_size..];
-
-        Ok((ts, src))
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty()
     }
 
     #[inline]
     pub fn tag_count(&self) -> usize {
         self.metric_name.tags.len()
     }
-}
-
-pub fn marshal_timeseries_fast(
-    dst: &mut Vec<u8>,
-    tss: &[Timeseries],
-    max_size: usize,
-    step: i64,
-) -> RuntimeResult<()> {
-    if tss.len() == 0 {
-        return Err(RuntimeError::ArgumentError(
-            "BUG: tss cannot be empty".to_string(),
-        ));
-    }
-
-    // Calculate the required size for marshaled tss.
-    let mut size = 0;
-    for ts in tss {
-        size += ts.marshaled_fast_size_no_timestamps()
-    }
-    // timestamps are stored only once for all the tss, since they are identical.
-    assert_identical_timestamps(tss, step)?;
-    size += 8 * tss[0].timestamps.len();
-
-    if size > max_size {
-        // do not marshal tss, since it would occupy too much space
-        return Ok(());
-    }
-
-    // Allocate the buffer for the marshaled tss before its' marshaling.
-    // This should reduce memory fragmentation and memory usage.
-    dst.reserve(size);
-    marshal_fast_timestamps(dst, &tss[0].timestamps);
-    for ts in tss {
-        ts.marshal_fast_no_timestamps(dst);
-    }
-    Ok(())
-}
-
-/// unmarshal_timeseries_fast unmarshals timeseries from src.
-pub(crate) fn unmarshal_timeseries_fast(src: &[u8]) -> RuntimeResult<Vec<Timeseries>> {
-    let mut timestamps: Vec<i64> = Vec::with_capacity(4);
-    let tail = unmarshal_fast_timestamps(src, &mut timestamps)?;
-    let mut src = tail;
-
-    let mut tss: Vec<Timeseries> = Vec::with_capacity(1);
-    let shared_timestamps: Arc<Vec<i64>> = Arc::new(timestamps.into());
-
-    while src.len() > 0 {
-        let (ts, tail) = Timeseries::unmarshal_fast_no_timestamps(src, &shared_timestamps)?;
-        tss.push(ts);
-        src = tail;
-    }
-
-    Ok(tss)
-}
-
-pub fn marshal_fast_timestamps(dst: &mut Vec<u8>, timestamps: &Vec<i64>) {
-    marshal_var_int(dst, timestamps.len());
-    if timestamps.len() > 0 {
-        let timestamps_buf = timestamps.as_byte_slice();
-        dst.extend_from_slice(timestamps_buf);
-    }
-}
-
-/// it is unsafe modifying src while the returned timestamps is in use.
-pub fn unmarshal_fast_timestamps<'a>(src: &'a [u8], dst: &mut Vec<i64>) -> RuntimeResult<&'a [u8]> {
-    unmarshal_fast_values(src, dst)
-}
-
-pub fn unmarshal_fast_values<'a, T>(src: &'a [u8], dst: &mut Vec<T>) -> RuntimeResult<&'a [u8]>
-where
-    T: Clone + byte_slice_cast::FromByteSlice,
-{
-    if src.len() < 4 {
-        return Err(RuntimeError::from(format!(
-            "cannot decode len(values); got {} bytes; want at least {} bytes",
-            src.len(),
-            4
-        )));
-    }
-
-    let mut src = src;
-    let mut item_count: usize = 0;
-
-    match i32::decode_var(src) {
-        Some((v, size)) => {
-            src = &src[size..];
-            item_count = v as usize;
-        }
-        None => {}
-    }
-
-    let mut src = &src[4..];
-    if item_count == 0 {
-        return Ok(src);
-    }
-
-    let buf_size = item_count * 8;
-    if src.len() < buf_size {
-        return Err(RuntimeError::from(format!(
-            "cannot unmarshal values; got {} bytes; want at least {} bytes",
-            src.len(),
-            buf_size
-        )));
-    }
-
-    let buf = &src[0..buf_size];
-    dst.extend_from_slice(buf.as_slice_of::<T>().unwrap());
-    src = &src[buf_size..];
-
-    Ok(src)
-}
-
-
-pub fn marshal_bytes_fast(dst: &mut Vec<u8>, s: &[u8]) {
-    marshal_var_int::<usize>(dst, s.len());
-    dst.extend_from_slice(s);
-}
-
-pub fn unmarshal_bytes_fast(src: &[u8]) -> RuntimeResult<(&[u8], &[u8])> {
-    if src.len() < 2 {
-        return Err(RuntimeError::SerializationError(format!(
-            "cannot decode size; it must be at least 2 bytes"
-        )));
-    }
-
-    match unmarshal_u16(src) {
-        Ok((len, tail)) => {
-            if tail.len() < len as usize {
-                return Err(RuntimeError::SerializationError(format!(
-                    "too short src; it must be at least {} bytes",
-                    len
-                )));
-            }
-            Ok(src.split_at(len as usize))
-        }
-        Err(_) => {
-            return Err(RuntimeError::SerializationError(
-                "error reading byte length".to_string(),
-            ));
-        }
-    }
-}
-
-/// returns a copy of arg with shallow copies of MetricNames,
-/// Timestamps and values.
-pub(crate) fn copy_timeseries_shallow(arg: &Vec<Timeseries>) -> Vec<Timeseries> {
-    let mut rvs: Vec<Timeseries> = Vec::with_capacity(arg.len());
-    for src in arg.iter() {
-        let dst = Timeseries::copy_from_shallow_timestamps(&src);
-        rvs.push(dst);
-    }
-    return rvs;
 }
 
 pub(crate) fn assert_identical_timestamps(tss: &[Timeseries], step: i64) -> RuntimeResult<()> {
@@ -332,7 +85,7 @@ pub(crate) fn assert_identical_timestamps(tss: &[Timeseries], step: i64) -> Runt
     let ts_golden = &tss[0];
     if ts_golden.values.len() != ts_golden.timestamps.len() {
         let msg = format!(
-            "BUG: ts_golden.values.leen() must match ts_golden.timestamps.len(); got {} vs {}",
+            "BUG: ts_golden.values.len() must match ts_golden.timestamps.len(); got {} vs {}",
             ts_golden.values.len(),
             ts_golden.timestamps.len()
         );
@@ -340,7 +93,7 @@ pub(crate) fn assert_identical_timestamps(tss: &[Timeseries], step: i64) -> Runt
     }
     if ts_golden.timestamps.len() > 0 {
         let mut prev_timestamp = ts_golden.timestamps[0];
-        for timestamp in ts_golden.timestamps[1..].iter() {
+        for timestamp in ts_golden.timestamps.iter().skip(1) {
             if timestamp - prev_timestamp != step {
                 let msg = format!(
                     "BUG: invalid step between timestamps; got {}; want {};",
@@ -379,10 +132,7 @@ pub(crate) fn assert_identical_timestamps(tss: &[Timeseries], step: i64) -> Runt
         }
         for (ts, golden) in ts.timestamps.iter().zip(ts_golden.timestamps.iter()) {
             if ts != golden {
-                let msg = format!(
-                    "BUG: timestamps mismatch; got {}; want {};",
-                    ts, golden
-                );
+                let msg = format!("BUG: timestamps mismatch; got {}; want {};", ts, golden);
                 return Err(RuntimeError::from(msg));
             }
         }

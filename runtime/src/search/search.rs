@@ -160,8 +160,6 @@ pub struct QueryResults {
     signal: Arc<AtomicU32>,
 }
 
-pub(crate) type SearchParallelFn = fn(rs: &mut QueryResult, worker_id: u64) -> RuntimeResult<()>;
-
 impl Default for QueryResults {
     fn default() -> Self {
         Self {

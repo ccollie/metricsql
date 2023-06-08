@@ -12,7 +12,7 @@ mod tests {
         rollup_changes, rollup_changes_prometheus, rollup_count, rollup_default, rollup_delta,
         rollup_delta_prometheus, rollup_deriv_fast, rollup_deriv_slow, rollup_distinct,
         rollup_first, rollup_idelta, rollup_ideriv, rollup_integrate, rollup_lag, rollup_last,
-        rollup_lifetime, rollup_mad, rollup_max, rollup_min, rollup_mode_over_time,
+        rollup_lifetime, rollup_max, rollup_min, rollup_mode_over_time,
         rollup_rate_over_sum, rollup_resets, rollup_scrape_interval, rollup_stddev, rollup_sum,
         rollup_zscore_over_time,
     };
@@ -570,7 +570,7 @@ mod tests {
         let f = |func_name: &str, args: &[QueryValue]| {
             let nrf = get_rollup_function_factory_by_name(func_name).unwrap();
             let args = Vec::from(args);
-            let rf = (nrf)(&args);
+            let _rf = (nrf)(&args);
             // if rf != nil {
             //     panic!("expecting nil rf; got {}", rf)
             // }

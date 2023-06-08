@@ -65,21 +65,16 @@ pub fn remove_nan_values_in_place(values: &mut Vec<f64>, timestamps: &mut Vec<i6
 
 #[inline]
 pub fn get_first_non_nan_index(values: &[f64]) -> usize {
-    let mut i = 0;
-    while i < values.len() && values[i].is_nan() {
-        i += 1;
+    for (index, v) in values.iter().enumerate() {
+        if !v.is_nan() {
+            return index;
+        }
     }
-    i
+    0
 }
 
 pub fn skip_leading_nans(values: &[f64]) -> &[f64] {
-    let mut i = 0;
-    for (index, v) in values.iter().enumerate() {
-        if !v.is_nan() {
-            i = index;
-            break;
-        }
-    }
+    let i = get_first_non_nan_index(values);
     return &values[i..];
 }
 

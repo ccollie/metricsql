@@ -11,8 +11,8 @@ use xxhash_rust::xxh3::Xxh3;
 use metricsql::common::{AggregateModifier, AggregateModifierOp, GroupModifier, GroupModifierOp};
 
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use serde::{Deserialize, Serialize};
 use crate::utils::{read_string, read_usize, write_string, write_usize};
+use serde::{Deserialize, Serialize};
 
 /// The maximum length of label name.
 ///
@@ -46,8 +46,8 @@ impl Tag {
     }
 
     fn unmarshal<'a>(&mut self, src: &'a [u8]) -> RuntimeResult<&'a [u8]> {
-        let (src, key ) = read_string(src, "tag key")?;
-        let (src, value ) = read_string(src, "tag value")?;
+        let (src, key) = read_string(src, "tag key")?;
+        let (src, value) = read_string(src, "tag value")?;
         self.key = key;
         self.value = value;
         Ok(src)
@@ -211,7 +211,10 @@ impl MetricName {
         if ignoring_tags.is_empty() {
             return;
         }
-        if ignoring_tags.iter().any(|x| x.as_str() == METRIC_NAME_LABEL) {
+        if ignoring_tags
+            .iter()
+            .any(|x| x.as_str() == METRIC_NAME_LABEL)
+        {
             self.reset_metric_group();
         }
 
@@ -289,7 +292,10 @@ impl MetricName {
 
     pub(crate) fn marshal_tags_fast(&self, dst: &mut Vec<u8>) {
         // Calculate the required size and pre-allocate space in dst
-        let required_size = self.tags.iter().fold(0, |acc, tag| acc + tag.key.len() + tag.value.len() + 8);
+        let required_size = self
+            .tags
+            .iter()
+            .fold(0, |acc, tag| acc + tag.key.len() + tag.value.len() + 8);
         dst.reserve(required_size + 4);
         write_usize(dst, self.tags.len());
         for tag in self.tags.iter() {
@@ -377,11 +383,11 @@ impl MetricName {
         }
     }
 
-    pub fn fast_hash(&self) -> u64 {
-        let mut hasher: Xxh3 = Xxh3::new();
+    pub(crate) fn fast_hash(&self, hasher: &mut Xxh3) -> u64 {
+        hasher.reset();
         hasher.update(self.metric_group.as_bytes());
         for tag in self.tags.iter() {
-            tag.update_hash(&mut hasher);
+            tag.update_hash(hasher);
         }
         hasher.digest()
     }
@@ -389,7 +395,8 @@ impl MetricName {
     pub fn get_hash(&mut self) -> u64 {
         self.hash.unwrap_or_else(|| {
             self.sort_tags();
-            let hash = self.fast_hash();
+            let hasher = &mut Xxh3::default();
+            let hash = self.fast_hash(hasher);
             self.hash = Some(hash);
             hash
         })
@@ -402,11 +409,11 @@ impl MetricName {
         }
     }
 
-    pub fn with_labels_iter<'a>(&'a self, names: &'a [String]) -> impl Iterator<Item=&Tag> {
+    pub fn with_labels_iter<'a>(&'a self, names: &'a [String]) -> impl Iterator<Item = &Tag> {
         WithLabelsIterator::new(self, names)
     }
 
-    pub fn without_labels_iter<'a>(&'a self, names: &'a [String]) -> impl Iterator<Item=&Tag> {
+    pub fn without_labels_iter<'a>(&'a self, names: &'a [String]) -> impl Iterator<Item = &Tag> {
         WithoutLabelsIterator::new(self, names)
     }
 
@@ -420,19 +427,28 @@ impl MetricName {
     }
 
     /// `names` have to be sorted in ascending order.
-    pub fn hash_without_labels(
-        &self,
-        hasher: &mut Xxh3,
-        names: &[String],
-    ) -> u64 {
+    pub fn hash_without_labels(&self, hasher: &mut Xxh3, names: &[String]) -> u64 {
         hasher.reset();
         self.without_labels_iter(names).for_each(|tag| {
             tag.update_hash(hasher);
         });
         hasher.digest()
     }
-}
 
+    pub fn get_hash_by_group_modifier(
+        &self,
+        hasher: &mut Xxh3,
+        modifier: &Option<GroupModifier>,
+    ) -> u64 {
+        match modifier {
+            None => self.fast_hash(hasher),
+            Some(m) => match m.op {
+                GroupModifierOp::On => self.hash_with_labels(hasher, m.labels()),
+                GroupModifierOp::Ignoring => self.hash_without_labels(hasher, m.labels()),
+            },
+        }
+    }
+}
 
 fn count_label_value(
     hm: &mut HashMap<String, HashMap<String, usize>>,
@@ -527,13 +543,11 @@ impl<'a> Iterator for WithLabelsIterator<'a> {
     }
 }
 
-
 pub struct WithoutLabelsIterator<'a> {
     metric_name: &'a MetricName,
     names: &'a [String],
     name_idx: usize,
     tag_idx: usize,
-    handled_name: bool,
 }
 
 impl<'a> WithoutLabelsIterator<'a> {
@@ -543,7 +557,6 @@ impl<'a> WithoutLabelsIterator<'a> {
             names,
             name_idx: 0,
             tag_idx: 0,
-            handled_name: false,
         }
     }
 }
@@ -559,10 +572,10 @@ impl<'a> Iterator for WithoutLabelsIterator<'a> {
                 match name.cmp(&tag.key) {
                     Ordering::Less => {
                         self.name_idx += 1;
-                    },
+                    }
                     Ordering::Greater => {
                         break;
-                    },
+                    }
                     Ordering::Equal => {
                         continue;
                     }

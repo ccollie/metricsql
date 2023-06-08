@@ -199,7 +199,7 @@ impl QueryStatsTracker {
         inner.data.iter().for_each(|r: &QueryStatRecord| {
             if r.matches(current_time, max_lifetime) {
                 let k = &r.key;
-                let mut ks = m.entry(k).or_insert(CountSum {
+                let ks = m.entry(k).or_insert(CountSum {
                     count: 0,
                     sum: Duration::milliseconds(0),
                 });

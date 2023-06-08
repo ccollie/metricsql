@@ -1121,11 +1121,8 @@ fn do_rollup_for_timeseries(
 }
 
 fn mul_no_overflow(a: i64, b: i64) -> i64 {
-    if i64::MAX / b < a {
-        // Overflow
-        return i64::MAX;
-    }
-    return a * b;
+    let (res, overflow) = a.overflowing_mul(b);
+    return if overflow { i64::MAX } else { res };
 }
 
 pub(crate) fn drop_stale_nans(

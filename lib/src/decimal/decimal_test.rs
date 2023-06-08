@@ -221,30 +221,30 @@ mod tests {
         check_calibrate_scale(&[123, V_INF_POS], &[V_INF_NEG, 456], 0, 10, &[123, V_INF_POS], &[V_INF_NEG, 456e10], 0)
     }
 
-    fn check_calibrate_scale(a: &[i64], b: &[i64], ae: i16, be: i16, aExpected: &[i64], bExpected: &[i64],
-                             eExpected: i16) {
-        let mut aCopy = a.clone();
-        let mut bCopy = b.clone();
-        let e = calibrate_scale(&mut aCopy, ae, &mut bCopy, be);
-        assert_eq!(e, eExpected, "unexpected e for a={:?}, b={:?}, ae={}, be={}; got {}; expecting {:?}", a, b, ae, be, e, eExpected);
-        assert_eq!(aCopy, aExpected,
-                   "unexpected a for b={:?}, ae={}, be={}; got\n{:?}; expecting\n{:?}", b, ae, be, aCopy, aExpected);
+    fn check_calibrate_scale(a: &[i64], b: &[i64], ae: i16, be: i16, a_expected: &[i64], b_expected: &[i64],
+                             e_expected: i16) {
+        let mut a_copy = a.clone();
+        let mut b_copy = b.clone();
+        let e = calibrate_scale(&mut a_copy, ae, &mut b_copy, be);
+        assert_eq!(e, e_expected, "unexpected e for a={:?}, b={:?}, ae={}, be={}; got {}; expecting {:?}", a, b, ae, be, e, e_expected);
+        assert_eq!(a_copy, a_expected,
+                   "unexpected a for b={:?}, ae={}, be={}; got\n{:?}; expecting\n{:?}", b, ae, be, a_copy, a_expected);
 
-        assert_eq!(bCopy, bExpected,
-                   "unexpected b for a={:?}, ae={}, be={}; got\n{:?}; expecting\n{:?}", a, ae, be, bCopy, bExpected);
+        assert_eq!(b_copy, b_expected,
+                   "unexpected b for a={:?}, ae={}, be={}; got\n{:?}; expecting\n{:?}", a, ae, be, b_copy, b_expected);
 
         // Try reverse args.
-        aCopy = a.clone();
-        bCopy = b.clone();
-        let e = calibrate_scale(&mut bCopy, be, &mut aCopy, ae);
-        assert_eq!(e, eExpected, "reverse: unexpected e for a={:?}, b={:?}, ae={}, be={}; got {}; expecting {:?}",
-                   a, b, ae, be, e, eExpected);
+        a_copy = a.clone();
+        b_copy = b.clone();
+        let e = calibrate_scale(&mut b_copy, be, &mut a_copy, ae);
+        assert_eq!(e, e_expected, "reverse: unexpected e for a={:?}, b={:?}, ae={}, be={}; got {}; expecting {:?}",
+                   a, b, ae, be, e, e_expected);
 
-        assert_eq!(aCopy, aExpected,
-                   "reverse: unexpected a for b={:?}, ae={}, be={}; got\n{:?}; expecting\n{:?}", b, ae, be, aCopy, aExpected);
+        assert_eq!(a_copy, a_expected,
+                   "reverse: unexpected a for b={:?}, ae={}, be={}; got\n{:?}; expecting\n{:?}", b, ae, be, a_copy, a_expected);
 
-        assert_eq!(bCopy, bExpected,
-                   "reverse: unexpected b for a={:?}, ae={}, be={}; got\n{:?}; expecting\n{:?}", a, ae, be, bCopy, bExpected);
+        assert_eq!(b_copy, b_expected,
+                   "reverse: unexpected b for a={:?}, ae={}, be={}; got\n{:?}; expecting\n{:?}", a, ae, be, b_copy, b_expected);
     }
 
     #[test]
@@ -357,23 +357,23 @@ mod tests {
         check_append_to_decimal(&[3e18, 1.0, 0.1, 13.0], &[3e18, 1.0, 0.0, 13.0], 0);
     }
 
-    fn check_append_to_decimal(fa: &[f64], daExpected: &[i64], eExpected: i16) {
-        let mut da: Vec<i64> = Vec::with_capacity(daExpected.len());
+    fn check_append_to_decimal(fa: &[f64], da_expected: &[i64], e_expected: i16) {
+        let mut da: Vec<i64> = Vec::with_capacity(da_expected.len());
         let e = append_float_to_decimal(&mut da, fa);
-        assert_eq!(e, eExpected, "unexpected e for fa={:?}; got {}; expecting {}", fa, e, eExpected);
-        assert_eq!(da, daExpected,
-                   "unexpected da for fa={:?}; got\n{:?}; expecting\n{:?}", fa, da, daExpected);
+        assert_eq!(e, e_expected, "unexpected e for fa={:?}; got {}; expecting {}", fa, e, e_expected);
+        assert_eq!(da, da_expected,
+                   "unexpected da for fa={:?}; got\n{:?}; expecting\n{:?}", fa, da, da_expected);
 
         let da_prefix = [1, 2, 3];
         let mut da: Vec<i64> = Vec::from(da_prefix);
         let e = append_float_to_decimal(&mut da, fa);
         let new_prefix = &da[0 .. da_prefix.len()];
         let suffix = &da[da_prefix.len() .. ];
-        assert_eq!(e, eExpected, "unexpected e for fa={:?}; got {}; expecting {}", fa, e, eExpected);
+        assert_eq!(e, e_expected, "unexpected e for fa={:?}; got {}; expecting {}", fa, e, e_expected);
         assert_eq!(new_prefix, da_prefix,
                    "unexpected da_prefix for fa={:?}; got\n{:?}; expecting\n{:?}", fa, new_prefix, da_prefix);
-        assert_eq!(suffix, daExpected,
-                   "unexpected da for fa={:?}; got\n{:?}; expecting\n{:?}", fa, suffix, daExpected);
+        assert_eq!(suffix, da_expected,
+                   "unexpected da for fa={:?}; got\n{:?}; expecting\n{:?}", fa, suffix, da_expected);
     }
 
     #[test]
@@ -437,9 +437,9 @@ mod tests {
             }
 
             let (v, e) = from_float(-f);
-            let fNew = to_float(v, e);
-            if !equal_float(-f, fNew) {
-                panic!("unexpected f_new for v={}, e={}; got {}; expecting {}", v, e, fNew, -f);
+            let new_value = to_float(v, e);
+            if !equal_float(-f, new_value) {
+                panic!("unexpected f_new for v={}, e={}; got {}; expecting {}", v, e, new_value, -f);
             }
         };
 

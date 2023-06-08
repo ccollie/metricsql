@@ -188,13 +188,13 @@ mod tests {
     // }
 
     fn prom_metrics_to_timeseries(s: &str) -> Vec<Timeseries> {
-        let mut rows = s
+        let _rows = s
             .split("\r\n")
             .filter(|x| x.len() > 0)
             .map(LineInfo::parse)
             .collect::<Vec<LineInfo>>();
 
-        let mut tss: Vec<Timeseries> = vec![];
+        let tss: Vec<Timeseries> = vec![];
         // for row in rows.iter() {
         //     match row {
         //         LineInfo::Sample(sample) => {

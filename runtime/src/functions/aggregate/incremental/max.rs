@@ -3,12 +3,6 @@ use itertools::izip;
 
 pub struct IncrementalAggrMax {}
 
-impl IncrementalAggrMax {
-    pub fn new() -> Self {
-        Self {}
-    }
-}
-
 impl IncrementalAggrHandler for IncrementalAggrMax {
     fn update(&self, iac: &mut IncrementalAggrContext, values: &[f64]) {
         let iter = izip!(

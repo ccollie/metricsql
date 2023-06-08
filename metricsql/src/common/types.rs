@@ -287,17 +287,23 @@ pub struct GroupModifier {
 
 impl GroupModifier {
     pub fn new(op: GroupModifierOp, labels: Vec<String>) -> Self {
-        GroupModifier { op, labels }
+        let mut result = GroupModifier { op, labels };
+        result.labels.sort();
+        result
     }
 
     /// Creates a GroupModifier cause with the On operator
     pub fn on(labels: Vec<String>) -> Self {
-        GroupModifier::new(GroupModifierOp::On, labels)
+        let mut res = GroupModifier::new(GroupModifierOp::On, labels);
+        res.labels.sort();
+        res
     }
 
     /// Creates a GroupModifier clause using the Ignoring operator
     pub fn ignoring(labels: Vec<String>) -> Self {
-        GroupModifier::new(GroupModifierOp::Ignoring, labels)
+        let mut res = GroupModifier::new(GroupModifierOp::Ignoring, labels);
+        res.labels.sort();
+        res
     }
 
     /// Replaces this GroupModifier's operator
@@ -309,6 +315,7 @@ impl GroupModifier {
     /// Adds a label key to this GroupModifier
     pub fn label<S: Into<String>>(mut self, label: S) -> Self {
         self.labels.push(label.into());
+        self.labels.sort();
         self
     }
 
@@ -319,6 +326,7 @@ impl GroupModifier {
     /// Replaces this GroupModifier's labels with the given set
     pub fn set_labels(&mut self, labels: Vec<String>) -> &mut Self {
         self.labels = labels;
+        self.labels.sort();
         self
     }
 

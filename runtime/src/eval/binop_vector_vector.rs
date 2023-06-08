@@ -1,5 +1,6 @@
 use std::borrow::Cow;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::btree_set::BTreeSet;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use regex::escape;
@@ -290,17 +291,18 @@ fn is_aggr_func_without_grouping(e: &Expr) -> bool {
 
 pub(super) fn get_common_label_filters(tss: &[Timeseries]) -> Vec<LabelFilter> {
     // todo(perf): use fnv or xxxhash
-    let mut m: HashMap<String, BTreeSet<String>> = HashMap::new();
+    let mut kv_map: HashMap<String, BTreeSet<String>> = HashMap::new();
     for ts in tss.iter() {
         for Tag { key: k, value: v } in ts.metric_name.tags.iter() {
-            m.entry(k.to_string())
+            kv_map
+                .entry(k.to_string())
                 .or_insert_with(BTreeSet::new)
                 .insert(v.to_string());
         }
     }
 
-    let mut lfs: Vec<LabelFilter> = Vec::with_capacity(m.len());
-    for (key, values) in m {
+    let mut lfs: Vec<LabelFilter> = Vec::with_capacity(kv_map.len());
+    for (key, values) in kv_map {
         if values.len() != tss.len() {
             // Skip the tag, since it doesn't belong to all the time series.
             continue;

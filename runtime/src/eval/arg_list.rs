@@ -22,20 +22,22 @@ pub(crate) struct ArgList {
 impl ArgList {
     pub fn new(signature: &Signature, args: &[Expr]) -> RuntimeResult<Self> {
         let _args = create_evaluators(args)?;
+        let arg_len = _args.len();
         let volatility = eval_volatility(signature, &_args);
         Ok(Self {
             args: _args,
             volatility,
-            parallel: should_parallelize_param_eval(signature),
+            parallel: should_parallelize_param_eval(signature) && arg_len >= 2,
         })
     }
 
     pub fn from(signature: &Signature, args: Vec<ExprEvaluator>) -> Self {
         let volatility = eval_volatility(signature, &args);
+        let arg_len = args.len();
         Self {
             args,
             volatility,
-            parallel: should_parallelize_param_eval(signature),
+            parallel: should_parallelize_param_eval(signature) && arg_len >= 2,
         }
     }
 
@@ -46,8 +48,8 @@ impl ArgList {
 
     pub fn eval(&self, ctx: &Arc<Context>, ec: &EvalConfig) -> RuntimeResult<Vec<QueryValue>> {
         // todo: use tinyvec/heapless and pass in as &mut vec
-        if self.parallel && self.args.len() >= 2 {
-            return self.eval_parallel(ctx, ec);
+        if self.parallel {
+            self.eval_parallel(ctx, ec)
         } else {
             let mut res: Vec<QueryValue> = Vec::with_capacity(self.args.len());
             for expr in self.args.iter() {

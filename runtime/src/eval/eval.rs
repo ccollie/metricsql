@@ -443,7 +443,7 @@ impl EvalConfig {
     pub fn update_from_context(&mut self, ctx: &Context) {
         let state_config = &ctx.config;
         self.disable_cache = state_config.disable_cache;
-        self.max_points_per_series = state_config.max_points_subquery_per_timeseries as usize;
+        self.max_points_per_series = state_config.max_points_subquery_per_timeseries;
         self.no_stale_markers = state_config.no_stale_markers;
         self.lookback_delta = state_config.max_lookback.num_milliseconds();
         self.max_series = state_config.max_unique_timeseries;
@@ -517,12 +517,12 @@ pub fn get_timestamps(
 ) -> RuntimeResult<Vec<i64>> {
     // Sanity checks.
     if step <= 0 {
-        let msg = format!("BUG: Step must be bigger than 0; got {}", step);
+        let msg = format!("Step must be bigger than 0; got {}", step);
         return Err(RuntimeError::from(msg));
     }
 
     if start > end {
-        let msg = format!("BUG: Start cannot exceed End; got {} vs {}", start, end);
+        let msg = format!("Start cannot exceed End; got {} vs {}", start, end);
         return Err(RuntimeError::from(msg));
     }
 

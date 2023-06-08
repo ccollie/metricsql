@@ -1,7 +1,8 @@
+use std::collections::btree_map::BTreeMap;
 use crate::tests::helpers::Sample;
 use crate::MetricName;
 use metricsql::prelude::LabelFilter;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::btree_set::BTreeSet;
 use std::rc::Rc;
 use serde::{Deserialize, Serialize};
 
@@ -106,7 +107,7 @@ impl TestStorage {
     }
 }
 
-fn matches_filter(mn: &MetricName, filter: &LabelFilter) -> bool {
+fn matches_filter(_mn: &MetricName, _filter: &LabelFilter) -> bool {
     todo!()
 }
 

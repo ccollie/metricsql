@@ -893,7 +893,7 @@ mod tests {
 
         assert!(
             s.bytes_size < 1024,
-            "unexpected BytesSize; got {}; cannot be smaller than {}",
+            "unexpected bytes_size; got {}; cannot be smaller than {}",
             s.bytes_size,
             1024
         );

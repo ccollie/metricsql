@@ -47,7 +47,7 @@ mod tests {
     fn show_metric_expr(me: &MetricExpr) {
         println!(
             "metric: labelFilter1={}, labelFilter2={}",
-            me.label_filter_expressions[0], me.label_filter_expressions[1]
+            me.label_filters[0], me.label_filters[1]
         );
     }
 

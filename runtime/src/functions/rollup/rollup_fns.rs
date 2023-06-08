@@ -1108,8 +1108,7 @@ fn holt_winters_internal(rfa: &mut RollupFuncArg, sf: f64, tf: f64) -> f64 {
     }
 
     let mut b0 = rfa.values[ofs] - s0;
-    for i in ofs..rfa.values.len() {
-        let v = rfa.values[i];
+    for v in rfa.values[ofs..].iter() {
         let s1 = sf * v + (1.0 - sf) * (s0 + b0);
         let b1 = tf * (s1 - s0) + (1.0 - tf) * b0;
         s0 = s1;
@@ -1310,6 +1309,7 @@ fn rollup_hoeffding_bound_internal(rfa: &mut RollupFuncArg, phi: f64) -> (f64, f
     if rfa.values.len() == 1 {
         return (0.0, rfa.values[0]);
     }
+    // todo(perf): use online algorithm to calculate min, max, avg
     let v_max = rollup_max(rfa);
     let v_min = rollup_min(rfa);
     let v_avg = rollup_avg(rfa);
@@ -1364,9 +1364,9 @@ fn new_rollup_quantiles(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEn
         let idx = rfa.idx;
         let tsm = rfa.tsm.as_ref().unwrap();
         let mut wrapped = tsm.borrow_mut();
-        for (i, phi_str) in phi_strs.iter().enumerate() {
+        for (phi_str, quantile) in phi_strs.iter().zip(qs.iter()) {
             let ts = wrapped.get_or_create_timeseries(&phi_label, phi_str);
-            ts.values[idx] = qs[i];
+            ts.values[idx] = *quantile;
         }
 
         return NAN;
@@ -1498,11 +1498,11 @@ pub(super) fn rollup_tmin(rfa: &mut RollupFuncArg) -> f64 {
     }
     let mut min_value = values[0];
     let mut min_timestamp = rfa.timestamps[0];
-    for (i, v) in rfa.values.iter().enumerate() {
+    for (v, ts) in rfa.values.iter().zip(rfa.timestamps.iter()) {
         // Get the last timestamp for the minimum value as most users expect.
         if v <= &min_value {
             min_value = *v;
-            min_timestamp = rfa.timestamps[i];
+            min_timestamp = *ts;
         }
     }
     return (min_timestamp as f64 / 1e3_f64) as f64;
@@ -1519,11 +1519,11 @@ pub(super) fn rollup_tmax(rfa: &mut RollupFuncArg) -> f64 {
     let mut max_value = rfa.values[0];
     let mut max_timestamp = rfa.timestamps[0];
     // todo: use zip to avoid bounds check
-    for (i, v) in rfa.values.iter().enumerate() {
+    for (v, ts) in rfa.values.iter().zip(rfa.timestamps.iter()) {
         // Get the last timestamp for the maximum value as most users expect.
         if *v >= max_value {
             max_value = *v;
-            max_timestamp = rfa.timestamps[i];
+            max_timestamp = *ts;
         }
     }
 
@@ -1975,11 +1975,10 @@ pub(super) fn rollup_changes_prometheus(rfa: &mut RollupFuncArg) -> f64 {
     }
     let mut prev_value = rfa.values[0];
     let mut n = 0;
-    for i in 1..rfa.values.len() {
-        let v = rfa.values[i];
-        if v != prev_value {
+    for v in rfa.values.iter().skip(1) {
+        if *v != prev_value {
             n += 1;
-            prev_value = v
+            prev_value = *v;
         }
     }
 

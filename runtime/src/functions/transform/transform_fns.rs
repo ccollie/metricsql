@@ -16,11 +16,11 @@ use metricsql::ast::{Expr, FunctionExpr};
 use metricsql::functions::TransformFunction;
 use metricsql::parser::{compile_regexp, parse_number};
 
+use super::utils::{get_timezone_offset, ru};
 use crate::chrono_tz::Tz;
 use crate::eval::binop_handlers::merge_non_overlapping_timeseries;
 use crate::eval::{eval_number, eval_time, EvalConfig};
 use crate::functions::rollup::{linear_regression, mad, stddev, stdvar};
-use super::utils::{get_timezone_offset, ru};
 use crate::functions::utils::{
     float_to_int_bounded, get_first_non_nan_index, get_last_non_nan_index,
 };
@@ -73,17 +73,22 @@ impl<T> TransformFn for T where
 
 pub type TransformFnImplementation = Arc<dyn TransformFn<Output = RuntimeResult<Vec<Timeseries>>>>;
 
+macro_rules! func_1_arg_body {
+    ($func: expr) => {
+        fn tfe(values: &mut [f64]) {
+            for value in values.iter_mut() {
+                *value = $func(*value)
+            }
+        }
+
+        transform_series(tfa, tfe)
+    };
+}
+
 macro_rules! create_func_1_arg {
     ($name: ident, $func: expr) => {
         pub fn $name(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-            fn tfe(values: &mut [f64]) {
-                for value in values.iter_mut() {
-                    *value = $func(*value)
-                }
-            }
-
-            let mut series = get_series(tfa, 0)?;
-            do_transform_values(&mut series, tfe, tfa.keep_metric_names)
+            func_1_arg_body($name, $func)
         }
     };
 }
@@ -112,8 +117,7 @@ static HANDLERS: OnceLock<HashMap<TransformFunction, TransformFnImplementation>>
 fn create_handler_map() -> HashMap<TransformFunction, TransformFnImplementation> {
     use TransformFunction::*;
 
-    let mut m: HashMap<TransformFunction, TransformFnImplementation> =
-        HashMap::with_capacity(100);
+    let mut m: HashMap<TransformFunction, TransformFnImplementation> = HashMap::with_capacity(100);
     m.insert(Abs, create_func_one_arg!(transform_abs));
     m.insert(Absent, boxed!(transform_absent));
     m.insert(Acos, create_func_one_arg!(transform_acos));
@@ -252,7 +256,6 @@ fn create_handler_map() -> HashMap<TransformFunction, TransformFnImplementation>
     m
 }
 
-
 pub fn get_transform_func(f: TransformFunction) -> RuntimeResult<TransformFnImplementation> {
     let map = HANDLERS.get_or_init(create_handler_map);
     let imp = map.get(&f).unwrap();
@@ -262,6 +265,14 @@ pub fn get_transform_func(f: TransformFunction) -> RuntimeResult<TransformFnImpl
 trait TransformValuesFn: FnMut(&mut [f64]) -> () {}
 impl<T> TransformValuesFn for T where T: FnMut(&mut [f64]) -> () {}
 
+fn transform_series(
+    tfa: &mut TransformFuncArg,
+    mut tf: impl TransformValuesFn,
+) -> RuntimeResult<Vec<Timeseries>> {
+    let mut series = get_series(tfa, 0)?;
+    do_transform_values(&mut series, tf, tfa.keep_metric_names)
+}
+
 fn new_transform_func_one_arg(tf: fn(v: f64) -> f64) -> impl TransformFn {
     let tfe = move |values: &mut [f64]| {
         for value in values.iter_mut() {
@@ -270,11 +281,9 @@ fn new_transform_func_one_arg(tf: fn(v: f64) -> f64) -> impl TransformFn {
     };
 
     move |tfa: &mut TransformFuncArg| -> RuntimeResult<Vec<Timeseries>> {
-        let mut series = get_series(tfa, 0)?;
-        do_transform_values(&mut series, tfe, tfa.keep_metric_names)
+        transform_series(tfa, tfe)
     }
 }
-
 
 fn do_transform_values(
     arg: &mut Vec<Timeseries>,
@@ -344,45 +353,41 @@ fn transform_ceil(v: f64) -> f64 {
 }
 
 fn transform_clamp(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let mins = get_scalar(tfa, 1)?;
-    let maxs = get_scalar(tfa, 2)?;
+    let min = get_scalar_float(tfa, 1, None)?;
+    let max = get_scalar_float(tfa, 2, None)?;
     // todo: are these guaranteed to be of equal length ?
     let tf = |values: &mut [f64]| {
-        for ((min, max), v) in mins.iter().zip(maxs.iter()).zip(values.iter_mut()) {
-            *v = v.clamp(*min, *max);
+        if max < min {
+            return;
+        }
+        for v in values.iter_mut() {
+            *v = v.clamp(min, max);
         }
     };
 
-    let mut series = get_series(tfa, 0)?;
-    do_transform_values(&mut series, tf, tfa.keep_metric_names)
+    transform_series(tfa, tf)
 }
 
 fn transform_clamp_max(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let maxes = get_scalar(tfa, 1)?;
+    let max = get_scalar_float(tfa, 1, None)?;
     let tf = |values: &mut [f64]| {
-        for (v, max) in values.iter_mut().zip(maxes.iter()) {
-            if *v > *max {
-                *v = *max
-            }
+        for v in values.iter_mut() {
+            *v = v.max(max);
         }
     };
 
-    let mut series = get_series(tfa, 0)?;
-    do_transform_values(&mut series, tf, tfa.keep_metric_names)
+    transform_series(tfa, tf)
 }
 
 fn transform_clamp_min(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let mins = get_scalar(tfa, 1)?;
-    let tf = move |values: &mut [f64]| {
-        values.iter_mut().zip(mins.iter()).for_each(|(v, min)| {
-            if *v < *min {
-                *v = *min
-            }
-        });
+    let min = get_scalar_float(tfa, 1, None)?;
+    let tf = |values: &mut [f64]| {
+        for v in values.iter_mut() {
+            *v = v.min(min);
+        }
     };
 
-    let mut series = get_series(tfa, 0)?;
-    do_transform_values(&mut series, tf, tfa.keep_metric_names)
+    transform_series(tfa, tf)
 }
 
 fn new_transform_func_datetime(f: fn(t: DateTime<Utc>) -> f64) -> impl TransformFn {
@@ -407,6 +412,7 @@ fn new_transform_func_datetime(f: fn(t: DateTime<Utc>) -> f64) -> impl Transform
         } else {
             get_series(tfa, 0)?
         };
+
         do_transform_values(&mut arg, tf, tfa.keep_metric_names)
     }
 }
@@ -1001,15 +1007,11 @@ fn transform_range_normalize(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Ti
                 if v.is_nan() {
                     continue;
                 }
-                if *v < min {
-                    min = *v
-                }
-                if *v > max {
-                    max = *v
-                }
+                min = min.min(*v);
+                max = max.max(*v);
             }
             let d = max - min;
-            if d == f64::INFINITY {
+            if d.is_infinite() {
                 continue;
             }
             for v in ts.values.iter_mut() {
@@ -1029,8 +1031,8 @@ fn transform_range_normalize(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Ti
 
 fn transform_range_trim_zscore(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     expect_transform_args_num(tfa, 2)?;
-    let zs = get_scalar(&tfa, 0)?;
-    let z = if !zs.is_empty() { zs[0].abs() } else { 0.0 };
+    let z = get_scalar_float(&tfa, 0, Some(0_f64))?.abs();
+
     // Trim samples with z-score above z.
     let mut rvs = get_series(tfa, 1)?;
     for ts in rvs.iter_mut() {
@@ -1076,8 +1078,7 @@ fn mean(values: &[f64]) -> f64 {
 
 fn transform_range_trim_outliers(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     expect_transform_args_num(tfa, 2)?;
-    let ks = get_scalar(tfa, 0)?;
-    let k: f64 = if ks.len() > 0 { ks[0] } else { 0.0 };
+    let k = get_scalar_float(tfa, 0, Some(0_f64))?;
 
     // Trim samples satisfying the `abs(v - range_median(q)) > k*range_mad(q)`
     let mut rvs = get_series(tfa, 1)?;
@@ -1095,24 +1096,22 @@ fn transform_range_trim_outliers(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
 
 fn transform_range_trim_spikes(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     expect_transform_args_num(tfa, 2)?;
-    let phis = get_scalar(tfa, 0)?;
-    let mut phi = 0_f64;
-    if phis.len() > 0 {
-        phi = phis[0];
-    }
+    let mut phi = get_scalar_float(tfa, 0, Some(0_f64))?;
+
     // Trim 100% * (phi / 2) samples with the lowest / highest values per each time series
     phi /= 2.0;
     let phi_upper = 1.0 - phi;
     let phi_lower = phi;
     let mut rvs = get_series(tfa, 1)?;
-    let mut values = get_float64s(phis.len());
+    let value_count = rvs[0].values.len();
+    let mut values = get_float64s(value_count);
+
     for ts in rvs.iter_mut() {
         values.clear();
         for v in ts.values.iter() {
-            if v.is_nan() {
-                continue;
+            if !v.is_nan() {
+                values.push(*v);
             }
-            values.push(*v);
         }
 
         values.sort_by(|a, b| a.total_cmp(&b));
@@ -1120,11 +1119,10 @@ fn transform_range_trim_spikes(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<
         let v_max = quantile_sorted(phi_upper, &values);
         let v_min = quantile_sorted(phi_lower, &values);
         for v in ts.values.iter_mut() {
-            if v.is_nan() {
-                continue;
-            }
-            if *v > v_max || *v < v_min {
-                *v = f64::NAN;
+            if !v.is_nan() {
+                if *v > v_max || *v < v_min {
+                    *v = f64::NAN;
+                }
             }
         }
     }
@@ -1187,13 +1185,12 @@ fn transform_histogram_quantiles(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
     };
 
     for i in 1..len - 1 {
-        let phis = get_scalar(tfa, i)?;
-        let phi_arg = phis[0];
+        let phi_arg = get_scalar_float(tfa, i, Some(0_f64))?;
         if phi_arg < 0.0 || phi_arg > 1.0 {
             let msg = "got unexpected phi arg. it should contain only numbers in the range [0..1]";
             return Err(RuntimeError::ArgumentError(msg.to_string()));
         }
-        let phi_str = phis[0].to_string();
+        let phi_str = phi_arg.to_string();
         let tss = copy_timeseries(&tss_orig);
 
         tfa_tmp.args = vec![QueryValue::Scalar(phi_arg), QueryValue::InstantVector(tss)];
@@ -1450,11 +1447,9 @@ fn merge_same_le(xss: &mut Vec<LeTimeseries>) -> Vec<LeTimeseries> {
             continue;
         }
 
-        let dst_values = dst.get_mut(dst_index);
-        if let Some(dst) = dst_values {
-            for k in 0..xs.ts.values.len() {
-                let v = xs.ts.values[k];
-                dst.ts.values[k] += v;
+        if let Some(dst) = dst.get_mut(dst_index) {
+            for (v, dst_val) in xs.ts.values.iter().zip(dst.ts.values.iter_mut()) {
+                *dst_val += v;
             }
         }
     }
@@ -1516,7 +1511,7 @@ fn running_avg(a: f64, b: f64, idx: usize) -> f64 {
 fn transform_keep_last_value(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut series = get_series(tfa, 0)?;
     for ts in series.iter_mut() {
-        if ts.values.len() == 0 {
+        if ts.is_empty() {
             continue;
         }
         let mut last_value = ts.values[0];
@@ -1535,23 +1530,16 @@ fn transform_keep_last_value(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Ti
 fn transform_keep_next_value(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut series = get_series(tfa, 0)?;
     for ts in series.iter_mut() {
-        let values = &ts.values;
-        if values.len() == 0 {
+        if ts.is_empty() {
             continue;
         }
         let mut next_value = *ts.values.last().unwrap();
-        let mut i = ts.values.len() - 1;
-        loop {
-            let v = ts.values[i];
+        for v in ts.values.iter_mut().rev() {
             if !v.is_nan() {
-                next_value = v;
+                next_value = *v;
                 continue;
             }
-            ts.values[i] = next_value;
-            if i == 0 {
-                break;
-            }
-            i -= 1;
+            *v = next_value;
         }
     }
 
@@ -1657,11 +1645,7 @@ fn new_transform_func_range(rf: fn(a: f64, b: f64, idx: usize) -> f64) -> impl T
 }
 
 fn transform_range_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let phis = get_scalar(tfa, 0)?;
-    let mut phi = 0.0;
-    if phis.len() > 0 {
-        phi = phis[0]
-    }
+    let phi = get_scalar_float(tfa, 0, Some(0_f64))?;
 
     let mut series = get_series(tfa, 1)?;
     range_quantile(phi, &mut series);
@@ -1706,12 +1690,10 @@ fn transform_range_first(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timese
         }
 
         let v_first = ts.values[first];
-        for i in first..len {
-            let v = ts.values[i];
-            if v.is_nan() {
-                continue;
+        for v in ts.values[0..first].iter_mut() {
+            if !v.is_nan() {
+                *v = v_first;
             }
-            ts.values[i] = v_first;
         }
     }
 
@@ -1731,18 +1713,18 @@ fn set_last_values(tss: &mut Vec<Timeseries>) {
             continue;
         }
         let v_last = ts.values[last];
-        for j in 0..last {
-            let v = ts.values[j];
-            if v.is_nan() {
-                continue;
+        for v in ts.values[0..last].iter_mut() {
+            if !v.is_nan() {
+                *v = v_last;
             }
-            ts.values[j] = v_last;
         }
     }
 }
 
 fn transform_smooth_exponential(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let sfs = get_scalar(&tfa, 1)?;
+    let sf = get_scalar_float(&tfa, 1, Some(1.0))?;
+    let sf_val = if sf.is_nan() { 1.0 } else { sf.clamp(0.0, 1.0) };
+
     let mut series = get_series(tfa, 0)?;
 
     for ts in series.iter_mut() {
@@ -1750,8 +1732,12 @@ fn transform_smooth_exponential(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec
 
         // skip NaN and Inf
         let mut i = 0;
-        while i < len && (ts.values[i].is_nan() || !isinf(ts.values[i], 0)) {
-            i += 1
+        for (j, v) in ts.values.iter().enumerate() {
+            if v.is_finite() {
+                i = j;
+                continue;
+            }
+            break;
         }
 
         if i >= len {
@@ -1761,24 +1747,11 @@ fn transform_smooth_exponential(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec
         let mut avg = ts.values[0];
         i += 1;
 
-        let sfs_x = &sfs[len - i..];
-        for j in i..len {
-            let v = ts.values[j];
-            if v.is_nan() {
-                continue;
+        for value in ts.values[i..].iter_mut() {
+            if !value.is_nan() {
+                avg = avg * (1.0 - sf_val) + *value * sf_val;
+                *value = avg;
             }
-            if isinf(v, 0) {
-                ts.values[j] = avg;
-                continue;
-            }
-            let mut sf = sfs_x[j];
-            if sf.is_nan() {
-                sf = 1.0;
-            }
-            sf = sf.clamp(0.0, 1.0);
-
-            avg = avg * (1.0 - sf) + v * sf;
-            ts.values[j] = avg;
         }
     }
 
@@ -2331,48 +2304,45 @@ fn transform_month(t: DateTime<Utc>) -> f64 {
 }
 
 fn transform_round(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let nearest = if tfa.args.len() == 1 {
-        get_scalar(tfa, 1)?
-    } else {
-        vec![1_f64; tfa.ec.timestamps().len()]
-    };
+    if tfa.args.len() == 0 {
+        let nearest_integer = |values: &mut [f64]| {
+            for v in values {
+                *v = v.round();
+            }
+        };
+
+        transform_series(tfa, nearest_integer)
+    }
+
+    let nearest = get_scalar(tfa, 1)?;
 
     let tf = move |values: &mut [f64]| {
         let mut n_prev: f64 = values[0];
         let mut p10: f64 = 0.0;
-        for (i, v) in values.iter_mut().enumerate() {
-            let n = nearest[i];
-            if n != n_prev {
-                n_prev = n as f64;
-                let (_, e) = from_float(n);
+        for (v, n) in values.iter_mut().zip(nearest.iter()) {
+            if *n != n_prev {
+                n_prev = *n;
+                let (_, e) = from_float(*n);
                 p10 = -(e as f64).powi(10);
             }
-            *v += 0.5 * copysign(n, *v);
-            *v -= fmod(*v, n);
+            *v += 0.5 * copysign(*n, *v);
+            *v -= fmod(*v, *n);
             let (x, _) = modf(*v * p10);
             *v = x / p10;
         }
     };
 
-    let mut series = get_series(tfa, 0)?;
-    do_transform_values(&mut series, tf, tfa.keep_metric_names)
+    transform_series(tfa, tf)
 }
 
 fn transform_sgn(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let tf = |values: &mut [f64]| {
         for v in values {
-            let mut sign = 0.0;
-            if *v < 0.0 {
-                sign = -1.0;
-            } else if *v > 0.0 {
-                sign = 1.0;
-            }
-            *v = sign;
+            *v = v.signum();
         }
     };
 
-    let mut series = get_series(tfa, 0)?;
-    do_transform_values(&mut series, tf, tfa.keep_metric_names)
+    transform_series(tfa, tf)
 }
 
 fn transform_scalar(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
@@ -2439,17 +2409,15 @@ fn new_transform_func_sort_by_label(is_desc: bool) -> impl TransformFn {
 fn new_transform_func_alpha_numeric_sort(is_desc: bool) -> impl TransformFn {
     move |tfa: &mut TransformFuncArg| -> RuntimeResult<Vec<Timeseries>> {
         let mut labels: Vec<String> = vec![];
-        for i in 1..tfa.args.len() {
-            match tfa.args[i].get_string() {
-                Err(err) => {
-                    return Err(RuntimeError::ArgumentError(format!(
-                        "cannot parse label {} for sorting: {:?}",
-                        i + 1,
-                        err
-                    )));
-                }
-                Ok(label) => labels.push(label),
-            }
+        for (i, arg) in tfa.args.iter().skip(1).enumerate() {
+            let label = arg.get_string().map_err(|err| {
+                RuntimeError::ArgumentError(format!(
+                    "cannot parse label {} for sorting: {:?}",
+                    i + 1,
+                    err
+                ))
+            })?;
+            labels.push(label);
         }
 
         let mut res = get_series(tfa, 0)?;
@@ -2770,16 +2738,15 @@ fn bitmap_xor(a: u64, b: u64) -> u64 {
 
 fn new_transform_bitmap(bitmap_func: fn(a: u64, b: u64) -> u64) -> impl TransformFn {
     move |tfa: &mut TransformFuncArg| -> RuntimeResult<Vec<Timeseries>> {
-        let ns = get_scalar(&tfa, 1)?;
+        let mask = get_scalar_float(&tfa, 1, None)? as u64;
 
-        let tf = move |values: &mut [f64]| {
-            for (v, b) in values.iter_mut().zip(ns.iter()) {
-                *v = bitmap_func(*v as u64, *b as u64) as f64;
+        let tf = |values: &mut [f64]| {
+            for v in values.iter_mut() {
+                *v = bitmap_func(*v as u64, mask) as f64;
             }
         };
 
-        let mut series = get_series(tfa, 0)?;
-        do_transform_values(&mut series, tf, tfa.keep_metric_names)
+        transform_series(tfa, tf)
     }
 }
 
@@ -3012,22 +2979,85 @@ pub fn get_scalar(tfa: &TransformFuncArg, arg_num: usize) -> RuntimeResult<Vec<f
     }
 }
 
-// TODO: COW
-pub fn get_instant_vector<'a>(
-    tfa: &'a mut TransformFuncArg,
+fn get_values_iter(values: &[f64]) -> impl Iterator<Item = f64> + '_ {
+    values.iter().copied()
+}
+
+pub fn get_scalar_iter(
+    tfa: &TransformFuncArg,
     arg_num: usize,
-) -> RuntimeResult<Cow<'a, Vec<Timeseries>>> {
-    // todo: proper bounds check
-    tfa.args[arg_num].as_instant_vec(tfa.ec)
+) -> RuntimeResult<impl Iterator<Item = f64>> {
+    // todo: check bounds
+    let arg = &tfa.args[arg_num];
+    match arg {
+        QueryValue::Scalar(val) => {
+            let len = tfa.ec.timestamps().len();
+            let iter = crate::utils::get_scalar_iter(*val, len);
+            Ok(iter)
+        }
+        QueryValue::InstantVector(s) => {
+            if s.len() != 1 {
+                let msg = format!(
+                    "arg # {} must contain a single timeseries; got {} timeseries",
+                    arg_num + 1,
+                    s.len()
+                );
+                return Err(RuntimeError::ArgumentError(msg));
+            }
+            let val = s[0].values[0];
+            let iter = crate::utils::get_scalar_iter(val, s[0].values.len());
+            Ok(iter)
+        }
+        _ => {
+            let msg = format!(
+                "arg # {} expected float or a single timeseries; got {}",
+                arg_num + 1,
+                arg.data_type()
+            );
+            return Err(RuntimeError::ArgumentError(msg));
+        }
+    }
+}
+
+fn get_scalar_float(
+    tfa: &TransformFuncArg,
+    arg_num: usize,
+    default_value: Option<f64>,
+) -> RuntimeResult<f64> {
+    // todo: check bounds
+    let arg = &tfa.args[arg_num];
+    match arg {
+        QueryValue::Scalar(val) => return Ok(*val),
+        QueryValue::InstantVector(s) => {
+            let len = s.len();
+            if len == 0 {
+                if let Some(default) = default_value {
+                    return Ok(default);
+                }
+            }
+            if len != 1 {
+                let msg = format!(
+                    "arg # {} must contain a single timeseries; got {} timeseries",
+                    arg_num + 1,
+                    s.len()
+                );
+                return Err(RuntimeError::ArgumentError(msg));
+            }
+            return Ok(s[0].values[0]);
+        }
+        _ => {}
+    }
+
+    let msg = format!(
+        "arg # {} expected float or a single timeseries; got {}",
+        arg_num + 1,
+        arg.data_type()
+    );
+    return Err(RuntimeError::ArgumentError(msg));
 }
 
 pub(crate) fn get_int_number(tfa: &TransformFuncArg, arg_num: usize) -> RuntimeResult<i64> {
-    let v = get_scalar(tfa, arg_num)?;
-    let mut n = 0;
-    if v.len() > 0 {
-        n = float_to_int_bounded(v[0]);
-    }
-    return Ok(n);
+    get_scalar_float(tfa, arg_num, Some(0_f64)).map(float_to_int_bounded)
 }
 
 fn expect_transform_args_num(tfa: &TransformFuncArg, expected: usize) -> RuntimeResult<()> {

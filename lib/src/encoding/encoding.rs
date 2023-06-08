@@ -2,8 +2,6 @@ use std::fmt;
 use std::iter::repeat;
 use std::ops::Deref;
 
-use byte_slice_cast::AsByteSlice;
-
 use crate::encoding::compress::{compress_lz4, decompress_lz4};
 use crate::encoding::int::{marshal_var_int, unmarshal_var_int};
 use crate::encoding::nearest_delta::{marshal_int64_nearest_delta, unmarshal_int64_nearest_delta};
@@ -364,10 +362,12 @@ pub fn ensure_non_decreasing_sequence(a: &mut [i64], v_min: i64, v_max: i64) {
     let mut i = a.len() - 1;
     if a[i] != max {
         a[i] = max;
-        i -= 1;
-        while i > 0 && a[i] > max {
-            a[i] = max;
+        if i > 0 {
             i -= 1;
+            while i > 0 && a[i] > max {
+                a[i] = max;
+                i -= 1;
+            }
         }
     }
 }
@@ -454,29 +454,42 @@ pub fn marshal_string_fast(dst: &mut Vec<u8>, src: &str) {
     let len = src.len();
     dst.reserve(len);
     marshal_var_int(dst, len);
-    dst.extend_from_slice(src.as_byte_slice());
+    if len > 0 {
+        dst.extend_from_slice(src.as_bytes());
+    }
 }
 
-pub fn unmarshal_string_fast(src: &[u8]) -> Result<(String, &[u8])> {
-    if src.len() < 2 {
+pub fn unmarshal_bytes_fast(src: &[u8]) -> Result<(&[u8], &[u8])> {
+    if src.is_empty() {
         return Err(Error::from(
             "cannot decode size from src=; it must be at least 2 bytes",
         ));
     }
     return match unmarshal_var_int::<usize>(src) {
         Ok((size, tail)) => {
-            if size > 0 {
-                // todo: cap size to prevent issues ????
-                let str = std::str::from_utf8(&tail[0..size]).unwrap().to_string();
-                let src = &tail[size..];
-                return Ok((str, src));
+            if size > 0 && tail.len() < size {
+                return Err(Error::from(format!(
+                    "too short src; it must be at least {} bytes", size
+                )));
             }
-            // todo:
-            Ok(("".to_string(), tail))
+            // todo: cap size to prevent issues ????
+            let bytes = &tail[0..size];
+            let tail = &tail[size..];
+            return Ok((tail, bytes));
         }
         Err(err) => Err(Error::from(format!(
             "error unmarshalling string len: {} ",
             err
         ))),
     };
+}
+
+
+pub fn unmarshal_string_fast(src: &[u8]) -> Result<(&[u8], String)> {
+    unmarshal_bytes_fast(src)
+        .and_then(|(tail, bytes)| {
+            let str = std::str::from_utf8(bytes)
+                .map_err(|x| Error::from(format!("cannot decode string from bytes: {}", x)))?;
+            Ok((tail, str.to_string()))
+        })
 }

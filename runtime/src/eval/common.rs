@@ -222,11 +222,12 @@ pub(crate) fn intersect(
     lhs: &Vec<MetricName>,
     rhs: &Vec<MetricName>,
 ) -> (Vec<usize>, Vec<usize>, Vec<MetricName>) {
+    let hasher = Xxh3::new();
     let id_function = hash_func(matching.on, &matching.matchingLabels);
     // The set of signatures for the right-hand side.
     let mut right_sigs = IntMap::with_capacity(rhs.len());
     for (idx, meta) in rhs.iter().enumerate() {
-        let hash = id_function(meta);
+        let hash = meta.get_hash_by_group_modifier(&hasher, &matching.groupModifier);
         right_sigs.insert(hash, idx);
     }
 
@@ -236,7 +237,7 @@ pub(crate) fn intersect(
 
     for (lIdx, ls) in lhs.iter().enumerate() {
         // If there's a matching entry in the left-hand side Vector, add the sample.
-        let id = id_function(ls);
+        let id = ls.get_hash_by_group_modifier(&hasher, &matching.groupModifier);
         if let Some(right_idx) = right_sigs.get(id) {
             take_left.push(lIdx);
             corresponding_right.push(right_idx);
@@ -255,12 +256,13 @@ pub(crate) fn intersect(
 pub(crate) fn and_intersect(matching: VectorMatching,
                             lhs: &Vec<MetricName>, rhs: &Vec<MetricName>,
 ) -> (Vec<IndexMatcher>, Vec<MetricName>) {
-    let id_function = hash_func(matching.on, &matching.matchingLabels);
+    let hasher = Xxh3::new();
+
     // The set of signatures for the right-hand side.
     // todo: use IntMap
     let right_sigs = HashMap::with_capacity(rhs.len());
     for (idx, meta) in rhs.iter().enumerate() {
-        let hash = id_function(meta);
+        let hash = meta.get_hash_by_group_modifier(&hasher, &matching.groupModifier);
         right_sigs.insert(hash, idx);
     }
 
@@ -268,7 +270,8 @@ pub(crate) fn and_intersect(matching: VectorMatching,
     let mut metas = Vec::with_capacity(lhs.len());
 
     for (lhs_index, ls) in lhs.iter().enumerate() {
-        if let Some(rhs_index) = right_sigs.get(id_function(ls)) {
+        let id = ls.get_hash_by_group_modifier(&hasher, &matching.groupModifier);
+        if let Some(rhs_index) = right_sigs.get(id) {
             let matcher = IndexMatcher {
                 lhs_index,
                 rhs_index,
@@ -330,13 +333,13 @@ pub(super) fn matching_indices(
     let id_function = hash_func(matching.on, &matching.matchingLabels);
     // The set of signatures for the right-hand side.
 
-    let left_sigs = get_hash_map(&lhs, &id_function);
+    let left_sigs = get_hash_map(&lhs, &matching.groupModifier);
 
     let mut rhs_indices = Vec::with_capacity(rhs.len());
 
     for (rhs_index, rs) in rhs.iter().enumerate() {
         // If this series matches a series on the lhs, add its index.
-        let id = id_function(rs);
+        let id = meta.get_hash_by_group_modifier(&hasher, &matching.groupModifier);
         if let Some(lhs_index) = left_sigs.get(id) {
             let matcher = IndexMatcher {
                 lhs_index,
@@ -350,10 +353,10 @@ pub(super) fn matching_indices(
 }
 
 
-fn get_hash_map(rhs: &Vec<MetricName>, id_function: &HashFunction) -> IntMap<u64> {
+fn get_hash_map(rhs: &Vec<MetricName>, modifier: &GroupModifier) -> IntMap<u64> {
     let sigs = IntMap::with_capacity(rhs.len());
     for (idx, meta) in rhs.iter().enumerate() {
-        let hash = id_function(meta);
+        let hash = meta.get_hash_by_group_modifier(&hasher, modifier);
         sigs.insert(hash, idx);
     }
     sigs
@@ -402,7 +405,7 @@ fn vector_scalar_binop(op: Operator,
         if keep {
             lhsSample = value;
             if shouldDropmetric_name(op) || return_bool {
-                lhsSample.metric = enh.drop_metric_name(lhsSample.Metric)
+                lhsSample.metric.reset_metric_group()
             }
             enh.out.push(lhsSample)
         }
@@ -496,8 +499,8 @@ fn vector_or(
     let left_sigs = IntSet::default();
     // Add everything from the left-hand-side Vector.
     for (i, ls) in lhs {
-        left_sigs.add(lhsh[i].signature);
-        enh.Out = append(enh.Out, ls)
+        left_sigs.push(lhsh[i].signature);
+        enh.Out.push(ls)
     }
     // Add all right-hand side elements which have not been added from the left-hand side.
     for (j, rs) in rhs.iter().enumerate() {
@@ -525,7 +528,7 @@ fn vector_unless(
 
     let right_sigs: IntSet<u64> = IntSet::default();
     for sh in rhs.iter().enumerate() {
-        right_sigs.add(sh.signature);
+        right_sigs.push(sh.signature);
     }
 
     for (ls, lhsh_v) in lhs.iter().zip(lhsh.iter()) {
@@ -546,6 +549,7 @@ fn vector_binop(op: Operator,
                 lhsh: Vec<EvalSeriesHelper>,
                 rhsh: Vec<EvalSeriesHelper>,
                 enh: &mut EvalNodeHelper) -> RuntimeResult<Vector> {
+    
     if matching.card == VectorMatchingCardinality::ManyToMany {
         panic("many-to-many only allowed for set operators")
     }
@@ -561,11 +565,7 @@ fn vector_binop(op: Operator,
     }
 
     // All samples from the rhs hashed by the matching label/values.
-    if enh.right_sigs == nil {
-        enh.right_sigs = make(map[string]Sample, len(enh.Out))
-    } else {
-        enh.right_sigs.clear()
-    }
+    enh.right_sigs.clear();
     right_sigs = enh.right_sigs;
 
     let mut one_side = "left";
@@ -585,7 +585,7 @@ fn vector_binop(op: Operator,
             // Many-to-many matching not allowed.
             ev.errorf("found duplicate series for the match group {} on the {} hand-side of the operation: [{}, {}]" +
                           ";many-to-many matching not allowed: matching labels must be unique on one side",
-                      matched_labels.String(), one_side, rs.metric,
+                      matched_labels.to_string(), one_side, rs.metric,
                       duplicate_sample.metric)
         }
         right_sigs.set(sig, rs);
@@ -624,7 +624,7 @@ fn vector_binop(op: Operator,
 
         let metric = result_metric(ls.metric, rs.metric, op, matching, enh);
         if return_bool {
-            metric = enh.Dropmetric_name(metric)
+            metric.reset_metric_name();
         }
         let inserted_sigs = matched_sigs.get(sig);
         let exists = inserted_sigs.is_some();
@@ -637,7 +637,7 @@ fn vector_binop(op: Operator,
             // In many-to-one matching the grouping labels have to ensure a unique metric
             // for the result Vector. Check whether those labels have already been added for
             // the same matching labels.
-            let insert_sig = metric.Hash();
+            let insert_sig = metric.get_hash();
 
             if !exists {
                 inserted_sigs = IntSet::default();
@@ -737,7 +737,7 @@ fn result_metric(
 fn rangeEval(ev: &Evaluator,
              prepSeries: |labels: Labels, sh: EvalSeriesHelper| -> EvalSeriesHelper,
             funcCall: Fn(values: &[Value], [][]EvalSeriesHelper, *EvalNodeHelper) -> Vector,
-            exprs: &[Expression]) -> RuntimeResult<Matrix> {
+            exprs: &[Expr]) -> RuntimeResult<Matrix> {
     let numSteps = int((ev.endTimestamp-ev.startTimestamp)/ev.interval) + 1
     let matrixes = make([]Matrix, exprs.len())
     let origMatrixes = make([]Matrix, exprs.len())
@@ -800,30 +800,28 @@ fn rangeEval(ev: &Evaluator,
     }
 
     for ts = ev.startTimestamp; ts <= ev.endTimestamp; ts += ev.interval {
-        if err := contextDone(ev.ctx, "expression evaluation"); err != nil {
-            ev.error(err)
-        }
+        contextDone(ev.ctx, "expression evaluation")?;
         // Reset number of samples in memory after each timestamp.
         ev.currentSamples = tempNumSamples
         // Gather input vectors for this timestamp.
-        for i := range exprs {
+        for (i, expr) in exprs.iter().enumerate() {
             vectors[i] = vectors[i][:0]
             if prepSeries != nil {
                 bufHelpers[i] = bufHelpers[i][:0]
             }
 
-            for (si, series) in matrixes[i] {
-                for point in series.Points {
+            for (si, series) in matrixes[i].iter().enumerate() {
+                for point in series.points {
                     if point.T == ts {
                         if ev.currentSamples < ev.maxSamples {
-                            vectors[i].push(Sample{Metric: series.Metric, Point: point})
+                            vectors[i].push(Sample{Metric: series.Metric, point: point})
                             if prepSeries != nil {
                                 bufHelpers[i].push(seriesHelpers[i][si])
                             }
 
                             // Move input vectors forward so we don't have to re-scan the same
                             // past points at the next step.
-                            matrixes[i][si].Points = series.Points[1:]
+                            matrixes[i][si].points = series.points[1:]
                             ev.currentSamples++
                         } else {
                             ev.error(ErrTooManySamples(env))
@@ -832,72 +830,79 @@ fn rangeEval(ev: &Evaluator,
                 break
             }
         }
-args[i] = vectors[i]
-ev.samplesStats.UpdatePeak(ev.currentSamples)
+        args[i] = vectors[i]
+        ev.samplesStats.UpdatePeak(ev.currentSamples)
+    }
+
+    // Make the function call.
+    enh.Ts = ts
+    result, ws = funcCall(args, bufHelpers, enh);
+    if result.ContainsSameLabelset() {
+        ev.errorf("vector cannot contain metrics with the same labelset")
+    }
+    enh.Out = result[:0] // Reuse result vector.
+    warnings = append(warnings, ws...)
+
+    ev.currentSamples += result.len();
+    // When we reset currentSamples to tempNumSamples during the next iteration of the loop it also
+    // needs to include the samples from the result here, as they're still in memory.
+    tempNumSamples += result.len()
+    ev.samplesStats.UpdatePeak(ev.currentSamples)
+
+    if ev.currentSamples > ev.maxSamples {
+        ev.error(ErrTooManySamples(env))
+    }
+    ev.samplesStats.UpdatePeak(ev.currentSamples)
+
+    // If this could be an instant query, shortcut so as not to change sort order.
+    if ev.endTimestamp == ev.startTimestamp {
+        let mat = make(Matrix, result.len())
+        for i, s := range result {
+            s.Point.T = ts
+            mat.push( Series{Metric: s.Metric, points: []Point{s.Point}} )
+        }
+        ev.currentSamples = originalNumSamples + mat.TotalSamples()
+        ev.samplesStats.UpdatePeak(ev.currentSamples)
+        return mat, warnings
+    }
+
+    // Add samples in output vector to output series.
+    for sample in result.iter() {
+        let h = sample.Metric.hash();
+        if let Some(ss) = seriess.get_mut(h) {
+            ss.points.push(sample.Point)
+        } else {
+            seriess.insert(h, Series{Metric: sample.Metric, points: vec![sample.Point]})
+        }
+    }
+    let h = sample.metric.get_hash();
+    ss, ok := seriess[h]
+    if !ok {
+        ss = Series{
+            metric: sample.metric.clone(),
+            points: getPointSlice(numSteps),
+        }
+    }
+    sample.point.t = ts;
+    ss.points = append(ss.points, sample.Point)
+    seriess[h] = ss
+
+}
 }
 
-// Make the function call.
-enh.Ts = ts
-result, ws = funcCall(args, bufHelpers, enh);
-if result.ContainsSameLabelset() {
-ev.errorf("vector cannot contain metrics with the same labelset")
-}
-enh.Out = result[:0] // Reuse result vector.
-warnings = append(warnings, ws...)
-
-ev.currentSamples += result.len();
-// When we reset currentSamples to tempNumSamples during the next iteration of the loop it also
-// needs to include the samples from the result here, as they're still in memory.
-tempNumSamples += result.len()
-ev.samplesStats.UpdatePeak(ev.currentSamples)
-
-if ev.currentSamples > ev.maxSamples {
-ev.error(ErrTooManySamples(env))
-}
-ev.samplesStats.UpdatePeak(ev.currentSamples)
-
-// If this could be an instant query, shortcut so as not to change sort order.
-if ev.endTimestamp == ev.startTimestamp {
-    let mat = make(Matrix, result.len())
-    for i, s := range result {
-        s.Point.T = ts
-        mat[i] = Series{Metric: s.Metric, Points: []Point{s.Point}}
+    // Reuse the original point slices.
+    for m in origMatrixes.iter() {
+        for s in m.iter() {
+            putPointSlice(s.points)
+        }
+    }
+    // Assemble the output matrix. By the time we get here we know we don't have too many samples.
+    let mat = make(Matrix, 0, len(seriess))
+    for ss in seriess {
+        mat.push(ss)
     }
     ev.currentSamples = originalNumSamples + mat.TotalSamples()
     ev.samplesStats.UpdatePeak(ev.currentSamples)
     return mat, warnings
-}
-
-// Add samples in output vector to output series.
-for _, sample := range result {
-h := sample.Metric.Hash()
-ss, ok := seriess[h]
-if !ok {
-ss = Series{
-Metric: sample.Metric,
-Points: getPointSlice(numSteps),
-}
-}
-sample.Point.T = ts
-ss.Points = append(ss.Points, sample.Point)
-seriess[h] = ss
-
-}
-}
-
-// Reuse the original point slices.
-for _, m := range origMatrixes {
-for _, s := range m {
-putPointSlice(s.Points)
-}
-}
-// Assemble the output matrix. By the time we get here we know we don't have too many samples.
-mat := make(Matrix, 0, len(seriess))
-for _, ss := range seriess {
-mat = append(mat, ss)
-}
-ev.currentSamples = originalNumSamples + mat.TotalSamples()
-ev.samplesStats.UpdatePeak(ev.currentSamples)
-return mat, warnings
 }
 

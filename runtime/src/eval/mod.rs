@@ -8,7 +8,6 @@ mod binop_vector_vector;
 mod duration;
 mod eval;
 mod function;
-mod hash_helper;
 mod rollup;
 mod scalar;
 mod string;

@@ -111,33 +111,28 @@ impl Default for QueryBuilder {
 
 impl QueryBuilder {
     pub fn start<T: Into<Timestamp>>(&mut self, start: T) -> &mut Self {
-        let mut new = self;
-        new.start = Some(start.into());
-        new
+        self.start = Some(start.into());
+        self
     }
 
     pub fn end<T: Into<Timestamp>>(&mut self, end: T) -> &mut Self {
-        let mut new = self;
-        new.end = Some(end.into());
-        new
+        self.end = Some(end.into());
+        self
     }
 
     pub fn query<S: Into<String>>(&mut self, q: S) -> &mut Self {
-        let mut new = self;
-        new.query = q.into();
-        new
+        self.query = q.into();
+        self
     }
 
     pub fn no_cache(&mut self) -> &mut Self {
-        let mut new = self;
-        new.no_cache = true;
-        new
+        self.no_cache = true;
+        self
     }
 
     pub fn enable_tracing(&mut self) -> &mut Self {
-        let mut new = self;
-        new.trace_enabled = true;
-        new
+        self.trace_enabled = true;
+        self
     }
 
     pub fn step<D: Into<Duration>>(&mut self, value: D) -> &mut Self {
@@ -382,7 +377,7 @@ fn query_range_handler(
     }
 
     let max_points = ctx.config.max_points_subquery_per_timeseries;
-    validate_max_points_per_timeseries(start, end, step, max_points as usize)?;
+    validate_max_points_per_timeseries(start, end, step, max_points)?;
 
     if params.may_cache {
         (start, end) = adjust_start_end(start, end, step)
@@ -427,14 +422,19 @@ fn adjust_last_points(tss: &mut Vec<QueryResult>, start: Timestamp, end: Timesta
             continue;
         }
 
-        while j > 0 && ts.timestamps[j] > start {
-            j -= 1;
+        for v in ts.timestamps.iter().rev() {
+            if *v > start {
+                j -= 1;
+            } else {
+                break;
+            }
         }
 
         let mut last_value = f64::NAN;
         if j > 0 {
             last_value = ts.values[j - 1]
         }
+        // todo(perf): user iter and zip to avoid bounds checks
         while j < ts.timestamps.len() && ts.timestamps[j] <= end {
             ts.values[j] = last_value;
             j += 1;
