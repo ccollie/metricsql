@@ -44,23 +44,29 @@ pub fn mode_no_nans(prev_value: f64, a: &mut Vec<f64>) -> f64 {
 }
 
 pub fn remove_nan_values_in_place(values: &mut Vec<f64>, timestamps: &mut Vec<i64>) {
-    if !values.iter().any(|x| x.is_nan()) {
+    let len = values.len();
+
+    if len == 0 {
         return;
     }
 
     // Slow path: drop nans from values.
     let mut k = 0;
-    for i in 0..values.len() {
+    let mut nan_found = false;
+    for i in 0..len {
         let v = values[i];
         if v.is_nan() {
             values[k] = v;
             timestamps[k] = timestamps[i];
             k += 1;
+            nan_found = true;
         }
     }
 
-    values.truncate(k);
-    timestamps.truncate(k);
+    if nan_found {
+        values.truncate(k);
+        timestamps.truncate(k);
+    }
 }
 
 #[inline]

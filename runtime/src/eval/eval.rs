@@ -176,12 +176,12 @@ fn create_function_evaluator(fe: &FunctionExpr) -> RuntimeResult<ExprEvaluator> 
         BuiltinFunctionType::Rollup => {
             let eval = RollupEvaluator::from_function(fe)?;
             Ok(ExprEvaluator::Rollup(eval))
-        },
+        }
         // note: aggregations produce another ast node type, so we don't need to handle them here
         _ => {
             let fe = TransformEvaluator::new(fe)?;
             Ok(ExprEvaluator::Function(fe))
-        },
+        }
     }
 }
 
@@ -464,12 +464,7 @@ impl EvalConfig {
 
     pub(crate) fn ensure_timestamps(&mut self) -> RuntimeResult<()> {
         if self._timestamps.len() == 0 {
-            let ts = get_timestamps(
-                self.start,
-                self.end,
-                self.step,
-                self.max_points_per_series as usize,
-            )?;
+            let ts = get_timestamps(self.start, self.end, self.step, self.max_points_per_series)?;
             self._timestamps = Arc::new(ts);
         }
         Ok(())
@@ -553,7 +548,7 @@ pub(crate) fn eval_number(ec: &EvalConfig, n: f64) -> Vec<Timeseries> {
     if timestamps.len() == 0 {
         // todo: this is a hack, we should not call get_timestamps here
         let timestamps =
-            get_timestamps(ec.start, ec.end, ec.step, ec.max_points_per_series as usize).unwrap();
+            get_timestamps(ec.start, ec.end, ec.step, ec.max_points_per_series).unwrap();
         let values = vec![n; timestamps.len()];
         let ts = Timeseries::new(timestamps, values);
         return vec![ts];
@@ -570,7 +565,7 @@ pub(crate) fn eval_time(ec: &EvalConfig) -> Vec<Timeseries> {
     let mut rv = eval_number(ec, f64::NAN);
     let timestamps = rv[0].timestamps.clone(); // this is an Arc, so it's cheap to clone
     for (ts, val) in timestamps.iter().zip(rv[0].values.iter_mut()) {
-        *val = (*ts  as f64) / 1e3_f64;
+        *val = (*ts as f64) / 1e3_f64;
     }
     rv
 }

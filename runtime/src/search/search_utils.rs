@@ -11,7 +11,7 @@ use metricsql::parser::parse;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::types::{Timestamp, TimestampTrait};
 
-/// These values prevent from overflow when storing msec-precision time in int64.
+/// These values prevent from overflow when storing ms-precision time in i64.
 const MIN_TIME_MSECS: i64 = 0;
 pub const MAX_DURATION_MSECS: i64 = 100 * 365 * 24 * 3600 * 1000;
 

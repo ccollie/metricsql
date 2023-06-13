@@ -52,7 +52,7 @@ impl Timeseries {
         self.metric_name.reset();
     }
 
-    pub fn copy_from_shallow_timestamps(src: &Timeseries) -> Self {
+    pub fn copy_from(src: &Timeseries) -> Self {
         Timeseries {
             metric_name: src.metric_name.clone(),
             values: src.values.clone(),

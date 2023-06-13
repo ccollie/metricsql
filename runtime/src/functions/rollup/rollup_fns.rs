@@ -839,11 +839,12 @@ impl RollupConfig {
 
             rfa.prev_value = NAN;
             rfa.prev_timestamp = t_start - max_prev_interval;
-            let prev_ts = timestamps[i - 1];
-            let prev_value = values[i - 1];
-            if i < timestamps.len() && i > 0 && prev_ts > rfa.prev_timestamp {
-                rfa.prev_value = prev_value;
-                rfa.prev_timestamp = prev_ts;
+            if i > 0 && i < timestamps.len() {
+                let prev_ts = timestamps[i - 1];
+                if prev_ts > rfa.prev_timestamp {
+                    rfa.prev_value = values[i - 1];
+                    rfa.prev_timestamp = prev_ts;
+                }
             }
 
             rfa.values.clear();
@@ -851,7 +852,7 @@ impl RollupConfig {
             rfa.values.extend_from_slice(&values[i..j]);
             rfa.timestamps.extend_from_slice(&timestamps[i..j]);
 
-            rfa.real_prev_value = if i > 0 { prev_value } else { NAN };
+            rfa.real_prev_value = if i > 0 { values[i - 1] } else { NAN };
             rfa.real_next_value = if j < values.len() { values[j] } else { NAN };
 
             rfa.curr_timestamp = *t_end;
@@ -916,8 +917,10 @@ fn seek_first_timestamp_idx_after(
     if count == 0 || timestamps[0] > seek_timestamp {
         return 0;
     }
-    let mut start_idx = n_hint - 2;
-    start_idx = start_idx.clamp(0, count - 1);
+    let mut start_idx = if n_hint >= 2 { n_hint - 2 } else { 0 };
+    if start_idx >= count {
+        start_idx = count - 1
+    }
 
     let mut end_idx = n_hint + 2;
     if end_idx > count {
@@ -1008,7 +1011,7 @@ pub(super) fn remove_counter_resets(values: &mut [f64]) {
             if (-d * 8.0) < prev_value {
                 // This is likely a partial counter reset.
                 // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/2787
-                *v = prev_value;
+                correction += prev_value - *v;
             } else {
                 correction += prev_value;
             }
@@ -1026,14 +1029,13 @@ pub(super) fn delta_values(values: &mut [f64]) {
     }
 
     let mut prev_delta: f64 = 0.0;
-    let mut iter = values.iter_mut();
-    let mut prev_value = *iter.next().unwrap(); // unwrap is safe because of length check above
+    let mut prev_value = values[0];
 
-    for v in iter {
-        let saved = *v;
-        prev_delta = saved - prev_value;
-        *v = prev_delta;
-        prev_value = saved;
+    for i in 1..values.len() {
+        let v = values[i];
+        prev_delta = v - prev_value;
+        values[i - 1] = prev_delta;
+        prev_value = v;
     }
 
     values[values.len() - 1] = prev_delta
@@ -1048,23 +1050,25 @@ pub(super) fn deriv_values(values: &mut [f64], timestamps: &[Timestamp]) {
     let mut prev_deriv: f64 = 0.0;
     let mut prev_value = values[0];
     let mut prev_ts = timestamps[0];
-    let mut value_iter = values.iter_mut();
-    let _ = value_iter.next(); // skip the first value
-    let ts_iter = timestamps.iter().skip(1);
 
-    for (v, ts) in value_iter.zip(ts_iter) {
-        let saved = *v;
-        if *ts == prev_ts {
+    let mut j: usize = 0;
+    for i in 1..values.len() {
+        let v = values[i];
+        let ts = timestamps[i];
+        if ts == prev_ts {
             // Use the previous value for duplicate timestamps.
-            *v = prev_deriv;
+            values[j] = prev_deriv;
+            j += 1;
             continue;
         }
         let dt = (ts - prev_ts) as f64 / 1e3_f64;
-        prev_deriv = (*v - prev_value) / dt;
-        *v = prev_deriv;
-        prev_value = saved;
-        prev_ts = *ts
+        prev_deriv = (v - prev_value) / dt;
+        values[j] = prev_deriv;
+        prev_value = v;
+        prev_ts = ts;
+        j += 1;
     }
+
     values[values.len() - 1] = prev_deriv
 }
 
@@ -1505,7 +1509,7 @@ pub(super) fn rollup_tmin(rfa: &mut RollupFuncArg) -> f64 {
             min_timestamp = *ts;
         }
     }
-    return (min_timestamp as f64 / 1e3_f64) as f64;
+    return min_timestamp as f64 / 1e3_f64;
 }
 
 pub(super) fn rollup_tmax(rfa: &mut RollupFuncArg) -> f64 {
@@ -1527,7 +1531,7 @@ pub(super) fn rollup_tmax(rfa: &mut RollupFuncArg) -> f64 {
         }
     }
 
-    return (max_timestamp as f64 / 1e3_f64) as f64;
+    return max_timestamp as f64 / 1e3_f64;
 }
 
 pub(super) fn rollup_tfirst(rfa: &mut RollupFuncArg) -> f64 {
@@ -1761,7 +1765,7 @@ pub(super) fn rollup_delta(rfa: &mut RollupFuncArg) -> f64 {
         // This also should prevent from improper increase() results when a part of label values are changed
         // without counter reset.
 
-        let mut d = if rfa.values.len() > 1 {
+        let d = if rfa.values.len() > 1 {
             rfa.values[1] - rfa.values[0]
         } else if !rfa.real_next_value.is_nan() {
             rfa.real_next_value - values[0]
@@ -1769,9 +1773,6 @@ pub(super) fn rollup_delta(rfa: &mut RollupFuncArg) -> f64 {
             0.0
         };
 
-        if d == 0.0 {
-            d = 10.0;
-        }
         if rfa.values[0].abs() < 10.0 * (d.abs() + 1.0) {
             rfa.prev_value = 0.0;
         } else {

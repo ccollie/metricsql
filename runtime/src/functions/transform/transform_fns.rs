@@ -267,7 +267,7 @@ impl<T> TransformValuesFn for T where T: FnMut(&mut [f64]) -> () {}
 
 fn transform_series(
     tfa: &mut TransformFuncArg,
-    mut tf: impl TransformValuesFn,
+    tf: impl TransformValuesFn,
 ) -> RuntimeResult<Vec<Timeseries>> {
     let mut series = get_series(tfa, 0)?;
     do_transform_values(&mut series, tf, tfa.keep_metric_names)
@@ -671,7 +671,7 @@ pub(crate) fn vmrange_buckets_to_le(tss: Vec<Timeseries>) -> Vec<Timeseries> {
 
     // Convert `vmrange` label in each group of time series to `le` label.
     let copy_ts = |src: &Timeseries, le_str: &str| -> Timeseries {
-        let mut ts: Timeseries = Timeseries::copy_from_shallow_timestamps(src);
+        let mut ts: Timeseries = Timeseries::copy_from(src);
         ts.values.resize(ts.values.len(), 0.0);
         ts.metric_name.remove_tag("le");
         ts.metric_name.set_tag("le", le_str);
@@ -859,11 +859,11 @@ fn transform_histogram_share(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Ti
         let mut ts_upper: Timeseries;
 
         if bounds_label.len() > 0 {
-            ts_lower = Timeseries::copy_from_shallow_timestamps(&xss[0].ts);
+            ts_lower = Timeseries::copy_from(&xss[0].ts);
             ts_lower.metric_name.remove_tag(&bounds_label);
             ts_lower.metric_name.set_tag(&bounds_label, "lower");
 
-            ts_upper = Timeseries::copy_from_shallow_timestamps(&xss[0].ts);
+            ts_upper = Timeseries::copy_from(&xss[0].ts);
             ts_upper.metric_name.remove_tag(&bounds_label);
             ts_upper.metric_name.set_tag(&bounds_label, "upper")
         } else {
@@ -1300,10 +1300,10 @@ fn transform_histogram_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec
         let mut ts_upper: Timeseries;
 
         if bounds_label.len() > 0 {
-            ts_lower = Timeseries::copy_from_shallow_timestamps(&xss[0].ts);
+            ts_lower = Timeseries::copy_from(&xss[0].ts);
             ts_lower.metric_name.set_tag(&bounds_label, "lower");
 
-            ts_upper = Timeseries::copy_from_shallow_timestamps(&xss[0].ts);
+            ts_upper = Timeseries::copy_from(&xss[0].ts);
             ts_upper.metric_name.set_tag(&bounds_label, "upper");
         } else {
             ts_lower = Timeseries::default();
@@ -2311,7 +2311,7 @@ fn transform_round(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>>
             }
         };
 
-        transform_series(tfa, nearest_integer)
+        return transform_series(tfa, nearest_integer);
     }
 
     let nearest = get_scalar(tfa, 1)?;
@@ -2841,7 +2841,7 @@ fn transform_end(tfa: &mut TransformFuncArg) -> f64 {
 fn copy_timeseries(tss: &[Timeseries]) -> Vec<Timeseries> {
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(tss.len());
     for src in tss {
-        let dst = Timeseries::copy_from_shallow_timestamps(src);
+        let dst = Timeseries::copy_from(src);
         rvs.push(dst);
     }
     return rvs;

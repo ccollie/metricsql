@@ -378,7 +378,7 @@ fn aggr_func_histogram(tss: &mut Vec<Timeseries>) {
 
         for bucket in h.non_zero_buckets() {
             let ts = m.entry(bucket.vm_range.to_string()).or_insert_with(|| {
-                let mut ts = Timeseries::copy_from_shallow_timestamps(&tss[0]);
+                let mut ts = Timeseries::copy_from(&tss[0]);
                 ts.metric_name.remove_tag("vmrange");
                 ts.metric_name.set_tag("vmrange", bucket.vm_range);
 
@@ -668,7 +668,7 @@ fn aggr_func_count_values(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries
 
         let mut rvs: Vec<Timeseries> = Vec::with_capacity(tss.len());
         for v in values {
-            let mut dst: Timeseries = Timeseries::copy_from_shallow_timestamps(&tss[0]);
+            let mut dst: Timeseries = Timeseries::copy_from(&tss[0]);
             dst.metric_name.remove_tag(&dst_label);
             dst.metric_name
                 .set_tag(&dst_label, format!("{}", v).as_str());
@@ -809,7 +809,7 @@ fn get_remaining_sum_timeseries(
     if remaining_sum_tag_name.len() == 0 || tss.len() == 0 {
         return None;
     }
-    let mut dst = Timeseries::copy_from_shallow_timestamps(&tss[0]);
+    let mut dst = Timeseries::copy_from(&tss[0]);
     dst.metric_name.remove_group_tags(modifier);
 
     let mut tag_value = remaining_sum_tag_name;
@@ -984,7 +984,7 @@ fn aggr_func_quantiles(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> 
         // todo: smallvec
         let mut tss_dst: Vec<Timeseries> = Vec::with_capacity(phis.len());
         for j in 0..phis.len() {
-            let mut ts = Timeseries::copy_from_shallow_timestamps(&tss[0]);
+            let mut ts = Timeseries::copy_from(&tss[0]);
             ts.metric_name.remove_tag(&dst_label);
             // TODO
             ts.metric_name.set_tag(&dst_label, &format!("{}", phis[j]));
