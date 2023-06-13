@@ -1424,7 +1424,7 @@ pub(super) fn rollup_avg(rfa: &mut RollupFuncArg) -> f64 {
         // with irregular data points.
         return NAN;
     }
-    let sum: f64 = rfa.values.iter().fold(0.0, |r, x| r + *x);
+    let sum: f64 = rfa.values.iter().sum();
     return sum / rfa.values.len() as f64;
 }
 
@@ -1672,13 +1672,7 @@ pub(super) fn rollup_stale_samples(rfa: &mut RollupFuncArg) -> f64 {
     if values.is_empty() {
         return NAN;
     }
-    let mut n = 0;
-    for v in rfa.values.iter() {
-        if is_stale_nan(*v) {
-            n += 1;
-        }
-    }
-    return n as f64;
+    rfa.values.iter().filter(|v| is_stale_nan(**v)).count() as f64
 }
 
 pub(super) fn rollup_stddev(rfa: &mut RollupFuncArg) -> f64 {
