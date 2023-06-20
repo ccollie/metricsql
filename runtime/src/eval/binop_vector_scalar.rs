@@ -5,7 +5,7 @@ use metricsql::binaryop::{get_scalar_binop_handler, BinopFunc};
 use metricsql::common::{Operator, Value, ValueType};
 use metricsql::functions::Volatility;
 use std::sync::Arc;
-use tracing::{trace_span, Span, field};
+use tracing::{field, trace_span, Span};
 
 /// BinaryEvaluatorScalarVector
 /// Ex:

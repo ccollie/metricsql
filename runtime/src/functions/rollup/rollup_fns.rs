@@ -911,7 +911,7 @@ fn seek_first_timestamp_idx_after(
     seek_timestamp: Timestamp,
     n_hint: usize,
 ) -> usize {
-    let mut ts = timestamps;
+    let mut timestamps = timestamps;
     let count = timestamps.len();
 
     if count == 0 || timestamps[0] > seek_timestamp {
@@ -927,26 +927,26 @@ fn seek_first_timestamp_idx_after(
         end_idx = count
     }
     if start_idx > 0 && timestamps[start_idx] <= seek_timestamp {
-        ts = &timestamps[start_idx..];
+        timestamps = &timestamps[start_idx..];
         end_idx -= start_idx
     } else {
         start_idx = 0
     }
-    if end_idx < count && timestamps[end_idx] > seek_timestamp {
-        ts = &timestamps[0..end_idx];
+    if end_idx < timestamps.len() && timestamps[end_idx] > seek_timestamp {
+        timestamps = &timestamps[0..end_idx];
     }
-    if count < 16 {
+    if timestamps.len() < 16 {
         // Fast path: the number of timestamps to search is small, so scan them all.
-        for (i, timestamp) in ts.iter().enumerate() {
+        for (i, timestamp) in timestamps.iter().enumerate() {
             if *timestamp > seek_timestamp {
                 return start_idx + i;
             }
         }
-        return start_idx + ts.len();
+        return start_idx + timestamps.len();
     }
     // Slow path: too big timestamps.len(), so use binary search.
     let requested = seek_timestamp + 1;
-    match ts.binary_search(&requested) {
+    match timestamps.binary_search(&requested) {
         Ok(pos) => start_idx + pos,
         Err(suggested) => start_idx + suggested,
     }
@@ -1704,10 +1704,16 @@ pub(crate) fn stdvar(values: &[f64]) -> f64 {
     let mut count: usize = 0;
     let mut q: f64 = 0.0;
     for v in values {
-        count -= 1;
+        if v.is_nan() {
+            continue;
+        }
+        count += 1;
         let avg_new = avg + (*v - avg) / count as f64;
         q += (*v - avg) * (*v - avg_new);
         avg = avg_new
+    }
+    if count == 0 {
+        return NAN;
     }
     return q / count as f64;
 }
@@ -2162,6 +2168,10 @@ pub(super) fn rollup_mode_over_time(rfa: &mut RollupFuncArg) -> f64 {
     // before calling rollup fns.
 
     // Copy rfa.values to a, since modeNoNaNs modifies a contents.
+    if rfa.values.is_empty() {
+        let mut a = vec![];
+        return mode_no_nans(rfa.prev_value, &mut a);
+    }
     let mut a = get_float64s(rfa.values.len());
     a.extend(&rfa.values);
     mode_no_nans(rfa.prev_value, &mut a)

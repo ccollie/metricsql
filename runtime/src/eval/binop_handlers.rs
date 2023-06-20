@@ -36,111 +36,109 @@ pub(crate) type BinaryOpFnImplementation = Arc<dyn BinaryOpFn<Output = BinaryOpF
 
 type TimeseriesHashMap = HashMap<u64, Vec<Timeseries>, BuildNoHashHasher<u64>>;
 
-fn add_scalar_handler_to_hashmap(hm: &mut HashMap<String, BinaryOpFnImplementation>, op: Operator) {
-    let bf = get_scalar_binop_handler(op, false);
-    let bf = Arc::new(new_binary_op_func(bf));
-    let name = op.to_string();
-    hm.insert(name, bf);
-    let bf = new_binary_op_func(get_scalar_binop_handler(op, true));
-    hm.insert(format!("{}_bool", op).to_string(), Arc::new(bf));
-}
-
-static HANDLERS: OnceLock<HashMap<String, BinaryOpFnImplementation>> = OnceLock::new();
-
-fn create_handler_map() -> HashMap<String, BinaryOpFnImplementation> {
-    use Operator::*;
-    let mut m: HashMap<String, BinaryOpFnImplementation> = HashMap::new();
-    add_scalar_handler_to_hashmap(&mut m, Add);
-    add_scalar_handler_to_hashmap(&mut m, Atan2);
-    add_scalar_handler_to_hashmap(&mut m, Sub);
-    add_scalar_handler_to_hashmap(&mut m, Mul);
-    add_scalar_handler_to_hashmap(&mut m, Div);
-    add_scalar_handler_to_hashmap(&mut m, Mod);
-    add_scalar_handler_to_hashmap(&mut m, Pow);
-    add_scalar_handler_to_hashmap(&mut m, Eql);
-    add_scalar_handler_to_hashmap(&mut m, Gt);
-    add_scalar_handler_to_hashmap(&mut m, Lt);
-    add_scalar_handler_to_hashmap(&mut m, Gte);
-    add_scalar_handler_to_hashmap(&mut m, Lte);
-
-    m.insert(And.to_string(), Arc::new(binary_op_and));
-    m.insert(Or.to_string(), Arc::new(binary_op_or));
-    m.insert(Unless.to_string(), Arc::new(binary_op_unless));
-    m.insert(If.to_string(), Arc::new(binary_op_if));
-    m.insert(IfNot.to_string(), Arc::new(binary_op_if_not));
-    m.insert(Default.to_string(), Arc::new(binary_op_default));
-    m
-}
-
-pub(super) fn get_binary_op_func(op: Operator, is_bool: bool) -> BinaryOpFnImplementation {
-    use Operator::*;
-    let map = HANDLERS.get_or_init(create_handler_map);
-
-    let key = match op {
-        // logical set ops
-        And | Or | Unless | If | IfNot | Default => op.to_string(),
-        _ => {
-            if is_bool {
-                format!("{}_bool", op.to_string())
-            } else {
-                op.to_string()
-            }
+macro_rules! make_binary_func {
+    ($name: ident, $op: expr) => {
+        fn $name(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+            const FUNC: BinopFunc = get_scalar_binop_handler($op, false);
+            binary_op_func_impl(FUNC, bfa)
         }
     };
-
-    let imp = map.get(&key).unwrap();
-    imp.clone()
 }
 
-const fn new_binary_op_func(bf: BinopFunc) -> impl BinaryOpFn {
-    move |bfa: &mut BinaryOpFuncArg| -> RuntimeResult<Vec<Timeseries>> {
-        let op = bfa.be.op;
-
-        if bfa.left.len() == 0 || bfa.right.len() == 0 {
-            return Ok(vec![]);
+macro_rules! make_binary_comparison_func {
+    ($name: ident) => {
+        fn $name(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+            let bf = get_scalar_binop_handler(bfa.be.op, bfa.be.bool_modifier);
+            binary_op_func_impl(bf, bfa)
         }
+    };
+}
 
-        // todo: should this also be applied to scalar/vector and vector/scalar?
-        if op.is_comparison() {
-            // Do not remove empty series for comparison operations,
-            // since this may lead to missing result.
-        } else {
-            remove_empty_series(&mut bfa.left);
-            remove_empty_series(&mut bfa.right);
-        }
+make_binary_func!(binary_op_add, Operator::Add);
+make_binary_func!(binary_op_atan2, Operator::Atan2);
+make_binary_func!(binary_op_sub, Operator::Sub);
+make_binary_func!(binary_op_mul, Operator::Mul);
+make_binary_func!(binary_op_div, Operator::Div);
+make_binary_func!(binary_op_mod, Operator::Mod);
+make_binary_func!(binary_op_pow, Operator::Pow);
+// comparison operators
+make_binary_comparison_func!(binary_op_eq);
+make_binary_comparison_func!(binary_op_ne);
+make_binary_comparison_func!(binary_op_gt);
+make_binary_comparison_func!(binary_op_gte);
+make_binary_comparison_func!(binary_op_lt);
+make_binary_comparison_func!(binary_op_le);
 
-        let (left, right, mut dst) = adjust_binary_op_tags(bfa)?;
-        if left.len() != right.len() || left.len() != dst.len() {
-            return Err(RuntimeError::InvalidState(format!(
-                "BUG: left.len() must match right.len() and dst.len(); got {} vs {} vs {}",
-                left.len(),
-                right.len(),
-                dst.len()
-            )));
-        }
-
-        for ((left_ts, right_ts), curr_dest) in left.iter().zip(right.iter()).zip(dst.iter_mut()) {
-            let dst_len = curr_dest.values.len();
-            if left_ts.len() != right_ts.len() || left_ts.len() != dst_len {
-                let msg = format!("BUG: left_values.len() must match right_values.len() and dst_values.len(); got {} vs {} vs {}",
-                                  left_ts.len(), right_ts.len(), dst_len);
-                return Err(RuntimeError::InvalidState(msg));
-            }
-
-            for ((left, right), dest) in left_ts
-                .values
-                .iter()
-                .zip(right_ts.values.iter())
-                .zip(curr_dest.values.iter_mut())
-            {
-                *dest = bf(*left, *right);
-            }
-        }
-
-        // do not remove time series containing only NaNs, since then the `(foo op bar) default N`
-        // won't work as expected if `(foo op bar)` results to NaN series.
-        Ok(dst)
+pub(super) fn exec_binop(bfa: &mut BinaryOpFuncArg) -> BinaryOpFuncResult {
+    use Operator::*;
+    match bfa.be.op {
+        Add => binary_op_add(bfa),
+        Atan2 => binary_op_atan2(bfa),
+        Sub => binary_op_sub(bfa),
+        Mul => binary_op_mul(bfa),
+        Div => binary_op_div(bfa),
+        Mod => binary_op_mod(bfa),
+        Pow => binary_op_pow(bfa),
+        Eql => binary_op_eq(bfa),
+        NotEq => binary_op_ne(bfa),
+        Gt => binary_op_gt(bfa),
+        Gte => binary_op_gte(bfa),
+        Lt => binary_op_lt(bfa),
+        Lte => binary_op_le(bfa),
+        And => binary_op_and(bfa),
+        Or => binary_op_or(bfa),
+        Unless => binary_op_unless(bfa),
+        If => binary_op_if(bfa),
+        IfNot => binary_op_if_not(bfa),
+        Default => binary_op_default(bfa),
     }
+}
+
+fn binary_op_func_impl(bf: BinopFunc, bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    if bfa.left.len() == 0 || bfa.right.len() == 0 {
+        return Ok(vec![]);
+    }
+
+    // todo: should this also be applied to scalar/vector and vector/scalar?
+    if bfa.be.op.is_comparison() {
+        // Do not remove empty series for comparison operations,
+        // since this may lead to missing result.
+    } else {
+        remove_empty_series(&mut bfa.left);
+        remove_empty_series(&mut bfa.right);
+    }
+
+    let (left, right, mut dst) = adjust_binary_op_tags(bfa)?;
+    if left.len() != right.len() || left.len() != dst.len() {
+        return Err(RuntimeError::InvalidState(format!(
+            "BUG: left.len() must match right.len() and dst.len(); got {} vs {} vs {}",
+            left.len(),
+            right.len(),
+            dst.len()
+        )));
+    }
+
+    for ((left_ts, right_ts), curr_dest) in left.iter().zip(right.iter()).zip(dst.iter_mut()) {
+        let dst_len = curr_dest.values.len();
+        if left_ts.len() != right_ts.len() || left_ts.len() != dst_len {
+            let msg = format!("BUG: left_values.len() must match right_values.len() and dst_values.len(); got {} vs {} vs {}",
+                              left_ts.len(), right_ts.len(), dst_len);
+            return Err(RuntimeError::InvalidState(msg));
+        }
+
+        for ((left, right), dest) in left_ts
+            .values
+            .iter()
+            .zip(right_ts.values.iter())
+            .zip(curr_dest.values.iter_mut())
+        {
+            *dest = bf(*left, *right);
+        }
+    }
+
+    // do not remove time series containing only NaNs, since then the `(foo op bar) default N`
+    // won't work as expected if `(foo op bar)` results to NaN series.
+    Ok(dst)
 }
 
 fn adjust_binary_op_tags(
@@ -396,12 +394,9 @@ fn binary_op_if(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(m_left.len());
 
     for (k, tss_left) in m_left.iter_mut() {
-        match series_by_key(&m_right, k) {
-            None => continue,
-            Some(tss_right) => {
-                add_right_nans_to_left(tss_left, tss_right);
-                rvs.extend(tss_left.drain(..))
-            }
+        if let Some(tss_right) = series_by_key(&m_right, k) {
+            add_right_nans_to_left(tss_left, tss_right);
+            rvs.extend(tss_left.drain(..))
         }
     }
 
@@ -417,13 +412,10 @@ fn binary_op_and(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(std::cmp::min(m_left.len(), m_right.len()));
 
     for (k, tss_right) in m_right.into_iter() {
-        match m_left.get_mut(&k) {
-            None => continue,
-            Some(tss_left) => {
-                // Add gaps to tss_left if there are gaps at tss_right.
-                add_right_nans_to_left(tss_left, &tss_right);
-                rvs.extend(tss_left.drain(0..));
-            }
+        if let Some(tss_left) = m_left.get_mut(&k) {
+            // Add gaps to tss_left if there are gaps at tss_right.
+            add_right_nans_to_left(tss_left, &tss_right);
+            rvs.extend(tss_left.drain(..));
         }
     }
 
@@ -460,11 +452,8 @@ fn binary_op_default(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>
 
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(m_left.len());
     for (k, mut tss_left) in m_left.iter_mut() {
-        match series_by_key(&m_right, &k) {
-            None => {}
-            Some(tss_right) => {
-                fill_left_nans_with_right_values(tss_left, tss_right);
-            }
+        if let Some(tss_right) = series_by_key(&m_right, &k) {
+            fill_left_nans_with_right_values(tss_left, tss_right);
         }
         rvs.append(&mut tss_left);
     }

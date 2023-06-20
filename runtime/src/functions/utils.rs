@@ -25,6 +25,7 @@ pub fn mode_no_nans(prev_value: f64, a: &mut Vec<f64>) -> f64 {
     let mut mode = prev_value;
     for v in a.iter_mut() {
         if prev_value == *v {
+            i += 1;
             continue;
         }
         let d = i - j;

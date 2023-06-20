@@ -9,6 +9,7 @@ use metricsql::prelude::ValueType;
 use std::sync::Arc;
 
 /// An evaluator for a selector NOT containing a subquery or rollup
+#[derive(Debug)]
 pub struct InstantVectorEvaluator {
     pub(crate) expr: MetricExpr,
     window: DurationExpr,

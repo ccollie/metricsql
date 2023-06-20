@@ -12,9 +12,7 @@ use metricsql::functions::Volatility;
 use metricsql::optimize::trim_filters_by_group_modifier;
 
 use crate::context::Context;
-use crate::eval::binop_handlers::{
-    get_binary_op_func, BinaryOpFn, BinaryOpFuncArg, BinaryOpFuncResult,
-};
+use crate::eval::binop_handlers::{exec_binop, BinaryOpFuncArg};
 use crate::eval::traits::Evaluator;
 use crate::eval::{create_evaluator, eval_number, ExprEvaluator};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
@@ -27,7 +25,6 @@ pub struct BinaryEvaluatorVectorVector {
     expr: BinaryExpr,
     lhs: Box<ExprEvaluator>,
     rhs: Box<ExprEvaluator>,
-    handler: Arc<dyn BinaryOpFn<Output = BinaryOpFuncResult>>,
     can_pushdown_filters: bool,
     can_parallelize: bool,
     /// Determine if we should fetch right-side series at first, since it usually contains
@@ -43,7 +40,6 @@ impl BinaryEvaluatorVectorVector {
         let lhs = Box::new(create_evaluator(&expr.left)?);
         let rhs = Box::new(create_evaluator(&expr.right)?);
         let can_pushdown_filters = can_pushdown_common_filters(expr);
-        let handler = get_binary_op_func(expr.op, expr.bool_modifier);
         let rv = expr.return_type();
         let return_type = ValueType::try_from(rv).unwrap_or(ValueType::InstantVector);
         let can_parallelize = should_parallelize(&expr);
@@ -54,7 +50,6 @@ impl BinaryEvaluatorVectorVector {
             lhs,
             rhs,
             expr: expr.clone(), // todo: store as arc on parse result and clone Arc
-            handler,
             can_pushdown_filters,
             can_parallelize,
             return_type,
@@ -208,13 +203,9 @@ impl Evaluator for BinaryEvaluatorVectorVector {
             BinaryOpFuncArg::new(left_series, &self.expr, right_series)
         };
 
-        let result = match (self.handler)(&mut bfa) {
-            Err(err) => Err(RuntimeError::from(format!(
-                "cannot evaluate {}: {:?}",
-                &self.expr, err
-            ))),
-            Ok(v) => Ok(QueryValue::InstantVector(v)),
-        }?;
+        let result = exec_binop(&mut bfa)
+            .map_err(|err| RuntimeError::from(format!("cannot evaluate {}: {:?}", &self.expr, err)))
+            .and_then(|v| Ok(QueryValue::InstantVector(v)))?;
 
         if is_tracing {
             let series_count = series_len(&result);

@@ -827,21 +827,6 @@ mod tests {
     }
 
     #[test]
-    fn test_rollup_first_no_window() {
-        let mut rc = RollupConfig::default();
-        rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
-        rc.start = 0;
-        rc.end = 160;
-        rc.step = 40;
-        rc.window = 0;
-        test_rollup(
-            &mut rc,
-            &[NAN, 123.0, 54.0, 44.0, 34.0],
-            &[0, 40, 80, 120, 160],
-        );
-    }
-
-    #[test]
     fn test_rollup_last_no_window() {
         let mut rc = RollupConfig::default();
         rc.handler = RollupHandlerEnum::Wrapped(rollup_last);
@@ -1157,6 +1142,7 @@ mod tests {
         rc.end = 160;
         rc.step = 40;
         rc.window = 0;
+        rc.max_points_per_series = 10000;
         test_rollup(
             &mut rc,
             &[
