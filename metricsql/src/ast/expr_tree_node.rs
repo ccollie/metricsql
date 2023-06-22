@@ -124,7 +124,7 @@ impl TreeNode for Expr {
                 keep_metric_names,
                 is_scalar,
                 arg_idx_for_optimization,
-                function_type,
+                function,
                 return_type,
             }) => Expr::Function(FunctionExpr {
                 name,
@@ -132,7 +132,7 @@ impl TreeNode for Expr {
                 keep_metric_names,
                 is_scalar,
                 arg_idx_for_optimization,
-                function_type,
+                function,
                 return_type,
             }),
             Expr::Number(_) => self.clone(),

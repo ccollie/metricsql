@@ -3,7 +3,6 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::default::Default;
 use std::ops::Deref;
-use std::sync::{Arc, OnceLock};
 
 use chrono::{DateTime, Datelike, NaiveDateTime, TimeZone, Timelike, Utc, Weekday};
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
@@ -71,199 +70,194 @@ impl<T> TransformFn for T where
 {
 }
 
-pub type TransformFnImplementation = Arc<dyn TransformFn<Output = RuntimeResult<Vec<Timeseries>>>>;
-
-macro_rules! func_1_arg_body {
-    ($func: expr) => {
-        fn tfe(values: &mut [f64]) {
-            for value in values.iter_mut() {
-                *value = $func(*value)
-            }
-        }
-
-        transform_series(tfa, tfe)
-    };
-}
-
-macro_rules! create_func_1_arg {
-    ($name: ident, $func: expr) => {
-        pub fn $name(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-            func_1_arg_body($name, $func)
-        }
-    };
-}
-
-macro_rules! create_func_one_arg {
-    ($f:expr) => {
-        Arc::new(new_transform_func_one_arg($f))
-    };
-}
-
-macro_rules! create_func_zero_args {
-    ($f:expr) => {
-        Arc::new(new_transform_func_zero_args($f))
-    };
-}
-
-macro_rules! boxed {
-    ($f:expr) => {
-        Arc::new($f)
-    };
-}
-
-// todo: parking_lot rwlock
-static HANDLERS: OnceLock<HashMap<TransformFunction, TransformFnImplementation>> = OnceLock::new();
-
-fn create_handler_map() -> HashMap<TransformFunction, TransformFnImplementation> {
-    use TransformFunction::*;
-
-    let mut m: HashMap<TransformFunction, TransformFnImplementation> = HashMap::with_capacity(100);
-    m.insert(Abs, create_func_one_arg!(transform_abs));
-    m.insert(Absent, boxed!(transform_absent));
-    m.insert(Acos, create_func_one_arg!(transform_acos));
-    m.insert(Acosh, create_func_one_arg!(transform_acosh));
-    m.insert(Alias, boxed!(transform_alias));
-    m.insert(Asin, create_func_one_arg!(transform_asin));
-    m.insert(Asinh, create_func_one_arg!(transform_asinh));
-    m.insert(Atan, create_func_one_arg!(transform_atan));
-    m.insert(Atanh, create_func_one_arg!(transform_atanh));
-    m.insert(BitmapAnd, boxed!(new_transform_bitmap(bitmap_and)));
-    m.insert(BitmapOr, boxed!(new_transform_bitmap(bitmap_or)));
-    m.insert(BitmapXor, boxed!(new_transform_bitmap(bitmap_xor)));
-    m.insert(BucketsLimit, boxed!(transform_buckets_limit));
-    m.insert(Ceil, create_func_one_arg!(transform_ceil));
-    m.insert(Clamp, boxed!(transform_clamp));
-    m.insert(ClampMax, boxed!(transform_clamp_max));
-    m.insert(ClampMin, boxed!(transform_clamp_min));
-    m.insert(Cos, create_func_one_arg!(transform_cos));
-    m.insert(Cosh, create_func_one_arg!(transform_cosh));
-    m.insert(
-        DayOfMonth,
-        boxed!(new_transform_func_datetime(transform_day_of_month)),
-    );
-    m.insert(
-        DayOfWeek,
-        boxed!(new_transform_func_datetime(transform_day_of_week)),
-    );
-    m.insert(
-        DaysInMonth,
-        boxed!(new_transform_func_datetime(transform_days_in_month)),
-    );
-    m.insert(Deg, create_func_one_arg!(transform_deg));
-    m.insert(DropCommonLabels, boxed!(transform_drop_common_labels));
-    m.insert(End, create_func_zero_args!(transform_end));
-    m.insert(Exp, create_func_one_arg!(transform_exp));
-    m.insert(Floor, create_func_one_arg!(transform_floor));
-    m.insert(HistogramAvg, boxed!(transform_histogram_avg));
-    m.insert(HistogramQuantile, boxed!(transform_histogram_quantile));
-    m.insert(HistogramQuantiles, boxed!(transform_histogram_quantiles));
-    m.insert(HistogramShare, boxed!(transform_histogram_share));
-    m.insert(HistogramStddev, boxed!(transform_histogram_stddev));
-    m.insert(HistogramStdvar, boxed!(transform_histogram_stdvar));
-    m.insert(Hour, boxed!(new_transform_func_datetime(transform_hour)));
-    m.insert(Interpolate, boxed!(transform_interpolate));
-    m.insert(KeepLastValue, boxed!(transform_keep_last_value));
-    m.insert(KeepNextValue, boxed!(transform_keep_next_value));
-    m.insert(LabelCopy, boxed!(transform_label_copy));
-    m.insert(LabelDel, boxed!(transform_label_del));
-    m.insert(LabelGraphiteGroup, boxed!(transform_label_graphite_group));
-    m.insert(LabelJoin, boxed!(transform_label_join));
-    m.insert(LabelKeep, boxed!(transform_label_keep));
-    m.insert(LabelLowercase, boxed!(transform_label_lowercase));
-    m.insert(LabelMap, boxed!(transform_label_map));
-    m.insert(LabelMatch, boxed!(transform_label_match));
-    m.insert(LabelMismatch, boxed!(transform_label_mismatch));
-    m.insert(LabelMove, boxed!(transform_label_move));
-    m.insert(LabelReplace, boxed!(transform_label_replace));
-    m.insert(LabelSet, boxed!(transform_label_set));
-    m.insert(LabelTransform, boxed!(transform_label_transform));
-    m.insert(LabelUppercase, boxed!(transform_label_uppercase));
-    m.insert(LabelValue, boxed!(transform_label_value));
-    m.insert(LimitOffset, boxed!(transform_limit_offset));
-    m.insert(Ln, create_func_one_arg!(transform_ln));
-    m.insert(Log2, create_func_one_arg!(transform_log2));
-    m.insert(Log10, create_func_one_arg!(transform_log10));
-    m.insert(
-        Minute,
-        boxed!(new_transform_func_datetime(transform_minute)),
-    );
-    m.insert(Month, boxed!(new_transform_func_datetime(transform_month)));
-    m.insert(Now, boxed!(transform_now));
-    m.insert(Pi, boxed!(transform_pi));
-    m.insert(PrometheusBuckets, boxed!(transform_prometheus_buckets));
-    m.insert(Rad, create_func_one_arg!(transform_rad));
-    m.insert(Random, boxed!(transform_rand));
-    m.insert(RandExponential, boxed!(transform_rand_exp));
-    m.insert(
-        RangeLinearRegression,
-        boxed!(transform_range_linear_regression),
-    );
-    m.insert(RandNormal, boxed!(transform_rand_norm));
-    m.insert(RangeAvg, boxed!(new_transform_func_range(running_avg)));
-    m.insert(RangeFirst, boxed!(transform_range_first));
-    m.insert(RangeLast, boxed!(transform_range_last));
-    m.insert(RangeMax, boxed!(new_transform_func_range(running_max)));
-    m.insert(RangeMedian, boxed!(transform_range_median));
-    m.insert(RangeMin, boxed!(new_transform_func_range(running_min)));
-    m.insert(RangeNormalize, boxed!(transform_range_normalize));
-    m.insert(RangeQuantile, boxed!(transform_range_quantile));
-    m.insert(RangeStdDev, boxed!(transform_range_stddev));
-    m.insert(RangeStdVar, boxed!(transform_range_stdvar));
-    m.insert(RangeSum, boxed!(new_transform_func_range(running_sum)));
-    m.insert(RangeTrimOutliers, boxed!(transform_range_trim_outliers));
-    m.insert(RangeTrimSpikes, boxed!(transform_range_trim_spikes));
-    m.insert(RangeTrimZscore, boxed!(transform_range_trim_zscore));
-    m.insert(RangeZscore, boxed!(transform_range_zscore));
-    m.insert(RemoveResets, boxed!(transform_remove_resets));
-    m.insert(Round, boxed!(transform_round));
-    m.insert(Ru, boxed!(transform_range_ru));
-    m.insert(RunningAvg, boxed!(new_transform_func_running(running_avg)));
-    m.insert(RunningMax, boxed!(new_transform_func_running(running_max)));
-    m.insert(RunningMin, boxed!(new_transform_func_running(running_min)));
-    m.insert(RunningSum, boxed!(new_transform_func_running(running_sum)));
-    m.insert(Scalar, boxed!(transform_scalar));
-    m.insert(Sgn, boxed!(transform_sgn));
-    m.insert(Sin, create_func_one_arg!(transform_sin));
-    m.insert(Sinh, create_func_one_arg!(transform_sinh));
-    m.insert(SmoothExponential, boxed!(transform_smooth_exponential));
-    m.insert(Sort, boxed!(new_transform_func_sort(false)));
-    m.insert(SortByLabel, boxed!(new_transform_func_sort_by_label(false)));
-    m.insert(
-        SortByLabelDesc,
-        boxed!(new_transform_func_sort_by_label(true)),
-    );
-    m.insert(
-        SortByLabelNumeric,
-        boxed!(new_transform_func_alpha_numeric_sort(false)),
-    );
-    m.insert(
-        SortByLabelNumericDesc,
-        boxed!(new_transform_func_alpha_numeric_sort(true)),
-    );
-    m.insert(SortDesc, boxed!(new_transform_func_sort(true)));
-    m.insert(Sqrt, create_func_one_arg!(transform_sqrt));
-    m.insert(Start, create_func_zero_args!(transform_start));
-    m.insert(Step, create_func_zero_args!(transform_step));
-    m.insert(Tan, create_func_one_arg!(transform_tan));
-    m.insert(Tanh, create_func_one_arg!(transform_tanh));
-    m.insert(Time, boxed!(transform_time));
-    // m.insert(timestamp" has been moved to rollup funcs. See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/415
-    m.insert(TimezoneOffset, boxed!(transform_timezone_offset));
-    m.insert(Union, boxed!(transform_union));
-    m.insert(Vector, boxed!(transform_vector));
-    m.insert(Year, boxed!(new_transform_func_datetime(transform_year)));
-
-    m
-}
-
-pub fn get_transform_func(f: TransformFunction) -> RuntimeResult<TransformFnImplementation> {
-    let map = HANDLERS.get_or_init(create_handler_map);
-    let imp = map.get(&f).unwrap();
-    Ok(imp.clone())
-}
+pub type TransformFuncHandler = fn(&mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>>;
 
 trait TransformValuesFn: FnMut(&mut [f64]) -> () {}
 impl<T> TransformValuesFn for T where T: FnMut(&mut [f64]) -> () {}
+
+macro_rules! create_func_one_arg {
+    ($name: ident, $func: expr) => {
+        pub(crate) fn $name(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+            fn tfe(values: &mut [f64]) {
+                for value in values.iter_mut() {
+                    *value = $func(*value)
+                }
+            }
+
+            transform_series(tfa, tfe)
+        }
+    };
+}
+
+create_func_one_arg!(transform_abs, |x: f64| x.abs());
+create_func_one_arg!(transform_acos, |x: f64| x.acos());
+create_func_one_arg!(transform_acosh, |x: f64| x.acosh());
+create_func_one_arg!(transform_asin, |x: f64| x.asin());
+create_func_one_arg!(transform_asinh, |x: f64| x.asinh());
+create_func_one_arg!(transform_atan, |x: f64| x.atan());
+create_func_one_arg!(transform_atanh, |x: f64| x.atanh());
+create_func_one_arg!(transform_ceil, |x: f64| x.ceil());
+create_func_one_arg!(transform_cos, |x: f64| x.cos());
+create_func_one_arg!(transform_cosh, |x: f64| x.cosh());
+create_func_one_arg!(transform_deg, |x: f64| x.to_degrees());
+create_func_one_arg!(transform_exp, |x: f64| x.exp());
+create_func_one_arg!(transform_floor, |x: f64| x.floor());
+create_func_one_arg!(transform_ln, |x: f64| x.ln());
+create_func_one_arg!(transform_log2, |x: f64| x.log2());
+create_func_one_arg!(transform_log10, |x: f64| x.log10());
+create_func_one_arg!(transform_rad, |x: f64| x.to_radians());
+create_func_one_arg!(transform_sin, |x: f64| x.sin());
+create_func_one_arg!(transform_sinh, |x: f64| x.sinh());
+create_func_one_arg!(transform_sqrt, |x: f64| x.sqrt());
+create_func_one_arg!(transform_tan, |x: f64| x.tan());
+create_func_one_arg!(transform_tanh, |x: f64| x.tanh());
+
+fn transform_sort(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    transform_sort_impl(tfa, false)
+}
+
+fn transform_sort_desc(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    transform_sort_impl(tfa, true)
+}
+
+fn transform_sort_alpha_numeric(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    label_alpha_numeric_sort_impl(tfa, false)
+}
+
+fn transform_sort_alpha_numeric_desc(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    label_alpha_numeric_sort_impl(tfa, true)
+}
+
+fn transform_running_avg(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    running_func_impl(tfa, running_avg)
+}
+
+fn transform_running_sum(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    running_func_impl(tfa, running_sum)
+}
+
+fn transform_running_min(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    running_func_impl(tfa, running_min)
+}
+
+fn transform_running_max(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    running_func_impl(tfa, running_max)
+}
+
+pub fn get_transform_func(f: TransformFunction) -> TransformFuncHandler {
+    use TransformFunction::*;
+    match f {
+        Abs => transform_abs,
+        Absent => transform_absent,
+        Acos => transform_acos,
+        Acosh => transform_acosh,
+        Alias => transform_alias,
+        Asin => transform_asin,
+        Asinh => transform_asinh,
+        Atan => transform_atan,
+        Atanh => transform_atanh,
+        BitmapAnd => transform_bitmap_and,
+        BitmapOr => transform_bitmap_or,
+        BitmapXor => transform_bitmap_xor,
+        BucketsLimit => transform_buckets_limit,
+        Ceil => transform_ceil,
+        Clamp => transform_clamp,
+        ClampMax => transform_clamp_max,
+        ClampMin => transform_clamp_min,
+        Cos => transform_cos,
+        Cosh => transform_cosh,
+        DayOfMonth => transform_day_of_month,
+        DayOfWeek => transform_day_of_week,
+        DaysInMonth => transform_days_in_month,
+        Deg => transform_deg,
+        DropCommonLabels => transform_drop_common_labels,
+        End => transform_end,
+        Exp => transform_exp,
+        Floor => transform_floor,
+        HistogramAvg => transform_histogram_avg,
+        HistogramQuantile => transform_histogram_quantile,
+        HistogramQuantiles => transform_histogram_quantiles,
+        HistogramShare => transform_histogram_share,
+        HistogramStddev => transform_histogram_stddev,
+        HistogramStdvar => transform_histogram_stdvar,
+        Hour => transform_hour,
+        Interpolate => transform_interpolate,
+        KeepLastValue => transform_keep_last_value,
+        KeepNextValue => transform_keep_next_value,
+        LabelCopy => transform_label_copy,
+        LabelDel => transform_label_del,
+        LabelGraphiteGroup => transform_label_graphite_group,
+        LabelJoin => transform_label_join,
+        LabelKeep => transform_label_keep,
+        LabelLowercase => transform_label_lowercase,
+        LabelMap => transform_label_map,
+        LabelMatch => transform_label_match,
+        LabelMismatch => transform_label_mismatch,
+        LabelMove => transform_label_move,
+        LabelReplace => transform_label_replace,
+        LabelSet => transform_label_set,
+        LabelTransform => transform_label_transform,
+        LabelUppercase => transform_label_uppercase,
+        LabelValue => transform_label_value,
+        LimitOffset => transform_limit_offset,
+        Ln => transform_ln,
+        Log2 => transform_log2,
+        Log10 => transform_log10,
+        Minute => transform_minute,
+        Month => transform_month,
+        Now => transform_now,
+        Pi => transform_pi,
+        PrometheusBuckets => transform_prometheus_buckets,
+        Rad => transform_rad,
+        Random => transform_rand,
+        RandExponential => transform_rand_exp,
+        RandNormal => transform_rand_norm,
+        RangeAvg => transform_range_avg,
+        RangeFirst => transform_range_first,
+        RangeLast => transform_range_last,
+        RangeLinearRegression => transform_range_linear_regression,
+        RangeMax => transform_range_max,
+        RangeMedian => transform_range_median,
+        RangeMin => transform_range_min,
+        RangeNormalize => transform_range_normalize,
+        RangeQuantile => transform_range_quantile,
+        RangeStdDev => transform_range_stddev,
+        RangeStdVar => transform_range_stdvar,
+        RangeSum => transform_range_sum,
+        RangeTrimOutliers => transform_range_trim_outliers,
+        RangeTrimSpikes => transform_range_trim_spikes,
+        RangeTrimZscore => transform_range_trim_zscore,
+        RangeZscore => transform_range_zscore,
+        RemoveResets => transform_remove_resets,
+        Round => transform_round,
+        Ru => transform_range_ru,
+        RunningAvg => transform_running_avg,
+        RunningMax => transform_running_max,
+        RunningMin => transform_running_min,
+        RunningSum => transform_running_sum,
+        Scalar => transform_scalar,
+        Sgn => transform_sgn,
+        Sin => transform_sin,
+        Sinh => transform_sinh,
+        SmoothExponential => transform_smooth_exponential,
+        Sort => transform_sort,
+        SortByLabel => transform_sort_by_label,
+        SortByLabelDesc => transform_sort_by_label_desc,
+        SortByLabelNumeric => transform_sort_alpha_numeric,
+        SortByLabelNumericDesc => transform_sort_alpha_numeric_desc,
+        SortDesc => transform_sort_desc,
+        Sqrt => transform_sqrt,
+        Start => transform_start,
+        Step => transform_step,
+        Tan => transform_tan,
+        Tanh => transform_tanh,
+        Time => transform_time,
+        TimezoneOffset => transform_timezone_offset,
+        Union => transform_union,
+        Vector => transform_vector,
+        Year => transform_year,
+    }
+}
 
 fn transform_series(
     tfa: &mut TransformFuncArg,
@@ -271,18 +265,6 @@ fn transform_series(
 ) -> RuntimeResult<Vec<Timeseries>> {
     let mut series = get_series(tfa, 0)?;
     do_transform_values(&mut series, tf, tfa.keep_metric_names)
-}
-
-fn new_transform_func_one_arg(tf: fn(v: f64) -> f64) -> impl TransformFn {
-    let tfe = move |values: &mut [f64]| {
-        for value in values.iter_mut() {
-            *value = tf(*value)
-        }
-    };
-
-    move |tfa: &mut TransformFuncArg| -> RuntimeResult<Vec<Timeseries>> {
-        transform_series(tfa, tfe)
-    }
 }
 
 fn do_transform_values(
@@ -297,11 +279,6 @@ fn do_transform_values(
         tf(&mut ts.values);
     }
     Ok(std::mem::take(arg))
-}
-
-#[inline]
-fn transform_abs(v: f64) -> f64 {
-    v.acos()
 }
 
 fn transform_absent(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
@@ -347,11 +324,6 @@ pub(crate) fn get_absent_timeseries(ec: &EvalConfig, arg: &Expr) -> Vec<Timeseri
     return rvs;
 }
 
-#[inline]
-fn transform_ceil(v: f64) -> f64 {
-    v.ceil()
-}
-
 fn transform_clamp(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let min = get_scalar_float(tfa, 1, None)?;
     let max = get_scalar_float(tfa, 2, None)?;
@@ -390,40 +362,44 @@ fn transform_clamp_min(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseri
     transform_series(tfa, tf)
 }
 
-fn new_transform_func_datetime(f: fn(t: DateTime<Utc>) -> f64) -> impl TransformFn {
-    move |tfa: &mut TransformFuncArg| -> RuntimeResult<Vec<Timeseries>> {
-        let tf = move |values: &mut [f64]| {
-            for v in values.iter_mut() {
-                if !v.is_nan() {
-                    // todo: do we need try_info ?
-                    let naive = NaiveDateTime::from_timestamp_opt(*v as i64, 0);
-                    *v = if let Some(naive_datetime) = naive {
-                        let date_time_utc = Utc.from_utc_datetime(&naive_datetime);
-                        f(date_time_utc)
-                    } else {
-                        NAN
-                    };
-                }
+fn transform_datetime_impl(
+    tfa: &mut TransformFuncArg,
+    f: fn(t: DateTime<Utc>) -> f64,
+) -> RuntimeResult<Vec<Timeseries>> {
+    let tf = move |values: &mut [f64]| {
+        for v in values.iter_mut() {
+            if !v.is_nan() {
+                // todo: do we need try_info ?
+                let naive = NaiveDateTime::from_timestamp_opt(*v as i64, 0);
+                *v = if let Some(naive_datetime) = naive {
+                    let date_time_utc = Utc.from_utc_datetime(&naive_datetime);
+                    f(date_time_utc)
+                } else {
+                    NAN
+                };
             }
-        };
+        }
+    };
 
-        let mut arg = if tfa.args.len() == 0 {
-            eval_time(&tfa.ec)
-        } else {
-            get_series(tfa, 0)?
-        };
+    let mut arg = if tfa.args.len() == 0 {
+        eval_time(&tfa.ec)
+    } else {
+        get_series(tfa, 0)?
+    };
 
-        do_transform_values(&mut arg, tf, tfa.keep_metric_names)
-    }
+    do_transform_values(&mut arg, tf, tfa.keep_metric_names)
+}
+
+fn transform_hour(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    transform_datetime_impl(tfa, |t| t.hour() as f64)
+}
+
+fn transform_day_of_month(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    transform_datetime_impl(tfa, |t| t.day() as f64)
 }
 
 #[inline]
-fn transform_day_of_month(t: DateTime<Utc>) -> f64 {
-    t.day() as f64
-}
-
-#[inline]
-fn transform_day_of_week(t: DateTime<Utc>) -> f64 {
+fn day_of_week(t: DateTime<Utc>) -> f64 {
     return match t.weekday() {
         Weekday::Sun => 0.0,
         Weekday::Mon => 1.0,
@@ -435,7 +411,11 @@ fn transform_day_of_week(t: DateTime<Utc>) -> f64 {
     };
 }
 
-fn transform_days_in_month(t: DateTime<Utc>) -> f64 {
+fn transform_day_of_week(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    transform_datetime_impl(tfa, day_of_week)
+}
+
+fn days_in_month(t: DateTime<Utc>) -> f64 {
     let m = t.month();
     if m == 2 && is_leap_year(t.year() as u32) {
         return 29 as f64;
@@ -443,14 +423,20 @@ fn transform_days_in_month(t: DateTime<Utc>) -> f64 {
     DAYS_IN_MONTH[m as usize] as f64
 }
 
-#[inline]
-fn transform_exp(v: f64) -> f64 {
-    v.exp()
+fn transform_days_in_month(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    transform_datetime_impl(tfa, days_in_month)
 }
 
-#[inline]
-fn transform_floor(v: f64) -> f64 {
-    v.floor()
+fn transform_minute(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    transform_datetime_impl(tfa, |t| t.minute() as f64)
+}
+
+fn transform_month(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    transform_datetime_impl(tfa, |t| t.month() as f64)
+}
+
+fn transform_year(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    transform_datetime_impl(tfa, |t| t.year() as f64)
 }
 
 fn transform_buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
@@ -624,14 +610,11 @@ pub(crate) fn vmrange_buckets_to_le(tss: Vec<Timeseries>) -> Vec<Timeseries> {
         };
 
         if vm_range.len() == 0 {
-            match ts.metric_name.get_tag_value("le") {
-                Some(le) => {
-                    if le.len() > 0 {
-                        // Keep Prometheus-compatible buckets.
-                        rvs.push(ts);
-                    }
+            if let Some(le) = ts.metric_name.get_tag_value("le") {
+                if le.len() > 0 {
+                    // Keep Prometheus-compatible buckets.
+                    rvs.push(ts);
                 }
-                None => {}
             }
             continue;
         }
@@ -1483,11 +1466,6 @@ fn transform_range_ru(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeserie
 }
 
 #[inline]
-fn transform_hour(t: DateTime<Utc>) -> f64 {
-    t.hour() as f64
-}
-
-#[inline]
 fn running_sum(a: f64, b: f64, _idx: usize) -> f64 {
     a + b
 }
@@ -1612,36 +1590,53 @@ fn transform_interpolate(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timese
     Ok(tss)
 }
 
-fn new_transform_func_running(rf: fn(a: f64, b: f64, idx: usize) -> f64) -> impl TransformFn {
-    move |tfa: &mut TransformFuncArg| -> RuntimeResult<Vec<Timeseries>> {
-        let mut res = get_series(tfa, 0)?;
-        for ts in res.iter_mut() {
-            ts.metric_name.reset_metric_group();
+fn running_func_impl(
+    tfa: &mut TransformFuncArg,
+    rf: fn(a: f64, b: f64, idx: usize) -> f64,
+) -> RuntimeResult<Vec<Timeseries>> {
+    let mut res = get_series(tfa, 0)?;
+    for ts in res.iter_mut() {
+        ts.metric_name.reset_metric_group();
 
-            // skip NaN values
-            let mut iter = ts.values.iter_mut().skip_while(|v| v.is_nan());
+        // skip NaN values
+        let mut iter = ts.values.iter_mut().skip_while(|v| v.is_nan());
 
-            if let Some(prev_value) = iter.next() {
-                for (i, v) in iter.enumerate() {
-                    if v.is_nan() {
-                        continue;
-                    }
-                    *v = rf(*prev_value, *v, i + 1);
+        if let Some(prev_value) = iter.next() {
+            for (i, v) in iter.enumerate() {
+                if v.is_nan() {
+                    continue;
                 }
+                *v = rf(*prev_value, *v, i + 1);
             }
         }
-
-        Ok(res)
     }
+
+    Ok(res)
 }
 
-fn new_transform_func_range(rf: fn(a: f64, b: f64, idx: usize) -> f64) -> impl TransformFn {
-    let tfr = new_transform_func_running(rf);
-    move |tfa: &mut TransformFuncArg| -> RuntimeResult<Vec<Timeseries>> {
-        let mut rvs = tfr(tfa)?;
-        set_last_values(&mut rvs);
-        return Ok(rvs);
-    }
+fn transform_range_impl(
+    tfa: &mut TransformFuncArg,
+    running_fn: impl TransformFn,
+) -> RuntimeResult<Vec<Timeseries>> {
+    let mut rvs = running_fn(tfa)?;
+    set_last_values(&mut rvs);
+    return Ok(rvs);
+}
+
+fn transform_range_avg(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    transform_range_impl(tfa, transform_running_avg)
+}
+
+fn transform_range_max(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    transform_range_impl(tfa, transform_running_max)
+}
+
+fn transform_range_min(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    transform_range_impl(tfa, transform_running_min)
+}
+
+fn transform_range_sum(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    transform_range_impl(tfa, transform_running_sum)
 }
 
 fn transform_range_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
@@ -1842,8 +1837,7 @@ fn transform_alias(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>>
 
 fn label_set(series: &mut Vec<Timeseries>, dst_labels: &[String], dst_values: &[String]) {
     for ts in series.iter_mut() {
-        for (j, dst_label) in dst_labels.iter().enumerate() {
-            let value = &dst_values[j];
+        for (dst_label, value) in dst_labels.iter().zip(dst_values.iter()) {
             if value.len() == 0 {
                 ts.metric_name.remove_tag(&dst_label);
             } else {
@@ -1957,8 +1951,7 @@ fn transform_label_copy_ext(
 
     let mut series = get_series(tfa, 0)?;
     for ts in series.iter_mut() {
-        for (i, src_label) in src_labels.iter().enumerate() {
-            let dst_label = &dst_labels[i];
+        for (src_label, dst_label) in src_labels.iter().zip(dst_labels.iter()) {
             let value = ts.metric_name.get_tag_value(src_label);
             if value.is_none() {
                 continue;
@@ -2028,14 +2021,11 @@ fn transform_label_join(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeser
         dst_value.clear(); //??? test this
 
         for (j, src_label) in src_labels.iter().enumerate() {
-            match ts.metric_name.get_tag_value(src_label) {
-                Some(src_value) => {
-                    dst_value.push_str(&src_value);
-                    if j + 1 < src_labels.len() {
-                        dst_value.push_str(&separator)
-                    }
+            if let Some(src_value) = ts.metric_name.get_tag_value(src_label) {
+                dst_value.push_str(&src_value);
+                if j + 1 < src_labels.len() {
+                    dst_value.push_str(&separator)
                 }
-                None => {}
             }
         }
 
@@ -2127,18 +2117,15 @@ fn transform_label_value(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timese
     let mut series = get_series(tfa, 0)?;
     for ts in series.iter_mut() {
         ts.metric_name.reset_metric_group();
-        match ts.metric_name.get_tag_value(&label_name) {
-            Some(label_value) => {
-                x = match label_value.parse::<f64>() {
-                    Ok(v) => v,
-                    Err(..) => NAN,
-                };
+        if let Some(label_value) = ts.metric_name.get_tag_value(&label_name) {
+            x = match label_value.parse::<f64>() {
+                Ok(v) => v,
+                Err(..) => NAN,
+            };
 
-                for val in ts.values.iter_mut() {
-                    *val = x;
-                }
+            for val in ts.values.iter_mut() {
+                *val = x;
             }
-            None => {}
         }
     }
 
@@ -2278,31 +2265,6 @@ fn transform_limit_offset(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Times
     Ok(std::mem::take(&mut rvs))
 }
 
-#[inline]
-fn transform_ln(v: f64) -> f64 {
-    v.ln()
-}
-
-#[inline]
-fn transform_log2(v: f64) -> f64 {
-    v.log2()
-}
-
-#[inline]
-fn transform_log10(v: f64) -> f64 {
-    v.log10()
-}
-
-#[inline]
-fn transform_minute(t: DateTime<Utc>) -> f64 {
-    t.minute() as f64
-}
-
-#[inline]
-fn transform_month(t: DateTime<Utc>) -> f64 {
-    t.month() as f64
-}
-
 fn transform_round(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     if tfa.args.len() == 0 {
         let nearest_integer = |values: &mut [f64]| {
@@ -2350,10 +2312,7 @@ fn transform_scalar(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>
         // Verify whether the arg is a string.
         // Then try converting the string to number.
         QueryValue::String(s) => {
-            let n = match parse_number(&s) {
-                Ok(n) => n,
-                Err(_) => f64::NAN,
-            };
+            let n = parse_number(&s).map_or_else(|_| f64::NAN, |n| n);
             Ok(eval_number(&mut tfa.ec, n))
         }
         QueryValue::Scalar(f) => Ok(eval_number(&mut tfa.ec, *f)),
@@ -2370,92 +2329,99 @@ fn transform_scalar(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>
     }
 }
 
-fn new_transform_func_sort_by_label(is_desc: bool) -> impl TransformFn {
-    move |tfa: &mut TransformFuncArg| -> RuntimeResult<Vec<Timeseries>> {
-        let mut labels: Vec<String> = Vec::with_capacity(1);
-        let mut series = get_series(tfa, 0)?;
+fn sort_by_label_impl(tfa: &mut TransformFuncArg, is_desc: bool) -> RuntimeResult<Vec<Timeseries>> {
+    let mut labels: Vec<String> = Vec::with_capacity(1);
+    let mut series = get_series(tfa, 0)?;
 
-        for arg in tfa.args.iter().skip(1) {
-            let label = arg.get_string()?;
-            labels.push(label);
-        }
-
-        series.sort_by(|first, second| {
-            for label in labels.iter() {
-                let a = first.metric_name.get_tag_value(&label);
-                let b = second.metric_name.get_tag_value(&label);
-                match (a, b) {
-                    (Some(a1), Some(b1)) => {
-                        if a1 == b1 {
-                            continue;
-                        } else if is_desc {
-                            return b1.cmp(&a1);
-                        } else {
-                            return a1.cmp(&b1);
-                        }
-                    }
-                    (Some(_), None) => return Ordering::Greater,
-                    (None, Some(_)) => return Ordering::Less,
-                    (None, None) => return Ordering::Equal,
-                }
-            }
-            return Ordering::Equal;
-        });
-
-        Ok(series)
+    for arg in tfa.args.iter().skip(1) {
+        let label = arg.get_string()?;
+        labels.push(label);
     }
+
+    series.sort_by(|first, second| {
+        for label in labels.iter() {
+            let a = first.metric_name.get_tag_value(&label);
+            let b = second.metric_name.get_tag_value(&label);
+            match (a, b) {
+                (Some(a1), Some(b1)) => {
+                    if a1 == b1 {
+                        continue;
+                    } else if is_desc {
+                        return b1.cmp(&a1);
+                    } else {
+                        return a1.cmp(&b1);
+                    }
+                }
+                (Some(_), None) => return Ordering::Greater,
+                (None, Some(_)) => return Ordering::Less,
+                (None, None) => return Ordering::Equal,
+            }
+        }
+        return Ordering::Equal;
+    });
+
+    Ok(series)
 }
 
-fn new_transform_func_alpha_numeric_sort(is_desc: bool) -> impl TransformFn {
-    move |tfa: &mut TransformFuncArg| -> RuntimeResult<Vec<Timeseries>> {
-        let mut labels: Vec<String> = vec![];
-        for (i, arg) in tfa.args.iter().skip(1).enumerate() {
-            let label = arg.get_string().map_err(|err| {
-                RuntimeError::ArgumentError(format!(
-                    "cannot parse label {} for sorting: {:?}",
-                    i + 1,
-                    err
-                ))
-            })?;
-            labels.push(label);
-        }
+fn transform_sort_by_label(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    sort_by_label_impl(tfa, false)
+}
 
-        let mut res = get_series(tfa, 0)?;
-        res.sort_by(|first, second| {
-            for label in &labels {
-                match (
-                    first.metric_name.get_tag_value(&label),
-                    second.metric_name.get_tag_value(&label),
-                ) {
-                    (None, None) => continue,
-                    (Some(a), Some(b)) => {
-                        return if is_desc {
-                            compare_str_alphanumeric(b, a)
-                        } else {
-                            compare_str_alphanumeric(a, b)
-                        };
-                    }
-                    (None, Some(_)) => {
-                        return if is_desc {
-                            Ordering::Greater
-                        } else {
-                            Ordering::Less
-                        };
-                    }
-                    (Some(_), None) => {
-                        return if is_desc {
-                            Ordering::Less
-                        } else {
-                            Ordering::Greater
-                        };
-                    }
+fn transform_sort_by_label_desc(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    sort_by_label_impl(tfa, true)
+}
+
+fn label_alpha_numeric_sort_impl(
+    tfa: &mut TransformFuncArg,
+    is_desc: bool,
+) -> RuntimeResult<Vec<Timeseries>> {
+    let mut labels: Vec<String> = vec![];
+    for (i, arg) in tfa.args.iter().skip(1).enumerate() {
+        let label = arg.get_string().map_err(|err| {
+            RuntimeError::ArgumentError(format!(
+                "cannot parse label {} for sorting: {:?}",
+                i + 1,
+                err
+            ))
+        })?;
+        labels.push(label);
+    }
+
+    let mut res = get_series(tfa, 0)?;
+    res.sort_by(|first, second| {
+        for label in &labels {
+            match (
+                first.metric_name.get_tag_value(&label),
+                second.metric_name.get_tag_value(&label),
+            ) {
+                (None, None) => continue,
+                (Some(a), Some(b)) => {
+                    return if is_desc {
+                        compare_str_alphanumeric(b, a)
+                    } else {
+                        compare_str_alphanumeric(a, b)
+                    };
+                }
+                (None, Some(_)) => {
+                    return if is_desc {
+                        Ordering::Greater
+                    } else {
+                        Ordering::Less
+                    };
+                }
+                (Some(_), None) => {
+                    return if is_desc {
+                        Ordering::Less
+                    } else {
+                        Ordering::Greater
+                    };
                 }
             }
-            Ordering::Equal
-        });
+        }
+        Ordering::Equal
+    });
 
-        Ok(res)
-    }
+    Ok(res)
 }
 
 /// Compare two strings.
@@ -2562,106 +2528,32 @@ pub fn compare_str_alphanumeric<A: AsRef<str>, B: AsRef<str>>(a: A, b: B) -> Ord
     }
 }
 
-fn new_transform_func_sort(is_desc: bool) -> impl TransformFn {
-    return move |tfa: &mut TransformFuncArg| -> RuntimeResult<Vec<Timeseries>> {
-        let mut series = get_series(tfa, 0)?;
-        series.sort_by(move |first, second| {
-            let a = &first.values;
-            let b = &second.values;
-            let mut n = a.len() - 1;
-            loop {
-                if !a[n].is_nan() && !b[n].is_nan() && a[n] != b[n] {
-                    break;
-                }
-                if n == 0 {
-                    return Ordering::Greater;
-                }
-                n -= 1;
+fn transform_sort_impl(
+    tfa: &mut TransformFuncArg,
+    is_desc: bool,
+) -> RuntimeResult<Vec<Timeseries>> {
+    let mut series = get_series(tfa, 0)?;
+    series.sort_by(move |first, second| {
+        let a = &first.values;
+        let b = &second.values;
+        let mut n = a.len() - 1;
+        loop {
+            if !a[n].is_nan() && !b[n].is_nan() && a[n] != b[n] {
+                break;
             }
-
-            if is_desc {
-                return b[n].total_cmp(&a[n]);
+            if n == 0 {
+                return Ordering::Greater;
             }
-            return a[n].total_cmp(&b[n]);
-        });
+            n -= 1;
+        }
 
-        Ok(std::mem::take(&mut series))
-    };
-}
+        if is_desc {
+            return b[n].total_cmp(&a[n]);
+        }
+        return a[n].total_cmp(&b[n]);
+    });
 
-#[inline]
-fn transform_sqrt(v: f64) -> f64 {
-    v.sqrt()
-}
-
-#[inline]
-fn transform_sin(v: f64) -> f64 {
-    v.sin()
-}
-
-#[inline]
-fn transform_sinh(v: f64) -> f64 {
-    v.sinh()
-}
-
-#[inline]
-fn transform_cos(v: f64) -> f64 {
-    v.cos()
-}
-
-#[inline]
-fn transform_cosh(v: f64) -> f64 {
-    v.cosh()
-}
-
-#[inline]
-fn transform_asin(v: f64) -> f64 {
-    v.asin()
-}
-
-#[inline]
-fn transform_asinh(v: f64) -> f64 {
-    v.asinh()
-}
-
-#[inline]
-fn transform_acos(v: f64) -> f64 {
-    v.acos()
-}
-
-#[inline]
-fn transform_acosh(v: f64) -> f64 {
-    v.acosh()
-}
-
-#[inline]
-fn transform_tan(v: f64) -> f64 {
-    v.tan()
-}
-
-#[inline]
-fn transform_tanh(v: f64) -> f64 {
-    v.tanh()
-}
-
-#[inline]
-fn transform_atan(v: f64) -> f64 {
-    v.atan()
-}
-
-#[inline]
-fn transform_atanh(v: f64) -> f64 {
-    v.atanh()
-}
-
-#[inline]
-fn transform_deg(v: f64) -> f64 {
-    v * 180.0 / f64::PI()
-}
-
-#[inline]
-fn transform_rad(v: f64) -> f64 {
-    v * f64::PI() / 180.0
+    Ok(std::mem::take(&mut series))
 }
 
 trait RandFunc: FnMut() -> f64 {}
@@ -2736,18 +2628,31 @@ fn bitmap_xor(a: u64, b: u64) -> u64 {
     a ^ b
 }
 
-fn new_transform_bitmap(bitmap_func: fn(a: u64, b: u64) -> u64) -> impl TransformFn {
-    move |tfa: &mut TransformFuncArg| -> RuntimeResult<Vec<Timeseries>> {
-        let mask = get_scalar_float(&tfa, 1, None)? as u64;
+fn transform_bitmap_and(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    transform_bitmap_impl(tfa, bitmap_and)
+}
 
-        let tf = |values: &mut [f64]| {
-            for v in values.iter_mut() {
-                *v = bitmap_func(*v as u64, mask) as f64;
-            }
-        };
+fn transform_bitmap_or(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    transform_bitmap_impl(tfa, bitmap_or)
+}
 
-        transform_series(tfa, tf)
-    }
+fn transform_bitmap_xor(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    transform_bitmap_impl(tfa, bitmap_xor)
+}
+
+fn transform_bitmap_impl(
+    tfa: &mut TransformFuncArg,
+    bitmap_func: fn(a: u64, b: u64) -> u64,
+) -> RuntimeResult<Vec<Timeseries>> {
+    let mask = get_scalar_float(&tfa, 1, None)? as u64;
+
+    let tf = |values: &mut [f64]| {
+        for v in values.iter_mut() {
+            *v = bitmap_func(*v as u64, mask) as f64;
+        }
+    };
+
+    transform_series(tfa, tf)
 }
 
 fn parse_zone(tz_name: &str) -> RuntimeResult<Tz> {
@@ -2810,31 +2715,21 @@ fn transform_vector(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>
     Ok(series)
 }
 
-#[inline]
-fn transform_year(t: DateTime<Utc>) -> f64 {
-    t.year() as f64
-}
-
-fn new_transform_func_zero_args(f: fn(tfa: &mut TransformFuncArg) -> f64) -> impl TransformFn {
-    move |tfa: &mut TransformFuncArg| -> RuntimeResult<Vec<Timeseries>> {
-        let v = f(tfa);
-        Ok(eval_number(&tfa.ec, v))
-    }
+fn transform_step(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    let v = tfa.ec.step as f64 / 1e3_f64;
+    Ok(eval_number(&tfa.ec, v))
 }
 
 #[inline]
-fn transform_step(tfa: &mut TransformFuncArg) -> f64 {
-    tfa.ec.step as f64 / 1e3_f64
+fn transform_start(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    let v = tfa.ec.start as f64 / 1e3_f64;
+    Ok(eval_number(&tfa.ec, v))
 }
 
 #[inline]
-fn transform_start(tfa: &mut TransformFuncArg) -> f64 {
-    tfa.ec.start as f64 / 1e3_f64
-}
-
-#[inline]
-fn transform_end(tfa: &mut TransformFuncArg) -> f64 {
-    tfa.ec.end as f64 / 1e3_f64
+fn transform_end(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    let v = tfa.ec.end as f64 / 1e3_f64;
+    Ok(eval_number(&tfa.ec, v))
 }
 
 /// copy_timeseries returns a copy of tss.

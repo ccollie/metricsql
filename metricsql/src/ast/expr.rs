@@ -1,3 +1,4 @@
+use crate::ast::expr_equals;
 use crate::common::{
     format_num, write_list, AggregateModifier, BinModifier, GroupModifier, GroupModifierOp,
     JoinModifier, LabelFilter, LabelFilterExpr, LabelFilterOp, Operator, StringExpr, Value,
@@ -15,10 +16,9 @@ use std::hash::{Hash, Hasher};
 use std::ops::{Deref, Neg, Range};
 use std::str::FromStr;
 use std::{fmt, iter, ops};
-use crate::ast::expr_equals;
 
 use crate::parser::{escape_ident, ParseError, ParseResult};
-use crate::prelude::{BuiltinFunctionType, get_aggregate_arg_idx_for_optimization};
+use crate::prelude::{get_aggregate_arg_idx_for_optimization, BuiltinFunctionType};
 
 pub type BExpr = Box<Expr>;
 
@@ -36,9 +36,7 @@ pub struct NumberLiteral {
 
 impl NumberLiteral {
     pub fn new(v: f64) -> Self {
-        NumberLiteral {
-            value: v,
-        }
+        NumberLiteral { value: v }
     }
 
     pub fn return_type(&self) -> ValueType {
@@ -105,9 +103,7 @@ impl Neg for NumberLiteral {
 
     fn neg(self) -> Self::Output {
         let value = -self.value;
-        NumberLiteral {
-            value,
-        }
+        NumberLiteral { value }
     }
 }
 
@@ -403,6 +399,8 @@ impl ExpressionNode for MetricExpr {
 pub struct FunctionExpr {
     pub name: String,
 
+    pub function: BuiltinFunction,
+
     /// Args contains function args.
     pub args: Vec<Expr>,
 
@@ -414,7 +412,6 @@ pub struct FunctionExpr {
 
     pub is_scalar: bool,
 
-    pub function_type: BuiltinFunctionType,
     pub return_type: ValueType,
 }
 
@@ -432,13 +429,17 @@ impl FunctionExpr {
             arg_idx_for_optimization: arg_idx,
             keep_metric_names: false,
             is_scalar,
-            function_type: function.get_type(),
+            function,
             return_type,
         })
     }
 
     pub fn return_type(&self) -> ValueType {
         self.return_type
+    }
+
+    pub fn function_type(&self) -> BuiltinFunctionType {
+        self.function.get_type()
     }
 
     pub fn get_arg_for_optimization(&self) -> Option<&Expr> {
@@ -458,7 +459,7 @@ impl FunctionExpr {
     }
 
     pub fn is_rollup(&self) -> bool {
-        self.function_type == BuiltinFunctionType::Rollup
+        self.function_type() == BuiltinFunctionType::Rollup
     }
 }
 
@@ -792,10 +793,6 @@ impl BinaryExpr {
         matches!(&self.modifier, Some(modifier) if modifier.is_matching_labels_not_empty())
     }
 
-    pub fn return_bool(&self) -> bool {
-        matches!(&self.modifier, Some(modifier) if modifier.return_bool)
-    }
-
     /// check if labels of card and matching are joint
     pub fn is_labels_joint(&self) -> bool {
         matches!(&self.modifier, Some(modifier) if modifier.is_labels_joint())
@@ -966,7 +963,7 @@ impl ParensExpr {
             keep_metric_names: false,
             is_scalar: false,
             return_type: TransformFunction::Union.return_type(),
-            function_type: func.get_type(),
+            function: func,
             arg_idx_for_optimization: arg_idx,
         }
     }
@@ -1054,9 +1051,9 @@ pub struct WithArgExpr {
 
 impl PartialEq for WithArgExpr {
     fn eq(&self, other: &Self) -> bool {
-        let res = self.name == other.name &&
-            self.args == other.args &&
-            expr_equals(&self.expr, &other.expr);
+        let res = self.name == other.name
+            && self.args == other.args
+            && expr_equals(&self.expr, &other.expr);
         res
     }
 }
@@ -1381,7 +1378,6 @@ impl Expr {
         };
         Ok(Expr::BinaryOperator(ex))
     }
-
 }
 
 impl Display for Expr {

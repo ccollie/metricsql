@@ -122,8 +122,7 @@ pub(crate) fn deserialize_series_between(
 ) -> RuntimeResult<Vec<Timeseries>> {
     let mut t_decompressor = Decompressor::<i64>::default();
 
-    #[warn(unused_assignments)]
-    let mut size = 0;
+    let mut size: usize = 0;
 
     // read timestamp metadata
     let mut compressed = read_metadata(&mut t_decompressor, compressed)?;
@@ -198,7 +197,7 @@ pub(crate) fn deserialize_series_between(
 
                 compressed = &compressed[size..];
 
-                // todo: this can be faster
+                // todo: this can probably be faster
                 let filtered = page_t
                     .iter()
                     .zip(page_v)

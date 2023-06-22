@@ -54,9 +54,25 @@ impl Evaluator for BinaryEvaluatorScalarScalar {
                 let res = (self.handler)(left, right);
                 Ok(Scalar(res))
             }
+            (Scalar(left), InstantVector(right_vec)) => {
+                // here we expect that the right is a vector where each value is constant
+                // can be produced by eval_number() for example
+                // TODO: add tests to enforce this
+                if right_vec.len() > 0 {
+                    let right = right_vec[0].values[0];
+                    let res = (self.handler)(left, right);
+                    return Ok(Scalar(res));
+                } else {
+                    let msg = format!(
+                        "expected scalar args for binary operator {}; got {} and {:?}",
+                        self.op, left, right_vec
+                    );
+                    unreachable!("{}", msg)
+                }
+            }
             (lhs, rhs) => {
                 let msg = format!(
-                    "expected scalar args for binary operator {:?}; got {:?} and {:?}",
+                    "expected scalar args for binary operator {}; got {:?} and {:?}",
                     self.op, lhs, rhs
                 );
                 unreachable!("{}", msg)

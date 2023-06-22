@@ -31,9 +31,7 @@ const INF: f64 = f64::INFINITY;
 /// The maximum interval without previous rows.
 pub const MAX_SILENCE_INTERVAL: i64 = 5 * 60 * 1000;
 
-pub type RollupImplementation = Arc<dyn RollupFn<Output = f64>>;
-
-fn get_rollup_fn(f: &RollupFunction) -> RuntimeResult<RollupFunc> {
+pub(crate) fn get_rollup_fn(f: &RollupFunction) -> RuntimeResult<RollupFunc> {
     use RollupFunction::*;
 
     let res = match f {
@@ -86,7 +84,7 @@ fn get_rollup_fn(f: &RollupFunction) -> RuntimeResult<RollupFunc> {
         ZScoreOverTime => rollup_zscore_over_time,
         _ => {
             return Err(RuntimeError::General(format!(
-                "{} is not an aggregate function",
+                "{} is not an rollup function",
                 &f.name()
             )))
         }

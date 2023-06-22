@@ -227,7 +227,7 @@ pub(crate) fn intersect(
     // The set of signatures for the right-hand side.
     let mut right_sigs = IntMap::with_capacity(rhs.len());
     for (idx, meta) in rhs.iter().enumerate() {
-        let hash = meta.get_hash_by_group_modifier(&hasher, &matching.groupModifier);
+        let hash = meta.get_hash_by_group_modifier(&hasher, &matching.group_modifier);
         right_sigs.insert(hash, idx);
     }
 
@@ -417,30 +417,30 @@ fn vector_vector_binop(expr: BinaryExpr) {
     // Function to compute the join signature for each series.
     let buf = vec![0_u8; 1024];
     let sigf = signature_func(e.VectorMatching.On, buf, e.VectorMatching.MatchingLabels...)
-    let initSignatures = |series: Labels, h: &EvalSeriesHelper | {
+    let init_signatures = |series: Labels, h: &EvalSeriesHelper | {
         h.signature = sigf(series)
     };
     match expr.op {
         Operator::And => {
-            return ev.rangeEval(initSignatures, |v: &Value, sh,
-            EvalSeriesHelper, enh: &EvalNodeHelper| -> RuntimeResult < Vector > {
+            return ev.rangeEval(init_signatures, |v: &Value, sh,
+                                                  EvalSeriesHelper, enh: &EvalNodeHelper| -> RuntimeResult < Vector > {
                 return ev.VectorAnd(v[0], v[1], e.VectorMatching, sh[0], sh[1], enh);
             }, e.LHS, e.RHS)
         }
         Operator::Or => {
-            return ev.rangeEval(initSignatures, |v: &[AnyValue], sh
+            return ev.rangeEval(init_signatures, | v: &[AnyValue], sh
             [], enh: &EvalNodeHelper) -> Vector
             {
                 return ev.VectorOr(v[0].(Vector), v[1].(Vector), e.VectorMatching, sh[0], sh[1], enh);
             }, e.LHS, e.RHS)
         }
         Operator::Unless => {
-            return ev.rangeEval(initSignatures, |v: &Value, sh, enh: &EvalNodeHelper| -> RuntimeResult < Vector > {
+            return ev.rangeEval(init_signatures, |v: &Value, sh, enh: &EvalNodeHelper| -> RuntimeResult < Vector > {
                 return vector_unless(v[0], v[1], e.VectorMatching, sh[0], sh[1], enh);
             }, e.LHS, e.RHS);
         }
         _ => {
-            return ev.rangeEval(initSignatures, |v: &Value, sh, enh: EvalNodeHelper| -> Vector {
+            return ev.rangeEval(init_signatures, |v: &Value, sh, enh: EvalNodeHelper| -> Vector {
                 return ev.VectorBinop(e.Op,
                 v[0],
                 v[1],

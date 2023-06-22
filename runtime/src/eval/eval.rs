@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use metricsql::ast::*;
 use metricsql::common::{LabelFilter, Value};
-use metricsql::functions::{BuiltinFunctionType, Signature, Volatility};
+use metricsql::functions::{BuiltinFunction, Signature, Volatility};
 use metricsql::prelude::{BinaryOpKind, ValueType};
 
 use crate::context::Context;
@@ -172,8 +172,8 @@ pub fn create_evaluator(expr: &Expr) -> RuntimeResult<ExprEvaluator> {
 }
 
 fn create_function_evaluator(fe: &FunctionExpr) -> RuntimeResult<ExprEvaluator> {
-    match fe.function_type {
-        BuiltinFunctionType::Rollup => {
+    match fe.function {
+        BuiltinFunction::Rollup(_) => {
             let eval = RollupEvaluator::from_function(fe)?;
             Ok(ExprEvaluator::Rollup(eval))
         }

@@ -12,11 +12,11 @@ use crate::context::Context;
 use crate::eval::arg_list::ArgList;
 use crate::eval::rollup::{compile_rollup_func_args, RollupEvaluator};
 use crate::functions::aggregate::{
-    get_aggr_func, try_get_incremental_aggr_handler, AggrFn, AggrFuncArg,
+    exec_aggregate_fn, try_get_incremental_aggr_handler, AggrFuncArg,
 };
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::utils::num_cpus;
-use crate::{EvalConfig, QueryValue, Timeseries};
+use crate::{EvalConfig, QueryValue};
 
 use super::{Evaluator, ExprEvaluator};
 
@@ -51,11 +51,10 @@ pub(super) fn create_aggr_evaluator(ae: &AggregationExpr) -> RuntimeResult<ExprE
 
 pub struct AggregateEvaluator {
     pub expr: String,
-    pub function: String, // smol_str ?
+    pub function: AggregateFunction, // smol_str ?
     args: ArgList,
     /// optional modifier such as `by (...)` or `without (...)`.
     modifier: Option<AggregateModifier>,
-    handler: Arc<dyn AggrFn<Output = RuntimeResult<Vec<Timeseries>>> + 'static>,
     /// Max number of timeseries to return
     pub limit: usize,
     pub may_sort_results: bool,
@@ -65,14 +64,12 @@ impl AggregateEvaluator {
     pub fn new(ae: &AggregationExpr) -> RuntimeResult<Self> {
         // todo: remove unwrap and return a Result
         let function = AggregateFunction::from_str(&ae.name).unwrap();
-        let handler = get_aggr_func(&function)?;
         let signature = function.signature();
         let args = ArgList::new(&signature, &ae.args)?;
 
         Ok(Self {
-            handler,
             args,
-            function: ae.name.clone(),
+            function,
             modifier: ae.modifier.clone(),
             limit: ae.limit,
             expr: ae.to_string(),
@@ -90,7 +87,8 @@ impl Evaluator for AggregateEvaluator {
         let span = if ctx.trace_enabled() {
             // done this way to avoid possible string alloc in the case where
             // logging is disabled
-            trace_span!("aggregate", self.function, series = field::Empty)
+            let name = self.function.name();
+            trace_span!("aggregate", name, series = field::Empty)
         } else {
             Span::none()
         }
@@ -100,7 +98,7 @@ impl Evaluator for AggregateEvaluator {
 
         //todo: use tinyvec for args
         let mut afa = AggrFuncArg::new(ec, args, &self.modifier, self.limit);
-        match (self.handler)(&mut afa) {
+        match exec_aggregate_fn(self.function, &mut afa) {
             Ok(res) => {
                 span.record("series", res.len());
                 Ok(QueryValue::InstantVector(res))

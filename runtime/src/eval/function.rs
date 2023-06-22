@@ -9,15 +9,13 @@ use tracing::{field, trace_span, Span};
 use crate::context::Context;
 use crate::eval::arg_list::ArgList;
 use crate::eval::traits::Evaluator;
-use crate::functions::transform::{
-    get_transform_func, TransformFnImplementation, TransformFuncArg,
-};
+use crate::functions::transform::{get_transform_func, TransformFuncArg, TransformFuncHandler};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::{EvalConfig, QueryValue};
 
 pub struct TransformEvaluator {
     fe: FunctionExpr,
-    handler: TransformFnImplementation,
+    handler: TransformFuncHandler,
     args: ArgList,
     keep_metric_names: bool,
     return_type: ValueType,
@@ -28,7 +26,7 @@ impl TransformEvaluator {
     pub fn new(fe: &FunctionExpr) -> RuntimeResult<Self> {
         match TransformFunction::from_str(&fe.name) {
             Ok(function) => {
-                let handler = get_transform_func(function)?;
+                let handler = get_transform_func(function);
                 let signature = function.signature();
 
                 // todo: validate count

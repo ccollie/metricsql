@@ -1,3 +1,4 @@
+use rand_distr::num_traits::ops::overflowing::OverflowingMul;
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::ops::Deref;
@@ -247,7 +248,7 @@ impl RollupEvaluator {
                             let msg = format!("`@` modifier must return a single series; it returns {} series instead", v.len());
                             return Err(RuntimeError::from(msg));
                         }
-                        let ts = v.get(0).unwrap();
+                        let ts = &v[0];
                         if ts.values.len() > 1 {
                             let msg = format!("`@` modifier must return a single value; it returns {} series instead", ts.values.len());
                             return Err(RuntimeError::from(msg));

@@ -1,11 +1,10 @@
 use lib::BuildNoHashHasher;
 use std::collections::HashMap;
-use std::sync::{Arc, OnceLock};
 use xxhash_rust::xxh3::Xxh3;
 
 use crate::eval::utils::remove_empty_series;
 use metricsql::ast::BinaryExpr;
-use metricsql::binaryop::{get_scalar_binop_handler, BinopFunc};
+use metricsql::binaryop::{get_scalar_binop_handler, get_scalar_comparison_handler, BinopFunc};
 use metricsql::common::{GroupModifier, JoinModifier, JoinModifierOp, Operator};
 
 use crate::runtime_error::{RuntimeError, RuntimeResult};
@@ -32,8 +31,6 @@ pub(crate) trait BinaryOpFn:
 
 impl<T> BinaryOpFn for T where T: Fn(&mut BinaryOpFuncArg) -> BinaryOpFuncResult + Send + Sync {}
 
-pub(crate) type BinaryOpFnImplementation = Arc<dyn BinaryOpFn<Output = BinaryOpFuncResult>>;
-
 type TimeseriesHashMap = HashMap<u64, Vec<Timeseries>, BuildNoHashHasher<u64>>;
 
 macro_rules! make_binary_func {
@@ -45,15 +42,6 @@ macro_rules! make_binary_func {
     };
 }
 
-macro_rules! make_binary_comparison_func {
-    ($name: ident) => {
-        fn $name(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-            let bf = get_scalar_binop_handler(bfa.be.op, bfa.be.bool_modifier);
-            binary_op_func_impl(bf, bfa)
-        }
-    };
-}
-
 make_binary_func!(binary_op_add, Operator::Add);
 make_binary_func!(binary_op_atan2, Operator::Atan2);
 make_binary_func!(binary_op_sub, Operator::Sub);
@@ -61,13 +49,11 @@ make_binary_func!(binary_op_mul, Operator::Mul);
 make_binary_func!(binary_op_div, Operator::Div);
 make_binary_func!(binary_op_mod, Operator::Mod);
 make_binary_func!(binary_op_pow, Operator::Pow);
-// comparison operators
-make_binary_comparison_func!(binary_op_eq);
-make_binary_comparison_func!(binary_op_ne);
-make_binary_comparison_func!(binary_op_gt);
-make_binary_comparison_func!(binary_op_gte);
-make_binary_comparison_func!(binary_op_lt);
-make_binary_comparison_func!(binary_op_le);
+
+fn binary_op_comparison(bfa: &mut BinaryOpFuncArg) -> BinaryOpFuncResult {
+    let bf = get_scalar_comparison_handler(bfa.be.op, bfa.be.bool_modifier);
+    binary_op_func_impl(bf, bfa)
+}
 
 pub(super) fn exec_binop(bfa: &mut BinaryOpFuncArg) -> BinaryOpFuncResult {
     use Operator::*;
@@ -79,12 +65,8 @@ pub(super) fn exec_binop(bfa: &mut BinaryOpFuncArg) -> BinaryOpFuncResult {
         Div => binary_op_div(bfa),
         Mod => binary_op_mod(bfa),
         Pow => binary_op_pow(bfa),
-        Eql => binary_op_eq(bfa),
-        NotEq => binary_op_ne(bfa),
-        Gt => binary_op_gt(bfa),
-        Gte => binary_op_gte(bfa),
-        Lt => binary_op_lt(bfa),
-        Lte => binary_op_le(bfa),
+        // comparison operators
+        Eql | NotEq | Gt | Gte | Lt | Lte => binary_op_comparison(bfa),
         And => binary_op_and(bfa),
         Or => binary_op_or(bfa),
         Unless => binary_op_unless(bfa),

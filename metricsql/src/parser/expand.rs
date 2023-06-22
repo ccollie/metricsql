@@ -120,7 +120,6 @@ pub(super) fn expand_metric_expression(
     was: &Vec<WithArgExpr>,
     me: MetricExpr,
 ) -> ParseResult<Expr> {
-
     fn ensure_filters_resolved(me: &MetricExpr) -> ParseResult<()> {
         if !me.label_filter_expressions.is_empty() {
             let msg = format!(
@@ -189,7 +188,9 @@ pub(super) fn expand_metric_expression(
             let wme = wme.unwrap();
             ensure_filters_resolved(&wme)?;
 
-            new_selector.label_filters.append(&mut wme.label_filters.clone());
+            new_selector
+                .label_filters
+                .append(&mut wme.label_filters.clone());
             continue;
         }
 
@@ -220,20 +221,17 @@ pub(super) fn expand_metric_expression(
         Expr::MetricExpression(me) => {
             let res = handle_expanded(me, &mut new_selector)?;
             Some(res)
-        },
-        Expr::Rollup(re) => {
-            match re.expr.as_ref() {
-                Expr::MetricExpression(me) => {
-                    let mut rollup = re.clone();
-                    rollup.expr = Box::new(handle_expanded(me, &mut new_selector)? );
-                    Some(Expr::Rollup(rollup))
-                },
-                _ => None,
+        }
+        Expr::Rollup(re) => match re.expr.as_ref() {
+            Expr::MetricExpression(me) => {
+                let mut rollup = re.clone();
+                rollup.expr = Box::new(handle_expanded(me, &mut new_selector)?);
+                Some(Expr::Rollup(rollup))
             }
+            _ => None,
         },
         _ => None,
     };
-
 
     match wme {
         None => {
@@ -245,7 +243,7 @@ pub(super) fn expand_metric_expression(
                 return Err(ParseError::General(msg));
             }
             return Ok(expanded);
-        },
+        }
         Some(e) => Ok(e),
     }
 }
@@ -277,13 +275,13 @@ fn expand_function(
     if wa.is_some() {
         return expand_with_expr_ext(symbols, was, wa.unwrap(), args);
     }
-    let res = FunctionExpr{
+    let res = FunctionExpr {
         name: func.name,
         args,
         arg_idx_for_optimization: func.arg_idx_for_optimization,
         keep_metric_names: func.keep_metric_names,
         is_scalar: func.is_scalar,
-        function_type: func.function_type,
+        function: func.function,
         return_type: func.return_type,
     };
     Ok(Expr::Function(res))
@@ -350,13 +348,9 @@ pub(super) fn expand_string_expr(
     if se.is_expanded() {
         // Already expanded.
         return match se.get_literal()? {
-            Some(s) => {
-                Ok(Expr::from(s.to_string()))
-            }
-            None => {
-                Ok(Expr::from("".to_string()))
-            }
-        }
+            Some(s) => Ok(Expr::from(s.to_string())),
+            None => Ok(Expr::from("".to_string())),
+        };
     }
 
     if se.is_empty() {
@@ -406,16 +400,9 @@ fn expand_modifier_args(
     was: &Vec<WithArgExpr>,
     args: &[String],
 ) -> ParseResult<Vec<String>> {
-    fn handle_metric_expr(
-        expr: &Expr,
-        arg: &String,
-        args: &[String],
-    ) -> ParseResult<String> {
-
+    fn handle_metric_expr(expr: &Expr, arg: &String, args: &[String]) -> ParseResult<String> {
         fn error(expr: &Expr, arg: &String, args: &[String]) -> ParseResult<String> {
-            let msg = format!(
-                "cannot use {expr} instead of {arg} in {}", args.join(", ")
-            );
+            let msg = format!("cannot use {expr} instead of {arg} in {}", args.join(", "));
             // let err = syntax_error(&msg, &expr.token_range, "".to_string());
             Err(ParseError::General(msg))
         }
