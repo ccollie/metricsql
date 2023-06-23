@@ -1,4 +1,3 @@
-use rand_distr::num_traits::ops::overflowing::OverflowingMul;
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::ops::Deref;
@@ -696,7 +695,7 @@ impl RollupEvaluator {
                 function,
                 incremental = true,
                 series = rss.len(),
-                aggregation = ae.name,
+                aggregation = ae.function.name(),
                 samples_scanned = field::Empty
             );
             span
@@ -1018,15 +1017,11 @@ fn aggregate_absent_over_time(ec: &EvalConfig, expr: &Expr, tss: &[Timeseries]) 
 fn get_keep_metric_names(expr: &Expr) -> bool {
     // todo: move to optimize stage. put result in ast node
     return match expr {
-        Expr::BinaryOperator(be) => return be.keep_metric_names,
-        Expr::Aggregation(ae) => {
-            if ae.keep_metric_names {
-                return rollup_func_keeps_metric_name(&ae.name);
-            }
-            false
-        }
+        Expr::BinaryOperator(be) => be.keep_metric_names,
+        Expr::Aggregation(ae) => ae.keep_metric_names,
         Expr::Function(fe) => {
             if fe.keep_metric_names {
+                // TODO: !!!! this is a hack. We need to fix this in the parser
                 return rollup_func_keeps_metric_name(&fe.name);
             }
             false

@@ -7,7 +7,6 @@ use metricsql::prelude::{BinaryOpKind, ValueType};
 
 use crate::context::Context;
 use crate::eval::aggregate::{create_aggr_evaluator, AggregateEvaluator};
-use crate::eval::binop_handlers::should_reset_metric_group;
 use crate::eval::binop_scalar_scalar::BinaryEvaluatorScalarScalar;
 use crate::eval::binop_scalar_vector::BinaryEvaluatorScalarVector;
 use crate::eval::binop_vector_scalar::BinaryEvaluatorVectorScalar;
@@ -198,8 +197,7 @@ fn create_binary_evaluator(be: &BinaryExpr) -> RuntimeResult<ExprEvaluator> {
     use BinaryOpKind::*;
 
     let op_kind = be.op.kind();
-    let keep_metric_names =
-        be.keep_metric_names || should_reset_metric_group(&be.op, be.bool_modifier);
+    let keep_metric_names = be.keep_metric_names || be.should_reset_metric_group(); // TODO: seems fishy
     match (be.left.return_type(), op_kind, be.right.return_type()) {
         (ValueType::Scalar, Arithmetic | Comparison, ValueType::Scalar) => {
             assert!(Comparison != op_kind || be.bool_modifier);

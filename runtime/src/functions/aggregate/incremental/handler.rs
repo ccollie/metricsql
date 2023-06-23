@@ -10,6 +10,7 @@ use crate::functions::aggregate::incremental::sum2::IncrementalAggrSum2;
 use crate::functions::aggregate::{
     IncrementalAggrContext, IncrementalAggrFuncKind, IncrementalAggrHandler,
 };
+use metricsql::prelude::AggregateFunction;
 
 /// all the incremental aggregation functions
 /// Using an enum because this needs to be Send
@@ -23,6 +24,15 @@ pub enum Handler {
     Sum2(IncrementalAggrSum2),
     Any(IncrementalAggrAny),
     Group(IncrementalAggrGroup),
+}
+
+impl TryFrom<AggregateFunction> for Handler {
+    type Error = String;
+
+    fn try_from(value: AggregateFunction) -> Result<Self, Self::Error> {
+        let kind = IncrementalAggrFuncKind::try_from(value)?;
+        Ok(Handler::new(kind))
+    }
 }
 
 impl Handler {

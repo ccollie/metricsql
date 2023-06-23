@@ -85,6 +85,7 @@ impl TreeNode for Expr {
         let expr = match self {
             Expr::Aggregation(AggregationExpr {
                 name,
+                function,
                 args,
                 modifier,
                 limit,
@@ -92,6 +93,7 @@ impl TreeNode for Expr {
                 arg_idx_for_optimization,
             }) => Expr::Aggregation(AggregationExpr {
                 name,
+                function,
                 args: transform_vec(args, &mut transform)?,
                 modifier,
                 limit,

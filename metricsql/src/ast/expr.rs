@@ -465,7 +465,7 @@ impl FunctionExpr {
 
 impl Display for FunctionExpr {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{}", self.name)?;
+        write!(f, "{}", self.function.name())?;
         write_list(&mut self.args.iter(), f, true)?;
         if self.keep_metric_names {
             write!(f, " keep_metric_names")?;
@@ -479,6 +479,9 @@ impl Display for FunctionExpr {
 pub struct AggregationExpr {
     /// name is the aggregation function name.
     pub name: String,
+
+    /// function is the aggregation function.
+    pub function: AggregateFunction,
 
     /// function args.
     pub args: Vec<Expr>,
@@ -500,21 +503,25 @@ pub struct AggregationExpr {
 }
 
 impl AggregationExpr {
-    pub fn new(function: &AggregateFunction, args: Vec<Expr>) -> AggregationExpr {
+    pub fn new(function: AggregateFunction, args: Vec<Expr>) -> AggregationExpr {
         let arg_len = args.len();
-        AggregationExpr {
+        let mut ae = AggregationExpr {
             name: function.to_string(),
             args,
             modifier: None,
             limit: 0,
+            function: function.clone(),
             keep_metric_names: false,
-            arg_idx_for_optimization: get_aggregate_arg_idx_for_optimization(*function, arg_len),
-        }
+            arg_idx_for_optimization: get_aggregate_arg_idx_for_optimization(function, arg_len),
+        };
+
+        ae.set_keep_metric_names();
+        ae
     }
 
     pub fn from_name(name: &str) -> ParseResult<Self> {
         let function = AggregateFunction::from_str(name)?;
-        Ok(Self::new(&function, vec![]))
+        Ok(Self::new(function, vec![]))
     }
 
     pub fn with_modifier(mut self, modifier: AggregateModifier) -> Self {
@@ -558,7 +565,7 @@ impl AggregationExpr {
 
 impl Display for AggregationExpr {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{}", self.name)?;
+        write!(f, "{}", self.function.to_string())?;
         let args_len = self.args.len();
         if args_len > 0 {
             write_list(&mut self.args.iter(), f, true)?;
@@ -831,6 +838,18 @@ impl BinaryExpr {
             return false;
         }
         true
+    }
+
+    pub fn should_reset_metric_group(&self) -> bool {
+        let op = self.op;
+        if op.is_comparison() && !self.bool_modifier {
+            // do not reset MetricGroup for non-boolean `compare` binary ops like Prometheus does.
+            return false;
+        }
+        match op {
+            Operator::Default | Operator::If | Operator::IfNot => false,
+            _ => true,
+        }
     }
 
     pub fn return_type(&self) -> ValueType {

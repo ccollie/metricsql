@@ -136,6 +136,8 @@ fn adjust_binary_op_tags(
     let mut rvs_left: Vec<Timeseries> = Vec::with_capacity(1);
     let mut rvs_right: Vec<Timeseries> = Vec::with_capacity(1);
 
+    let should_reset_metric_group = bfa.be.should_reset_metric_group();
+
     for (k, tss_left) in m_left.iter_mut() {
         let mut tss_right = m_right.remove(k).unwrap_or(vec![]);
         if tss_right.len() == 0 {
@@ -165,7 +167,9 @@ fn adjust_binary_op_tags(
                 ensure_single_timeseries("left", &bfa.be, tss_left)?;
                 ensure_single_timeseries("right", &bfa.be, &mut tss_right)?;
                 let mut ts_left = &mut tss_left[0];
-                reset_metric_group_if_required(&bfa.be, &mut ts_left);
+                if should_reset_metric_group {
+                    ts_left.metric_name.reset_metric_group();
+                }
 
                 if let Some(modifier) = &bfa.be.group_modifier {
                     ts_left.metric_name.update_tags_by_group_modifier(modifier);
@@ -244,7 +248,7 @@ fn group_join(
     let mut map: HashMap<u64, TsPair, BuildNoHashHasher<u64>> =
         HashMap::with_capacity_and_hasher(tss_left.len(), BuildNoHashHasher::default());
 
-    let should_reset_name = should_reset_metric_group(&be.op, be.bool_modifier);
+    let should_reset_name = be.should_reset_metric_group();
 
     for ts_left in tss_left.into_iter() {
         if should_reset_name {
@@ -441,23 +445,6 @@ fn binary_op_default(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>
     }
 
     Ok(rvs)
-}
-
-pub(super) fn should_reset_metric_group(op: &Operator, is_bool: bool) -> bool {
-    if op.is_comparison() && !is_bool {
-        // do not reset MetricGroup for non-boolean `compare` binary ops like Prometheus does.
-        return false;
-    }
-    match op {
-        Operator::Default | Operator::If | Operator::IfNot => false,
-        _ => true,
-    }
-}
-
-pub(super) fn reset_metric_group_if_required(be: &BinaryExpr, ts: &mut Timeseries) {
-    if should_reset_metric_group(&be.op, be.bool_modifier) {
-        ts.metric_name.reset_metric_group()
-    }
 }
 
 fn binary_op_or(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {

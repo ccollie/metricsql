@@ -11,9 +11,7 @@ use metricsql::prelude::Value;
 use crate::context::Context;
 use crate::eval::arg_list::ArgList;
 use crate::eval::rollup::{compile_rollup_func_args, RollupEvaluator};
-use crate::functions::aggregate::{
-    exec_aggregate_fn, try_get_incremental_aggr_handler, AggrFuncArg,
-};
+use crate::functions::aggregate::{exec_aggregate_fn, AggrFuncArg, Handler};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::utils::num_cpus;
 use crate::{EvalConfig, QueryValue};
@@ -21,29 +19,23 @@ use crate::{EvalConfig, QueryValue};
 use super::{Evaluator, ExprEvaluator};
 
 pub(super) fn create_aggr_evaluator(ae: &AggregationExpr) -> RuntimeResult<ExprEvaluator> {
-    match try_get_incremental_aggr_handler(&ae.name) {
-        Some(handler) => {
-            match try_get_arg_rollup_func_with_metric_expr(ae)? {
-                Some(fe) => {
-                    // There is an optimized path for calculating `Expression::AggrFuncExpr` over: RollupFunc
-                    // over Expression::MetricExpr.
-                    // The optimized path saves RAM for aggregates over big number of time series.
-                    let (args, re) = compile_rollup_func_args(&fe)?;
-                    let expr = Expr::Aggregation(ae.clone());
-                    let func = get_rollup_function(&fe)?;
+    if let Ok(handler) = Handler::try_from(ae.function) {
+        if let Some(fe) = try_get_arg_rollup_func_with_metric_expr(ae)? {
+            // There is an optimized path for calculating `Expression::AggrFuncExpr` over: RollupFunc
+            // over Expression::MetricExpr.
+            // The optimized path saves RAM for aggregates over big number of time series.
+            let (args, re) = compile_rollup_func_args(&fe)?;
+            let expr = Expr::Aggregation(ae.clone());
+            let func = get_rollup_function(&fe)?;
 
-                    let mut res = RollupEvaluator::create_internal(func, &re, expr, args)?;
+            let mut res = RollupEvaluator::create_internal(func, &re, expr, args)?;
 
-                    res.timeseries_limit = get_timeseries_limit(ae)?;
-                    res.is_incr_aggregate = true;
-                    res.incremental_aggr_handler = Some(handler);
+            res.timeseries_limit = get_timeseries_limit(ae)?;
+            res.is_incr_aggregate = true;
+            res.incremental_aggr_handler = Some(handler);
 
-                    return Ok(ExprEvaluator::Rollup(res));
-                }
-                _ => {}
-            }
+            return Ok(ExprEvaluator::Rollup(res));
         }
-        _ => {}
     }
 
     Ok(ExprEvaluator::Aggregate(AggregateEvaluator::new(ae)?))
@@ -171,41 +163,33 @@ fn try_get_arg_rollup_func_with_metric_expr(
             }
         }
         Expr::Function(fe) => {
-            let function: BuiltinFunction;
-            match BuiltinFunction::from_str(&fe.name) {
-                Err(_) => return Err(RuntimeError::UnknownFunction(fe.name.to_string())),
-                Ok(f) => function = f,
-            };
-
-            match function {
+            match fe.function {
                 BuiltinFunction::Rollup(_) => {
-                    match fe.get_arg_for_optimization() {
-                        None => {
-                            // Incorrect number of args for rollup func.
-                            // TODO: this should be an error
-                            // all rollup functions should have a value for this
-                            return Ok(None);
-                        }
-                        Some(arg) => {
-                            match arg.deref() {
-                                Expr::MetricExpression(me) => create_func(me, e, &fe.name, false),
-                                Expr::Rollup(re) => {
-                                    match &*re.expr {
-                                        Expr::MetricExpression(me) => {
-                                            if me.is_empty() || re.for_subquery() {
-                                                Ok(None)
-                                            } else {
-                                                // e = RollupFunc(metricExpr[d])
-                                                // todo: use COW to avoid clone
-                                                Ok(Some(fe.clone()))
-                                            }
-                                        }
-                                        _ => Ok(None),
+                    let arg = fe.get_arg_for_optimization();
+                    if arg.is_none() {
+                        // Incorrect number of args for rollup func.
+                        // TODO: this should be an error
+                        // all rollup functions should have a value for this
+                        return Ok(None);
+                    }
+                    let arg = arg.unwrap();
+                    match arg.deref() {
+                        Expr::MetricExpression(me) => create_func(me, e, &fe.name, false),
+                        Expr::Rollup(re) => {
+                            match &*re.expr {
+                                Expr::MetricExpression(me) => {
+                                    if me.is_empty() || re.for_subquery() {
+                                        Ok(None)
+                                    } else {
+                                        // e = RollupFunc(metricExpr[d])
+                                        // todo: use COW to avoid clone
+                                        Ok(Some(fe.clone()))
                                     }
                                 }
                                 _ => Ok(None),
                             }
                         }
+                        _ => Ok(None),
                     }
                 }
                 _ => Ok(None),
@@ -216,13 +200,13 @@ fn try_get_arg_rollup_func_with_metric_expr(
 }
 
 fn get_rollup_function(fe: &FunctionExpr) -> RuntimeResult<RollupFunction> {
-    match RollupFunction::from_str(&fe.name) {
-        Ok(rf) => Ok(rf),
+    match fe.function {
+        BuiltinFunction::Rollup(rf) => Ok(rf),
         _ => {
             // should not happen
             Err(RuntimeError::General(format!(
                 "Invalid rollup function \"{}\"",
-                fe.name
+                fe.function
             )))
         }
     }

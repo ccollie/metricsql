@@ -485,23 +485,20 @@ fn transform_buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Time
 
         let le_str = le_str.unwrap();
 
-        match le_str.parse::<f64>() {
-            Ok(le) => {
-                mn.copy_from(&ts.metric_name);
-                mn.remove_tag("le");
+        if let Ok(le) = le_str.parse::<f64>() {
+            mn.copy_from(&ts.metric_name);
+            mn.remove_tag("le");
 
-                let key = ts.metric_name.to_string();
+            let key = ts.metric_name.to_string();
 
-                bucket_map.entry(key).or_default().push(Bucket {
-                    le,
-                    hits: 0.0,
-                    ts_index,
-                });
-            }
-            _ => {
-                // Skip time series with invalid `le` tag.
-                continue;
-            }
+            bucket_map.entry(key).or_default().push(Bucket {
+                le,
+                hits: 0.0,
+                ts_index,
+            });
+        } else {
+            // Skip time series with invalid `le` tag.
+            continue;
         }
     }
 
@@ -525,13 +522,10 @@ fn transform_buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Time
         for n in 0..points_count {
             let mut prev_value: f64 = 0.0;
             for bucket in le_group.iter_mut() {
-                match tss.get(bucket.ts_index) {
-                    Some(ts) => {
-                        let value = ts.values[n];
-                        bucket.hits += value - prev_value;
-                        prev_value = value
-                    }
-                    _ => {}
+                if let Some(ts) = tss.get(bucket.ts_index) {
+                    let value = ts.values[n];
+                    bucket.hits += value - prev_value;
+                    prev_value = value
                 }
             }
         }
@@ -1292,12 +1286,18 @@ fn transform_histogram_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec
             ts_lower = Timeseries::default();
             ts_upper = Timeseries::default();
         }
-        for i in 0..xss[0].ts.values.len() {
+
+        for (i, (ts_lower, ts_upper)) in ts_lower
+            .values
+            .iter_mut()
+            .zip(ts_upper.values.iter_mut())
+            .enumerate()
+        {
             let (v, lower, upper) = quantile(i, &phis, &mut xss);
             xss[0].ts.values[i] = v;
             if bounds_label.len() > 0 {
-                ts_lower.values[i] = lower;
-                ts_upper.values[i] = upper;
+                *ts_lower = lower;
+                *ts_upper = upper;
             }
         }
 

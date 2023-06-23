@@ -29,7 +29,7 @@ pub(super) fn parse_aggr_func_expr(p: &mut Parser) -> ParseResult<Expr> {
         let args = p.parse_arg_list()?;
 
         validate_function_args(&BuiltinFunction::Aggregate(func), &args)?;
-        let mut ae = AggregationExpr::new(&func, args);
+        let mut ae = AggregationExpr::new(func, args);
         let kind = p.peek_kind();
         // Verify whether func suffix exists.
         ae.modifier = if modifier.is_none() && kind.is_aggregate_modifier() {
