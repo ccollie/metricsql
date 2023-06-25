@@ -35,6 +35,15 @@ impl TryFrom<AggregateFunction> for Handler {
     }
 }
 
+impl TryFrom<&str> for Handler {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let kind = IncrementalAggrFuncKind::try_from(value)?;
+        Ok(Handler::new(kind))
+    }
+}
+
 impl Handler {
     pub fn new(func: IncrementalAggrFuncKind) -> Self {
         match func {

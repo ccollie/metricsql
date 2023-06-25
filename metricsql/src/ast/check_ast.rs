@@ -28,10 +28,7 @@ pub fn check_ast(expr: Expr) -> Result<Expr, String> {
 }
 
 pub fn validate_func_args(func: &BuiltinFunction, args: &[Expr]) -> Result<(), String> {
-    match func.validate_args(args)? {
-        Ok(()) => Ok(()),
-        Err(e) => Err(e.to_string()),
-    }
+    func.validate_args(args).map_err(|e| e.to_string())
 }
 
 fn check_ast_for_aggregate_expr(ex: AggregationExpr) -> Result<Expr, String> {

@@ -2874,10 +2874,6 @@ pub fn get_scalar(tfa: &TransformFuncArg, arg_num: usize) -> RuntimeResult<Vec<f
     }
 }
 
-fn get_values_iter(values: &[f64]) -> impl Iterator<Item = f64> + '_ {
-    values.iter().copied()
-}
-
 pub fn get_scalar_iter(
     tfa: &TransformFuncArg,
     arg_num: usize,

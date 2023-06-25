@@ -16,9 +16,7 @@ use std::collections::{HashMap, HashSet};
 use std::vec;
 use xxhash_rust::xxh3::xxh3_64;
 
-
 use crate::parser::ParseResult;
-
 
 /// Well-known label names used by Prometheus components.
 const METRIC_NAME_LABEL: &str = "__name__";
@@ -29,16 +27,10 @@ const SEP: u8 = 0xff;
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Ord)]
 pub struct Label {
     name: String,
-    value: String
+    value: String,
 }
 
 impl Label {
-    pub fn as_bytes(&self) -> Vec<u8> {
-        let mut b = Vec::with_capacity(self.name.len() + self.value.len() + 2);
-        self.get_bytes(&mut b);
-        b
-    }
-
     fn get_bytes(&self, dst: &mut Vec<u8>) {
         if dst.len() > 1 {
             dst.push(SEP)
@@ -72,7 +64,7 @@ impl Labels {
     pub fn from_map(m: HashMap<String, String>) -> Self {
         let mut labels = Vec::with_capacity(m.len());
         for (k, v) in m {
-            labels.push(Label{ name: k, value: v });
+            labels.push(Label { name: k, value: v });
         }
         labels.sort_by(|a, b| a.name.cmp(&b.name));
         Labels(labels)
@@ -94,13 +86,14 @@ impl Labels {
     /// get returns the value for the label with the given name.
     /// Returns an empty string if the label doesn't exist.
     pub fn get(&self, name: &str) -> Option<&String> {
-        self.0.iter()
+        self.0
+            .iter()
             .find(|label| label.name == name)
             .map(|label| &label.value)
     }
 
     pub fn add(&mut self, name: String, value: String) {
-        self.0.push(Label{ name, value });
+        self.0.push(Label { name, value });
     }
 
     pub fn sort(&mut self) {
@@ -172,7 +165,7 @@ impl Labels {
             match (label_, name_) {
                 (Some(label), Some(name)) => {
                     if name < &label.name {
-                        name_ = names_iter.next(); 
+                        name_ = names_iter.next();
                     } else if label.name < *name {
                         label_ = ls_iter.next();
                     } else {
@@ -184,7 +177,7 @@ impl Labels {
                 (Some(_), None) => break,
                 (None, Some(_)) => continue,
                 (None, None) => break,
-            }   
+            }
         }
 
         xxh3_64(&b)
@@ -202,12 +195,12 @@ impl Labels {
             let current = names_iter.next();
 
             if lbl.name == METRIC_NAME_LABEL {
-                continue
+                continue;
             }
 
             if let Some(name) = current {
                 if lbl.name.cmp(name) == Ordering::Equal {
-                    continue
+                    continue;
                 }
             }
 
@@ -227,24 +220,24 @@ impl Labels {
             let _ = names_iter.clone().skip_while(|name| *name < &lbl.name);
             let current = names_iter.next();
             if lbl.name == METRIC_NAME_LABEL {
-                continue
+                continue;
             }
             if let Some(name) = current {
                 if lbl.name.cmp(name) == Ordering::Equal {
-                    continue
+                    continue;
                 }
             }
-            b.push(Label{
+            b.push(Label {
                 name: lbl.name.clone(),
                 value: lbl.value.clone(),
             });
         }
-        
+
         Labels(b)
     }
 
     /// Map returns a string map of the labels.
-    pub fn as_map(&mut self) -> HashMap<&String, String>  {
+    pub fn as_map(&mut self) -> HashMap<&String, String> {
         let mut m = HashMap::with_capacity(self.len());
         for label in self.0.iter() {
             m.insert(&label.name, label.value.clone());
@@ -268,11 +261,11 @@ impl Labels {
         let mut prev = &self.0[0];
         for curr in self.0.iter().skip(1) {
             if curr.name == prev.name {
-                return (&curr.name, true)
+                return (&curr.name, true);
             }
             prev = curr;
         }
-        return ("", false)
+        return ("", false);
     }
 
     /// validate calls f on each label. If f returns a non-nil error, then it returns that error
@@ -295,7 +288,6 @@ fn push_label(b: &mut Vec<u8>, label: &Label) {
     label.get_bytes(b);
 }
 
-
 // Compare compares the two label sets.
 // The result will be 0 if a==b, <0 if a < b, and >0 if a > b.
 pub fn compare_labels(a: Labels, b: Labels) -> Ordering {
@@ -305,18 +297,17 @@ pub fn compare_labels(a: Labels, b: Labels) -> Ordering {
             cmp = a.value.cmp(&b.value);
         }
         if cmp != Ordering::Equal {
-            return cmp
+            return cmp;
         }
     }
     Ordering::Equal
 }
 
-
 // Builder allows modifying Labels.
 pub struct Builder {
     base: Labels,
-    del:  HashSet<String>,
-    add:  Vec<Label>
+    del: HashSet<String>,
+    add: Vec<Label>,
 }
 
 impl Builder {
@@ -352,7 +343,7 @@ impl Builder {
         }
         self
     }
-    
+
     /// Keep removes all labels from the base except those with the given names.
     /// The names are not sorted.
     /// The names are not de-duplicated.
@@ -371,7 +362,7 @@ impl Builder {
         }
         self
     }
-    
+
     /// Set the name/value pair as a label. A value of "" means delete that label.
     pub fn set(&mut self, n: String, v: String) -> &mut Self {
         if v.is_empty() {

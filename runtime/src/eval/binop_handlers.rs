@@ -1,7 +1,9 @@
-use lib::BuildNoHashHasher;
-use std::collections::HashMap;
-use xxhash_rust::xxh3::Xxh3;
+use crate::rayon::iter::ParallelIterator;
+use rayon::iter::IntoParallelRefIterator;
+use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet};
 
+use crate::eval::signature::Signature;
 use crate::eval::utils::remove_empty_series;
 use metricsql::ast::BinaryExpr;
 use metricsql::binaryop::{get_scalar_binop_handler, get_scalar_comparison_handler, BinopFunc};
@@ -31,7 +33,7 @@ pub(crate) trait BinaryOpFn:
 
 impl<T> BinaryOpFn for T where T: Fn(&mut BinaryOpFuncArg) -> BinaryOpFuncResult + Send + Sync {}
 
-type TimeseriesHashMap = HashMap<u64, Vec<Timeseries>, BuildNoHashHasher<u64>>;
+type TimeseriesHashMap = HashMap<Signature, Vec<Timeseries>>;
 
 macro_rules! make_binary_func {
     ($name: ident, $op: expr) => {
@@ -90,37 +92,46 @@ fn binary_op_func_impl(bf: BinopFunc, bfa: &mut BinaryOpFuncArg) -> RuntimeResul
         remove_empty_series(&mut bfa.right);
     }
 
-    let (left, right, mut dst) = adjust_binary_op_tags(bfa)?;
-    if left.len() != right.len() || left.len() != dst.len() {
+    let (mut left, mut right) = adjust_binary_op_tags(bfa)?;
+    if left.len() != right.len() {
         return Err(RuntimeError::InvalidState(format!(
-            "BUG: left.len() must match right.len() and dst.len(); got {} vs {} vs {}",
+            "BUG: left.len() must match right.len(); got {} vs {}",
             left.len(),
             right.len(),
-            dst.len()
         )));
     }
 
-    for ((left_ts, right_ts), curr_dest) in left.iter().zip(right.iter()).zip(dst.iter_mut()) {
-        let dst_len = curr_dest.values.len();
-        if left_ts.len() != right_ts.len() || left_ts.len() != dst_len {
-            let msg = format!("BUG: left_values.len() must match right_values.len() and dst_values.len(); got {} vs {} vs {}",
-                              left_ts.len(), right_ts.len(), dst_len);
+    let is_right = is_group_right(&bfa.be);
+
+    for (left_ts, right_ts) in left.iter_mut().zip(right.iter_mut()) {
+        if left_ts.values.len() != right_ts.values.len() {
+            let msg = format!(
+                "BUG: left_values.len() must match right_values.len(); got {} vs {}",
+                left_ts.values.len(),
+                right_ts.values.len()
+            );
             return Err(RuntimeError::InvalidState(msg));
         }
 
-        for ((left, right), dest) in left_ts
-            .values
-            .iter()
-            .zip(right_ts.values.iter())
-            .zip(curr_dest.values.iter_mut())
-        {
-            *dest = bf(*left, *right);
+        // todo: how to simplify this?
+        if is_right {
+            for (left_val, right_val) in left_ts.values.iter_mut().zip(right_ts.values.iter_mut()) {
+                *right_val = bf(*left_val, *right_val);
+            }
+        } else {
+            for (left_val, right_val) in left_ts.values.iter_mut().zip(right_ts.values.iter_mut()) {
+                *left_val = bf(*left_val, *right_val);
+            }
         }
     }
 
     // do not remove time series containing only NaNs, since then the `(foo op bar) default N`
     // won't work as expected if `(foo op bar)` results to NaN series.
-    Ok(dst)
+    if is_right {
+        Ok(right)
+    } else {
+        Ok(left)
+    }
 }
 
 fn adjust_binary_op_tags(
@@ -128,13 +139,13 @@ fn adjust_binary_op_tags(
 ) -> RuntimeResult<(
     Vec<Timeseries>, // left
     Vec<Timeseries>, // right
-    Vec<Timeseries>, // dest
 )> {
     // `vector op vector` or `a op {on|ignoring} {group_left|group_right} b`
     let (mut m_left, mut m_right) = create_timeseries_map_by_tag_set(bfa);
 
-    let mut rvs_left: Vec<Timeseries> = Vec::with_capacity(1);
-    let mut rvs_right: Vec<Timeseries> = Vec::with_capacity(1);
+    // i think if we wanted we could reuse bfa.left and bfa.right here
+    let mut rvs_left: Vec<Timeseries> = Vec::with_capacity(4);
+    let mut rvs_right: Vec<Timeseries> = Vec::with_capacity(4);
 
     let should_reset_metric_group = bfa.be.should_reset_metric_group();
 
@@ -181,14 +192,7 @@ fn adjust_binary_op_tags(
         }
     }
 
-    // todo: how to avoid this clone?
-    let dst = if is_group_right(&bfa.be) {
-        rvs_right.clone()
-    } else {
-        rvs_left.clone()
-    };
-
-    return Ok((rvs_left, rvs_right, dst));
+    return Ok((rvs_left, rvs_right));
 }
 
 fn ensure_single_timeseries(
@@ -243,10 +247,7 @@ fn group_join(
         right: Timeseries,
     }
 
-    let mut hasher = Xxh3::new();
-
-    let mut map: HashMap<u64, TsPair, BuildNoHashHasher<u64>> =
-        HashMap::with_capacity_and_hasher(tss_left.len(), BuildNoHashHasher::default());
+    let mut map: HashMap<Signature, TsPair> = HashMap::with_capacity(tss_left.len());
 
     let should_reset_name = be.should_reset_metric_group();
 
@@ -270,35 +271,25 @@ fn group_join(
         // Verify it doesn't result in duplicate MetricName values after adding missing tags.
         map.clear();
 
-        for ts_right in tss_right.into_iter() {
-            // todo: Question - do we need to copy? I dont think tss_left and tss_right
-            // are used after we exit this function
+        for mut ts_right in tss_right.drain(..) {
             let mut ts_copy = Timeseries::copy(ts_left);
             ts_copy
                 .metric_name
                 .set_tags(join_tags, &mut ts_right.metric_name);
 
-            let key = ts_copy
-                .metric_name
-                .get_hash_by_group_modifier(&mut hasher, &be.group_modifier);
+            let key = Signature::with_group_modifier(&ts_copy.metric_name, &be.group_modifier);
 
-            // todo: check specifically for error
-            // todo: Entry API is not ideal here, we don't need to copy the key
-            match map.get_mut(&key) {
-                None => {
-                    map.insert(
-                        key,
-                        TsPair {
-                            left: ts_copy,
-                            right: std::mem::take(ts_right),
-                        },
-                    );
-                    continue;
+            match map.entry(key) {
+                Entry::Vacant(entry) => {
+                    entry.insert(TsPair {
+                        left: ts_copy,
+                        right: ts_right,
+                    });
                 }
-                Some(pair) => {
-                    // todo(perf): may not need to copy
+                Entry::Occupied(entry) => {
+                    let pair = entry.into_mut();
                     // Try merging pair.right with ts_right if they don't overlap.
-                    if !merge_non_overlapping_timeseries(&mut pair.right, ts_right) {
+                    if !merge_non_overlapping_timeseries(&mut pair.right, &mut ts_right) {
                         let err = format!(
                             "duplicate time series on the {} side of `{} {} {}`: {} and {}",
                             single_timeseries_side,
@@ -308,7 +299,6 @@ fn group_join(
                             pair.right.metric_name,
                             ts_right.metric_name
                         );
-
                         return Err(RuntimeError::from(err));
                     }
                 }
@@ -322,24 +312,6 @@ fn group_join(
     }
 
     Ok(())
-}
-
-fn group_modifier_to_string(modifier: &Option<GroupModifier>) -> String {
-    match &modifier {
-        Some(value) => {
-            format!("{}", value)
-        }
-        None => "None".to_string(),
-    }
-}
-
-fn join_modifier_to_string(modifier: &Option<JoinModifier>) -> String {
-    match &modifier {
-        Some(value) => {
-            format!("{}", value)
-        }
-        None => "None".to_string(),
-    }
 }
 
 pub fn merge_non_overlapping_timeseries(dst: &mut Timeseries, src: &Timeseries) -> bool {
@@ -389,6 +361,11 @@ fn binary_op_if(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     Ok(rvs)
 }
 
+/// vector1 and vector2 results in a vector consisting of the elements of vector1 for which there
+/// are elements in vector2 with exactly matching label sets.
+/// Other elements are dropped. The metric name and values are carried over from the left-hand side vector.
+///
+/// https://prometheus.io/docs/prometheus/latest/querying/operators/#logical-set-binary-operators
 fn binary_op_and(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     if bfa.left.is_empty() || bfa.right.is_empty() {
         return Ok(vec![]); // Short-circuit: AND with nothing is nothing.
@@ -406,6 +383,123 @@ fn binary_op_and(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     }
 
     Ok(rvs)
+}
+
+fn binary_op_default(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    if bfa.left.is_empty() {
+        return Ok(std::mem::take(&mut bfa.right)); // Short-circuit: default with nothing is nothing.
+    }
+    let (mut m_left, m_right) = create_timeseries_map_by_tag_set(bfa);
+
+    let mut rvs: Vec<Timeseries> = Vec::with_capacity(m_left.len());
+    for (k, mut tss_left) in m_left.iter_mut() {
+        if let Some(tss_right) = series_by_key(&m_right, &k) {
+            fill_left_nans_with_right_values(tss_left, tss_right);
+        }
+        rvs.append(&mut tss_left);
+    }
+
+    Ok(rvs)
+}
+
+fn binary_op_or(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    if bfa.left.is_empty() {
+        // Short-circuit.
+        return Ok(std::mem::take(&mut bfa.right));
+    }
+
+    if bfa.right.is_empty() {
+        // Short-circuit.
+        return Ok(std::mem::take(&mut bfa.left));
+    }
+
+    let mut right: Vec<Timeseries> = Vec::with_capacity(bfa.right.len());
+
+    let lhs_sigs = get_vector_matching_hash_set(&bfa.left, &bfa.be.group_modifier);
+
+    for (right_ts, left_ts) in bfa.right.iter_mut().zip(bfa.left.iter_mut()) {
+        let sig = Signature::with_group_modifier(&right_ts.metric_name, &bfa.be.group_modifier);
+        if !lhs_sigs.contains(&sig) {
+            right.push(std::mem::take(right_ts));
+            continue;
+        }
+
+        fill_left_empty_with_right_values(left_ts, right_ts);
+    }
+
+    bfa.left.append(&mut right);
+
+    Ok(std::mem::take(&mut bfa.left))
+}
+
+/// vector1 unless vector2 results in a vector consisting of the elements of vector1
+/// for which there are no elements in vector2 with exactly matching label sets.
+/// All matching elements in both vectors are dropped.
+///
+/// https://prometheus.io/docs/prometheus/latest/querying/operators/#logical-set-binary-operators
+fn binary_op_unless(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    // If right is empty, we simply return the left
+    // if left is empty we will return it anyway.
+    if bfa.right.is_empty() || bfa.left.is_empty() {
+        return Ok(std::mem::take(&mut bfa.left));
+    }
+
+    let (m_left, m_right) = create_timeseries_map_by_tag_set(bfa);
+    let mut rvs: Vec<Timeseries> = Vec::with_capacity(m_left.len());
+
+    for (k, mut tss_left) in m_left.into_iter() {
+        if let Some(tss_right) = m_right.get(&k) {
+            // Add gaps to tss_left if the are no gaps at tss_right.
+            add_left_nans_if_no_right_nans(&mut tss_left, tss_right);
+        }
+        rvs.append(&mut tss_left);
+    }
+
+    Ok(rvs)
+}
+
+/// q1 ifnot q2 removes values from q1 for existing values from q2.
+fn binary_op_if_not(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    let (m_left, m_right) = create_timeseries_map_by_tag_set(bfa);
+    let mut rvs: Vec<Timeseries> = Vec::with_capacity(m_left.len());
+
+    for (k, mut tss_left) in m_left.into_iter() {
+        if let Some(tss_right) = series_by_key(&m_right, &k) {
+            add_left_nans_if_no_right_nans(&mut tss_left, tss_right);
+        }
+        rvs.extend(tss_left.into_iter());
+    }
+
+    Ok(rvs)
+}
+
+fn fill_left_empty_with_right_values(left_ts: &mut Timeseries, right_ts: &Timeseries) {
+    // Fill gaps in tssLeft with values from tssRight as Prometheus does.
+    // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/552
+    for (right_value, left_value) in right_ts.values.iter().zip(left_ts.values.iter_mut()) {
+        if left_value.is_nan() && !right_value.is_nan() {
+            *left_value = *right_value;
+        }
+    }
+}
+#[inline]
+/// Fill gaps in tss_left with values from tss_right as Prometheus does.
+/// See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/552
+fn fill_left_nans_with_right_values(tss_left: &mut Vec<Timeseries>, tss_right: &Vec<Timeseries>) {
+    for ts_left in tss_left.iter_mut() {
+        for (i, left_value) in ts_left.values.iter_mut().enumerate() {
+            if !left_value.is_nan() {
+                continue;
+            }
+            for ts_right in tss_right.iter() {
+                let v_right = ts_right.values[i];
+                if !v_right.is_nan() {
+                    *left_value = v_right;
+                    break;
+                }
+            }
+        }
+    }
 }
 
 fn add_right_nans_to_left(tss_left: &mut Vec<Timeseries>, tss_right: &Vec<Timeseries>) {
@@ -427,120 +521,8 @@ fn add_right_nans_to_left(tss_left: &mut Vec<Timeseries>, tss_right: &Vec<Timese
     remove_empty_series(tss_left)
 }
 
-fn binary_op_default(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let (mut m_left, m_right) = create_timeseries_map_by_tag_set(bfa);
-
-    if m_left.len() == 0 {
-        // todo: see if we can make this more efficient
-        let items = m_right.into_values().flatten().collect();
-        return Ok(items);
-    }
-
-    let mut rvs: Vec<Timeseries> = Vec::with_capacity(m_left.len());
-    for (k, mut tss_left) in m_left.iter_mut() {
-        if let Some(tss_right) = series_by_key(&m_right, &k) {
-            fill_left_nans_with_right_values(tss_left, tss_right);
-        }
-        rvs.append(&mut tss_left);
-    }
-
-    Ok(rvs)
-}
-
-fn binary_op_or(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    if bfa.left.is_empty() {
-        // Short-circuit.
-        return Ok(std::mem::take(&mut bfa.right));
-    }
-
-    let (mut m_left, mut m_right) = create_timeseries_map_by_tag_set(bfa);
-    let mut right: Vec<Timeseries> = Vec::with_capacity(m_right.len());
-
-    for (k, tss_right) in m_right.iter_mut() {
-        match m_left.get_mut(k) {
-            None => {
-                right.extend_from_slice(&tss_right);
-            }
-            Some(tss_left) => {
-                fill_left_nans_with_right_values(tss_left, tss_right);
-            }
-        }
-    }
-
-    let mut rvs = m_left.into_values().flatten().collect::<Vec<_>>();
-    rvs.append(&mut right);
-
-    Ok(rvs)
-}
-
-#[inline]
-/// Fill gaps in tss_left with values from tss_right as Prometheus does.
-/// See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/552
-fn fill_left_nans_with_right_values(tss_left: &mut Vec<Timeseries>, tss_right: &Vec<Timeseries>) {
-    for ts_left in tss_left.iter_mut() {
-        for (i, left_value) in ts_left.values.iter_mut().enumerate() {
-            if !left_value.is_nan() {
-                continue;
-            }
-            for ts_right in tss_right.iter() {
-                let v_right = ts_right.values[i];
-                if !v_right.is_nan() {
-                    *left_value = v_right;
-                    break;
-                }
-            }
-        }
-    }
-}
-
-fn binary_op_unless(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    // Short-circuit: empty rhs means we will return everything in lhs;
-    // empty lhs means we will return empty - don't need to build a map.
-    if bfa.right.is_empty() {
-        return Ok(std::mem::take(&mut bfa.left));
-    } else if bfa.left.is_empty() {
-        return Ok(vec![]);
-    }
-
-    let (m_left, m_right) = create_timeseries_map_by_tag_set(bfa);
-    let mut rvs: Vec<Timeseries> = Vec::with_capacity(m_left.len());
-
-    for (k, mut tss_left) in m_left.into_iter() {
-        match m_right.get(&k) {
-            None => rvs.append(&mut tss_left),
-            Some(tss_right) => {
-                // Add gaps to tss_left if the are no gaps at tss_right.
-                add_left_nans_if_no_right_nans(&mut tss_left, tss_right);
-                rvs.append(&mut tss_left);
-            }
-        }
-    }
-
-    Ok(rvs)
-}
-
-fn binary_op_if_not(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let (m_left, m_right) = create_timeseries_map_by_tag_set(bfa);
-    let mut rvs: Vec<Timeseries> = Vec::with_capacity(m_left.len());
-
-    for (k, mut tss_left) in m_left.into_iter() {
-        match series_by_key(&m_right, &k) {
-            None => {
-                rvs.extend(tss_left.into_iter());
-            }
-            Some(tss_right) => {
-                add_left_nans_if_no_right_nans(&mut tss_left, tss_right);
-                rvs.extend(tss_left.into_iter());
-            }
-        }
-    }
-
-    Ok(rvs)
-}
-
 fn add_left_nans_if_no_right_nans(tss_left: &mut Vec<Timeseries>, tss_right: &Vec<Timeseries>) {
     // todo: zip
-
     for ts_left in tss_left.iter_mut() {
         for (i, left_value) in ts_left.values.iter_mut().enumerate() {
             for ts_right in tss_right {
@@ -555,16 +537,27 @@ fn add_left_nans_if_no_right_nans(tss_left: &mut Vec<Timeseries>, tss_right: &Ve
     remove_empty_series(tss_left);
 }
 
+fn get_vector_matching_hash_set(
+    series: &Vec<Timeseries>,
+    modifier: &Option<GroupModifier>,
+) -> HashSet<Signature> {
+    let res: HashSet<Signature> = series
+        .par_iter()
+        .map_with(modifier, |modifier, timeseries| {
+            Signature::with_group_modifier(&timeseries.metric_name, modifier)
+        })
+        .collect();
+    res
+}
+
 fn get_tags_map_with_fn<'a>(
-    hasher: &mut Xxh3,
     arg: &mut Vec<Timeseries>,
     modifier: &Option<GroupModifier>,
 ) -> TimeseriesHashMap {
-    let mut m: TimeseriesHashMap =
-        HashMap::with_capacity_and_hasher(arg.len(), BuildNoHashHasher::default());
+    let mut m: TimeseriesHashMap = HashMap::with_capacity(arg.len());
 
     for ts in arg.into_iter() {
-        let key = ts.metric_name.get_hash_by_group_modifier(hasher, modifier);
+        let key = Signature::with_group_modifier(&ts.metric_name, modifier);
         m.entry(key).or_insert(vec![]).push(std::mem::take(ts));
     }
 
@@ -574,11 +567,9 @@ fn get_tags_map_with_fn<'a>(
 fn create_timeseries_map_by_tag_set(
     bfa: &mut BinaryOpFuncArg,
 ) -> (TimeseriesHashMap, TimeseriesHashMap) {
-    let mut hasher = Xxh3::new();
-
     let modifier = &bfa.be.group_modifier;
-    let m_left = get_tags_map_with_fn(&mut hasher, &mut bfa.left, modifier);
-    let m_right = get_tags_map_with_fn(&mut hasher, &mut bfa.right, modifier);
+    let m_left = get_tags_map_with_fn(&mut bfa.left, modifier);
+    let m_right = get_tags_map_with_fn(&mut bfa.right, modifier);
     return (m_left, m_right);
 }
 
@@ -590,27 +581,43 @@ pub(super) fn is_scalar(arg: &[Timeseries]) -> bool {
     mn.tags.is_empty() && mn.metric_group.is_empty()
 }
 
-fn series_by_key<'a>(m: &'a TimeseriesHashMap, key: &u64) -> Option<&'a Vec<Timeseries>> {
-    match m.get(key) {
-        Some(v) => Some(v),
-        None => {
-            if m.len() != 1 {
-                return None;
-            }
-            for tss in m.values() {
-                if is_scalar(tss) {
-                    return Some(&tss);
-                }
-                return None;
-            }
-            return None;
-        }
+fn series_by_key<'a>(m: &'a TimeseriesHashMap, key: &Signature) -> Option<&'a Vec<Timeseries>> {
+    if let Some(v) = m.get(key) {
+        return Some(v);
     }
+    if m.len() != 1 {
+        return None;
+    }
+    for tss in m.values() {
+        if is_scalar(tss) {
+            return Some(&tss);
+        }
+        return None;
+    }
+    return None;
 }
 
 fn is_group_right(bfa: &BinaryExpr) -> bool {
     match &bfa.join_modifier {
         Some(modifier) => modifier.op == JoinModifierOp::GroupRight,
         None => false,
+    }
+}
+
+fn group_modifier_to_string(modifier: &Option<GroupModifier>) -> String {
+    match &modifier {
+        Some(value) => {
+            format!("{}", value)
+        }
+        None => "None".to_string(),
+    }
+}
+
+fn join_modifier_to_string(modifier: &Option<JoinModifier>) -> String {
+    match &modifier {
+        Some(value) => {
+            format!("{}", value)
+        }
+        None => "None".to_string(),
     }
 }

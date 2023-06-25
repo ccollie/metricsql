@@ -91,6 +91,7 @@ impl TreeNode for Expr {
                 limit,
                 keep_metric_names,
                 arg_idx_for_optimization,
+                can_incrementally_eval,
             }) => Expr::Aggregation(AggregationExpr {
                 name,
                 function,
@@ -99,6 +100,7 @@ impl TreeNode for Expr {
                 limit,
                 keep_metric_names,
                 arg_idx_for_optimization,
+                can_incrementally_eval,
             }),
             Expr::BinaryOperator(BinaryExpr {
                 group_modifier,

@@ -32,7 +32,7 @@ mod tests {
 
         let fe = FunctionExpr::from_single_arg("avg", Expr::MetricExpression(me)).unwrap();
 
-        let mut ae = AggregationExpr::new(&AggregateFunction::Sum, vec![]);
+        let mut ae = AggregationExpr::new(AggregateFunction::Sum, vec![]);
         ae.args.push(Expr::Function(fe.clone()));
 
         let cache = RollupResultCache::default();

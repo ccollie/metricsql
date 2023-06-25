@@ -480,38 +480,6 @@ fn vector_and(lhs: Vector, rhs: Vector, matching: VectorMatching, enh: EvalNodeH
     return enh.Out;
 }
 
-fn vector_or(
-    lhs: &mut TimeSeries,
-    rhs: TimeSeries,
-    matching: VectorMatching,
-    lhsh, rhsh []EvalSeriesHelper, enh: EvalNodeHelper) -> ReturnResult<Vector> {
-    if matching.cardinality != parser.CardManyToMany {
-        return Err(RuntimeError::General("set operations must only use many-to-many matching"));
-    }
-    if lhs.len() == 0 { // Short-circuit.
-        enh.Out.push(rhs...)
-        return enh.Out;
-    } else if rhs.len() == 0 {
-        enh.out = append(enh.Out, lhs...)
-        return enh.Out;
-    }
-
-    let left_sigs = IntSet::default();
-    // Add everything from the left-hand-side Vector.
-    for (i, ls) in lhs {
-        left_sigs.push(lhsh[i].signature);
-        enh.Out.push(ls)
-    }
-    // Add all right-hand side elements which have not been added from the left-hand side.
-    for (j, rs) in rhs.iter().enumerate() {
-        if !left_sigs.has(rhsh[j].signature) {
-            enh.Out = append(enh.Out, rs)
-        }
-    }
-
-    return enh.Out;
-}
-
 fn vector_unless(
     lhs: Vector,
     rhs: Vector,
@@ -656,24 +624,6 @@ fn vector_binop(op: Operator,
         }
     }
     return enh.Out;
-}
-
-fn signature_func(on: bool, names: &[String]) -> fn(MetricName) -> u64 {
-    let mut hasher: Xxh3 = Xxh3::new();
-    let buf: Vec<u8> = Vec::with_capacity(512);
-
-    if on {
-        return move |lset: MetricName| -> u64 {
-            lset.hash_with_labels(&mut hasher, buf, names)
-        };
-    }
-    let mut names = Vec::from(names);
-    names.push(METRIC_NAME_LABEL);
-    names.sort();
-
-    move |lset: MetricName| -> u64 {
-        lset.hash_without_labels(&mut hasher, buf, names)
-    }
 }
 
 // result_metric returns the metric for the given sample(s) based on the Vector
@@ -888,7 +838,7 @@ fn rangeEval(ev: &Evaluator,
     seriess[h] = ss
 
 }
-}
+
 
     // Reuse the original point slices.
     for m in origMatrixes.iter() {

@@ -500,11 +500,14 @@ pub struct AggregationExpr {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub arg_idx_for_optimization: Option<usize>,
+
+    pub can_incrementally_eval: bool,
 }
 
 impl AggregationExpr {
     pub fn new(function: AggregateFunction, args: Vec<Expr>) -> AggregationExpr {
         let arg_len = args.len();
+        let can_incrementally_eval = Self::can_incrementally_eval(&args);
         let mut ae = AggregationExpr {
             name: function.to_string(),
             args,
@@ -513,6 +516,7 @@ impl AggregationExpr {
             function: function.clone(),
             keep_metric_names: false,
             arg_idx_for_optimization: get_aggregate_arg_idx_for_optimization(function, arg_len),
+            can_incrementally_eval,
         };
 
         ae.set_keep_metric_names();
@@ -536,9 +540,6 @@ impl AggregationExpr {
     }
 
     fn set_keep_metric_names(&mut self) {
-        // Extract: RollupFunc(...) from aggrFunc(rollupFunc(...)).
-        // This case is possible when optimized aggrfn calculations are used
-        // such as `sum(rate(...))`
         if self.args.len() != 1 {
             self.keep_metric_names = false;
             return;
@@ -546,6 +547,9 @@ impl AggregationExpr {
         match &self.args[0] {
             Expr::Function(fe) => {
                 self.keep_metric_names = fe.keep_metric_names;
+            }
+            Expr::Aggregation(ae) => {
+                self.keep_metric_names = ae.keep_metric_names;
             }
             _ => self.keep_metric_names = false,
         }
@@ -560,6 +564,54 @@ impl AggregationExpr {
             None => None,
             Some(idx) => Some(&self.args[idx]),
         }
+    }
+
+    // Check if args[0] contains one of the following:
+    // - metricExpr
+    // - metricExpr[d]
+    // -: RollupFunc(metricExpr)
+    // -: RollupFunc(metricExpr[d])
+    fn can_incrementally_eval(args: &Vec<Expr>) -> bool {
+        if args.len() != 1 {
+            return false;
+        }
+
+        fn validate(me: &MetricExpr, for_subquery: bool) -> bool {
+            if me.is_empty() || for_subquery {
+                return false;
+            }
+
+            return true;
+        }
+
+        return match &args[0] {
+            Expr::MetricExpression(me) => validate(me, false),
+            Expr::Rollup(re) => {
+                match re.expr.deref() {
+                    // e = metricExpr[d]
+                    Expr::MetricExpression(me) => validate(me, re.for_subquery()),
+                    _ => false,
+                }
+            }
+            Expr::Function(fe) => match fe.function {
+                BuiltinFunction::Rollup(_) => {
+                    return if let Some(arg) = fe.get_arg_for_optimization() {
+                        match arg.deref() {
+                            Expr::MetricExpression(me) => validate(me, false),
+                            Expr::Rollup(re) => match &*re.expr {
+                                Expr::MetricExpression(me) => validate(me, re.for_subquery()),
+                                _ => false,
+                            },
+                            _ => false,
+                        }
+                    } else {
+                        false
+                    };
+                }
+                _ => false,
+            },
+            _ => false,
+        };
     }
 }
 
@@ -603,7 +655,7 @@ pub struct RollupExpr {
 
     /// offset contains optional value from `offset` part.
     ///
-    /// For example, `foobar{baz="aa"} offset 5m` will have Offset value `5m`.
+    /// For example, `foobar{baz="aa"} offset 5m` will have offset value `5m`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offset: Option<DurationExpr>,
 

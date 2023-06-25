@@ -399,7 +399,7 @@ fn get_rollup_aggr_funcs_impl(fe: &FunctionExpr) -> RuntimeResult<Vec<RollupFunc
     let mut aggr_funcs: Vec<RollupFunction> = Vec::with_capacity(1);
     for arg in fe.args.iter() {
         match arg.deref() {
-            Expr::StringLiteral(name) => match get_rollup_func_by_name(name) {
+            Expr::StringLiteral(name) => match get_rollup_func_by_name(&name) {
                 Err(_) => {
                     let msg = format!("{} cannot be used in `aggr_over_time` function; expecting quoted aggregate function name", name);
                     return Err(RuntimeError::General(msg));

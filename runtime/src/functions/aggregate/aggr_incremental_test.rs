@@ -9,7 +9,7 @@ mod tests {
     use metricsql::ast::AggregationExpr;
 
     use crate::functions::aggregate::incremental::try_get_incremental_aggr_handler;
-    use crate::functions::aggregate::IncrementalAggrFuncContext;
+    use crate::functions::aggregate::{Handler, IncrementalAggrFuncContext};
     use crate::{compare_values, RuntimeError, RuntimeResult, Timeseries};
 
     const NAN: f64 = f64::NAN;
@@ -43,7 +43,7 @@ mod tests {
 
     fn test_incremental(name: &str, values_expected: &[f64]) {
         let tss_src = make_source_timeseries();
-        let handler = try_get_incremental_aggr_handler(name).unwrap();
+        let handler = Handler::try_from(name).unwrap();
         let ae = AggregationExpr::from_name(name)
             .expect(format!("{} is an invalid aggregate function", name).as_str());
         let tss_expected = [Timeseries::new(

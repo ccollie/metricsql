@@ -43,7 +43,7 @@ pub(super) fn create_aggr_evaluator(ae: &AggregationExpr) -> RuntimeResult<ExprE
 
 pub struct AggregateEvaluator {
     pub expr: String,
-    pub function: AggregateFunction, // smol_str ?
+    pub function: AggregateFunction,
     args: ArgList,
     /// optional modifier such as `by (...)` or `without (...)`.
     modifier: Option<AggregateModifier>,
@@ -116,6 +116,10 @@ impl Value for AggregateEvaluator {
 fn try_get_arg_rollup_func_with_metric_expr(
     ae: &AggregationExpr,
 ) -> RuntimeResult<Option<FunctionExpr>> {
+    if !ae.can_incrementally_eval {
+        return Ok(None);
+    }
+
     if ae.args.len() != 1 {
         return Ok(None);
     }
@@ -165,32 +169,31 @@ fn try_get_arg_rollup_func_with_metric_expr(
         Expr::Function(fe) => {
             match fe.function {
                 BuiltinFunction::Rollup(_) => {
-                    let arg = fe.get_arg_for_optimization();
-                    if arg.is_none() {
+                    return if let Some(arg) = fe.get_arg_for_optimization() {
+                        match arg.deref() {
+                            Expr::MetricExpression(me) => create_func(me, e, &fe.name, false),
+                            Expr::Rollup(re) => {
+                                match &*re.expr {
+                                    Expr::MetricExpression(me) => {
+                                        if me.is_empty() || re.for_subquery() {
+                                            Ok(None)
+                                        } else {
+                                            // e = RollupFunc(metricExpr[d])
+                                            // todo: use COW to avoid clone
+                                            Ok(Some(fe.clone()))
+                                        }
+                                    }
+                                    _ => Ok(None),
+                                }
+                            }
+                            _ => Ok(None),
+                        }
+                    } else {
                         // Incorrect number of args for rollup func.
                         // TODO: this should be an error
                         // all rollup functions should have a value for this
-                        return Ok(None);
-                    }
-                    let arg = arg.unwrap();
-                    match arg.deref() {
-                        Expr::MetricExpression(me) => create_func(me, e, &fe.name, false),
-                        Expr::Rollup(re) => {
-                            match &*re.expr {
-                                Expr::MetricExpression(me) => {
-                                    if me.is_empty() || re.for_subquery() {
-                                        Ok(None)
-                                    } else {
-                                        // e = RollupFunc(metricExpr[d])
-                                        // todo: use COW to avoid clone
-                                        Ok(Some(fe.clone()))
-                                    }
-                                }
-                                _ => Ok(None),
-                            }
-                        }
-                        _ => Ok(None),
-                    }
+                        Ok(None)
+                    };
                 }
                 _ => Ok(None),
             }

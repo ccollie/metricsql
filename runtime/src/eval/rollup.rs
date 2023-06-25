@@ -24,8 +24,7 @@ use crate::eval::{
 use crate::functions::aggregate::{Handler, IncrementalAggrFuncContext};
 use crate::functions::rollup::{
     eval_prefuncs, get_rollup_configs, get_rollup_function_factory, rollup_func_keeps_metric_name,
-    rollup_func_requires_config, RollupConfig, RollupHandlerEnum, RollupHandlerFactory,
-    TimeseriesMap, MAX_SILENCE_INTERVAL,
+    RollupConfig, RollupHandlerEnum, RollupHandlerFactory, TimeseriesMap, MAX_SILENCE_INTERVAL,
 };
 use crate::functions::transform::get_absent_timeseries;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
@@ -171,32 +170,6 @@ impl RollupEvaluator {
         };
 
         Ok(res)
-    }
-
-    /// Some rollup functions require config, hence in rollup_fns we
-    /// first obtain a factory which configures the final function used
-    /// to process the rollup. For example `hoeffding_bound_upper(phi, series_selector[d])`,
-    /// where `phi` is used to adjust the runtime behaviour of the function.
-    ///
-    /// However the majority of functions simply take a vector and process the
-    /// rollup, so for those cases we perform a small optimization by calling the factory
-    /// and storing the result.
-    ///
-    /// It is also possible to optimize in cases where the non-selector inputs are all scalar
-    /// or string (meaning constant), meaning the result of the factory call is essentially
-    /// idempotent
-    fn get_rollup_handler(
-        func: &RollupFunction,
-        arg_list: &mut ArgList,
-        _factory: RollupHandlerFactory,
-    ) -> Option<RollupHandlerEnum> {
-        if rollup_func_requires_config(func) {
-            if !arg_list.all_const() {
-                return None;
-            }
-        }
-        None
-        // todo: unfinished
     }
 
     // expr may contain:
