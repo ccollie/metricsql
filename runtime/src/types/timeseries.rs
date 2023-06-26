@@ -20,21 +20,12 @@ impl Timeseries {
         }
     }
 
-    pub fn copy(src: &Timeseries) -> Self {
+    pub fn clone(&self) -> Self {
         Timeseries {
-            timestamps: src.timestamps.clone(),
-            metric_name: src.metric_name.clone(),
-            values: src.values.clone(),
+            metric_name: self.metric_name.clone(),
+            values: self.values.clone(),
+            timestamps: Arc::clone(&self.timestamps),
         }
-    }
-
-    pub fn copy_from_metric_name(src: &Timeseries) -> Self {
-        let ts = Timeseries {
-            timestamps: Arc::clone(&src.timestamps),
-            metric_name: src.metric_name.clone(),
-            values: src.values.clone(),
-        };
-        ts
     }
 
     pub fn with_shared_timestamps(timestamps: &Arc<Vec<i64>>, values: &[f64]) -> Self {
@@ -50,14 +41,6 @@ impl Timeseries {
         self.values.clear();
         self.timestamps = Arc::new(vec![]);
         self.metric_name.reset();
-    }
-
-    pub fn copy_from(src: &Timeseries) -> Self {
-        Timeseries {
-            metric_name: src.metric_name.clone(),
-            values: src.values.clone(),
-            timestamps: Arc::clone(&src.timestamps),
-        }
     }
 
     pub fn is_all_nans(&self) -> bool {

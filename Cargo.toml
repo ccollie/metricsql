@@ -17,6 +17,7 @@ rand_distr = "0.4.3"
 rayon = "1.7.0"
 regex = "1.8.3"
 regex-syntax = "0.7.2"
+rs_unit = "0.0.2"
 scopeguard = "1.1.0"
 serde = { version = "1.0.164", features = ["derive"] }
 serde_with = "3.0.0"

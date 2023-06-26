@@ -272,7 +272,7 @@ fn group_join(
         map.clear();
 
         for mut ts_right in tss_right.drain(..) {
-            let mut ts_copy = Timeseries::copy(ts_left);
+            let mut ts_copy = ts_left.clone();
             ts_copy
                 .metric_name
                 .set_tags(join_tags, &mut ts_right.metric_name);

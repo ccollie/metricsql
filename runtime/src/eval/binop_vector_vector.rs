@@ -6,10 +6,9 @@ use std::sync::Arc;
 use regex::escape;
 use tracing::{field, trace, trace_span, Span};
 
-use metricsql::ast::*;
 use metricsql::common::{LabelFilter, Operator, Value, ValueType};
 use metricsql::functions::Volatility;
-use metricsql::optimize::trim_filters_by_group_modifier;
+use metricsql::prelude::*;
 
 use crate::context::Context;
 use crate::eval::binop_handlers::{exec_binop, BinaryOpFuncArg};

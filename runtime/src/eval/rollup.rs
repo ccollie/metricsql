@@ -416,18 +416,15 @@ impl RollupEvaluator {
                 let mut scanned_total = 0_u64;
 
                 for rc in rcs.iter() {
-                    match new_timeseries_map(
+                    if let Some(tsm) = new_timeseries_map(
                         &func,
                         keep_metric_names,
                         &shared_timestamps,
                         &ts_sq.metric_name,
                     ) {
-                        Some(tsm) => {
-                            rc.do_timeseries_map(&tsm, values, timestamps)?;
-                            tsm.as_ref().borrow_mut().append_timeseries_to(&mut res);
-                            continue;
-                        }
-                        _ => {}
+                        rc.do_timeseries_map(&tsm, values, timestamps)?;
+                        tsm.as_ref().borrow_mut().append_timeseries_to(&mut res);
+                        continue;
                     }
 
                     let mut ts: Timeseries = Default::default();
@@ -571,6 +568,7 @@ impl RollupEvaluator {
         // Evaluate rollup
         // shadow timestamps
         let shared_timestamps = Arc::new(shared_timestamps);
+        let ignore_staleness = ec.no_stale_markers;
         let tss = match &self.expr {
             Expr::Aggregation(ae) => self.eval_with_incremental_aggregate(
                 &ae,
@@ -578,13 +576,14 @@ impl RollupEvaluator {
                 rcs,
                 pre_func,
                 &shared_timestamps,
+                ignore_staleness,
             ),
             _ => self.eval_no_incremental_aggregate(
                 &mut rss,
                 rcs,
                 pre_func,
                 &shared_timestamps,
-                ec.no_stale_markers,
+                ignore_staleness,
             ),
         };
 
@@ -656,6 +655,7 @@ impl RollupEvaluator {
         rcs: Vec<RollupConfig>,
         pre_func: F,
         shared_timestamps: &Arc<Vec<i64>>,
+        ignore_staleness: bool,
     ) -> RuntimeResult<Vec<Timeseries>>
     where
         F: Fn(&mut [f64], &[i64]) -> () + Send + Sync,
@@ -682,6 +682,7 @@ impl RollupEvaluator {
             iafc: Mutex<IncrementalAggrFuncContext<'a>>,
             rcs: Vec<RollupConfig>,
             timestamps: &'a Arc<Vec<i64>>,
+            ignore_staleness: bool,
             samples_scanned_total: RelaxedU64Counter,
         }
 
@@ -694,31 +695,31 @@ impl RollupEvaluator {
             iafc,
             rcs,
             timestamps: &shared_timestamps,
+            ignore_staleness,
             samples_scanned_total: Default::default(),
         };
 
         rss.run_parallel(
             &mut ctx,
             |ctx: Arc<&mut Context>, rs: &mut QueryResult, worker_id: u64| {
-                drop_stale_nans(&ctx.func, &mut rs.values, &mut rs.timestamps);
+                if !ctx.ignore_staleness {
+                    drop_stale_nans(&ctx.func, &mut rs.values, &mut rs.timestamps);
+                }
                 pre_func(&mut rs.values, &rs.timestamps);
 
                 for rc in ctx.rcs.iter() {
-                    match new_timeseries_map(
+                    if let Some(tsm) = new_timeseries_map(
                         &ctx.func,
                         ctx.keep_metric_names,
                         &ctx.timestamps,
                         &rs.metric_name,
                     ) {
-                        Some(tsm) => {
-                            rc.do_timeseries_map(&tsm, &rs.values, &rs.timestamps)?;
-                            let iafc = ctx.iafc.lock().unwrap();
-                            for ts in tsm.as_ref().borrow_mut().values_mut() {
-                                iafc.update_timeseries(ts, worker_id)?;
-                            }
-                            continue;
+                        rc.do_timeseries_map(&tsm, &rs.values, &rs.timestamps)?;
+                        let iafc = ctx.iafc.lock().unwrap();
+                        for ts in tsm.as_ref().borrow_mut().values_mut() {
+                            iafc.update_timeseries(ts, worker_id)?;
                         }
-                        _ => {}
+                        continue;
                     }
 
                     let mut ts = get_timeseries();
@@ -812,34 +813,31 @@ impl RollupEvaluator {
                 }
                 pre_func(&mut rs.values, &rs.timestamps);
                 for rc in ctx.rcs.iter() {
-                    match new_timeseries_map(
+                    if let Some(tsm) = new_timeseries_map(
                         &ctx.func,
                         ctx.keep_metric_names,
                         &ctx.timestamps,
                         &rs.metric_name,
                     ) {
-                        Some(tsm) => {
-                            rc.do_timeseries_map(&tsm, &rs.values, &rs.timestamps)?;
-                            let mut tss = ctx.series.lock().unwrap();
-                            tsm.as_ref().borrow_mut().append_timeseries_to(&mut tss);
-                        }
-                        _ => {
-                            let mut ts: Timeseries = Timeseries::default();
-                            let samples_scanned = do_rollup_for_timeseries(
-                                ctx.keep_metric_names,
-                                rc,
-                                &mut ts,
-                                &rs.metric_name,
-                                &rs.values,
-                                &rs.timestamps,
-                                ctx.timestamps,
-                            )?;
+                        rc.do_timeseries_map(&tsm, &rs.values, &rs.timestamps)?;
+                        let mut tss = ctx.series.lock().unwrap();
+                        tsm.as_ref().borrow_mut().append_timeseries_to(&mut tss);
+                    } else {
+                        let mut ts: Timeseries = Timeseries::default();
+                        let samples_scanned = do_rollup_for_timeseries(
+                            ctx.keep_metric_names,
+                            rc,
+                            &mut ts,
+                            &rs.metric_name,
+                            &rs.values,
+                            &rs.timestamps,
+                            ctx.timestamps,
+                        )?;
 
-                            ctx.samples_scanned_total.add(samples_scanned);
+                        ctx.samples_scanned_total.add(samples_scanned);
 
-                            let mut tss = ctx.series.lock().unwrap();
-                            tss.push(ts);
-                        }
+                        let mut tss = ctx.series.lock().unwrap();
+                        tss.push(ts);
                     }
                 }
                 Ok(())

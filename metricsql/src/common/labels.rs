@@ -13,15 +13,13 @@
 
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
-use std::vec;
 use xxhash_rust::xxh3::xxh3_64;
 
 use crate::parser::ParseResult;
 
 /// Well-known label names used by Prometheus components.
 const METRIC_NAME_LABEL: &str = "__name__";
-const LABEL_SEP: u8 = 0xfe;
-const SEP: u8 = 0xff;
+const SEP: u8 = b'\xff';
 
 /// Label is a key/value pair of strings.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Ord)]
@@ -98,18 +96,6 @@ impl Labels {
 
     pub fn sort(&mut self) {
         self.0.sort();
-    }
-
-    // as_bytes returns itself as a byte slice.
-    // It uses an byte invalid character as a separator and so should not be used for printing.
-    pub fn as_bytes(&self) -> Vec<u8> {
-        let mut b = Vec::new();
-        b.push(LABEL_SEP);
-        for elem in &self.0[0..] {
-            elem.get_bytes(&mut b);
-        }
-
-        b
     }
 
     /// match_labels returns a subset of Labels that matches/does not match with the provided label names based on the 'on' boolean.
@@ -255,19 +241,6 @@ impl Labels {
         Labels(els)
     }
 
-    /// has_duplicate_label_names returns whether this instance has duplicate label names.
-    /// It assumes that the labelset is sorted.
-    pub fn has_duplicate_label_names(&self) -> (&str, bool) {
-        let mut prev = &self.0[0];
-        for curr in self.0.iter().skip(1) {
-            if curr.name == prev.name {
-                return (&curr.name, true);
-            }
-            prev = curr;
-        }
-        return ("", false);
-    }
-
     /// validate calls f on each label. If f returns a non-nil error, then it returns that error
     /// cancelling the iteration.
     pub fn validate(&self, f: fn(l: &Label) -> ParseResult<()>) -> ParseResult<()> {
@@ -301,93 +274,4 @@ pub fn compare_labels(a: Labels, b: Labels) -> Ordering {
         }
     }
     Ordering::Equal
-}
-
-// Builder allows modifying Labels.
-pub struct Builder {
-    base: Labels,
-    del: HashSet<String>,
-    add: Vec<Label>,
-}
-
-impl Builder {
-    pub fn new(base: Labels) -> Self {
-        Self {
-            base,
-            del: HashSet::with_capacity(16),
-            add: vec![],
-        }
-    }
-
-    /// Reset clears all current state for the builder.
-    pub fn reset(&mut self, base: Labels) {
-        self.base = base;
-        self.del.clear();
-        self.add.clear();
-        for l in self.base.0.iter() {
-            if l.value.is_empty() {
-                self.del.insert(l.name.clone());
-            }
-        }
-    }
-
-    /// del deletes the label of the given name.
-    pub fn del(&mut self, ns: &[String]) -> &mut Self {
-        for n in ns {
-            for i in 0..self.add.len() {
-                if self.add[i].name == *n {
-                    self.add.remove(i);
-                }
-            }
-            self.del.insert(n.clone());
-        }
-        self
-    }
-
-    /// Keep removes all labels from the base except those with the given names.
-    /// The names are not sorted.
-    /// The names are not de-duplicated.
-    pub fn keep(&mut self, ns: &[String]) -> &mut Self {
-        for l in self.base.0.iter() {
-            let mut found = false;
-            for n in ns {
-                if l.name == *n {
-                    found = true;
-                    break;
-                }
-            }
-            if !found {
-                self.del.insert(l.name.clone());
-            }
-        }
-        self
-    }
-
-    /// Set the name/value pair as a label. A value of "" means delete that label.
-    pub fn set(&mut self, n: String, v: String) -> &mut Self {
-        if v.is_empty() {
-            // Empty labels are the same as missing labels.
-            return self.del(&[n]);
-        }
-        for add in self.add.iter_mut() {
-            if add.name == n {
-                add.value = v;
-                return self;
-            }
-        }
-        self.add.push(Label { name: n, value: v });
-        self
-    }
-
-    /// Labels returns the labels from the builder, adding them to res if non-nil.
-    /// Argument res can be the same as b.base, if caller wants to overwrite that slice.
-    /// If no modifications were made, the original labels are returned.
-    pub fn get_labels(&mut self) -> &Labels {
-        self.base.0.retain(|l| !self.del.contains(&l.name));
-        for add in self.add.iter() {
-            self.base.0.push(add.clone());
-        }
-        self.base.sort();
-        &self.base
-    }
 }

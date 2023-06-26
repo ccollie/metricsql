@@ -5,8 +5,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 /// import commonly used items from the prelude:
 use rand::prelude::*;
-use tracing::{field, info, span_enabled, trace_span, Level, Span};
 use tracing::span::EnteredSpan;
+use tracing::{field, info, span_enabled, trace_span, Level, Span};
 use xxhash_rust::xxh3::Xxh3;
 
 use lib::{
@@ -319,12 +319,14 @@ impl RollupResultCache {
         }
     }
 
-    fn put_internal(&self,
-                    tss: &[Timeseries],
-                    ec: &EvalConfig,
-                    expr: &Expr,
-                    window: i64,
-                    span: &EnteredSpan) -> RuntimeResult<()> {
+    fn put_internal(
+        &self,
+        tss: &[Timeseries],
+        ec: &EvalConfig,
+        expr: &Expr,
+        window: i64,
+        span: &EnteredSpan,
+    ) -> RuntimeResult<()> {
         let is_tracing = span_enabled!(Level::TRACE);
 
         // timestamps are stored only once for all the tss, since they are identical.
@@ -339,7 +341,6 @@ impl RollupResultCache {
             );
             return Ok(());
         }
-
 
         let mut inner = self.inner.lock().unwrap();
 
@@ -493,7 +494,7 @@ pub fn merge_timeseries(
             ts_second.timestamps = Arc::clone(&shared_timestamps);
             validate_timeseries_length(&ts_second)?;
         }
-        // todo(perf): if this clone the most efficient
+        // todo(perf): is this clone the most efficient
         return Ok(second);
     }
 

@@ -738,8 +738,6 @@ impl RollupConfig {
     /// rc.timestamps are used as timestamps for dst_values.
     ///
     /// timestamps must cover time range [rc.start - rc.window - MAX_SILENCE_INTERVAL ... rc.end].
-    ///
-    /// exec is not safe to be called from concurrent threads.
     pub(crate) fn exec(
         &self,
         dst_values: &mut Vec<f64>,

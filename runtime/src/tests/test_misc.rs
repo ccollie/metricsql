@@ -509,10 +509,13 @@ impl EvalCmd {
                 }
             }
 
-            if _, ok := res.Value.(Scalar); ok {
-                err = self.compare_result(Scalar{V: vec[0].point.v})
-            } else {
-                err = self.compare_result(vec)
+            match res.value {
+                Scalar(_) => {
+                    self.compare_result(Scalar{V: vec[0].point.v})
+                },
+                _ => {
+                    err = self.compare_result(vec)
+                }
             }
             if err != nil {
                 return format!("error in {} {} (line {}) range mode: {}", cmd, iq.expr, cmd.line, err)
@@ -825,8 +828,8 @@ fn parse_series_desc(input: &str) -> RuntimeResult<SeriesDescription> {
 
     let parse_result = p.parse_generated(START_SERIES_DESCRIPTION)?;
     let result = parse_result.(*seriesDescription)
-    labels = result.labels
-    values = result.values
+    labels = result.labels;
+    values = result.values;
 
     return SeriesDescription{ labels, values }
 }

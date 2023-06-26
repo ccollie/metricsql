@@ -6,11 +6,9 @@ mod tests {
     use crate::rayon::iter::ParallelIterator;
     use rayon::iter::IntoParallelRefMutIterator;
 
-    use metricsql::ast::AggregationExpr;
-
-    use crate::functions::aggregate::incremental::try_get_incremental_aggr_handler;
     use crate::functions::aggregate::{Handler, IncrementalAggrFuncContext};
     use crate::{compare_values, RuntimeError, RuntimeResult, Timeseries};
+    use metricsql::ast::AggregationExpr;
 
     const NAN: f64 = f64::NAN;
 

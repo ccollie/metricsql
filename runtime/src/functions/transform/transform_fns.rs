@@ -648,7 +648,7 @@ pub(crate) fn vmrange_buckets_to_le(tss: Vec<Timeseries>) -> Vec<Timeseries> {
 
     // Convert `vmrange` label in each group of time series to `le` label.
     let copy_ts = |src: &Timeseries, le_str: &str| -> Timeseries {
-        let mut ts: Timeseries = Timeseries::copy_from(src);
+        let mut ts: Timeseries = src.clone();
         ts.values.resize(ts.values.len(), 0.0);
         ts.metric_name.remove_tag("le");
         ts.metric_name.set_tag("le", le_str);
@@ -836,11 +836,11 @@ fn transform_histogram_share(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Ti
         let mut ts_upper: Timeseries;
 
         if bounds_label.len() > 0 {
-            ts_lower = Timeseries::copy_from(&xss[0].ts);
+            ts_lower = xss[0].ts.clone();
             ts_lower.metric_name.remove_tag(&bounds_label);
             ts_lower.metric_name.set_tag(&bounds_label, "lower");
 
-            ts_upper = Timeseries::copy_from(&xss[0].ts);
+            ts_upper = xss[0].ts.clone();
             ts_upper.metric_name.remove_tag(&bounds_label);
             ts_upper.metric_name.set_tag(&bounds_label, "upper")
         } else {
@@ -1277,10 +1277,10 @@ fn transform_histogram_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec
         let mut ts_upper: Timeseries;
 
         if bounds_label.len() > 0 {
-            ts_lower = Timeseries::copy_from(&xss[0].ts);
+            ts_lower = xss[0].ts.clone();
             ts_lower.metric_name.set_tag(&bounds_label, "lower");
 
-            ts_upper = Timeseries::copy_from(&xss[0].ts);
+            ts_upper = xss[0].ts.clone();
             ts_upper.metric_name.set_tag(&bounds_label, "upper");
         } else {
             ts_lower = Timeseries::default();
@@ -2736,8 +2736,7 @@ fn transform_end(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
 fn copy_timeseries(tss: &[Timeseries]) -> Vec<Timeseries> {
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(tss.len());
     for src in tss {
-        let dst = Timeseries::copy_from(src);
-        rvs.push(dst);
+        rvs.push(src.clone());
     }
     return rvs;
 }

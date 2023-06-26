@@ -52,7 +52,7 @@ pub use types::*;
 pub use tests::utils::*;
 
 #[cfg(test)]
-extern crate speculate;
+extern crate rs_unit;
 
 #[cfg(test)]
 mod exec_test;

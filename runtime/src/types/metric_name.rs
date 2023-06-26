@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fmt::Display;
-use std::hash::Hash;
+use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 
 use enquote::enquote;
@@ -20,6 +20,8 @@ use serde::{Deserialize, Serialize};
 pub const MAX_LABEL_NAME_LEN: usize = 256;
 
 pub const METRIC_NAME_LABEL: &str = "__name__";
+
+const SEP: u8 = 0xff;
 
 // for tag manipulation (removing, adding, etc), name vectors longer than this will be converted to a hashmap
 // for comparison, otherwise we do a linear search
@@ -55,6 +57,7 @@ impl Tag {
 
     fn update_hash(&self, h: &mut Xxh3) {
         h.update(self.key.as_bytes());
+        h.write_u8(SEP);
         h.update(self.value.as_bytes());
     }
 }
@@ -86,7 +89,7 @@ impl MetricName {
             metric_group: name.to_string(),
             tags: vec![],
             hash: None,
-            sorted: false,
+            sorted: true,
         }
     }
 
@@ -118,7 +121,7 @@ impl MetricName {
         self.metric_group = "".to_string();
         self.tags.clear();
         self.hash = None;
-        self.sorted = false;
+        self.sorted = true;
     }
 
     pub fn set_metric_group(&mut self, value: &str) {
@@ -131,13 +134,32 @@ impl MetricName {
             self.metric_group = value.into();
             return;
         }
-        let tag = Tag {
-            key: key.to_string(),
-            value: value.into(),
-        };
+        self.upsert(key, value.into());
         self.hash = None;
-        self.sorted = false;
-        self.tags.push(tag);
+    }
+
+    pub fn add_tags_from_hashmap(&mut self, tags: &HashMap<String, String>) {
+        for (key, value) in tags {
+            if key == METRIC_NAME_LABEL {
+                self.metric_group = value.into();
+                return;
+            }
+            self.upsert(key, value.clone());
+        }
+        self.hash = None;
+    }
+
+    fn upsert(&mut self, key: &str, value: String) {
+        match self.tags.binary_search_by_key(&key, |tag| &tag.key) {
+            Ok(idx) => self.tags[idx].value = value,
+            Err(idx) => {
+                let tag = Tag {
+                    key: key.to_string(),
+                    value,
+                };
+                self.tags.insert(idx, tag);
+            }
+        }
     }
 
     /// adds new tag to mn with the given key and value.
@@ -147,16 +169,7 @@ impl MetricName {
             self.hash = None;
             return;
         } else {
-            for dst_tag in self.tags.iter_mut() {
-                if dst_tag.key == key {
-                    dst_tag.value = value.into();
-                    self.hash = None;
-                    return;
-                }
-            }
-            let tag = Tag::new(key, value.into());
-            self.tags.push(tag);
-            self.sorted = false;
+            self.upsert(key, value.into());
         }
     }
 
@@ -168,10 +181,9 @@ impl MetricName {
             let count = self.tags.len();
             self.tags.retain(|x| x.key != key);
             if count != self.tags.len() {
-                self.sorted = false;
+                self.hash = None;
             }
         }
-        self.hash = None;
     }
 
     pub fn has_tag(&self, key: &str) -> bool {
@@ -184,9 +196,9 @@ impl MetricName {
             return Some(&self.metric_group);
         }
         self.tags
-            .iter()
-            .find(|tag| tag.key == key)
-            .and_then(|v| Some(&v.value))
+            .binary_search_by_key(&key, |tag| &tag.key)
+            .ok()
+            .map(|index| &self.tags[index].value)
     }
 
     /// remove_tags_on removes all the tags not included to on_tags.
@@ -249,7 +261,6 @@ impl MetricName {
             }
         }
         self.tags.retain(|tag| set.contains(&tag.key));
-        self.sorted = false;
         self.hash = None;
     }
 
@@ -498,20 +509,16 @@ impl PartialOrd for MetricName {
 }
 
 pub struct WithLabelsIterator<'a> {
-    metric_name: &'a MetricName,
-    names: &'a [String],
-    name_idx: usize,
-    tag_idx: usize,
+    tag_iter: std::slice::Iter<'a, Tag>,
+    names_iter: std::slice::Iter<'a, String>,
 }
 
 impl<'a> WithLabelsIterator<'a> {
     pub fn new(metric_name: &'a MetricName, names: &'a [String]) -> Self {
         // todo: sort names here ?
         Self {
-            metric_name,
-            names,
-            name_idx: 0,
-            tag_idx: 0,
+            names_iter: names.iter(),
+            tag_iter: metric_name.tags.iter(),
         }
     }
 }
@@ -520,16 +527,13 @@ impl<'a> Iterator for WithLabelsIterator<'a> {
     type Item = &'a Tag;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while self.tag_idx < self.metric_name.tags.len() {
-            let tag = &self.metric_name.tags[self.tag_idx];
-            while self.name_idx < self.names.len() {
-                let name = &self.names[self.name_idx];
+        while let Some(tag) = self.tag_iter.next() {
+            while let Some(name) = self.names_iter.next() {
                 match name.cmp(&tag.key) {
                     Ordering::Less => {
-                        self.name_idx += 1;
+                        continue;
                     }
                     Ordering::Equal => {
-                        self.tag_idx += 1;
                         return Some(tag);
                     }
                     Ordering::Greater => {
@@ -537,26 +541,24 @@ impl<'a> Iterator for WithLabelsIterator<'a> {
                     }
                 }
             }
-            self.tag_idx += 1;
         }
+
         None
     }
 }
 
 pub struct WithoutLabelsIterator<'a> {
-    metric_name: &'a MetricName,
+    tag_iter: std::slice::Iter<'a, Tag>,
     names: &'a [String],
-    name_idx: usize,
-    tag_idx: usize,
+    last_name: Option<&'a String>,
 }
 
 impl<'a> WithoutLabelsIterator<'a> {
     pub fn new(metric_name: &'a MetricName, names: &'a [String]) -> Self {
         Self {
-            metric_name,
             names,
-            name_idx: 0,
-            tag_idx: 0,
+            tag_iter: metric_name.tags.iter(),
+            last_name: names.last(),
         }
     }
 }
@@ -565,24 +567,15 @@ impl<'a> Iterator for WithoutLabelsIterator<'a> {
     type Item = &'a Tag;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while self.tag_idx < self.metric_name.tags.len() {
-            let tag = &self.metric_name.tags[self.tag_idx];
-            while self.name_idx < self.names.len() {
-                let name = &self.names[self.name_idx];
-                match name.cmp(&tag.key) {
-                    Ordering::Less => {
-                        self.name_idx += 1;
-                    }
-                    Ordering::Greater => {
-                        break;
-                    }
-                    Ordering::Equal => {
-                        continue;
-                    }
+        while let Some(tag) = self.tag_iter.next() {
+            if let Some(name) = self.last_name {
+                if &tag.key > name {
+                    return None;
                 }
             }
-            self.tag_idx += 1;
-            return Some(tag);
+            if !self.names.contains(&tag.key) {
+                return Some(tag);
+            }
         }
         None
     }

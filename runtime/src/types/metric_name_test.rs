@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use crate::{MetricName};
     use crate::utils::write_string;
+    use crate::MetricName;
 
     #[test]
     fn test_metric_name_string() {
@@ -98,7 +98,6 @@ mod tests {
                         format!("\x02\x00\x01value_{}_{}", i, j),
                     );
                 }
-                mn.sort_tags();
 
                 let mut data: Vec<u8> = vec![];
                 mn.marshal(&mut data);
@@ -145,7 +144,6 @@ mod tests {
             }
         }
     }
-
 
     #[test]
     fn test_metric_name_remove_tags_on() {
