@@ -28,7 +28,7 @@ use crate::prelude::MetricExpr;
 ///
 /// example:
 /// ```
-/// use crate::hir::*;
+/// use crate::ast::*;
 /// let c = selector("latency");
 /// ```
 pub fn selector(ident: impl Into<String>) -> Expr {
@@ -93,7 +93,7 @@ pub fn is_op_with(target_op: Operator, haystack: &Expr, needle: &Expr) -> bool {
 /// # Example
 /// ```
 /// # use crate::hir::expr_fn::{selector, number};
-/// # use crate::hir::utils::conjunction;
+/// # use crate::ast::utils::conjunction;
 /// // a=1 AND b=2
 /// let expr = selector("a").eq(number(1.0)).and(selector("b").eq(number(2.0)));
 ///

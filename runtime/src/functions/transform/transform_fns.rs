@@ -4,29 +4,30 @@ use std::collections::{HashMap, HashSet};
 use std::default::Default;
 use std::ops::Deref;
 
-use chrono::{DateTime, Datelike, NaiveDateTime, TimeZone, Timelike, Utc, Weekday};
-use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
-use rand_distr::num_traits::FloatConst;
+use chrono::Utc;
+use rand::{Rng, rngs::StdRng, SeedableRng, thread_rng};
 use rand_distr::{Exp1, StandardNormal};
 use regex::Regex;
 
-use lib::{copysign, fmod, from_float, get_float64s, isinf, modf};
+use lib::{copysign, datetime_part, DateTimePart, fmod, from_float, get_float64s, isinf, modf, timestamp_secs_to_utc_datetime};
 use metricsql::ast::{Expr, FunctionExpr};
 use metricsql::functions::TransformFunction;
 use metricsql::parser::{compile_regexp, parse_number};
+use num_traits::FloatConst;
 
-use super::utils::{get_timezone_offset, ru};
+use crate::{METRIC_NAME_LABEL, MetricName, QueryValue, remove_empty_series, Timeseries};
 use crate::chrono_tz::Tz;
-use crate::eval::binop_handlers::merge_non_overlapping_timeseries;
 use crate::eval::{eval_number, eval_time, EvalConfig};
+use crate::eval::binop_handlers::merge_non_overlapping_timeseries;
+use crate::functions::{quantile, quantile_sorted};
 use crate::functions::rollup::{linear_regression, mad, stddev, stdvar};
 use crate::functions::utils::{
     float_to_int_bounded, get_first_non_nan_index, get_last_non_nan_index,
 };
-use crate::functions::{quantile, quantile_sorted};
 use crate::rand_distr::Distribution;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::{remove_empty_series, MetricName, QueryValue, Timeseries, METRIC_NAME_LABEL};
+
+use super::utils::{get_timezone_offset, ru};
 
 const INF: f64 = f64::INFINITY;
 const NAN: f64 = f64::NAN;
@@ -362,22 +363,24 @@ fn transform_clamp_min(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseri
     transform_series(tfa, tf)
 }
 
+fn extract_datetime_part(epoch_secs: f64, part: DateTimePart) -> f64 {
+    if !epoch_secs.is_nan() {
+        if let Some(utc) = timestamp_secs_to_utc_datetime(epoch_secs as i64) {
+            if let Some(value) = datetime_part(utc, part) {
+                return value as f64;
+            }
+        }
+    }
+    f64::NAN
+}
+
 fn transform_datetime_impl(
     tfa: &mut TransformFuncArg,
-    f: fn(t: DateTime<Utc>) -> f64,
+    part: DateTimePart,
 ) -> RuntimeResult<Vec<Timeseries>> {
-    let tf = move |values: &mut [f64]| {
+    let tf = |values: &mut [f64]| {
         for v in values.iter_mut() {
-            if !v.is_nan() {
-                // todo: do we need try_info ?
-                let naive = NaiveDateTime::from_timestamp_opt(*v as i64, 0);
-                *v = if let Some(naive_datetime) = naive {
-                    let date_time_utc = Utc.from_utc_datetime(&naive_datetime);
-                    f(date_time_utc)
-                } else {
-                    NAN
-                };
-            }
+            *v = extract_datetime_part(*v, part)
         }
     };
 
@@ -391,52 +394,31 @@ fn transform_datetime_impl(
 }
 
 fn transform_hour(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    transform_datetime_impl(tfa, |t| t.hour() as f64)
+    transform_datetime_impl(tfa, DateTimePart::Hour)
 }
 
 fn transform_day_of_month(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    transform_datetime_impl(tfa, |t| t.day() as f64)
-}
-
-#[inline]
-fn day_of_week(t: DateTime<Utc>) -> f64 {
-    return match t.weekday() {
-        Weekday::Sun => 0.0,
-        Weekday::Mon => 1.0,
-        Weekday::Tue => 2.0,
-        Weekday::Wed => 3.0,
-        Weekday::Thu => 4.0,
-        Weekday::Fri => 5.0,
-        Weekday::Sat => 6.0,
-    };
+    transform_datetime_impl(tfa, DateTimePart::DayOfMonth)
 }
 
 fn transform_day_of_week(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    transform_datetime_impl(tfa, day_of_week)
-}
-
-fn days_in_month(t: DateTime<Utc>) -> f64 {
-    let m = t.month();
-    if m == 2 && is_leap_year(t.year() as u32) {
-        return 29 as f64;
-    }
-    DAYS_IN_MONTH[m as usize] as f64
+    transform_datetime_impl(tfa, DateTimePart::DayOfWeek)
 }
 
 fn transform_days_in_month(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    transform_datetime_impl(tfa, days_in_month)
+    transform_datetime_impl(tfa, DateTimePart::DaysInMonth)
 }
 
 fn transform_minute(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    transform_datetime_impl(tfa, |t| t.minute() as f64)
+    transform_datetime_impl(tfa, DateTimePart::Minute)
 }
 
 fn transform_month(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    transform_datetime_impl(tfa, |t| t.month() as f64)
+    transform_datetime_impl(tfa, DateTimePart::Month)
 }
 
 fn transform_year(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    transform_datetime_impl(tfa, |t| t.year() as f64)
+    transform_datetime_impl(tfa, DateTimePart::Year)
 }
 
 fn transform_buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
@@ -2748,18 +2730,6 @@ fn get_tag_value(mn: &MetricName, dst_label: &str) -> String {
     }
 }
 
-fn is_leap_year(y: u32) -> bool {
-    if y % 4 != 0 {
-        return false;
-    }
-    if y % 100 != 0 {
-        return true;
-    }
-    return y % 400 == 0;
-}
-
-const DAYS_IN_MONTH: [u8; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-
 fn remove_counter_resets_maybe_nans(values: &mut Vec<f64>) {
     let mut i = 0;
     while i < values.len() && values[i].is_nan() {
@@ -2861,42 +2831,6 @@ pub fn get_scalar(tfa: &TransformFuncArg, arg_num: usize) -> RuntimeResult<Vec<f
                 return Err(RuntimeError::ArgumentError(msg));
             }
             Ok(s[0].values.clone())
-        }
-        _ => {
-            let msg = format!(
-                "arg # {} expected float or a single timeseries; got {}",
-                arg_num + 1,
-                arg.data_type()
-            );
-            return Err(RuntimeError::ArgumentError(msg));
-        }
-    }
-}
-
-pub fn get_scalar_iter(
-    tfa: &TransformFuncArg,
-    arg_num: usize,
-) -> RuntimeResult<impl Iterator<Item = f64>> {
-    // todo: check bounds
-    let arg = &tfa.args[arg_num];
-    match arg {
-        QueryValue::Scalar(val) => {
-            let len = tfa.ec.timestamps().len();
-            let iter = crate::utils::get_scalar_iter(*val, len);
-            Ok(iter)
-        }
-        QueryValue::InstantVector(s) => {
-            if s.len() != 1 {
-                let msg = format!(
-                    "arg # {} must contain a single timeseries; got {} timeseries",
-                    arg_num + 1,
-                    s.len()
-                );
-                return Err(RuntimeError::ArgumentError(msg));
-            }
-            let val = s[0].values[0];
-            let iter = crate::utils::get_scalar_iter(val, s[0].values.len());
-            Ok(iter)
         }
         _ => {
             let msg = format!(

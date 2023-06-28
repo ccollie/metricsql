@@ -7,10 +7,11 @@ members = [
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [workspace.dependencies]
-chrono = { version = "0.4.26", features=["serde"]}
+chrono = { version = "0.4.26", features = ["serde"] }
 chrono-tz = "0.8.2"
 enquote = "1.1.0"
-itertools =  "0.10.1"
+itertools = "0.11.0"
+num-traits = "0.2.15"
 q_compress = "0.11.6"
 rand = "0.8.5"
 rand_distr = "0.4.3"

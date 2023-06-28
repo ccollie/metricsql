@@ -6,13 +6,14 @@ use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 
 use enquote::enquote;
+use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::Xxh3;
 
-use metricsql::common::{AggregateModifier, AggregateModifierOp, GroupModifier, GroupModifierOp};
+use metricsql::common::{AggregateModifier, GroupModifier, GroupModifierOp};
 
 use crate::runtime_error::{RuntimeError, RuntimeResult};
+use crate::signature::Signature;
 use crate::utils::{read_string, read_usize, write_string, write_usize};
-use serde::{Deserialize, Serialize};
 
 /// The maximum length of label name.
 ///
@@ -55,7 +56,7 @@ impl Tag {
         Ok(src)
     }
 
-    fn update_hash(&self, h: &mut Xxh3) {
+    pub(crate) fn update_hash(&self, h: &mut Xxh3) {
         h.update(self.key.as_bytes());
         h.write_u8(SEP);
         h.update(self.value.as_bytes());
@@ -361,24 +362,18 @@ impl MetricName {
     }
 
     pub fn remove_group_tags(&mut self, modifier: &Option<AggregateModifier>) {
-        let mut group_op = AggregateModifierOp::By;
-        let mut labels = &vec![]; // zero alloc
-
         if let Some(m) = modifier.deref() {
-            group_op = m.op.clone();
-            labels = &m.args
+            match m {
+                AggregateModifier::By(labels) => {
+                    self.remove_tags_on(labels);
+                }
+                AggregateModifier::Without(labels) => {
+                    self.remove_tags(labels);
+                    // Reset metric group as Prometheus does on `aggr(...) without (...)` call.
+                    self.reset_metric_group();
+                }
+            }
         };
-
-        match group_op {
-            AggregateModifierOp::By => {
-                self.remove_tags_on(labels);
-            }
-            AggregateModifierOp::Without => {
-                self.remove_tags(labels);
-                // Reset metric group as Prometheus does on `aggr(...) without (...)` call.
-                self.reset_metric_group();
-            }
-        }
     }
 
     pub(crate) fn count_label_values(&self, hm: &mut HashMap<String, HashMap<String, usize>>) {
@@ -403,14 +398,8 @@ impl MetricName {
         hasher.digest()
     }
 
-    pub fn get_hash(&mut self) -> u64 {
-        self.hash.unwrap_or_else(|| {
-            self.sort_tags();
-            let hasher = &mut Xxh3::default();
-            let hash = self.fast_hash(hasher);
-            self.hash = Some(hash);
-            hash
-        })
+    pub(crate) fn signature(&self) -> Signature {
+        Signature::new(self)
     }
 
     pub fn sort_tags(&mut self) {
@@ -420,42 +409,32 @@ impl MetricName {
         }
     }
 
-    pub fn with_labels_iter<'a>(&'a self, names: &'a [String]) -> impl Iterator<Item = &Tag> {
+    pub fn with_labels_iter<'a>(&'a self, names: &'a [String]) -> impl Iterator<Item=&Tag> {
         WithLabelsIterator::new(self, names)
     }
 
-    pub fn without_labels_iter<'a>(&'a self, names: &'a [String]) -> impl Iterator<Item = &Tag> {
+    pub fn without_labels_iter<'a>(&'a self, names: &'a [String]) -> impl Iterator<Item=&Tag> {
         WithoutLabelsIterator::new(self, names)
     }
 
     /// `names` have to be sorted in ascending order.
-    pub fn hash_with_labels(&self, hasher: &mut Xxh3, names: &[String]) -> u64 {
-        hasher.reset();
-        self.with_labels_iter(names).for_each(|tag| {
-            tag.update_hash(hasher);
-        });
-        hasher.digest()
+    pub fn signature_with_labels(&self, names: &[String]) -> Signature {
+        Signature::from_tag_iter(self.with_labels_iter(names))
     }
 
-    /// `names` have to be sorted in ascending order.
-    pub fn hash_without_labels(&self, hasher: &mut Xxh3, names: &[String]) -> u64 {
-        hasher.reset();
-        self.without_labels_iter(names).for_each(|tag| {
-            tag.update_hash(hasher);
-        });
-        hasher.digest()
+    pub fn signature_without_labels(&self, names: &[String]) -> Signature {
+        Signature::from_tag_iter(self.without_labels_iter(names))
     }
 
-    pub fn get_hash_by_group_modifier(
+    pub fn signature_by_group_modifier(
         &self,
-        hasher: &mut Xxh3,
         modifier: &Option<GroupModifier>,
-    ) -> u64 {
+    ) -> Signature {
         match modifier {
-            None => self.fast_hash(hasher),
+            None => self.signature(),
             Some(m) => match m.op {
-                GroupModifierOp::On => self.hash_with_labels(hasher, m.labels()),
-                GroupModifierOp::Ignoring => self.hash_without_labels(hasher, m.labels()),
+                GroupModifierOp::On => self.signature_with_labels(m.labels()),
+                GroupModifierOp::Ignoring => self.signature_without_labels(m.labels()),
             },
         }
     }

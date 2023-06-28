@@ -1,9 +1,10 @@
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
 /// the majority of the functionality in this file is Licensed to the Apache Software Foundation (ASF)
 /// under the APACHE License 2.0
 /// http://www.apache.org/licenses/LICENSE-2.0
 /// https://docs.rs/arrow-array/29.0.0/src/arrow_array/lib.rs.html
-use chrono::{DateTime, Duration, NaiveDateTime, NaiveTime, TimeZone, Timelike, Utc};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use chrono::{Datelike, DateTime, Duration, NaiveDateTime, NaiveTime, Timelike, TimeZone, Utc, Weekday};
 
 /// Number of seconds in a day
 pub const SECONDS_IN_DAY: i64 = 86_400;
@@ -13,6 +14,9 @@ pub const MILLISECONDS: i64 = 1_000;
 pub const MICROSECONDS: i64 = 1_000_000;
 /// Number of nanoseconds in a second
 pub const NANOSECONDS: i64 = 1_000_000_000;
+
+const DAYS_IN_MONTH: [u8; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
 
 pub type Time = Instant;
 
@@ -98,6 +102,20 @@ pub fn timestamp_ms_to_datetime(v: i64) -> Option<NaiveDateTime> {
     )
 }
 
+/// converts a `i64` representing a `time64(s)` to [`NaiveDateTime`]
+pub fn timestamp_secs_to_datetime(secs: i64) -> Option<NaiveDateTime> {
+    NaiveDateTime::from_timestamp_opt(
+        // extract seconds from seconds
+        secs,
+        0_u32,
+    )
+}
+
+/// converts a `i64` representing a `time64(s)` to [`DateTime<Utc>`]
+pub fn timestamp_secs_to_utc_datetime(secs: i64) -> Option<DateTime<Utc>> {
+    timestamp_secs_to_datetime(secs).map(|naive| Utc.from_utc_datetime(&naive))
+}
+
 /// converts a `i64` representing a `timestamp(us)` to [`NaiveDateTime`]
 #[inline]
 pub fn timestamp_us_to_datetime(v: i64) -> Option<NaiveDateTime> {
@@ -152,13 +170,77 @@ pub fn duration_ns_to_duration(v: i64) -> Duration {
     Duration::nanoseconds(v)
 }
 
+pub fn is_leap_year(y: u32) -> bool {
+    if y % 4 != 0 {
+        return false;
+    }
+    if y % 100 != 0 {
+        return true;
+    }
+    y % 400 == 0
+}
+
+pub fn days_in_month<Tz: TimeZone>(t: DateTime<Tz>) -> u8 {
+    let m = t.month();
+    if m == 2 && is_leap_year(t.year() as u32) {
+        return 29_u8;
+    }
+    DAYS_IN_MONTH[m as usize]
+}
+
+pub fn int_day_of_week<Tz: TimeZone>(t: DateTime<Tz>) -> u8 {
+    match t.weekday() {
+        Weekday::Sun => 0_u8,
+        Weekday::Mon => 1_u8,
+        Weekday::Tue => 2_u8,
+        Weekday::Wed => 3_u8,
+        Weekday::Thu => 4_u8,
+        Weekday::Fri => 5_u8,
+        Weekday::Sat => 6_u8,
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum DateTimePart {
+    DayOfMonth,
+    DayOfWeek,
+    DaysInMonth,
+    Hour,
+    Minute,
+    Month,
+    Second,
+    Year,
+}
+
+pub fn datetime_part<Tz: TimeZone>(datetime: DateTime<Tz>, part: DateTimePart) -> Option<u32> {
+    match part {
+        DateTimePart::DayOfMonth => Some(datetime.day()),
+        DateTimePart::DayOfWeek => Some(int_day_of_week(datetime) as u32),
+        DateTimePart::DaysInMonth => Some(days_in_month(datetime) as u32),
+        DateTimePart::Hour => Some(datetime.hour()),
+        DateTimePart::Minute => Some(datetime.minute()),
+        DateTimePart::Month => Some(datetime.month()),
+        DateTimePart::Second => Some(datetime.second()),
+        DateTimePart::Year => {
+            let year = datetime.year();
+            // we don't handle negative years currently
+            if year < 0 {
+                None
+            } else {
+                Some(year as u32)
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::time::split_second;
-    use crate::{
-        timestamp_ms_to_datetime, timestamp_ns_to_datetime, timestamp_us_to_datetime, NANOSECONDS,
-    };
     use chrono::NaiveDateTime;
+
+    use crate::{
+        NANOSECONDS, timestamp_ms_to_datetime, timestamp_ns_to_datetime, timestamp_us_to_datetime,
+    };
+    use crate::time::split_second;
 
     #[test]
     fn negative_input_timestamp_ns_to_datetime() {

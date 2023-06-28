@@ -18,18 +18,21 @@
 // https://github.com/apache/arrow-datafusion/tree/main/datafusion/optimizer/src
 // https://github.com/apache/arrow-datafusion/blob/e222bd627b6e7974133364fed4600d74b4da6811/datafusion/optimizer/src/utils.rs
 
-// https://prometheus.io/docs/prometheus/latest/querying/operators
-//! Expression simplification API
-//!
-use super::{BinaryExpr, DurationExpr, Expr, FunctionExpr, ParensExpr};
+use lib::{datetime_part, DateTimePart, timestamp_secs_to_utc_datetime};
+use num_traits::float::FloatConst;
+
 use crate::ast::optimize_label_filters_inplace;
 use crate::ast::utils::{expr_contains, is_null, is_one, is_op_with, is_zero};
 use crate::binaryop::{eval_binary_op, string_compare};
 use crate::common::{Operator, RewriteRecursion, TreeNode, TreeNodeRewriter};
-use crate::functions::Volatility;
+use crate::functions::{TransformFunction, Volatility};
 use crate::parser::ParseResult;
 use crate::prelude::BuiltinFunction;
-use std::str::FromStr;
+
+// https://prometheus.io/docs/prometheus/latest/querying/operators
+//! Expression simplification API
+//!
+use super::{BinaryExpr, DurationExpr, Expr, FunctionExpr, ParensExpr};
 
 pub fn simplify_expression(expr: Expr) -> ParseResult<Expr> {
     let simplifier = ExprSimplifier::new();
@@ -186,6 +189,7 @@ impl ConstEvaluator {
         }
     }
 
+
     /// Can the expression be evaluated at plan time, (assuming all of
     /// its children can also be evaluated)?
     fn can_evaluate(expr: &Expr) -> bool {
@@ -197,27 +201,31 @@ impl ConstEvaluator {
         match expr {
             Expr::Aggregation(..) | Expr::MetricExpression(..) | Expr::Rollup(_) => false,
             Expr::Parens(_) => false,
-            Expr::Function(FunctionExpr { name, .. }) => match BuiltinFunction::from_str(name) {
-                Ok(function) => Self::volatility_ok(function.volatility()),
-                Err(_) => false,
+            // only handle immutable scalar functions
+            Expr::Function(FunctionExpr { function, .. }) => match function {
+                BuiltinFunction::Transform(_) => {
+                    return Self::volatility_ok(function.volatility())
+                },
+                _ => false
             },
             Expr::Number(_)
             | Expr::StringLiteral(_)
             | Expr::BinaryOperator(_)
             | Expr::Duration(DurationExpr {
-                requires_step: false,
-                ..
-            }) => true,
+                                 requires_step: false,
+                                 ..
+                             }) => true,
             Expr::Duration(_) => false,
             Expr::StringExpr(se) => !se.is_expanded(),
             Expr::With(_) => false,
         }
     }
 
-    /// Internal helper to evaluates an Expr
+    /// Internal helper to evaluate an Expr
     pub(crate) fn evaluate_to_scalar(&mut self, expr: Expr) -> ParseResult<Expr> {
         match expr {
             Expr::BinaryOperator(be) => Self::handle_binary_expr(be),
+            Expr::Function(fe) => Self::handle_function_expr(fe),
             _ => Ok(expr),
         }
     }
@@ -252,6 +260,89 @@ impl ConstEvaluator {
         }
         return Ok(Expr::BinaryOperator(be));
     }
+
+    fn get_single_scalar_arg(fe: &FunctionExpr) -> Option<f64> {
+        if fe.args.len() == 1 {
+            return match &fe.args[0] {
+                Expr::Number(n) => Some(n.value),
+                _ => None
+            }
+        }
+        None
+    }
+
+    fn handle_function_expr(fe: FunctionExpr) -> ParseResult<Expr> {
+        let arg_count = fe.args.len();
+        return match fe.function {
+            BuiltinFunction::Transform(func) => {
+                use TransformFunction::*;
+
+                if func == Pi && arg_count == 0 {
+                    return Ok(Expr::from(f64::PI()))
+                }
+                let arg = Self::get_single_scalar_arg(&fe);
+                if arg.is_none() {
+                    return Ok(Expr::Function(fe));
+                }
+                let arg = arg.unwrap();
+                let mut valid = true;
+                let value = match func {
+                    Abs => arg.abs(),
+                    Acos => arg.acos(),
+                    Acosh => arg.acosh(),
+                    Asin => arg.asin(),
+                    Asinh => arg.asinh(),
+                    Atan => arg.atan(),
+                    Atanh => arg.atanh(),
+                    Ceil => arg.ceil(),
+                    Cos => arg.cos(),
+                    Cosh => arg.cosh(),
+                    DayOfMonth => extract_datetime_part(arg, DateTimePart::DayOfMonth),
+                    DayOfWeek => extract_datetime_part(arg, DateTimePart::DayOfWeek),
+                    DaysInMonth => extract_datetime_part(arg, DateTimePart::DaysInMonth),
+                    Deg => arg.to_degrees(),
+                    Exp => arg.exp(),
+                    Floor => arg.floor(),
+                    Hour => extract_datetime_part(arg, DateTimePart::Hour),
+                    Ln => arg.ln(),
+                    Log2 => arg.log2(),
+                    Log10 => arg.log10(),
+                    Minute => extract_datetime_part(arg, DateTimePart::Minute),
+                    Month => extract_datetime_part(arg, DateTimePart::Month),
+                    Rad => arg.to_radians(),
+                    Sgn => arg.signum(),
+                    Sin => arg.sin(),
+                    Sinh => arg.sinh(),
+                    Sqrt => arg.sqrt(),
+                    Tan => arg.tan(),
+                    Tanh => arg.tanh(),
+                    Year => extract_datetime_part(arg, DateTimePart::Month),
+                    _ => {
+                        valid = false;
+                        f64::NAN
+                    }
+                };
+                return if valid {
+                    Ok(Expr::from(value))
+                } else {
+                    Ok(Expr::Function(fe.clone()))
+                }
+            }
+            _ => Ok(Expr::Function(fe))
+        }
+    }
+}
+
+fn extract_datetime_part(epoch_secs: f64, part: DateTimePart) -> f64 {
+    if epoch_secs.is_nan() {
+        return f64::NAN;
+    }
+    if let Some(utc) = timestamp_secs_to_utc_datetime(epoch_secs as i64) {
+        if let Some(value) = datetime_part(utc, part) {
+            return value as f64;
+        }
+    }
+    f64::NAN
 }
 
 /// Simplifies [`Expr`]s by applying algebraic transformation rules
@@ -394,11 +485,12 @@ pub fn simplify_parens(pe: ParensExpr) -> Expr {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::ast::binary_expr;
     use crate::ast::utils::{expr_equals, lit, number, selector};
     use crate::parser::parse;
     use crate::prelude::TransformFunction;
+
+    use super::*;
 
     fn assert_expr_eq(expected: &Expr, actual: &Expr) {
         assert!(

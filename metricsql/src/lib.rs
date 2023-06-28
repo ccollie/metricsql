@@ -2,6 +2,7 @@
 extern crate core;
 extern crate enquote;
 extern crate logos;
+extern crate num_traits;
 extern crate phf;
 extern crate regex;
 extern crate serde;
@@ -18,15 +19,15 @@ pub mod functions;
 pub mod parser;
 
 pub mod prelude {
-    use crate::ast;
-    use crate::binaryop;
-    use crate::common;
-    use crate::functions;
-    use crate::parser;
-
     pub use ast::*;
     pub use binaryop::*;
     pub use common::*;
     pub use functions::*;
     pub use parser::*;
+
+    use crate::ast;
+    use crate::binaryop;
+    use crate::common;
+    use crate::functions;
+    use crate::parser;
 }

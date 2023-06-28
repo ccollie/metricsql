@@ -6,17 +6,18 @@ use lockfree_object_pool::LinearReusable;
 use tinyvec::*;
 use xxhash_rust::xxh3::Xxh3;
 
+use lib::get_float64s;
+use metricsql::common::AggregateModifier;
+use metricsql::functions::AggregateFunction;
+
+use crate::{EvalConfig, QueryValue, Timeseries};
 use crate::eval::eval_number;
 use crate::exec::remove_empty_series;
+use crate::functions::{mode_no_nans, quantile, quantiles, skip_trailing_nans};
 use crate::functions::transform::vmrange_buckets_to_le;
 use crate::functions::utils::float_to_int_bounded;
-use crate::functions::{mode_no_nans, quantile, quantiles, skip_trailing_nans};
 use crate::histogram::{get_pooled_histogram, Histogram};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::{EvalConfig, QueryValue, Timeseries};
-use lib::get_float64s;
-use metricsql::common::{AggregateModifier, AggregateModifierOp};
-use metricsql::functions::AggregateFunction;
 
 // todo: add lifetime so we dont need to copy modifier
 pub struct AggrFuncArg<'a> {
@@ -608,16 +609,15 @@ fn aggr_func_count_values(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries
     let dst_label = afa.args[0].get_string()?;
 
     // Remove dst_label from grouping like Prometheus does.
-    match afa.modifier.borrow_mut() {
-        None => {}
-        Some(modifier) => match modifier.op {
-            AggregateModifierOp::Without => {
-                modifier.args.push(dst_label.clone());
+    if let Some(modifier) = afa.modifier.borrow_mut() {
+        match modifier {
+            AggregateModifier::Without(args) => {
+                args.push(dst_label.clone());
             }
-            AggregateModifierOp::By => {
-                modifier.args.retain(|x| x != &dst_label);
+            AggregateModifier::By(args) => {
+                args.retain(|x| x != &dst_label);
             }
-        },
+        }
     }
 
     let afe = move |tss: &mut Vec<Timeseries>, _: &Option<AggregateModifier>| -> Vec<Timeseries> {

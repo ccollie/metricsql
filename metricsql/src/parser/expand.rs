@@ -1,14 +1,15 @@
+use std::collections::HashSet;
+
 use crate::ast::{
     AggregationExpr, BinaryExpr, Expr, FunctionExpr, MetricExpr, ParensExpr, RollupExpr,
     WithArgExpr, WithExpr,
 };
 use crate::common::{
-    remove_duplicate_label_filters, AggregateModifier, GroupModifier, JoinModifier, LabelFilter,
+    AggregateModifier, GroupModifier, JoinModifier, LabelFilter, remove_duplicate_label_filters,
     StringExpr, StringSegment,
 };
+use crate::parser::{ParseError, ParseResult, syntax_error};
 use crate::parser::symbol_provider::SymbolProviderRef;
-use crate::parser::{syntax_error, ParseError, ParseResult};
-use std::collections::HashSet;
 
 pub fn expand_with(
     symbols: &SymbolProviderRef,
@@ -303,10 +304,20 @@ fn expand_aggregation(
     ae.args = args;
 
     if let Some(modifier) = &ae.modifier {
-        let new_args = expand_modifier_args(symbols, was, &modifier.args)?;
-        if new_args != modifier.args {
-            ae.modifier = Some(AggregateModifier::new(modifier.op, new_args));
-        }
+        match modifier {
+            AggregateModifier::By(args) => {
+                let new_args = expand_modifier_args(symbols, was, &args)?;
+                if args != &new_args {
+                    ae.modifier = Some(AggregateModifier::By(new_args));
+                }
+            }
+            AggregateModifier::Without(args) => {
+                let new_args = expand_modifier_args(symbols, was, &args)?;
+                if args != &new_args {
+                    ae.modifier = Some(AggregateModifier::Without(new_args));
+                }
+            }
+        };
     }
 
     Ok(Expr::Aggregation(ae))

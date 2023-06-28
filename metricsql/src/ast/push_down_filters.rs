@@ -1,12 +1,10 @@
-use crate::common::{
-    AggregateModifierOp, GroupModifierOp, JoinModifierOp, LabelFilter, Operator, NAME_LABEL,
-};
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::iter::FromIterator;
 use std::vec::Vec;
 
 use crate::ast::{AggregationExpr, BinaryExpr, Expr, RollupExpr};
+use crate::common::{AggregateModifier, GroupModifierOp, JoinModifierOp, LabelFilter, NAME_LABEL, Operator};
 
 /// push_down_filters optimizes e in order to improve its performance.
 ///
@@ -171,9 +169,9 @@ pub fn get_common_label_filters(e: &Expr) -> Vec<LabelFilter> {
 fn trim_filters_by_aggr_modifier(lfs: &mut Vec<LabelFilter>, afe: &AggregationExpr) {
     match &afe.modifier {
         None => lfs.clear(),
-        Some(modifier) => match modifier.op {
-            AggregateModifierOp::By => filter_label_filters_on(lfs, &modifier.args),
-            AggregateModifierOp::Without => filter_label_filters_ignoring(lfs, &modifier.args),
+        Some(modifier) => match modifier {
+            AggregateModifier::By(args) => filter_label_filters_on(lfs, &args),
+            AggregateModifier::Without(args) => filter_label_filters_ignoring(lfs, &args),
         },
     }
 }

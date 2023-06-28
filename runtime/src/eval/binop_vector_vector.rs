@@ -4,20 +4,19 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use regex::escape;
-use tracing::{field, trace, trace_span, Span};
+use tracing::{field, Span, trace, trace_span};
 
 use metricsql::common::{LabelFilter, Operator, Value, ValueType};
 use metricsql::functions::Volatility;
 use metricsql::prelude::*;
 
-use crate::context::Context;
-use crate::eval::binop_handlers::{exec_binop, BinaryOpFuncArg};
-use crate::eval::traits::Evaluator;
-use crate::eval::{create_evaluator, eval_number, ExprEvaluator};
-use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::{EvalConfig, QueryValue, Timeseries};
-
+use crate::context::Context;
+use crate::eval::{create_evaluator, eval_number, ExprEvaluator};
+use crate::eval::binop_handlers::{BinaryOpFuncArg, exec_binop};
+use crate::eval::traits::Evaluator;
 use crate::eval::utils::series_len;
+use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::types::Tag;
 
 pub struct BinaryEvaluatorVectorVector {
@@ -270,7 +269,7 @@ fn is_aggr_func_without_grouping(e: &Expr) -> bool {
     match e {
         Expr::Aggregation(afe) => {
             if let Some(modifier) = &afe.modifier {
-                modifier.args.len() == 0
+                modifier.is_empty()
             } else {
                 true
             }

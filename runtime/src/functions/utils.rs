@@ -152,8 +152,8 @@ fn prepare_tv_for_quantile_float64(dst: &mut TinyVec<[f64; 64]>, src: &[f64]) {
 /// It is expected that values won't contain NaN items.
 /// The implementation mimics Prometheus implementation for compatibility's sake.
 pub fn quantiles_sorted(qs: &mut [f64], phis: &[f64], values: &[f64]) {
-    for (i, phi) in phis.iter().enumerate() {
-        qs[i] = quantile_sorted(*phi, values);
+    for (phi, qs) in phis.iter().zip(qs.iter_mut()) {
+        *qs = quantile_sorted(*phi, values);
     }
 }
 

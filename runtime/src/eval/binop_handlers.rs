@@ -1,15 +1,16 @@
-use crate::rayon::iter::ParallelIterator;
-use rayon::iter::IntoParallelRefIterator;
-use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
+use std::collections::hash_map::Entry;
 
-use crate::eval::signature::Signature;
-use crate::eval::utils::remove_empty_series;
+use rayon::iter::IntoParallelRefIterator;
+
 use metricsql::ast::BinaryExpr;
-use metricsql::binaryop::{get_scalar_binop_handler, get_scalar_comparison_handler, BinopFunc};
+use metricsql::binaryop::{BinopFunc, get_scalar_binop_handler, get_scalar_comparison_handler};
 use metricsql::common::{GroupModifier, JoinModifier, JoinModifierOp, Operator};
 
+use crate::eval::utils::remove_empty_series;
+use crate::rayon::iter::ParallelIterator;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
+use crate::types::signature::Signature;
 use crate::types::Timeseries;
 
 pub(crate) struct BinaryOpFuncArg<'a> {
@@ -277,7 +278,7 @@ fn group_join(
                 .metric_name
                 .set_tags(join_tags, &mut ts_right.metric_name);
 
-            let key = Signature::with_group_modifier(&ts_copy.metric_name, &be.group_modifier);
+            let key = ts_copy.metric_name.signature_by_group_modifier(&be.group_modifier);
 
             match map.entry(key) {
                 Entry::Vacant(entry) => {
@@ -389,6 +390,7 @@ fn binary_op_default(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>
     if bfa.left.is_empty() {
         return Ok(std::mem::take(&mut bfa.right)); // Short-circuit: default with nothing is nothing.
     }
+
     let (mut m_left, m_right) = create_timeseries_map_by_tag_set(bfa);
 
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(m_left.len());
@@ -418,7 +420,7 @@ fn binary_op_or(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let lhs_sigs = get_vector_matching_hash_set(&bfa.left, &bfa.be.group_modifier);
 
     for (right_ts, left_ts) in bfa.right.iter_mut().zip(bfa.left.iter_mut()) {
-        let sig = Signature::with_group_modifier(&right_ts.metric_name, &bfa.be.group_modifier);
+        let sig = right_ts.metric_name.signature_by_group_modifier(&bfa.be.group_modifier);
         if !lhs_sigs.contains(&sig) {
             right.push(std::mem::take(right_ts));
             continue;
@@ -482,6 +484,7 @@ fn fill_left_empty_with_right_values(left_ts: &mut Timeseries, right_ts: &Timese
         }
     }
 }
+
 #[inline]
 /// Fill gaps in tss_left with values from tss_right as Prometheus does.
 /// See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/552
@@ -544,7 +547,7 @@ fn get_vector_matching_hash_set(
     let res: HashSet<Signature> = series
         .par_iter()
         .map_with(modifier, |modifier, timeseries| {
-            Signature::with_group_modifier(&timeseries.metric_name, modifier)
+            timeseries.metric_name.signature_by_group_modifier(modifier)
         })
         .collect();
     res
@@ -557,7 +560,7 @@ fn get_tags_map_with_fn<'a>(
     let mut m: TimeseriesHashMap = HashMap::with_capacity(arg.len());
 
     for ts in arg.into_iter() {
-        let key = Signature::with_group_modifier(&ts.metric_name, modifier);
+        let key = ts.metric_name.signature_by_group_modifier(modifier);
         m.entry(key).or_insert(vec![]).push(std::mem::take(ts));
     }
 

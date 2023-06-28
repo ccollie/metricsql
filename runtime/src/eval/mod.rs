@@ -1,3 +1,6 @@
+pub use eval::*;
+pub use traits::*;
+
 mod aggregate;
 pub(crate) mod arg_list;
 pub mod binop_handlers;
@@ -16,9 +19,5 @@ pub(crate) mod utils;
 
 mod instant_vector;
 
-pub use eval::*;
-pub use traits::*;
-
 #[cfg(test)]
 mod eval_test;
-mod signature;
