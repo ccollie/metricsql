@@ -20,6 +20,14 @@ pub struct SqlDataSource {
     pub catalog: Arc<Box<dyn CatalogProvider>>,
     pub table_provider: Arc<Box<dyn TableProvider>>,
     pub timestamp_column: String,
+    // planner states
+    table_name: Option<String>,
+    time_index_column: Option<String>,
+    field_columns: Vec<String>,
+    tag_columns: Vec<String>,
+    field_column_matcher: Option<Vec<Matcher>>,
+    /// The range in millisecond of range selector. None if there is no range selector.
+    range: Option<Millisecond>,
 }
 
 impl SqlDataSource {
@@ -222,6 +230,397 @@ impl SqlDataSource {
         }
         Ok(metrics)
     }
+
+    // TODO(ruihang): ignore `MetricNameLabel` (`__name__`) matcher
+    fn matchers_to_expr(&self, label_matchers: Matchers) -> Result<Vec<DfExpr>> {
+        let mut exprs = Vec::with_capacity(label_matchers.matchers.len());
+        for matcher in label_matchers.matchers {
+            let col = DfExpr::Column(Column::from_name(matcher.name));
+            let lit = DfExpr::Literal(ScalarValue::Utf8(Some(matcher.value)));
+            let expr = match matcher.op {
+                MatchOp::Equal => col.eq(lit),
+                MatchOp::NotEqual => col.not_eq(lit),
+                MatchOp::Re(_) => DfExpr::BinaryExpr(BinaryExpr {
+                    left: Box::new(col),
+                    op: Operator::RegexMatch,
+                    right: Box::new(lit),
+                }),
+                MatchOp::NotRe(_) => DfExpr::BinaryExpr(BinaryExpr {
+                    left: Box::new(col),
+                    op: Operator::RegexNotMatch,
+                    right: Box::new(lit),
+                }),
+            };
+            exprs.push(expr);
+        }
+
+        Ok(exprs)
+    }
+
+    async fn selector_to_series_normalize_plan(
+        &mut self,
+        offset: &Option<Offset>,
+        label_matchers: Matchers,
+        is_range_selector: bool,
+    ) -> Result<LogicalPlan> {
+        let table_name = self.ctx.table_name.clone().unwrap();
+
+        // make filter exprs
+        let offset_duration = match offset {
+            Some(Offset::Pos(duration)) => duration.as_millis() as Millisecond,
+            Some(Offset::Neg(duration)) => -(duration.as_millis() as Millisecond),
+            None => 0,
+        };
+        let range_ms = self.ctx.range.unwrap_or_default();
+        let mut scan_filters = self.matchers_to_expr(label_matchers.clone())?;
+        scan_filters.push(self.create_time_index_column_expr()?.gt_eq(DfExpr::Literal(
+            ScalarValue::TimestampMillisecond(
+                Some(self.ctx.start - offset_duration - self.ctx.lookback_delta - range_ms),
+                None,
+            ),
+        )));
+        scan_filters.push(self.create_time_index_column_expr()?.lt_eq(DfExpr::Literal(
+            ScalarValue::TimestampMillisecond(
+                Some(self.ctx.end - offset_duration + self.ctx.lookback_delta),
+                None,
+            ),
+        )));
+
+        // make table scan with filter exprs
+        let mut table_scan = self
+            .create_table_scan_plan(&table_name, scan_filters.clone())
+            .await?;
+
+        // make a projection plan if there is any `__field__` matcher
+        if let Some(field_matchers) = &self.ctx.field_column_matcher {
+            let col_set = self.ctx.field_columns.iter().collect::<HashSet<_>>();
+            // opt-in set
+            let mut result_set = HashSet::new();
+            // opt-out set
+            let mut reverse_set = HashSet::new();
+            for matcher in field_matchers {
+                match &matcher.op {
+                    MatchOp::Equal => {
+                        if col_set.contains(&matcher.value) {
+                            let _ = result_set.insert(matcher.value.clone());
+                        } else {
+                            return Err(ColumnNotFoundSnafu {
+                                col: matcher.value.clone(),
+                            }
+                                .build());
+                        }
+                    }
+                    MatchOp::NotEqual => {
+                        if col_set.contains(&matcher.value) {
+                            let _ = reverse_set.insert(matcher.value.clone());
+                        } else {
+                            return Err(ColumnNotFoundSnafu {
+                                col: matcher.value.clone(),
+                            }
+                                .build());
+                        }
+                    }
+                    MatchOp::Re(regex) => {
+                        for col in &self.ctx.field_columns {
+                            if regex.is_match(col) {
+                                let _ = result_set.insert(col.clone());
+                            }
+                        }
+                    }
+                    MatchOp::NotRe(regex) => {
+                        for col in &self.ctx.field_columns {
+                            if regex.is_match(col) {
+                                let _ = reverse_set.insert(col.clone());
+                            }
+                        }
+                    }
+                }
+            }
+            // merge two set
+            if result_set.is_empty() {
+                result_set = col_set.into_iter().cloned().collect();
+            }
+            for col in reverse_set {
+                let _ = result_set.remove(&col);
+            }
+
+            self.ctx.field_columns = result_set.iter().cloned().collect();
+            let exprs = result_set
+                .into_iter()
+                .map(|col| DfExpr::Column(col.into()))
+                .chain(self.create_tag_column_exprs()?.into_iter())
+                .chain(Some(self.create_time_index_column_expr()?))
+                .collect::<Vec<_>>();
+            // reuse this variable for simplicity
+            table_scan = LogicalPlanBuilder::from(table_scan)
+                .project(exprs)
+                .context(DataFusionPlanningSnafu)?
+                .build()
+                .context(DataFusionPlanningSnafu)?;
+        }
+
+        // make filter and sort plan
+        let mut plan_builder = LogicalPlanBuilder::from(table_scan);
+        let accurate_filters = self.matchers_to_expr(label_matchers)?;
+        if !accurate_filters.is_empty() {
+            plan_builder = plan_builder
+                .filter(utils::conjunction(accurate_filters).unwrap())
+                .context(DataFusionPlanningSnafu)?;
+        }
+        let sort_plan = plan_builder
+            .sort(self.create_tag_and_time_index_column_sort_exprs()?)
+            .context(DataFusionPlanningSnafu)?
+            .build()
+            .context(DataFusionPlanningSnafu)?;
+
+        // make divide plan
+        let divide_plan = LogicalPlan::Extension(Extension {
+            node: Arc::new(SeriesDivide::new(self.ctx.tag_columns.clone(), sort_plan)),
+        });
+
+        // make series_normalize plan
+        let series_normalize = SeriesNormalize::new(
+            offset_duration,
+            self.ctx
+                .time_index_column
+                .clone()
+                .with_context(|| TimeIndexNotFoundSnafu { table: table_name })?,
+            is_range_selector,
+            divide_plan,
+        );
+        let logical_plan = LogicalPlan::Extension(Extension {
+            node: Arc::new(series_normalize),
+        });
+
+        Ok(logical_plan)
+    }
+
+    async fn create_table_scan_plan(
+        &mut self,
+        table_name: &str,
+        filter: Vec<DfExpr>,
+    ) -> Result<LogicalPlan> {
+        let table_ref = OwnedTableReference::bare(table_name.to_string());
+        let provider = self
+            .table_provider
+            .resolve_table(table_ref.clone())
+            .await
+            .context(CatalogSnafu)?;
+        let result = LogicalPlanBuilder::scan_with_filters(table_ref, provider, None, filter)
+            .context(DataFusionPlanningSnafu)?
+            .build()
+            .context(DataFusionPlanningSnafu)?;
+        Ok(result)
+    }
+
+    /// Setup [PromPlannerContext]'s state fields.
+    async fn setup_context(&mut self) -> Result<()> {
+        let table_name = self
+            .ctx
+            .table_name
+            .clone()
+            .context(TableNameNotFoundSnafu)?;
+
+        let table = self
+            .table_provider
+            .resolve_table(TableReference::bare(&table_name))
+            .await
+            .context(CatalogSnafu)?
+            .as_any()
+            .downcast_ref::<DefaultTableSource>()
+            .context(UnknownTableSnafu)?
+            .table_provider
+            .as_any()
+            .downcast_ref::<DfTableProviderAdapter>()
+            .context(UnknownTableSnafu)?
+            .table();
+
+        // set time index column name
+        let time_index = table
+            .schema()
+            .timestamp_column()
+            .with_context(|| TimeIndexNotFoundSnafu { table: table_name })?
+            .name
+            .clone();
+        self.ctx.time_index_column = Some(time_index);
+
+        // set values columns
+        let values = table
+            .table_info()
+            .meta
+            .field_column_names()
+            .cloned()
+            .collect();
+        self.ctx.field_columns = values;
+
+        // set primary key (tag) columns
+        let tags = table
+            .table_info()
+            .meta
+            .row_key_column_names()
+            .cloned()
+            .collect();
+        self.ctx.tag_columns = tags;
+
+        Ok(())
+    }
+
+    fn create_time_index_column_expr(&self) -> Result<DfExpr> {
+        Ok(DfExpr::Column(Column::from_name(
+            self.ctx
+                .time_index_column
+                .clone()
+                .with_context(|| TimeIndexNotFoundSnafu { table: "unknown" })?,
+        )))
+    }
+
+    fn create_tag_column_exprs(&self) -> Result<Vec<DfExpr>> {
+        let mut result = Vec::with_capacity(self.ctx.tag_columns.len());
+        for tag in &self.ctx.tag_columns {
+            let expr = DfExpr::Column(Column::from_name(tag));
+            result.push(expr);
+        }
+        Ok(result)
+    }
+
+    fn create_tag_and_time_index_column_sort_exprs(&self) -> Result<Vec<DfExpr>> {
+        let mut result = self
+            .ctx
+            .tag_columns
+            .iter()
+            .map(|col| DfExpr::Column(Column::from_name(col)).sort(false, false))
+            .collect::<Vec<_>>();
+        result.push(self.create_time_index_column_expr()?.sort(false, false));
+        Ok(result)
+    }
+
+    fn create_empty_values_filter_expr(&self) -> Result<DfExpr> {
+        let mut exprs = Vec::with_capacity(self.ctx.field_columns.len());
+        for value in &self.ctx.field_columns {
+            let expr = DfExpr::Column(Column::from_name(value)).is_not_null();
+            exprs.push(expr);
+        }
+
+        utils::conjunction(exprs.into_iter()).context(ValueNotFoundSnafu {
+            table: self.ctx.table_name.clone().unwrap(),
+        })
+    }
+
+    /// Build a inner join on time index column and tag columns to concat two logical plans.
+    fn join_on_non_field_columns(
+        &self,
+        left: LogicalPlan,
+        right: LogicalPlan,
+    ) -> Result<LogicalPlan> {
+        let mut tag_columns = self
+            .ctx
+            .tag_columns
+            .iter()
+            .map(Column::from_name)
+            .collect::<Vec<_>>();
+
+        // push time index column if it exist
+        if let Some(time_index_column) = &self.ctx.time_index_column {
+            tag_columns.push(Column::from_name(time_index_column));
+        }
+
+        // Inner Join on time index column to concat two operator
+        LogicalPlanBuilder::from(left)
+            .join(
+                right,
+                JoinType::Inner,
+                (tag_columns.clone(), tag_columns),
+                None,
+            )
+            .context(DataFusionPlanningSnafu)?
+            .build()
+            .context(DataFusionPlanningSnafu)
+    }
+
+    /// Build a projection that project and perform operation expr for all value columns.
+    /// Non-value columns (tag and timestamp) will be preserved in the projection.
+    ///
+    /// # Side effect
+    ///
+    /// This function will update the value columns in the context. Those new column names
+    /// don't contains qualifier.
+    fn projection_for_each_field_column<F>(
+        &mut self,
+        input: LogicalPlan,
+        name_to_expr: F,
+    ) -> Result<LogicalPlan>
+        where
+            F: FnMut(&String) -> Result<DfExpr>,
+    {
+        let non_field_columns_iter = self
+            .ctx
+            .tag_columns
+            .iter()
+            .chain(self.ctx.time_index_column.iter())
+            .map(|col| {
+                Ok(DfExpr::Column(Column::new(
+                    self.ctx.table_name.clone(),
+                    col,
+                )))
+            });
+
+        // build computation exprs
+        let result_field_columns = self
+            .ctx
+            .field_columns
+            .iter()
+            .map(name_to_expr)
+            .collect::<Result<Vec<_>>>()?;
+
+        // alias the computation exprs to remove qualifier
+        self.ctx.field_columns = result_field_columns
+            .iter()
+            .map(|expr| expr.display_name())
+            .collect::<DfResult<Vec<_>>>()
+            .context(DataFusionPlanningSnafu)?;
+        let field_columns_iter = result_field_columns
+            .into_iter()
+            .zip(self.ctx.field_columns.iter())
+            .map(|(expr, name)| Ok(DfExpr::Alias(Box::new(expr), name.to_string())));
+
+        // chain non-value columns (unchanged) and value columns (applied computation then alias)
+        let project_fields = non_field_columns_iter
+            .chain(field_columns_iter)
+            .collect::<Result<Vec<_>>>()?;
+
+        LogicalPlanBuilder::from(input)
+            .project(project_fields)
+            .context(DataFusionPlanningSnafu)?
+            .build()
+            .context(DataFusionPlanningSnafu)
+    }
+
+    /// Build a filter plan that filter on value column. Notice that only one value column
+    /// is expected.
+    fn filter_on_field_column<F>(
+        &self,
+        input: LogicalPlan,
+        mut name_to_expr: F,
+    ) -> Result<LogicalPlan>
+        where
+            F: FnMut(&String) -> Result<DfExpr>,
+    {
+        ensure!(
+            self.ctx.field_columns.len() == 1,
+            UnsupportedExprSnafu {
+                name: "filter on multi-value input"
+            }
+        );
+
+        let field_column_filter = name_to_expr(&self.ctx.field_columns[0])?;
+
+        LogicalPlanBuilder::from(input)
+            .filter(field_column_filter)
+            .context(DataFusionPlanningSnafu)?
+            .build()
+            .context(DataFusionPlanningSnafu)
+    }
+
 }
 
 
