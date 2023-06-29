@@ -211,6 +211,7 @@ fn expr_vec_equals(exprs1: &Vec<Expr>, exprs2: &Vec<Expr>) -> bool {
         .all(|(e1, e2)| expr_equals(e1, e2))
 }
 
+
 #[cfg(test)]
 pub mod tests {
     use crate::ast::utils::{conjunction, disjunction, selector};

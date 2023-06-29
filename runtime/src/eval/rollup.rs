@@ -884,7 +884,9 @@ pub(super) fn compile_rollup_func_args(
     for (i, arg) in fe.args.iter().enumerate() {
         if i == arg_idx {
             re = get_rollup_expr_arg(arg)?;
-            args.push(create_evaluator(&Expr::Rollup(re.clone()))?);
+            let expr = Expr::Rollup(re.clone());
+            let evaluator = create_evaluator(&expr)?;
+            args.push(evaluator);
             continue;
         }
         args.push(create_evaluator(&*arg)?);
@@ -928,34 +930,6 @@ fn get_rollup_expr_arg(arg: &Expr) -> RuntimeResult<RollupExpr> {
             Ok(re)
         }
     };
-}
-
-pub(super) fn adjust_eval_range(
-    ec: &EvalConfig,
-    offset: i64,
-    func: RollupFunction,
-) -> RuntimeResult<Cow<EvalConfig>> {
-    let mut adjustment = 0 - offset;
-    if func == RollupFunction::RollupCandlestick {
-        // Automatically apply `offset -step` to `rollup_candlestick` function
-        // in order to obtain expected OHLC results.
-        // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/309#issuecomment-582113462
-        adjustment += ec.step
-    }
-
-    if adjustment != 0 {
-        let mut result = ec.copy_no_timestamps();
-        result.start += adjustment;
-        result.end += adjustment;
-        result.ensure_timestamps()?;
-        // There is no need in calling adjust_start_end() on ec_new if ec_new.may_cache is set to true,
-        // since the time range alignment has been already performed by the caller,
-        // so cache hit rate should be quite good.
-        // See also https://github.com/VictoriaMetrics/VictoriaMetrics/issues/976
-        Ok(Cow::Owned(result))
-    } else {
-        Ok(Cow::Borrowed(ec))
-    }
 }
 
 /// aggregate_absent_over_time collapses tss to a single time series with 1 and nan values.

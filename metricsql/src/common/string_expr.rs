@@ -1,9 +1,13 @@
+use std::{fmt, ops};
+use std::fmt::{Display, Formatter};
+use std::hash::Hasher;
+
+use serde::{Deserialize, Serialize};
+use xxhash_rust::xxh3::Xxh3;
+
 use crate::common::ValueType;
 use crate::parser::ParseError;
 use crate::prelude::ParseResult;
-use serde::{Deserialize, Serialize};
-use std::fmt::{Display, Formatter};
-use std::{fmt, ops};
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StringSegment {
@@ -183,6 +187,15 @@ impl StringExpr {
             }
         }
         Ok(None)
+    }
+
+    pub(crate) fn update_hash(&self, hasher: &mut Xxh3) {
+        for s in self.0.iter() {
+            match s {
+                StringSegment::Literal(lit) => hasher.write(lit.as_bytes()),
+                StringSegment::Ident(ident) => hasher.write(ident.as_bytes())
+            }
+        }
     }
 }
 

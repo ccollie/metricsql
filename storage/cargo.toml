@@ -1,7 +1,13 @@
-[workspace]
-members = [
-    "lib",
-    "metricsql",
-    "runtime"
-]
-[workspace.dependencies]
+[package]
+name = "storage"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+datafusion = { version = "26" }
+lib = { path = "../lib" }
+metricsql = { path = "../metricsql" }
+tracing = { workspace = true }
+
+[lib]
+name = "storage"

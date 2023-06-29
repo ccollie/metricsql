@@ -1,10 +1,12 @@
 #[cfg(test)]
 mod tests {
-    use crate::{exec, test_results_equal, Context, Deadline, EvalConfig, MetricName, QueryResult};
+    use std::sync::Arc;
+
     use chrono::Duration;
     use chrono_tz::Tz;
-    use speculate::speculate;
-    use std::sync::Arc;
+    use rs_unit::rs_unit;
+
+    use crate::{Context, Deadline, EvalConfig, exec, MetricName, QueryResult, test_results_equal};
     use crate::functions::transform::get_timezone_offset;
 
     const NAN: f64 = f64::NAN;
@@ -425,9 +427,9 @@ mod tests {
         assert_result_eq("absent(NaN)", &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
     }
 
-    speculate! {
+    rs_unit! {
         describe "absent_over_time" {
-            it "should return 1 for all values if the series does not contain raw samples" {
+            test "should return 1 for all values if the series does not contain raw samples" {
                 let q = "absent_over_time(time())";
                 test_query(q, vec![]);
             }

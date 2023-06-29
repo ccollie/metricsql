@@ -1,24 +1,28 @@
-use crate::ast::expr_equals;
-use crate::common::{
-    format_num, write_list, AggregateModifier, BinModifier, GroupModifier, GroupModifierOp,
-    JoinModifier, LabelFilter, LabelFilterExpr, LabelFilterOp, Operator, StringExpr, Value,
-    ValueType, VectorMatchCardinality, NAME_LABEL,
-};
-use crate::functions::{AggregateFunction, BuiltinFunction, TransformFunction};
-use enquote::enquote;
-use lib::{fmt_duration_ms, hash_f64};
-use serde::{Deserialize, Serialize};
+use std::{fmt, iter, ops};
 use std::borrow::Cow;
+use std::cmp::Ordering;
 use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::ops::{Deref, Neg, Range};
 use std::str::FromStr;
-use std::{fmt, iter, ops};
 
+use enquote::enquote;
+use serde::{Deserialize, Serialize};
+use xxhash_rust::xxh3::Xxh3;
+
+use lib::{fmt_duration_ms, hash_f64};
+
+use crate::ast::expr_equals;
+use crate::common::{
+    AggregateModifier, BinModifier, format_num, GroupModifier, GroupModifierOp, JoinModifier,
+    LabelFilter, LabelFilterExpr, LabelFilterOp, NAME_LABEL, Operator, StringExpr, Value,
+    ValueType, VectorMatchCardinality, write_list,
+};
+use crate::functions::{AggregateFunction, BuiltinFunction, TransformFunction};
 use crate::parser::{escape_ident, ParseError, ParseResult};
-use crate::prelude::{get_aggregate_arg_idx_for_optimization, BuiltinFunctionType};
+use crate::prelude::{BuiltinFunctionType, get_aggregate_arg_idx_for_optimization};
 
 pub type BExpr = Box<Expr>;
 
@@ -157,7 +161,7 @@ impl Display for DurationExpr {
 
 // todo: MetricExpr => Selector
 /// MetricExpr represents MetricsQL metric with optional filters, i.e. `foo{...}`.
-#[derive(Debug, Clone, Hash, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
 pub struct MetricExpr {
     /// LabelFilters contains a list of label filters from curly braces.
     /// Filter or metric name must be the first if present.
@@ -282,7 +286,20 @@ impl MetricExpr {
     }
 
     pub fn sort_filters(&mut self) {
-        self.label_filters.sort();
+        self.label_filters.sort_by(|a, b| {
+            let mut res = a.label.cmp(&b.label);
+            match res {
+                Ordering::Equal => {
+                    res = a.value.cmp(&b.value);
+                    if res == Ordering::Equal {
+                        let right = b.op.as_str();
+                        res = a.op.as_str().cmp(right)
+                    }
+                    res
+                },
+                _ => res
+            }
+        });
     }
 }
 
@@ -353,34 +370,41 @@ impl PartialEq<MetricExpr> for MetricExpr {
         if self.label_filter_expressions.len() != other.label_filter_expressions.len() {
             return false;
         }
-        if !self.label_filters.is_empty() {
-            let set = self
-                .label_filters
-                .iter()
-                .map(|x| x.to_string())
-                .collect::<BTreeSet<_>>();
+        let mut hasher: Xxh3 = Xxh3::new();
 
-            if !other
-                .label_filters
-                .iter()
-                .all(|x| set.contains(&x.to_string()))
-            {
-                return false;
+        if !self.label_filters.is_empty() {
+            let mut set: BTreeSet<u64> = BTreeSet::new();
+            for filter in &self.label_filters {
+                hasher.reset();
+                filter.update_hash(&mut hasher);
+                set.insert(hasher.digest());
+            }
+
+            for filter in &other.label_filters {
+                hasher.reset();
+                filter.update_hash(&mut hasher);
+                let hash = hasher.digest();
+                if !set.contains(&hash) {
+                    return false
+                }
             }
         }
-        if !self.label_filter_expressions.is_empty() {
-            let set = self
-                .label_filter_expressions
-                .iter()
-                .map(|x| x.to_string())
-                .collect::<BTreeSet<_>>();
 
-            if !other
-                .label_filter_expressions
-                .iter()
-                .all(|x| set.contains(&x.to_string()))
-            {
-                return false;
+        if !self.label_filter_expressions.is_empty() {
+            let mut set: BTreeSet<u64> = BTreeSet::new();
+            for filter in &self.label_filter_expressions {
+                hasher.reset();
+                filter.update_hash(&mut hasher);
+                set.insert(hasher.digest());
+            }
+
+            for filter in &other.label_filter_expressions {
+                hasher.reset();
+                filter.update_hash(&mut hasher);
+                let hash = hasher.digest();
+                if !set.contains(&hash) {
+                    return false
+                }
             }
         }
 

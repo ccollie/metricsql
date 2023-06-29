@@ -18,8 +18,9 @@
 // https://github.com/apache/arrow-datafusion/tree/main/datafusion/optimizer/src
 // https://github.com/apache/arrow-datafusion/blob/e222bd627b6e7974133364fed4600d74b4da6811/datafusion/optimizer/src/utils.rs
 
-use lib::{datetime_part, DateTimePart, timestamp_secs_to_utc_datetime};
 use num_traits::float::FloatConst;
+
+use lib::{datetime_part, DateTimePart, timestamp_secs_to_utc_datetime};
 
 use crate::ast::optimize_label_filters_inplace;
 use crate::ast::utils::{expr_contains, is_null, is_one, is_op_with, is_zero};
@@ -29,10 +30,10 @@ use crate::functions::{TransformFunction, Volatility};
 use crate::parser::ParseResult;
 use crate::prelude::BuiltinFunction;
 
-// https://prometheus.io/docs/prometheus/latest/querying/operators
-//! Expression simplification API
-//!
 use super::{BinaryExpr, DurationExpr, Expr, FunctionExpr, ParensExpr};
+
+// https://prometheus.io/docs/prometheus/latest/querying/operators
+// Expression simplification API
 
 pub fn simplify_expression(expr: Expr) -> ParseResult<Expr> {
     let simplifier = ExprSimplifier::new();
@@ -73,7 +74,7 @@ impl ExprSimplifier {
     /// ```
     /// use metricsql::prelude::ExprSimplifier;
     /// use super::{selector, number, Expr};
-    /// use crate::hir::{ExprSimplifier};
+    /// use crate::ast::{ExprSimplifier};
     ///
     /// // Create the simplifier
     /// let simplifier = ExprSimplifier::new();

@@ -147,7 +147,10 @@ pub(super) fn expand_metric_expression(
 
         remove_duplicate_label_filters(&mut filters);
 
-        Ok(Expr::MetricExpression(MetricExpr::with_filters(filters)))
+        let mut expr = MetricExpr::with_filters(filters);
+        expr.sort_filters();
+
+        Ok(Expr::MetricExpression(expr))
     }
 
     if me.is_expanded() {

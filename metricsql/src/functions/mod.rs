@@ -2,21 +2,21 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
-mod aggregate;
-mod rollup;
-mod signature;
-mod transform;
+use serde::{Deserialize, Serialize};
 
 pub use aggregate::*;
 pub use rollup::*;
 pub use signature::*;
 pub use transform::*;
 
-use crate::parser::{validate_function_args, ParseError, ParseResult};
-
 use crate::ast::Expr;
 use crate::common::ValueType;
-use serde::{Deserialize, Serialize};
+use crate::parser::{ParseError, ParseResult, validate_function_args};
+
+mod aggregate;
+mod rollup;
+mod signature;
+mod transform;
 
 /// Maximum number of arguments permitted in a rollup function. This really only applies
 /// to variadic functions like `aggr_over_time` and `quantiles_over_time`
@@ -73,12 +73,12 @@ impl BuiltinFunction {
         Err(ParseError::InvalidFunction(format!("built-in::{}", name)))
     }
 
-    pub fn name(&self) -> String {
+    pub fn name(&self) -> &'static str {
         use BuiltinFunction::*;
         match self {
-            Aggregate(af) => af.to_string(),
+            Aggregate(af) => af.name(),
             Rollup(rf) => rf.name(),
-            Transform(tf) => tf.to_string(),
+            Transform(tf) => tf.name(),
         }
     }
 

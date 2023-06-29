@@ -1,9 +1,13 @@
-use crate::parser::{compile_regexp, escape_ident, is_empty_regex, quote, ParseError};
-use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::fmt;
+use std::hash::Hasher;
 use std::ops::Deref;
+
+use serde::{Deserialize, Serialize};
+use xxhash_rust::xxh3::Xxh3;
+
+use crate::parser::{compile_regexp, escape_ident, is_empty_regex, ParseError, quote};
 
 pub const NAME_LABEL: &str = "__name__";
 
@@ -165,11 +169,17 @@ impl LabelFilter {
             quote(&self.value)
         )
     }
+
+    pub(crate) fn update_hash(&self, hasher: &mut Xxh3) {
+        hasher.write(self.label.as_bytes());
+        hasher.write(self.value.as_bytes());
+        hasher.write(self.op.as_str().as_bytes())
+    }
 }
 
 impl PartialEq<Self> for LabelFilter {
     fn eq(&self, other: &Self) -> bool {
-        return self.label == other.label && self.op == other.op && self.value == other.value;
+        return self.op == other.op && self.label == other.label && self.value == other.value;
     }
 }
 

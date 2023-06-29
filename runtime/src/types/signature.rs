@@ -4,7 +4,7 @@ use xxhash_rust::xxh3::Xxh3;
 
 use crate::{MetricName, Tag};
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, Copy)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Copy, Ord, PartialOrd)]
 pub struct Signature(u64);
 
 /// implement hash which returns the value of the inner u64
