@@ -1,4 +1,17 @@
-use std::collections::HashMap;
+// Copyright 2023 Greptime Team
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -7,19 +20,41 @@ use datafusion::{
         array::{Float64Array, Int64Array, StringArray},
         datatypes::Schema,
     },
+    common::{OwnedTableReference, ScalarValue, TableReference},
     error::{DataFusionError, Result},
-    prelude::{col, lit, SessionContext},
+    logical_expr::{BinaryExpr, Expr as DfExpr, Extension, LogicalPlan, LogicalPlanBuilder, Operator},
+    prelude::{col, Column, lit, SessionContext},
 };
 use datafusion::catalog::catalog::CatalogProvider;
-use datafusion::datasource::TableProvider;
+use datafusion::datasource::{DefaultTableSource, TableProvider};
+use datafusion::optimizer::utils::conjunction;
+use datafusion::parquet::format::MilliSeconds;
+use datafusion::prelude::JoinType;
+use snafu::{ensure, OptionExt, ResultExt};
 
 use metricsql::common::LabelFilterOp;
 use metricsql::prelude::MetricExpr;
 
-pub struct SqlDataSource {
-    pub catalog: Arc<Box<dyn CatalogProvider>>,
-    pub table_provider: Arc<Box<dyn TableProvider>>,
-    pub timestamp_column: String,
+/// `time()` function in PromQL.
+const SPECIAL_TIME_FUNCTION: &str = "time";
+
+const DEFAULT_TIME_INDEX_COLUMN: &str = "time";
+
+/// default value column name for empty metric
+const DEFAULT_FIELD_COLUMN: &str = "value";
+
+/// Special modifier to project field columns under multi-field mode
+const FIELD_COLUMN_MATCHER: &str = "__field__";
+
+
+#[derive(Default, Debug, Clone)]
+struct PromPlannerContext {
+    // query parameters
+    start: Millisecond,
+    end: Millisecond,
+    interval: Millisecond,
+    lookback_delta: Millisecond,
+
     // planner states
     table_name: Option<String>,
     time_index_column: Option<String>,
@@ -28,6 +63,13 @@ pub struct SqlDataSource {
     field_column_matcher: Option<Vec<Matcher>>,
     /// The range in millisecond of range selector. None if there is no range selector.
     range: Option<Millisecond>,
+}
+
+pub struct SqlDataSource {
+    pub catalog: Arc<Box<dyn CatalogProvider>>,
+    pub table_provider: Arc<Box<dyn TableProvider>>,
+    pub timestamp_column: String,
+    ctx: PromPlannerContext,
 }
 
 impl SqlDataSource {
@@ -259,29 +301,23 @@ impl SqlDataSource {
 
     async fn selector_to_series_normalize_plan(
         &mut self,
-        offset: &Option<Offset>,
         label_matchers: Matchers,
         is_range_selector: bool,
     ) -> Result<LogicalPlan> {
         let table_name = self.ctx.table_name.clone().unwrap();
 
         // make filter exprs
-        let offset_duration = match offset {
-            Some(Offset::Pos(duration)) => duration.as_millis() as Millisecond,
-            Some(Offset::Neg(duration)) => -(duration.as_millis() as Millisecond),
-            None => 0,
-        };
         let range_ms = self.ctx.range.unwrap_or_default();
         let mut scan_filters = self.matchers_to_expr(label_matchers.clone())?;
         scan_filters.push(self.create_time_index_column_expr()?.gt_eq(DfExpr::Literal(
             ScalarValue::TimestampMillisecond(
-                Some(self.ctx.start - offset_duration - self.ctx.lookback_delta - range_ms),
+                Some(self.ctx.start),
                 None,
             ),
         )));
         scan_filters.push(self.create_time_index_column_expr()?.lt_eq(DfExpr::Literal(
             ScalarValue::TimestampMillisecond(
-                Some(self.ctx.end - offset_duration + self.ctx.lookback_delta),
+                Some(self.ctx.end),
                 None,
             ),
         )));
@@ -364,7 +400,7 @@ impl SqlDataSource {
         let accurate_filters = self.matchers_to_expr(label_matchers)?;
         if !accurate_filters.is_empty() {
             plan_builder = plan_builder
-                .filter(utils::conjunction(accurate_filters).unwrap())
+                .filter(conjunction(accurate_filters).unwrap())
                 .context(DataFusionPlanningSnafu)?;
         }
         let sort_plan = plan_builder
@@ -501,7 +537,7 @@ impl SqlDataSource {
             exprs.push(expr);
         }
 
-        utils::conjunction(exprs.into_iter()).context(ValueNotFoundSnafu {
+        conjunction(exprs.into_iter()).context(ValueNotFoundSnafu {
             table: self.ctx.table_name.clone().unwrap(),
         })
     }
