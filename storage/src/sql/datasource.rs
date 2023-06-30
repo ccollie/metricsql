@@ -18,18 +18,19 @@ use std::time::Duration;
 use datafusion::{
     arrow::{
         array::{Float64Array, Int64Array, StringArray},
-        datatypes::Schema,
+        datatypes::{Schema, SchemaRef},
     },
-    common::{OwnedTableReference, ScalarValue, TableReference},
+    common::{OwnedTableReference, ScalarValue, SchemaReference, TableReference},
+    datasource::{DefaultTableSource, TableProvider},
     error::{DataFusionError, Result},
     logical_expr::{BinaryExpr, Expr as DfExpr, Extension, LogicalPlan, LogicalPlanBuilder, Operator},
     prelude::{col, Column, lit, SessionContext},
 };
 use datafusion::catalog::catalog::CatalogProvider;
-use datafusion::datasource::{DefaultTableSource, TableProvider};
 use datafusion::optimizer::utils::conjunction;
 use datafusion::parquet::format::MilliSeconds;
 use datafusion::prelude::JoinType;
+use futures::future::try_join_all;
 use snafu::{ensure, OptionExt, ResultExt};
 
 use metricsql::common::LabelFilterOp;
@@ -69,6 +70,7 @@ pub struct SqlDataSource {
     pub catalog: Arc<Box<dyn CatalogProvider>>,
     pub table_provider: Arc<Box<dyn TableProvider>>,
     pub timestamp_column: String,
+    pub schema: SchemaRef,
     ctx: PromPlannerContext,
 }
 
