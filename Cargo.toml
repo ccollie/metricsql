@@ -17,13 +17,12 @@ q_compress = "0.11.6"
 rand = "0.8.5"
 rand_distr = "0.4.3"
 rayon = "1.7.0"
-regex = "1.8.3"
+regex = "1.8.4"
 regex-syntax = "0.7.2"
 rs_unit = "0.0.2"
 scopeguard = "1.1.0"
 serde = { version = "1.0.164", features = ["derive"] }
 serde_with = "3.0.0"
-speculate = "0.1.2"
 tinyvec = { version = "1.6.0", features = ["alloc"] }
 tracing = "0.1.37"
 phf = { version = "0.11.1", features = ["macros"] }

@@ -57,7 +57,7 @@ pub fn marshal_int64_nearest_delta2(
     Ok(first_value)
 }
 
-/// unmarshal_int64nearest_delta2 decodes src using `nearest delta2` encoding,
+/// unmarshal_int64_nearest_delta2 decodes src using `nearest delta2` encoding,
 /// appends the result to dst and returns the appended result.
 ///
 /// first_value must be the value returned from marshal_int64nearest_delta2.

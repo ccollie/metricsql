@@ -129,7 +129,7 @@ pub fn unmarshal_timestamps(
 pub fn marshal_values(
     dst: &mut Vec<u8>,
     values: &[i64],
-    precision_bits: u8,
+    precision_bits: NonZeroU8,
 ) -> Result<(MarshalType, i64)> {
     marshal_int64_array(dst, values, precision_bits)
 }
@@ -159,7 +159,7 @@ pub fn unmarshal_values(
 pub fn marshal_int64_array(
     dst: &mut Vec<u8>,
     a: &[i64],
-    precision_bits: u8,
+    precision_bits: NonZeroU8,
 ) -> Result<(MarshalType, i64)> {
     use MarshalType::*;
 

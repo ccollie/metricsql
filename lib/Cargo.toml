@@ -14,8 +14,8 @@ chrono = { workspace = true }
 byte-pool = "0.2.3"
 lockfree-object-pool = "0.1.3"
 byte-slice-cast = "1.2.1"
-integer-encoding = "3.0.4"
-lz4_flex = "0.10.0"
+integer-encoding = "4.0.0"
+lz4_flex = "0.11.1"
 q_compress = { workspace = true }
 rand = { workspace = true }
 rand_distr = { workspace = true }

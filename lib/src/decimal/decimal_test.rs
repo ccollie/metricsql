@@ -172,8 +172,7 @@ mod tests {
         if a.len() != b.len() {
             return false
         }
-        for (i, va) in a.iter().enumerate() {
-            let vb = b[i];
+        for (va, vb) in a.iter().zip(b.iter()) {
             if va.to_bits() != vb.to_bits() {
                 return false
             }
