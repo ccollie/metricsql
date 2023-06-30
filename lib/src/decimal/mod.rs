@@ -216,7 +216,7 @@ pub fn append_float_to_decimal(dst: &mut Vec<i64>, src: &[f64]) -> i16 {
     // If not, adjust minExp accordingly.
     let mut down_exp: i16 = 0;
 
-    for ( v, exp) in vaev.va.iter().zip(vaev.ea.iter()) {
+    for (v, exp) in vaev.va.iter().zip(vaev.ea.iter()) {
         let up_exp = exp - min_exp;
         let max_up_exp = max_up_exponent(*v);
         if up_exp - max_up_exp > down_exp {

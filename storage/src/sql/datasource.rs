@@ -36,9 +36,6 @@ use snafu::{ensure, OptionExt, ResultExt};
 use metricsql::common::LabelFilterOp;
 use metricsql::prelude::MetricExpr;
 
-/// `time()` function in PromQL.
-const SPECIAL_TIME_FUNCTION: &str = "time";
-
 const DEFAULT_TIME_INDEX_COLUMN: &str = "time";
 
 /// default value column name for empty metric
