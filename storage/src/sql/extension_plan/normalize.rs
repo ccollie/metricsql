@@ -30,16 +30,15 @@ use datafusion::physical_plan::{
     DisplayFormatType, ExecutionPlan, Partitioning, RecordBatchStream, SendableRecordBatchStream,
 };
 use datafusion::physical_plan::metrics::{BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet};
+use futures::{Stream, StreamExt};
 use snafu::ResultExt;
 
 use datatypes::arrow::datatypes::SchemaRef;
 use datatypes::arrow::error::Result as ArrowResult;
 use datatypes::arrow::record_batch::RecordBatch;
-use futures::{Stream, StreamExt};
 use greptime_proto::substrait_extension as pb;
 use prost::Message;
 
-use crate::error::{DeserializeSnafu, Result};
 use crate::extension_plan::Millisecond;
 
 /// Normalize the input record batch. Notice that for simplicity, this method assumes
