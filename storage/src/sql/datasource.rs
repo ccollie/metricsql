@@ -573,7 +573,7 @@ impl SqlDataSource {
             .context(DataFusionPlanningSnafu)
     }
 
-    /// Build a projection that project and perform operation expr for all value columns.
+    /// Build a projection that projects and performs operation expr for all value columns.
     /// Non-value columns (tag and timestamp) will be preserved in the projection.
     ///
     /// # Side effect
