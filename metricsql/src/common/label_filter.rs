@@ -74,10 +74,10 @@ impl fmt::Display for LabelFilterOp {
 pub struct LabelFilter {
     pub op: LabelFilterOp,
 
-    /// Label contains label name for the filter.
+    /// label contains label name for the filter.
     pub label: String,
 
-    /// Value contains unquoted value for the filter.
+    /// value contains unquoted value for the filter.
     pub value: String,
 }
 

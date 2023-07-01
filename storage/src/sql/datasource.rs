@@ -21,7 +21,7 @@ use datafusion::{
         datatypes::{Schema, SchemaRef},
     },
     common::{OwnedTableReference, ScalarValue, SchemaReference, TableReference},
-    datasource::{DefaultTableSource, TableProvider},
+    datasource::{DefaultTableSource, TableProvider, TableType},
     error::{DataFusionError, Result},
     logical_expr::{BinaryExpr, Expr as DfExpr, Extension, LogicalPlan, LogicalPlanBuilder, Operator},
     prelude::{col, Column, lit, SessionContext},
@@ -211,7 +211,7 @@ impl SqlDataSource {
                 }
                 MatchOp::NotRe(_re) => {
                     let regexp_not_match_udf =
-                        crate::service::search::datafusion::regexp_udf::REGEX_NOT_MATCH_UDF.clone();
+                        crate::udf::regex_not_match_udf().clone();
                     df_group = df_group.filter(
                         regexp_not_match_udf.call(vec![col(mat.name.clone()), lit(mat.value.clone())]),
                     )?

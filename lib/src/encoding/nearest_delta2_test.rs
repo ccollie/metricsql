@@ -1,17 +1,18 @@
 #[cfg(test)]
 mod tests {
+    use rand::Rng;
+
+    use crate::{get_trailing_zeros, rand_nextf64};
     use crate::encoding::nearest_delta;
     use crate::encoding::nearest_delta2::{
         marshal_int64_nearest_delta2, unmarshal_int64_nearest_delta2,
     };
     use crate::tests::utils::check_precision_bits;
-    use crate::{get_trailing_zeros, rand_nextf64};
-    use rand::Rng;
 
-    // src: https://github.com/VictoriaMetrics/VictoriaMetrics/blob/master/lib/encoding/nearest_delta2_test.go
+// src: https://github.com/VictoriaMetrics/VictoriaMetrics/blob/master/lib/encoding/nearest_delta2_test.go
 
     #[test]
-    fn test_marshal_int64nearest_delta2() {
+    fn test_marshal_int64_nearest_delta2() {
         check_marshal_i64_nearest_delta2(&[0, 0], 4, 0, "00");
         check_marshal_i64_nearest_delta2(&[1, -3], 4, 1, "07");
         check_marshal_i64_nearest_delta2(&[255, 255], 4, 255, "00");
@@ -226,7 +227,7 @@ mod tests {
     }
 
     #[test]
-    fn test_marshal_unmarshal_int64nearest_delta2() {
+    fn test_marshal_unmarshal_int64_nearest_delta2() {
         check_marshal_unmarshal_int64_nearest_delta2(&[0, 0], 4);
         check_marshal_unmarshal_int64_nearest_delta2(&[1, -3], 4);
         check_marshal_unmarshal_int64_nearest_delta2(&[255, 255], 4);

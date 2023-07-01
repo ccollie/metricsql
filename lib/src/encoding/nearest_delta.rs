@@ -1,10 +1,11 @@
+use q_compress::CompressorConfig;
+
 use crate::{bit_len64, get_int64s};
 use crate::encoding::{
     compress::{compress_quantile, decompress_quantile_auto},
     encoding::check_precision_bits,
 };
 use crate::error::Error;
-use q_compress::CompressorConfig;
 
 /// marshal_int64_nearest_delta encodes src using `nearest delta` encoding
 /// with the given precision_bits and appends the encoded value to dst.
@@ -164,8 +165,9 @@ pub fn get_trailing_zeros(n: i64, precision_bits: u8) -> usize {
         // There is no need in special case handling for v = -1<<63
     }
     let v_bits = bit_len64(v as u64);
-    if v_bits <= precision_bits as usize {
+    let precision_bits = precision_bits as usize;
+    if v_bits <= precision_bits {
         return 0;
     }
-    v_bits - precision_bits as usize
+    v_bits - precision_bits
 }
