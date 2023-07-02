@@ -36,6 +36,7 @@ impl TreeNode for Expr {
             | Expr::StringExpr(_)
             | Expr::Number(_)
             | Expr::MetricExpression(_)
+            | Expr::WithSelector(_)
             | Expr::Duration(_) => vec![],
             Expr::BinaryOperator(BinaryExpr { left, right, .. }) => {
                 vec![left.as_ref().clone(), right.as_ref().clone()]
@@ -176,7 +177,8 @@ impl TreeNode for Expr {
                     expr: Box::new(transform(*w.expr)?),
                 };
                 Expr::With(with)
-            }
+            },
+            Expr::WithSelector(_) => self.clone(),
         };
 
         Ok(expr)

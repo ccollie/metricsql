@@ -5,8 +5,9 @@ use metricsql::common::{LabelFilter, Value};
 use metricsql::functions::{BuiltinFunction, Signature, Volatility};
 use metricsql::prelude::{BinaryOpKind, ValueType};
 
+use crate::{QueryValue, TimestampTrait};
 use crate::context::Context;
-use crate::eval::aggregate::{create_aggr_evaluator, AggregateEvaluator};
+use crate::eval::aggregate::{AggregateEvaluator, create_aggr_evaluator};
 use crate::eval::binop_scalar_scalar::BinaryEvaluatorScalarScalar;
 use crate::eval::binop_scalar_vector::BinaryEvaluatorScalarVector;
 use crate::eval::binop_vector_scalar::BinaryEvaluatorVectorScalar;
@@ -19,7 +20,6 @@ use crate::eval::string::StringEvaluator;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::search::Deadline;
 use crate::types::{Timeseries, Timestamp};
-use crate::{QueryValue, TimestampTrait};
 
 use super::rollup::RollupEvaluator;
 use super::traits::{Evaluator, NullEvaluator};
@@ -166,6 +166,9 @@ pub fn create_evaluator(expr: &Expr) -> RuntimeResult<ExprEvaluator> {
         }
         With(_) => {
             unreachable!("With expression should have been removed in parser")
+        }
+        WithSelector(_) => {
+            unreachable!("WithSelector expression should have been removed in parser")
         }
     }
 }

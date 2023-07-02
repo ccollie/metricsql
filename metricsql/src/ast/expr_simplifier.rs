@@ -219,6 +219,7 @@ impl ConstEvaluator {
             Expr::Duration(_) => false,
             Expr::StringExpr(se) => !se.is_expanded(),
             Expr::With(_) => false,
+            Expr::WithSelector(_) => false,
         }
     }
 
@@ -367,6 +368,7 @@ impl Simplifier {
 impl TreeNodeRewriter for Simplifier {
     type N = Expr;
 
+    // TODO: A + A  -->  2 * A, where A is a selector/rollup/aggregate
     /// rewrite the expression simplifying any constant expressions
     fn mutate(&mut self, expr: Expr) -> ParseResult<Expr> {
         use Operator::{And, Div, Mod, Mul, Or};
@@ -477,11 +479,15 @@ impl TreeNodeRewriter for Simplifier {
 
 pub fn simplify_parens(pe: ParensExpr) -> Expr {
     let mut pe = pe;
-    if pe.len() == 1 {
-        pe.expressions.remove(0)
-    } else {
-        Expr::Function(pe.to_function())
+    while pe.expressions.len() == 1 {
+        match pe.expressions.remove(0) {
+            Expr::Parens(pe2) => pe = pe2,
+            expr => {
+                return expr;
+            },
+        }
     }
+    Expr::Function(pe.to_function())
 }
 
 #[cfg(test)]

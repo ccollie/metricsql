@@ -22,7 +22,7 @@ use crate::common::{
 };
 use crate::functions::{AggregateFunction, BuiltinFunction, TransformFunction};
 use crate::parser::{escape_ident, ParseError, ParseResult};
-use crate::prelude::{BuiltinFunctionType, get_aggregate_arg_idx_for_optimization};
+use crate::prelude::{BuiltinFunctionType, get_aggregate_arg_idx_for_optimization, InterpolatedSelector};
 
 pub type BExpr = Box<Expr>;
 
@@ -166,9 +166,6 @@ pub struct MetricExpr {
     /// LabelFilters contains a list of label filters from curly braces.
     /// Filter or metric name must be the first if present.
     pub label_filters: Vec<LabelFilter>,
-    /// label_filter_expressions contains a list of label filter expressions from WITH clause.
-    /// This is transformed into label_filters during compilation.
-    pub(crate) label_filter_expressions: Vec<LabelFilterExpr>,
 }
 
 impl MetricExpr {
@@ -176,38 +173,24 @@ impl MetricExpr {
         let name_filter = LabelFilter::new(LabelFilterOp::Equal, NAME_LABEL, name.into()).unwrap();
         MetricExpr {
             label_filters: vec![name_filter],
-            label_filter_expressions: vec![],
         }
     }
 
     pub fn with_filters(filters: Vec<LabelFilter>) -> Self {
         MetricExpr {
             label_filters: filters,
-            label_filter_expressions: vec![],
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.label_filters.is_empty() && self.label_filter_expressions.is_empty()
-    }
-
-    pub fn is_resolved(&self) -> bool {
-        self.label_filter_expressions.is_empty()
-            || self
-                .label_filter_expressions
-                .iter()
-                .all(|x| x.is_resolved())
+        self.label_filters.is_empty()
     }
 
     pub fn has_non_empty_metric_group(&self) -> bool {
-        if !self.label_filters.is_empty() {
-            // we should have at least the name filter
-            return self.label_filters[0].is_metric_name_filter();
-        }
-        if self.label_filter_expressions.is_empty() {
+        if self.label_filters.is_empty() {
             return false;
         }
-        self.label_filter_expressions[0].is_metric_name_filter()
+        self.label_filters[0].is_metric_name_filter()
     }
 
     pub fn is_only_metric_group(&self) -> bool {
@@ -248,33 +231,11 @@ impl MetricExpr {
         ValueType::InstantVector
     }
 
-    pub fn is_expanded(&self) -> bool {
-        self.label_filter_expressions.is_empty()
-    }
-
-    pub fn to_label_filters(&self) -> ParseResult<Vec<LabelFilter>> {
-        if !self.is_expanded() {
-            // todo: err
-        }
-        let mut items = Vec::with_capacity(self.label_filter_expressions.len());
-        for filter in self.label_filter_expressions.iter() {
-            items.push(filter.to_label_filter()?)
-        }
-        Ok(items)
-    }
-
     pub fn is_empty_matchers(&self) -> bool {
         if self.is_empty() {
             return true;
         }
-        let mut is_empty = self.label_filters.iter().all(|x| x.is_empty_matcher());
-        if !is_empty {
-            is_empty = self
-                .label_filter_expressions
-                .iter()
-                .all(|x| x.is_empty_matcher())
-        }
-        is_empty
+        self.label_filters.iter().all(|x| x.is_empty_matcher())
     }
 
     /// find all the matchers whose name equals the specified name.
@@ -316,37 +277,19 @@ impl Display for MetricExpr {
             return Ok(());
         }
 
-        let mut name_written = false;
         let mut lfs: &[LabelFilter] = &self.label_filters;
-        let mut exprs: &[LabelFilterExpr] = &self.label_filter_expressions;
 
         if !lfs.is_empty() {
             let lf = &lfs[0];
             if lf.is_name_label() {
                 write!(f, "{}", &lf.value)?;
-                name_written = true;
                 lfs = &lfs[1..];
             }
         }
-        if !name_written && !exprs.is_empty() {
-            let expr = &exprs[0];
-            if expr.is_name_label() {
-                write!(f, "{}", &expr.value)?;
-                exprs = &exprs[1..];
-            }
-        }
 
-        let total = lfs.len() + exprs.len();
-        if total > 0 {
+        if !lfs.is_empty() {
             write!(f, "{{")?;
-        }
-        if lfs.len() > 0 {
             write_list(lfs.iter(), f, false)?;
-        }
-        if !exprs.is_empty() {
-            write_list(exprs.iter(), f, false)?;
-        }
-        if total > 0 {
             write!(f, "}}")?;
         }
         Ok(())
@@ -357,7 +300,6 @@ impl Default for MetricExpr {
     fn default() -> Self {
         Self {
             label_filters: vec![],
-            label_filter_expressions: vec![],
         }
     }
 }
@@ -365,9 +307,6 @@ impl Default for MetricExpr {
 impl PartialEq<MetricExpr> for MetricExpr {
     fn eq(&self, other: &MetricExpr) -> bool {
         if self.label_filters.len() != other.label_filters.len() {
-            return false;
-        }
-        if self.label_filter_expressions.len() != other.label_filter_expressions.len() {
             return false;
         }
         let mut hasher: Xxh3 = Xxh3::new();
@@ -381,24 +320,6 @@ impl PartialEq<MetricExpr> for MetricExpr {
             }
 
             for filter in &other.label_filters {
-                hasher.reset();
-                filter.update_hash(&mut hasher);
-                let hash = hasher.digest();
-                if !set.contains(&hash) {
-                    return false
-                }
-            }
-        }
-
-        if !self.label_filter_expressions.is_empty() {
-            let mut set: BTreeSet<u64> = BTreeSet::new();
-            for filter in &self.label_filter_expressions {
-                hasher.reset();
-                filter.update_hash(&mut hasher);
-                set.insert(hasher.digest());
-            }
-
-            for filter in &other.label_filter_expressions {
                 hasher.reset();
                 filter.update_hash(&mut hasher);
                 let hash = hasher.digest();
@@ -1243,6 +1164,10 @@ pub enum Expr {
     /// A MetricsQL specific WITH statement node. Transformed at parse time to one
     /// of the other variants
     With(WithExpr),
+
+    /// An interpolated MetricsQL metric with optional filters, i.e. `foo{...}` parsed in the
+    /// context of a `WITH` statement. Transformed at parse time to a MetricExpr
+    WithSelector(InterpolatedSelector),
 }
 
 pub type BExpression = Box<Expr>;
@@ -1289,6 +1214,10 @@ impl Expr {
             | Self::StringLiteral(_)
             | Self::StringExpr(_)
             | Self::With(_) => Box::new(iter::empty()),
+            // this node type should not appear in the AST after parsing
+            Expr::WithSelector(_) => {
+                Box::new(iter::empty())
+            }
         }
     }
 
@@ -1345,6 +1274,7 @@ impl Expr {
             Expr::Parens(me) => me.return_type(),
             Expr::MetricExpression(me) => me.return_type(),
             Expr::With(w) => w.return_type(),
+            Expr::WithSelector(_) => ValueType::InstantVector
         }
     }
 
@@ -1360,6 +1290,7 @@ impl Expr {
             Expr::Parens(_) => "Parens",
             Expr::MetricExpression(_) => "VectorSelector",
             Expr::With(_) => "With",
+            Expr::WithSelector(_) => "VectorSelector",
         }
     }
 
@@ -1377,6 +1308,7 @@ impl Expr {
             Expr::StringLiteral(s) => Expr::StringLiteral(s),
             Expr::StringExpr(s) => Expr::StringExpr(s),
             Expr::With(w) => Expr::With(w),
+            Expr::WithSelector(ws) => Expr::WithSelector(ws),
         }
     }
 
@@ -1489,6 +1421,7 @@ impl Display for Expr {
             Expr::StringLiteral(s) => write!(f, "{}", enquote('"', s))?,
             Expr::StringExpr(s) => write!(f, "{}", s)?,
             Expr::With(w) => write!(f, "{}", w)?,
+            Expr::WithSelector(ws) => write!(f, "{}", ws)?,
         }
         Ok(())
     }
@@ -1508,6 +1441,7 @@ impl Value for Expr {
             Expr::StringLiteral(_) => ValueType::String,
             Expr::StringExpr(_) => ValueType::String,
             Expr::With(w) => w.return_type(),
+            Expr::WithSelector(_) => ValueType::InstantVector,
         }
     }
 }

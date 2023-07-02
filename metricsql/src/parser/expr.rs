@@ -1,13 +1,14 @@
+use std::str::FromStr;
+
 use crate::ast::{BinaryExpr, Expr};
 use crate::common::{
     GroupModifier, GroupModifierOp, JoinModifier, JoinModifierOp, Operator, StringExpr, ValueType,
 };
 use crate::functions::AggregateFunction;
+use crate::parser::{extract_string_value, ParseError, Parser, ParseResult, unescape_ident};
 use crate::parser::function::parse_func_expr;
 use crate::parser::parse_error::unexpected;
 use crate::parser::tokens::Token;
-use crate::parser::{extract_string_value, unescape_ident, ParseError, ParseResult, Parser};
-use std::str::FromStr;
 
 use super::aggregation::parse_aggr_func_expr;
 use super::rollup::parse_rollup_expr;
@@ -55,7 +56,7 @@ pub(super) fn parse_expression(p: &mut Parser) -> ParseResult<Expr> {
         let mut is_bool = false;
         if p.at(&Token::Bool) {
             if !operator.is_comparison() {
-                let msg = format!("bool modifier cannot be applied to {}", operator);
+                let msg = format!("bool modifier cannot be applied to {operator}");
                 return Err(p.syntax_error(&msg));
             }
             is_bool = true;
@@ -71,7 +72,7 @@ pub(super) fn parse_expression(p: &mut Parser) -> ParseResult<Expr> {
             let token = p.current_token()?;
             if [Token::GroupLeft, Token::GroupRight].contains(&token.kind) {
                 if operator.is_set_operator() {
-                    let msg = format!("modifier {} cannot be applied to {}", token.text, operator);
+                    let msg = format!("modifier {} cannot be applied to {operator}", token.text);
                     return Err(p.syntax_error(&msg));
                 }
                 let join = parse_join_modifier(p)?;
