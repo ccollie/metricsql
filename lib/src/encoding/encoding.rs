@@ -18,6 +18,7 @@ const MIN_COMPRESSIBLE_BLOCK_SIZE: usize = 128;
 
 /// MarshalType is the type used for the marshaling.
 #[derive(Debug, Clone, PartialOrd, PartialEq, Copy)]
+#[non_exhaustive]
 pub enum MarshalType {
     /// DeltaConst is used for marshaling constantly changed
     /// time series with constant delta.
@@ -76,8 +77,7 @@ impl TryFrom<u8> for MarshalType {
 pub(crate) fn check_precision_bits(precision_bits: u8) -> std::result::Result<(), Error> {
     if !(1..=64).contains(&precision_bits) {
         return Err(Error::from(format!(
-            "precision_bits must be in the range [1...64]; got {}",
-            precision_bits
+            "precision_bits must be in the range [1...64]; got {precision_bits}"
         )));
     }
     Ok(())
@@ -147,8 +147,7 @@ pub fn unmarshal_values(
 ) -> Result<()> {
     match unmarshal_int64_array(dst, src, mt, first_value, items_count) {
         Err(err) => Err(Error::from(format!(
-            "cannot unmarshal {} values from src.len()={} bytes: {}",
-            items_count,
+            "cannot unmarshal {items_count} values from src.len()={} bytes: {}",
             src.len(),
             err
         ))),
@@ -173,7 +172,7 @@ pub fn marshal_int64_array(
 
     if is_delta_const(a) {
         let first_value = a[0];
-        marshal_var_int::<i64>(dst, a[1] - a[0]);
+        marshal_var_int::<i64>(dst, a[1] - first_value);
         return Ok((DeltaConst, first_value));
     }
 
@@ -211,7 +210,7 @@ pub fn marshal_int64_array(
         mt = match mt {
             Lz4NearestDelta2 => NearestDelta2,
             Lz4NearestDelta => NearestDelta,
-            _ => return Err(Error::from(format!("BUG: unexpected mt={}", mt))),
+            _ => return Err(Error::from(format!("BUG: unexpected mt={mt}"))),
         };
         dst.extend(bb.as_slice());
     };
@@ -296,6 +295,7 @@ pub fn unmarshal_int64_array(
                 fastnum::append_int64_ones(dst, items_count);
                 return Ok(());
             }
+            dst.reserve(items_count);
             dst.extend(repeat(first_value).take(items_count));
             Ok(())
         }
@@ -305,8 +305,7 @@ pub fn unmarshal_int64_array(
                 Ok((delta, tail)) => {
                     if !tail.is_empty() {
                         return Err(Error::from(format!(
-                            "unexpected trailing data after delta const (d={}): {} bytes",
-                            d,
+                            "unexpected trailing data after delta const (d={d}): {} bytes",
                             tail.len()
                         )));
                     }
@@ -319,8 +318,11 @@ pub fn unmarshal_int64_array(
                     )))
                 }
             };
+
             let mut v = first_value;
             let mut count = items_count;
+            dst.reserve(count);
+
             while count > 0 {
                 dst.push(v);
                 count -= 1;
@@ -337,10 +339,7 @@ pub fn unmarshal_int64_array(
 /// If this isn't the case the a is fixed accordingly.
 pub fn ensure_non_decreasing_sequence(a: &mut [i64], v_min: i64, v_max: i64) {
     if v_max < v_min {
-        panic!(
-            "BUG: v_max cannot be smaller than v_min; got {} vs {}",
-            v_max, v_min
-        )
+        panic!("BUG: v_max cannot be smaller than v_min; got {v_max} vs {v_min}")
     }
     if a.is_empty() {
         return;
@@ -386,7 +385,7 @@ pub(crate) fn is_const(a: &[i64]) -> bool {
         return true;
     }
     let v1 = a[0];
-    return a.iter().all(|x| *x == v1);
+    a.iter().all(|x| *x == v1)
 }
 
 /// is_delta_const returns true if a contains counter with constant delta.
@@ -469,8 +468,7 @@ pub fn unmarshal_bytes_fast(src: &[u8]) -> Result<(&[u8], &[u8])> {
         Ok((size, tail)) => {
             if size > 0 && tail.len() < size {
                 return Err(Error::from(format!(
-                    "too short src; it must be at least {} bytes", size
-                )));
+                    "too short src; it must be at least {size} bytes")));
             }
             // todo: cap size to prevent issues ????
             let bytes = &tail[0..size];

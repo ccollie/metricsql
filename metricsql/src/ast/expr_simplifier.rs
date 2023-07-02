@@ -165,7 +165,7 @@ impl TreeNodeRewriter for ConstEvaluator {
         match self.can_evaluate.pop() {
             Some(true) => self.evaluate_to_scalar(expr),
             Some(false) => Ok(expr),
-            _ => panic!("Failed to pop can_evaluate"),
+            _ => Err(ParseError::from("Failed to pop can_evaluate")),
         }
     }
 }
@@ -369,6 +369,8 @@ impl TreeNodeRewriter for Simplifier {
     type N = Expr;
 
     // TODO: A + A  -->  2 * A, where A is a selector/rollup/aggregate
+    // TODO: A - A  -->  1, where A is a selector/rollup/aggregate
+
     /// rewrite the expression simplifying any constant expressions
     fn mutate(&mut self, expr: Expr) -> ParseResult<Expr> {
         use Operator::{And, Div, Mod, Mul, Or};

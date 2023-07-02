@@ -34,7 +34,7 @@ pub(crate) const CONVERSION_PRECISION: f64 = 1e12;
 
 
 #[inline]
-pub fn is_special_value(v: i64) -> bool {
+pub const fn is_special_value(v: i64) -> bool {
     !(V_MIN..=V_MAX).contains(&v)
 }
 
