@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::ast::{expr_equals, optimize, Expr};
+    use crate::ast::{Expr, expr_equals, optimize};
     use crate::parser::parse;
 
     fn parse_or_panic(s: &str) -> Expr {
@@ -38,7 +38,8 @@ mod tests {
     fn single_test() {
         // another("-1 ^ 0.5", "-1");
         // another(r#"m{foo="bar"}"#, r#"m{foo="bar"}"#);
-        assert_invalid(r#""foo" + bar"#);
+        // assert_invalid(r#""foo" + bar"#);
+        another("with () x", "x");
     }
 
     #[test]
@@ -337,7 +338,7 @@ mod tests {
 
     #[test]
     fn testing() {
-        another("((foo, bar),(baz))", "((foo, bar), baz)");
+        another("((foo, bar),(baz))", "union(union(foo, bar), baz)");
     }
 
     #[test]
@@ -395,7 +396,7 @@ mod tests {
             r#"5 - 1 + 3 * 2 ^ 2 ^ 3 - 2  OR Metric {Bar= "Baz", aaa!="bb",cc=~"dd" ,zz !~"ff" } "#,
             r#"770 or Metric{Bar="Baz", aaa!="bb", cc=~"dd", zz!~"ff"}"#,
         );
-        same(r#""foo" + PI()"#);
+        another(r#""foo" + PI()"#, r#""foo" + 3.141592653589793"#);
         same(r#""foo" + bar{x="y"}"#);
         same(r#"("foo"[3s] + bar{x="y"})[5m:3s] offset 10s"#);
         same(r#"("foo"[3s] + bar{x="y"})[5i:3i] offset 10i"#);
@@ -438,9 +439,9 @@ mod tests {
         // funcExpr
         same("now()");
         another("avg(x,)", "avg(x)");
-        another("-now()-pi()", "(0 - now()) - pi()");
+        another("-now()-pi()", "(0 - now()) - 3.141592653589793");
         same("now()");
-        another("+pi()", "pi()");
+        another("+pi()", "3.141592653589793");
         another("++now()", "now()");
         another("--now()", "0 - (0 - now())");
         same("avg(http_server_request)");

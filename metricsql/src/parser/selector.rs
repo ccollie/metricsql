@@ -1,53 +1,62 @@
-use super::tokens::Token;
-use crate::ast::{Expr, MetricExpr};
-use crate::common::{LabelFilterExpr, LabelFilterOp, StringExpr, NAME_LABEL};
+use std::collections::HashSet;
+
+use crate::ast::{Expr, InterpolatedSelector, MetricExpr};
+use crate::common::{LabelFilter, LabelFilterExpr, LabelFilterOp, NAME_LABEL};
+use crate::parser::{Parser, ParseResult};
 use crate::parser::expr::parse_string_expr;
 use crate::parser::parse_error::unexpected;
-use crate::parser::{ParseResult, Parser};
-use std::collections::HashSet;
-use crate::prelude::LabelFilter;
+
+use super::tokens::Token;
 
 /// parse_metric_expr parses a metric.
 ///
-///		<label_set>
-///		<metric_identifier> [<label_set>]
+///    	<label_set>
+///    	<metric_identifier> [<label_set>]
 ///
 pub fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expr> {
-    let mut me = MetricExpr::default();
     let can_expand = p.can_lookup();
+    let mut name: Option<String> = None;
 
     if p.at(&Token::Identifier) {
         let token = p.expect_identifier()?;
 
-        if can_expand {
-            p.needs_expansion = true;
-            let filter =
-                LabelFilterExpr::new(LabelFilterOp::Equal, NAME_LABEL, StringExpr::from(token))?;
-
-            me.label_filter_expressions.push(filter);
-        } else {
-            let filter = LabelFilter::new(LabelFilterOp::Equal, NAME_LABEL, token)?;
-            me.label_filters.push(filter);
-        }
-
         if !p.at(&Token::LeftBrace) {
-            return Ok(Expr::MetricExpression(me));
+            if can_expand {
+                if let Some(expr) = p.resolve_ident(&token, vec![])? {
+                    return Ok(expr)
+                }
+            }
+            let me = MetricExpr::new(token);
+            return Ok(Expr::MetricExpression(me))
         }
+
+        name = Some(token);
     }
+
 
     let filters = parse_label_filters(p)?;
     // symbol table is empty and we're not parsing a WITH statement
     if !can_expand {
+        let mut me = if let Some(name) = name {
+            MetricExpr::new(name)
+        } else {
+            MetricExpr::default()
+        };
         for filter in filters {
             let resolved = filter.to_label_filter()?;
             me.label_filters.push(resolved);
         }
+        Ok(Expr::MetricExpression(me))
     } else {
         p.needs_expansion = true;
-        me.label_filter_expressions.extend_from_slice(&filters);
+        let mut with_me = if let Some(name) = name {
+            InterpolatedSelector::new(name)
+        } else {
+            InterpolatedSelector::default()
+        };
+        with_me.matchers.extend_from_slice(&filters);
+        Ok(Expr::WithSelector(with_me))
     }
-
-    Ok(Expr::MetricExpression(me))
 }
 
 /// parse_label_filters parses a set of label matchers.

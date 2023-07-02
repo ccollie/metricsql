@@ -4,6 +4,7 @@ use std::fmt::Display;
 use std::ops::Add;
 
 use chrono::Duration;
+
 use metricsql::ast::Expr;
 use metricsql::common::LabelFilter;
 use metricsql::parser::parse;
@@ -132,13 +133,7 @@ pub fn parse_metric_selector(s: &str) -> RuntimeResult<Vec<LabelFilter>> {
                     let msg = "labelFilters cannot be empty";
                     return Err(RuntimeError::from(msg));
                 }
-                match me.to_label_filters() {
-                    Ok(filters) => Ok(filters),
-                    Err(err) => {
-                        let msg = format!("error parsing metric selector; {:?}", err);
-                        Err(RuntimeError::from(msg))
-                    }
-                }
+                Ok(me.label_filters)
             }
             _ => {
                 let msg = format!("expecting metric selector; got {}", expr);

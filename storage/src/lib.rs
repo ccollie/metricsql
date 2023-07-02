@@ -5,4 +5,5 @@ extern crate tokio;
 mod sql;
 mod utils;
 mod error;
+mod udf;
 

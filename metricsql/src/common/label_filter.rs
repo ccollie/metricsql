@@ -1,9 +1,10 @@
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::fmt;
-use std::hash::Hasher;
+use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::Xxh3;
 
@@ -14,6 +15,66 @@ pub const NAME_LABEL: &str = "__name__";
 pub type LabelName = String;
 
 pub type LabelValue = String;
+
+#[derive(Debug, Clone)]
+pub enum MatchOp {
+    Equal,
+    NotEqual,
+    Re(Regex),
+    NotRe(Regex),
+}
+
+impl MatchOp {
+    pub fn is_negative(&self) -> bool {
+        match self {
+            MatchOp::NotEqual | MatchOp::NotRe(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_regex(&self) -> bool {
+        match self {
+            Self::NotRe(_) | Self::Re(_) => true,
+            _ => false,
+        }
+    }
+}
+
+impl fmt::Display for MatchOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            MatchOp::Equal => write!(f, "="),
+            MatchOp::NotEqual => write!(f, "!="),
+            MatchOp::Re(reg) => write!(f, "=~{reg}"),
+            MatchOp::NotRe(reg) => write!(f, "!~{reg}"),
+        }
+    }
+}
+
+impl PartialEq for MatchOp {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (MatchOp::Equal, MatchOp::Equal) => true,
+            (MatchOp::NotEqual, MatchOp::NotEqual) => true,
+            (MatchOp::Re(s), MatchOp::Re(o)) => s.as_str().eq(o.as_str()),
+            (MatchOp::NotRe(s), MatchOp::NotRe(o)) => s.as_str().eq(o.as_str()),
+            _ => false,
+        }
+    }
+}
+
+impl Eq for MatchOp {}
+
+impl Hash for MatchOp {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            MatchOp::Equal => "eq".hash(state),
+            MatchOp::NotEqual => "ne".hash(state),
+            MatchOp::Re(s) => format!("re:{}", s.as_str()).hash(state),
+            MatchOp::NotRe(s) => format!("nre:{}", s.as_str()).hash(state),
+        }
+    }
+}
 
 #[derive(Default, Debug, Clone, PartialEq, Eq, PartialOrd, Copy, Hash, Serialize, Deserialize)]
 pub enum LabelFilterOp {
@@ -74,10 +135,10 @@ impl fmt::Display for LabelFilterOp {
 pub struct LabelFilter {
     pub op: LabelFilterOp,
 
-    /// Label contains label name for the filter.
+    /// label contains label name for the filter.
     pub label: String,
 
-    /// Value contains unquoted value for the filter.
+    /// value contains unquoted value for the filter.
     pub value: String,
 }
 

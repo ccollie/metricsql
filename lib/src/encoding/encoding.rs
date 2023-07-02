@@ -2,6 +2,7 @@ use std::fmt;
 use std::iter::repeat;
 use std::ops::Deref;
 
+use crate::{fastnum, get_pooled_buffer};
 use crate::encoding::compress::{compress_lz4, decompress_lz4};
 use crate::encoding::int::{marshal_var_int, unmarshal_var_int};
 use crate::encoding::nearest_delta::{marshal_int64_nearest_delta, unmarshal_int64_nearest_delta};
@@ -9,7 +10,6 @@ use crate::encoding::nearest_delta2::{
     marshal_int64_nearest_delta2, unmarshal_int64_nearest_delta2,
 };
 use crate::error::{Error, Result};
-use crate::{fastnum, get_pooled_buffer};
 
 /// MIN_COMPRESSIBLE_BLOCK_SIZE is the minimum block size in bytes for trying compression.
 ///
@@ -129,7 +129,7 @@ pub fn unmarshal_timestamps(
 pub fn marshal_values(
     dst: &mut Vec<u8>,
     values: &[i64],
-    precision_bits: NonZeroU8,
+    precision_bits: u8,
 ) -> Result<(MarshalType, i64)> {
     marshal_int64_array(dst, values, precision_bits)
 }
@@ -159,7 +159,7 @@ pub fn unmarshal_values(
 pub fn marshal_int64_array(
     dst: &mut Vec<u8>,
     a: &[i64],
-    precision_bits: NonZeroU8,
+    precision_bits: u8,
 ) -> Result<(MarshalType, i64)> {
     use MarshalType::*;
 
@@ -188,7 +188,7 @@ pub fn marshal_int64_array(
         if pb < 6 {
             // Increase precision bits for gauges, since they suffer more
             // from low precision bits comparing to counters.
-            pb += 2
+            pb += 2;
         }
         first_value = marshal_int64_nearest_delta(dst, a, pb)?;
     } else {

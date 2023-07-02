@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::ops::Deref;
 
 use crate::ast::{
     AggregationExpr, BinaryExpr, Expr, FunctionExpr, MetricExpr, ParensExpr, RollupExpr,
@@ -10,6 +11,7 @@ use crate::common::{
 };
 use crate::parser::{ParseError, ParseResult, syntax_error};
 use crate::parser::symbol_provider::SymbolProviderRef;
+use crate::prelude::InterpolatedSelector;
 
 pub fn expand_with(
     symbols: &SymbolProviderRef,
@@ -35,8 +37,8 @@ pub(super) fn expand_with_expr(
         Parens(pe) => expand_parens(symbols, was, pe),
         Rollup(re) => expand_rollup(symbols, was, re),
         StringExpr(se) => expand_string_expr(symbols, was, &se),
-        MetricExpression(me) => expand_metric_expression(symbols, was, me),
         With(we) => expand_with(symbols, was, we),
+        WithSelector(ws) => expand_selector_expression(symbols, was, ws),
         _ => Ok(expr),
     }
 }
@@ -58,6 +60,7 @@ pub fn should_expand(expr: &Expr) -> bool {
             }
             false
         }
+        WithSelector(_) => true,
         _ => true,
     }
 }
@@ -116,60 +119,47 @@ fn expand_binary_operator(
     Ok(Expr::BinaryOperator(be))
 }
 
-pub(super) fn expand_metric_expression(
+
+pub(super) fn expand_selector_expression(
     symbols: &SymbolProviderRef,
     was: &Vec<WithArgExpr>,
-    me: MetricExpr,
+    me: InterpolatedSelector,
 ) -> ParseResult<Expr> {
-    fn ensure_filters_resolved(me: &MetricExpr) -> ParseResult<()> {
-        if !me.label_filter_expressions.is_empty() {
-            let msg = format!(
-                "BUG: wme.label_filters must be empty; got {}",
-                me.label_filter_expressions
-                    .iter()
-                    .map(|x| x.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            );
-            return Err(ParseError::General(msg));
-        }
-        Ok(())
+    fn handle_expanded(dst: &MetricExpr, src: &MetricExpr) -> ParseResult<Expr> {
+        let mut dst = dst.clone();
+
+        let src_filters = src.label_filters.iter().skip(1);
+        dst.label_filters.append(&mut src_filters.cloned().collect::<Vec<_>>());
+        remove_duplicate_label_filters(&mut dst.label_filters);
+
+        dst.sort_filters();
+
+        Ok(Expr::MetricExpression(dst))
     }
 
-    fn handle_expanded(wme: &MetricExpr, src: &mut MetricExpr) -> ParseResult<Expr> {
-        ensure_filters_resolved(&wme)?;
-
-        let mut filters = wme.label_filters.clone();
-
-        for i in (1..src.label_filters.len()).rev() {
-            filters.push(src.label_filters.remove(i));
-        }
-
-        remove_duplicate_label_filters(&mut filters);
-
-        let mut expr = MetricExpr::with_filters(filters);
-        expr.sort_filters();
-
-        Ok(Expr::MetricExpression(expr))
-    }
-
-    if me.is_expanded() {
+    if me.is_resolved() {
         // Already expanded.
-        return Ok(Expr::MetricExpression(me));
+        let filters = me.to_label_filters()?;
+        let res = MetricExpr::with_filters(filters);
+        return Ok(Expr::MetricExpression(res));
     }
 
     let mut new_selector: MetricExpr = MetricExpr::default();
-    new_selector.label_filters = me.label_filters.clone();
 
     // Populate me.LabelFilters
-    for lfe in me.label_filter_expressions {
-        if lfe.value.is_empty() {
+    for lfe in me.matchers {
+        if lfe.value.is_empty() || lfe.is_metric_name_filter() {
             // Expand lfe.Label into vec<LabelFilter>.
             // we have something like: foo{commonFilters} and we want to expand it into
             // foo{bar="bax", job="trace"}
-            let wa = get_with_arg_expr(symbols, was, &lfe.label);
+            let label = if lfe.is_metric_name_filter() {
+                lfe.value.to_string()
+            } else {
+                lfe.label.clone()
+            };
+            let wa = get_with_arg_expr(symbols, was, &label);
             if wa.is_none() {
-                let msg = format!("missing {} value inside {}", lfe.label, new_selector);
+                let msg = format!("missing {} value inside {}", label, new_selector);
                 return Err(ParseError::General(msg));
             }
             let e_new = expand_with_expr_ext(symbols, was, wa.unwrap(), vec![])?;
@@ -185,12 +175,11 @@ pub(super) fn expand_metric_expression(
             if wme.is_none() || has_non_empty_metric_group {
                 let msg = format!(
                     "{} must be filters expression inside {}; got {}",
-                    lfe.label, new_selector, &e_new
+                    label, new_selector, &e_new
                 );
                 return Err(ParseError::General(msg));
             }
             let wme = wme.unwrap();
-            ensure_filters_resolved(&wme)?;
 
             new_selector
                 .label_filters
@@ -226,7 +215,7 @@ pub(super) fn expand_metric_expression(
             let res = handle_expanded(me, &mut new_selector)?;
             Some(res)
         }
-        Expr::Rollup(re) => match re.expr.as_ref() {
+        Expr::Rollup(re) => match re.expr.deref() {
             Expr::MetricExpression(me) => {
                 let mut rollup = re.clone();
                 rollup.expr = Box::new(handle_expanded(me, &mut new_selector)?);

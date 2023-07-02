@@ -6,7 +6,7 @@ use crate::ast::{
     ParensExpr, RollupExpr, WithExpr,
 };
 use crate::common::{
-    BinModifier, StringExpr, Value, ValueType, VectorMatchCardinality, NAME_LABEL,
+    BinModifier, NAME_LABEL, StringExpr, Value, ValueType, VectorMatchCardinality,
 };
 use crate::functions::BuiltinFunction;
 
@@ -24,6 +24,7 @@ pub fn check_ast(expr: Expr) -> Result<Expr, String> {
         StringExpr(ex) => check_ast_for_string_expr(ex),
         With(ex) => check_ast_for_with(ex),
         StringLiteral(_) | Number(_) | Duration(_) => Ok(expr),
+        WithSelector(_) => Err("unexpected WITH selector".to_string()),
     }
 }
 

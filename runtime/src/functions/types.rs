@@ -1,5 +1,4 @@
 use std::borrow::Borrow;
-use std::hash::Hash;
 
 use crate::{QueryValue, Timeseries};
 use crate::runtime_error::{RuntimeError, RuntimeResult};

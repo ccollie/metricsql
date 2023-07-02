@@ -1,24 +1,28 @@
+use integer_encoding::{FixedInt, VarInt};
 
 use crate::error::{Error, Result};
-use integer_encoding::{FixedInt, VarInt};
 
 /// marshal_fixed_int appends marshaled v to dst and returns the result.
 pub fn marshal_fixed_int<T: FixedInt>(dst: &mut Vec<u8>, v: T) {
     let mut buf = [0_u8; 16];
-    v.encode_fixed(&mut buf[..T::REQUIRED_SPACE]);
-    dst.extend_from_slice(&buf[0..T::REQUIRED_SPACE]);
+    v.encode_fixed(&mut buf[..T::ENCODED_SIZE]);
+    dst.extend_from_slice(&buf[0..T::ENCODED_SIZE]);
 }
 
-/// unmarshal_int64 returns unmarshalled int64 from src.
+/// unmarshal_fixed_int returns unmarshalled int64 from src.
 pub fn unmarshal_fixed_int<T: FixedInt>(src: &[u8]) -> Result<(T, &[u8])> {
-    if src.len() < T::REQUIRED_SPACE {
-        return Err(Error::new(format!(
-            "At least {} bytes required decoding int. Got {}",
-            T::REQUIRED_SPACE,
-            src.len()
-        )));
+    match T::decode_fixed(src) {
+        None => {
+            Err(Error::new(format!(
+                "At least {} bytes required decoding int. Got {}",
+                T::ENCODED_SIZE,
+                src.len()
+            )))
+        }
+        Some(v) => {
+            Ok((v, &src[T::ENCODED_SIZE..]))
+        }
     }
-    Ok((T::decode_fixed(src), &src[T::REQUIRED_SPACE..]))
 }
 
 /// marshal_i16 appends marshaled v to dst and returns the result.
@@ -196,19 +200,18 @@ pub fn marshal_var_int_array<T: VarInt>(dst: &mut Vec<u8>, us: &[T]) {
     }
 }
 
-/// unmarshals dst.len() values from src to dst
+/// unmarshals count values from src to dst
 /// and returns the remaining tail from src.
-pub fn unmarshal_varint_slice<'a, T: VarInt>(dst: &mut [T], src: &'a [u8]) -> Result<&'a [u8]> {
+pub fn unmarshal_var_int_vec<'a, T: VarInt>(dst: &mut Vec<T>, count: usize, src: &'a [u8]) -> Result<&'a [u8]> {
     let mut ofs: usize = 0;
-    let mut i = dst.len();
-    let mut j = 0;
+    let mut i = count;
 
     while ofs < src.len() && i > 0 {
         let cursor = &src[ofs..];
         match T::decode_var(cursor) {
             Some((x, size)) => {
                 ofs += size;
-                dst[j] = x;
+                dst.push(x);
             }
             None => {
                 let msg = format!("unexpected end of encoded varint at byte {}", ofs);
@@ -216,7 +219,6 @@ pub fn unmarshal_varint_slice<'a, T: VarInt>(dst: &mut [T], src: &'a [u8]) -> Re
             }
         }
         i -= 1;
-        j += 1;
     }
     if i > 0 {
         let msg = format!("unexpected {} items; got {}", dst.len(), dst.len() - i);

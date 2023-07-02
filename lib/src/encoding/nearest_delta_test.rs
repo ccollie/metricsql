@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use rand::{thread_rng, Rng};
+    use rand::{Rng, thread_rng};
 
     use crate::encoding::unmarshal_int64_nearest_delta;
     use crate::marshal_int64_nearest_delta;
@@ -175,6 +175,7 @@ mod tests {
 
     fn check_int64_nearest_delta(va: &[i64], precision_bits: u8) {
         let mut b: Vec<u8> = vec![];
+
         let first_value = marshal_int64_nearest_delta(&mut b, va, precision_bits)
             .expect("marshal_int64_nearest_delta");
 
