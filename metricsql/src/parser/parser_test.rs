@@ -10,9 +10,7 @@ mod tests {
     fn assert_eq_expr(expected: &Expr, actual: &Expr) {
         assert!(
             expr_equals(expected, actual),
-            "expected\n{}\nactual\n{}",
-            expected,
-            actual
+            "expected\n{expected}\nactual\n{actual}",
         );
     }
 
