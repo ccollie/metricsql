@@ -21,6 +21,7 @@ pub fn expand_with(
     let mut was_new = Vec::with_capacity(was.len() + we.was.len());
     was_new.append(&mut was.clone());
     was_new.append(&mut we.was.clone());
+
     expand_with_expr(symbols, &was_new, *we.expr)
 }
 
@@ -30,17 +31,25 @@ pub(super) fn expand_with_expr(
     expr: Expr,
 ) -> ParseResult<Expr> {
     use Expr::*;
-    match expr {
+
+    print!("expanding {} => ", &expr);
+
+    let res = match expr {
         BinaryOperator(be) => expand_binary_operator(symbols, was, be),
         Function(fe) => expand_function(symbols, was, fe),
         Aggregation(ae) => expand_aggregation(symbols, was, ae),
+        MetricExpression(me) => expand_metric_expression(symbols, was, me),
         Parens(pe) => expand_parens(symbols, was, pe),
         Rollup(re) => expand_rollup(symbols, was, re),
         StringExpr(se) => expand_string_expr(symbols, was, &se),
         With(we) => expand_with(symbols, was, we),
-        WithSelector(ws) => expand_selector_expression(symbols, was, ws),
+        WithSelector(ws) => expand_with_selector_expression(symbols, was, ws),
         _ => Ok(expr),
-    }
+    }?;
+
+    println!("{}", res);
+
+    Ok(res)
 }
 
 pub fn should_expand(expr: &Expr) -> bool {
@@ -49,6 +58,7 @@ pub fn should_expand(expr: &Expr) -> bool {
     match expr {
         StringLiteral(_) | Number(_) | Duration(_) => false,
         BinaryOperator(be) => should_expand(&be.left) || should_expand(&be.right),
+        MetricExpression(me) => me.is_only_metric_group(),
         StringExpr(se) => !se.is_expanded(),
         Parens(pe) => !pe.expressions.is_empty() && pe.expressions.iter().any(|x| should_expand(x)),
         Rollup(re) => {
@@ -115,7 +125,6 @@ fn expand_binary_operator(
         }
     }
 
-    // parens(expr)
     Ok(Expr::BinaryOperator(be))
 }
 
@@ -127,7 +136,7 @@ pub(super) fn merge_selectors(dst: &mut MetricExpr, src: &MetricExpr) {
     dst.sort_filters();
 }
 
-pub(super) fn expand_selector_expression(
+pub(super) fn expand_with_selector_expression(
     symbols: &SymbolProviderRef,
     was: &Vec<WithArgExpr>,
     me: InterpolatedSelector,
@@ -259,6 +268,24 @@ fn get_expr_as_string(expr: &Expr) -> ParseResult<String> {
     }
 }
 
+pub(super) fn expand_metric_expression(
+    symbols: &SymbolProviderRef,
+    was: &Vec<WithArgExpr>,
+    me: MetricExpr,
+) -> ParseResult<Expr> {
+    if !me.is_only_metric_group() {
+        // Already expanded.
+        return Ok(Expr::MetricExpression(me));
+    }
+
+    let k = &me.label_filters[0].value;
+    if let Some(wa) = get_with_arg_expr(symbols, was, k) {
+        return expand_with_expr_ext(symbols, was, wa, vec![]);
+    }
+
+    Ok(Expr::MetricExpression(me))
+}
+
 fn expand_function(
     symbols: &SymbolProviderRef,
     was: &Vec<WithArgExpr>,
@@ -370,14 +397,13 @@ pub(super) fn expand_string_expr(
                 continue;
             }
             StringSegment::Ident(ident) => {
-                let expr = resolve_ident(symbols, was, ident, vec![])?;
-                if expr.is_none() {
+                if let Some(expr) = resolve_ident(symbols, was, ident, vec![])? {
+                    let value = get_expr_as_string(&expr)?;
+                    b.push_str(&value);
+                } else {
                     let msg = format!("missing {} value inside string expression", ident);
                     return Err(ParseError::General(msg));
                 }
-                let expr = expr.unwrap();
-                let value = get_expr_as_string(&expr)?;
-                b.push_str(&value);
             }
         }
     }
@@ -391,12 +417,12 @@ pub(super) fn resolve_ident(
     ident: &str,
     args: Vec<Expr>,
 ) -> ParseResult<Option<Expr>> {
-    let wa = get_with_arg_expr(symbols, was, ident);
-    if wa.is_none() {
-        return Ok(None);
+    if let Some(wa) = get_with_arg_expr(symbols, was, ident) {
+        let expr = expand_with_expr_ext(symbols, was, wa, args)?;
+        return Ok(Some(expr));
     }
-    let expr = expand_with_expr_ext(symbols, was, wa.unwrap(), args)?;
-    Ok(Some(expr))
+
+    Ok(None)
 }
 
 fn expand_modifier_args(

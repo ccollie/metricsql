@@ -416,8 +416,8 @@ impl TreeNodeRewriter for Simplifier {
                             keep_metric_names,
                             group_modifier,
                             join_modifier,
-                            left: Box::new(two),
-                            right,
+                            right: Box::new(two),
+                            left,
                             op: Mul,
                             modifier,
                         })
@@ -787,7 +787,7 @@ mod tests {
     #[test]
     fn test_simplify_selector_plus_selector_same() {
         let expr = selector("c2") + selector("c2");
-        let expected = number(2.0) * selector("c2");
+        let expected = selector("c2") * number(2.0);
 
         let actual = simplify(expr);
         assert_expr_eq(&expected, &actual);
