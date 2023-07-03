@@ -200,6 +200,7 @@ pub fn marshal_int64_array(
 
     // Try compressing the result.
     if bb.len() >= MIN_COMPRESSIBLE_BLOCK_SIZE {
+        // quantile compress ???
         let mut compressed = compress_lz4(bb.deref());
         dst.append(&mut compressed);
     }

@@ -220,7 +220,7 @@ pub fn unmarshal_var_int_vec<'a, T: VarInt>(dst: &mut Vec<T>, count: usize, src:
         }
         i -= 1;
     }
-    if i > 0 {
+    if i > 0 && count < usize::MAX {
         let msg = format!("unexpected {} items; got {}", dst.len(), dst.len() - i);
         return Err(Error::new(msg));
     }

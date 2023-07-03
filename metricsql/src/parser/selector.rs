@@ -1,10 +1,10 @@
 use std::collections::HashSet;
 
 use crate::ast::{Expr, InterpolatedSelector, MetricExpr};
-use crate::common::{LabelFilter, LabelFilterExpr, LabelFilterOp, NAME_LABEL};
-use crate::parser::{Parser, ParseResult};
+use crate::common::{LabelFilterExpr, LabelFilterOp};
 use crate::parser::expr::parse_string_expr;
 use crate::parser::parse_error::unexpected;
+use crate::parser::{ParseResult, Parser};
 
 use super::tokens::Token;
 
@@ -23,16 +23,15 @@ pub fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expr> {
         if !p.at(&Token::LeftBrace) {
             if can_expand {
                 if let Some(expr) = p.resolve_ident(&token, vec![])? {
-                    return Ok(expr)
+                    return Ok(expr);
                 }
             }
             let me = MetricExpr::new(token);
-            return Ok(Expr::MetricExpression(me))
+            return Ok(Expr::MetricExpression(me));
         }
 
         name = Some(token);
     }
-
 
     let filters = parse_label_filters(p)?;
     // symbol table is empty and we're not parsing a WITH statement
@@ -65,8 +64,23 @@ pub fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expr> {
 ///
 fn parse_label_filters(p: &mut Parser) -> ParseResult<Vec<LabelFilterExpr>> {
     use Token::*;
+
     p.expect(&LeftBrace)?;
     let mut filters = p.parse_comma_separated(&[RightBrace], parse_label_filter)?;
+    if !p.can_lookup() {
+        // if we're not parsing a WITH statement, we need to make sure we have no unresolved identifiers
+        for filter in &filters {
+            if filter.is_raw_ident() {
+                return Err(unexpected(
+                    "label filter",
+                    &filter.label,
+                    "unresolved identifier",
+                    None,
+                ));
+            }
+        }
+    }
+
     dedupe_label_filters(&mut filters);
     Ok(filters)
 }

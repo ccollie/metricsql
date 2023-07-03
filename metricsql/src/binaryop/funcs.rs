@@ -5,9 +5,9 @@ use crate::parser::{ParseError, ParseResult};
 
 pub type BinopFunc = fn(left: f64, right: f64) -> f64;
 
-/// Eq returns true of left == right.
+/// eq returns true of left == right.
 #[inline]
-pub fn eq(left: f64, right: f64) -> bool {
+fn op_eq(left: f64, right: f64) -> bool {
     // Special handling for nan == nan.
     // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/150 .
     if left.is_nan() {
@@ -16,8 +16,8 @@ pub fn eq(left: f64, right: f64) -> bool {
     left == right
 }
 
-/// Neq returns true of left != right.
-pub fn neq(left: f64, right: f64) -> bool {
+/// neq returns true of left != right.
+fn op_neq(left: f64, right: f64) -> bool {
     // Special handling for comparison with nan.
     // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/150 .
     if left.is_nan() {
@@ -29,100 +29,91 @@ pub fn neq(left: f64, right: f64) -> bool {
     left != right
 }
 
-/// Gt returns true of left > right
+/// gt returns true of left > right
 #[inline]
-pub fn gt(left: f64, right: f64) -> bool {
+fn op_gt(left: f64, right: f64) -> bool {
     left > right
 }
 
-/// Lt returns true if left < right
+/// lt returns true if left < right
 #[inline]
-pub fn lt(left: f64, right: f64) -> bool {
+fn op_lt(left: f64, right: f64) -> bool {
     left < right
 }
 
 /// Gte returns true if left >= right
 #[inline]
-pub fn gte(left: f64, right: f64) -> bool {
+fn op_gte(left: f64, right: f64) -> bool {
     left >= right
 }
 
 /// Lte returns true if left <= right
 #[inline]
-pub fn lte(left: f64, right: f64) -> bool {
+fn op_lte(left: f64, right: f64) -> bool {
     left <= right
 }
 
 /// Plus returns left + right
 #[inline]
-pub fn plus(left: f64, right: f64) -> f64 {
+fn op_plus(left: f64, right: f64) -> f64 {
     left + right
 }
 
 /// Minus returns left - right
 #[inline]
-pub fn minus(left: f64, right: f64) -> f64 {
+fn op_minus(left: f64, right: f64) -> f64 {
     left - right
 }
 
 /// Mul returns left * right
 #[inline]
-pub fn mul(left: f64, right: f64) -> f64 {
+fn op_mul(left: f64, right: f64) -> f64 {
     left * right
 }
 
 /// Div returns left / right
 /// Todo: protect against div by zero
 #[inline]
-pub fn div(left: f64, right: f64) -> f64 {
+fn op_div(left: f64, right: f64) -> f64 {
     left / right
 }
 
-/// Mod returns mod(left, right)
+/// mod_ returns mod(left, right)
 #[inline]
-pub fn mod_(left: f64, right: f64) -> f64 {
+fn op_mod(left: f64, right: f64) -> f64 {
     left % right
 }
 
-/// Pow returns pow(left, right)
+/// pow returns pow(left, right)
 #[inline]
-pub fn pow(left: f64, right: f64) -> f64 {
+fn op_pow(left: f64, right: f64) -> f64 {
     left.powf(right)
 }
 
-/// atan2 returns atan2(left, right)
+/// returns atan2(left, right)
 #[inline]
-pub fn atan2(left: f64, right: f64) -> f64 {
+fn op_atan2(left: f64, right: f64) -> f64 {
     left.atan2(right)
 }
 
-/// default returns left or right if left is NaN.
-pub fn default(left: f64, right: f64) -> f64 {
+/// returns left or right if left is NaN.
+fn op_default(left: f64, right: f64) -> f64 {
     if left.is_nan() {
         return right;
     }
     left
 }
 
-/// unless returns NaN if left is NaN. Otherwise right is returned.
-pub fn unless(left: f64, right: f64) -> f64 {
-    // todo: is this correct?
-    if left.is_nan() {
-        return f64::NAN;
-    }
-    right
-}
-
 /// If returns left if right is not NaN. Otherwise NaN is returned.
 #[inline]
-pub fn if_(left: f64, right: f64) -> f64 {
+fn op_if(left: f64, right: f64) -> f64 {
     if right.is_nan() {
         return f64::NAN;
     }
     left
 }
 
-/// Ifnot returns left if right is NaN. Otherwise NaN is returned.
+/// if_not returns left if right is NaN. Otherwise NaN is returned.
 #[inline]
 pub fn if_not(left: f64, right: f64) -> f64 {
     if right.is_nan() {
@@ -167,19 +158,19 @@ macro_rules! make_comparison_func_bool {
     };
 }
 
-make_comparison_func!(compare_eq, eq);
-make_comparison_func!(compare_neq, neq);
-make_comparison_func!(compare_gt, gt);
-make_comparison_func!(compare_lt, lt);
-make_comparison_func!(compare_gte, gte);
-make_comparison_func!(compare_lte, lte);
+make_comparison_func!(compare_eq, op_eq);
+make_comparison_func!(compare_neq, op_neq);
+make_comparison_func!(compare_gt, op_gt);
+make_comparison_func!(compare_lt, op_lt);
+make_comparison_func!(compare_gte, op_gte);
+make_comparison_func!(compare_lte, op_lte);
 
-make_comparison_func_bool!(compare_eq_bool, eq);
-make_comparison_func_bool!(compare_neq_bool, neq);
-make_comparison_func_bool!(compare_gt_bool, gt);
-make_comparison_func_bool!(compare_lt_bool, lt);
-make_comparison_func_bool!(compare_gte_bool, gte);
-make_comparison_func_bool!(compare_lte_bool, lte);
+make_comparison_func_bool!(compare_eq_bool, op_eq);
+make_comparison_func_bool!(compare_neq_bool, op_neq);
+make_comparison_func_bool!(compare_gt_bool, op_gt);
+make_comparison_func_bool!(compare_lt_bool, op_lt);
+make_comparison_func_bool!(compare_gte_bool, op_gte);
+make_comparison_func_bool!(compare_lte_bool, op_lte);
 
 pub const fn get_scalar_comparison_handler(op: Operator, is_bool: bool) -> BinopFunc {
     if is_bool {
@@ -207,15 +198,15 @@ pub const fn get_scalar_comparison_handler(op: Operator, is_bool: bool) -> Binop
 
 pub const fn get_scalar_binop_handler(op: Operator, is_bool: bool) -> BinopFunc {
     match op {
-        Operator::Add => plus,
-        Operator::Atan2 => atan2,
-        Operator::Default => default,
-        Operator::Div => div,
-        Operator::Mod => mod_,
-        Operator::Mul => mul,
-        Operator::Pow => pow,
-        Operator::Sub => minus,
-        Operator::If => if_,
+        Operator::Add => op_plus,
+        Operator::Atan2 => op_atan2,
+        Operator::Default => op_default,
+        Operator::Div => op_div,
+        Operator::Mod => op_mod,
+        Operator::Mul => op_mul,
+        Operator::Pow => op_pow,
+        Operator::Sub => op_minus,
+        Operator::If => op_if,
         Operator::IfNot => if_not,
         Operator::Unless => return_nan,
         Operator::And | Operator::Or => return_left,
@@ -242,8 +233,7 @@ pub fn string_compare(a: &str, b: &str, op: Operator, is_bool: bool) -> ParseRes
         Operator::Lte => Ok(a <= b),
         Operator::Gte => Ok(a >= b),
         _ => Err(ParseError::General(format!(
-            "unexpected operator {} in string comparison",
-            op
+            "unexpected operator {op} in string comparison"
         ))),
     };
     match res {

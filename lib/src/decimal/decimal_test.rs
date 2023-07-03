@@ -5,7 +5,7 @@ mod tests {
 
     #[test]
     fn test_round_to_decimal_digits() {
-        let f = |f: f64, digits: u8, result_expected: f64| {
+        let f = |f: f64, digits: i16, result_expected: f64| {
             let result = round_to_decimal_digits(f, digits);
             if result.is_nan() {
                 if is_stale_nan(result_expected) {

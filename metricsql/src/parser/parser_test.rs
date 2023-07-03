@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::ast::{Expr, expr_equals, optimize};
+    use crate::ast::{expr_equals, optimize, Expr};
     use crate::parser::parse;
 
     fn parse_or_panic(s: &str) -> Expr {
@@ -234,7 +234,6 @@ mod tests {
 
     #[test]
     fn test_parse_string_expr() {
-
         fn check(s: &str, expected: &str) {
             let expr = parse_or_panic(s);
             match expr {
@@ -452,7 +451,7 @@ mod tests {
         same("max(Job, Foo)");
         another(
             r#" sin(bar) + avg (  pi  (  ), sin(1 + (  2.5)) ,M[5m ]  , "ff"  )"#,
-            r#"sin(bar) + avg(pi(), sin(3.5), M[5m], "ff")"#,
+            r#"sin(bar) + avg(3.141592653589793, -0.35078322768961984, M[5m], "ff")"#,
         );
         same("rate(foo[5m]) keep_metric_names");
         another("log2(foo) KEEP_metric_names + 1 / increase(bar[5m]) keep_metric_names offset 1h @ 435",
@@ -684,9 +683,7 @@ mod tests {
             "(a * foo) + (foo / y)",
         );
         // the optimizer reduces "(foo + x) / (foo + x)" to 1
-        another(
-            "with (x = with (y = foo) y + x) x/x", "1",
-        );
+        another("with (x = with (y = foo) y + x) x/x", "1");
         another(
             r#"with (
 					x = {foo="bar"},
@@ -775,6 +772,11 @@ mod tests {
             Ok(_) => panic!("expecting error expr when parsing {}", s),
             _ => {}
         }
+    }
+
+    #[test]
+    fn single_test_2() {
+        assert_invalid("foo{bar}");
     }
 
     #[test]

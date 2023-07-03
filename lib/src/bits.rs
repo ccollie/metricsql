@@ -22,7 +22,7 @@ const LEN8TAB: [usize; 256] = [
 ];
 
 // bit_len32 returns the minimum number of bits required to represent x; the result is 0 for x == 0.
-pub fn bit_len32(v: u32) -> usize {
+pub const fn bit_len32(v: u32) -> usize {
     let mut n = 0;
     let mut x = v;
     if x >= 1 << 16 {

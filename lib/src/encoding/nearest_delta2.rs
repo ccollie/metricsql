@@ -1,7 +1,7 @@
-use crate::{get_int64s, unmarshal_var_int_vec};
+use crate::get_int64s;
 use crate::encoding::encoding::check_precision_bits;
 use crate::encoding::int::{marshal_var_int, marshal_var_int_array};
-use crate::encoding::nearest_delta::{get_trailing_zeros, nearest_delta};
+use crate::encoding::nearest_delta::{get_trailing_zeros, nearest_delta, unmarshal_varint_list};
 use crate::error::Error;
 
 /// marshal_int64_nearest_delta2 encodes src using `nearest delta2` encoding
@@ -75,32 +75,18 @@ pub fn unmarshal_int64_nearest_delta2(
     }
 
     let mut is = get_int64s(items_count);
+    unmarshal_varint_list(&mut is, src, "nearest delta2")?;
 
-    return match unmarshal_var_int_vec::<i64>(&mut is, items_count - 1, src) {
-        Err(err) => Err(Error::from(format!(
-            "cannot unmarshal nearest delta from {} bytes; {}",
-            src.len(),
-            err
-        ))),
-        Ok(tail) => {
-            if !tail.is_empty() {
-                return Err(
-                    Error::from(
-                        format!("unexpected tail left after unmarshalling {} items from {} bytes; tail size={}; src={:?}; tail={:?}",
-                                items_count, src.len(), tail.len(), src, tail)));
-            }
-            let mut v = first_value;
-            let mut d1 = is[0];
-            dst.push(v);
-            v += d1;
-            dst.push(v);
-            for i in 1..is.len() {
-                let d2 = is[i];
-                d1 += d2;
-                v += d1;
-                dst.push(v)
-            }
-            Ok(())
-        }
-    };
+    let mut v = first_value;
+    let mut d1 = is[0];
+    dst.push(v);
+    v += d1;
+    dst.push(v);
+    for i in 1..is.len() {
+        let d2 = is[i];
+        d1 += d2;
+        v += d1;
+        dst.push(v)
+    }
+    Ok(())
 }

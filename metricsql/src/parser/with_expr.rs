@@ -67,7 +67,7 @@ fn parse_with_arg_expr(p: &mut Parser) -> ParseResult<WithArgExpr> {
         p.parse_comma_separated(&[RightParen], move |parser| {
             let ident = parser.expect_identifier()?;
             if m.contains(&ident) {
-                let msg = format!("withArgExpr: duplicate arg name: {}", ident);
+                let msg = format!("withArgExpr: duplicate arg name: {ident}");
                 return Err(parser.syntax_error(&msg));
             } else {
                 m.insert(ident.clone());

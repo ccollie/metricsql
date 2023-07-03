@@ -17,7 +17,7 @@ use lib::{fmt_duration_ms, hash_f64};
 use crate::ast::expr_equals;
 use crate::common::{
     AggregateModifier, BinModifier, format_num, GroupModifier, GroupModifierOp, JoinModifier,
-    LabelFilter, LabelFilterExpr, LabelFilterOp, NAME_LABEL, Operator, StringExpr, Value,
+    LabelFilter, LabelFilterOp, NAME_LABEL, Operator, StringExpr, Value,
     ValueType, VectorMatchCardinality, write_list,
 };
 use crate::functions::{AggregateFunction, BuiltinFunction, TransformFunction};

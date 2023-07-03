@@ -115,6 +115,14 @@ impl LabelFilterExpr {
         LabelFilter::new(self.op, &self.label, value)
     }
 
+    //
+    pub fn is_raw_ident(&self) -> bool {
+        self.value.is_empty() &&
+            self.op == LabelFilterOp::Equal &&
+            !self.label.is_empty() &&
+            self.label != NAME_LABEL
+    }
+
     pub(crate) fn update_hash(&self, hasher: &mut Xxh3) {
         hasher.write(self.label.as_bytes());
         self.value.update_hash(hasher);

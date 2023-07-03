@@ -1,9 +1,11 @@
+use std::cmp::Ordering;
+
+use rand_distr::num_traits::Pow;
+
 use crate::{
     append_float64_ones, append_float64_zeros, append_int64_ones, append_int64_zeros, frexp,
-    is_float64_ones, is_float64_zeros, is_int64_ones, is_int64_zeros, isinf, LN10_F64,
+    get_int64s, is_float64_ones, is_float64_zeros, is_int64_ones, is_int64_zeros, isinf, LN10_F64,
 };
-use std::cmp::Ordering;
-use std::sync::OnceLock;
 
 pub(crate) const V_INF_POS: i64 = 1 << (63 - 1);
 pub(crate) const V_INF_NEG: i64 = -1 << 63;
@@ -15,33 +17,24 @@ pub const V_STALE_NAN: i64 = 1 << (63 - 2);
 /// STALE_NAN_BITS is bit representation of Prometheus staleness mark (aka stale NaN).
 /// This mark is put by Prometheus at the end of time series for improving staleness detection.
 /// See https://www.robustperception.io/staleness-and-promql
-pub const STALE_NAN_BITS: u64 = 0x7ff0000000000002;
-
 /// StaleNaN is a special NaN value, which is used as Prometheus staleness mark.
-/// See https://www.robustperception.io/staleness-and-promql
-
-/// using Lazy because of the following error
-/// error: `core::f64::<impl f64>::from_bits` is not yet stable as a const fn
-pub static STALE_NAN: OnceLock<f64> = OnceLock::new();
-
-fn get_stale_nan() -> f64 {
-    *STALE_NAN.get_or_init(|| f64::from_bits(STALE_NAN_BITS))
-}
+pub const STALE_NAN_BITS: u64 = 0x7ff0000000000002;
 
 pub(crate) const V_MAX: i64 = 1 << (63 - 3);
 pub(crate) const V_MIN: i64 = (-1 << 63) + 1;
 pub(crate) const CONVERSION_PRECISION: f64 = 1e12;
 
-
 #[inline]
 pub const fn is_special_value(v: i64) -> bool {
-    !(V_MIN..=V_MAX).contains(&v)
+    if v < V_MIN || v > V_MAX {
+        return true;
+    }
+    false
 }
 
 #[inline]
-pub fn is_special_value_f64(v: f64) -> bool {
-    let x = v as i64;
-    !(V_MIN..=V_MAX).contains(&x)
+pub const fn is_special_value_f64(v: f64) -> bool {
+    is_special_value(v as i64)
 }
 
 /// is_stale_nan returns true if f represents Prometheus staleness mark.
@@ -112,15 +105,15 @@ fn calibrate_internal(a: &mut [i64], ae: i16, b: &mut [i64], be: i16) -> i16 {
 /// round_to_decimal_digits rounds f to the given number of decimal digits after the point.
 ///
 /// See also RoundToSignificantFigures.
-pub fn round_to_decimal_digits(f: f64, digits: u8) -> f64 {
+pub fn round_to_decimal_digits(f: f64, digits: i16) -> f64 {
     if is_stale_nan(f) {
         // Do not modify stale nan mark value.
         return f;
     }
-    if digits >= 100 {
+    if digits <= -100 || digits >= 100 {
         return f;
     }
-    let m = digits.pow(digits as u32) as f64;
+    let m = 10_f64.pow(digits);
     let mult = (f * m).round();
     mult / m
 }
@@ -197,16 +190,15 @@ pub fn append_float_to_decimal(dst: &mut Vec<i64>, src: &[f64]) -> i16 {
     }
 
     // todo(perf): use pool
-    // let mut vaev = VAE_BUF_POOL.pull();
-    //vaev.reserve(src.len());
-    let mut vaev = VaeBuf::new(src.len());
+    let mut value_buf = get_int64s(src.len());
+    let mut exp_buf = Vec::with_capacity(src.len());
 
     // Determine the minimum exponent across all src items.
     let mut min_exp = (1 << (15 - 1)) as i16;
     for f in src.iter() {
         let (v, exp) = from_float(*f);
-        vaev.va.push(v);
-        vaev.ea.push(exp);
+        value_buf.push(v);
+        exp_buf.push(exp);
         if exp < min_exp && !is_special_value(v) {
             min_exp = exp
         }
@@ -216,7 +208,7 @@ pub fn append_float_to_decimal(dst: &mut Vec<i64>, src: &[f64]) -> i16 {
     // If not, adjust minExp accordingly.
     let mut down_exp: i16 = 0;
 
-    for (v, exp) in vaev.va.iter().zip(vaev.ea.iter()) {
+    for (v, exp) in value_buf.iter().zip(exp_buf.iter()) {
         let up_exp = exp - min_exp;
         let max_up_exp = max_up_exponent(*v);
         if up_exp - max_up_exp > down_exp {
@@ -229,7 +221,7 @@ pub fn append_float_to_decimal(dst: &mut Vec<i64>, src: &[f64]) -> i16 {
     dst.reserve(src.len());
 
     // Scale each item in src to minExp and append it to dst.
-    for (v, exp) in vaev.va.iter_mut().zip(vaev.ea.iter()) {
+    for (v, exp) in value_buf.iter_mut().zip(exp_buf.iter()) {
         if is_special_value(*v) {
             // There is no need in scaling special values.
             dst.push(*v);
@@ -250,32 +242,9 @@ pub fn append_float_to_decimal(dst: &mut Vec<i64>, src: &[f64]) -> i16 {
     min_exp
 }
 
-struct VaeBuf {
-    va: Vec<i64>,
-    ea: Vec<i16>,
-}
-
-impl VaeBuf {
-    pub fn new(cap: usize) -> Self {
-        VaeBuf {
-            va: Vec::with_capacity(cap),
-            ea: Vec::with_capacity(cap),
-        }
-    }
-}
-
-impl Clone for VaeBuf {
-    fn clone(&self) -> Self {
-        Self {
-            ea: self.ea.clone(),
-            va: self.va.clone(),
-        }
-    }
-}
-
 const INT64MAX: i64 = 1 << (63 - 1);
 
-pub fn max_up_exponent(v: i64) -> i16 {
+pub const fn max_up_exponent(v: i64) -> i16 {
     if v == 0 || is_special_value(v) {
         // Any exponent allowed for zeroes and special values.
         return 1024;
@@ -318,7 +287,7 @@ pub fn to_float(v: i64, e: i16) -> f64 {
         if v == V_INF_NEG {
             return f64::NEG_INFINITY;
         }
-        return f64::from_bits(STALE_NAN_BITS)
+        return f64::from_bits(STALE_NAN_BITS);
     }
     let f = v as f64;
     // increase conversion precision for negative exponents by dividing by e10

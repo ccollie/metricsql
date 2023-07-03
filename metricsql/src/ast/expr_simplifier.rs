@@ -18,6 +18,8 @@
 // https://github.com/apache/arrow-datafusion/tree/main/datafusion/optimizer/src
 // https://github.com/apache/arrow-datafusion/blob/e222bd627b6e7974133364fed4600d74b4da6811/datafusion/optimizer/src/utils.rs
 
+use std::ops::Deref;
+
 use num_traits::float::FloatConst;
 
 use lib::{datetime_part, DateTimePart, timestamp_secs_to_utc_datetime};
@@ -27,7 +29,7 @@ use crate::ast::utils::{expr_contains, is_null, is_one, is_op_with, is_zero};
 use crate::binaryop::{eval_binary_op, string_compare};
 use crate::common::{Operator, RewriteRecursion, TreeNode, TreeNodeRewriter};
 use crate::functions::{TransformFunction, Volatility};
-use crate::parser::ParseResult;
+use crate::parser::{ParseError, ParseResult};
 use crate::prelude::BuiltinFunction;
 
 use super::{BinaryExpr, DurationExpr, Expr, FunctionExpr, ParensExpr};
@@ -165,7 +167,8 @@ impl TreeNodeRewriter for ConstEvaluator {
         match self.can_evaluate.pop() {
             Some(true) => self.evaluate_to_scalar(expr),
             Some(false) => Ok(expr),
-            _ => Err(ParseError::from("Failed to pop can_evaluate")),
+            // todo: specific optimize error
+            _ => Err(ParseError::General("Failed to pop can_evaluate".to_string())),
         }
     }
 }
@@ -368,12 +371,11 @@ impl Simplifier {
 impl TreeNodeRewriter for Simplifier {
     type N = Expr;
 
-    // TODO: A + A  -->  2 * A, where A is a selector/rollup/aggregate
     // TODO: A - A  -->  1, where A is a selector/rollup/aggregate
 
     /// rewrite the expression simplifying any constant expressions
     fn mutate(&mut self, expr: Expr) -> ParseResult<Expr> {
-        use Operator::{And, Div, Mod, Mul, Or};
+        use Operator::{Add, And, Div, Mod, Mul, Or};
 
         let new_expr = match expr {
             Expr::Parens(pe) => simplify_parens(pe),
@@ -389,6 +391,31 @@ impl TreeNodeRewriter for Simplifier {
             }) => {
                 match op {
                     //
+                    // Rules for Add
+                    //
+
+                    // A + 0 --> A
+                    Add if is_zero(&right) => *left,
+
+                    // 0 + A --> A
+                    Add if is_zero(&left) => *right,
+
+                    // A + A --> 2 * A
+                    Add if left == right &&
+                        matches!(left.deref(), Expr::MetricExpression(_) | Expr::Rollup(_) | Expr::Aggregation(_)) => {
+                        let two = Expr::from(2.0);
+                        Expr::BinaryOperator(BinaryExpr {
+                            bool_modifier,
+                            keep_metric_names,
+                            group_modifier,
+                            join_modifier,
+                            left: Box::new(two),
+                            right,
+                            op: Mul,
+                            modifier,
+                        })
+                    }
+
                     // Rules for OR
                     //
                     // (..A..) OR A --> (..A..)

@@ -1,13 +1,18 @@
 #[cfg(test)]
 mod tests {
-    use rand::Rng;
+    use rand::{Rng, thread_rng};
+    use rand_distr::StandardNormal;
 
-    use crate::{get_trailing_zeros, rand_nextf64};
+    use crate::get_trailing_zeros;
     use crate::encoding::nearest_delta;
     use crate::encoding::nearest_delta2::{
         marshal_int64_nearest_delta2, unmarshal_int64_nearest_delta2,
     };
     use crate::tests::utils::check_precision_bits;
+
+    pub fn rand_next_f64() -> f64 {
+        thread_rng().sample(StandardNormal)
+    }
 
 // src: https://github.com/VictoriaMetrics/VictoriaMetrics/blob/master/lib/encoding/nearest_delta2_test.go
 
@@ -318,7 +323,7 @@ mod tests {
         let mut v = 787933;
         let mut va: Vec<i64> = Vec::with_capacity(1024);
         for _ in 0..1024 {
-            let mut x = rand_nextf64() * 2_f64;
+            let mut x = rand_next_f64() * 2_f64;
             if x > f64::MAX {
                 x = i64::MAX as f64;
             }

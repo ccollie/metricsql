@@ -18,6 +18,7 @@ pub fn get_int64s(size: usize) -> Block<'static, Vec<i64>> {
     let pool = INT64_POOL.get_or_init(BytePool::new);
     let mut v = pool.alloc(size);
     v.clear();
+    v.reserve(size);
     v
 }
 
@@ -28,5 +29,6 @@ pub fn get_float64s(size: usize) -> Block<'static, Vec<f64>> {
     let pool = F64_POOL.get_or_init(BytePool::new);
     let mut v = pool.alloc(size);
     v.clear();
+    v.reserve(size);
     v
 }

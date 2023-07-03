@@ -9,6 +9,20 @@ extern crate rand;
 #[cfg(feature = "xxh64")]
 extern crate xxhash_rust;
 
+pub use atomic_counter::*;
+pub use bits::*;
+pub use decimal::*;
+pub use dedup::{deduplicate_samples, deduplicate_samples_during_merge};
+pub use duration::*;
+pub use encoding::*;
+pub use fast_cache::*;
+pub use fastnum::*;
+pub use math::*;
+pub use no_hash::{BuildNoHashHasher, IntMap, IntSet, NoHashHasher};
+pub use pool::*;
+pub use range::*;
+pub use time::*;
+
 mod atomic_counter;
 mod bits;
 mod decimal;
@@ -21,24 +35,8 @@ mod fastnum;
 mod math;
 mod no_hash;
 mod pool;
-mod random;
 mod range;
 mod time;
-
-pub use atomic_counter::*;
-pub use bits::*;
-pub use decimal::*;
-pub use dedup::{deduplicate_samples, deduplicate_samples_during_merge};
-pub use duration::*;
-pub use encoding::*;
-pub use fast_cache::*;
-pub use fastnum::*;
-pub use math::*;
-pub use no_hash::{BuildNoHashHasher, IntMap, IntSet, NoHashHasher};
-pub use pool::*;
-pub use random::*;
-pub use range::*;
-pub use time::*;
 
 #[cfg(test)]
 pub(crate) mod tests;
