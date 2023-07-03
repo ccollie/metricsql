@@ -5,7 +5,7 @@ use std::fmt::{Display, Formatter};
 use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::Xxh3;
 
-use crate::common::{LabelFilter, LabelFilterExpr, NAME_LABEL, StringExpr, Value, ValueType, write_list};
+use crate::common::{LabelFilter, LabelFilterExpr, StringExpr, Value, ValueType, NAME_LABEL};
 use crate::parser::ParseResult;
 
 /// InterpolatedSelector represents a MetricsQL metric in the context of a WITH expression.
@@ -25,9 +25,7 @@ impl InterpolatedSelector {
     }
 
     pub fn with_filters(filters: Vec<LabelFilterExpr>) -> Self {
-        InterpolatedSelector {
-            matchers: filters,
-        }
+        InterpolatedSelector { matchers: filters }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -35,11 +33,7 @@ impl InterpolatedSelector {
     }
 
     pub fn is_resolved(&self) -> bool {
-        self.matchers.is_empty()
-            || self
-            .matchers
-            .iter()
-            .all(|x| x.is_resolved())
+        self.matchers.is_empty() || self.matchers.iter().all(|x| x.is_resolved())
     }
 
     pub fn has_non_empty_metric_group(&self) -> bool {
@@ -57,11 +51,7 @@ impl InterpolatedSelector {
     }
 
     pub fn name(&self) -> Option<String> {
-        match self
-            .matchers
-            .iter()
-            .find(|filter| filter.is_name_label())
-        {
+        match self.matchers.iter().find(|filter| filter.is_name_label()) {
             Some(f) => Some(f.value.to_string()),
             None => None,
         }
@@ -70,7 +60,6 @@ impl InterpolatedSelector {
     pub fn return_type(&self) -> ValueType {
         ValueType::InstantVector
     }
-
 
     pub fn to_label_filters(&self) -> ParseResult<Vec<LabelFilter>> {
         if !self.is_resolved() {
@@ -84,11 +73,7 @@ impl InterpolatedSelector {
     }
 
     pub fn is_empty_matchers(&self) -> bool {
-        self.matchers.is_empty() ||
-            self
-                .matchers
-                .iter()
-                .all(|x| x.is_empty_matcher())
+        self.matchers.is_empty() || self.matchers.iter().all(|x| x.is_empty_matcher())
     }
 
     /// find all the matchers whose name equals the specified name.
@@ -125,7 +110,16 @@ impl Display for InterpolatedSelector {
 
         if !exprs.is_empty() {
             write!(f, "{{")?;
-            write_list(exprs.iter(), f, false)?;
+            for (i, arg) in exprs.iter().enumerate() {
+                if i > 0 {
+                    write!(f, ", ")?;
+                }
+                if arg.is_raw_ident() {
+                    write!(f, "{}", arg.label)?;
+                } else {
+                    write!(f, "{}", arg)?;
+                }
+            }
             write!(f, "}}")?;
         }
 
@@ -135,9 +129,7 @@ impl Display for InterpolatedSelector {
 
 impl Default for InterpolatedSelector {
     fn default() -> Self {
-        Self {
-            matchers: vec![],
-        }
+        Self { matchers: vec![] }
     }
 }
 
@@ -161,7 +153,7 @@ impl PartialEq<InterpolatedSelector> for InterpolatedSelector {
                 filter.update_hash(&mut hasher);
                 let hash = hasher.digest();
                 if !set.contains(&hash) {
-                    return false
+                    return false;
                 }
             }
         }

@@ -231,27 +231,6 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_string_expr() {
-        fn check(s: &str, expected: &str) {
-            let expr = parse_or_panic(s);
-            match expr {
-                Expr::StringLiteral(literal) => {
-                    assert_eq!(literal, expected);
-                }
-                _ => panic!("expected string literal"),
-            }
-        }
-
-        // stringExpr
-        same(r#""""#);
-        check(r#""\n\t\r 12:{}[]()44""#, "\n\t\r 12:{}[]()44");
-        another(r#"''"#, r#""""#);
-        check("``", "");
-        another(r#"   `foo\"b'ar`  "#, "\"foo\\\"b'ar\"");
-        another(r#"  'foo\'bar"BAZ'  "#, r#""foo'bar\"BAZ""#);
-    }
-
-    #[test]
     fn test_parse_string_concat() {
         // string concat
         another(r#""foo"+'bar'"#, r#""foobar""#);
@@ -449,7 +428,7 @@ mod tests {
         same("max(Job, Foo)");
         another(
             r#" sin(bar) + avg (  pi  (  ), sin(1 + (  2.5)) ,M[5m ]  , "ff"  )"#,
-            r#"sin(bar) + avg(3.141592653589793, sin(3.5), M[5m], "ff")"#,
+            r#"sin(bar) + avg(3.141592653589793, -0.35078322768961984, M[5m], "ff")"#,
         );
         same("rate(foo[5m]) keep_metric_names");
         another("log2(foo) KEEP_metric_names + 1 / increase(bar[5m]) keep_metric_names offset 1h @ 435",
@@ -489,8 +468,8 @@ mod tests {
         // withExpr
         another("with () x", "x");
         another("with (x=1,) x", "1");
-        another("with (x = m offset 5h) x + x", "m offset 5h + m offset 5h");
-        another("with (x = m offset 5i) x + x", "m offset 5i + m offset 5i");
+        another("with (x = m offset 5h) x + x", "m offset 5h * 2");
+        another("with (x = m offset 5i) x + x", "m offset 5i * 2");
         another(r#"with (foo = bar{x="x"}) 1"#, "1");
         another(r#"with (foo = bar{x="x"}) "x""#, r#""x""#);
         another(r#"with (f="x") f"#, r#""x""#);

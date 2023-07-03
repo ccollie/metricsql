@@ -478,7 +478,7 @@ impl TreeNodeRewriter for Simplifier {
                     // 0 / A -> 0
                     Div if is_zero(&left) => *left,
                     // A / A -> 1
-                    Div if left == right => Expr::from(1.0),
+                    Div if left == right => Expr::from(1.0), // TODO:: dont think this is right. Think nan/nan
 
                     //
                     // Rules for Mod
