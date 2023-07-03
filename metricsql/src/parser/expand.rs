@@ -6,11 +6,11 @@ use crate::ast::{
     WithArgExpr, WithExpr,
 };
 use crate::common::{
-    AggregateModifier, GroupModifier, JoinModifier, LabelFilter, remove_duplicate_label_filters,
+    remove_duplicate_label_filters, AggregateModifier, GroupModifier, JoinModifier, LabelFilter,
     StringExpr, StringSegment,
 };
-use crate::parser::{ParseError, ParseResult, syntax_error};
 use crate::parser::symbol_provider::SymbolProviderRef;
+use crate::parser::{syntax_error, ParseError, ParseResult};
 use crate::prelude::InterpolatedSelector;
 
 pub fn expand_with(
@@ -119,6 +119,13 @@ fn expand_binary_operator(
     Ok(Expr::BinaryOperator(be))
 }
 
+pub(super) fn merge_selectors(dst: &mut MetricExpr, src: &MetricExpr) {
+    let src_filters = src.label_filters.iter().skip(1);
+    dst.label_filters
+        .append(&mut src_filters.cloned().collect::<Vec<_>>());
+    remove_duplicate_label_filters(&mut dst.label_filters);
+    dst.sort_filters();
+}
 
 pub(super) fn expand_selector_expression(
     symbols: &SymbolProviderRef,
@@ -127,13 +134,7 @@ pub(super) fn expand_selector_expression(
 ) -> ParseResult<Expr> {
     fn handle_expanded(dst: &MetricExpr, src: &MetricExpr) -> ParseResult<Expr> {
         let mut dst = dst.clone();
-
-        let src_filters = src.label_filters.iter().skip(1);
-        dst.label_filters.append(&mut src_filters.cloned().collect::<Vec<_>>());
-        remove_duplicate_label_filters(&mut dst.label_filters);
-
-        dst.sort_filters();
-
+        merge_selectors(&mut dst, src);
         Ok(Expr::MetricExpression(dst))
     }
 

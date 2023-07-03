@@ -22,7 +22,7 @@ use std::ops::Deref;
 
 use num_traits::float::FloatConst;
 
-use lib::{datetime_part, DateTimePart, timestamp_secs_to_utc_datetime};
+use lib::{datetime_part, timestamp_secs_to_utc_datetime, DateTimePart};
 
 use crate::ast::optimize_label_filters_inplace;
 use crate::ast::utils::{expr_contains, is_null, is_one, is_op_with, is_zero};
@@ -168,7 +168,9 @@ impl TreeNodeRewriter for ConstEvaluator {
             Some(true) => self.evaluate_to_scalar(expr),
             Some(false) => Ok(expr),
             // todo: specific optimize error
-            _ => Err(ParseError::General("Failed to pop can_evaluate".to_string())),
+            _ => Err(ParseError::General(
+                "Failed to pop can_evaluate".to_string(),
+            )),
         }
     }
 }
@@ -193,7 +195,6 @@ impl ConstEvaluator {
         }
     }
 
-
     /// Can the expression be evaluated at plan time, (assuming all of
     /// its children can also be evaluated)?
     fn can_evaluate(expr: &Expr) -> bool {
@@ -207,18 +208,16 @@ impl ConstEvaluator {
             Expr::Parens(_) => false,
             // only handle immutable scalar functions
             Expr::Function(FunctionExpr { function, .. }) => match function {
-                BuiltinFunction::Transform(_) => {
-                    return Self::volatility_ok(function.volatility())
-                },
-                _ => false
+                BuiltinFunction::Transform(_) => return Self::volatility_ok(function.volatility()),
+                _ => false,
             },
             Expr::Number(_)
             | Expr::StringLiteral(_)
             | Expr::BinaryOperator(_)
             | Expr::Duration(DurationExpr {
-                                 requires_step: false,
-                                 ..
-                             }) => true,
+                requires_step: false,
+                ..
+            }) => true,
             Expr::Duration(_) => false,
             Expr::StringExpr(se) => !se.is_expanded(),
             Expr::With(_) => false,
@@ -270,8 +269,8 @@ impl ConstEvaluator {
         if fe.args.len() == 1 {
             return match &fe.args[0] {
                 Expr::Number(n) => Some(n.value),
-                _ => None
-            }
+                _ => None,
+            };
         }
         None
     }
@@ -283,7 +282,7 @@ impl ConstEvaluator {
                 use TransformFunction::*;
 
                 if func == Pi && arg_count == 0 {
-                    return Ok(Expr::from(f64::PI()))
+                    return Ok(Expr::from(f64::PI()));
                 }
                 let arg = Self::get_single_scalar_arg(&fe);
                 if arg.is_none() {
@@ -321,7 +320,7 @@ impl ConstEvaluator {
                     Sqrt => arg.sqrt(),
                     Tan => arg.tan(),
                     Tanh => arg.tanh(),
-                    Year => extract_datetime_part(arg, DateTimePart::Month),
+                    Year => extract_datetime_part(arg, DateTimePart::Year),
                     _ => {
                         valid = false;
                         f64::NAN
@@ -331,14 +330,14 @@ impl ConstEvaluator {
                     Ok(Expr::from(value))
                 } else {
                     Ok(Expr::Function(fe.clone()))
-                }
+                };
             }
-            _ => Ok(Expr::Function(fe))
-        }
+            _ => Ok(Expr::Function(fe)),
+        };
     }
 }
 
-fn extract_datetime_part(epoch_secs: f64, part: DateTimePart) -> f64 {
+pub(super) fn extract_datetime_part(epoch_secs: f64, part: DateTimePart) -> f64 {
     if epoch_secs.is_nan() {
         return f64::NAN;
     }
@@ -372,6 +371,7 @@ impl TreeNodeRewriter for Simplifier {
     type N = Expr;
 
     // TODO: A - A  -->  1, where A is a selector/rollup/aggregate
+    // Note - probably need to do this in the evaluator since nan - nan is not 1
 
     /// rewrite the expression simplifying any constant expressions
     fn mutate(&mut self, expr: Expr) -> ParseResult<Expr> {
@@ -401,8 +401,15 @@ impl TreeNodeRewriter for Simplifier {
                     Add if is_zero(&left) => *right,
 
                     // A + A --> 2 * A
-                    Add if left == right &&
-                        matches!(left.deref(), Expr::MetricExpression(_) | Expr::Rollup(_) | Expr::Aggregation(_)) => {
+                    // Our use case envisions that this expression involving metric selectors
+                    // will need to make network calls to evaluate. If both sides are the same
+                    // we can optimize by multiplying by 2 and only making one network call.
+                    Add if left == right
+                        && matches!(
+                            left.deref(),
+                            Expr::MetricExpression(_) | Expr::Rollup(_) | Expr::Aggregation(_)
+                        ) =>
+                    {
                         let two = Expr::from(2.0);
                         Expr::BinaryOperator(BinaryExpr {
                             bool_modifier,
@@ -513,7 +520,7 @@ pub fn simplify_parens(pe: ParensExpr) -> Expr {
             Expr::Parens(pe2) => pe = pe2,
             expr => {
                 return expr;
-            },
+            }
         }
     }
     Expr::Function(pe.to_function())
@@ -521,6 +528,8 @@ pub fn simplify_parens(pe: ParensExpr) -> Expr {
 
 #[cfg(test)]
 mod tests {
+    use chrono::Utc;
+
     use crate::ast::binary_expr;
     use crate::ast::utils::{expr_equals, lit, number, selector};
     use crate::parser::parse;
@@ -603,6 +612,39 @@ mod tests {
     }
 
     #[test]
+    fn test_const_evaluator_strings() {
+        // "foo" + "bar" --> "foobar"
+        test_evaluate(lit("foo") + lit("bar"), lit("foobar"));
+
+        // "foo" == "foo" --> true
+        test_evaluate(lit("foo").eq(lit("foo")), number(1.0));
+
+        // "foo" != "foo" --> false
+        test_evaluate(lit("foo").not_eq(lit("foo")), number(0.0));
+
+        // "foo" != "bar" --> false
+        test_evaluate(lit("foo").not_eq(lit("bar")), number(1.0));
+
+        // "foo" > "bar" --> true
+        test_evaluate(lit("foo").gt(lit("bar")), number(1.0));
+
+        // "foo" < "bar" --> false
+        test_evaluate(lit("foo").lt(lit("bar")), number(0.0));
+
+        // "foo" >= "foo" --> true
+        test_evaluate(lit("foo").gt_eq(lit("foo")), number(1.0));
+
+        // "foo_99" >= "foo" --> true
+        test_evaluate(lit("foo_99").gt_eq(lit("foo")), number(1.0));
+
+        // "foo" <= "foo1" --> true
+        test_evaluate(lit("foo").lt_eq(lit("foo1")), number(1.0));
+
+        // "foo" <= "foo" --> true
+        test_evaluate(lit("foo").lt_eq(lit("foo")), number(1.0));
+    }
+
+    #[test]
     fn test_const_evaluator_scalar_functions() {
         // volatile / stable functions should not be evaluated
         // rand() + (1 + 2) --> rand() + 3
@@ -620,6 +662,106 @@ mod tests {
         test_evaluate(expr.clone(), expr);
     }
 
+    fn test_math_fn(name: &str, arg: f64, expected: f64) {
+        let expr = Expr::call(name, vec![number(arg)]).expect("invalid function call");
+        test_evaluate(expr, number(expected));
+    }
+
+    #[test]
+    fn test_const_evaluator_math_function() {
+        test_math_fn("abs", -1.0, 1.0);
+        test_math_fn("abs", 1.0, 1.0);
+
+        test_math_fn("acos", 2.0, 2_f64.acos());
+
+        // acosh
+        test_math_fn("acosh", 2.0, 2_f64.acosh());
+
+        // asin
+        test_math_fn("asin", 1.0, 1_f64.asin());
+
+        // asinh
+        test_math_fn("asinh", 1.0, 1_f64.asinh());
+
+        test_math_fn("atan", 1.0, 1_f64.atan());
+
+        // atanh
+        test_math_fn("atanh", 0.5, (0.5_f64).atanh());
+
+        // ceil
+        test_math_fn("ceil", 0.0, 0.0);
+        test_math_fn("ceil", 1.1, 2.0);
+
+        // cos
+        test_math_fn("cos", 0.5, 0.5_f64.cos());
+
+        // cosh
+        test_math_fn("cosh", 1.0, 1_f64.cosh());
+
+        // deg
+        test_math_fn("deg", std::f64::consts::FRAC_PI_2, 90.0);
+
+        // exp
+        test_math_fn("exp", 1.0, (1_f64).exp());
+
+        // floor
+        test_math_fn("floor", 0.0, 0.0);
+        test_math_fn("floor", 1.1, 1.0);
+
+        // ln
+        test_math_fn("ln", 1.0, 0.0);
+        test_math_fn("ln", std::f64::consts::E, 1.0);
+
+        // log10
+        test_math_fn("log10", 1.0, 0.0);
+        test_math_fn("log10", 10.0, 1.0);
+
+        // log2
+        test_math_fn("log2", 1.0, 0.0);
+
+        // rad
+        test_math_fn("rad", 90.0, std::f64::consts::FRAC_PI_2);
+
+        // sgn
+        test_math_fn("sgn", -4.5, -1.0);
+
+        // sin
+        test_math_fn("sin", std::f64::consts::FRAC_PI_2, 1.0);
+
+        // sinh
+        test_math_fn("sinh", 1.0, 1_f64.sinh());
+
+        // sqrt
+        test_math_fn("sqrt", 4.0, 2.0);
+
+        // tan
+        test_math_fn("tan", 0.75, (0.75_f64).tan());
+
+        // tanh
+        test_math_fn("tanh", 1.0, 1_f64.tanh());
+    }
+
+    fn test_date_part_fn(name: &str, epoch_secs: f64, part: DateTimePart) {
+        let expr = Expr::call(name, vec![number(epoch_secs)]).expect("invalid function call");
+        let value = extract_datetime_part(epoch_secs, part);
+        test_evaluate(expr, number(value));
+    }
+
+    #[test]
+    fn test_const_evaluator_date_parts() {
+        let now = Utc::now();
+        let epoch = now.timestamp() as f64;
+
+        test_date_part_fn("day_of_month", epoch, DateTimePart::DayOfMonth);
+        test_date_part_fn("days_in_month", epoch, DateTimePart::DaysInMonth);
+        test_date_part_fn("day_of_week", epoch, DateTimePart::DayOfWeek);
+
+        test_date_part_fn("hour", epoch, DateTimePart::Hour);
+        test_date_part_fn("minute", epoch, DateTimePart::Minute);
+        test_date_part_fn("month", epoch, DateTimePart::Month);
+
+        test_date_part_fn("year", epoch, DateTimePart::Year);
+    }
     // ------------------------------
     // --- Simplifier tests -----
     // ------------------------------
@@ -637,6 +779,15 @@ mod tests {
     fn test_simplify_and_same() {
         let expr = selector("c2").and(selector("c2"));
         let expected = selector("c2");
+
+        let actual = simplify(expr);
+        assert_expr_eq(&expected, &actual);
+    }
+
+    #[test]
+    fn test_simplify_selector_plus_selector_same() {
+        let expr = selector("c2") + selector("c2");
+        let expected = number(2.0) * selector("c2");
 
         let actual = simplify(expr);
         assert_expr_eq(&expected, &actual);
@@ -676,6 +827,23 @@ mod tests {
             let expr = null.clone() * selector("c2");
             let actual = simplify(expr);
             assert_expr_eq(&null, &actual);
+        }
+    }
+
+    #[test]
+    fn test_simplify_add_zero() {
+        let zero = number(0.0);
+        // 0 + A --> A
+        {
+            let expr = zero.clone() + selector("c2");
+            let actual = simplify(expr);
+            assert_expr_eq(&selector("c2"), &actual);
+        }
+        // A + 0 --> A if A
+        {
+            let expr = selector("foo") + number(0.0);
+            let actual = simplify(expr);
+            assert_expr_eq(&selector("foo"), &actual);
         }
     }
 

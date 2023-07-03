@@ -1,4 +1,3 @@
-use std::{fmt, iter, ops};
 use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::btree_set::BTreeSet;
@@ -7,6 +6,7 @@ use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::ops::{Deref, Neg, Range};
 use std::str::FromStr;
+use std::{fmt, iter, ops};
 
 use enquote::enquote;
 use serde::{Deserialize, Serialize};
@@ -16,13 +16,15 @@ use lib::{fmt_duration_ms, hash_f64};
 
 use crate::ast::expr_equals;
 use crate::common::{
-    AggregateModifier, BinModifier, format_num, GroupModifier, GroupModifierOp, JoinModifier,
-    LabelFilter, LabelFilterOp, NAME_LABEL, Operator, StringExpr, Value,
-    ValueType, VectorMatchCardinality, write_list,
+    format_num, write_list, AggregateModifier, BinModifier, GroupModifier, GroupModifierOp,
+    JoinModifier, LabelFilter, LabelFilterOp, Operator, StringExpr, Value, ValueType,
+    VectorMatchCardinality, NAME_LABEL,
 };
 use crate::functions::{AggregateFunction, BuiltinFunction, TransformFunction};
 use crate::parser::{escape_ident, ParseError, ParseResult};
-use crate::prelude::{BuiltinFunctionType, get_aggregate_arg_idx_for_optimization, InterpolatedSelector};
+use crate::prelude::{
+    get_aggregate_arg_idx_for_optimization, BuiltinFunctionType, InterpolatedSelector,
+};
 
 pub type BExpr = Box<Expr>;
 
@@ -257,8 +259,8 @@ impl MetricExpr {
                         res = a.op.as_str().cmp(right)
                     }
                     res
-                },
-                _ => res
+                }
+                _ => res,
             }
         });
     }
@@ -324,7 +326,7 @@ impl PartialEq<MetricExpr> for MetricExpr {
                 filter.update_hash(&mut hasher);
                 let hash = hasher.digest();
                 if !set.contains(&hash) {
-                    return false
+                    return false;
                 }
             }
         }
@@ -1215,9 +1217,7 @@ impl Expr {
             | Self::StringExpr(_)
             | Self::With(_) => Box::new(iter::empty()),
             // this node type should not appear in the AST after parsing
-            Expr::WithSelector(_) => {
-                Box::new(iter::empty())
-            }
+            Expr::WithSelector(_) => Box::new(iter::empty()),
         }
     }
 
@@ -1274,7 +1274,7 @@ impl Expr {
             Expr::Parens(me) => me.return_type(),
             Expr::MetricExpression(me) => me.return_type(),
             Expr::With(w) => w.return_type(),
-            Expr::WithSelector(_) => ValueType::InstantVector
+            Expr::WithSelector(_) => ValueType::InstantVector,
         }
     }
 

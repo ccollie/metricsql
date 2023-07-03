@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use crate::ast::{Expr, InterpolatedSelector, MetricExpr};
-use crate::common::{LabelFilterExpr, LabelFilterOp};
+use crate::common::{LabelFilter, LabelFilterExpr, LabelFilterOp};
 use crate::parser::expr::parse_string_expr;
 use crate::parser::parse_error::unexpected;
 use crate::parser::{ParseResult, Parser};
@@ -16,6 +16,22 @@ use super::tokens::Token;
 pub fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expr> {
     let can_expand = p.can_lookup();
     let mut name: Option<String> = None;
+
+    fn create_metric_expr(
+        name: Option<String>,
+        filters: Vec<LabelFilterExpr>,
+    ) -> ParseResult<Expr> {
+        let mut me = if let Some(name) = name {
+            MetricExpr::new(name)
+        } else {
+            MetricExpr::default()
+        };
+        for filter in filters {
+            let resolved = filter.to_label_filter()?;
+            me.label_filters.push(resolved);
+        }
+        Ok(Expr::MetricExpression(me))
+    }
 
     if p.at(&Token::Identifier) {
         let token = p.expect_identifier()?;
@@ -36,17 +52,12 @@ pub fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expr> {
     let filters = parse_label_filters(p)?;
     // symbol table is empty and we're not parsing a WITH statement
     if !can_expand {
-        let mut me = if let Some(name) = name {
-            MetricExpr::new(name)
-        } else {
-            MetricExpr::default()
-        };
-        for filter in filters {
-            let resolved = filter.to_label_filter()?;
-            me.label_filters.push(resolved);
-        }
-        Ok(Expr::MetricExpression(me))
+        create_metric_expr(name, filters)
     } else {
+        // no identifiers in the label filters, create a MetricExpr
+        if filters.iter().all(|x| !x.is_raw_ident()) {
+            return create_metric_expr(name, filters);
+        }
         p.needs_expansion = true;
         let mut with_me = if let Some(name) = name {
             InterpolatedSelector::new(name)
