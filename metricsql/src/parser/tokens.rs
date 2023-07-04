@@ -1,7 +1,9 @@
+use std::fmt::{Display, Formatter};
+
+use logos::{Lexer, Logos};
+
 use crate::parser::{ParseError, ParseResult};
 use crate::prelude::syntax_error;
-use logos::{Lexer, Logos};
-use std::fmt::{Display, Formatter};
 
 fn unterminated_string_literal(_: &mut Lexer<Token>) -> ParseResult<()> {
     return Err(ParseError::SyntaxError(
@@ -282,11 +284,9 @@ impl Token {
                 | OpUnless
         )
     }
-}
 
-impl Display for Token {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
+    pub fn as_str(&self) -> &'static str {
+        match self {
             // keywords
             Self::By => "by",
             Self::Bool => "bool",
@@ -347,16 +347,23 @@ impl Display for Token {
             // other
             Self::ErrorInvalidNumber => "<invalid number>",
             Self::ErrorStringUnterminated => "<unterminated string literal>",
-        })
+        }
+    }
+}
+
+impl Display for Token {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::Token;
-    use super::Token::*;
     use logos::Logos;
     use test_case::test_case;
+
+    use super::Token;
+    use super::Token::*;
 
     macro_rules! test_tokens {
     ($src:expr, [$(

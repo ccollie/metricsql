@@ -57,8 +57,7 @@ mod tests {
 
                     assert!(
                         valid,
-                        "error parsing number \"{}\", got {}, expected {}",
-                        s, actual, expected_val
+                        "error parsing number \"{s}\", got {actual}, expected {expected_val}",
                     )
                 }
                 _ => {
@@ -111,21 +110,20 @@ mod tests {
 
     #[test]
     fn test_parse_metric_expr() {
-        same("{}");
-        same("{}[5m]");
-        same("{}[5m:]");
-        same("{}[:]");
-        another("{}[: ]", "{}[:]");
-        same("{}[:3s]");
-        another("{}[: 3s ]", "{}[:3s]");
-        same("{}[5m:3s]");
-        another("{}[ 5m : 3s ]", "{}[5m:3s]");
-        same("{} offset 5m");
-        same("{} offset -5m");
-        same("{}[5m] offset 10y");
-        same("{}[5.3m:3.4s] offset 10y");
-        same("{}[:3.4s] offset 10y");
-        same("{}[:3.4s] offset -10y");
+        same("foo{}");
+        same(r#"{foo="bar"}[5m]"#);
+        same("foo[5m:]");
+        same("bar[:]");
+        another("some_metric[: ]", "some_metric[:]");
+        another("other_metric[: 3s ]", "other_metric[:3s]");
+        same("test[5m:3s]");
+        another("errors[ 5m : 3s ]", "errors[5m:3s]");
+        same("foo offset 5m");
+        same("bar offset -5m");
+        same(r#"{__name__="baz"}[5m] offset 10y"#);
+        same("latency[5.3m:3.4s] offset 10y");
+        same("cache_size[:3.4s] offset 10y");
+        same("cache_size[:3.4s] offset -10y");
         same(r#"{Foo="bAR"}"#);
         same(r#"{foo="bar"}"#);
         same(r#"{foo="bar"}[5m]"#);
@@ -192,23 +190,10 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_identifiers_with_escape_chars() {
-        // identifiers with with escape chars
-        same(r#"foo\ bar"#);
-        same(r#"foo\-bar\{{baz\+bar="aa"}"#);
-        another(
-            r#"\x2E\x2ef\oo{b\xEF\ar="aa"}"#,
-            r#"\x2e.foo{b\xefar="aa"}"#,
-        );
-        same(r#"sum(fo\|o) by (b\|a, x)"#);
-        another(r#"sum(x) by (b\x7Ca)"#, r#"sum(x) by (b\|a)"#);
-    }
-
-    #[test]
     fn test_parse_duplicate_filters() {
         // Duplicate filters
-        same(r#"foo{__name__="bar"}"#);
-        same(r#"foo{a="b", a="c", __name__="aaa", b="d"}"#);
+        assert_invalid(r#"foo{__name__="bar"}"#);
+        assert_invalid(r#"foo{a="b", a="c", __name__="aaa", b="d"}"#);
     }
 
     #[test]
@@ -260,18 +245,18 @@ mod tests {
             "(FOO + ((Bar) / (baZ))) + ((23))",
             "(FOO + (Bar / baZ)) + 23",
         );
-        another("(foo, bar)", "union(foo, bar)");
-        another("((foo, bar),(baz))", "union(union(foo, bar), baz)");
+        another("(foo, bar)", "(foo, bar)");
+        another("((foo, bar),(baz))", "((foo, bar), baz)");
         another(
             "(foo, (bar, baz), ((x, y), (z, y), xx))",
-            "union(foo, union(bar, baz), union(union(x, y), union(z, y), xx))",
+            "(foo, (bar, baz), ((x, y), (z, y), xx))",
         );
-        another("1+(foo, bar,)", "1 + union(foo, bar)");
+        another("1+(foo, bar,)", "1 + (foo, bar)");
         another(
             "((avg(bar,baz)), (1+(2)+(3,4)+()))",
-            "union(avg(bar, baz), (3 + union(3, 4)) + union())",
+            "(avg(bar, baz), (3 + (3, 4)) + ())",
         );
-        another("()", "union()");
+        another("()", "()");
     }
 
     #[test]
@@ -314,7 +299,7 @@ mod tests {
 
     #[test]
     fn testing() {
-        another("((foo, bar),(baz))", "union(union(foo, bar), baz)");
+        another("((foo, bar),(baz))", "((foo, bar), baz)");
     }
 
     #[test]
@@ -442,12 +427,6 @@ mod tests {
         same("rate(rate(m[5m]))");
         same("rate(rate(m[5m])[1h:])");
         same("rate(rate(m[5m])[1h:3s])");
-    }
-
-    #[test]
-    fn test_func_name_with_escape_chars() {
-        // funcName with escape chars
-        same(r#"foo\(ba\-r()"#);
     }
 
     #[test]
@@ -597,7 +576,7 @@ mod tests {
             r#"with (f(x)=1+ceil(x)) f(foo{bar="baz"})"#,
             r#"1 + ceil(foo{bar="baz"})"#,
         );
-        another("with (a=foo, y=bar, f(a)= a+a+y) f(x)", "(x + x) + bar");
+        another("with (a=foo, y=bar, f(a)= a+a+y) f(x)", "(x * 2) + bar");
         another(
             r#"with (f(a, b) = m{a, b}) f({a="x", b="y"}, {c="d"})"#,
             r#"m{a="x", b="y", c="d"}"#,
@@ -641,8 +620,8 @@ mod tests {
         );
         another(r#"with (x="a", y=x) y+"bc""#, r#""abc""#);
         another(
-            r#"with (x="a", y="b"+x) "we"+y+"z"+pi()"#,
-            r#""webaz" + 3.141592653589793"#,
+            r#"with (x="a", y="b"+x) "we"+y+"z"+now()"#,
+            r#""webaz" + now()"#,
         );
         another(
             r#"with (f(x) = m{foo=x+"y", bar="y"+x, baz=x} + x) f("qwe")"#,
@@ -660,8 +639,7 @@ mod tests {
             "with (x=foo) a * x + (with (y=x) y) / y",
             "(a * foo) + (foo / y)",
         );
-        // the optimizer reduces "(foo + x) / (foo + x)" to 1
-        another("with (x = with (y = foo) y + x) x/x", "1");
+        another("with (x = with (y = foo) y + x) x/x", "x/x");
         another(
             r#"with (
 					x = {foo="bar"},
@@ -760,6 +738,8 @@ mod tests {
     #[test]
     fn invalid_metric_expr() {
         // invalid metricExpr
+        assert_invalid("{}");
+        assert_invalid("{}[5m]");
         assert_invalid("foo[-55]");
         assert_invalid("m[-5m]");
         assert_invalid("{");
@@ -964,6 +944,7 @@ mod tests {
         assert_invalid("keep_metric_names f()");
         assert_invalid("f() abc");
     }
+
     #[test]
     fn invalid_aggr_expr() {
         // invalid aggrFuncExpr

@@ -32,7 +32,7 @@ pub(super) fn expand_with_expr(
 ) -> ParseResult<Expr> {
     use Expr::*;
 
-    print!("expanding {} => ", &expr);
+    //print!("expanding {} => ", &expr);
 
     let res = match expr {
         BinaryOperator(be) => expand_binary_operator(symbols, was, be),
@@ -47,7 +47,7 @@ pub(super) fn expand_with_expr(
         _ => Ok(expr),
     }?;
 
-    println!("{}", res);
+    // println!("{}", res);
 
     Ok(res)
 }

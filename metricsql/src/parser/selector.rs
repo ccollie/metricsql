@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use crate::ast::{Expr, InterpolatedSelector, MetricExpr};
-use crate::common::{LabelFilter, LabelFilterExpr, LabelFilterOp};
+use crate::common::{LabelFilterExpr, LabelFilterOp};
 use crate::parser::expr::parse_string_expr;
 use crate::parser::parse_error::unexpected;
 use crate::parser::{ParseResult, Parser};
@@ -55,7 +55,7 @@ pub fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expr> {
         create_metric_expr(name, filters)
     } else {
         // no identifiers in the label filters, create a MetricExpr
-        if filters.iter().all(|x| !x.is_raw_ident()) {
+        if filters.iter().all(|x| !x.is_metric_name_filter()) {
             return create_metric_expr(name, filters);
         }
         p.needs_expansion = true;
@@ -81,7 +81,7 @@ fn parse_label_filters(p: &mut Parser) -> ParseResult<Vec<LabelFilterExpr>> {
     if !p.can_lookup() {
         // if we're not parsing a WITH statement, we need to make sure we have no unresolved identifiers
         for filter in &filters {
-            if filter.is_raw_ident() {
+            if filter.is_variable() {
                 return Err(unexpected(
                     "label filter",
                     &filter.label,
@@ -103,17 +103,16 @@ fn parse_label_filters(p: &mut Parser) -> ParseResult<Vec<LabelFilterExpr>> {
 fn parse_label_filter(p: &mut Parser) -> ParseResult<LabelFilterExpr> {
     use Token::*;
 
-    let mut filter: LabelFilterExpr = LabelFilterExpr::default();
-    filter.label = p.expect_identifier()?;
-    filter.op = LabelFilterOp::Equal;
+    let label = p.expect_identifier()?;
+    let op: LabelFilterOp;
 
     let tok = p.current_token()?;
     match tok.kind {
-        Equal => filter.op = LabelFilterOp::Equal,
-        OpNotEqual => filter.op = LabelFilterOp::NotEqual,
-        RegexEqual => filter.op = LabelFilterOp::RegexEqual,
-        RegexNotEqual => filter.op = LabelFilterOp::RegexNotEqual,
-        Comma | RightBrace => return Ok(filter),
+        Equal => op = LabelFilterOp::Equal,
+        OpNotEqual => op = LabelFilterOp::NotEqual,
+        RegexEqual => op = LabelFilterOp::RegexEqual,
+        RegexNotEqual => op = LabelFilterOp::RegexNotEqual,
+        Comma | RightBrace => return Ok(LabelFilterExpr::variable(&label)),
         _ => {
             return Err(unexpected(
                 "label filter",
@@ -127,10 +126,9 @@ fn parse_label_filter(p: &mut Parser) -> ParseResult<LabelFilterExpr> {
     p.bump();
 
     // todo: if we're parsing a WITH, we can accept an ident. IOW, we can have metric{s=ident}
-    filter.value = parse_string_expr(p)?;
+    let value = parse_string_expr(p)?;
 
-    // todo: validate if regex
-    Ok(filter)
+    LabelFilterExpr::new(label, op, value)
 }
 
 fn dedupe_label_filters(lfs: &mut Vec<LabelFilterExpr>) {

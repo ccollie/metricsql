@@ -1,6 +1,7 @@
-use std::{fmt, ops};
+use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::hash::Hasher;
+use std::{fmt, ops};
 
 use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::Xxh3;
@@ -28,6 +29,17 @@ impl Display for StringSegment {
             StringSegment::Ident(ident) => write!(f, "{}", ident)?,
         }
         Ok(())
+    }
+}
+
+impl PartialOrd for StringSegment {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match (self, other) {
+            (StringSegment::Literal(s), StringSegment::Literal(o)) => s.partial_cmp(o),
+            (StringSegment::Ident(s), StringSegment::Ident(o)) => s.partial_cmp(o),
+            (StringSegment::Literal(s), StringSegment::Ident(o)) => s.partial_cmp(o),
+            (StringSegment::Ident(s), StringSegment::Literal(o)) => s.partial_cmp(o),
+        }
     }
 }
 
@@ -193,9 +205,22 @@ impl StringExpr {
         for s in self.0.iter() {
             match s {
                 StringSegment::Literal(lit) => hasher.write(lit.as_bytes()),
-                StringSegment::Ident(ident) => hasher.write(ident.as_bytes())
+                StringSegment::Ident(ident) => hasher.write(ident.as_bytes()),
             }
         }
+    }
+}
+
+impl PartialOrd for StringExpr {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        for (left, right) in self.0.iter().zip(other.0.iter()) {
+            if let Some(cmp) = left.partial_cmp(&right) {
+                if cmp != Ordering::Equal {
+                    break;
+                }
+            }
+        }
+        Some(Ordering::Equal)
     }
 }
 

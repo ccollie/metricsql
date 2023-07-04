@@ -877,7 +877,8 @@ impl BinaryExpr {
     }
 
     pub fn returns_bool(&self) -> bool {
-        matches!(&self.modifier, Some(modifier) if modifier.return_bool)
+        //matches!(&self.modifier, Some(modifier) if modifier.return_bool)
+        self.bool_modifier
     }
 
     pub fn vector_match_cardinality(&self) -> Option<&VectorMatchCardinality> {

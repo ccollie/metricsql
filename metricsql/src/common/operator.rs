@@ -1,8 +1,10 @@
-use crate::parser::tokens::Token;
-use crate::parser::ParseError;
+use std::fmt;
+
 use phf::phf_map;
 use serde::{Deserialize, Serialize};
-use std::fmt;
+
+use crate::parser::tokens::Token;
+use crate::parser::ParseError;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Operator {
@@ -107,6 +109,11 @@ impl Operator {
 
     pub fn is_comparison(&self) -> bool {
         self.kind() == BinaryOpKind::Comparison
+    }
+
+    pub fn is_valid_string_op(&self) -> bool {
+        use Operator::*;
+        matches!(self, Add | Eql | Gte | Gt | Lt | Lte | NotEq)
     }
 
     pub fn get_reverse_cmp(&self) -> Operator {

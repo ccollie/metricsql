@@ -1,12 +1,13 @@
 // integrate checks from
 // https://github.com/prometheus/prometheus/blob/fa6e05903fd3ce52e374a6e1bf4eb98c9f1f45a7/promql/parser/parse.go#L436
 
+// Original Source: https://github.com/GreptimeTeam/promql-parser/blob/main/src/parser/ast.rs
 use crate::ast::{
-    AggregationExpr, BExpression, BinaryExpr, Expr, FunctionExpr, MetricExpr, NumberLiteral,
-    ParensExpr, RollupExpr, WithExpr,
+    AggregationExpr, BExpression, BinaryExpr, Expr, FunctionExpr, InterpolatedSelector, MetricExpr,
+    NumberLiteral, ParensExpr, RollupExpr, WithExpr,
 };
 use crate::common::{
-    BinModifier, NAME_LABEL, StringExpr, Value, ValueType, VectorMatchCardinality,
+    BinModifier, StringExpr, Value, ValueType, VectorMatchCardinality, NAME_LABEL,
 };
 use crate::functions::BuiltinFunction;
 
@@ -24,7 +25,7 @@ pub fn check_ast(expr: Expr) -> Result<Expr, String> {
         StringExpr(ex) => check_ast_for_string_expr(ex),
         With(ex) => check_ast_for_with(ex),
         StringLiteral(_) | Number(_) | Duration(_) => Ok(expr),
-        WithSelector(_) => Err("unexpected WITH selector".to_string()),
+        WithSelector(ws) => check_ast_for_interpolated_vector_selector(ws),
     }
 }
 
@@ -74,10 +75,12 @@ fn check_ast_for_string_expr(expr: StringExpr) -> Result<Expr, String> {
     Ok(Expr::StringExpr(expr))
 }
 
-/// the original logic is redundant in prometheus, and the following coding blocks
+/// the original logic is redundant in
+/// prometheus, and the following coding blocks
 /// have been optimized for readability, but all logic SHOULD be covered.
 fn check_ast_for_binary_expr(mut ex: BinaryExpr) -> Result<Expr, String> {
-    let is_comparison = ex.op.is_comparison();
+    let operator = ex.op;
+    let is_comparison = operator.is_comparison();
 
     if ex.returns_bool() && !is_comparison {
         return Err("bool modifier can only be used on comparison operators".into());
@@ -104,18 +107,20 @@ fn check_ast_for_binary_expr(mut ex: BinaryExpr) -> Result<Expr, String> {
         if let Some(labels) = ex.intersect_labels() {
             if let Some(label) = labels.first() {
                 return Err(format!(
-                    "label '{}' must not occur in ON and GROUP clause at once",
-                    label
+                    "label '{label}' must not occur in ON and GROUP clause at once",
                 ));
             }
         };
     }
 
-    if ex.op.is_set_operator() {
-        if left_type == ValueType::Scalar || right_type == ValueType::Scalar {
+    if operator.is_set_operator() {
+        if left_type == ValueType::Scalar
+            || left_type == ValueType::String
+            || right_type == ValueType::Scalar
+            || right_type == ValueType::String
+        {
             return Err(format!(
-                "set operator '{}' not allowed in binary scalar expression",
-                ex.op
+                "set operator '{operator}' not allowed in binary scalar/string expression",
             ));
         }
 
@@ -124,7 +129,7 @@ fn check_ast_for_binary_expr(mut ex: BinaryExpr) -> Result<Expr, String> {
                 if matches!(modifier.card, VectorMatchCardinality::OneToMany(_))
                     || matches!(modifier.card, VectorMatchCardinality::ManyToOne(_))
                 {
-                    return Err(format!("no grouping allowed for '{}' operation", ex.op));
+                    return Err(format!("no grouping allowed for '{operator}' operation"));
                 }
             };
         }
@@ -140,6 +145,16 @@ fn check_ast_for_binary_expr(mut ex: BinaryExpr) -> Result<Expr, String> {
                     Some(BinModifier::default().with_card(VectorMatchCardinality::ManyToMany));
             }
         }
+    }
+
+    if left_type == ValueType::String && right_type == ValueType::String {
+        if !operator.is_valid_string_op() {
+            return Err(format!(
+                "operator '{operator}' not allowed in string string operations"
+            ));
+        }
+
+        return Ok(Expr::BinaryOperator(ex));
     }
 
     if left_type != ValueType::Scalar && left_type != ValueType::InstantVector {
@@ -164,16 +179,14 @@ fn check_ast_for_rollup(mut ex: RollupExpr) -> Result<Expr, String> {
     let value_type = ex.expr.return_type();
     if value_type != ValueType::InstantVector {
         return Err(format!(
-            "subquery is only allowed on instant vector, got {} instead",
-            value_type
+            "subquery is only allowed on instant vector, got {value_type} instead"
         ));
     }
     if let Some(at) = &ex.at {
         let at_type = at.return_type();
-        if at_type != ValueType::Scalar {
+        if at_type != ValueType::Scalar && value_type != ValueType::InstantVector {
             return Err(format!(
-                "subquery at modifier must be a scalar, got {} instead",
-                at_type
+                "subquery @ modifier must be a scalar or expression, got {at_type} instead",
             ));
         }
         match at.as_ref() {
@@ -183,7 +196,7 @@ fn check_ast_for_rollup(mut ex: RollupExpr) -> Result<Expr, String> {
                     || value >= &(i64::MAX as f64)
                     || value <= &(i64::MIN as f64)
                 {
-                    return Err(format!("timestamp out of bounds for @ modifier: {}", value));
+                    return Err(format!("timestamp out of bounds for @ modifier: {value}"));
                 }
             }
             _ => {}
@@ -207,9 +220,32 @@ fn check_ast_for_vector_selector(ex: MetricExpr) -> Result<Expr, String> {
 
         return Err(format!(
             "metric name must not be set twice: '{}' or '{}'",
-            du[0], du[1]
+            du[0].name(),
+            du[1].name()
         ));
     }
 
     Ok(Expr::MetricExpression(ex))
+}
+
+fn check_ast_for_interpolated_vector_selector(ex: InterpolatedSelector) -> Result<Expr, String> {
+    // A Vector selector must contain at least one non-empty matcher to prevent
+    // implicit selection of all metrics (e.g. by a typo).
+    if ex.is_empty_matchers() {
+        return Err("vector selector must contain at least one non-empty matcher".into());
+    }
+
+    let mut du = ex.find_matchers(NAME_LABEL);
+    if du.len() >= 2 {
+        // this is to ensure that the err information can be predicted with fixed order
+        du.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+        return Err(format!(
+            "metric name must not be set twice: '{}' or '{}'",
+            du[0].name(),
+            du[1].name()
+        ));
+    }
+
+    Ok(Expr::WithSelector(ex))
 }

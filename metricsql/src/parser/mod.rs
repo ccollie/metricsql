@@ -1,6 +1,3 @@
-use crate::ast::{Expr};
-use crate::parser::expr::parse_expression;
-
 pub use duration::parse_duration_value;
 pub use function::validate_function_args;
 pub use number::{get_number_suffix, parse_number};
@@ -9,6 +6,10 @@ pub use parser::*;
 pub use regexp_cache::{compile_regexp, is_empty_regex};
 pub use selector::parse_metric_expr;
 pub use utils::{escape_ident, extract_string_value, quote, unescape_ident};
+
+use crate::ast::Expr;
+use crate::parser::expr::parse_expression;
+use crate::prelude::check_ast;
 
 mod aggregation;
 mod expand;
@@ -42,7 +43,8 @@ pub fn parse(input: &str) -> ParseResult<Expr> {
         let msg = "unparsed data".to_string();
         return Err(ParseError::General(msg));
     }
-    parser.expand_if_needed(expr)
+    let expr = parser.expand_if_needed(expr)?;
+    check_ast(expr).map_err(|err| ParseError::General(err.to_string()))
 }
 
 /// Expands WITH expressions inside q and returns the resulting

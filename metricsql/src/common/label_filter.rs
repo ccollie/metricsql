@@ -8,7 +8,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::Xxh3;
 
-use crate::parser::{compile_regexp, escape_ident, is_empty_regex, ParseError, quote};
+use crate::parser::{compile_regexp, escape_ident, is_empty_regex, quote, ParseError};
 
 pub const NAME_LABEL: &str = "__name__";
 
@@ -229,6 +229,13 @@ impl LabelFilter {
             self.op,
             quote(&self.value)
         )
+    }
+
+    pub fn name(&self) -> String {
+        if self.label == NAME_LABEL {
+            return self.value.to_string();
+        }
+        self.label.clone()
     }
 
     pub(crate) fn update_hash(&self, hasher: &mut Xxh3) {

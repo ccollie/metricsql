@@ -114,11 +114,7 @@ impl Display for InterpolatedSelector {
                 if i > 0 {
                     write!(f, ", ")?;
                 }
-                if arg.is_raw_ident() {
-                    write!(f, "{}", arg.label)?;
-                } else {
-                    write!(f, "{}", arg)?;
-                }
+                write!(f, "{}", arg)?;
             }
             write!(f, "}}")?;
         }

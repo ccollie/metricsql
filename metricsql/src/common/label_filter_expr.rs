@@ -4,7 +4,7 @@ use std::hash::Hasher;
 use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::Xxh3;
 
-use crate::common::{LabelFilter, LabelFilterOp, LabelName, NAME_LABEL, StringExpr};
+use crate::common::{LabelFilter, LabelFilterOp, LabelName, StringExpr, NAME_LABEL};
 use crate::parser::{compile_regexp, escape_ident, is_empty_regex, ParseError, ParseResult};
 
 /// LabelFilterExpr represents `foo <op> ident + "bar"` expression, where <op> is `=`, `!=`, `=~` or `!~`.
@@ -18,10 +18,12 @@ pub struct LabelFilterExpr {
 
     /// Value contains unquoted value for the filter.
     pub value: StringExpr,
+
+    is_variable: bool,
 }
 
 impl LabelFilterExpr {
-    pub fn new<N>(match_op: LabelFilterOp, label: N, value: StringExpr) -> ParseResult<Self>
+    pub fn new<N>(label: N, match_op: LabelFilterOp, value: StringExpr) -> ParseResult<Self>
     where
         N: Into<LabelName>,
     {
@@ -43,15 +45,34 @@ impl LabelFilterExpr {
             label,
             op: match_op,
             value,
+            is_variable: false,
         })
     }
 
+    pub fn named(name: &str) -> Self {
+        Self {
+            label: NAME_LABEL.to_string(),
+            op: LabelFilterOp::Equal,
+            value: StringExpr::from(name),
+            is_variable: false,
+        }
+    }
+
+    pub(crate) fn variable(name: &str) -> Self {
+        Self {
+            label: NAME_LABEL.to_string(),
+            op: LabelFilterOp::Equal,
+            value: StringExpr::from(name),
+            is_variable: true,
+        }
+    }
+
     pub fn equal<S: Into<String>>(key: S, value: StringExpr) -> ParseResult<LabelFilterExpr> {
-        LabelFilterExpr::new(LabelFilterOp::Equal, key, value)
+        LabelFilterExpr::new(key, LabelFilterOp::Equal, value)
     }
 
     pub fn not_equal<S: Into<String>>(key: S, value: StringExpr) -> ParseResult<LabelFilterExpr> {
-        LabelFilterExpr::new(LabelFilterOp::NotEqual, key, value)
+        LabelFilterExpr::new(key, LabelFilterOp::NotEqual, value)
     }
 
     /// is_negative represents whether the filter is negative, i.e. '!=' or '!~'.
@@ -81,7 +102,18 @@ impl LabelFilterExpr {
     }
 
     pub fn is_resolved(&self) -> bool {
-        self.value.is_literal_only()
+        self.value.is_literal_only() && !self.is_variable
+    }
+
+    pub fn is_variable(&self) -> bool {
+        self.is_variable
+    }
+
+    pub fn name(&self) -> String {
+        if self.label == NAME_LABEL {
+            return self.value.to_string();
+        }
+        self.label.clone()
     }
 
     /// Vector selectors must either specify a name or at least one label
@@ -117,16 +149,31 @@ impl LabelFilterExpr {
 
     //
     pub fn is_raw_ident(&self) -> bool {
-        self.value.is_empty() &&
-            self.op == LabelFilterOp::Equal &&
-            !self.label.is_empty() &&
-            self.label != NAME_LABEL
+        self.value.is_empty()
+            && self.op == LabelFilterOp::Equal
+            && !self.label.is_empty()
+            && self.label != NAME_LABEL
     }
 
     pub(crate) fn update_hash(&self, hasher: &mut Xxh3) {
         hasher.write(self.label.as_bytes());
         self.value.update_hash(hasher);
         hasher.write(self.op.as_str().as_bytes())
+    }
+}
+
+impl PartialOrd for LabelFilterExpr {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        let cmp = self.label.cmp(&other.label);
+        if cmp != std::cmp::Ordering::Equal {
+            return Some(cmp);
+        }
+        if let Some(cmp) = self.value.partial_cmp(&other.value) {
+            if cmp != std::cmp::Ordering::Equal {
+                return Some(cmp);
+            }
+        }
+        Some(std::cmp::Ordering::Equal)
     }
 }
 
@@ -138,6 +185,15 @@ impl PartialEq for LabelFilterExpr {
 
 impl fmt::Display for LabelFilterExpr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // todo: this is a mess. refactor
+        if self.is_variable || self.is_metric_name_filter() {
+            write!(f, "{}", escape_ident(&self.value.to_string()))?;
+            return Ok(());
+        }
+        if self.is_raw_ident() {
+            write!(f, "{}", escape_ident(&self.label))?;
+            return Ok(());
+        }
         write!(f, "{}{}{}", escape_ident(&self.label), self.op, &self.value)?;
         Ok(())
     }

@@ -597,7 +597,7 @@ pub fn simplify_parens(pe: ParensExpr) -> Expr {
             }
         }
     }
-    Expr::Function(pe.to_function())
+    Expr::Parens(pe)
 }
 
 #[cfg(test)]
