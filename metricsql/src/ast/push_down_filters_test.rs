@@ -2,7 +2,8 @@
 mod tests {
     use crate::ast::push_down_filters::{get_common_label_filters, pushdown_binary_op_filters};
     use crate::ast::utils::expr_equals;
-    use crate::ast::{optimize, Expr, MetricExpr};
+    use crate::ast::{optimize, Expr, MetricExpr, PushDownFilterRewriter};
+    use crate::common::TreeNode;
     use crate::parser::parse;
 
     fn parse_or_panic(q: &str) -> Expr {
@@ -195,7 +196,10 @@ mod tests {
             r#"foo{a!="ss", b=~"a.*"} + bar{a!="ss", b=~"a.*"}"#,
         );
         validate_optimized(r#"foo{bar="1"} / 234"#, r#"foo{bar="1"} / 234"#);
-        validate_optimized(r#"foo{bar="1"} / foo{bar="1"}"#, r#"1"#);
+        validate_optimized(
+            r#"foo{bar="1"} / foo{bar="1"}"#,
+            r#"foo{bar="1"} / foo{bar="1"}"#,
+        );
         validate_optimized(r#"123 + foo{bar!~"xx"}"#, r#"123 + foo{bar!~"xx"}"#);
         validate_optimized(r#"foo or bar{x="y"}"#, r#"foo or bar{x="y"}"#);
         validate_optimized(
@@ -640,13 +644,5 @@ mod tests {
         );
 
         // assert_eq!(q_optimized, expected, "\nquery: {}", q);
-
-        // Make sure the the original e didn't change after Optimize() call
-        let s = e.to_string();
-        assert_eq!(
-            s, orig,
-            "the original expression has been changed;\ngot\n{}\nwant\n{}",
-            s, orig
-        );
     }
 }

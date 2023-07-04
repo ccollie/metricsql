@@ -24,8 +24,8 @@ use num_traits::float::FloatConst;
 
 use lib::{datetime_part, timestamp_secs_to_utc_datetime, DateTimePart};
 
-use crate::ast::optimize_label_filters_inplace;
 use crate::ast::utils::{expr_contains, is_null, is_one, is_op_with, is_zero};
+use crate::ast::{can_pushdown_filters, optimize_label_filters_inplace};
 use crate::binaryop::{eval_binary_op, string_compare};
 use crate::common::{Operator, RewriteRecursion, TreeNode, TreeNodeRewriter};
 use crate::functions::{TransformFunction, Volatility};
@@ -226,7 +226,7 @@ impl ConstEvaluator {
     }
 
     /// Internal helper to evaluate an Expr
-    pub(crate) fn evaluate_to_scalar(&mut self, expr: Expr) -> ParseResult<Expr> {
+    fn evaluate_to_scalar(&mut self, expr: Expr) -> ParseResult<Expr> {
         match expr {
             Expr::BinaryOperator(be) => Self::handle_binary_expr(be),
             Expr::Function(fe) => Self::handle_function_expr(fe),
@@ -349,6 +349,85 @@ pub(super) fn extract_datetime_part(epoch_secs: f64, part: DateTimePart) -> f64 
     f64::NAN
 }
 
+/// Rewrites [`Expr`]s by pushing down operations that can be evaluated
+/// push_down_filters optimizes e in order to improve its performance.
+///
+/// It performs the following optimizations:
+///
+/// - Adds missing filters to `foo{filters1} op bar{filters2}`
+///   according to https://utcc.utoronto.ca/~cks/space/blog/sysadmin/PrometheusLabelNonOptimization
+pub struct PushDownFilterRewriter {
+    /// `can_evaluate` is used during the depth-first-search of the
+    /// `Expr` tree to track if any siblings (or their descendants) were
+    /// non evaluatable (e.g. had a column reference or volatile
+    /// function)
+    ///
+    /// Specifically, `can_evaluate[N]` represents the state of
+    /// traversal when we are N levels deep in the tree, one entry for
+    /// this Expr and each of its parents.
+    ///
+    /// After visiting all siblings if `can_evaluate.top()`` is true, that
+    /// means there were no non evaluatable siblings (or their
+    /// descendants) so this `Expr` can be evaluated
+    can_evaluate: Vec<bool>,
+}
+
+impl PushDownFilterRewriter {
+    pub fn new() -> Self {
+        Self {
+            can_evaluate: vec![],
+        }
+    }
+
+    fn push_down_filters(expr: Expr) -> ParseResult<Expr> {
+        let mut expr = expr;
+        optimize_label_filters_inplace(&mut expr);
+        Ok(expr)
+    }
+}
+
+impl TreeNodeRewriter for PushDownFilterRewriter {
+    type N = Expr;
+
+    fn pre_visit(&mut self, expr: &Expr) -> ParseResult<RewriteRecursion> {
+        // Default to being able to evaluate this node
+        self.can_evaluate.push(true);
+
+        // if this expr is not ok to evaluate, mark entire parent
+        // stack as not ok (as all parents have at least one child or
+        // descendant that can not be evaluated
+
+        if !can_pushdown_filters(expr) {
+            // walk back up stack, marking first parent that is not mutable
+            let parent_iter = self.can_evaluate.iter_mut().rev();
+            for p in parent_iter {
+                if !*p {
+                    // optimization: if we find an element on the
+                    // stack already marked, know all elements above are also marked
+                    break;
+                }
+                *p = false;
+            }
+        }
+
+        // NB: do not short circuit recursion even if we find a
+        // node wee can't evaluate node (so we can fold other children, args to
+        // functions, etc)
+        Ok(RewriteRecursion::Continue)
+    }
+
+    fn mutate(&mut self, expr: Expr) -> ParseResult<Self::N> {
+        match self.can_evaluate.pop() {
+            Some(true) => Self::push_down_filters(expr),
+            Some(false) => Ok(expr),
+            // todo: specific optimize error
+            _ => Err(ParseError::General(
+                "Failed to pop can_evaluate".to_string(),
+            )),
+        }
+    }
+}
+
 /// Simplifies [`Expr`]s by applying algebraic transformation rules
 ///
 /// Example transformations that are applied:
@@ -357,7 +436,7 @@ pub(super) fn extract_datetime_part(epoch_secs: f64, part: DateTimePart) -> f64 
 /// * `1 == bool 1` to `1`
 /// * `0 == bool 1` to `0`
 /// * `expr == NaN` and `expr != NaN` to `NaN`
-struct Simplifier {}
+pub struct Simplifier {}
 
 impl Simplifier {
     pub fn new() -> Self {
@@ -369,9 +448,6 @@ impl Simplifier {
 
 impl TreeNodeRewriter for Simplifier {
     type N = Expr;
-
-    // TODO: A - A  -->  1, where A is a selector/rollup/aggregate
-    // Note - probably need to do this in the evaluator since nan - nan is not 1
 
     /// rewrite the expression simplifying any constant expressions
     fn mutate(&mut self, expr: Expr) -> ParseResult<Expr> {
@@ -477,8 +553,6 @@ impl TreeNodeRewriter for Simplifier {
                     Div if is_zero(&right) => Expr::from(f64::NAN),
                     // 0 / A -> 0
                     Div if is_zero(&left) => *left,
-                    // A / A -> 1
-                    Div if left == right => Expr::from(1.0), // TODO:: dont think this is right. Think nan/nan
 
                     //
                     // Rules for Mod
@@ -492,7 +566,7 @@ impl TreeNodeRewriter for Simplifier {
                     // A % 0 --> NaN
                     Mod if is_zero(&right) => Expr::from(f64::NAN),
                     // A % A --> 0
-                    Mod if left == right => Expr::from(0.0),
+                    Mod if left == right => Expr::from(0.0), // what is nan % nan?
                     // no additional rewrites possible
                     _ => Expr::BinaryOperator(BinaryExpr {
                         bool_modifier,
@@ -902,15 +976,6 @@ mod tests {
             let actual = simplify(expr);
             assert_expr_eq(&null, &actual);
         }
-    }
-
-    #[test]
-    fn test_simplify_div_by_same() {
-        let one = number(1.0);
-        let expr = selector("c2") / selector("c2");
-
-        let actual = simplify(expr);
-        assert_expr_eq(&one, &actual);
     }
 
     #[test]
