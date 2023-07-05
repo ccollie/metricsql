@@ -1,15 +1,14 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap};
 use std::collections::hash_map::Entry;
-
-use rayon::iter::IntoParallelRefIterator;
 
 use metricsql::ast::BinaryExpr;
 use metricsql::binaryop::{BinopFunc, get_scalar_binop_handler, get_scalar_comparison_handler};
 use metricsql::common::{GroupModifier, JoinModifier, JoinModifierOp, Operator};
 
 use crate::eval::utils::remove_empty_series;
-use crate::rayon::iter::ParallelIterator;
+
 use crate::runtime_error::{RuntimeError, RuntimeResult};
+use crate::signature::{get_signatures_set_by_modifier, group_series_by_modifier, TimeseriesHashMap};
 use crate::types::signature::Signature;
 use crate::types::Timeseries;
 
@@ -33,8 +32,6 @@ pub(crate) trait BinaryOpFn:
 }
 
 impl<T> BinaryOpFn for T where T: Fn(&mut BinaryOpFuncArg) -> BinaryOpFuncResult + Send + Sync {}
-
-type TimeseriesHashMap = HashMap<Signature, Vec<Timeseries>>;
 
 macro_rules! make_binary_func {
     ($name: ident, $op: expr) => {
@@ -416,7 +413,7 @@ fn binary_op_or(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
 
     let mut right: Vec<Timeseries> = Vec::with_capacity(bfa.right.len());
 
-    let lhs_sigs = get_vector_matching_hash_set(&bfa.left, &bfa.be.group_modifier);
+    let lhs_sigs = get_signatures_set_by_modifier(&bfa.left, &bfa.be.group_modifier);
 
     for (right_ts, left_ts) in bfa.right.iter_mut().zip(bfa.left.iter_mut()) {
         let sig = right_ts.metric_name.signature_by_group_modifier(&bfa.be.group_modifier);
@@ -539,39 +536,12 @@ fn add_left_nans_if_no_right_nans(tss_left: &mut Vec<Timeseries>, tss_right: &Ve
     remove_empty_series(tss_left);
 }
 
-fn get_vector_matching_hash_set(
-    series: &Vec<Timeseries>,
-    modifier: &Option<GroupModifier>,
-) -> HashSet<Signature> {
-    let res: HashSet<Signature> = series
-        .par_iter()
-        .map_with(modifier, |modifier, timeseries| {
-            timeseries.metric_name.signature_by_group_modifier(modifier)
-        })
-        .collect();
-    res
-}
-
-fn get_tags_map_with_fn<'a>(
-    arg: &mut Vec<Timeseries>,
-    modifier: &Option<GroupModifier>,
-) -> TimeseriesHashMap {
-    let mut m: TimeseriesHashMap = HashMap::with_capacity(arg.len());
-
-    for ts in arg.into_iter() {
-        let key = ts.metric_name.signature_by_group_modifier(modifier);
-        m.entry(key).or_insert(vec![]).push(std::mem::take(ts));
-    }
-
-    return m;
-}
-
 fn create_timeseries_map_by_tag_set(
     bfa: &mut BinaryOpFuncArg,
 ) -> (TimeseriesHashMap, TimeseriesHashMap) {
     let modifier = &bfa.be.group_modifier;
-    let m_left = get_tags_map_with_fn(&mut bfa.left, modifier);
-    let m_right = get_tags_map_with_fn(&mut bfa.right, modifier);
+    let m_left = group_series_by_modifier(&mut bfa.left, modifier);
+    let m_right = group_series_by_modifier(&mut bfa.right, modifier);
     return (m_left, m_right);
 }
 

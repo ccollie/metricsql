@@ -7,8 +7,8 @@ use ahash::{HashMap, HashSet};
 use metricsql::ast::BinaryExpr;
 use metricsql::binaryop::get_scalar_binop_handler;
 use metricsql::common::{Operator, VectorMatchCardinality};
-use runtime::signature::Signature;
-use runtime::QueryValue;
+use runtime::signature::{get_signatures_set_by_modifier, Signature};
+use runtime::{QueryValue, Timeseries};
 
 /// Implement the operation between a vector and a float.
 ///
@@ -88,8 +88,8 @@ fn vector_or(expr: &BinaryExpr, left: &[InstantValue], right: &[InstantValue]) -
 /// https://prometheus.io/docs/prometheus/latest/querying/operators/#logical-set-binary-operators
 fn vector_unless(
     expr: &BinaryExpr,
-    left: &[InstantValue],
-    right: &[InstantValue],
+    left: &[Timeseries],
+    right: &[Timeseries],
 ) -> Result<QueryValue> {
     if expr.modifier.as_ref().unwrap().card != VectorMatchCardinality::ManyToMany {
         return Err(DataFusionError::NotImplemented(
@@ -102,17 +102,15 @@ fn vector_unless(
     if left.is_empty() || right.is_empty() {
         return Ok(Value::Vector(left.to_vec()));
     }
+    let group_modifier = expr.modifier.as_ref().unwrap().group_modifier;
     // Generate all the signatures from the right hand.
-    let rhs_sig: HashSet<Signature> = right
-        .par_iter()
-        .map(|item| Signature::with_labels(&item.labels))
-        .collect();
+    let rhs_sig: HashSet<Signature> = get_signatures_set_by_modifier(right, group_modifier);
 
     // Now filter out all the matching labels from left.
-    let output: Vec<InstantValue> = left
+    let output: Vec<Timeseries> = left
         .par_iter()
         .filter(|item| {
-            let left_sig = Signature::with_labels(&item.labels);
+            let left_sig = item.metric_name.signature_by_group_modifier(modifier);
             !rhs_sig.contains(&left_sig)
         })
         .map(|val| val.clone())
@@ -138,10 +136,9 @@ fn vector_and(expr: &BinaryExpr, left: &[InstantValue], right: &[InstantValue]) 
         ));
     }
 
-    let rhs_sig: HashSet<Signature> = right
-        .par_iter()
-        .map(|item| signature(&item.labels))
-        .collect();
+    let group_modifier = &expr.group_modifier;
+
+    let rhs_sig: HashSet<Signature> = get_signatures_set_by_modifier(right, group_modifier);
 
     // Now include all the matching ones from the right
     let output: Vec<InstantValue> = left

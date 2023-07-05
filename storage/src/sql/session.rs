@@ -1,5 +1,3 @@
-extern crate lazy_static;
-
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock as RwLockSync},
@@ -26,7 +24,7 @@ use crate::{
 };
 
 use super::{
-    AuthContextRef, database_variables::DatabaseVariables,
+    database_variables::DatabaseVariables,
     server_manager::ServerManager, session_manager::SessionManager,
 };
 
@@ -58,10 +56,6 @@ impl SessionProperties {
     }
 }
 
-lazy_static! {
-    static ref POSTGRES_DEFAULT_VARIABLES: DatabaseVariables = postgres_default_session_variables();
-    static ref MYSQL_DEFAULT_VARIABLES: DatabaseVariables = mysql_default_session_variables();
-}
 
 #[derive(Debug)]
 pub enum TransactionState {

@@ -18,6 +18,7 @@ use crate::functions::transform::vmrange_buckets_to_le;
 use crate::functions::utils::float_to_int_bounded;
 use crate::histogram::{get_pooled_histogram, Histogram};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
+use crate::signature::Signature;
 
 // todo: add lifetime so we dont need to copy modifier
 pub struct AggrFuncArg<'a> {
@@ -188,12 +189,13 @@ fn aggr_func_ext(
     remove_empty_series(arg_orig);
 
     // Perform grouping.
-    let mut series_by_name: HashMap<String, Vec<Timeseries>> = HashMap::new();
+    let mut series_by_name: HashMap<Signature, Vec<Timeseries>> = HashMap::new();
+    // todo: parallelize hash calculation
 
     for mut ts in arg_orig.drain(0..) {
         ts.metric_name.remove_group_tags(modifier);
 
-        let key = ts.metric_name.to_string(); // to canonical_string
+        let key = ts.metric_name.signature();
 
         let series_len = series_by_name.len();
 
@@ -227,8 +229,7 @@ fn aggr_func_ext(
             // This looks like count_values explosion.
             let msg = format!(
                 "too many timeseries after aggregation; \n
-                got {}; want less than {}",
-                dst_tss_count,
+                got {dst_tss_count}; want less than {}",
                 16 * src_tss_count
             );
             return Err(RuntimeError::from(msg));
@@ -959,7 +960,7 @@ fn aggr_func_quantiles(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> 
             tss_dst.push(ts);
         }
 
-        let mut _vals = tiny_vec!([f64; 10]);
+        let _vals = tiny_vec!([f64; 10]);
         let mut qs = get_float64s(phis.len());
 
         let mut values = get_float64s(phis.len());
@@ -1059,7 +1060,7 @@ fn aggr_func_outliers_mad(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries
 fn get_per_point_medians(tss: &mut Vec<Timeseries>) -> Vec<f64> {
     if tss.len() == 0 {
         // todo: handle this case
-        // logger.Panicf("BUG: expecting non-empty tss")
+        // panic!("BUG: expecting non-empty tss")
     }
     let mut medians = Vec::with_capacity(tss[0].values.len());
     let mut values = get_float64s(medians.len());

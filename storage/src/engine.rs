@@ -76,7 +76,7 @@ impl Engine {
             PromExpr::Binary(expr) => {
                 let lhs = self.exec_expr(&expr.lhs).await?;
                 let rhs = self.exec_expr(&expr.rhs).await?;
-                let token = expr.op.id();
+                let token = expr.op;
 
                 match (lhs.clone(), rhs.clone()) {
                     (Value::Float(left), Value::Float(right)) => {

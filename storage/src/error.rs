@@ -19,7 +19,7 @@ use datafusion::error::DataFusionError;
 use snafu::Location;
 
 use common_error::prelude::*;
-use promql_parser::parser::{Expr as PromExpr, TokenType};
+use metricsql::ast::{Expr as PromExpr};
 
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub))]
@@ -39,7 +39,7 @@ pub enum Error {
     location
     ))]
     DataFusionPlanning {
-        source: datafusion::error::DataFusionError,
+        source: DataFusionError,
         location: Location,
     },
 

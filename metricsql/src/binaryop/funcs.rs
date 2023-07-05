@@ -78,7 +78,7 @@ fn op_div(left: f64, right: f64) -> f64 {
     left / right
 }
 
-/// mod_ returns mod(left, right)
+/// returns left % right
 #[inline]
 fn op_mod(left: f64, right: f64) -> f64 {
     left % right
