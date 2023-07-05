@@ -1065,8 +1065,8 @@ pub(super) fn deriv_values(values: &mut [f64], timestamps: &[Timestamp]) {
 
 fn new_rollup_holt_winters(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEnum> {
     // unwrap is sound since arguments are checked before this is called
-    let sf = get_scalar_param_value(&args[1], "holt_winters", "sf")?;
-    let tf = get_scalar_param_value(&args[2], "holt_winters", "tf")?;
+    let sf = get_scalar_param_value(args, 1, "holt_winters", "sf")?;
+    let tf = get_scalar_param_value(args, 2, "holt_winters", "tf")?;
 
     Ok(RollupHandlerEnum::General(Box::new(
         move |rfa: &mut RollupFuncArg| -> f64 { holt_winters_internal(rfa, sf, tf) },
@@ -1114,7 +1114,7 @@ fn holt_winters_internal(rfa: &mut RollupFuncArg, sf: f64, tf: f64) -> f64 {
 }
 
 fn new_rollup_predict_linear(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEnum> {
-    let secs = get_scalar_param_value(&args[1], "predict_linear", "secs")?;
+    let secs = get_scalar_param_value(args, 1, "predict_linear", "secs")?;
 
     let res = RollupHandlerEnum::General(Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
         let (v, k) = linear_regression(&rfa.values, &rfa.timestamps, rfa.curr_timestamp);
@@ -1181,7 +1181,7 @@ fn are_const_values(values: &[f64]) -> bool {
 }
 
 fn new_rollup_duration_over_time(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEnum> {
-    let max_interval = get_scalar_param_value(&args[1], "duration_over_time", "max_interval")?;
+    let max_interval = get_scalar_param_value(args, 1, "duration_over_time", "max_interval")?;
 
     let f = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
         // There is no need in handling NaNs here, since they must be cleaned up
@@ -1251,7 +1251,7 @@ fn new_rollup_count_filter(
     param_name: &str,
     count_predicate: FloatComparisonFunction,
 ) -> RuntimeResult<RollupHandlerEnum> {
-    let limit = get_scalar_param_value(&args[1], func_name, param_name)?;
+    let limit = get_scalar_param_value(args, 1, func_name, param_name)?;
 
     let handler = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
         // There is no need in handling NaNs here, since they must be cleaned up
@@ -1274,7 +1274,7 @@ fn new_rollup_count_filter(
 }
 
 fn new_rollup_hoeffding_bound_lower(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEnum> {
-    let phi = get_scalar_param_value(&args[0], "hoeffding_bound_lower", "phi")?;
+    let phi = get_scalar_param_value(args, 0, "hoeffding_bound_lower", "phi")?;
 
     let f = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
         let (bound, avg) = rollup_hoeffding_bound_internal(rfa, phi);
@@ -1285,7 +1285,7 @@ fn new_rollup_hoeffding_bound_lower(args: &Vec<QueryValue>) -> RuntimeResult<Rol
 }
 
 fn new_rollup_hoeffding_bound_upper(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEnum> {
-    let phi = get_scalar_param_value(&args[0], "hoeffding_bound_upper", "phi")?;
+    let phi = get_scalar_param_value(args, 0, "hoeffding_bound_upper", "phi")?;
 
     let f = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
         let (bound, avg) = rollup_hoeffding_bound_internal(rfa, phi);
@@ -1336,9 +1336,9 @@ fn new_rollup_quantiles(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEn
     // todo: smallvec ??
     let mut phi_labels: Vec<String> = Vec::with_capacity(cap);
 
-    for arg in args.iter().skip(1) {
+    for i in 1..args.len() {
         // unwrap should be safe, since parameters types are checked before calling the function
-        let v = get_scalar_param_value(&arg, "quantiles", "phi").unwrap();
+        let v = get_scalar_param_value(args, i, "quantiles", "phi").unwrap();
         phis.push(v);
         phi_labels.push(format!("{}", v));
     }
@@ -1371,7 +1371,7 @@ fn new_rollup_quantiles(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEn
 }
 
 fn new_rollup_quantile(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEnum> {
-    let phi = get_scalar_param_value(&args[0], "quantile_over_time", "phi")?;
+    let phi = get_scalar_param_value(args, 0, "quantile_over_time", "phi")?;
 
     let rf = Box::new(move |rfa: &mut RollupFuncArg| {
         // There is no need in handling NaNs here, since they must be cleaned up
