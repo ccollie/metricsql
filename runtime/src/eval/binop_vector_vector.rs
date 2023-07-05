@@ -37,7 +37,7 @@ impl BinaryEvaluatorVectorVector {
     pub fn new(expr: &BinaryExpr) -> RuntimeResult<Self> {
         let lhs = Box::new(create_evaluator(&expr.left)?);
         let rhs = Box::new(create_evaluator(&expr.right)?);
-        let can_pushdown_filters = can_pushdown_common_filters(expr);
+        let can_pushdown_filters = can_push_down_common_filters(expr);
         let rv = expr.return_type();
         let return_type = ValueType::try_from(rv).unwrap_or(ValueType::InstantVector);
         let can_parallelize = should_parallelize(&expr);
@@ -133,7 +133,7 @@ impl BinaryEvaluatorVectorVector {
         if first.is_empty() && self.expr.op == Operator::Or {
             return Ok((QueryValue::empty_vec(), QueryValue::empty_vec()));
         }
-        let sec_expr = self.pushdown_filters(&mut first, &right_expr, &ec)?;
+        let sec_expr = self.push_down_filters(&mut first, &right_expr, &ec)?;
         return match sec_expr {
             Cow::Borrowed(_) => {
                 // if it hasn't been modified, default to existing evaluator
@@ -149,7 +149,7 @@ impl BinaryEvaluatorVectorVector {
         };
     }
 
-    fn pushdown_filters<'a>(
+    fn push_down_filters<'a>(
         &self,
         first: &mut QueryValue,
         dest: &'a Expr,
@@ -252,7 +252,7 @@ fn should_parallelize(be: &BinaryExpr) -> bool {
     }
 }
 
-fn can_pushdown_common_filters(be: &BinaryExpr) -> bool {
+fn can_push_down_common_filters(be: &BinaryExpr) -> bool {
     if !should_parallelize(&be) {
         return false;
     }

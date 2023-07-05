@@ -1,18 +1,14 @@
 use std::collections::{HashMap, HashSet};
 
 use datafusion::error::{DataFusionError, Result};
+use rayon::prelude::*;
 
 use ahash::{HashMap, HashSet};
 use metricsql::ast::BinaryExpr;
+use metricsql::binaryop::get_scalar_binop_handler;
 use metricsql::common::{Operator, VectorMatchCardinality};
-use metricsql::functions::Signature;
-use rayon::prelude::*;
-
-use crate::binaries::scalar_operations::scalar_binary_operations;
-use crate::service::promql::{
-    binaries::scalar_binary_operations,
-    value::{signature, InstantValue, LabelsExt, Sample, Signature, Value},
-};
+use runtime::signature::Signature;
+use runtime::QueryValue;
 
 /// Implement the operation between a vector and a float.
 ///
@@ -21,13 +17,14 @@ pub async fn vector_scalar_bin_op(
     expr: &BinaryExpr,
     left: &[InstantValue],
     right: f64,
-) -> Result<Value> {
+) -> Result<QueryValue> {
     let is_comparison_operator = expr.op.is_comparison_operator();
 
+    let handler = get_scalar_binop_handler(expr.op, is_comparison_operator);
     let output: Vec<InstantValue> = left
         .par_iter()
         .map(|instant| {
-            let value = scalar_binary_operations(expr.op, instant.sample.value, right).unwrap();
+            let value = handler(instant.sample.value, right);
             (instant, value)
         })
         .filter(|(_instant, value)| {
@@ -67,14 +64,14 @@ fn vector_or(expr: &BinaryExpr, left: &[InstantValue], right: &[InstantValue]) -
 
     let lhs_sig: HashSet<Signature> = left
         .par_iter()
-        .map(|item| signature(&item.labels))
+        .map(|item| Signature::with_labels(&item.labels))
         .collect();
 
     // Add all right-hand side elements which have not been added from the left-hand side.
     let right_instants: Vec<InstantValue> = right
         .par_iter()
         .filter(|item| {
-            let right_sig = signature(&item.labels);
+            let right_sig = Signature::with_labels(&item.labels);
             !lhs_sig.contains(&right_sig)
         })
         .map(|item| item.clone())
@@ -93,7 +90,7 @@ fn vector_unless(
     expr: &BinaryExpr,
     left: &[InstantValue],
     right: &[InstantValue],
-) -> Result<Value> {
+) -> Result<QueryValue> {
     if expr.modifier.as_ref().unwrap().card != VectorMatchCardinality::ManyToMany {
         return Err(DataFusionError::NotImplemented(
             "set operations must only use many-to-many matching".to_string(),
@@ -108,14 +105,14 @@ fn vector_unless(
     // Generate all the signatures from the right hand.
     let rhs_sig: HashSet<Signature> = right
         .par_iter()
-        .map(|item| signature(&item.labels))
+        .map(|item| Signature::with_labels(&item.labels))
         .collect();
 
     // Now filter out all the matching labels from left.
     let output: Vec<InstantValue> = left
         .par_iter()
         .filter(|item| {
-            let left_sig = signature(&item.labels);
+            let left_sig = Signature::with_labels(&item.labels);
             !rhs_sig.contains(&left_sig)
         })
         .map(|val| val.clone())
@@ -159,7 +156,7 @@ fn vector_and(expr: &BinaryExpr, left: &[InstantValue], right: &[InstantValue]) 
     Ok(Value::Vector(output))
 }
 
-fn vector_arithmatic_operators(
+fn vector_arithmetic_operators(
     expr: &BinaryExpr,
     left: &[InstantValue],
     right: &[InstantValue],
@@ -171,6 +168,7 @@ fn vector_arithmatic_operators(
         .map(|item| (signature(&item.labels), item.sample))
         .collect();
 
+    let handler = get_scalar_binop_handler(operator, false);
     // Iterate over left and pick up the corresponding instance from rhs
     let output: Vec<InstantValue> = left
         .par_iter()
@@ -183,9 +181,7 @@ fn vector_arithmatic_operators(
             }
         })
         .map(|(lhs_instant, rhs_sample)| {
-            let value =
-                scalar_binary_operations(operator, lhs_instant.sample.value, rhs_sample.value)
-                    .unwrap();
+            let value = handler(lhs_instant.sample.value, rhs_sample.value);
             InstantValue {
                 labels: lhs_instant.labels.clone(),
                 sample: Sample {
@@ -227,6 +223,6 @@ pub fn vector_bin_op(
         Operator::And => vector_and(expr, left, right),
         Operator::Or => vector_or(expr, left, right),
         Operator::Unless => vector_unless(expr, left, right),
-        _ => vector_arithmatic_operators(expr, left, right),
+        _ => vector_arithmetic_operators(expr, left, right),
     }
 }

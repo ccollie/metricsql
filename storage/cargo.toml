@@ -9,6 +9,8 @@ datafusion = { version = "26" }
 futures = "0.3.17"
 lib = { path = "../lib" }
 metricsql = { path = "../metricsql" }
+rayon = { workspace = true }
+runtime = { path = "../runtime" }
 snafu = "0.7.4"
 tokio = "1.29.1"
 tracing = { workspace = true }
