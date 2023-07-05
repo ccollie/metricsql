@@ -5,8 +5,8 @@ use phf::phf_map;
 use serde::{Deserialize, Serialize};
 
 use crate::common::ValueType;
-use crate::functions::MAX_ARG_COUNT;
 use crate::functions::signature::{Signature, Volatility};
+use crate::functions::MAX_ARG_COUNT;
 use crate::parser::ParseError;
 
 // TODO: ttf
@@ -577,7 +577,7 @@ impl TransformFunction {
             Vector => Signature::exact(vec![ValueType::InstantVector], Volatility::Stable),
             _ => {
                 // by default we take a single arg containing series
-                Signature::exact(vec![ValueType::InstantVector, ValueType::Scalar], Volatility::Immutable)
+                Signature::exact(vec![ValueType::InstantVector], Volatility::Immutable)
             }
         }
     }

@@ -37,11 +37,11 @@ pub fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expr> {
         let token = p.expect_identifier()?;
 
         if !p.at(&Token::LeftBrace) {
-            if can_expand {
-                if let Some(expr) = p.resolve_ident(&token, vec![])? {
-                    return Ok(expr);
-                }
-            }
+            // if can_expand {
+            //     if let Some(expr) = p.resolve_ident(&token, vec![])? {
+            //         return Ok(expr);
+            //     }
+            // }
             let me = MetricExpr::new(token);
             return Ok(Expr::MetricExpression(me));
         }

@@ -255,80 +255,81 @@ pub(crate) fn get_rollup_function_factory_by_name(
 }
 
 pub(crate) fn get_rollup_function_factory(func: RollupFunction) -> RollupHandlerFactory {
+    use RollupFunction::*;
     let imp = match func {
-        RollupFunction::AbsentOverTime => new_rollup_absent_over_time,
-        RollupFunction::AggrOverTime => new_rollup_aggr_over_time,
-        RollupFunction::AscentOverTime => new_rollup_ascent_over_time,
-        RollupFunction::AvgOverTime => new_rollup_avg_over_time,
-        RollupFunction::Changes => new_rollup_changes,
-        RollupFunction::ChangesPrometheus => new_rollup_changes_prometheus,
-        RollupFunction::CountEqOverTime => new_rollup_count_eq,
-        RollupFunction::CountGtOverTime => new_rollup_count_gt,
-        RollupFunction::CountLeOverTime => new_rollup_count_le,
-        RollupFunction::CountNeOverTime => new_rollup_count_ne,
-        RollupFunction::CountOverTime => new_rollup_count_over_time,
-        RollupFunction::DecreasesOverTime => new_rollup_decreases_over_time,
-        RollupFunction::DefaultRollup => new_rollup_default,
-        RollupFunction::Delta => new_rollup_delta,
-        RollupFunction::DeltaPrometheus => new_rollup_delta_prometheus,
-        RollupFunction::Deriv => new_rollup_deriv,
-        RollupFunction::DerivFast => new_rollup_deriv_fast,
-        RollupFunction::DescentOverTime => new_rollup_descent_over_time,
-        RollupFunction::DistinctOverTime => new_rollup_distinct_over_time,
-        RollupFunction::DurationOverTime => new_rollup_duration_over_time,
-        RollupFunction::FirstOverTime => new_rollup_first_over_time,
-        RollupFunction::GeomeanOverTime => new_rollup_geomean_over_time,
-        RollupFunction::HistogramOverTime => new_rollup_histogram_over_time,
-        RollupFunction::HoeffdingBoundLower => new_rollup_hoeffding_bound_lower,
-        RollupFunction::HoeffdingBoundUpper => new_rollup_hoeffding_bound_upper,
-        RollupFunction::HoltWinters => new_rollup_holt_winters,
-        RollupFunction::IDelta => new_rollup_idelta,
-        RollupFunction::IDeriv => new_rollup_ideriv,
-        RollupFunction::Increase => new_rollup_increase,
-        RollupFunction::IncreasePrometheus => new_rollup_delta_prometheus,
-        RollupFunction::IncreasePure => new_rollup_increase_pure,
-        RollupFunction::IncreasesOverTime => new_rollup_increases_over_time,
-        RollupFunction::Integrate => new_rollup_integrate,
-        RollupFunction::IRate => new_rollup_irate,
-        RollupFunction::Lag => new_rollup_lag,
-        RollupFunction::LastOverTime => new_rollup_last_over_time,
-        RollupFunction::Lifetime => new_rollup_lifetime,
-        RollupFunction::MadOverTime => new_rollup_mad_over_time,
-        RollupFunction::MaxOverTime => new_rollup_max_over_time,
-        RollupFunction::MedianOverTime => new_rollup_median_over_time,
-        RollupFunction::MinOverTime => new_rollup_min_over_time,
-        RollupFunction::ModeOverTime => new_rollup_mode_over_time,
-        RollupFunction::PredictLinear => new_rollup_predict_linear,
-        RollupFunction::PresentOverTime => new_rollup_present_over_time,
-        RollupFunction::QuantileOverTime => new_rollup_quantile,
-        RollupFunction::QuantilesOverTime => new_rollup_quantiles,
-        RollupFunction::RangeOverTime => new_rollup_range_over_time,
-        RollupFunction::Rate => new_rollup_rate,
-        RollupFunction::RateOverSum => new_rollup_rate_over_sum,
-        RollupFunction::Resets => new_rollup_resets,
-        RollupFunction::Rollup => new_rollup,
-        RollupFunction::RollupCandlestick => new_rollup_candlestick,
-        RollupFunction::RollupDelta => new_rollup_delta,
-        RollupFunction::RollupDeriv => new_rollup_deriv,
-        RollupFunction::RollupIncrease => new_rollup_increase,
-        RollupFunction::RollupRate => new_rollup_rate,
-        RollupFunction::RollupScrapeInterval => new_rollup_scrape_interval_fake,
-        RollupFunction::ScrapeInterval => new_rollup_scrape_interval,
-        RollupFunction::ShareGtOverTime => new_rollup_share_gt,
-        RollupFunction::ShareLeOverTime => new_rollup_share_le,
-        RollupFunction::StaleSamplesOverTime => new_rollup_stale_samples_over_time,
-        RollupFunction::StddevOverTime => new_rollup_stddev_over_time,
-        RollupFunction::StdvarOverTime => new_rollup_stdvar_over_time,
-        RollupFunction::SumOverTime => new_rollup_sum_over_time,
-        RollupFunction::Sum2OverTime => new_rollup_sum2_over_time,
-        RollupFunction::TFirstOverTime => new_rollup_tfirst_over_time,
-        RollupFunction::Timestamp => new_rollup_timestamp,
-        RollupFunction::TimestampWithName => new_rollup_timestamp_with_name,
-        RollupFunction::TLastChangeOverTime => new_rollup_tlast_change_over_time,
-        RollupFunction::TLastOverTime => new_rollup_tlast_over_time,
-        RollupFunction::TMaxOverTime => new_rollup_tmax_over_time,
-        RollupFunction::TMinOverTime => new_rollup_tmin_over_time,
-        RollupFunction::ZScoreOverTime => new_rollup_zscore_over_time,
+        AbsentOverTime => new_rollup_absent_over_time,
+        AggrOverTime => new_rollup_aggr_over_time,
+        AscentOverTime => new_rollup_ascent_over_time,
+        AvgOverTime => new_rollup_avg_over_time,
+        Changes => new_rollup_changes,
+        ChangesPrometheus => new_rollup_changes_prometheus,
+        CountEqOverTime => new_rollup_count_eq,
+        CountGtOverTime => new_rollup_count_gt,
+        CountLeOverTime => new_rollup_count_le,
+        CountNeOverTime => new_rollup_count_ne,
+        CountOverTime => new_rollup_count_over_time,
+        DecreasesOverTime => new_rollup_decreases_over_time,
+        DefaultRollup => new_rollup_default,
+        Delta => new_rollup_delta,
+        DeltaPrometheus => new_rollup_delta_prometheus,
+        Deriv => new_rollup_deriv,
+        DerivFast => new_rollup_deriv_fast,
+        DescentOverTime => new_rollup_descent_over_time,
+        DistinctOverTime => new_rollup_distinct_over_time,
+        DurationOverTime => new_rollup_duration_over_time,
+        FirstOverTime => new_rollup_first_over_time,
+        GeomeanOverTime => new_rollup_geomean_over_time,
+        HistogramOverTime => new_rollup_histogram_over_time,
+        HoeffdingBoundLower => new_rollup_hoeffding_bound_lower,
+        HoeffdingBoundUpper => new_rollup_hoeffding_bound_upper,
+        HoltWinters => new_rollup_holt_winters,
+        IDelta => new_rollup_idelta,
+        IDeriv => new_rollup_ideriv,
+        Increase => new_rollup_increase,
+        IncreasePrometheus => new_rollup_delta_prometheus,
+        IncreasePure => new_rollup_increase_pure,
+        IncreasesOverTime => new_rollup_increases_over_time,
+        Integrate => new_rollup_integrate,
+        IRate => new_rollup_irate,
+        Lag => new_rollup_lag,
+        LastOverTime => new_rollup_last_over_time,
+        Lifetime => new_rollup_lifetime,
+        MadOverTime => new_rollup_mad_over_time,
+        MaxOverTime => new_rollup_max_over_time,
+        MedianOverTime => new_rollup_median_over_time,
+        MinOverTime => new_rollup_min_over_time,
+        ModeOverTime => new_rollup_mode_over_time,
+        PredictLinear => new_rollup_predict_linear,
+        PresentOverTime => new_rollup_present_over_time,
+        QuantileOverTime => new_rollup_quantile,
+        QuantilesOverTime => new_rollup_quantiles,
+        RangeOverTime => new_rollup_range_over_time,
+        Rate => new_rollup_rate,
+        RateOverSum => new_rollup_rate_over_sum,
+        Resets => new_rollup_resets,
+        Rollup => new_rollup,
+        RollupCandlestick => new_rollup_candlestick,
+        RollupDelta => new_rollup_delta,
+        RollupDeriv => new_rollup_deriv,
+        RollupIncrease => new_rollup_increase,
+        RollupRate => new_rollup_rate,
+        RollupScrapeInterval => new_rollup_scrape_interval_fake,
+        ScrapeInterval => new_rollup_scrape_interval,
+        ShareGtOverTime => new_rollup_share_gt,
+        ShareLeOverTime => new_rollup_share_le,
+        StaleSamplesOverTime => new_rollup_stale_samples_over_time,
+        StddevOverTime => new_rollup_stddev_over_time,
+        StdvarOverTime => new_rollup_stdvar_over_time,
+        SumOverTime => new_rollup_sum_over_time,
+        Sum2OverTime => new_rollup_sum2_over_time,
+        TFirstOverTime => new_rollup_tfirst_over_time,
+        Timestamp => new_rollup_timestamp,
+        TimestampWithName => new_rollup_timestamp_with_name,
+        TLastChangeOverTime => new_rollup_tlast_change_over_time,
+        TLastOverTime => new_rollup_tlast_over_time,
+        TMaxOverTime => new_rollup_tmax_over_time,
+        TMinOverTime => new_rollup_tmin_over_time,
+        ZScoreOverTime => new_rollup_zscore_over_time,
     };
 
     return imp;
@@ -408,8 +409,7 @@ fn get_rollup_aggr_funcs_impl(fe: &FunctionExpr) -> RuntimeResult<Vec<RollupFunc
             },
             _ => {
                 let msg = format!(
-                    "{} cannot be passed here; expecting quoted aggregate function name",
-                    arg
+                    "{arg} cannot be passed here; expecting quoted aggregate function name",
                 );
                 return Err(RuntimeError::General(msg));
             }
@@ -441,15 +441,11 @@ fn get_rollup_tag(expr: &Expr) -> RuntimeResult<Option<&String>> {
             Ok(Some(se))
         } else {
             Err(RuntimeError::ArgumentError(format!(
-                "unexpected rollup tag value {}; wanted min, max or avg",
-                arg
+                "unexpected rollup tag value {arg}; wanted min, max or avg",
             )))
         }
     } else {
-        let msg = format!(
-            "BUG: unexpected expression; want FunctionExpr; got {};",
-            expr
-        );
+        let msg = format!("BUG: unexpected expression; want FunctionExpr; got {expr};");
         Err(RuntimeError::ArgumentError(msg))
     };
 }
@@ -614,8 +610,7 @@ pub(crate) fn get_rollup_configs<'a>(
             match get_rollup_aggr_funcs(expr) {
                 Err(_) => {
                     return Err(RuntimeError::ArgumentError(format!(
-                        "invalid args to {}",
-                        expr
+                        "invalid args to {expr}"
                     )))
                 }
                 Ok(funcs) => {
@@ -994,7 +989,7 @@ fn get_max_prev_interval(scrape_interval: i64) -> i64 {
 
 pub(super) fn remove_counter_resets(values: &mut [f64]) {
     // There is no need in handling NaNs here, since they are impossible
-    // on values from vmstorage.
+    // on values from storage.
     if values.is_empty() {
         return;
     }
@@ -1039,7 +1034,7 @@ pub(super) fn delta_values(values: &mut [f64]) {
 
 pub(super) fn deriv_values(values: &mut [f64], timestamps: &[Timestamp]) {
     // There is no need in handling NaNs here, since they are impossible
-    // on values from vmstorage.
+    // on values from storage.
     if values.is_empty() {
         return;
     }
@@ -1205,7 +1200,7 @@ fn new_rollup_duration_over_time(args: &Vec<QueryValue>) -> RuntimeResult<Rollup
             t_prev = *t
         }
 
-        (d_sum as f64 / 1000_f64) as f64
+        d_sum as f64 / 1000_f64
     });
 
     Ok(RollupHandlerEnum::General(f))
@@ -1339,13 +1334,13 @@ fn new_rollup_quantiles(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEn
 
     let mut phis = Vec::with_capacity(cap);
     // todo: smallvec ??
-    let mut phi_strs: Vec<String> = Vec::with_capacity(cap);
+    let mut phi_labels: Vec<String> = Vec::with_capacity(cap);
 
     for arg in args.iter().skip(1) {
         // unwrap should be safe, since parameters types are checked before calling the function
         let v = get_scalar_param_value(&arg, "quantiles", "phi").unwrap();
         phis.push(v);
-        phi_strs.push(format!("{}", v));
+        phi_labels.push(format!("{}", v));
     }
 
     let f: Box<dyn RollupFn<Output = f64>> = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
@@ -1364,7 +1359,7 @@ fn new_rollup_quantiles(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEn
         let idx = rfa.idx;
         let tsm = rfa.tsm.as_ref().unwrap();
         let mut wrapped = tsm.borrow_mut();
-        for (phi_str, quantile) in phi_strs.iter().zip(qs.iter()) {
+        for (phi_str, quantile) in phi_labels.iter().zip(qs.iter()) {
             let ts = wrapped.get_or_create_timeseries(&phi_label, phi_str);
             ts.values[idx] = *quantile;
         }
@@ -1602,12 +1597,8 @@ pub(super) fn rollup_rate_over_sum(rfa: &mut RollupFuncArg) -> f64 {
         // Assume that the value didn't change since rfa.prev_value.
         return 0.0;
     }
-    let mut dt = rfa.window;
-    if !rfa.prev_value.is_nan() {
-        dt = timestamps[timestamps.len() - 1] - rfa.prev_timestamp
-    }
-    let sum = rfa.values.iter().fold(0.0, |r, x| r + *x);
-    return sum / (dt / rfa.window) as f64;
+    let sum: f64 = rfa.values.iter().sum();
+    return sum / (rfa.window as f64 / 1e3_f64);
 }
 
 pub(super) fn rollup_range(rfa: &mut RollupFuncArg) -> f64 {
@@ -1672,7 +1663,7 @@ pub(super) fn rollup_stale_samples(rfa: &mut RollupFuncArg) -> f64 {
 }
 
 pub(super) fn rollup_stddev(rfa: &mut RollupFuncArg) -> f64 {
-    stdvar(&rfa.values)
+    stddev(&rfa.values)
 }
 
 pub(super) fn rollup_stdvar(rfa: &mut RollupFuncArg) -> f64 {
@@ -1886,14 +1877,14 @@ pub(super) fn rollup_ideriv(rfa: &mut RollupFuncArg) -> f64 {
             // So just return NAN
             return NAN;
         }
-        return (values[0] as f64 - rfa.prev_value as f64)
+        return (values[0] - rfa.prev_value)
             / ((timestamps[0] - rfa.prev_timestamp) as f64 / 1e3_f64);
     }
     let v_end = values[values.len() - 1];
     let t_end = timestamps[timestamps.len() - 1];
 
-    let values = &values[0..values.len() - 1];
-    let mut timestamps = &timestamps[0..count - 1];
+    let values = &values[0..count - 1];
+    let mut timestamps = &timestamps[0..timestamps.len() - 1];
 
     // Skip data points with duplicate timestamps.
     while timestamps.len() > 0 && timestamps[timestamps.len() - 1] >= t_end {
@@ -1945,8 +1936,8 @@ pub(super) fn rollup_lag(rfa: &mut RollupFuncArg) -> f64 {
     return (rfa.curr_timestamp - rfa.timestamps[count - 1]) as f64 / 1e3_f64;
 }
 
+/// Calculate the average interval between data points.
 pub(super) fn rollup_scrape_interval(rfa: &mut RollupFuncArg) -> f64 {
-    // Calculate the average interval between data points.
     let count = rfa.timestamps.len();
     if rfa.prev_value.is_nan() {
         if count < 2 {
@@ -2088,7 +2079,7 @@ fn get_candlestick_values(rfa: &mut RollupFuncArg) -> &[f64] {
         }
     }
 
-    return &rfa.values[0..i as usize];
+    return &rfa.values[0..i];
 }
 
 fn get_first_value_for_candlestick(rfa: &mut RollupFuncArg) -> f64 {
@@ -2262,14 +2253,13 @@ pub(super) fn rollup_default(rfa: &mut RollupFuncArg) -> f64 {
 }
 
 pub(super) fn rollup_last(rfa: &mut RollupFuncArg) -> f64 {
-    let values = &rfa.values;
-    if values.is_empty() {
+    if rfa.values.is_empty() {
         // do not take into account rfa.prev_value, since it may lead
         // to inconsistent results comparing to Prometheus on broken time series
         // with irregular data points.
         return NAN;
     }
-    return *values.last().unwrap();
+    *rfa.values.last().unwrap()
 }
 
 pub(super) fn rollup_distinct(rfa: &mut RollupFuncArg) -> f64 {

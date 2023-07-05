@@ -11,7 +11,7 @@ pub use transform::*;
 
 use crate::ast::Expr;
 use crate::common::ValueType;
-use crate::parser::{ParseError, ParseResult, validate_function_args};
+use crate::parser::{validate_function_args, ParseError, ParseResult};
 
 mod aggregate;
 mod rollup;
@@ -96,7 +96,6 @@ impl BuiltinFunction {
     }
 
     pub fn validate_args(&self, args: &[Expr]) -> ParseResult<()> {
-        self.validate_arg_count(&self.name(), args.len())?;
         validate_function_args(self, args)
     }
 

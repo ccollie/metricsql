@@ -35,9 +35,8 @@ mod tests {
     #[test]
     fn single_test() {
         // another("-1 ^ 0.5", "-1");
-        // another(r#"m{foo="bar"}"#, r#"m{foo="bar"}"#);
         // assert_invalid(r#""foo" + bar"#);
-        another("with () x", "x");
+        another("with (a=foo, y=bar, f(a)= a+a+y) f(x)", "(x * 2) + bar");
     }
 
     #[test]

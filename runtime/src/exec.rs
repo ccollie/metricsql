@@ -150,7 +150,7 @@ pub fn exec(
     if n < 100 {
         for r in result.iter_mut() {
             for v in r.values.iter_mut() {
-                *v = round_to_decimal_digits(*v, n);
+                *v = round_to_decimal_digits(*v, n as i16);
             }
         }
     }

@@ -136,7 +136,7 @@ pub(super) fn merge_selectors(dst: &mut MetricExpr, src: &MetricExpr) {
     dst.sort_filters();
 }
 
-pub(super) fn expand_with_selector_expression(
+fn expand_with_selector_expression(
     symbols: &SymbolProviderRef,
     was: &Vec<WithArgExpr>,
     me: InterpolatedSelector,
@@ -268,7 +268,7 @@ fn get_expr_as_string(expr: &Expr) -> ParseResult<String> {
     }
 }
 
-pub(super) fn expand_metric_expression(
+fn expand_metric_expression(
     symbols: &SymbolProviderRef,
     was: &Vec<WithArgExpr>,
     me: MetricExpr,
@@ -371,7 +371,7 @@ fn expand_rollup(
     Ok(Expr::Rollup(re))
 }
 
-pub(super) fn expand_string_expr(
+fn expand_string_expr(
     symbols: &SymbolProviderRef,
     was: &Vec<WithArgExpr>,
     se: &StringExpr,
@@ -499,7 +499,7 @@ fn expand_modifier_args(
     Ok(m.iter().map(|x| x.to_string()).collect::<Vec<String>>())
 }
 
-pub(super) fn get_with_arg_expr<'a>(
+fn get_with_arg_expr<'a>(
     symbols: &'a SymbolProviderRef,
     was: &'a [WithArgExpr],
     name: &str,

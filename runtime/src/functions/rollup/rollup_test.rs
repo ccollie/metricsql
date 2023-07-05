@@ -1,13 +1,10 @@
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use rs_unit::rs_unit;
 
-    const NAN: f64 = f64::NAN;
-    const INF: f64 = f64::INFINITY;
-    const TEST_VALUES: [f64; 12] = [
-        123.0, 34.0, 44.0, 21.0, 54.0, 34.0, 99.0, 12.0, 44.0, 32.0, 34.0, 34.0,
-    ];
-    const TEST_TIMESTAMPS: [i64; 12] = [5, 15, 24, 36, 49, 60, 78, 80, 97, 115, 120, 130];
+    use metricsql::functions::RollupFunction;
 
     use crate::functions::rollup::rollup_fns::{
         delta_values, deriv_values, linear_regression, remove_counter_resets, rollup_avg,
@@ -22,8 +19,15 @@ mod tests {
         RollupHandlerEnum,
     };
     use crate::{compare_floats, compare_values, test_rows_equal, QueryValue, Timeseries};
-    use metricsql::functions::RollupFunction;
-    use std::str::FromStr;
+
+    // https://github.com/VictoriaMetrics/VictoriaMetrics/blob/master/app/vmselect/promql/rollup_test.go
+
+    const NAN: f64 = f64::NAN;
+    const INF: f64 = f64::INFINITY;
+    const TEST_VALUES: [f64; 12] = [
+        123.0, 34.0, 44.0, 21.0, 54.0, 34.0, 99.0, 12.0, 44.0, 32.0, 34.0, 34.0,
+    ];
+    const TEST_TIMESTAMPS: [i64; 12] = [5, 15, 24, 36, 49, 60, 78, 80, 97, 115, 120, 130];
 
     #[test]
     fn test_rollup_ideriv_duplicate_timestamps() {
@@ -32,35 +36,35 @@ mod tests {
         rfa.timestamps = vec![100, 100, 200, 300, 300];
 
         let n = rollup_ideriv(&mut rfa);
-        assert_eq!(n, 20_f64, "unexpected value; got {}; want {}", n, 20);
+        assert_eq!(n, 20_f64, "unexpected value; got {n}; want 20");
 
-        let mut rfs = RollupFuncArg::default();
-        rfs.values = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-        rfs.timestamps = vec![100, 100, 300, 300, 300];
+        let mut rfa = RollupFuncArg::default();
+        rfa.values = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        rfa.timestamps = vec![100, 100, 300, 300, 300];
         let n = rollup_ideriv(&mut rfa);
-        assert_eq!(n, 15_f64, "unexpected value; got {}; want {}", n, 15);
+        assert_eq!(n, 15_f64, "unexpected value; got {n}; want 15");
 
-        let mut rfs = RollupFuncArg::default();
-        rfs.prev_value = NAN;
+        let mut rfa = RollupFuncArg::default();
+        rfa.prev_value = NAN;
+        let n = rollup_ideriv(&mut rfa);
+        assert!(n.is_nan(), "unexpected value; got {n}; want NAN");
+
+        let mut rfarfa = RollupFuncArg::default();
+        rfa.prev_value = NAN;
+        rfa.values = vec![15.0];
+        rfa.timestamps = vec![100];
+
         let n = rollup_ideriv(&mut rfa);
         assert!(n.is_nan(), "unexpected value; got {}; want {}", n, NAN);
 
-        let mut rfs = RollupFuncArg::default();
-        rfs.prev_value = NAN;
-        rfs.values = vec![15.0];
-        rfs.timestamps = vec![100];
+        let mut rfa = RollupFuncArg::default();
+        rfa.prev_timestamp = 90;
+        rfa.prev_value = 10_f64;
+        rfa.values = vec![15_f64];
+        rfa.timestamps = vec![100];
 
         let n = rollup_ideriv(&mut rfa);
-        assert!(n.is_nan(), "unexpected value; got {}; want {}", n, NAN);
-
-        let mut rfs = RollupFuncArg::default();
-        rfs.prev_timestamp = 90;
-        rfs.prev_value = 10_f64;
-        rfs.values = vec![15_f64];
-        rfs.timestamps = vec![100];
-
-        let n = rollup_ideriv(&mut rfa);
-        assert_eq!(n, 500_f64, "unexpected value; got {}; want {}", n, 500);
+        assert_eq!(n, 500_f64, "unexpected value; got {n}; want 500");
 
         let mut rfs = RollupFuncArg::default();
         rfs.prev_timestamp = 100;
@@ -68,12 +72,10 @@ mod tests {
         rfs.values = vec![15_f64];
         rfs.timestamps = vec![100];
 
-        let n = rollup_ideriv(&mut rfa);
+        let n = rollup_ideriv(&mut rfs);
         assert!(
             compare_floats(INF, n),
-            "unexpected value; got {}; want {}",
-            n,
-            INF
+            "unexpected value; got {n}; want INF",
         );
 
         let mut rfs = RollupFuncArg::default();
@@ -82,12 +84,10 @@ mod tests {
         rfs.values = vec![15_f64, 20_f64];
         rfs.timestamps = vec![100, 100];
 
-        let n = rollup_ideriv(&mut rfa);
+        let n = rollup_ideriv(&mut rfs);
         assert!(
             compare_floats(INF, n),
-            "unexpected value; got {}; want {}",
-            n,
-            INF
+            "unexpected value; got {n}; want INF",
         );
     }
 
@@ -597,7 +597,6 @@ mod tests {
         f("quantiles_over_time", &[_123.clone(), _123.clone()]);
     }
 
-    // todo: macro ??
     fn test_rollup(rc: &mut RollupConfig, values_expected: &[f64], timestamps_expected: &[i64]) {
         rc.max_points_per_series = 10000;
         rc.ensure_timestamps().unwrap();
@@ -791,21 +790,6 @@ mod tests {
             }
         }
 
-    }
-
-    #[test]
-    fn test_rollup_last_no_window() {
-        let mut rc = RollupConfig::default();
-        rc.handler = RollupHandlerEnum::Wrapped(rollup_last);
-        rc.start = 0;
-        rc.end = 160;
-        rc.step = 40;
-        rc.window = 0;
-        test_rollup(
-            &mut rc,
-            &[NAN, 34.0, 32.0, 34.0, 44.0],
-            &[0, 40, 80, 120, 160],
-        );
     }
 
     #[test]

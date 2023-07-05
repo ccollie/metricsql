@@ -1,7 +1,5 @@
-use std::borrow::Borrow;
-
-use crate::{QueryValue, Timeseries};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
+use crate::{QueryValue, Timeseries};
 
 #[inline]
 pub(crate) fn get_single_timeseries(series: &Vec<Timeseries>) -> RuntimeResult<&Timeseries> {

@@ -6,15 +6,15 @@ mod tests {
     use chrono_tz::Tz;
     use rs_unit::rs_unit;
 
-    use crate::{Context, Deadline, EvalConfig, exec, MetricName, QueryResult, test_results_equal};
     use crate::functions::transform::get_timezone_offset;
+    use crate::{exec, test_results_equal, Context, Deadline, EvalConfig, MetricName, QueryResult};
 
     const NAN: f64 = f64::NAN;
     const INF: f64 = f64::INFINITY;
 
-    const START: i64 = 1000000 as i64;
-    const END: i64 = 2000000 as i64;
-    const STEP: i64 = 200000 as i64;
+    const START: i64 = 1000000_i64;
+    const END: i64 = 2000000_i64;
+    const STEP: i64 = 200000_i64;
 
     const TIMESTAMPS_EXPECTED: [i64; 6] = [1000000, 1200000, 1400000, 1600000, 1800000, 2000000];
 
@@ -611,20 +611,14 @@ mod tests {
 
     #[test]
     fn now() {
-        assert_result_eq("round(now()/now())", &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
+        assert_result_eq("round(now()/now())", &[1.0; 6]);
     }
 
     #[test]
     fn pi() {
         let q = "pi()";
-        let r = make_result(&[
-            3.141592653589793,
-            3.141592653589793,
-            3.141592653589793,
-            3.141592653589793,
-            3.141592653589793,
-            3.141592653589793,
-        ]);
+        let expected = [std::f64::consts::PI; 6];
+        let r = make_result(&expected);
         test_query(q, vec![r]);
     }
 
@@ -866,7 +860,7 @@ mod tests {
     }
 
     #[test]
-    fn label_set_metricname() {
+    fn label_set_metric_name() {
         let q = r#"label_set(time(), "__name__", "foobar")"#;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric_name.set_metric_group("foobar");
@@ -874,7 +868,7 @@ mod tests {
     }
 
     #[test]
-    fn label_set_metricname_tag() {
+    fn label_set_metric_name_tag() {
         let q = r##"label_set(
         label_set(time(), "#__name__", "foobar"),
         "tagname", "tagvalue"
@@ -886,7 +880,7 @@ mod tests {
     }
 
     #[test]
-    fn label_set_del_metricname() {
+    fn label_set_del_metric_name() {
         let q = r##"label_set(
         label_set(time(), "#__name__", "foobar"),
         "__name__", ""
@@ -1160,7 +1154,7 @@ mod tests {
     }
 
     #[test]
-    fn label_keep_metricname() {
+    fn label_keep_metric_name() {
         let q = r##"label_keep(label_set(time(), "#foo", "bar", "__name__", "xxx", "q", "we"), "nonexisting-label", "__name__")"##;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric_name.set_metric_group("xxx");
@@ -1262,7 +1256,7 @@ mod tests {
     }
 
     #[test]
-    fn label_replace_with_nonexisting_src() {
+    fn label_replace_with_non_existing_src() {
         let q = r##"label_replace(time(), "#__name__", "x${1}y", "foo", ".+")"##;
         let r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         test_query(q, vec![r]);

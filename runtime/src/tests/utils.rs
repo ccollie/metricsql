@@ -1,5 +1,6 @@
-use crate::{MetricName, QueryResult, RuntimeResult, Timeseries};
 use itertools::izip;
+
+use crate::{MetricName, QueryResult, RuntimeResult, Timeseries};
 
 pub fn test_results_equal(result: &Vec<QueryResult>, result_expected: &Vec<QueryResult>) {
     assert_eq!(
@@ -150,12 +151,12 @@ pub fn compare_values(vs1: &[f64], vs2: &[f64]) -> RuntimeResult<()> {
         vs2.len()
     );
     for (v1, v2) in vs1.iter().zip(vs2.iter()) {
-        assert!(
-            compare_floats(*v2, *v1),
-            "unexpected value; got {}; want {}",
-            v1,
-            v2
-        );
+        if v1.is_nan() {
+            assert!(v2.is_nan(), "unexpected value; got {v1}; want {v2}",);
+            continue;
+        }
+        let eps = (v1 - v2).abs();
+        assert!(eps <= EPSILON, "unexpected value; got {v1}; want {v2}",);
     }
     Ok(())
 }
