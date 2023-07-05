@@ -212,8 +212,7 @@ fn ensure_single_timeseries(
     for ts in tss.iter() {
         if !merge_non_overlapping_timeseries(&mut acc, &ts) {
             let msg = format!(
-                "duplicate time series on the {} side of {} {}: {} and {}",
-                side,
+                "duplicate time series on the {side} side of {} {}: {} and {}",
                 be.op,
                 group_modifier_to_string(&be.group_modifier),
                 acc.metric_name,

@@ -2,8 +2,8 @@ extern crate datafusion;
 extern crate snafu;
 extern crate tokio;
 
-mod sql;
-mod utils;
+mod binaries;
 mod error;
+mod sql;
 mod udf;
-
+mod utils;

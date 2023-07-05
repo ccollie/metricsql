@@ -5,9 +5,8 @@ use metricsql::common::{LabelFilter, Value};
 use metricsql::functions::{BuiltinFunction, Signature, Volatility};
 use metricsql::prelude::{BinaryOpKind, ValueType};
 
-use crate::{QueryValue, TimestampTrait};
 use crate::context::Context;
-use crate::eval::aggregate::{AggregateEvaluator, create_aggr_evaluator};
+use crate::eval::aggregate::{create_aggr_evaluator, AggregateEvaluator};
 use crate::eval::binop_scalar_scalar::BinaryEvaluatorScalarScalar;
 use crate::eval::binop_scalar_vector::BinaryEvaluatorScalarVector;
 use crate::eval::binop_vector_scalar::BinaryEvaluatorVectorScalar;
@@ -20,6 +19,7 @@ use crate::eval::string::StringEvaluator;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::search::Deadline;
 use crate::types::{Timeseries, Timestamp};
+use crate::{QueryValue, TimestampTrait};
 
 use super::rollup::RollupEvaluator;
 use super::traits::{Evaluator, NullEvaluator};
@@ -513,12 +513,12 @@ pub fn get_timestamps(
 ) -> RuntimeResult<Vec<i64>> {
     // Sanity checks.
     if step <= 0 {
-        let msg = format!("Step must be bigger than 0; got {}", step);
+        let msg = format!("Step must be bigger than 0; got {step}");
         return Err(RuntimeError::from(msg));
     }
 
     if start > end {
-        let msg = format!("Start cannot exceed End; got {} vs {}", start, end);
+        let msg = format!("Start cannot exceed End; got {start} vs {end}");
         return Err(RuntimeError::from(msg));
     }
 

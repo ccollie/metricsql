@@ -158,18 +158,14 @@ fn expand_with_selector_expression(
 
     // Populate me.LabelFilters
     for lfe in me.matchers {
-        if lfe.value.is_empty() || lfe.is_metric_name_filter() {
+        if lfe.value.is_empty() || lfe.is_variable() {
             // Expand lfe.Label into vec<LabelFilter>.
             // we have something like: foo{commonFilters} and we want to expand it into
             // foo{bar="bax", job="trace"}
-            let label = if lfe.is_metric_name_filter() {
-                lfe.value.to_string()
-            } else {
-                lfe.label.clone()
-            };
+            let label = lfe.name();
             let wa = get_with_arg_expr(symbols, was, &label);
             if wa.is_none() {
-                let msg = format!("missing {} value inside {}", label, new_selector);
+                let msg = format!("missing {label} value inside {new_selector}");
                 return Err(ParseError::General(msg));
             }
             let e_new = expand_with_expr_ext(symbols, was, wa.unwrap(), vec![])?;

@@ -4,26 +4,26 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use regex::escape;
-use tracing::{field, Span, trace, trace_span};
+use tracing::{field, trace, trace_span, Span};
 
 use metricsql::common::{LabelFilter, Operator, Value, ValueType};
 use metricsql::functions::Volatility;
 use metricsql::prelude::*;
 
-use crate::{EvalConfig, QueryValue, Timeseries};
 use crate::context::Context;
-use crate::eval::{create_evaluator, eval_number, ExprEvaluator};
-use crate::eval::binop_handlers::{BinaryOpFuncArg, exec_binop};
+use crate::eval::binop_handlers::{exec_binop, BinaryOpFuncArg};
 use crate::eval::traits::Evaluator;
 use crate::eval::utils::series_len;
+use crate::eval::{create_evaluator, eval_number, ExprEvaluator};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::types::Tag;
+use crate::{EvalConfig, QueryValue, Timeseries};
 
 pub struct BinaryEvaluatorVectorVector {
     expr: BinaryExpr,
     lhs: Box<ExprEvaluator>,
     rhs: Box<ExprEvaluator>,
-    can_pushdown_filters: bool,
+    can_push_down_filters: bool,
     can_parallelize: bool,
     /// Determine if we should fetch right-side series at first, since it usually contains
     /// lower number of time series for `and` and `if` operator.
@@ -48,7 +48,7 @@ impl BinaryEvaluatorVectorVector {
             lhs,
             rhs,
             expr: expr.clone(), // todo: store as arc on parse result and clone Arc
-            can_pushdown_filters,
+            can_push_down_filters: can_pushdown_filters,
             can_parallelize,
             return_type,
             swap,
@@ -70,7 +70,7 @@ impl BinaryEvaluatorVectorVector {
             (&self.lhs, &self.rhs, &self.expr.left)
         };
 
-        if !self.can_pushdown_filters {
+        if !self.can_push_down_filters {
             // avoid multi-threading in simple case
             let op = self.expr.op.as_str();
             let span = trace_span!("execute left and right sides in parallel", op);

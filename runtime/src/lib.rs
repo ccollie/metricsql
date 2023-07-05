@@ -26,7 +26,7 @@ extern crate xxhash_rust;
 pub use active_queries::*;
 pub use cache::*;
 pub use context::*;
-pub use eval::{EvalConfig, get_timestamps};
+pub use eval::{get_timestamps, EvalConfig};
 pub use exec::*;
 pub use parser_cache::*;
 pub use query::*;
@@ -57,4 +57,3 @@ mod utils;
 mod exec_test;
 #[cfg(test)]
 mod tests;
-

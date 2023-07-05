@@ -1,14 +1,17 @@
-use crate::utils::{read_usize, write_usize};
-use crate::{MetricName, RuntimeError, RuntimeResult, Timeseries};
-use lib::error::Error;
-use lib::{marshal_var_i64, unmarshal_var_i64};
+use std::io::Write;
+use std::mem::size_of;
+use std::sync::Arc;
+
 use q_compress::data_types::NumberLike;
 use q_compress::errors::QCompressError;
 use q_compress::wrapped::{ChunkSpec, Compressor, Decompressor};
 use q_compress::CompressorConfig;
-use std::io::Write;
-use std::mem::size_of;
-use std::sync::Arc;
+
+use lib::error::Error;
+use lib::{marshal_var_i64, unmarshal_var_i64};
+
+use crate::utils::{read_usize, write_usize};
+use crate::{MetricName, RuntimeError, RuntimeResult, Timeseries};
 
 fn get_value_compressor(values: &[f64]) -> Compressor<f64> {
     Compressor::<f64>::from_config(q_compress::auto_compressor_config(
@@ -267,7 +270,7 @@ fn map_err(e: QCompressError) -> RuntimeError {
 }
 
 fn map_unmarshal_err(e: Error, what: &str) -> RuntimeError {
-    let msg = format!("error reading {}: {:?}", what, e);
+    let msg = format!("error reading {what}: {:?}", e);
     RuntimeError::SerializationError(msg)
 }
 

@@ -6,31 +6,31 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
 use rayon::prelude::IntoParallelRefIterator;
-use tracing::{field, Level, Span, span_enabled, trace_span};
+use tracing::{field, span_enabled, trace_span, Level, Span};
 
-use lib::{AtomicCounter, is_stale_nan, RelaxedU64Counter};
+use lib::{is_stale_nan, AtomicCounter, RelaxedU64Counter};
 use metricsql::ast::*;
 use metricsql::common::{Value, ValueType};
 use metricsql::functions::{RollupFunction, Volatility};
 
-use crate::{EvalConfig, get_timeseries, get_timestamps, MetricName, QueryValue};
-use crate::{Timeseries, Timestamp};
 use crate::cache::rollup_result_cache::merge_timeseries;
 use crate::context::Context;
-use crate::eval::{
-    align_start_end, create_evaluator, eval_number, ExprEvaluator,
-    validate_max_points_per_timeseries,
-};
 use crate::eval::arg_list::ArgList;
+use crate::eval::{
+    align_start_end, create_evaluator, eval_number, validate_max_points_per_timeseries,
+    ExprEvaluator,
+};
 use crate::functions::aggregate::{Handler, IncrementalAggrFuncContext};
 use crate::functions::rollup::{
-    eval_prefuncs, get_rollup_configs, get_rollup_function_factory, MAX_SILENCE_INTERVAL,
-    rollup_func_keeps_metric_name, RollupConfig, RollupHandlerEnum, RollupHandlerFactory, TimeseriesMap,
+    eval_prefuncs, get_rollup_configs, get_rollup_function_factory, rollup_func_keeps_metric_name,
+    RollupConfig, RollupHandlerEnum, RollupHandlerFactory, TimeseriesMap, MAX_SILENCE_INTERVAL,
 };
 use crate::functions::transform::get_absent_timeseries;
 use crate::rayon::iter::ParallelIterator;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::search::{join_tag_filter_list, QueryResult, QueryResults, SearchQuery};
+use crate::{get_timeseries, get_timestamps, EvalConfig, MetricName, QueryValue};
+use crate::{Timeseries, Timestamp};
 
 use super::traits::Evaluator;
 
@@ -587,11 +587,10 @@ impl RollupEvaluator {
             ),
         }?;
 
-        merge_timeseries(tss_cached, tss, start, ec)
-            .and_then(|res| {
-                ctx.rollup_result_cache.put(ec, &self.expr, window, &res)?;
-                Ok(res)
-            })
+        merge_timeseries(tss_cached, tss, start, ec).and_then(|res| {
+            ctx.rollup_result_cache.put(ec, &self.expr, window, &res)?;
+            Ok(res)
+        })
     }
 
     fn reserve_rollup_memory(
@@ -870,8 +869,8 @@ pub(super) fn compile_rollup_func_args(
     let rollup_arg_idx = fe.arg_idx_for_optimization;
     if rollup_arg_idx.is_none() {
         let err = format!(
-            "Bug: can't find source arg for rollup function {}. Expr: {}",
-            fe.name, fe
+            "Bug: can't find source arg for rollup function {}. Expr: {fe}",
+            fe.name
         );
         return Err(RuntimeError::ArgumentError(err));
     }

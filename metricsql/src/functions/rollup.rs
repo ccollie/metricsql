@@ -59,15 +59,15 @@ pub enum RollupFunction {
     QuantileOverTime,
     QuantilesOverTime,
     RangeOverTime,
-    Rate, // + rollupFuncsRemoveCounterResets
+    Rate,
     RateOverSum,
     Resets,
     Rollup,
     RollupCandlestick,
     RollupDelta,
     RollupDeriv,
-    RollupIncrease, // + rollupFuncsRemoveCounterResets
-    RollupRate,     // + rollupFuncsRemoveCounterResets
+    RollupIncrease,
+    RollupRate,
     RollupScrapeInterval,
     ScrapeInterval,
     ShareGtOverTime,

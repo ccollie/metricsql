@@ -155,7 +155,7 @@ pub fn exec(
         }
     }
 
-    info!("sorted = {}, round_digits = {}", may_sort, ec.round_digits);
+    info!("sorted = {may_sort}, round_digits = {}", ec.round_digits);
 
     Ok(result)
 }
