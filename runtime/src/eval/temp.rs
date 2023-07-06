@@ -1,13 +1,15 @@
 use std::sync::Arc;
 use std::task::Context;
+use std::time::Duration;
 
 /// The minimum number of points per timeseries for enabling time rounding.
 /// This improves cache hit ratio for frequently requested queries over
 /// big time ranges.
 const MIN_TIMESERIES_POINTS_FOR_TIME_ROUNDING: i32 = 50;
 
+type Value = QueryValue;
 
-// QueryStats contains various stats for the query.
+/// QueryStats contains various stats for the query.
 pub struct QueryStats {
     // series_fetched contains the number of series fetched from storage during the query evaluation.
     pub series_fetched: usize
@@ -23,13 +25,13 @@ impl QueryStats {
 pub fn eval_expr(ctx: &Arc<Context>, ec: &EvalConfig, e: &Expr) -> RuntimeResult<Vec<Timeseries>>  {
     let is_tracing = ctx.trace_enabled();
     if is_tracing {
-        let query = string(e.AppendString(None));
+        let query = e.to_string();
         query = bytesutil.LimitStringLen(query, 300);
-        let may_cache = ec.mayCache();
+        let may_cache = ec.may_cache();
         trace_span!("eval: query={query}, timeRange={}, step={}, may_cache={may_cache}",
-            ec.timeRangeString(), ec.step)
+            ec.time_range_string(), ec.step)
     }
-    let rv = eval_expr_internal(qt, ec, e)?;
+    let rv = eval_expr_internal(ctx, ec, e)?;
     if is_tracing {
         let series_count = rv.len();
         let mut points_per_series = 0;
@@ -37,7 +39,7 @@ pub fn eval_expr(ctx: &Arc<Context>, ec: &EvalConfig, e: &Expr) -> RuntimeResult
             points_per_series = rv[0].len();
         }
         let points_count = series_count * points_per_series;
-        qt.Donef("series={series_count}, points={points_count}, points_per_series={}", points_per_series)
+        trace!("series={series_count}, points={points_count}, points_per_series={points_per_series}")
     }
     return Ok(rv)
 }
@@ -54,27 +56,26 @@ fn eval_expr_internal(ctx: &Arc<Context>, ec: &Arc<EvalConfig>, e: Expr) -> Runt
             eval_string(ec, se)
         }
         Expr::MetricExpression(me) => {
-            let re = RollupExpr{
-                Expr: me,
-            };
-            eval_rollup_func(ctx, ec, "default_rollup", rollupDefault, e, re, None)
+            let re = RollupExpr::default_rollup(me);
+            eval_rollup_func(ctx, ec, "default_rollup", rollup_default, e, re, None)
                 .map_error(|err| format!("cannot evaluate {}: {}", me, err))?;
         },
         Expr::RollupExpr(re) => {
-            eval_rollup_func(ctx, ec, "default_rollup", rollupDefault, e, re, None)
+            eval_rollup_func(ctx, ec, "default_rollup", rollup_default, e, re, None)
                 .map_error(|err| format!("cannot evaluate {}: {}", me, err))?;
         }
         Expr::FuncExpr(fe) => {
+            let name = fe.name();
             let nrf = get_rollup_func(fe.name);
             if nrf == None {
                 trace_span!("transform {}()", fe.Name);
-                let rv = eval_transform_func(qtChild, ec, fe)?;
+                let rv = eval_transform_func(ctx, ec, fe)?;
                 qtChild.Donef("series={}", rv.len());
                 Ok(rv)
             };
             let (args, re) = eval_rollup_func_args(qt, ec, &fe)?;
             let rf = nrf(args)?;
-            eval_rollup_func(ctx, ec, fe.Name, rf, e, re, None)
+            eval_rollup_func(ctx, ec, name, rf, e, re, None)
                 .map_error(|err| format!("cannot evaluate {}: {}", fe, err))
         }
         Expr::AggrFuncExpr(ae) => {
@@ -95,6 +96,24 @@ fn eval_expr_internal(ctx: &Arc<Context>, ec: &Arc<EvalConfig>, e: Expr) -> Runt
     }
 }
 
+async fn binop_ex(be: BinaryExpr) -> RuntimeResult<QueryValue> {
+    match (&be.left, &be.right) {
+        (Value::Float(left), Value::Float(right)) => {
+            let value = binaries::scalar_binary_operations(token, left, right)?;
+            Ok(Value::Float(value))
+        }
+        (Value::Vector(left), Value::Vector(right)) => {
+            binaries::vector_bin_op(expr, &left, &right)?
+        }
+        (Value::Vector(left), Value::Float(right)) => {
+            binaries::vector_scalar_bin_op(expr, &left, right).await?
+        }
+        (Value::Float(left), Value::Vector(right)) => {
+            binaries::vector_scalar_bin_op(expr, &right, left).await?
+        }
+    }
+}
+
 fn eval_transform_func(ctx: &Arc<Context>, ec: &EvalConfig, fe: &FuncExpr) -> RuntimeResult<Vec<Timeseries>> {
     let (tf, args) = match fe.function {
         BuiltInFunction::Transform(func) => {
@@ -110,7 +129,7 @@ fn eval_transform_func(ctx: &Arc<Context>, ec: &EvalConfig, fe: &FuncExpr) -> Ru
             (handler, args)
         }
         _ => {
-            Err(RuntimeError::InvalidFunction(format!("unknown func {}", fe.function.name())))
+            Err(RuntimeError::InvalidFunction(format!("unknown func {}", fe.name())))
         }
     }?;
     let tfa = TransformFuncArg{
@@ -127,7 +146,7 @@ fn eval_aggr_func(ctx: &Arc<Context>, ec: &Arc<EvalConfig>, ae: &AggrFuncExpr) -
         if let Some(fe) = fe {
             // There is an optimized path for calculating AggrFuncExpr over rollupFunc over MetricExpr.
             // The optimized path saves RAM for aggregates over big number of time series.
-            let (args, re) = evalRollupFuncArgs(qt, ec, fe)?;
+            let (args, re) = eval_rollup_func_args(ctx, ec, fe)?;
             let rf = nrf(args);
             let iafc = newIncrementalAggrFuncContext(ae, callbacks);
             return eval_rollup_func(ctx, ec, fe.Name, rf, ae, re, iafc)
@@ -148,7 +167,7 @@ fn map_err_handler(e: Error) -> RuntimeError
 }
 
 fn eval_binary_op(ctx: &Arc<Context>, ec: &Arc<EvalConfig>, be: &BinaryOpExpr) -> RuntimeResult<Vec<Timeseries>> {
-    let bf = getBinaryOpFunc(be.Op);
+    let bf = get_binary_op_func(be.op);
 
     let (tss_left, tss_right) = match be.op {
         Operator::And | Operator::If => {
@@ -156,10 +175,10 @@ fn eval_binary_op(ctx: &Arc<Context>, ec: &Arc<EvalConfig>, be: &BinaryOpExpr) -
             // lower number of time series for `and` and `if` operator.
             // This should produce more specific label filters for the left side of the query.
             // This, in turn, should reduce the time to select series for the left side of the query.
-            exec_binary_op_args(ec, &be.right, &be.left, be)?;
+            exec_binary_op_args(ctx, ec, &be.right, &be.left, be)?;
         }
         _ => {
-            exec_binary_op_args(ec, be.left, be.right, be)?;
+            exec_binary_op_args(ctx, ec, be.left, be.right, be)?;
         }
     };
 
@@ -180,16 +199,16 @@ fn exec_binary_op_args(ctx: &Arc<Context>,
                        be: &BinaryOpExpr) -> RuntimeResult((Vec<Timeseries>, Vec<Timeseries>)) {
 
     if !canPushdownCommonFilters(be) {
-        // Execute expr_first and expr_second in parallel, since it is impossible to pushdown common filters
+        // Execute expr_first and expr_second in parallel, since it is impossible to push-down common filters
         // from expr_first to expr_second.
         // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/2886
         trace_span!("execute left and right sides of {} in parallel", be.op);
 
         trace!("expr1");
-        let tss_first = evalExpr(qtFirst, ec, expr_first);
+        let tss_first = eval_expr(ctx, ec, expr_first);
 
-        qt.NewChild("expr2");
-        let tss_second = eval_expr(qtSecond, ec, expr_second);
+        trace!("expr2");
+        let tss_second = eval_expr(ctx, ec, expr_second);
 
         wg.Wait();
         return Ok((tss_first, tss_second))
@@ -234,20 +253,20 @@ fn exec_binary_op_args(ctx: &Arc<Context>,
 }
 
 
-fn try_get_arg_rollup_func_with_metric_expr(ae: &AggrFuncExpr) ( * metricsql.FuncExpr, newRollupFunc) {
-if ae.args != 1 {
-return None, None
-}
-let e = ae.args[0];
+fn try_get_arg_rollup_func_with_metric_expr(ae: &AggrFuncExpr) -> RuntimeResult<(FuncExpr, newRollupFunc)> {
+    if ae.args != 1 {
+        return None, None
+    }
+    let e = ae.args[0];
 // Make sure e contains one of the following:
 // - metricExpr
 // - metricExpr[d]
 // - rollupFunc(metricExpr)
 // - rollupFunc(metricExpr[d])
 
-match e {
-Expr::MetricExpr(me) => {
-if me.is_empty() {
+    match e {
+        Expr::MetricExpr(me) => {
+            if me.is_empty() {
 return None, None
 }
 let fe = FuncExpr::default_rollup(me);
@@ -255,55 +274,59 @@ let nrf = getRollupFunc(fe.name);
 return (fe, nrf)
 }
 Expr::RollupExpr(re) => {
-if me, ok: = re.Expr.( * MetricExpr); ! ok | | me.IsEmpty() | | re.ForSubquery() {
-return None, None
-}
-// e = metricExpr[d]
-let fe = FuncExpr::default_rollup(re);
-let nrf = getRollupFunc(fe.name);
-return (fe, nrf)
+    if me, ok: = re.Expr.(*MetricExpr);
+    !ok | | me.is_empty() | | re.ForSubquery()
+    {
+        return None, None
+    }
+    // e = metricExpr[d]
+    let fe = FuncExpr::default_rollup(re);
+    let nrf = get_rollup_func(fe.name);
+    return (fe, nrf)
 }
 }
 if re, ok: = e.( *metricsql.RollupExpr); ok {
-if me, ok: = re.Expr.( * metricsql.MetricExpr); ! ok || me.IsEmpty() | | re.ForSubquery() {
-return None, None
-}
+        if me,
+        ok: = re.Expr.( * metricsql.MetricExpr); ! ok | | me.is_empty() | | re.ForSubquery() {
+        return None, None
+        }
 // e = metricExpr[d]
-fe: = & metricsql.FuncExpr{
-Name: "default_rollup",
-Args: []metricsql.Expr{re},
+        fe: = & metricsql.FuncExpr{
+        Name: "default_rollup",
+        Args: []metricsql.Expr{re,
+    },
 }
 nrf: = getRollupFunc(fe.Name)
-return fe, nrf
-}
-fe, ok := e.(*metricsql.FuncExpr)
-if !ok {
-return None, None
-}
-let nrf = getRollupFunc(fe.name)?;
-let rollupArgIdx := metricsql.GetRollupArgIdx(fe)
-if rollupArgIdx >= fe.args.len() {
-// Incorrect number of args for rollup func.
-return None, None
-}
-arg := fe.Args[rollupArgIdx]
-if me, ok := arg.(*metricsql.MetricExpr); ok {
-if me.IsEmpty() {
-return None, None
-}
-// e = rollupFunc(metricExpr)
-return FuncExpr{
-Name: fe.Name,
-Args: []metricsql.Expr{me},
-}, nrf
-}
-if re, ok := arg.(*metricsql.RollupExpr); ok {
-if me, ok := re.Expr.(*metricsql.MetricExpr); !ok || me.IsEmpty() || re.ForSubquery() {
-return None, None
-}
-// e = rollupFunc(metricExpr[d])
-return fe, nrf
-}
+    return fe, nrf
+    }
+    fe, ok: = e.( * metricsql.FuncExpr)
+    if ! ok {
+    return None, None
+    }
+    let nrf = get_rollup_func(fe.name) ?;
+    let rollupArgIdx = metricsql.GetRollupArgIdx(fe)
+    if rollupArgIdx > = fe.args.len() {
+    // Incorrect number of args for rollup func.
+    return None, None
+    }
+    arg: = fe.args[rollupArgIdx]
+    if me, ok: = arg.( * metricsql.MetricExpr); ok {
+    if me.is_empty() {
+    return None, None
+    }
+    // e = rollupFunc(metricExpr)
+    return FuncExpr{
+    Name: fe.Name,
+    Args: []metricsql.Expr{me},
+    }, nrf
+    }
+    if re, ok: = arg.( *metricsql.RollupExpr); ok {
+    if me, ok: = re.Expr.( * metricsql.MetricExpr); ! ok || me.is_empty() | | re.ForSubquery() {
+    return None, None
+    }
+    // e = rollupFunc(metricExpr[d])
+    return fe, nrf
+    }
 return None, None
 }
 
@@ -405,8 +428,8 @@ fn get_rollup_expr_arg(arg: &Expr) -> RuntimeResult<RollupExpr> {
 // - aggrFunc(rollupFunc(m)) if iafc isn't None
 fn eval_rollup_func(
     ctx: &Arc<Context>,
-    ec: &Arc<EvalConfig>,
-    func_name: &String,
+    ec: &EvalConfig,
+    func_name: &str,
     rf: RollupFunc,
     expr: &Expr,
     re: &RollupExpr,
@@ -435,17 +458,16 @@ fn eval_rollup_func(
 
 pub fn eval_rollup_func_without_at(
     ctx: &Arc<Context>,
-    ec: &Arc<EvalConfig>,
+    ec: &EvalConfig,
     func: RollupFunction,
     rf: RollupFunc,
     expr: &Expr,
     re: &RollupExpr,
     iafc: &IncrementalAggrFuncContext) -> RuntimeResult<Vec<Timeseries>> {
-
     let ec_new = ec;
     let mut offset: i64 = 0;
-    if let Some(ofs) = re.Offset {
-        offset = ofs.duration(ec.step);
+    if let Some(ofs) = re.offset {
+        offset = ofs.value(ec.step);
         ec_new = copyEvalConfig(ec_new);
         ec_new.start -= offset;
         ec_new.end -= offset;
@@ -470,13 +492,13 @@ pub fn eval_rollup_func_without_at(
         }
         _=> {
             if iafc.is_some() {
-                logger.Panicf("BUG: iafc must be None for rollup {} over subquery {}", funcName, re)
+                logger.Panicf("BUG: iafc must be None for rollup {} over subquery {}", func, re)
             }
             eval_rollup_func_with_subquery(ctx, ec_new, funcName, rf, expr, re)?;
         }
     };
 
-    if funcName == "absent_over_time" {
+    if func == RollupFunction::AbsentOverTime {
         rvs = aggregate_absent_over_time(ec, re.expr, rvs)
     }
 
@@ -493,6 +515,15 @@ pub fn eval_rollup_func_without_at(
     }
 
     Ok(rvs)
+}
+
+#[inline]
+fn get_duration_value(duration: &Option<DurationExpr>, step: i64) -> i64 {
+    if let Some(ofs) = duration {
+        ofs.value(step)
+    } else {
+        0
+    }
 }
 
 // aggregate_absent_over_time collapses tss to a single time series with 1 and nan values.
@@ -531,13 +562,13 @@ fn eval_rollup_func_with_subquery(
     }
     let window = re.window.duration(ec.step);
 
-    let ec_sq = copyEvalConfig(ec);
+    let ec_sq = ec.clone();
     ec_sq.start -= window + maxSilenceInterval + step;
     ec_sq.end += step;
     ec_sq.step = step;
     ec_sq.max_points_per_series = *maxPointsSubqueryPerTimeseries;
 
-    validatemax_points_per_series(ec_sq.start, ec_sq.end, ec_sq.step, ec_sq.max_points_per_series)
+    validate_max_points_per_series(ec_sq.start, ec_sq.end, ec_sq.step, ec_sq.max_points_per_series)
         .map_err(|err| format!("cannot evaluate subquery: {}", err))?;
 
     // unconditionally align start and end args to step for subquery as Prometheus does.
@@ -558,22 +589,22 @@ fn eval_rollup_func_with_subquery(
     let keep_metric_names = getKeepMetricNames(expr);
     let tsw = getTimeseriesByWorkerID();
     let series_by_worker_id = tsw.byWorkerID;
-    do_parallel(tss_sq, fn(tsSQ: &Timeseries, values &[f64], timestamps &[i64], workerID: usize) -> (&[f64], &[i64]) {
-        let (values, timestamps) = removeNanValues(values, timestamps, tsSQ.values, tsSQ.Timestamps);
+    do_parallel(tss_sq, |tsSQ: &Timeseries, values: &mut [f64], timestamps: &mut [i64], worker_id: u64| -> RuntimeResult<(&[f64], &[i64])> {
+        removeNanValues(values, timestamps, tsSQ.values, tsSQ.Timestamps);
         preFunc(values, timestamps);
-    for rc in rcs {
-        if let Some(tsm) = newTimeseriesMap(func_name, keep_metric_names,
-                                            sharedTimestamps: shared_timestamps, &tsSQ.metric_name) {
-            let samples_scanned = rc.DoTimeseriesMap(tsm, values, timestamps);
-            samples_scanned_total, samples_scanned)
-            series_by_worker_id[workerID].tss = tsm.AppendTimeseriesTo(series_by_worker_id[workerID].tss)
-            continue
+        for rc in rcs {
+            if let Some(tsm) = newTimeseriesMap(func_name, keep_metric_names,
+                                                sharedTimestamps: shared_timestamps, &tsSQ.metric_name) {
+                let samples_scanned = rc.DoTimeseriesMap(tsm, values, timestamps);
+                samples_scanned_total, samples_scanned)
+                series_by_worker_id[worker_id].tss = tsm.AppendTimeseriesTo(series_by_worker_id[worker_id].tss)
+                continue
+            }
+            let ts = Timeseries::default();
+            samplesScanned = do_rollup_for_timeseries(func_name, keep_metric_names, rc, &ts, &tsSQ.metric_name, values, timestamps, shared_timestamps)
+            atomic.AddUi64(&samples_scanned_total, samplesScanned)
+            series_by_worker_id[worker_id].tss = append(series_by_worker_id[worker_id].tss, &ts)
         }
-        let ts = Timeseries::default();
-        samplesScanned = do_rollup_for_timeseries(func_name, keep_metric_names, rc, &ts, &tsSQ.metric_name, values, timestamps, shared_timestamps)
-atomic.AddUi64(&samples_scanned_total, samplesScanned)
-series_by_worker_id[workerID].tss = append(series_by_worker_id[workerID].tss, &ts)
-}
 return values, timestamps
 })
 tss := make([]*timeseries, 0, len(tss_sq)*len(rcs))
@@ -583,51 +614,23 @@ tss = append(tss,
 }
 putTimeseriesByWorkerID(tsw)
 
-rowsScannedPerQuery.Update(float64(samples_scanned_total))
-qt.Printf("rollup {}() over {} series returned by subquery: series={}, samplesScanned={}", funcName, len(tss_sq), len(tss), samples_scanned_total)
-return tss, None
+    rowsScannedPerQuery.Update(float64(samples_scanned_total))
+    qt.Printf("rollup {}() over {} series returned by subquery: series={}, samplesScanned={}",
+              funcName, len(tss_sq), len(tss), samples_scanned_total)
+    return tss, None
 }
-
-
-fn do_parallel(tss: Vec<Timeseries>,
-               f: fn(ts: &Timeseries, values: &[f64], timestamps: &[i64], worker_id: usize) -> (&[f64], &[i64])) {
-    let mut workers = netstorage.MaxWorkers();
-    if workers > tss.len() {
-        workers = tss.len();
-    }
-    let series_per_worker = (tss.len() + workers - 1) / workers;
-    let work_chs = Vec::with_capacity(workers);
-    for i in work_chs {
-        work_chs[i] = make(chan * timeseries, series_per_worker)
-    }
-    for (i, ts) in tss.iter().enumerate() {
-        let idx = i % work_chs.len();
-        work_chs[idx] <- ts
-    }
-
-    for i = 0; i < workers; i++ {
-        go func(workerID uint) {
-            var tmpValues &[f64]
-            var tmpTimestamps &[i64]
-            for ts := range work_chs[workerID] {
-                tmpValues, tmpTimestamps = f(ts, tmpValues, tmpTimestamps, workerID)
-            }
-        }(uint(i))
-    }
-}
-
 
 fn eval_rollup_func_with_metric_expr(
-     ctx: &Arc<Context>,
-     ec: &Arc<EvalConfig>,
-     func_name: string,
-     rf: RollupFunc,
-     expr: &Expr,
-     me: &MetricExpr,
-     iafc: &IncrementalAggrFuncContext,
-     window_expr: &DurationExpr) -> RuntimeResult<QueryValue> {
+    ctx: &Arc<Context>,
+    ec: &EvalConfig,
+    func_name: string,
+    rf: RollupFunc,
+    expr: &Expr,
+    me: &MetricExpr,
+    iafc: &IncrementalAggrFuncContext,
+    window_expr: &DurationExpr) -> RuntimeResult<QueryValue> {
     let rollup_memory_size: i64;
-    let window = window_expr.Duration(ec.step);
+    let window = window_expr.value(ec.step);
     if ctx.tracing_enabled {
         trace_span!("rollup {func_name}(): timeRange={}, step={}, window={window}",
                          ec.time_range_string(), ec.step);
@@ -707,29 +710,32 @@ let tfss = join_tag_filterss(tfs, ec.EnforcedTagFilterss);
             timeseries_len = rss_len
         }
     }
-let mut rollup_points = mulNoOverflow(points_per_timeseries, timeseries_len * rcs.len());
-rollup_memory_size = sumNoOverflow(mulNoOverflow(i64(rss_len), 1000), mulNoOverflow(rollup_points, 16))
-if maxMemory := i64(logQueryMemoryUsage.N); maxMemory > 0 && rollup_memory_size > maxMemory {
-requestURI = ec.GetRequestURI()
-logger.Warnf("remoteAddr={}, requestURI={}: the {} requires {} bytes of memory for processing; "+
-"logging this query, since it exceeds the -search.logQueryMemoryUsage={}; "+
-"the query selects {} time series and generates {} points across all the time series; try reducing the number of selected time series",
-ec.QuotedRemoteAddr, requestURI, expr,
-        rollupMemorySize: rollup_memory_size, maxMemory,
-        timeseriesLen: timeseries_len*len(rcs),
-        rollupPoints: rollup_points)
+    let mut rollup_points = mulNoOverflow(points_per_timeseries, timeseries_len * rcs.len());
+    let rollup_memory_size = sumNoOverflow(mulNoOverflow(i64(rss_len), 1000), mulNoOverflow(rollup_points, 16))
+    let max_memory = i64(logQueryMemoryUsage.N);
+    if max_memory > 0 && rollup_memory_size > max_memory {
+        requestURI = ec.GetRequestURI()
+        logger.Warnf("remoteAddr={}, requestURI={}: the {} requires {} bytes of memory for processing; " +
+                         "logging this query, since it exceeds the -search.logQueryMemoryUsage={}; " +
+                         "the query selects {} time series and generates {} points across all the time series; try reducing the number of selected time series",
+                     ec.QuotedRemoteAddr, requestURI, expr,
+                     rollupMemorySize: rollup_memory_size, max_memory,
+                     timeseriesLen: timeseries_len * len(rcs),
+                     rollupPoints: rollup_points)
+    }
+    if max_memory: = i64(maxMemoryPerQuery.N);
+    max_memory > 0 && rollup_memory_size > maxMemory {
+        rss.cancel()
+        return None,
+        &UserReadableError{
+        Err: fmt.Errorf("not enough memory for processing {}, which returns {} data points across {} time series with {} points in each time series " +
+                            "according to -search.maxMemoryPerQuery={}; requested memory: {} bytes; " +
+                            "possible solutions are: reducing the number of matching time series; increasing `step` query arg (step=%gs); " +
+                            "increasing -search.maxMemoryPerQuery",
+                        expr, rollup_points, timeseries_len * len(rcs), points_per_timeseries, max_memory, rollup_memory_size, float64(ec.step) / 1e3),
+    }
 }
-if maxMemory := i64(maxMemoryPerQuery.N); maxMemory > 0 && rollup_memory_size > maxMemory {
-rss.cancel()
-return None, &UserReadableError{
-Err: fmt.Errorf("not enough memory for processing {}, which returns {} data points across {} time series with {} points in each time series "+
-"according to -search.maxMemoryPerQuery={}; requested memory: {} bytes; "+
-"possible solutions are: reducing the number of matching time series; increasing `step` query arg (step=%gs); "+
-"increasing -search.maxMemoryPerQuery",
-                expr, rollup_points, timeseries_len *len(rcs), points_per_timeseries, maxMemory, rollup_memory_size, float64(ec.step)/1e3),
-}
-}
-rml := getRollupMemoryLimiter()
+    rml : = getRollupMemoryLimiter()
 if !rml.Get(u64(rollupMemorySize)) {
     rss.cancel()
 return None, &UserReadableError{
@@ -769,34 +775,41 @@ fn eval_rollup_with_incremental_aggregate(
         iafc.ae.Name, rss.Len(), rcs);
 
     let mut samples_scanned_total: u64;
-    rss.run_parallel(qt, fn(rs: &Result, workerID: usize) -> RuntimeResult<()>) -> RuntimeResult<()> {
+    rss.run_parallel(qt, |rs: &Result, worker_id: usize| -> RuntimeResult<()> {
         (rs.values, rs.timestamps) = dropStaleNaNs(funcName, rs.values, rs.timestamps);
         pre_func(rs.values, rs.timestamps);
 
-    let ts = getTimeseries();
-    for rc in rcs {
-        if let Some(tsm) = newTimeseriesMap(funcName, keepMetricNames, sharedTimestamps, &rs.metric_name) {
-            let samplesScanned = rc.DoTimeseriesMap(tsm, rs.values, rs.timestamps)
-            for ts in tsm.m {
-                iafc.updateTimeseries(ts, workerID)
+        let ts = getTimeseries();
+        for rc in rcs {
+            if let Some(tsm) = newTimeseriesMap(funcName, keepMetricNames, sharedTimestamps, &rs.metric_name) {
+                let samples_scanned = rc.do_timeseries_map(tsm, rs.values, rs.timestamps);
+                for ts in tsm.m {
+                    iafc.updateTimeseries(ts, worker_id)
+                }
+                atomic.AddUi64(&samplesScannedTotal, samples_scanned);
+                continue
             }
-            atomic.AddUi64(&samplesScannedTotal, samplesScanned)
-            continue
+            ts.reset();
+            let samples_scanned = doRollupForTimeseries(
+                funcName,
+                keepMetricNames,
+                rc,
+                ts,
+                &rs.metric_name,
+                rs.values,
+                rs.timestamps,
+                sharedTimestamps);
+            atomic.AddUi64(&samplesScannedTotal, samples_scanned);
+            iafc.updateTimeseries(ts, worker_id)
         }
-        ts.reset();
-        let samplesScanned = doRollupForTimeseries(funcName, keepMetricNames, rc, ts, &rs.metric_name, rs.Values, rs.Timestamps, sharedTimestamps)
-        atomic.AddUi64(&samplesScannedTotal, samplesScanned)
-        iafc.updateTimeseries(ts, workerID)
-    }
-    return None
-})
+        return None
+    });
 let tss = iafc.finalizeTimeseries();
-rowsScannedPerQuery.Update(float64(samples_scanned_total))
-qt.Printf("series after aggregation with {}(): {}; samplesScanned={}",
-          iafc.ae.name,
-          tss.len(),
-          samples_scanned_total);
-return tss
+    rowsScannedPerQuery.Update(float64(samples_scanned_total))
+    qt.Printf("series after aggregation with {}(): {}; samplesScanned={samples_scanned_total}",
+              iafc.ae.name,
+              tss.len());
+    return tss
 }
 
 fn eval_rollup_no_incremental_aggregate(
@@ -807,39 +820,37 @@ fn eval_rollup_no_incremental_aggregate(
     rcs: &Vec<RollupConfig>,
     pre_func: PreFunc,
     shared_timestamps: Arc<Vec<i64>>) -> RuntimeResult<Vec<Timeseries>> {
-
     trace_span!("rollup {}() over {} series; rollupConfigs={}", func_name, rss.len(), rcs);
 
     let mut samples_scanned_total: usize;
     let tsw = getTimeseriesByWorkerID();
     let series_by_worker_id = tsw.byWorkerID;
     let series_len = rss.len();
-    err := rss.RunParallel(qt, func(rs *netstorage.Result, workerID uint) error {
-        (rs.values, rs.timestamps) = dropStaleNaNs(func_name, rs.values, rs.timestamps);
-        preFunc: pre_func(rs.values, rs.timestamps)
-    for rc in rcs {
-        if let Some(tsm) = newTimeseriesMap(funcName, keepMetricNames, sharedTimestamps, &rs.metric_name) {
-            let samplesScanned = rc.doTimeseriesMap(tsm, rs.values, rs.timestamps)
-            atomic.AddUi64(&samplesScannedTotal, samplesScanned)
-            seriesByWorkerID[workerID].tss = tsm.AppendTimeseriesTo(seriesByWorkerID[workerID].tss)
-            continue
+    rss.run_parallel(qt, |rs: &Result, worker_id: usize| -> RuntimeResult<()>  {
+        dropStaleNaNs(func_name, rs.values, rs.timestamps);
+        pre_func(rs.values, rs.timestamps);
+        for rc in rcs {
+            if let Some(tsm) = newTimeseriesMap(funcName, keepMetricNames, sharedTimestamps, &rs.metric_name) {
+                let samples_scanned = rc.doTimeseriesMap(tsm, rs.values, rs.timestamps);
+                atomic.AddUi64(&samplesScannedTotal, samples_scanned);
+                seriesByWorkerID[worker_id].tss = tsm.AppendTimeseriesTo(seriesByWorkerID[worker_id].tss)
+                continue
+            }
+            let mut ts = Timeseries::default();
+            let samples_scanned = doRollupForTimeseries(funcName, keepMetricNames, rc, &ts, &rs.metric_name, rs.Values, rs.Timestamps, sharedTimestamps)
+            atomic.AddUi64(&samplesScannedTotal, samples_scanned);
+            seriesByWorkerID[worker_id].tss = append(seriesByWorkerID[worker_id].tss, &ts)
         }
-        let mut ts = Timeseries::default();
-        let samplesScanned = doRollupForTimeseries(funcName, keepMetricNames, rc, &ts, &rs.metric_name, rs.Values, rs.Timestamps, sharedTimestamps)
-        atomic.AddUi64(&samplesScannedTotal, samplesScanned)
-        seriesByWorkerID[workerID].tss = append(seriesByWorkerID[workerID].tss, &ts)
+        return None
+    });
+    let mut tss = Vec::with_capacity(series_len * rcs.len());
+    for i in 0..seriesByWorkerID {
+        tss.push(series_by_worker_id[i].tss...)
     }
-    return None
-})
-let mut tss := make([]*timeseries, 0, series_len *len(rcs))
-for i := range seriesByWorkerID {
-tss = append(tss,
-        series_by_worker_id[i].tss...)
-}
 
-rowsScannedPerQuery.Update(float64(samples_scanned_total));
-qt.Printf("samplesScanned={}", samples_scanned_total);
-return tss
+    rowsScannedPerQuery.Update(float64(samples_scanned_total));
+    qt.Printf("samplesScanned={}", samples_scanned_total);
+    return tss
 }
 
 fn do_rollup_for_timeseries(func_name: &str,

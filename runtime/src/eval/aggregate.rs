@@ -1,6 +1,7 @@
 use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::Arc;
+
 use tracing::{field, trace_span, Span};
 
 use metricsql::ast::{AggregationExpr, Expr, FunctionExpr, MetricExpr};
@@ -113,7 +114,8 @@ impl Value for AggregateEvaluator {
     }
 }
 
-fn try_get_arg_rollup_func_with_metric_expr(
+// todo: move to metricsql crate - optimize phase
+pub(super) fn try_get_arg_rollup_func_with_metric_expr(
     ae: &AggregationExpr,
 ) -> RuntimeResult<Option<FunctionExpr>> {
     if !ae.can_incrementally_eval {

@@ -3,28 +3,37 @@ use std::collections::{HashMap, HashSet};
 use datafusion::error::{DataFusionError, Result};
 use rayon::prelude::*;
 
-use ahash::{HashMap, HashSet};
 use metricsql::ast::BinaryExpr;
 use metricsql::binaryop::get_scalar_binop_handler;
 use metricsql::common::{Operator, VectorMatchCardinality};
 use runtime::signature::{get_signatures_set_by_modifier, Signature};
 use runtime::{QueryValue, Timeseries};
 
+type Value = QueryValue;
+
 /// Implement the operation between a vector and a float.
 ///
 /// https://prometheus.io/docs/prometheus/latest/querying/operators/#arithmetic-binary-operators
 pub async fn vector_scalar_bin_op(
     expr: &BinaryExpr,
-    left: &[InstantValue],
-    right: f64,
+    left: &mut [Timeseries],
+    scalar: f64,
+    keep_metric_names: bool,
 ) -> Result<QueryValue> {
     let is_comparison_operator = expr.op.is_comparison_operator();
 
     let handler = get_scalar_binop_handler(expr.op, is_comparison_operator);
-    let output: Vec<InstantValue> = left
-        .par_iter()
-        .map(|instant| {
-            let value = handler(instant.sample.value, right);
+    let output: Vec<Timeseries> = left
+        .par_iter_mut()
+        .map(|ts| {
+            if !keep_metric_names {
+                ts.metric_name.reset_metric_group();
+            }
+
+            // todo: Rayon if over a threshold length
+            for value in ts.values.iter_mut() {
+                *value = handler(*value, scalar);
+            }
             (instant, value)
         })
         .filter(|(_instant, value)| {
@@ -47,7 +56,7 @@ pub async fn vector_scalar_bin_op(
 /// of vector1 and additionally all elements of vector2 which do not have matching label sets in vector1.
 ///
 /// https://prometheus.io/docs/prometheus/latest/querying/operators/#logical-set-binary-operators
-fn vector_or(expr: &BinaryExpr, left: &[InstantValue], right: &[InstantValue]) -> Result<Value> {
+fn vector_or(expr: &BinaryExpr, left: &[Timeseries], right: &[Timeseries]) -> Result<Value> {
     if expr.modifier.as_ref().unwrap().card != VectorMatchCardinality::ManyToMany {
         return Err(DataFusionError::NotImplemented(
             "set operations must only use many-to-many matching".to_string(),
@@ -62,16 +71,15 @@ fn vector_or(expr: &BinaryExpr, left: &[InstantValue], right: &[InstantValue]) -
         return Ok(Value::Vector(left.to_vec()));
     }
 
-    let lhs_sig: HashSet<Signature> = left
-        .par_iter()
-        .map(|item| Signature::with_labels(&item.labels))
-        .collect();
+    let group_modifier = expr.modifier.as_ref().unwrap().group_modifier;
+    // Generate all the signatures from the right hand.
+    let lhs_sig: HashSet<Signature> = get_signatures_set_by_modifier(left, group_modifier);
 
     // Add all right-hand side elements which have not been added from the left-hand side.
-    let right_instants: Vec<InstantValue> = right
+    let right_instants: Vec<Timeseries> = right
         .par_iter()
         .filter(|item| {
-            let right_sig = Signature::with_labels(&item.labels);
+            let right_sig = item.metric_name.signature_by_group_modifier(group_modifier);
             !lhs_sig.contains(&right_sig)
         })
         .map(|item| item.clone())
@@ -110,7 +118,7 @@ fn vector_unless(
     let output: Vec<Timeseries> = left
         .par_iter()
         .filter(|item| {
-            let left_sig = item.metric_name.signature_by_group_modifier(modifier);
+            let left_sig = item.metric_name.signature_by_group_modifier(group_modifier);
             !rhs_sig.contains(&left_sig)
         })
         .map(|val| val.clone())
@@ -123,7 +131,7 @@ fn vector_unless(
 /// Other elements are dropped. The metric name and values are carried over from the left-hand side vector.
 ///
 /// https://prometheus.io/docs/prometheus/latest/querying/operators/#logical-set-binary-operators
-fn vector_and(expr: &BinaryExpr, left: &[InstantValue], right: &[InstantValue]) -> Result<Value> {
+fn vector_and(expr: &BinaryExpr, left: &[Timeseries], right: &[Timeseries]) -> Result<Value> {
     if expr.modifier.as_ref().unwrap().card != VectorMatchCardinality::ManyToMany {
         return Err(DataFusionError::NotImplemented(
             "set operations must only use many-to-many matching".to_string(),
@@ -141,10 +149,10 @@ fn vector_and(expr: &BinaryExpr, left: &[InstantValue], right: &[InstantValue]) 
     let rhs_sig: HashSet<Signature> = get_signatures_set_by_modifier(right, group_modifier);
 
     // Now include all the matching ones from the right
-    let output: Vec<InstantValue> = left
+    let output: Vec<Timeseries> = left
         .par_iter()
         .filter(|item| {
-            let left_sig = signature(&item.labels);
+            let left_sig = item.metric_name.signature_by_group_modifier(group_modifier);
             rhs_sig.contains(&left_sig)
         })
         .map(|val| val.clone())
@@ -155,22 +163,21 @@ fn vector_and(expr: &BinaryExpr, left: &[InstantValue], right: &[InstantValue]) 
 
 fn vector_arithmetic_operators(
     expr: &BinaryExpr,
-    left: &[InstantValue],
-    right: &[InstantValue],
+    left: &[Timeseries],
+    right: &[Timeseries],
 ) -> Result<Value> {
     let operator = expr.op;
     // Get the hash for the labels on the right
-    let rhs_sig: HashMap<Signature, Sample> = right
-        .par_iter()
-        .map(|item| (signature(&item.labels), item.sample))
-        .collect();
+    let group_modifier = &expr.group_modifier;
+
+    let rhs_sig: HashSet<Signature> = get_signatures_set_by_modifier(right, group_modifier);
 
     let handler = get_scalar_binop_handler(operator, false);
     // Iterate over left and pick up the corresponding instance from rhs
-    let output: Vec<InstantValue> = left
+    let output: Vec<Timeseries> = left
         .par_iter()
         .flat_map(|item| {
-            let left_sig = signature(&item.labels);
+            let left_sig = item.metric_name.signature_by_group_modifier(group_modifier);
             if rhs_sig.contains_key(&left_sig) {
                 Some((item, rhs_sig.get(&left_sig).unwrap()))
             } else {
@@ -213,8 +220,8 @@ fn vector_arithmetic_operators(
 /// modifier is provided.
 pub fn vector_bin_op(
     expr: &BinaryExpr,
-    left: &[InstantValue],
-    right: &[InstantValue],
+    left: &[Timeseries],
+    right: &[Timeseries],
 ) -> Result<QueryValue> {
     match expr.op {
         Operator::And => vector_and(expr, left, right),

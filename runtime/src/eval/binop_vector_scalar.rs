@@ -1,11 +1,14 @@
-use crate::eval::{create_evaluator, Evaluator, ExprEvaluator};
-use crate::{Context, EvalConfig, QueryValue, RuntimeError, RuntimeResult};
+use std::sync::Arc;
+
+use tracing::{field, trace_span, Span};
+
 use metricsql::ast::Expr;
 use metricsql::binaryop::{get_scalar_binop_handler, BinopFunc};
 use metricsql::common::{Operator, Value, ValueType};
 use metricsql::functions::Volatility;
-use std::sync::Arc;
-use tracing::{field, trace_span, Span};
+
+use crate::eval::{create_evaluator, Evaluator, ExprEvaluator};
+use crate::{Context, EvalConfig, QueryValue, RuntimeError, RuntimeResult};
 
 /// BinaryEvaluatorScalarVector
 /// Ex:
@@ -74,6 +77,8 @@ impl Evaluator for BinaryEvaluatorVectorScalar {
                     if !self.keep_metric_names {
                         v.metric_name.reset_metric_group();
                     }
+
+                    // todo: Rayon if over a threshold length
                     for value in v.values.iter_mut() {
                         *value = (self.handler)(*value, scalar);
                     }

@@ -8,6 +8,7 @@ use std::sync::Arc;
 use lib::{get_float64s, is_stale_nan};
 use metricsql::ast::{Expr, FunctionExpr};
 use metricsql::functions::{can_adjust_window, RollupFunction};
+use metricsql::prelude::BuiltinFunction;
 
 use crate::eval::validate_max_points_per_timeseries;
 use crate::functions::rollup::types::RollupHandlerFactory;
@@ -380,7 +381,12 @@ pub(crate) fn get_rollup_aggr_funcs(expr: &Expr) -> RuntimeResult<Vec<RollupFunc
 }
 
 fn get_rollup_aggr_funcs_impl(fe: &FunctionExpr) -> RuntimeResult<Vec<RollupFunction>> {
-    if fe.name != "aggr_over_time" {
+    let is_aggr_over_time = match fe.function {
+        BuiltinFunction::Rollup(rf) => rf == RollupFunction::AggrOverTime,
+        _ => false,
+    };
+
+    if !is_aggr_over_time {
         let msg = format!(
             "BUG: unexpected function name: `{}`; want `aggr_over_time`",
             fe.name
@@ -391,8 +397,7 @@ fn get_rollup_aggr_funcs_impl(fe: &FunctionExpr) -> RuntimeResult<Vec<RollupFunc
     let arg_len = fe.args.len();
     if arg_len < 2 {
         let msg = format!(
-            "unexpected number of args to aggr_over_time(); got {}; want at least {}",
-            arg_len, 2
+            "unexpected number of args to aggr_over_time(); got {arg_len}; want at least 2"
         );
         return Err(RuntimeError::from(msg));
     }
@@ -402,7 +407,7 @@ fn get_rollup_aggr_funcs_impl(fe: &FunctionExpr) -> RuntimeResult<Vec<RollupFunc
         match arg.deref() {
             Expr::StringLiteral(name) => match get_rollup_func_by_name(&name) {
                 Err(_) => {
-                    let msg = format!("{} cannot be used in `aggr_over_time` function; expecting quoted aggregate function name", name);
+                    let msg = format!("{name} cannot be used in `aggr_over_time` function; expecting quoted aggregate function name");
                     return Err(RuntimeError::General(msg));
                 }
                 Ok(rf) => aggr_funcs.push(rf),
@@ -426,8 +431,8 @@ fn get_rollup_tag(expr: &Expr) -> RuntimeResult<Option<&String>> {
         }
         if fe.args.len() != 2 {
             let msg = format!(
-                "unexpected number of args for rollup function {}; got {:?}; want {}",
-                fe.name, fe.args, 2
+                "unexpected number of args for rollup function {}; got {:?}; want 2",
+                fe.name, fe.args
             );
             return Err(RuntimeError::General(msg));
         }
@@ -1513,7 +1518,7 @@ pub(super) fn rollup_tmax(rfa: &mut RollupFuncArg) -> f64 {
 
     let mut max_value = rfa.values[0];
     let mut max_timestamp = rfa.timestamps[0];
-    // todo: use zip to avoid bounds check
+
     for (v, ts) in rfa.values.iter().zip(rfa.timestamps.iter()) {
         // Get the last timestamp for the maximum value as most users expect.
         if *v >= max_value {
@@ -2239,7 +2244,7 @@ pub(super) fn rollup_first(rfa: &mut RollupFuncArg) -> f64 {
     return values[0];
 }
 
-pub(super) fn rollup_default(rfa: &mut RollupFuncArg) -> f64 {
+pub(crate) fn rollup_default(rfa: &mut RollupFuncArg) -> f64 {
     let values = &rfa.values;
     if values.is_empty() {
         // do not take into account rfa.prev_value, since it may lead

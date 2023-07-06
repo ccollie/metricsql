@@ -15,6 +15,10 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
+use datafusion::catalog::catalog::CatalogProvider;
+use datafusion::optimizer::utils::conjunction;
+use datafusion::parquet::format::MilliSeconds;
+use datafusion::prelude::JoinType;
 use datafusion::{
     arrow::{
         array::{Float64Array, Int64Array, StringArray},
@@ -23,17 +27,15 @@ use datafusion::{
     common::{OwnedTableReference, ScalarValue, SchemaReference, TableReference},
     datasource::{DefaultTableSource, TableProvider, TableType},
     error::{DataFusionError, Result},
-    logical_expr::{BinaryExpr, Expr as DfExpr, Extension, LogicalPlan, LogicalPlanBuilder, Operator},
-    prelude::{col, Column, lit, SessionContext},
+    logical_expr::{
+        BinaryExpr, Expr as DfExpr, Extension, LogicalPlan, LogicalPlanBuilder, Operator,
+    },
+    prelude::{col, lit, Column, SessionContext},
 };
-use datafusion::catalog::catalog::CatalogProvider;
-use datafusion::optimizer::utils::conjunction;
-use datafusion::parquet::format::MilliSeconds;
-use datafusion::prelude::JoinType;
 use futures::future::try_join_all;
 use snafu::{ensure, OptionExt, ResultExt};
 
-use metricsql::common::LabelFilterOp;
+use metricsql::common::{LabelFilterOp, MatchOp};
 use metricsql::prelude::MetricExpr;
 
 const DEFAULT_TIME_INDEX_COLUMN: &str = "time";
@@ -43,7 +45,6 @@ const DEFAULT_FIELD_COLUMN: &str = "value";
 
 /// Special modifier to project field columns under multi-field mode
 const FIELD_COLUMN_MATCHER: &str = "__field__";
-
 
 #[derive(Default, Debug, Clone)]
 struct PromPlannerContext {
@@ -106,11 +107,8 @@ impl SqlDataSource {
         for (ctx, schema, scan_stats) in ctxs {
             let selector = selector.clone();
             let task = tokio::task::spawn(async move {
-                self.selector_load_data_from_datafusion(ctx,
-                                                        schema,
-                                                        selector,
-                                                        start,
-                                                        end).await
+                self.selector_load_data_from_datafusion(ctx, schema, selector, start, end)
+                    .await
             });
             tasks.push(task);
             // update stats
@@ -200,7 +198,8 @@ impl SqlDataSource {
                     df_group = df_group.filter(col(mat.name.clone()).eq(lit(mat.value.clone())))?
                 }
                 MatchOp::NotEqual => {
-                    df_group = df_group.filter(col(mat.name.clone()).not_eq(lit(mat.value.clone())))?
+                    df_group =
+                        df_group.filter(col(mat.name.clone()).not_eq(lit(mat.value.clone())))?
                 }
                 MatchOp::Re(_re) => {
                     let regexp_match_udf =
@@ -210,10 +209,10 @@ impl SqlDataSource {
                     )?
                 }
                 MatchOp::NotRe(_re) => {
-                    let regexp_not_match_udf =
-                        crate::udf::regex_not_match_udf().clone();
+                    let regexp_not_match_udf = crate::udf::regex_not_match_udf().clone();
                     df_group = df_group.filter(
-                        regexp_not_match_udf.call(vec![col(mat.name.clone()), lit(mat.value.clone())]),
+                        regexp_not_match_udf
+                            .call(vec![col(mat.name.clone()), lit(mat.value.clone())]),
                     )?
                 }
             }
@@ -249,10 +248,7 @@ impl SqlDataSource {
                     let mut labels = Vec::with_capacity(batch.num_columns());
                     for (k, v) in batch.schema().fields().iter().zip(batch.columns()) {
                         let name = k.name();
-                        if name == timestamp_column
-                            || name == HASH_LABEL
-                            || name == VALUE_LABEL
-                        {
+                        if name == timestamp_column || name == HASH_LABEL || name == VALUE_LABEL {
                             continue;
                         }
                         let value = v.as_any().downcast_ref::<StringArray>().unwrap();
@@ -309,16 +305,10 @@ impl SqlDataSource {
         let range_ms = self.ctx.range.unwrap_or_default();
         let mut scan_filters = self.matchers_to_expr(label_matchers.clone())?;
         scan_filters.push(self.create_time_index_column_expr()?.gt_eq(DfExpr::Literal(
-            ScalarValue::TimestampMillisecond(
-                Some(self.ctx.start),
-                None,
-            ),
+            ScalarValue::TimestampMillisecond(Some(self.ctx.start), None),
         )));
         scan_filters.push(self.create_time_index_column_expr()?.lt_eq(DfExpr::Literal(
-            ScalarValue::TimestampMillisecond(
-                Some(self.ctx.end),
-                None,
-            ),
+            ScalarValue::TimestampMillisecond(Some(self.ctx.end), None),
         )));
 
         // make table scan with filter exprs
@@ -342,7 +332,7 @@ impl SqlDataSource {
                             return Err(ColumnNotFoundSnafu {
                                 col: matcher.value.clone(),
                             }
-                                .build());
+                            .build());
                         }
                     }
                     MatchOp::NotEqual => {
@@ -352,7 +342,7 @@ impl SqlDataSource {
                             return Err(ColumnNotFoundSnafu {
                                 col: matcher.value.clone(),
                             }
-                                .build());
+                            .build());
                         }
                     }
                     MatchOp::Re(regex) => {
@@ -584,8 +574,8 @@ impl SqlDataSource {
         input: LogicalPlan,
         name_to_expr: F,
     ) -> Result<LogicalPlan>
-        where
-            F: FnMut(&String) -> Result<DfExpr>,
+    where
+        F: FnMut(&String) -> Result<DfExpr>,
     {
         let non_field_columns_iter = self
             .ctx
@@ -637,8 +627,8 @@ impl SqlDataSource {
         input: LogicalPlan,
         mut name_to_expr: F,
     ) -> Result<LogicalPlan>
-        where
-            F: FnMut(&String) -> Result<DfExpr>,
+    where
+        F: FnMut(&String) -> Result<DfExpr>,
     {
         ensure!(
             self.ctx.field_columns.len() == 1,
@@ -655,7 +645,4 @@ impl SqlDataSource {
             .build()
             .context(DataFusionPlanningSnafu)
     }
-
 }
-
-

@@ -1,8 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
+use rayon::prelude::*;
 use xxhash_rust::xxh3::Xxh3;
+
 use metricsql::common::GroupModifier;
 
 use crate::{MetricName, Tag, Timeseries};
@@ -11,7 +12,6 @@ use crate::{MetricName, Tag, Timeseries};
 pub(crate) const SIGNATURE_PARALLELIZATION_THRESHOLD: usize = 2;
 
 pub type TimeseriesHashMap = HashMap<Signature, Vec<Timeseries>>;
-
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Copy, Ord, PartialOrd)]
 pub struct Signature(u64);
@@ -39,7 +39,7 @@ impl Signature {
         Self::from_tag_iter(labels.without_labels_iter(exclude_names))
     }
 
-    pub(crate) fn from_tag_iter<'a>(iter: impl Iterator<Item=&'a Tag>) -> Self {
+    pub(crate) fn from_tag_iter<'a>(iter: impl Iterator<Item = &'a Tag>) -> Self {
         let mut hasher = Xxh3::new();
         for tag in iter {
             tag.update_hash(&mut hasher);
@@ -55,8 +55,7 @@ impl From<Signature> for u64 {
     }
 }
 
-
-pub fn group_series_by_modifier<'a>(
+pub fn group_series_by_modifier(
     series: &mut Vec<Timeseries>,
     modifier: &Option<GroupModifier>,
 ) -> TimeseriesHashMap {
@@ -83,6 +82,35 @@ pub fn group_series_by_modifier<'a>(
     return m;
 }
 
+pub fn group_series_indexes_by_modifier(
+    series: &Vec<Timeseries>,
+    modifier: &Option<GroupModifier>,
+) -> HashMap<Signature, Vec<usize>> {
+    let mut m: HashMap<Signature, Vec<usize>> = HashMap::with_capacity(series.len());
+
+    if series.len() >= SIGNATURE_PARALLELIZATION_THRESHOLD {
+        let sigs: Vec<(Signature, usize)> = series
+            .par_iter()
+            .enumerate()
+            .map_with(modifier, |modifier, (index, timeseries)| {
+                let sig = timeseries.metric_name.signature_by_group_modifier(modifier);
+                (sig, index)
+            })
+            .collect();
+
+        for (sig, index) in sigs {
+            m.entry(sig).or_default().push(index);
+        }
+    } else {
+        for (index, ts) in series.iter().enumerate() {
+            let key = ts.metric_name.signature_by_group_modifier(modifier);
+            m.entry(key).or_default().push(index);
+        }
+    };
+
+    return m;
+}
+
 pub fn get_signatures_set_by_modifier(
     series: &[Timeseries],
     modifier: &Option<GroupModifier>,
@@ -92,13 +120,13 @@ pub fn get_signatures_set_by_modifier(
             .par_iter()
             .map_with(modifier, |modifier, timeseries| {
                 timeseries.metric_name.signature_by_group_modifier(modifier)
-            }).collect()
+            })
+            .collect()
     } else {
         series
             .iter()
-            .map(|timeseries| {
-                timeseries.metric_name.signature_by_group_modifier(modifier)
-            }).collect()
+            .map(|timeseries| timeseries.metric_name.signature_by_group_modifier(modifier))
+            .collect()
     };
     res
 }

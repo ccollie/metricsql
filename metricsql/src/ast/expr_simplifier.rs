@@ -25,7 +25,7 @@ use num_traits::float::FloatConst;
 use lib::{datetime_part, timestamp_secs_to_utc_datetime, DateTimePart};
 
 use crate::ast::utils::{expr_contains, is_null, is_one, is_op_with, is_zero};
-use crate::ast::{can_pushdown_filters, optimize_label_filters_inplace};
+use crate::ast::{can_pushdown_filters, optimize_label_filters_inplace, NumberLiteral};
 use crate::binaryop::{eval_binary_op, string_compare};
 use crate::common::{Operator, RewriteRecursion, TreeNode, TreeNodeRewriter};
 use crate::functions::{TransformFunction, Volatility};
@@ -245,6 +245,15 @@ impl ConstEvaluator {
                     let dur = DurationExpr::new(n, ln.requires_step);
                     return Ok(Expr::Duration(dur));
                 }
+            }
+            // add/subtract number as secs to duration
+            (Expr::Duration(ln), Expr::Number(NumberLiteral { value }), op)
+                if !ln.requires_step && (op == Operator::Add || op == Operator::Sub) =>
+            {
+                let secs = *value * 1e3_f64;
+                let n = eval_binary_op(ln.value as f64, secs, op, be.bool_modifier) as i64;
+                let dur = DurationExpr::new(n, ln.requires_step);
+                return Ok(Expr::Duration(dur));
             }
             (Expr::Number(ln), Expr::Number(rn), op) => {
                 let n = eval_binary_op(ln.value, rn.value, op, be.bool_modifier);

@@ -2,8 +2,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::collections::{HashMap, HashSet};
 
-use super::parser::ast::LabelMatching;
 use crate::model::{LabelName, Labels, LabelsTrait, SampleValue, Timestamp};
+
+use super::parser::ast::LabelMatching;
 
 // Every Expr can be evaluated to a value.
 #[derive(Debug)]
@@ -28,7 +29,6 @@ pub(super) trait QueryValueIter: Iterator<Item = QueryValue> {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Point {
-    pub timestamp: Timestamp,
     pub value: SampleValue,
 }
 

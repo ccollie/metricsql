@@ -1,15 +1,18 @@
-use crate::functions::remove_nan_values_in_place;
-use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::search::Deadline;
-use crate::types::{MetricName, Timeseries, Timestamp, TimestampTrait};
-use crate::Context;
-use metricsql::common::LabelFilter;
-use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use std::fmt;
 use std::fmt::Display;
 use std::ops::Range;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
+
+use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
+
+use metricsql::common::LabelFilter;
+
+use crate::functions::remove_nan_values_in_place;
+use crate::runtime_error::{RuntimeError, RuntimeResult};
+use crate::search::Deadline;
+use crate::types::{MetricName, Timeseries, Timestamp, TimestampTrait};
+use crate::Context;
 
 pub type TimeRange = Range<Timestamp>;
 
@@ -223,10 +226,8 @@ impl QueryResults {
     where
         F: Fn(Arc<&mut C>, &mut QueryResult, u64) -> RuntimeResult<()> + Send + Sync,
     {
-        let mut id = 0;
-        for ts in self.series.iter_mut() {
-            ts.worker_id = id;
-            id += 1;
+        for (id, ts) in self.series.iter_mut().enumerate() {
+            ts.worker_id = id as u64;
         }
 
         let must_stop = AtomicBool::new(false);

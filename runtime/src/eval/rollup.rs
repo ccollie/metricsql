@@ -5,10 +5,10 @@ use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
-use rayon::prelude::IntoParallelRefIterator;
+use rayon::prelude::*;
 use tracing::{field, span_enabled, trace_span, Level, Span};
 
-use lib::{is_stale_nan, AtomicCounter, RelaxedU64Counter};
+use lib::{get_float64s, get_int64s, is_stale_nan, AtomicCounter, RelaxedU64Counter};
 use metricsql::ast::*;
 use metricsql::common::{Value, ValueType};
 use metricsql::functions::{RollupFunction, Volatility};
@@ -968,35 +968,32 @@ fn get_keep_metric_names(expr: &Expr) -> bool {
     };
 }
 
-fn do_parallel<F>(tss: &Vec<Timeseries>, f: F) -> RuntimeResult<(Vec<Timeseries>, u64)>
+/// Executes `f` for each `Timeseries` in `tss` in parallel.
+pub(super) fn do_parallel<F>(tss: &Vec<Timeseries>, f: F) -> RuntimeResult<(Vec<Timeseries>, u64)>
 where
     F: Fn(&Timeseries, &mut [f64], &[i64]) -> RuntimeResult<(Vec<Timeseries>, u64)> + Send + Sync,
 {
-    let res = tss
+    let res: RuntimeResult<Vec<(Vec<Timeseries>, u64)>> = tss
         .par_iter()
         .map(|ts| {
             let len = ts.values.len();
-            // todo(perf): use object pool for these
-            let mut values: Vec<f64> = Vec::with_capacity(len);
-            let mut timestamps: Vec<i64> = Vec::with_capacity(len);
+            // todo: should we have an upper limit here to avoid OOM? Or explicitly size down
+            // afterward if needed?
+            let mut values = get_float64s(len);
+            let mut timestamps = get_int64s(len);
 
             // todo(perf): have param for if values have NaNs
             remove_nan_values(&mut values, &mut timestamps, &ts.values, &ts.timestamps);
 
             f(ts, &mut values, &mut timestamps)
         })
-        .collect::<Vec<_>>();
+        .collect();
 
     let mut series: Vec<Timeseries> = Vec::with_capacity(tss.len());
     let mut sample_total = 0_u64;
-    for r in res.into_iter() {
-        match r {
-            Err(e) => return Err(e),
-            Ok((timeseries, sample_count)) => {
-                sample_total += sample_count;
-                series.extend::<Vec<Timeseries>>(timeseries.into())
-            }
-        }
+    for (timeseries, sample_count) in res?.into_iter() {
+        sample_total += sample_count;
+        series.extend::<Vec<Timeseries>>(timeseries.into())
     }
 
     return Ok((series, sample_total));
@@ -1055,8 +1052,7 @@ fn do_rollup_for_timeseries(
 }
 
 fn mul_no_overflow(a: i64, b: i64) -> i64 {
-    let (res, overflow) = a.overflowing_mul(b);
-    return if overflow { i64::MAX } else { res };
+    a.saturating_mul(b)
 }
 
 pub(crate) fn drop_stale_nans(
