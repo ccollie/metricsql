@@ -1,10 +1,12 @@
 use std::fmt::Display;
 use std::sync::Arc;
 
-use metricsql::ast::{AggregationExpr, DurationExpr, Expr, FunctionExpr, MetricExpr, RollupExpr};
+use metricsql::ast::{AggregationExpr, BinaryExpr, DurationExpr, Expr, FunctionExpr, MetricExpr, RollupExpr};
 use metricsql::functions::{RollupFunction, TransformFunction};
 use metricsql::prelude::BuiltinFunction;
 use tracing::{trace, trace_span};
+use metricsql::binaryop::string_compare;
+use metricsql::common::Operator;
 
 use crate::eval::aggregate::{get_timeseries_limit, try_get_arg_rollup_func_with_metric_expr};
 use crate::eval::rollup::compile_rollup_func_args;
@@ -133,6 +135,49 @@ fn eval_expr_internal(ctx: &Arc<Context>, ec: &EvalConfig, e: &Expr) -> RuntimeR
     }
 }
 
+fn binop_ex(ctx: &Arc<Context>, ec: &EvalConfig, be: &BinaryExpr) -> RuntimeResult<QueryValue> {
+    let lhs = exec_expr(ctx, ec, &expr.left).await?;
+    let rhs = exec_expr(ctx, ec, &expr.right).await?;
+    match (&lhs, &rhs) {
+        (Value::Scalar(left), Value::Scalar(right)) => {
+            let value = binaries::scalar_binary_operations(token, left, right)?;
+            Ok(Value::Scalar(value))
+        }
+        (Value::Vector(left), Value::Vector(right)) => {
+            binaries::vector_bin_op(expr, &left, &right)?
+        }
+        (Value::Vector(left), Value::Scalar(right)) => {
+            binaries::vector_scalar_bin_op(expr, &left, right).await?
+        }
+        (Value::Scalar(left), Value::Vector(right)) => {
+            binaries::vector_scalar_bin_op(expr, &right, left).await?
+        }
+    }
+}
+
+// move to metricsql binop module
+fn handle_string_op(
+    op: Operator,
+    left: &str,
+    right: &str,
+) -> RuntimeResult<QueryValue> {
+    match op {
+        Operator::Add => Ok(QueryValue::String(format!("{}{}", left, right))),
+        _ => {
+            if op.is_comparison() {
+                let cmp = string_compare(right, left, op, is_bool);
+                Ok(QueryValue::Scalar(cmp as f64))
+            } else {
+                Err(RuntimeError::UnsupportedBinaryOperation(
+                    token.to_string(),
+                    left.to_string(),
+                    right.to_string(),
+                ))
+            }
+        }
+    }
+}
+
 fn eval_transform_func(
     ctx: &Arc<Context>,
     ec: &EvalConfig,
@@ -205,7 +250,8 @@ fn eval_exprs_sequentially(
     ec: &EvalConfig,
     args: &[Expr],
 ) -> RuntimeResult<Vec<Value>> {
-    todo!("eval_exprs_sequentially")
+    let values: RuntimeResult<Vec<Value>> = args.map(|expr| eval_expr(ctx, ec, expr)).collect();
+    values
 }
 
 fn eval_exprs_in_parallel(
@@ -229,7 +275,7 @@ pub(super) fn eval_rollup_func_args(
             "expecting at least {} args to {}; got {} args; expr: {}",
             rollup_arg_idx + 1,
             fe.name(),
-            fe.args.len,
+            fe.args.len(),
             fe
         );
         return Err(RuntimeResult::General(msg));

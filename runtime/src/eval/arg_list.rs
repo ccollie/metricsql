@@ -62,21 +62,13 @@ impl ArgList {
     fn eval_parallel(&self, ctx: &Arc<Context>, ec: &EvalConfig) -> RuntimeResult<Vec<QueryValue>> {
         info!("eval function args in parallel");
 
-        let params: _ = self
+        let result: RuntimeResult<Vec<QueryValue>> = self
             .args
             .par_iter()
             .map(move |expr| expr.eval(&mut ctx.clone(), ec))
-            .collect::<Vec<_>>();
+            .collect();
 
-        let mut result: Vec<QueryValue> = Vec::with_capacity(params.len());
-        for p in params.into_iter() {
-            match p {
-                Ok(v) => result.push(v),
-                Err(e) => return Err(e.clone()),
-            }
-        }
-
-        Ok(result)
+        result
     }
 }
 
