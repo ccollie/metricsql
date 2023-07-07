@@ -5,27 +5,30 @@ use std::default::Default;
 use std::ops::Deref;
 
 use chrono::Utc;
-use rand::{Rng, rngs::StdRng, SeedableRng, thread_rng};
+use num_traits::FloatConst;
+use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use rand_distr::{Exp1, StandardNormal};
 use regex::Regex;
 
-use lib::{copysign, datetime_part, DateTimePart, fmod, from_float, get_float64s, isinf, modf, timestamp_secs_to_utc_datetime};
+use lib::{
+    copysign, datetime_part, fmod, from_float, get_float64s, isinf, modf,
+    timestamp_secs_to_utc_datetime, DateTimePart,
+};
 use metricsql::ast::{Expr, FunctionExpr};
 use metricsql::functions::TransformFunction;
 use metricsql::parser::{compile_regexp, parse_number};
-use num_traits::FloatConst;
 
-use crate::{METRIC_NAME_LABEL, MetricName, QueryValue, remove_empty_series, Timeseries};
 use crate::chrono_tz::Tz;
-use crate::eval::{eval_number, eval_time, EvalConfig};
 use crate::eval::binop_handlers::merge_non_overlapping_timeseries;
-use crate::functions::{quantile, quantile_sorted};
+use crate::eval::{eval_number, eval_time, EvalConfig};
 use crate::functions::rollup::{linear_regression, mad, stddev, stdvar};
 use crate::functions::utils::{
     float_to_int_bounded, get_first_non_nan_index, get_last_non_nan_index,
 };
+use crate::functions::{quantile, quantile_sorted};
 use crate::rand_distr::Distribution;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
+use crate::{remove_empty_series, MetricName, QueryValue, Timeseries, METRIC_NAME_LABEL};
 
 use super::utils::{get_timezone_offset, ru};
 
@@ -2890,7 +2893,6 @@ fn expect_transform_args_num(tfa: &TransformFuncArg, expected: usize) -> Runtime
         return Ok(());
     }
     return Err(RuntimeError::ArgumentError(format!(
-        "unexpected number of args; got {}; want {}",
-        arg_count, expected
+        "unexpected number of args; got {arg_count}; want {expected}"
     )));
 }

@@ -1,29 +1,19 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::hash::Hasher;
 use std::ops::Deref;
+
+use xxhash_rust::xxh3::Xxh3;
 
 use crate::ast::{
     AggregationExpr, BinaryExpr, Expr, FunctionExpr, MetricExpr, ParensExpr, RollupExpr,
     WithArgExpr, WithExpr,
 };
 use crate::common::{
-    remove_duplicate_label_filters, AggregateModifier, GroupModifier, JoinModifier, LabelFilter,
-    StringExpr, StringSegment,
+    AggregateModifier, GroupModifier, JoinModifier, LabelFilter, StringExpr, StringSegment,
 };
 use crate::parser::symbol_provider::SymbolProviderRef;
 use crate::parser::{syntax_error, ParseError, ParseResult};
 use crate::prelude::InterpolatedSelector;
-
-pub fn expand_with(
-    symbols: &SymbolProviderRef,
-    was: &Vec<WithArgExpr>,
-    we: WithExpr,
-) -> ParseResult<Expr> {
-    let mut was_new = Vec::with_capacity(was.len() + we.was.len());
-    was_new.append(&mut was.clone());
-    was_new.append(&mut we.was.clone());
-
-    expand_with_expr(symbols, &was_new, *we.expr)
-}
 
 pub(super) fn expand_with_expr(
     symbols: &SymbolProviderRef,
@@ -50,6 +40,18 @@ pub(super) fn expand_with_expr(
     // println!("{}", res);
 
     Ok(res)
+}
+
+fn expand_with(
+    symbols: &SymbolProviderRef,
+    was: &Vec<WithArgExpr>,
+    we: WithExpr,
+) -> ParseResult<Expr> {
+    let mut was_new = Vec::with_capacity(was.len() + we.was.len());
+    was_new.append(&mut was.clone());
+    was_new.append(&mut we.was.clone());
+
+    expand_with_expr(symbols, &was_new, *we.expr)
 }
 
 pub fn should_expand(expr: &Expr) -> bool {
@@ -128,12 +130,34 @@ fn expand_binary_operator(
     Ok(Expr::BinaryOperator(be))
 }
 
-pub(super) fn merge_selectors(dst: &mut MetricExpr, src: &MetricExpr) {
-    let src_filters = src.label_filters.iter().skip(1);
-    dst.label_filters
-        .append(&mut src_filters.cloned().collect::<Vec<_>>());
-    remove_duplicate_label_filters(&mut dst.label_filters);
-    dst.sort_filters();
+fn remove_dupes(filters: &mut Vec<LabelFilter>) {
+    fn get_hash(hasher: &mut Xxh3, filter: &LabelFilter) -> u64 {
+        hasher.reset();
+        hasher.write(filter.label.as_bytes());
+        hasher.write(filter.op.as_str().as_bytes());
+        hasher.finish()
+    }
+
+    let mut hasher = Xxh3::new();
+    let mut hash_map: HashMap<u64, bool> = HashMap::with_capacity(filters.len());
+
+    for i in (0..filters.len()).rev() {
+        let hash = get_hash(&mut hasher, &filters[i]);
+        if hash_map.contains_key(&hash) {
+            filters.remove(i);
+        } else {
+            hash_map.insert(hash, true);
+        }
+    }
+}
+
+fn merge_selectors(dst: &mut MetricExpr, src: &mut MetricExpr) {
+    src.label_filters.retain(|x| x.is_metric_name_filter());
+
+    let mut items = src.label_filters.drain(..).collect::<Vec<_>>();
+    dst.label_filters.append(&mut items);
+
+    remove_dupes(&mut dst.label_filters);
 }
 
 fn expand_with_selector_expression(
@@ -141,7 +165,7 @@ fn expand_with_selector_expression(
     was: &Vec<WithArgExpr>,
     me: InterpolatedSelector,
 ) -> ParseResult<Expr> {
-    fn handle_expanded(dst: &MetricExpr, src: &MetricExpr) -> ParseResult<Expr> {
+    fn handle_expanded(dst: &MetricExpr, src: &mut MetricExpr) -> ParseResult<Expr> {
         let mut dst = dst.clone();
         merge_selectors(&mut dst, src);
         Ok(Expr::MetricExpression(dst))
@@ -180,16 +204,14 @@ fn expand_with_selector_expression(
             };
             if wme.is_none() || has_non_empty_metric_group {
                 let msg = format!(
-                    "{} must be filters expression inside {}; got {}",
-                    label, new_selector, &e_new
+                    "{label} must be filters expression inside {new_selector}; got {e_new}"
                 );
                 return Err(ParseError::General(msg));
             }
-            let wme = wme.unwrap();
+            let mut labels = wme.unwrap().label_filters.clone();
 
-            new_selector
-                .label_filters
-                .append(&mut wme.label_filters.clone());
+            new_selector.label_filters.append(&mut labels);
+
             continue;
         }
 
@@ -204,7 +226,9 @@ fn expand_with_selector_expression(
         new_selector.label_filters.push(lf);
     }
 
-    remove_duplicate_label_filters(&mut new_selector.label_filters);
+    remove_dupes(&mut new_selector.label_filters);
+    new_selector.sort_filters();
+
     if !new_selector.has_non_empty_metric_group() {
         return Ok(Expr::MetricExpression(new_selector));
     }
@@ -235,10 +259,8 @@ fn expand_with_selector_expression(
     match wme {
         None => {
             if !new_selector.is_only_metric_group() {
-                let msg = format!(
-                    "cannot expand {} to non-metric expression {}",
-                    new_selector, expanded
-                );
+                let msg =
+                    format!("cannot expand {new_selector} to non-metric expression {expanded}",);
                 return Err(ParseError::General(msg));
             }
             return Ok(expanded);

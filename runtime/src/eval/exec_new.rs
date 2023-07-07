@@ -1,11 +1,10 @@
 use std::fmt::Display;
 use std::sync::Arc;
 
-use tracing::{trace, trace_span};
-
 use metricsql::ast::{AggregationExpr, DurationExpr, Expr, FunctionExpr, MetricExpr, RollupExpr};
 use metricsql::functions::{RollupFunction, TransformFunction};
 use metricsql::prelude::BuiltinFunction;
+use tracing::{trace, trace_span};
 
 use crate::eval::aggregate::{get_timeseries_limit, try_get_arg_rollup_func_with_metric_expr};
 use crate::eval::rollup::compile_rollup_func_args;
@@ -69,8 +68,8 @@ pub fn eval_expr(ctx: &Arc<Context>, ec: &EvalConfig, e: &Expr) -> RuntimeResult
 fn eval_expr_internal(ctx: &Arc<Context>, ec: &EvalConfig, e: &Expr) -> RuntimeResult<QueryValue> {
     let tracing = ctx.trace_enabled();
     match e {
-        Expr::StringLiteral(s) => return Ok(QueryValue::String(s.to_string())),
-        Expr::Number(n) => return Ok(QueryValue::Scalar(n.value)),
+        Expr::StringLiteral(s) => Ok(QueryValue::String(s.to_string())),
+        Expr::Number(n) => Ok(QueryValue::Scalar(n.value)),
         Expr::Duration(de) => {
             let d = de.value(ec.step);
             let d_sec = d as f64 / 1000_f64;
@@ -122,7 +121,7 @@ fn eval_expr_internal(ctx: &Arc<Context>, ec: &EvalConfig, e: &Expr) -> RuntimeR
                     let nrf = get_rollup_function_factory(rf);
                     let (args, re) = eval_rollup_func_args(ctx, ec, &fe)?;
                     let rf = nrf(args)?;
-                    eval_rollup_func(ctx, ec, name, rf, &e, &re, None)
+                    eval_rollup_func(ctx, ec, rf, rf, &e, &re, None)
                         .map_err(|err| map_error(err, &e))
                 }
                 _ => {
@@ -244,7 +243,7 @@ pub(super) fn eval_rollup_func_args(
             continue;
         }
         let ts = eval_expr(ctx, ec, arg).map_err(|err| {
-            Err(RuntimError::General(format!(
+            Err(RuntimeError::General(format!(
                 "cannot evaluate arg #{} for {}: {}",
                 i + 1,
                 fe,
@@ -293,6 +292,14 @@ pub fn eval_rollup_func_without_at(
     iafc: Option<&IncrementalAggrFuncContext>,
 ) -> RuntimeResult<QueryValue> {
     todo!("eval_rollup_func_without_at")
+}
+
+fn get_duration(dur: &Option<DurationExpr>, step: i64) -> i64 {
+    if let Some(d) = dur {
+        d.value(d, step)
+    } else {
+        0
+    }
 }
 
 fn get_at_timestamp(ctx: &Arc<Context>, ec: &EvalConfig, expr: &Expr) -> RuntimeResult<i64> {

@@ -58,11 +58,11 @@ fn eval_expr_internal(ctx: &Arc<Context>, ec: &Arc<EvalConfig>, e: Expr) -> Runt
         Expr::MetricExpression(me) => {
             let re = RollupExpr::default_rollup(me);
             eval_rollup_func(ctx, ec, "default_rollup", rollup_default, e, re, None)
-                .map_error(|err| format!("cannot evaluate {}: {}", me, err))?;
+                .map_err(|err| format!("cannot evaluate {}: {}", me, err))?;
         },
         Expr::RollupExpr(re) => {
             eval_rollup_func(ctx, ec, "default_rollup", rollup_default, e, re, None)
-                .map_error(|err| format!("cannot evaluate {}: {}", me, err))?;
+                .map_err(|err| format!("cannot evaluate {}: {}", me, err))?;
         }
         Expr::FuncExpr(fe) => {
             let name = fe.name();
@@ -76,7 +76,7 @@ fn eval_expr_internal(ctx: &Arc<Context>, ec: &Arc<EvalConfig>, e: Expr) -> Runt
             let (args, re) = eval_rollup_func_args(qt, ec, &fe)?;
             let rf = nrf(args)?;
             eval_rollup_func(ctx, ec, name, rf, e, re, None)
-                .map_error(|err| format!("cannot evaluate {}: {}", fe, err))
+                .map_err(|err| format!("cannot evaluate {}: {}", fe, err))
         }
         Expr::AggrFuncExpr(ae) => {
             trace!("aggregate {}()", ae.function.name());
@@ -137,7 +137,7 @@ fn eval_transform_func(ctx: &Arc<Context>, ec: &EvalConfig, fe: &FuncExpr) -> Ru
         fe,
         args
     };
-    tf(tfa).map_error(|err| format!("cannot evaluate {}: {}", fe, err))
+    tf(tfa).map_err(|err| format!("cannot evaluate {}: {}", fe, err))
 }
 
 fn eval_aggr_func(ctx: &Arc<Context>, ec: &Arc<EvalConfig>, ae: &AggrFuncExpr) -> RuntimeResult<Vec<Timeseries>> {
@@ -159,7 +159,7 @@ fn eval_aggr_func(ctx: &Arc<Context>, ec: &Arc<EvalConfig>, ae: &AggrFuncExpr) -
     trace!("eval {}", ae.name);
 
     af(afa)
-        .map_error(|err| format!("cannot evaluate {}: {}", ae, err))
+        .map_err(|err| format!("cannot evaluate {}: {}", ae, err))
 }
 
 fn map_err_handler(e: Error) -> RuntimeError
@@ -275,7 +275,7 @@ return (fe, nrf)
 }
 Expr::RollupExpr(re) => {
     if me, ok: = re.Expr.(*MetricExpr);
-    !ok | | me.is_empty() | | re.ForSubquery()
+    !ok | | me.is_empty() | | re.for_subquery()
     {
         return None, None
     }
@@ -287,7 +287,7 @@ Expr::RollupExpr(re) => {
 }
 if re, ok: = e.( *metricsql.RollupExpr); ok {
         if me,
-        ok: = re.Expr.( * metricsql.MetricExpr); ! ok | | me.is_empty() | | re.ForSubquery() {
+        ok: = re.Expr.( * metricsql.MetricExpr); ! ok | | me.is_empty() | | re.for_subquery() {
         return None, None
         }
 // e = metricExpr[d]
@@ -321,7 +321,7 @@ nrf: = getRollupFunc(fe.Name)
     }, nrf
     }
     if re, ok: = arg.( *metricsql.RollupExpr); ok {
-    if me, ok: = re.Expr.( * metricsql.MetricExpr); ! ok || me.is_empty() | | re.ForSubquery() {
+    if me, ok: = re.Expr.( * metricsql.MetricExpr); ! ok || me.is_empty() | | re.for_subquery() {
     return None, None
     }
     // e = rollupFunc(metricExpr[d])
@@ -438,8 +438,7 @@ fn eval_rollup_func(
         return eval_rollup_func_without_at(ctx, ec, func_name, rf, expr, re, iafc)
     }
 
-    let at_timestamp = eval_at_expr(ctx, ec, re.at)
-        .map_err(|err| UserReadableError::from_err(format!("cannot evaluate `@` modifier: {}", err)))?;
+    let at_timestamp = eval_at_expr(ctx, ec, re.at)?;
 
     let mut ec_new = ec.clone();
     ec_new.start = at_timestamp;
@@ -596,13 +595,13 @@ fn eval_rollup_func_with_subquery(
             if let Some(tsm) = newTimeseriesMap(func_name, keep_metric_names,
                                                 sharedTimestamps: shared_timestamps, &tsSQ.metric_name) {
                 let samples_scanned = rc.DoTimeseriesMap(tsm, values, timestamps);
-                samples_scanned_total, samples_scanned)
+                samples_scanned_total, samples_scanned);
                 series_by_worker_id[worker_id].tss = tsm.AppendTimeseriesTo(series_by_worker_id[worker_id].tss)
                 continue
             }
             let ts = Timeseries::default();
             samplesScanned = do_rollup_for_timeseries(func_name, keep_metric_names, rc, &ts, &tsSQ.metric_name, values, timestamps, shared_timestamps)
-            atomic.AddUi64(&samples_scanned_total, samplesScanned)
+            atomic.AddUi64(&samples_scanned_total, samplesScanned);
             series_by_worker_id[worker_id].tss = append(series_by_worker_id[worker_id].tss, &ts)
         }
 return values, timestamps

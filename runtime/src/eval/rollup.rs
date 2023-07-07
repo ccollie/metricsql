@@ -237,34 +237,12 @@ impl RollupEvaluator {
     }
 
     #[inline]
-    fn get_offset(&self, step: i64) -> i64 {
-        if let Some(ofs) = &self.re.offset {
-            ofs.value(step)
-        } else {
-            0
-        }
-    }
-
-    #[inline]
-    fn get_window(&self, step: i64) -> i64 {
-        if let Some(win) = &self.re.window {
-            win.value(step)
-        } else {
-            0
-        }
-    }
-
-    #[inline]
     fn get_step(&self, step: i64) -> i64 {
-        if let Some(v) = &self.re.step {
-            let res = v.value(step);
-            if res == 0 {
-                step
-            } else {
-                res
-            }
+        let res = duration_value(&self.re.step, step);
+        if res == 0 {
+            step
         } else {
-            0
+            res
         }
     }
 
@@ -273,7 +251,7 @@ impl RollupEvaluator {
         &self,
         ec: &'a EvalConfig,
     ) -> RuntimeResult<(i64, Cow<'a, EvalConfig>)> {
-        let offset: i64 = self.get_offset(ec.step);
+        let offset: i64 = duration_value(&self.re.offset, ec.step);
 
         let mut adjustment = 0 - offset;
         if self.func == RollupFunction::RollupCandlestick {
@@ -363,7 +341,7 @@ impl RollupEvaluator {
         .entered();
 
         let step = self.get_step(ec.step);
-        let window = self.get_window(ec.step);
+        let window = duration_value(&self.re.window, ec.step);
 
         let mut ec_sq = ec.copy_no_timestamps();
         ec_sq.start -= window + MAX_SILENCE_INTERVAL + step;
@@ -464,7 +442,7 @@ impl RollupEvaluator {
         me: &MetricExpr,
         rollup_func: &RollupHandlerEnum,
     ) -> RuntimeResult<Vec<Timeseries>> {
-        let window = self.get_window(ec.step);
+        let window = duration_value(&self.re.window, ec.step);
 
         let is_tracing = ctx.trace_enabled();
         let span = {
@@ -1088,4 +1066,12 @@ pub(crate) fn drop_stale_nans(
 
     values.truncate(k);
     timestamps.truncate(k);
+}
+
+fn duration_value(dur: &Option<DurationExpr>, step: i64) -> i64 {
+    if let Some(ofs) = dur {
+        ofs.value(step)
+    } else {
+        0
+    }
 }

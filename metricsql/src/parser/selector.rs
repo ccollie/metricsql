@@ -30,6 +30,7 @@ pub fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expr> {
             let resolved = filter.to_label_filter()?;
             me.label_filters.push(resolved);
         }
+        me.sort_filters();
         Ok(Expr::MetricExpression(me))
     }
 
@@ -37,11 +38,6 @@ pub fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expr> {
         let token = p.expect_identifier()?;
 
         if !p.at(&Token::LeftBrace) {
-            // if can_expand {
-            //     if let Some(expr) = p.resolve_ident(&token, vec![])? {
-            //         return Ok(expr);
-            //     }
-            // }
             let me = MetricExpr::new(token);
             return Ok(Expr::MetricExpression(me));
         }

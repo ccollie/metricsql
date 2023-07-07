@@ -370,7 +370,7 @@ impl TransformFunction {
             TimezoneOffset => "timezone_offset",
             Union => "union",
             Vector => "vector",
-            Year => "vector",
+            Year => "year",
         }
     }
 

@@ -111,6 +111,16 @@ impl LabelFilterExpr {
 
     pub fn name(&self) -> String {
         if self.label == NAME_LABEL {
+            if self.value.is_literal_only() {
+                // todo: better error handling
+                if let Some(value) = self.value.get_literal().unwrap() {
+                    return value.to_string();
+                }
+            }
+            if let Some(ident) = self.value.as_identifier() {
+                return ident.to_string();
+            }
+            // todo: panic
             return self.value.to_string();
         }
         self.label.clone()

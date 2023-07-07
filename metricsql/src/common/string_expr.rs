@@ -201,6 +201,18 @@ impl StringExpr {
         Ok(None)
     }
 
+    pub fn as_identifier(&self) -> Option<&String> {
+        if self.is_identifier() {
+            if let Some(first) = self.0.first() {
+                return match first {
+                    StringSegment::Ident(ident) => Some(ident),
+                    _ => None,
+                };
+            }
+        }
+        None
+    }
+
     pub(crate) fn update_hash(&self, hasher: &mut Xxh3) {
         for s in self.0.iter() {
             match s {
