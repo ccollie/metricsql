@@ -12,6 +12,7 @@ use lib::{get_float64s, get_int64s, is_stale_nan, AtomicCounter, RelaxedU64Count
 use metricsql::ast::*;
 use metricsql::common::{Value, ValueType};
 use metricsql::functions::{RollupFunction, Volatility};
+use metricsql::prelude::BuiltinFunction;
 
 use crate::cache::rollup_result_cache::merge_timeseries;
 use crate::context::Context;
@@ -98,8 +99,8 @@ impl RollupEvaluator {
         // todo: tinyvec
 
         let func: RollupFunction;
-        match RollupFunction::from_str(&expr.name) {
-            Ok(rf) => func = rf,
+        match expr.function {
+            BuiltinFunction::Rollup(rf) => func = rf,
             _ => {
                 return Err(RuntimeError::UnknownFunction(format!(
                     "Expected a rollup function. Got {}",
@@ -604,7 +605,7 @@ impl RollupEvaluator {
             rss.cancel();
             let msg = format!("not enough memory for processing {} data points across {} time series with {} points in each time series; \n
                                   total available memory for concurrent requests: {} bytes; requested memory: {} bytes; \n
-                                  possible solutions are: reducing the number of matching time series; switching to node with more RAM; \n
+                                  possible solutions are: reducing the number of matching time series; upgrading RAM; \n
                                   increasing -memory.allowedPercent; increasing `step` query arg ({})",
                               rollup_points,
                               timeseries_len * rcs_len,
