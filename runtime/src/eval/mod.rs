@@ -19,6 +19,8 @@ pub(crate) mod utils;
 
 mod instant_vector;
 
+mod binary;
 #[cfg(test)]
 mod eval_test;
 mod exec_new;
+mod rollups;

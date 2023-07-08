@@ -42,6 +42,8 @@ pub enum RuntimeError {
     Internal(String),
     #[error("{0}")]
     ResourcesExhausted(String),
+    #[error(transparent)]
+    NotImplemented(String)
 }
 
 impl RuntimeError {

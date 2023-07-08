@@ -22,7 +22,7 @@ pub async fn vector_scalar_bin_op(
 ) -> Result<QueryValue> {
     let is_comparison_operator = expr.op.is_comparison_operator();
 
-    let handler = get_scalar_binop_handler(expr.op, is_comparison_operator);
+    let handler = get_scalar_binop_handler(expr.op, expr.bool_modifier);
     let output: Vec<Timeseries> = left
         .par_iter_mut()
         .map(|ts| {
@@ -172,7 +172,7 @@ fn vector_arithmetic_operators(
 
     let rhs_sig: HashSet<Signature> = get_signatures_set_by_modifier(right, group_modifier);
 
-    let handler = get_scalar_binop_handler(operator, false);
+    let handler = get_scalar_binop_handler(operator, expr.bool_modifier);
     // Iterate over left and pick up the corresponding instance from rhs
     let output: Vec<Timeseries> = left
         .par_iter()

@@ -198,7 +198,7 @@ fn exec_binary_op_args(ctx: &Arc<Context>,
                        expr_second: &Expr,
                        be: &BinaryOpExpr) -> RuntimeResult((Vec<Timeseries>, Vec<Timeseries>)) {
 
-    if !canPushdownCommonFilters(be) {
+    if !can_push_down_common_filters(be) {
         // Execute expr_first and expr_second in parallel, since it is impossible to push-down common filters
         // from expr_first to expr_second.
         // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/2886
@@ -327,19 +327,19 @@ nrf: = getRollupFunc(fe.Name)
     // e = rollupFunc(metricExpr[d])
     return fe, nrf
     }
-return None, None
+    return None, None
 }
 
-pub(super) fn eval_exprs_sequentially(ec: &EvalConfig, es: &[Expr]) -> RuntimeResult<Vec<Vec<Timeseries>>>) {
-    let rvs: Vec<Vec<Timestamps>> = Vec:with_capacity(es.len());
-    for e in es {
-        let rv = eval_expr(qt, ec, e)?;
-        rvs.push(rv)
-    }
-    Ok(rvs)
+pub(crate) fn eval_exprs_sequentially(ec: &EvalConfig, es: &[Expr]) -> RuntimeResult<Vec<Vec<Timeseries>>>) {
+let rvs: Vec < Vec < Timestamps > > = Vec: with_capacity(es.len());
+for e in es {
+let rv = eval_expr(qt, ec, e) ?;
+rvs.push(rv)
+}
+Ok(rvs)
 }
 
-pub(super) fn eval_exprs_in_parallel(ec: &EvalConfig, es: &[Expr]) -> RuntimeResult<Vec<Vec<Timeseries>>> {
+pub(super) fn eval_exprs_in_parallel(ec: &EvalConfig, es: &[Expr]) -> RuntimeResult<Vec<QueryValue>> {
     if es.len() < 2 {
         return eval_exprs_sequentially(ec, es)
     }
@@ -347,7 +347,9 @@ pub(super) fn eval_exprs_in_parallel(ec: &EvalConfig, es: &[Expr]) -> RuntimeRes
     trace!("eval function args in parallel");
     for e in es {
         trace!("eval arg {}", i);
-        go func(e metricsql.Expr, i int) {
+        go
+        func(e metricsql.Expr, i int)
+        {
             let rv = eval_expr(ctx, ec, e)?;
             rvs.push(rv)
         }(e, i)
@@ -462,7 +464,7 @@ pub fn eval_rollup_func_without_at(
     rf: RollupFunc,
     expr: &Expr,
     re: &RollupExpr,
-    iafc: &IncrementalAggrFuncContext) -> RuntimeResult<Vec<Timeseries>> {
+    iafc: &Option<IncrementalAggrFuncContext>) -> RuntimeResult<Vec<Timeseries>> {
     let ec_new = ec;
     let mut offset: i64 = 0;
     if let Some(ofs) = re.offset {

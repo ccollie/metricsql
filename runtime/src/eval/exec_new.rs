@@ -1,14 +1,18 @@
 use std::fmt::Display;
 use std::sync::Arc;
 
-use metricsql::ast::{AggregationExpr, BinaryExpr, DurationExpr, Expr, FunctionExpr, MetricExpr, RollupExpr};
+use tracing::{trace, trace_span, Span};
+
+use metricsql::ast::{
+    AggregationExpr, BinaryExpr, DurationExpr, Expr, FunctionExpr, MetricExpr, ParensExpr,
+    RollupExpr,
+};
 use metricsql::functions::{RollupFunction, TransformFunction};
 use metricsql::prelude::BuiltinFunction;
-use tracing::{trace, trace_span};
-use metricsql::binaryop::string_compare;
-use metricsql::common::Operator;
 
 use crate::eval::aggregate::{get_timeseries_limit, try_get_arg_rollup_func_with_metric_expr};
+use crate::eval::binary::eval_string_op;
+use crate::eval::binary::scalar_operations::scalar_binary_operations;
 use crate::eval::rollup::compile_rollup_func_args;
 use crate::functions::aggregate::{
     exec_aggregate_fn, AggrFuncArg, Handler, IncrementalAggrFuncContext,
@@ -40,7 +44,7 @@ fn map_error<E: Display>(err: RuntimeError, e: E) -> RuntimeError {
     RuntimeError::General(format!("cannot evaluate {e}: {}", err))
 }
 
-pub fn eval_expr(ctx: &Arc<Context>, ec: &EvalConfig, e: &Expr) -> RuntimeResult<Vec<Timeseries>> {
+pub fn eval_expr(ctx: &Arc<Context>, ec: &EvalConfig, e: &Expr) -> RuntimeResult<QueryValue> {
     let is_tracing = ctx.trace_enabled();
     if is_tracing {
         let query = e.to_string();
@@ -77,6 +81,22 @@ fn eval_expr_internal(ctx: &Arc<Context>, ec: &EvalConfig, e: &Expr) -> RuntimeR
             let d_sec = d as f64 / 1000_f64;
             Ok(QueryValue::Scalar(d_sec))
         }
+        Expr::BinaryOperator(be) => {
+            if tracing {
+                let msg = format!("binary op {}", be.op);
+                trace!(msg.to_string());
+            }
+            trace_span!("binary op {}", be.op);
+            let rv = eval_binary_op(ctx, ec, be)?;
+            trace!("series={}", rv.len());
+            Ok(rv)
+        }
+        Expr::Parens(pe) => {
+            trace!("parens");
+            let rv = eval_parens_op(ctx, ec, pe)?;
+            trace!("series={}", rv.len());
+            Ok(rv)
+        }
         Expr::MetricExpression(me) => {
             let re = RollupExpr::new(me);
             let val = eval_rollup_func(
@@ -110,70 +130,99 @@ fn eval_expr_internal(ctx: &Arc<Context>, ec: &EvalConfig, e: &Expr) -> RuntimeR
             trace!("series={}", rv.len());
             Ok(rv)
         }
-        Expr::Function(fe) => {
-            let name = fe.function.name();
-            match fe.function {
-                BuiltinFunction::Transform(tf) => {
-                    trace_span!("transform {}()", name);
-                    let rv = eval_transform_func(ctx, ec, &fe, tf)?;
-                    trace!("series={}", rv.len());
-                    return Ok(rv);
-                }
-                BuiltinFunction::Rollup(rf) => {
-                    let nrf = get_rollup_function_factory(rf);
-                    let (args, re) = eval_rollup_func_args(ctx, ec, &fe)?;
-                    let rf = nrf(args)?;
-                    eval_rollup_func(ctx, ec, rf, rf, &e, &re, None)
-                        .map_err(|err| map_error(err, &e))
-                }
-                _ => {
-                    return Err(RuntimeError::UnsupportedFunction(name.to_string()));
-                }
-            }
-        }
+        Expr::Function(fe) => eval_function_op(ctx, ec, fe),
         _ => unimplemented!(),
     }
 }
 
-fn binop_ex(ctx: &Arc<Context>, ec: &EvalConfig, be: &BinaryExpr) -> RuntimeResult<QueryValue> {
-    let lhs = exec_expr(ctx, ec, &expr.left).await?;
-    let rhs = exec_expr(ctx, ec, &expr.right).await?;
-    match (&lhs, &rhs) {
-        (Value::Scalar(left), Value::Scalar(right)) => {
-            let value = binaries::scalar_binary_operations(token, left, right)?;
-            Ok(Value::Scalar(value))
+fn eval_function_op(
+    ctx: &Arc<Context>,
+    ec: &EvalConfig,
+    fe: &FunctionExpr,
+) -> RuntimeResult<QueryValue> {
+    let name = fe.function.name();
+    match fe.function {
+        BuiltinFunction::Transform(tf) => {
+            trace_span!("transform {}()", name);
+            let rv = eval_transform_func(ctx, ec, &fe, tf)?;
+            trace!("series={}", rv.len());
+            return Ok(rv);
         }
-        (Value::Vector(left), Value::Vector(right)) => {
-            binaries::vector_bin_op(expr, &left, &right)?
+        BuiltinFunction::Rollup(rf) => {
+            let nrf = get_rollup_function_factory(rf);
+            let (args, re) = eval_rollup_func_args(ctx, ec, &fe)?;
+            let rf = nrf(&args)?;
+            eval_rollup_func(ctx, ec, rf, rf, &e, &re, None).map_err(|err| map_error(err, &e))
         }
-        (Value::Vector(left), Value::Scalar(right)) => {
-            binaries::vector_scalar_bin_op(expr, &left, right).await?
-        }
-        (Value::Scalar(left), Value::Vector(right)) => {
-            binaries::vector_scalar_bin_op(expr, &right, left).await?
+        _ => {
+            return Err(RuntimeError::NotImplemented(name.to_string()));
         }
     }
 }
 
-// move to metricsql binop module
-fn handle_string_op(
-    op: Operator,
-    left: &str,
-    right: &str,
+fn eval_parens_op(
+    ctx: &Arc<Context>,
+    ec: &EvalConfig,
+    pe: &ParensExpr,
 ) -> RuntimeResult<QueryValue> {
-    match op {
-        Operator::Add => Ok(QueryValue::String(format!("{}{}", left, right))),
+    if pe.expressions.is_empty() {
+        // should not happen !!
+        return Err(RuntimeError::Internal(
+            "BUG: empty parens expression".to_string(),
+        ));
+    }
+    if pe.expressions.len() == 1 {
+        return eval_expr(ctx, ec, &pe.expressions[0]);
+    }
+    let union = BuiltinFunction::Transform(TransformFunction::Union);
+    let fe = FunctionExpr {
+        name: "union".to_string(),
+        function: union,
+        args: pe.expressions.clone(), // how to avoid ?
+        arg_idx_for_optimization: None,
+        keep_metric_names: false,
+        is_scalar: false,
+        return_type: Default::default(),
+    };
+    let rv = eval_transform_func(ctx, ec, &fe, TransformFunction::Union)?;
+    let val = QueryValue::InstantVector(rv);
+    Ok(val)
+}
+
+fn eval_binary_op(
+    ctx: &Arc<Context>,
+    ec: &EvalConfig,
+    be: &BinaryExpr,
+) -> RuntimeResult<QueryValue> {
+    // todo: tokio.join!() ?
+    let lhs = eval_expr(ctx, ec, &be.left)?;
+    let rhs = eval_expr(ctx, ec, &be.right)?;
+    match (&lhs, &rhs) {
+        (Value::Scalar(left), Value::Scalar(right)) => {
+            // todo: add support for bool modifier
+            let value = scalar_binary_operations(be.op, *left, *right)?;
+            Ok(Value::Scalar(value))
+        }
+        (Value::InstantVector(left), Value::InstantVector(right)) => {
+            binaries::vector_bin_op(expr, &left, &right)?
+        }
+        (Value::InstantVector(left), Value::Scalar(right)) => {
+            binaries::vector_scalar_bin_op(expr, &left, right).await?
+        }
+        (Value::Scalar(left), Value::InstantVector(right)) => {
+            binaries::vector_scalar_bin_op(expr, &right, left).await?
+        }
+        (Value::String(left), QueryValue::String(right)) => {
+            let value = eval_string_op(be.op, &left, &right, be.bool_modifier)?;
+            Ok(value)
+        }
         _ => {
-            if op.is_comparison() {
-                let cmp = string_compare(right, left, op, is_bool);
-                Ok(QueryValue::Scalar(cmp as f64))
-            } else {
-                Err(RuntimeError::UnsupportedBinaryOperation(
-                    token.to_string(),
-                    left.to_string(),
-                    right.to_string(),
-                ))
-            }
+            return Err(RuntimeError::NotImplemented(format!(
+                "invalid binary operation: {} {} {}",
+                lhs.data_type_name(),
+                be.op,
+                rhs.data_type_name()
+            )));
         }
     }
 }
@@ -203,7 +252,17 @@ fn eval_aggr_func(
     ctx: &Arc<Context>,
     ec: &EvalConfig,
     ae: &AggregationExpr,
-) -> RuntimeResult<Vec<Timeseries>> {
+) -> RuntimeResult<QueryValue> {
+    let span = if ctx.trace_enabled() {
+        // done this way to avoid possible string alloc in the case where
+        // logging is disabled
+        let name = &ae.name;
+        trace_span!("aggregate", name, series = field::Empty)
+    } else {
+        Span::none()
+    }
+    .entered();
+
     if let Ok(handler) = Handler::try_from(ae.function) {
         if let Some(fe) = try_get_arg_rollup_func_with_metric_expr(ae)? {
             // There is an optimized path for calculating `Expression::AggrFuncExpr` over: RollupFunc
@@ -214,41 +273,37 @@ fn eval_aggr_func(
             let func = get_rollup_function(&fe)?;
 
             let mut res = RollupEvaluator::create_internal(func, &re, expr, args)?;
-
-            res.timeseries_limit = get_timeseries_limit(ae)?;
             res.is_incr_aggregate = true;
             res.incremental_aggr_handler = Some(handler);
 
             return Ok(ExprEvaluator::Rollup(res));
         }
     }
-    if let Some(callbacks) = getIncrementalAggrFuncCallbacks(ae.name) {
-        let (fe, nrf) = try_get_arg_rollup_func_with_metric_expr(ae);
-        if let Some(fe) = fe {
-            // There is an optimized path for calculating AggrFuncExpr over rollupFunc over MetricExpr.
-            // The optimized path saves RAM for aggregates over big number of time series.
-            let (args, re) = eval_rollup_func_args(ctx, ec, fe)?;
-            let rf = nrf(args);
-            let iafc = newIncrementalAggrFuncContext(ae, callbacks);
-            return eval_rollup_func(ctx, ec, fe.Name, rf, ae, re, iafc);
-        }
-    }
+
     let args = eval_exprs_in_parallel(ctx, ec, &ae.args)?;
     let mut afa = AggrFuncArg {
         args,
         ec,
-        modifier: None,
+        modifier: ae.modifier, // todo: avoid clone
         limit: get_timeseries_limit(ae)?,
     };
 
-    trace!("eval {}", ae.name);
-    exec_aggregate_fn(ae.function, &mut afa).map_err(|err| map_error(err, ae))
+    match exec_aggregate_fn(ae.function, &mut afa) {
+        Ok(res) => {
+            span.record("series", res.len());
+            Ok(QueryValue::InstantVector(res))
+        }
+        Err(e) => {
+            let res = format!("cannot evaluate {}: {:?}", ae, e);
+            Err(RuntimeError::General(res))
+        }
+    }
 }
 
 fn eval_exprs_sequentially(
     ctx: &Arc<Context>,
     ec: &EvalConfig,
-    args: &[Expr],
+    args: &Vec<Expr>,
 ) -> RuntimeResult<Vec<Value>> {
     let values: RuntimeResult<Vec<Value>> = args.map(|expr| eval_expr(ctx, ec, expr)).collect();
     values
@@ -266,26 +321,31 @@ pub(super) fn eval_rollup_func_args(
     ctx: &Arc<Context>,
     ec: &EvalConfig,
     fe: &FunctionExpr,
-) -> RuntimeResult<(Vec<Value>, RollupExpr)> {
+) -> RuntimeResult<(Vec<Value>, RollupExpr, usize)> {
     let mut re: RollupExpr;
+    // todo: i dont think we can have a empty arg_idx_for_optimization
+    let rollup_arg_idx = fe.arg_idx_for_optimization;
 
-    let rollup_arg_idx = fe.get_rollup_arg_idx();
-    if fe.args.len() <= rollup_arg_idx {
-        let msg = format!(
-            "expecting at least {} args to {}; got {} args; expr: {}",
-            rollup_arg_idx + 1,
-            fe.name(),
-            fe.args.len(),
-            fe
-        );
-        return Err(RuntimeResult::General(msg));
+    if rollup_arg_idx.is_some() {
+        let rollup_arg_idx = rollup_arg_idx.unwrap();
+        if fe.args.len() <= rollup_arg_idx {
+            let msg = format!(
+                "expecting at least {} args to {}; got {} args; expr: {}",
+                rollup_arg_idx + 1,
+                fe.name,
+                fe.args.len(),
+                fe
+            );
+            return Err(RuntimeResult::General(msg));
+        }
     }
 
-    let args = Vec::with_capacity(fe.args.len());
+    let rollup_arg_idx = rollup_arg_idx.unwrap_or(fe.args.len());
+
+    let mut args = Vec::with_capacity(fe.args.len());
     for (i, arg) in fe.args.iter().enumerate() {
         if i == rollup_arg_idx {
-            re = get_rollup_expr_arg(arg);
-            args.push(re);
+            re = get_rollup_expr_arg(arg)?;
             continue;
         }
         let ts = eval_expr(ctx, ec, arg).map_err(|err| {
@@ -300,7 +360,43 @@ pub(super) fn eval_rollup_func_args(
         args.push(ts);
     }
 
-    return Ok((args, re));
+    return Ok((args, re, rollup_arg_idx));
+}
+
+fn get_rollup_expr_arg(arg: &Expr) -> RuntimeResult<RollupExpr> {
+    let mut re: RollupExpr = match arg {
+        Expr::Rollup(re) => re.clone(),
+        _ => {
+            // Wrap non-rollup arg into RollupExpr.
+            RollupExpr::new(arg.clone())
+        }
+    };
+
+    if !re.for_subquery() {
+        // Return standard rollup if it doesn't contain subquery.
+        return Ok(re);
+    }
+
+    return match &re.expr {
+        Expr::MetricExpression(me) => {
+            // Convert me[w:step] -> default_rollup(me)[w:step]
+
+            // TODO: avoid clone below. Can we just do an into() ?
+            let arg = Expr::Rollup(RollupExpr::new(Expr::MetricExpression(me.clone())));
+
+            match FunctionExpr::default_rollup(arg) {
+                Err(e) => return Err(RuntimeError::General(format!("{:?}", e))),
+                Ok(fe) => {
+                    re.expr = Box::new(Expr::Function(fe));
+                    Ok(re)
+                }
+            }
+        }
+        _ => {
+            // arg contains subquery.
+            Ok(re)
+        }
+    };
 }
 
 // expr may contain:
@@ -342,42 +438,9 @@ pub fn eval_rollup_func_without_at(
 
 fn get_duration(dur: &Option<DurationExpr>, step: i64) -> i64 {
     if let Some(d) = dur {
-        d.value(d, step)
+        d.value(step)
     } else {
         0
-    }
-}
-
-fn get_at_timestamp(ctx: &Arc<Context>, ec: &EvalConfig, expr: &Expr) -> RuntimeResult<i64> {
-    match eval_expr(ctx, ec, expr) {
-        Err(err) => {
-            let msg = format!("cannot evaluate `@` modifier: {:?}", err);
-            return Err(RuntimeError::from(msg));
-        }
-        Ok(tss_at) => {
-            match tss_at {
-                QueryValue::Scalar(v) => Ok((v * 1000_f64) as i64),
-                QueryValue::InstantVector(v) => {
-                    if v.len() != 1 {
-                        let msg = format!("`@` modifier must return a single series; it returns {} series instead", v.len());
-                        return Err(RuntimeError::from(msg));
-                    }
-                    let ts = &v[0];
-                    if ts.values.len() > 1 {
-                        let msg = format!(
-                            "`@` modifier must return a single value; it returns {} series instead",
-                            ts.values.len()
-                        );
-                        return Err(RuntimeError::from(msg));
-                    }
-                    Ok((ts.values[0] * 1000_f64) as i64)
-                }
-                _ => {
-                    let val = tss_at.get_int()?;
-                    Ok(val * 1000_i64)
-                }
-            }
-        }
     }
 }
 

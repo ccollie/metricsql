@@ -392,7 +392,7 @@ impl FunctionExpr {
     pub fn get_arg_for_optimization(&self) -> Option<&Expr> {
         match self.arg_idx_for_optimization {
             None => None,
-            Some(idx) => Some(&self.args[idx]),
+            Some(idx) => self.args.get(idx),
         }
     }
 
