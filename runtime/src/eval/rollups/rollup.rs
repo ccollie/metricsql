@@ -205,14 +205,13 @@ impl RollupEvaluator {
 
         let mut rvs = match &*re.expr {
             Expr::MetricExpression(me) => {
-                self.eval_with_metric_expr(ctx, &ec_new, me, rollup_func)?
+                self.eval_with_metric_expr(ctx, &ec_new, re, me, rollup_func)?
             }
             _ => {
                 // todo: do this check on Evaluator construction
                 if self.is_incr_aggregate {
                     let msg = format!(
-                        "BUG:iafc must be None for rollup {} over subquery {}",
-                        self.func, re
+                        "BUG:iafc must be None for rollup {func} over subquery {re}",
                     );
                     return Err(RuntimeError::from(msg));
                 }
@@ -302,7 +301,6 @@ impl RollupEvaluator {
         )?;
 
         let keep_metric_names = self.keep_metric_names;
-        let func = self.func;
 
         let (res, samples_scanned_total) = do_parallel(
             &tss_sq,
@@ -423,7 +421,7 @@ impl RollupEvaluator {
 
         let min_staleness_interval = ctx.config.min_staleness_interval.num_milliseconds() as usize;
         let (rcs, pre_funcs) = get_rollup_configs(
-            &self.func,
+            &func,
             rollup_func,
             &self.expr,
             start,

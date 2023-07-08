@@ -92,9 +92,8 @@ fn eval_expr_internal(ctx: &Arc<Context>, ec: &EvalConfig, e: &Expr) -> RuntimeR
             Ok(rv)
         }
         Expr::Parens(pe) => {
-            trace!("parens");
+            trace_span!("parens");
             let rv = eval_parens_op(ctx, ec, pe)?;
-            trace!("series={}", rv.len());
             Ok(rv)
         }
         Expr::MetricExpression(me) => {
@@ -204,13 +203,13 @@ fn eval_binary_op(
             Ok(Value::Scalar(value))
         }
         (Value::InstantVector(left), Value::InstantVector(right)) => {
-            binaries::vector_bin_op(expr, &left, &right)?
+            binaries::vector_bin_op(be, &left, &right)?
         }
         (Value::InstantVector(left), Value::Scalar(right)) => {
-            binaries::vector_scalar_bin_op(expr, &left, right).await?
+            binaries::vector_scalar_bin_op(be, &left, right).await?
         }
         (Value::Scalar(left), Value::InstantVector(right)) => {
-            binaries::vector_scalar_bin_op(expr, &right, left).await?
+            binaries::vector_scalar_bin_op(be, &right, left).await?
         }
         (Value::String(left), QueryValue::String(right)) => {
             let value = eval_string_op(be.op, &left, &right, be.bool_modifier)?;
