@@ -11,12 +11,15 @@ use metricsql::functions::{RollupFunction, TransformFunction};
 use metricsql::prelude::BuiltinFunction;
 
 use crate::eval::aggregate::{get_timeseries_limit, try_get_arg_rollup_func_with_metric_expr};
-use crate::eval::binary::eval_string_op;
-use crate::eval::binary::scalar_operations::scalar_binary_operations;
-use crate::eval::rollup::compile_rollup_func_args;
-use crate::functions::aggregate::{
-    exec_aggregate_fn, AggrFuncArg, Handler, IncrementalAggrFuncContext,
+use crate::eval::binary::scalar_binary_operations;
+use crate::eval::binary::{eval_duration_duration_op, eval_duration_scalar_op};
+use crate::eval::binary::{
+    eval_scalar_vector_binop, eval_string_string_op, eval_vector_scalar_binop,
+    eval_vector_vector_binop,
 };
+use crate::eval::rollup::compile_rollup_func_args;
+use crate::eval::rollups::rollup::eval_rollup_func;
+use crate::functions::aggregate::{exec_aggregate_fn, AggrFuncArg, Handler};
 use crate::functions::rollup::{get_rollup_function_factory, rollup_default, RollupFunc};
 use crate::functions::transform::{get_transform_func, TransformFuncArg};
 use crate::{Context, EvalConfig, QueryValue, RuntimeError, RuntimeResult, Timeseries};
@@ -71,7 +74,11 @@ pub fn eval_expr(ctx: &Arc<Context>, ec: &EvalConfig, e: &Expr) -> RuntimeResult
     return Ok(rv);
 }
 
-fn eval_expr_internal(ctx: &Arc<Context>, ec: &EvalConfig, e: &Expr) -> RuntimeResult<QueryValue> {
+pub(crate) fn eval_expr_internal(
+    ctx: &Arc<Context>,
+    ec: &EvalConfig,
+    e: &Expr,
+) -> RuntimeResult<QueryValue> {
     let tracing = ctx.trace_enabled();
     match e {
         Expr::StringLiteral(s) => Ok(QueryValue::String(s.to_string())),
@@ -97,7 +104,7 @@ fn eval_expr_internal(ctx: &Arc<Context>, ec: &EvalConfig, e: &Expr) -> RuntimeR
             Ok(rv)
         }
         Expr::MetricExpression(me) => {
-            let re = RollupExpr::new(me);
+            let re = RollupExpr::new(e.clone());
             let val = eval_rollup_func(
                 ctx,
                 ec,
@@ -125,7 +132,7 @@ fn eval_expr_internal(ctx: &Arc<Context>, ec: &EvalConfig, e: &Expr) -> RuntimeR
         }
         Expr::Aggregation(ae) => {
             trace!("aggregate {}()", ae.function.name());
-            let rv = eval_aggr_func(ctx, ec, ae).map_err(|err| map_error(err, ae))?;
+            let rv = eval_aggr_func(ctx, ec, e, ae).map_err(|err| map_error(err, ae))?;
             trace!("series={}", rv.len());
             Ok(rv)
         }
@@ -193,37 +200,77 @@ fn eval_binary_op(
     ec: &EvalConfig,
     be: &BinaryExpr,
 ) -> RuntimeResult<QueryValue> {
-    // todo: tokio.join!() ?
-    let lhs = eval_expr(ctx, ec, &be.left)?;
-    let rhs = eval_expr(ctx, ec, &be.right)?;
-    match (&lhs, &rhs) {
-        (Value::Scalar(left), Value::Scalar(right)) => {
+    let res = match (&be.left, &be.right) {
+        // vector op vector needs special handling
+        (Expr::MetricExpression(_), Expr::MetricExpression(_)) => {
+            eval_vector_vector_binop(be, ctx, ec)
+        }
+        // the following cases can be handled cheaply without invoking async runtime
+        (Expr::Number(left), Expr::Number(right)) => {
             // todo: add support for bool modifier
-            let value = scalar_binary_operations(be.op, *left, *right)?;
-            Ok(Value::Scalar(value))
+            let value = scalar_binary_operations(be.op, *left.value, *right.value)?;
+            Value::Scalar(value)
         }
-        (Value::InstantVector(left), Value::InstantVector(right)) => {
-            binaries::vector_bin_op(be, &left, &right)?
+        (Expr::Duration(left), Expr::Duration(right)) => {
+            eval_duration_duration_op(&left, right, be.op, ec.step)
         }
-        (Value::InstantVector(left), Value::Scalar(right)) => {
-            binaries::vector_scalar_bin_op(be, &left, right).await?
+        (Expr::Duration(dur), Expr::Number(scalar)) => {
+            eval_duration_scalar_op(&dur, scalar.value, be.op, ec.step)
         }
-        (Value::Scalar(left), Value::InstantVector(right)) => {
-            binaries::vector_scalar_bin_op(be, &right, left).await?
+        (Expr::Number(scalar), Expr::Duration(dur)) => {
+            eval_duration_scalar_op(&dur, scalar.value, be.op, ec.step)
         }
-        (Value::String(left), QueryValue::String(right)) => {
-            let value = eval_string_op(be.op, &left, &right, be.bool_modifier)?;
-            Ok(value)
+        (Expr::StringLiteral(left), Expr::StringLiteral(right)) => {
+            eval_string_string_op(be.op, &left, &right, be.bool_modifier)
         }
-        _ => {
-            return Err(RuntimeError::NotImplemented(format!(
-                "invalid binary operation: {} {} {}",
-                lhs.data_type_name(),
-                be.op,
-                rhs.data_type_name()
-            )));
+        (left, right) => {
+            // todo: tokio.join!
+            let lhs = eval_expr(ctx, ec, &left).await?;
+            let rhs = eval_expr(ctx, ec, &right).await?;
+
+            match (lhs, rhs) {
+                (QueryValue::Scalar(left), QueryValue::Scalar(right)) => {
+                    let value = scalar_binary_operations(be.op, left, right)?;
+                    // todo: add support for bool modifier
+                    Value::Scalar(value)
+                }
+                (QueryValue::InstantVector(left), QueryValue::InstantVector(right)) => {
+                    eval_vector_vector_binop(be, ctx, ec)
+                }
+                (QueryValue::InstantVector(vector), QueryValue::Scalar(scalar)) => {
+                    eval_vector_scalar_binop(
+                        ctx,
+                        vector,
+                        scalar,
+                        be.op,
+                        be.keep_metric_names,
+                        be.bool_modifier,
+                    )
+                }
+                (QueryValue::Scalar(scalar), QueryValue::InstantVector(vector)) => {
+                    eval_scalar_vector_binop(
+                        ctx,
+                        vector,
+                        scalar,
+                        be.op,
+                        be.keep_metric_names,
+                        be.bool_modifier,
+                    )
+                }
+                (QueryValue::String(left), QueryValue::String(right)) => {
+                    eval_string_string_op(be.op, &left, &right, be.bool_modifier)
+                }
+                _ => {
+                    return Err(RuntimeError::NotImplemented(format!(
+                        "invalid binary operation: {} {} {}",
+                        be.left.variant_name(),
+                        be.op,
+                        be.right.variant_name()
+                    )));
+                }
+            }
         }
-    }
+    };
 }
 
 fn eval_transform_func(
@@ -250,6 +297,7 @@ fn eval_transform_func(
 fn eval_aggr_func(
     ctx: &Arc<Context>,
     ec: &EvalConfig,
+    expr: &Expr,
     ae: &AggregationExpr,
 ) -> RuntimeResult<QueryValue> {
     let span = if ctx.trace_enabled() {
@@ -268,8 +316,7 @@ fn eval_aggr_func(
             // over Expression::MetricExpr.
             // The optimized path saves RAM for aggregates over big number of time series.
             let (args, re) = compile_rollup_func_args(&fe)?;
-            let expr = Expr::Aggregation(ae.clone());
-            let func = get_rollup_function(&fe)?;
+            let nrf = get_rollup_function_factory(&fe)?;
 
             let mut res = RollupEvaluator::create_internal(func, &re, expr, args)?;
             res.is_incr_aggregate = true;
@@ -299,7 +346,7 @@ fn eval_aggr_func(
     }
 }
 
-fn eval_exprs_sequentially(
+pub(crate) fn eval_exprs_sequentially(
     ctx: &Arc<Context>,
     ec: &EvalConfig,
     args: &Vec<Expr>,
@@ -308,7 +355,7 @@ fn eval_exprs_sequentially(
     values
 }
 
-fn eval_exprs_in_parallel(
+pub(crate) fn eval_exprs_in_parallel(
     ctx: &Arc<Context>,
     ec: &EvalConfig,
     args: &[Expr],
@@ -380,8 +427,7 @@ fn get_rollup_expr_arg(arg: &Expr) -> RuntimeResult<RollupExpr> {
         Expr::MetricExpression(me) => {
             // Convert me[w:step] -> default_rollup(me)[w:step]
 
-            // TODO: avoid clone below. Can we just do an into() ?
-            let arg = Expr::Rollup(RollupExpr::new(Expr::MetricExpression(me.clone())));
+            let arg = Expr::Rollup(RollupExpr::new(*re.expr.clone()));
 
             match FunctionExpr::default_rollup(arg) {
                 Err(e) => return Err(RuntimeError::General(format!("{:?}", e))),
@@ -398,71 +444,10 @@ fn get_rollup_expr_arg(arg: &Expr) -> RuntimeResult<RollupExpr> {
     };
 }
 
-// expr may contain:
-// - rollupFunc(m) if iafc is None
-// - aggrFunc(rollupFunc(m)) if iafc isn't None
-fn eval_rollup_func(
-    ctx: &Arc<Context>,
-    ec: &EvalConfig,
-    function: RollupFunction,
-    rf: RollupFunc,
-    expr: &Expr,
-    re: &RollupExpr,
-    iafc: Option<&IncrementalAggrFuncContext>,
-) -> RuntimeResult<QueryValue> {
-    if re.at.is_none() {
-        return eval_rollup_func_without_at(ctx, ec, function, rf, expr, re, iafc);
-    }
-
-    let at_expr = re.at.as_ref().unwrap();
-    let at_timestamp = get_at_timestamp(ctx, ec, &at_expr)?;
-
-    let mut ec_new = ec.clone();
-    ec_new.start = at_timestamp;
-    ec_new.end = at_timestamp;
-    eval_rollup_func_without_at(ctx, &ec_new, function, rf, expr, re, iafc)
-}
-
-pub fn eval_rollup_func_without_at(
-    ctx: &Arc<Context>,
-    ec: &EvalConfig,
-    func: RollupFunction,
-    rf: RollupFunc,
-    expr: &Expr,
-    re: &RollupExpr,
-    iafc: Option<&IncrementalAggrFuncContext>,
-) -> RuntimeResult<QueryValue> {
-    todo!("eval_rollup_func_without_at")
-}
-
 fn get_duration(dur: &Option<DurationExpr>, step: i64) -> i64 {
     if let Some(d) = dur {
         d.value(step)
     } else {
         0
     }
-}
-
-fn eval_rollup_func_with_subquery(
-    ctx: &Arc<Context>,
-    ec: &EvalConfig,
-    func: RollupFunction,
-    rf: RollupFunc,
-    expr: &Expr,
-    re: &RollupExpr,
-) -> RuntimeResult<Vec<Timeseries>> {
-    todo!("eval_rollup_func_with_subquery")
-}
-
-fn eval_rollup_func_with_metric_expr(
-    ctx: &Arc<Context>,
-    ec: &EvalConfig,
-    func: RollupFunction,
-    rf: RollupFunc,
-    expr: &Expr,
-    me: &MetricExpr,
-    iafc: &IncrementalAggrFuncContext,
-    window_expr: &DurationExpr,
-) -> RuntimeResult<QueryValue> {
-    todo!("eval_rollup_func_with_metric_expr")
 }

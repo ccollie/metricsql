@@ -4,7 +4,7 @@ use metricsql::common::Operator;
 use crate::{QueryValue, RuntimeError, RuntimeResult};
 
 // move to metricsql binop module ?
-pub(crate) fn eval_string_op(
+pub(crate) fn eval_string_string_op(
     op: Operator,
     left: &str,
     right: &str,

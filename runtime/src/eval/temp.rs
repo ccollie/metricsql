@@ -141,7 +141,7 @@ fn eval_transform_func(ctx: &Arc<Context>, ec: &EvalConfig, fe: &FuncExpr) -> Ru
 }
 
 fn eval_aggr_func(ctx: &Arc<Context>, ec: &Arc<EvalConfig>, ae: &AggrFuncExpr) -> RuntimeResult<Vec<Timeseries>> {
-    if let Some(callbacks) = getIncrementalAggrFuncCallbacks(ae.Name) {
+    if let Some(callbacks) = Handler::try_from(ae.function) {
         let (fe, nrf) = try_get_arg_rollup_func_with_metric_expr(ae);
         if let Some(fe) = fe {
             // There is an optimized path for calculating AggrFuncExpr over rollupFunc over MetricExpr.
@@ -149,7 +149,7 @@ fn eval_aggr_func(ctx: &Arc<Context>, ec: &Arc<EvalConfig>, ae: &AggrFuncExpr) -
             let (args, re) = eval_rollup_func_args(ctx, ec, fe)?;
             let rf = nrf(args);
             let iafc = newIncrementalAggrFuncContext(ae, callbacks);
-            return eval_rollup_func(ctx, ec, fe.Name, rf, ae, re, iafc)
+            return eval_rollup_func(ctx, ec, rf, ae, re, iafc)
         }
     }
     let args = eval_exprs_in_parallel(ctx, ec, &ae.args)?;
@@ -431,13 +431,12 @@ fn get_rollup_expr_arg(arg: &Expr) -> RuntimeResult<RollupExpr> {
 fn eval_rollup_func(
     ctx: &Arc<Context>,
     ec: &EvalConfig,
-    func_name: &str,
     rf: RollupFunc,
     expr: &Expr,
     re: &RollupExpr,
     iafc: &IncrementalAggrFuncContext) -> RuntimeResult<Vec<Timeseries>> {
     if re.at.is_none() {
-        return eval_rollup_func_without_at(ctx, ec, func_name, rf, expr, re, iafc)
+        return eval_rollup_func_without_at(ctx, ec, rf, expr, re, iafc)
     }
 
     let at_timestamp = eval_at_expr(ctx, ec, re.at)?;
@@ -445,7 +444,7 @@ fn eval_rollup_func(
     let mut ec_new = ec.clone();
     ec_new.start = at_timestamp;
     ec_new.end = at_timestamp;
-    let mut tss = eval_rollup_func_without_at(ctx, ec_new, func_name, rf, expr, re, iafc)?;
+    let mut tss = eval_rollup_func_without_at(ctx, ec_new, rf, expr, re, iafc)?;
 
     // expand single-point tss to the original time range.
     let timestamps = ec.get_shared_timestamps();

@@ -11,9 +11,9 @@ use metricsql::functions::Volatility;
 use metricsql::prelude::*;
 
 use crate::context::Context;
-use crate::eval::binop_handlers::{exec_binop, BinaryOpFuncArg};
 use crate::eval::traits::Evaluator;
 use crate::eval::utils::series_len;
+use crate::eval::vector_binop_handlers::{exec_binop, BinaryOpFuncArg};
 use crate::eval::{create_evaluator, eval_number, ExprEvaluator};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::types::Tag;

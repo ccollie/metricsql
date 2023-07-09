@@ -1,36 +1,32 @@
 use metricsql::ast::{DurationExpr, Expr, NumberLiteral};
 use metricsql::prelude::Operator;
 
-use crate::{RuntimeError, RuntimeResult};
+use crate::{QueryValue, RuntimeError, RuntimeResult};
 
 // todo: add dur * scalar, scalar * dur, dur / scalar, scalar / dur to optimizer
-pub(crate) fn duration_op_scalar(
+pub(crate) fn eval_duration_scalar_op(
     dur: &DurationExpr,
     scalar: f64,
     op: Operator,
     step: i64,
-) -> RuntimeResult<Expr> {
+) -> RuntimeResult<QueryValue> {
     let d = dur.value(step);
     match op {
         Operator::Add => {
             let millis = scalar as i64 * 1000_i64;
-            let dur = DurationExpr::new(d + millis, false);
-            Ok(Expr::Duration(dur))
+            Ok(QueryValue::Scalar((d + millis) as f64))
         }
         Operator::Sub => {
             let millis = scalar as i64 * 1000_i64;
-            let dur = DurationExpr::new(d - millis, false);
-            Ok(Expr::Duration(dur))
+            Ok(QueryValue::Scalar((d - millis) as f64))
         }
         Operator::Mul => {
             let n = d as f64 * scalar; // todo: saturating_mul
-            let dur = DurationExpr::new(n as i64, false);
-            Ok(Expr::Duration(dur))
+            Ok(QueryValue::Scalar(n))
         }
         Operator::Div => {
             let n = d as f64 / scalar; // todo: saturating_mul
-            let dur = DurationExpr::new(n as i64, false);
-            Ok(Expr::Duration(dur))
+            Ok(QueryValue::Scalar(n))
         }
         _ => Err(RuntimeError::NotImplemented(format!(
             "Invalid operator for duration: {:?}",
@@ -39,26 +35,19 @@ pub(crate) fn duration_op_scalar(
     }
 }
 
-pub(crate) fn eval_duration_op_duration(
+pub(crate) fn eval_duration_duration_op(
     dur_a: &DurationExpr,
-    dur_b: DurationExpr,
+    dur_b: &DurationExpr,
     op: Operator,
     step: i64,
-) -> RuntimeResult<Expr> {
+) -> RuntimeResult<QueryValue> {
     let a = dur_a.value(step);
     let b = dur_b.value(step);
     match op {
-        Operator::Add => {
-            let dur = DurationExpr::new(a + b, false);
-            Ok(Expr::Duration(dur))
-        }
-        Operator::Sub => {
-            let dur = DurationExpr::new(a - b, false);
-            Ok(Expr::Duration(dur))
-        }
+        Operator::Add => Ok(QueryValue::Scalar((a + b) as f64)),
+        Operator::Sub => Ok(QueryValue::Scalar((a - b) as f64)),
         _ => Err(RuntimeError::NotImplemented(format!(
-            "Invalid operator for duration: {:?}",
-            op
+            "Invalid operation: {dur_a} {op} {dur_b}"
         ))),
     }
 }

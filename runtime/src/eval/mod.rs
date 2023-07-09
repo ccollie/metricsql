@@ -3,7 +3,6 @@ pub use traits::*;
 
 mod aggregate;
 pub(crate) mod arg_list;
-pub mod binop_handlers;
 mod binop_scalar_scalar;
 mod binop_scalar_vector;
 mod binop_vector_scalar;
@@ -16,6 +15,7 @@ mod scalar;
 mod string;
 mod traits;
 pub(crate) mod utils;
+pub mod vector_binop_handlers;
 
 mod instant_vector;
 
