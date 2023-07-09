@@ -9,22 +9,19 @@ use tracing::{field, span_enabled, trace_span, Level, Span};
 
 use lib::{get_float64s, get_int64s, is_stale_nan, AtomicCounter, RelaxedU64Counter};
 use metricsql::ast::*;
-use metricsql::common::{Value, ValueType};
 use metricsql::functions::RollupFunction;
-
 
 use crate::cache::rollup_result_cache::merge_timeseries;
 use crate::context::Context;
 
 use crate::eval::exec_new::eval_expr;
 use crate::eval::{
-    align_start_end, create_evaluator, eval_number, validate_max_points_per_timeseries,
-    ExprEvaluator,
+    align_start_end, eval_number, validate_max_points_per_timeseries,
 };
-use crate::functions::aggregate::{Handler, IncrementalAggrFuncContext};
+use crate::functions::aggregate::{IncrementalAggrFuncContext};
 use crate::functions::rollup::{
     eval_prefuncs, get_rollup_configs, rollup_func_keeps_metric_name,
-    RollupConfig, RollupHandlerEnum, RollupHandlerFactory, TimeseriesMap, MAX_SILENCE_INTERVAL,
+    RollupConfig, RollupHandlerEnum, TimeseriesMap, MAX_SILENCE_INTERVAL,
 };
 use crate::functions::transform::get_absent_timeseries;
 use crate::rayon::iter::ParallelIterator;

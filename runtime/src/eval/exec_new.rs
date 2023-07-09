@@ -1,10 +1,10 @@
 use std::fmt::Display;
 use std::sync::Arc;
 
-use tracing::{trace, trace_span, Span};
+use tracing::{trace, trace_span, Span, field};
 
 use metricsql::ast::{
-    AggregationExpr, BinaryExpr, DurationExpr, Expr, FunctionExpr, ParensExpr, RollupExpr,
+    AggregationExpr, BinaryExpr, Expr, FunctionExpr, ParensExpr, RollupExpr,
 };
 use metricsql::functions::{RollupFunction, TransformFunction};
 use metricsql::prelude::BuiltinFunction;
@@ -274,6 +274,7 @@ fn eval_binary_op(
             }
         }
     };
+    res
 }
 
 fn eval_transform_func(
@@ -313,6 +314,7 @@ fn eval_aggr_func(
     }
     .entered();
 
+    // todo: ensure that this is serialized
     if ae.can_incrementally_eval {
         if let Ok(handler) = Handler::try_from(ae.function) {
             if let Some(fe) = try_get_arg_rollup_func_with_metric_expr(ae)? {

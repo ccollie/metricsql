@@ -1,14 +1,12 @@
 use std::sync::Arc;
 
 use tracing::{field, trace_span, Span};
+use metricsql::binaryop::{get_scalar_binop_handler};
+use metricsql::common::{Operator};
 
-use metricsql::ast::Expr;
-use metricsql::binaryop::{get_scalar_binop_handler, BinopFunc};
-use metricsql::common::{Operator, Value, ValueType};
-use metricsql::functions::Volatility;
 
-use crate::eval::{create_evaluator, Evaluator, ExprEvaluator};
-use crate::{Context, EvalConfig, QueryValue, RuntimeError, RuntimeResult};
+
+use crate::{Context, InstantVector, QueryValue, RuntimeError, RuntimeResult};
 
 /// BinaryEvaluatorScalarVector
 /// Ex:
@@ -16,7 +14,7 @@ use crate::{Context, EvalConfig, QueryValue, RuntimeError, RuntimeResult};
 ///   http_requests_total{method="GET"} / 10
 pub(crate) fn eval_vector_scalar_binop(
     ctx: &Arc<Context>,
-    vector: InstantVector,
+    mut vector: InstantVector,
     scalar: f64,
     op: Operator,
     keep_metric_names: bool,

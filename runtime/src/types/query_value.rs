@@ -46,10 +46,12 @@ impl Sample {
     }
 }
 
+pub type InstantVector = Vec<Timeseries>;  // todo: Vec<(label, Sample)> or somesuch
+
 #[derive(Debug, PartialEq)]
 pub enum QueryValue {
     RangeVector(Vec<Timeseries>),
-    InstantVector(Vec<Timeseries>),
+    InstantVector(InstantVector),
     Scalar(f64),
     String(String),
 }
