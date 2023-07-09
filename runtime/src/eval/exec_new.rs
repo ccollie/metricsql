@@ -17,7 +17,7 @@ use crate::eval::binary::{
     eval_vector_vector_binop,
 };
 use crate::eval::rollup::compile_rollup_func_args;
-use crate::eval::rollups::rollup::eval_rollup_func;
+use crate::eval::rollups::rollup::{RollupExecutor};
 use crate::functions::aggregate::{
     exec_aggregate_fn, AggrFuncArg, Handler, IncrementalAggrFuncContext,
 };
@@ -107,31 +107,26 @@ pub(crate) fn eval_expr_internal(
         Expr::MetricExpression(me) => {
             let re = RollupExpr::new(expr.clone());
             let handler = RollupHandlerEnum::Wrapped(rollup_default);
-            let val = eval_rollup_func(
-                ctx,
-                ec,
+            let mut executor = RollupExecutor::new(
                 RollupFunction::DefaultRollup,
-                &handler,
-                &expr,
+                handler,
+                expr,
                 &re,
-                None,
-            )
-            .map_err(|err| map_error(err, &expr))?;
+            );
+            let val = executor.eval(ctx, ec)
+                .map_err(|err| map_error(err, &expr))?;
             Ok(val)
         }
         Expr::Rollup(re) => {
             let handler = RollupHandlerEnum::Wrapped(rollup_default);
-            let val = eval_rollup_func(
-                ctx,
-                ec,
+            let mut executor = RollupExecutor::new(
                 RollupFunction::DefaultRollup,
-                &handler,
-                &expr,
+                handler,
+                expr,
                 &re,
-                None,
-            )
-            .map_err(|err| map_error(err, re))?;
-            Ok(val)
+            );
+            executor.eval(ctx, ec)
+                .map_err(|err| map_error(err, &expr))
         }
         Expr::Aggregation(ae) => {
             trace!("aggregate {}()", ae.function.name());
@@ -162,9 +157,11 @@ fn eval_function_op(
             let nrf = get_rollup_function_factory(rf);
             let (args, re) = eval_rollup_func_args(ctx, ec, &fe)?;
             let func_handler = nrf(&args)?;
-            let val = eval_rollup_func(ctx, ec, rf, &func_handler, expr, &re, None)
+            let mut rollup_handler = RollupExecutor::new(rf, func_handler, expr,
+                &re);
+            let val = rollup_handler.eval(ctx, ec)
                 .map_err(|err| map_error(err, fe))?;
-            return Ok(QueryValue::InstantVector(val));
+            return Ok(val);
         }
         _ => {
             return Err(RuntimeError::NotImplemented(name.to_string()));
@@ -338,11 +335,12 @@ fn eval_aggr_func(
                 let nrf = get_rollup_function_factory(rf);
                 let func_handler = nrf(args)?;
                 let iafc = IncrementalAggrFuncContext::new(ae, &handler);
-                let iafc_ref = &iafc;
+                let mut executor = RollupExecutor::new(rf, func_handler,  expr, &re);
+                executor.set_incr_aggregate_context(iafc);
 
-                let val = eval_rollup_func(ctx, ec, rf, &func_handler, expr, &re, Some(iafc_ref))?;
+                let val = executor.eval(ctx, ec)?;
                 span.record("series", val.len());
-                return Ok(QueryValue::InstantVector(val));
+                return Ok(val);
             }
         }
     }
@@ -465,12 +463,4 @@ fn get_rollup_expr_arg(arg: &Expr) -> RuntimeResult<RollupExpr> {
             Ok(re)
         }
     };
-}
-
-fn get_duration(dur: &Option<DurationExpr>, step: i64) -> i64 {
-    if let Some(d) = dur {
-        d.value(step)
-    } else {
-        0
-    }
 }
