@@ -1,10 +1,12 @@
-use crate::functions::aggregate::Handler;
-use crate::{RuntimeResult, Timeseries};
-use metricsql::ast::AggregationExpr;
-use metricsql::functions::AggregateFunction;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+
+use metricsql::ast::AggregationExpr;
+use metricsql::functions::AggregateFunction;
+
+use crate::functions::aggregate::Handler;
+use crate::{RuntimeResult, Timeseries};
 
 pub enum IncrementalAggrFuncKind {
     Any,
@@ -151,8 +153,6 @@ impl<'a> IncrementalAggrFuncContext<'a> {
     }
 
     pub fn finalize(&mut self) -> Vec<Timeseries> {
-        // There is no need in iafc.mLock.lock here, since finalize_timeseries must be called
-        // without concurrent threads touching iafc.
         let mut m_global: HashMap<&String, IncrementalAggrContext> = HashMap::new();
         let mut hash = self.context_map.write().unwrap();
         for (_, m) in hash.iter_mut() {

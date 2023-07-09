@@ -24,8 +24,7 @@ use crate::eval::{
 use crate::functions::aggregate::{Handler, IncrementalAggrFuncContext};
 use crate::functions::rollup::{
     eval_prefuncs, get_rollup_configs, get_rollup_function_factory, rollup_func_keeps_metric_name,
-    RollupConfig, RollupFunc, RollupHandlerEnum, RollupHandlerFactory, TimeseriesMap,
-    MAX_SILENCE_INTERVAL,
+    RollupConfig, RollupHandlerEnum, RollupHandlerFactory, TimeseriesMap, MAX_SILENCE_INTERVAL,
 };
 use crate::functions::transform::get_absent_timeseries;
 use crate::rayon::iter::ParallelIterator;
@@ -271,6 +270,7 @@ fn eval_with_metric_expr(
     me: &MetricExpr,
     func: RollupFunction,
     rollup_func: &RollupHandlerEnum,
+    iafc: Option<&IncrementalAggrFuncContext>,
 ) -> RuntimeResult<Vec<Timeseries>> {
     let window = duration_value(&re.window, ec.step);
 
@@ -384,6 +384,7 @@ fn eval_with_metric_expr(
             pre_func,
             &shared_timestamps,
             ignore_staleness,
+            iafc,
         ),
         _ => eval_no_incremental_aggregate(
             &mut rss,
@@ -540,6 +541,7 @@ fn eval_with_incremental_aggregate<F>(
     pre_func: F,
     shared_timestamps: &Arc<Vec<i64>>,
     ignore_staleness: bool,
+    iafc: Option<&IncrementalAggrFuncContext>,
 ) -> RuntimeResult<Vec<Timeseries>>
 where
     F: Fn(&mut [f64], &[i64]) -> () + Send + Sync,

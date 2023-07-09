@@ -4,8 +4,7 @@ use std::sync::Arc;
 use tracing::{trace, trace_span, Span};
 
 use metricsql::ast::{
-    AggregationExpr, BinaryExpr, DurationExpr, Expr, FunctionExpr, MetricExpr, ParensExpr,
-    RollupExpr,
+    AggregationExpr, BinaryExpr, DurationExpr, Expr, FunctionExpr, ParensExpr, RollupExpr,
 };
 use metricsql::functions::{RollupFunction, TransformFunction};
 use metricsql::prelude::BuiltinFunction;
@@ -19,8 +18,12 @@ use crate::eval::binary::{
 };
 use crate::eval::rollup::compile_rollup_func_args;
 use crate::eval::rollups::rollup::eval_rollup_func;
-use crate::functions::aggregate::{exec_aggregate_fn, AggrFuncArg, Handler};
-use crate::functions::rollup::{get_rollup_function_factory, rollup_default, RollupFunc};
+use crate::functions::aggregate::{
+    exec_aggregate_fn, AggrFuncArg, Handler, IncrementalAggrFuncContext,
+};
+use crate::functions::rollup::{
+    get_rollup_function_factory, rollup_default, RollupFunc, RollupHandlerEnum,
+};
 use crate::functions::transform::{get_transform_func, TransformFuncArg};
 use crate::{Context, EvalConfig, QueryValue, RuntimeError, RuntimeResult, Timeseries};
 
@@ -105,11 +108,12 @@ pub(crate) fn eval_expr_internal(
         }
         Expr::MetricExpression(me) => {
             let re = RollupExpr::new(e.clone());
+            let handler = RollupHandlerEnum::Wrapped(rollup_default);
             let val = eval_rollup_func(
                 ctx,
                 ec,
                 RollupFunction::DefaultRollup,
-                rollup_default,
+                &handler,
                 &e,
                 &re,
                 None,
@@ -118,11 +122,12 @@ pub(crate) fn eval_expr_internal(
             Ok(val)
         }
         Expr::Rollup(re) => {
+            let handler = RollupHandlerEnum::Wrapped(rollup_default);
             let val = eval_rollup_func(
                 ctx,
                 ec,
                 RollupFunction::DefaultRollup,
-                rollup_default,
+                &handler,
                 &e,
                 &re,
                 None,
@@ -136,7 +141,7 @@ pub(crate) fn eval_expr_internal(
             trace!("series={}", rv.len());
             Ok(rv)
         }
-        Expr::Function(fe) => eval_function_op(ctx, ec, fe),
+        Expr::Function(fe) => eval_function_op(ctx, ec, e, fe),
         _ => unimplemented!(),
     }
 }
@@ -144,6 +149,7 @@ pub(crate) fn eval_expr_internal(
 fn eval_function_op(
     ctx: &Arc<Context>,
     ec: &EvalConfig,
+    expr: &Expr,
     fe: &FunctionExpr,
 ) -> RuntimeResult<QueryValue> {
     let name = fe.function.name();
@@ -157,8 +163,9 @@ fn eval_function_op(
         BuiltinFunction::Rollup(rf) => {
             let nrf = get_rollup_function_factory(rf);
             let (args, re) = eval_rollup_func_args(ctx, ec, &fe)?;
-            let rf = nrf(&args)?;
-            eval_rollup_func(ctx, ec, rf, rf, &e, &re, None).map_err(|err| map_error(err, &e))
+            let func_handler = nrf(&args)?;
+            eval_rollup_func(ctx, ec, rf, &func_handler, expr, &re, None)
+                .map_err(|err| map_error(err, fe))
         }
         _ => {
             return Err(RuntimeError::NotImplemented(name.to_string()));
@@ -310,19 +317,32 @@ fn eval_aggr_func(
     }
     .entered();
 
-    if let Ok(handler) = Handler::try_from(ae.function) {
-        if let Some(fe) = try_get_arg_rollup_func_with_metric_expr(ae)? {
-            // There is an optimized path for calculating `Expression::AggrFuncExpr` over: RollupFunc
-            // over Expression::MetricExpr.
-            // The optimized path saves RAM for aggregates over big number of time series.
-            let (args, re) = compile_rollup_func_args(&fe)?;
-            let nrf = get_rollup_function_factory(&fe)?;
+    if ae.can_incrementally_eval {
+        if let Ok(handler) = Handler::try_from(ae.function) {
+            if let Some(fe) = try_get_arg_rollup_func_with_metric_expr(ae)? {
+                // There is an optimized path for calculating `AggrFuncExpr` over: RollupFunc
+                // over MetricExpr.
+                // The optimized path saves RAM for aggregates over big number of time series.
+                let (args, re) = compile_rollup_func_args(&fe)?;
 
-            let mut res = RollupEvaluator::create_internal(func, &re, expr, args)?;
-            res.is_incr_aggregate = true;
-            res.incremental_aggr_handler = Some(handler);
+                let rf = match fe.function {
+                    BuiltinFunction::Rollup(rf) => rf,
+                    _ => {
+                        // should not happen
+                        unreachable!(
+                            "Expected a rollup function in aggregation. Found  \"{}\"",
+                            fe.function
+                        )
+                    }
+                };
 
-            return Ok(ExprEvaluator::Rollup(res));
+                let nrf = get_rollup_function_factory(rf);
+                let func_handler = nrf(args)?;
+                let iafc = IncrementalAggrFuncContext::new(ae, &handler);
+                let iafc_ref = &iafc;
+
+                return eval_rollup_func(ctx, ec, rf, &func_handler, expr, &re, Some(iafc_ref));
+            }
         }
     }
 
@@ -368,7 +388,7 @@ pub(super) fn eval_rollup_func_args(
     ec: &EvalConfig,
     fe: &FunctionExpr,
 ) -> RuntimeResult<(Vec<Value>, RollupExpr, usize)> {
-    let mut re: RollupExpr;
+    let mut re: RollupExpr = Default::default();
     // todo: i dont think we can have a empty arg_idx_for_optimization
     let rollup_arg_idx = fe.arg_idx_for_optimization;
 
@@ -392,6 +412,7 @@ pub(super) fn eval_rollup_func_args(
     for (i, arg) in fe.args.iter().enumerate() {
         if i == rollup_arg_idx {
             re = get_rollup_expr_arg(arg)?;
+            args.push(QueryValue::Scalar(f64::NAN)); // placeholder
             continue;
         }
         let ts = eval_expr(ctx, ec, arg).map_err(|err| {
@@ -409,6 +430,7 @@ pub(super) fn eval_rollup_func_args(
     return Ok((args, re, rollup_arg_idx));
 }
 
+// todo: COW
 fn get_rollup_expr_arg(arg: &Expr) -> RuntimeResult<RollupExpr> {
     let mut re: RollupExpr = match arg {
         Expr::Rollup(re) => re.clone(),
