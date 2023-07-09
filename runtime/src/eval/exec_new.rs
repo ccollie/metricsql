@@ -21,9 +21,7 @@ use crate::eval::rollups::rollup::eval_rollup_func;
 use crate::functions::aggregate::{
     exec_aggregate_fn, AggrFuncArg, Handler, IncrementalAggrFuncContext,
 };
-use crate::functions::rollup::{
-    get_rollup_function_factory, rollup_default, RollupFunc, RollupHandlerEnum,
-};
+use crate::functions::rollup::{get_rollup_function_factory, rollup_default, RollupHandlerEnum};
 use crate::functions::transform::{get_transform_func, TransformFuncArg};
 use crate::{Context, EvalConfig, QueryValue, RuntimeError, RuntimeResult, Timeseries};
 
@@ -80,10 +78,10 @@ pub fn eval_expr(ctx: &Arc<Context>, ec: &EvalConfig, e: &Expr) -> RuntimeResult
 pub(crate) fn eval_expr_internal(
     ctx: &Arc<Context>,
     ec: &EvalConfig,
-    e: &Expr,
+    expr: &Expr,
 ) -> RuntimeResult<QueryValue> {
     let tracing = ctx.trace_enabled();
-    match e {
+    match expr {
         Expr::StringLiteral(s) => Ok(QueryValue::String(s.to_string())),
         Expr::Number(n) => Ok(QueryValue::Scalar(n.value)),
         Expr::Duration(de) => {
@@ -107,18 +105,18 @@ pub(crate) fn eval_expr_internal(
             Ok(rv)
         }
         Expr::MetricExpression(me) => {
-            let re = RollupExpr::new(e.clone());
+            let re = RollupExpr::new(expr.clone());
             let handler = RollupHandlerEnum::Wrapped(rollup_default);
             let val = eval_rollup_func(
                 ctx,
                 ec,
                 RollupFunction::DefaultRollup,
                 &handler,
-                &e,
+                &expr,
                 &re,
                 None,
             )
-            .map_err(|err| map_error(err, &e))?;
+            .map_err(|err| map_error(err, &expr))?;
             Ok(val)
         }
         Expr::Rollup(re) => {
@@ -128,7 +126,7 @@ pub(crate) fn eval_expr_internal(
                 ec,
                 RollupFunction::DefaultRollup,
                 &handler,
-                &e,
+                &expr,
                 &re,
                 None,
             )
@@ -137,11 +135,11 @@ pub(crate) fn eval_expr_internal(
         }
         Expr::Aggregation(ae) => {
             trace!("aggregate {}()", ae.function.name());
-            let rv = eval_aggr_func(ctx, ec, e, ae).map_err(|err| map_error(err, ae))?;
+            let rv = eval_aggr_func(ctx, ec, expr, ae).map_err(|err| map_error(err, ae))?;
             trace!("series={}", rv.len());
             Ok(rv)
         }
-        Expr::Function(fe) => eval_function_op(ctx, ec, e, fe),
+        Expr::Function(fe) => eval_function_op(ctx, ec, expr, fe),
         _ => unimplemented!(),
     }
 }
@@ -158,14 +156,15 @@ fn eval_function_op(
             trace_span!("transform {}()", name);
             let rv = eval_transform_func(ctx, ec, &fe, tf)?;
             trace!("series={}", rv.len());
-            return Ok(rv);
+            return Ok(QueryValue::InstantVector(rv));
         }
         BuiltinFunction::Rollup(rf) => {
             let nrf = get_rollup_function_factory(rf);
             let (args, re) = eval_rollup_func_args(ctx, ec, &fe)?;
             let func_handler = nrf(&args)?;
-            eval_rollup_func(ctx, ec, rf, &func_handler, expr, &re, None)
-                .map_err(|err| map_error(err, fe))
+            let val = eval_rollup_func(ctx, ec, rf, &func_handler, expr, &re, None)
+                .map_err(|err| map_error(err, fe))?;
+            return Ok(QueryValue::InstantVector(val));
         }
         _ => {
             return Err(RuntimeError::NotImplemented(name.to_string()));
@@ -341,7 +340,9 @@ fn eval_aggr_func(
                 let iafc = IncrementalAggrFuncContext::new(ae, &handler);
                 let iafc_ref = &iafc;
 
-                return eval_rollup_func(ctx, ec, rf, &func_handler, expr, &re, Some(iafc_ref));
+                let val = eval_rollup_func(ctx, ec, rf, &func_handler, expr, &re, Some(iafc_ref))?;
+                span.record("series", val.len());
+                return Ok(QueryValue::InstantVector(val));
             }
         }
     }
