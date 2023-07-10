@@ -11,6 +11,7 @@ include = [
 [dev-dependencies]
 
 [dependencies]
+async-recursion = "1.0"
 phf = { workspace = true }
 enquote = { workspace = true }
 byte-slice-cast = "1.2.2"

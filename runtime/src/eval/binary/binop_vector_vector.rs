@@ -10,11 +10,10 @@ use metricsql::common::{LabelFilter, Operator, ValueType};
 use metricsql::prelude::*;
 
 use crate::context::Context;
+use crate::eval::binary::vector_binop_handlers::{exec_binop, BinaryOpFuncArg};
 use crate::eval::eval_number;
-use crate::eval::exec_new::eval_expr;
-use crate::eval::traits::Evaluator;
+use crate::eval::exec::eval_expr;
 use crate::eval::utils::series_len;
-use crate::eval::vector_binop_handlers::{exec_binop, BinaryOpFuncArg};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::types::Tag;
 use crate::{EvalConfig, QueryValue, Timeseries};

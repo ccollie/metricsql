@@ -1,12 +1,11 @@
 use std::sync::Arc;
 
 use tracing::{field, trace_span, Span};
-use metricsql::binaryop::{get_scalar_binop_handler};
-use metricsql::common::{Operator};
 
+use metricsql::binaryop::get_scalar_binop_handler;
+use metricsql::common::Operator;
 
-
-use crate::{Context, InstantVector, QueryValue, RuntimeError, RuntimeResult};
+use crate::{Context, InstantVector, QueryValue, RuntimeResult};
 
 /// BinaryEvaluatorScalarVector
 /// Ex:

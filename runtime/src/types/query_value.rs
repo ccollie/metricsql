@@ -46,7 +46,7 @@ impl Sample {
     }
 }
 
-pub type InstantVector = Vec<Timeseries>;  // todo: Vec<(label, Sample)> or somesuch
+pub type InstantVector = Vec<Timeseries>; // todo: Vec<(label, Sample)> or somesuch
 
 #[derive(Debug, PartialEq)]
 pub enum QueryValue {
@@ -216,6 +216,15 @@ impl QueryValue {
 
     pub fn empty_vec() -> Self {
         QueryValue::InstantVector(vec![])
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            QueryValue::InstantVector(val) => val.len(), // ????
+            QueryValue::RangeVector(val) => val.len(),
+            QueryValue::String(v) => v.len(),
+            _ => 0,
+        }
     }
 }
 

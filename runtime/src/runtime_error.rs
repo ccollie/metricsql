@@ -1,4 +1,3 @@
-use std::error::Error;
 use std::fmt;
 use std::fmt::Display;
 
@@ -42,8 +41,8 @@ pub enum RuntimeError {
     Internal(String),
     #[error("{0}")]
     ResourcesExhausted(String),
-    #[error(transparent)]
-    NotImplemented(String)
+    #[error("{0}")]
+    NotImplemented(String),
 }
 
 impl RuntimeError {
@@ -64,14 +63,14 @@ impl From<String> for RuntimeError {
     }
 }
 
-impl<E: Error + 'static> From<(String, E)> for RuntimeError {
+impl<E: std::error::Error + 'static> From<(String, E)> for RuntimeError {
     fn from((message, err): (String, E)) -> Self {
         let msg = format!("{}: {}", message, err);
         RuntimeError::General(String::from(msg))
     }
 }
 
-impl<E: Error + 'static> From<(&str, E)> for RuntimeError {
+impl<E: std::error::Error + 'static> From<(&str, E)> for RuntimeError {
     fn from((message, err): (&str, E)) -> Self {
         let msg = format!("{}: {}", message, err);
         RuntimeError::General(String::from(msg))

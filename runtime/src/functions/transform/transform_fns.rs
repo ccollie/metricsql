@@ -19,8 +19,7 @@ use metricsql::functions::TransformFunction;
 use metricsql::parser::{compile_regexp, parse_number};
 
 use crate::chrono_tz::Tz;
-use crate::eval::vector_binop_handlers::merge_non_overlapping_timeseries;
-use crate::eval::{eval_number, eval_time, EvalConfig};
+use crate::eval::{eval_number, eval_time, merge_non_overlapping_timeseries, EvalConfig};
 use crate::functions::rollup::{linear_regression, mad, stddev, stdvar};
 use crate::functions::utils::{
     float_to_int_bounded, get_first_non_nan_index, get_last_non_nan_index,

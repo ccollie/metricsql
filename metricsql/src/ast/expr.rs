@@ -579,7 +579,7 @@ impl Display for AggregationExpr {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 /// RollupExpr represents an MetricsQL expression which contains at least `offset` or `[...]` part.
 pub struct RollupExpr {
     /// The expression for the rollup. Usually it is MetricExpr, but may be arbitrary expr

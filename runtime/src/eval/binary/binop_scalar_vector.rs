@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
-use tracing::{trace_span, Span, field};
+use tracing::{field, trace_span, Span};
 
 use metricsql::binaryop::get_scalar_binop_handler;
-use metricsql::common::{Operator};
+use metricsql::common::Operator;
 
-use crate::{Context, QueryValue, RuntimeResult, Timeseries};
+use crate::{Context, InstantVector, QueryValue, RuntimeResult};
 
 /// BinaryEvaluatorScalarVector
 /// Ex:
@@ -13,13 +13,12 @@ use crate::{Context, QueryValue, RuntimeResult, Timeseries};
 ///   42 - http_requests_total{method="GET"}
 pub(crate) fn eval_scalar_vector_binop(
     ctx: &Arc<Context>,
-    vector: Timeseries,
+    vector: InstantVector,
     scalar: f64,
     op: Operator,
     keep_metric_names: bool,
     bool_modifier: bool,
 ) -> RuntimeResult<QueryValue> {
-
     let _ = if ctx.trace_enabled() {
         trace_span!(
             "scalar vector binary op",
@@ -33,11 +32,14 @@ pub(crate) fn eval_scalar_vector_binop(
 
     let handler = get_scalar_binop_handler(op, bool_modifier);
 
-    for v in vector.iter_mut() {
+    let mut vector = vector;
+
+    for ts in vector.iter_mut() {
         if !keep_metric_names {
-            v.metric_name.reset_metric_group();
+            ts.metric_name.reset_metric_group();
         }
-        for value in v.values.iter_mut() {
+
+        for value in ts.values.iter_mut() {
             *value = handler(scalar, *value);
         }
     }

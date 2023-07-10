@@ -1,4 +1,4 @@
-use metricsql::ast::{DurationExpr, Expr, NumberLiteral};
+use metricsql::ast::DurationExpr;
 use metricsql::prelude::Operator;
 
 use crate::{QueryValue, RuntimeError, RuntimeResult};

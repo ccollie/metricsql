@@ -1,1 +1,3 @@
-pub mod rollup;
+pub(crate) use rollup::*;
+
+mod rollup;

@@ -1,121 +1,93 @@
 use std::ops::Deref;
-use std::str::FromStr;
 use std::sync::Arc;
 
 use tracing::{field, trace_span, Span};
 
 use metricsql::ast::{AggregationExpr, Expr, FunctionExpr, MetricExpr};
-use metricsql::common::{AggregateModifier, ValueType};
-use metricsql::functions::{AggregateFunction, BuiltinFunction, RollupFunction, Volatility};
-use metricsql::prelude::Value;
+use metricsql::functions::BuiltinFunction;
 
 use crate::context::Context;
-use crate::eval::arg_list::ArgList;
-use crate::eval::rollup::{compile_rollup_func_args, RollupEvaluator};
-use crate::functions::aggregate::{exec_aggregate_fn, AggrFuncArg, Handler};
+use crate::eval::exec::{eval_exprs_in_parallel, eval_rollup_func_args};
+use crate::eval::rollups::RollupExecutor;
+use crate::functions::aggregate::{
+    exec_aggregate_fn, AggrFuncArg, Handler, IncrementalAggrFuncContext,
+};
+use crate::functions::rollup::get_rollup_function_factory;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::utils::num_cpus;
 use crate::{EvalConfig, QueryValue};
 
-use super::{Evaluator, ExprEvaluator};
-
-pub(super) fn create_aggr_evaluator(ae: &AggregationExpr) -> RuntimeResult<ExprEvaluator> {
-    if let Ok(handler) = Handler::try_from(ae.function) {
-        if let Some(fe) = try_get_arg_rollup_func_with_metric_expr(ae)? {
-            // There is an optimized path for calculating `Expression::AggrFuncExpr` over: RollupFunc
-            // over Expression::MetricExpr.
-            // The optimized path saves RAM for aggregates over big number of time series.
-            let (args, re) = compile_rollup_func_args(&fe)?;
-            let expr = Expr::Aggregation(ae.clone());
-            let func = get_rollup_function(&fe)?;
-
-            let mut res = RollupEvaluator::create_internal(func, &re, expr, args)?;
-
-            res.timeseries_limit = get_timeseries_limit(ae)?;
-            res.is_incr_aggregate = true;
-            res.incremental_aggr_handler = Some(handler);
-
-            return Ok(ExprEvaluator::Rollup(res));
-        }
+pub(super) fn eval_aggr_func(
+    ctx: &Arc<Context>,
+    ec: &EvalConfig,
+    expr: &Expr,
+    ae: &AggregationExpr,
+) -> RuntimeResult<QueryValue> {
+    let span = if ctx.trace_enabled() {
+        // done this way to avoid possible string alloc in the case where
+        // logging is disabled
+        let name = &ae.name;
+        trace_span!("aggregate", name, series = field::Empty)
+    } else {
+        Span::none()
     }
+    .entered();
 
-    Ok(ExprEvaluator::Aggregate(AggregateEvaluator::new(ae)?))
-}
+    // todo: ensure that this is serialized otherwise the contained block will not be executed
+    if ae.can_incrementally_eval {
+        if let Ok(handler) = Handler::try_from(ae.function) {
+            if let Some(fe) = try_get_arg_rollup_func_with_metric_expr(ae)? {
+                // There is an optimized path for calculating `AggrFuncExpr` over: RollupFunc
+                // over MetricExpr.
+                // The optimized path saves RAM for aggregates over big number of time series.
+                let (args, re, _) = eval_rollup_func_args(ctx, ec, &fe)?;
 
-pub struct AggregateEvaluator {
-    pub expr: String,
-    pub function: AggregateFunction,
-    args: ArgList,
-    /// optional modifier such as `by (...)` or `without (...)`.
-    modifier: Option<AggregateModifier>,
-    /// Max number of timeseries to return
-    pub limit: usize,
-    pub may_sort_results: bool,
-}
+                let rf = match fe.function {
+                    BuiltinFunction::Rollup(rf) => rf,
+                    _ => {
+                        // should not happen
+                        unreachable!(
+                            "Expected a rollup function in aggregation. Found  \"{}\"",
+                            fe.function
+                        )
+                    }
+                };
 
-impl AggregateEvaluator {
-    pub fn new(ae: &AggregationExpr) -> RuntimeResult<Self> {
-        // todo: remove unwrap and return a Result
-        let function = AggregateFunction::from_str(&ae.name).unwrap();
-        let signature = function.signature();
-        let args = ArgList::new(&signature, &ae.args)?;
+                let nrf = get_rollup_function_factory(rf);
+                let func_handler = nrf(&args)?;
+                let iafc = IncrementalAggrFuncContext::new(ae, &handler);
+                let mut executor = RollupExecutor::new(rf, func_handler, expr, &re);
+                executor.set_incr_aggregate_context(iafc);
 
-        Ok(Self {
-            args,
-            function,
-            modifier: ae.modifier.clone(),
-            limit: ae.limit,
-            expr: ae.to_string(),
-            may_sort_results: function.may_sort_results(),
-        })
-    }
-
-    pub fn is_idempotent(&self) -> bool {
-        self.volatility() != Volatility::Volatile && self.args.all_const()
-    }
-}
-
-impl Evaluator for AggregateEvaluator {
-    fn eval(&self, ctx: &Arc<Context>, ec: &EvalConfig) -> RuntimeResult<QueryValue> {
-        let span = if ctx.trace_enabled() {
-            // done this way to avoid possible string alloc in the case where
-            // logging is disabled
-            let name = self.function.name();
-            trace_span!("aggregate", name, series = field::Empty)
-        } else {
-            Span::none()
-        }
-        .entered();
-
-        let args = self.args.eval(ctx, ec)?;
-
-        //todo: use tinyvec for args
-        let mut afa = AggrFuncArg::new(ec, args, &self.modifier, self.limit);
-        match exec_aggregate_fn(self.function, &mut afa) {
-            Ok(res) => {
-                span.record("series", res.len());
-                Ok(QueryValue::InstantVector(res))
-            }
-            Err(e) => {
-                let res = format!("cannot evaluate {}: {:?}", self.expr, e);
-                Err(RuntimeError::General(res))
+                let val = executor.eval(ctx, ec)?;
+                span.record("series", val.len());
+                return Ok(val);
             }
         }
     }
 
-    fn volatility(&self) -> Volatility {
-        self.args.volatility
-    }
-}
+    let args = eval_exprs_in_parallel(ctx, ec, &ae.args)?;
+    let mut afa = AggrFuncArg {
+        args,
+        ec,
+        modifier: ae.modifier.clone(), // todo: avoid clone
+        limit: get_timeseries_limit(ae)?,
+    };
 
-impl Value for AggregateEvaluator {
-    fn value_type(&self) -> ValueType {
-        ValueType::InstantVector
+    match exec_aggregate_fn(ae.function, &mut afa) {
+        Ok(res) => {
+            span.record("series", res.len());
+            Ok(QueryValue::InstantVector(res))
+        }
+        Err(e) => {
+            let res = format!("cannot evaluate {}: {:?}", ae, e);
+            Err(RuntimeError::General(res))
+        }
     }
 }
 
 // todo: move to metricsql crate - optimize phase
-pub(super) fn try_get_arg_rollup_func_with_metric_expr(
+fn try_get_arg_rollup_func_with_metric_expr(
     ae: &AggregationExpr,
 ) -> RuntimeResult<Option<FunctionExpr>> {
     if !ae.can_incrementally_eval {
@@ -202,19 +174,6 @@ pub(super) fn try_get_arg_rollup_func_with_metric_expr(
         }
         _ => Ok(None),
     };
-}
-
-fn get_rollup_function(fe: &FunctionExpr) -> RuntimeResult<RollupFunction> {
-    match fe.function {
-        BuiltinFunction::Rollup(rf) => Ok(rf),
-        _ => {
-            // should not happen
-            Err(RuntimeError::General(format!(
-                "Invalid rollup function \"{}\"",
-                fe.function
-            )))
-        }
-    }
 }
 
 pub(super) fn get_timeseries_limit(aggr_expr: &AggregationExpr) -> RuntimeResult<usize> {
