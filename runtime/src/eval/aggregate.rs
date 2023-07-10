@@ -55,7 +55,7 @@ pub(super) fn eval_aggr_func(
 
                 let nrf = get_rollup_function_factory(rf);
                 let func_handler = nrf(&args)?;
-                let iafc = IncrementalAggrFuncContext::new(ae, &handler);
+                let iafc = IncrementalAggrFuncContext::new(ae, handler);
                 let mut executor = RollupExecutor::new(rf, func_handler, expr, &re);
                 executor.set_incr_aggregate_context(iafc);
 

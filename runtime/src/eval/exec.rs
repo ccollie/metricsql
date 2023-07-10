@@ -18,11 +18,6 @@ use crate::functions::rollup::{get_rollup_function_factory, rollup_default, Roll
 use crate::functions::transform::{get_transform_func, TransformFuncArg};
 use crate::{Context, EvalConfig, QueryValue, RuntimeError, RuntimeResult, Timeseries};
 
-/// The minimum number of points per timeseries for enabling time rounding.
-/// This improves cache hit ratio for frequently requested queries over
-/// big time ranges.
-const MIN_TIMESERIES_POINTS_FOR_TIME_ROUNDING: i32 = 50;
-
 type Value = QueryValue;
 
 fn map_error<E: Display>(err: RuntimeError, e: E) -> RuntimeError {

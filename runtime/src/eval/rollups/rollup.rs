@@ -34,7 +34,7 @@ pub(crate) struct RollupExecutor<'a> {
     func: RollupFunction,
     func_handler: RollupHandlerEnum,
 
-    iafc: Option<Mutex<IncrementalAggrFuncContext<'a>>>,
+    iafc: Option<Arc<IncrementalAggrFuncContext<'a>>>,
     keep_metric_names: bool,
     /// Max number of timeseries to return
     pub(super) timeseries_limit: usize,
@@ -64,7 +64,7 @@ impl<'a> RollupExecutor<'a> {
     }
 
     pub(crate) fn set_incr_aggregate_context(&mut self, iafc: IncrementalAggrFuncContext<'a>) {
-        self.iafc = Some(Mutex::new(iafc));
+        self.iafc = Some(Arc::new(iafc));
         self.is_incr_aggregate = true;
     }
 
@@ -107,7 +107,7 @@ impl<'a> RollupExecutor<'a> {
     }
 
     #[inline]
-    fn adjust_eval_range(&self, ec: &EvalConfig) -> RuntimeResult<(i64, Cow<'a, EvalConfig>)> {
+    fn adjust_eval_range(&self, ec: &'a EvalConfig) -> RuntimeResult<(i64, Cow<'a, EvalConfig>)> {
         let offset: i64 = duration_value(&self.re.offset, ec.step);
 
         let mut adjustment = 0 - offset;
@@ -449,19 +449,18 @@ impl<'a> RollupExecutor<'a> {
         struct Context<'a> {
             func: &'a RollupFunction,
             keep_metric_names: bool,
-            iafc: Mutex<IncrementalAggrFuncContext<'a>>,
+            iafc: &'a Arc<IncrementalAggrFuncContext<'a>>,
             rcs: Vec<RollupConfig>,
             timestamps: Arc<Vec<i64>>,
             ignore_staleness: bool,
             samples_scanned_total: RelaxedU64Counter,
         }
 
-        let iafc = self.iafc.as_ref().unwrap();
-
+        let iafc = &self.iafc.unwrap();
         let mut ctx = Context {
             keep_metric_names: self.keep_metric_names,
             func: &self.func,
-            iafc,
+            iafc: &iafc,
             rcs,
             timestamps: Arc::clone(shared_timestamps),
             ignore_staleness,
@@ -484,9 +483,8 @@ impl<'a> RollupExecutor<'a> {
                         &rs.metric_name,
                     ) {
                         rc.do_timeseries_map(&tsm, &rs.values, &rs.timestamps)?;
-                        let iafc = ctx.iafc.lock().unwrap();
                         for ts in tsm.as_ref().borrow_mut().values_mut() {
-                            iafc.update_timeseries(ts, worker_id)?;
+                            ctx.iafc.update_timeseries(ts, worker_id)?;
                         }
                         continue;
                     }
@@ -504,15 +502,13 @@ impl<'a> RollupExecutor<'a> {
 
                     ctx.samples_scanned_total.add(samples_scanned);
                     // todo: return result rather than unwrap
-                    let iafc = ctx.iafc.lock().unwrap();
-                    iafc.update_timeseries(&mut ts, worker_id).unwrap();
+                    ctx.iafc.update_timeseries(&mut ts, worker_id)?;
                 }
                 Ok(())
             },
         )?;
 
-        let mut iafc = ctx.iafc.lock().unwrap();
-        let tss = iafc.finalize();
+        let tss = ctx.iafc.finalize();
 
         if is_tracing {
             let samples_scanned = ctx.samples_scanned_total.get();
@@ -681,11 +677,13 @@ fn process_result(
     timestamps: &Arc<Vec<i64>>,
     keep_metric_names: bool,
 ) -> RuntimeResult<u64> {
-    if let Some(tsm) = new_timeseries_map(&func, keep_metric_names, timestamps, &rs.metric_name) {
+    return if let Some(tsm) =
+        new_timeseries_map(&func, keep_metric_names, timestamps, &rs.metric_name)
+    {
         rc.do_timeseries_map(&tsm, &rs.values, &rs.timestamps)?;
         let mut tss = series.lock().unwrap();
         tsm.as_ref().borrow_mut().append_timeseries_to(&mut tss);
-        return Ok(0_u64);
+        Ok(0_u64)
     } else {
         let mut ts: Timeseries = Timeseries::default();
         let samples_scanned = do_rollup_for_timeseries(
@@ -700,8 +698,8 @@ fn process_result(
 
         let mut tss = series.lock().unwrap();
         tss.push(ts);
-        return Ok(samples_scanned);
-    }
+        Ok(samples_scanned)
+    };
 }
 
 fn get_at_timestamp(ctx: &Arc<Context>, ec: &EvalConfig, expr: &Expr) -> RuntimeResult<i64> {

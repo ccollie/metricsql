@@ -64,7 +64,7 @@ impl TryFrom<AggregateFunction> for IncrementalAggrFuncKind {
 #[derive(Default)]
 pub struct IncrementalAggrContext {
     pub ts: Timeseries,
-    pub values: Vec<f64>, // todo: smallvec?
+    pub values: Vec<f64>,
 }
 
 pub trait IncrementalAggrHandler {
@@ -88,11 +88,11 @@ pub struct IncrementalAggrFuncContext<'a> {
     ae: &'a AggregationExpr,
     // todo: use Rc/Arc based on cfg
     context_map: RwLock<ContextHash>,
-    handler: &'a Handler,
+    handler: Handler,
 }
 
 impl<'a> IncrementalAggrFuncContext<'a> {
-    pub(crate) fn new(ae: &'a AggregationExpr, handler: &'a Handler) -> Self {
+    pub(crate) fn new(ae: &'a AggregationExpr, handler: Handler) -> Self {
         let m: HashMap<u64, HashMap<String, IncrementalAggrContext>> = HashMap::new();
 
         Self {
@@ -152,7 +152,61 @@ impl<'a> IncrementalAggrFuncContext<'a> {
         Ok(())
     }
 
-    pub fn finalize(&mut self) -> Vec<Timeseries> {
+    fn update_timeseries_internal(
+        &self,
+        ts_orig: &mut Timeseries,
+        worker_id: u64,
+    ) -> RuntimeResult<()> {
+        let mut im = self.context_map.write().unwrap();
+        let m = im.entry(worker_id).or_default();
+
+        if self.ae.limit > 0 && m.len() >= self.ae.limit {
+            // Skip this time series, since the limit on the number of output time series has been already reached.
+            return Ok(());
+        }
+
+        // avoid temporary value dropped while borrowed
+        let mut ts: &mut Timeseries = ts_orig;
+
+        let keep_original = self.handler.keep_original();
+        if !keep_original {
+            ts.metric_name.remove_group_tags(&self.ae.modifier);
+        }
+
+        let key = ts.metric_name.to_string(); // todo: use hash() ?
+
+        let value_len = ts.values.len();
+
+        match m.entry(key) {
+            Vacant(entry) => {
+                if keep_original {
+                    ts = ts_orig
+                }
+                let ts_aggr = Timeseries {
+                    metric_name: ts.metric_name.clone(),
+                    values: vec![0_f64; value_len],
+                    timestamps: Arc::clone(&ts.timestamps),
+                };
+
+                let mut iac = IncrementalAggrContext {
+                    ts: ts_aggr,
+                    values: vec![0.0; value_len],
+                };
+
+                self.handler.update(&mut iac, &ts.values);
+                entry.insert(iac);
+            }
+            Occupied(mut entry) => {
+                let mut iac = entry.get_mut();
+                iac.values.resize(value_len, 0.0); // ?? NaN
+                self.handler.update(&mut iac, &ts.values);
+            }
+        };
+
+        Ok(())
+    }
+
+    pub fn finalize(&self) -> Vec<Timeseries> {
         let mut m_global: HashMap<&String, IncrementalAggrContext> = HashMap::new();
         let mut hash = self.context_map.write().unwrap();
         for (_, m) in hash.iter_mut() {
