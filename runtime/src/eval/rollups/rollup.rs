@@ -33,12 +33,10 @@ pub(crate) struct RollupExecutor<'a> {
     re: &'a RollupExpr,
     func: RollupFunction,
     func_handler: RollupHandlerEnum,
-
-    iafc: Option<Arc<IncrementalAggrFuncContext<'a>>>,
     keep_metric_names: bool,
     /// Max number of timeseries to return
-    pub(super) timeseries_limit: usize,
-    is_incr_aggregate: bool,
+    pub(crate) timeseries_limit: usize,
+    pub(crate) is_incr_aggregate: bool,
 }
 
 impl<'a> RollupExecutor<'a> {
@@ -56,16 +54,10 @@ impl<'a> RollupExecutor<'a> {
             re,
             func: function,
             func_handler: handler,
-            iafc: None,
             keep_metric_names: function.keep_metric_name(),
             timeseries_limit: 0,
             is_incr_aggregate: false,
         }
-    }
-
-    pub(crate) fn set_incr_aggregate_context(&mut self, iafc: IncrementalAggrFuncContext<'a>) {
-        self.iafc = Some(Arc::new(iafc));
-        self.is_incr_aggregate = true;
     }
 
     pub(crate) fn eval(
@@ -143,9 +135,9 @@ impl<'a> RollupExecutor<'a> {
         let mut rvs = match &*self.re.expr {
             Expr::MetricExpression(me) => self.eval_with_metric_expr(ctx, &ec_new, me)?,
             _ => {
-                if self.iafc.is_some() {
+                if self.is_incr_aggregate {
                     let msg = format!(
-                        "BUG:iafc must be None for rollup {} over subquery {}",
+                        "BUG:is_incr_aggregate must be false for rollup {} over subquery {}",
                         self.func, self.re
                     );
                     return Err(RuntimeError::from(msg));
@@ -446,21 +438,22 @@ impl<'a> RollupExecutor<'a> {
             Span::none()
         };
 
+        let iafc = Arc::new(IncrementalAggrFuncContext::new(ae)?);
+
         struct Context<'a> {
             func: &'a RollupFunction,
             keep_metric_names: bool,
-            iafc: &'a Arc<IncrementalAggrFuncContext<'a>>,
+            iafc: Arc<IncrementalAggrFuncContext<'a>>,
             rcs: Vec<RollupConfig>,
             timestamps: Arc<Vec<i64>>,
             ignore_staleness: bool,
             samples_scanned_total: RelaxedU64Counter,
         }
 
-        let iafc = &self.iafc.unwrap();
         let mut ctx = Context {
             keep_metric_names: self.keep_metric_names,
             func: &self.func,
-            iafc: &iafc,
+            iafc,
             rcs,
             timestamps: Arc::clone(shared_timestamps),
             ignore_staleness,

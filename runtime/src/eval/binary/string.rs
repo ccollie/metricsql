@@ -14,7 +14,7 @@ pub(crate) fn eval_string_string_op(
         Operator::Add => Ok(QueryValue::String(format!("{}{}", left, right))),
         _ => {
             if op.is_comparison() {
-                let cmp = string_compare(right, left, op, is_bool).map_err(|err| {
+                let cmp = string_compare(right, left, op, is_bool).map_err(|_| {
                     RuntimeError::Internal(format!("string compare failed: op = {op}"))
                 })?;
                 Ok(QueryValue::Scalar(cmp))

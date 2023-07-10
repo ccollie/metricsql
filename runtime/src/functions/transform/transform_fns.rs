@@ -41,22 +41,6 @@ pub struct TransformFuncArg<'a> {
     pub keep_metric_names: bool,
 }
 
-impl<'a> TransformFuncArg<'a> {
-    pub fn new(
-        ec: &'a EvalConfig,
-        fe: &'a FunctionExpr,
-        args: Vec<QueryValue>,
-        keep_metric_names: bool,
-    ) -> Self {
-        Self {
-            ec,
-            fe,
-            args,
-            keep_metric_names,
-        }
-    }
-}
-
 // https://stackoverflow.com/questions/57937436/how-to-alias-an-impl-trait
 // https://www.worthe-it.co.za/blog/2017-01-15-aliasing-traits-in-rust.html
 

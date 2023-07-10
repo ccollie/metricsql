@@ -1,6 +1,5 @@
 use std::collections::hash_map::ValuesMut;
 use std::collections::HashMap;
-use std::iter;
 use std::sync::Arc;
 
 use metricsql::functions::RollupFunction;

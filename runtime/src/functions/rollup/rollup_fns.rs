@@ -246,15 +246,6 @@ fake_wrapper!(new_rollup_rollup_increase, "rollup_increase"); // + rollupFuncsRe
 fake_wrapper!(new_rollup_rollup_rate, "rollup_rate"); // + rollupFuncsRemoveCounterResets
 fake_wrapper!(new_rollup_scrape_interval_fake, "rollup_scrape_interval");
 
-pub(crate) fn get_rollup_function_factory_by_name(
-    name: &str,
-) -> RuntimeResult<RollupHandlerFactory> {
-    match RollupFunction::from_str(name) {
-        Ok(func) => Ok(get_rollup_function_factory(func)),
-        Err(_) => Err(RuntimeError::UnknownFunction(String::from(name))),
-    }
-}
-
 pub(crate) fn get_rollup_function_factory(func: RollupFunction) -> RollupHandlerFactory {
     use RollupFunction::*;
     let imp = match func {

@@ -9,9 +9,7 @@ use metricsql::functions::BuiltinFunction;
 use crate::context::Context;
 use crate::eval::exec::{eval_exprs_in_parallel, eval_rollup_func_args};
 use crate::eval::rollups::RollupExecutor;
-use crate::functions::aggregate::{
-    exec_aggregate_fn, AggrFuncArg, Handler, IncrementalAggrFuncContext,
-};
+use crate::functions::aggregate::{exec_aggregate_fn, AggrFuncArg, IncrementalAggregationHandler};
 use crate::functions::rollup::get_rollup_function_factory;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::utils::num_cpus;
@@ -35,7 +33,7 @@ pub(super) fn eval_aggr_func(
 
     // todo: ensure that this is serialized otherwise the contained block will not be executed
     if ae.can_incrementally_eval {
-        if let Ok(handler) = Handler::try_from(ae.function) {
+        if IncrementalAggregationHandler::handles(ae.function) {
             if let Some(fe) = try_get_arg_rollup_func_with_metric_expr(ae)? {
                 // There is an optimized path for calculating `AggrFuncExpr` over: RollupFunc
                 // over MetricExpr.
@@ -55,9 +53,9 @@ pub(super) fn eval_aggr_func(
 
                 let nrf = get_rollup_function_factory(rf);
                 let func_handler = nrf(&args)?;
-                let iafc = IncrementalAggrFuncContext::new(ae, handler);
                 let mut executor = RollupExecutor::new(rf, func_handler, expr, &re);
-                executor.set_incr_aggregate_context(iafc);
+                executor.timeseries_limit = get_timeseries_limit(ae)?;
+                executor.is_incr_aggregate = true;
 
                 let val = executor.eval(ctx, ec)?;
                 span.record("series", val.len());

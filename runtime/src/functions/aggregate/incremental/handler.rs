@@ -1,3 +1,5 @@
+use metricsql::prelude::AggregateFunction;
+
 use crate::functions::aggregate::incremental::any::IncrementalAggrAny;
 use crate::functions::aggregate::incremental::avg::IncrementalAggrAvg;
 use crate::functions::aggregate::incremental::count::IncrementalAggrCount;
@@ -10,11 +12,10 @@ use crate::functions::aggregate::incremental::sum2::IncrementalAggrSum2;
 use crate::functions::aggregate::{
     IncrementalAggrContext, IncrementalAggrFuncKind, IncrementalAggrHandler,
 };
-use metricsql::prelude::AggregateFunction;
 
 /// all the incremental aggregation functions
 /// Using an enum because this needs to be Send
-pub enum Handler {
+pub enum IncrementalAggregationHandler {
     Avg(IncrementalAggrAvg),
     Count(IncrementalAggrCount),
     Geomean(IncrementalAggrGeomean),
@@ -26,89 +27,109 @@ pub enum Handler {
     Group(IncrementalAggrGroup),
 }
 
-impl TryFrom<AggregateFunction> for Handler {
+impl TryFrom<AggregateFunction> for IncrementalAggregationHandler {
     type Error = String;
 
     fn try_from(value: AggregateFunction) -> Result<Self, Self::Error> {
         let kind = IncrementalAggrFuncKind::try_from(value)?;
-        Ok(Handler::new(kind))
+        Ok(IncrementalAggregationHandler::new(kind))
     }
 }
 
-impl TryFrom<&str> for Handler {
+impl TryFrom<&str> for IncrementalAggregationHandler {
     type Error = String;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         let kind = IncrementalAggrFuncKind::try_from(value)?;
-        Ok(Handler::new(kind))
+        Ok(IncrementalAggregationHandler::new(kind))
     }
 }
 
-impl Handler {
-    pub fn new(func: IncrementalAggrFuncKind) -> Self {
+impl IncrementalAggregationHandler {
+    pub fn handles(func: AggregateFunction) -> bool {
         match func {
-            IncrementalAggrFuncKind::Avg => Handler::Avg(IncrementalAggrAvg {}),
-            IncrementalAggrFuncKind::Count => Handler::Count(IncrementalAggrCount {}),
-            IncrementalAggrFuncKind::Geomean => Handler::Geomean(IncrementalAggrGeomean {}),
-            IncrementalAggrFuncKind::Min => Handler::Min(IncrementalAggrMin {}),
-            IncrementalAggrFuncKind::Max => Handler::Max(IncrementalAggrMax {}),
-            IncrementalAggrFuncKind::Sum => Handler::Sum(IncrementalAggrSum {}),
-            IncrementalAggrFuncKind::Sum2 => Handler::Sum2(IncrementalAggrSum2 {}),
-            IncrementalAggrFuncKind::Any => Handler::Any(IncrementalAggrAny {}),
-            IncrementalAggrFuncKind::Group => Handler::Group(IncrementalAggrGroup {}),
+            AggregateFunction::Count
+            | AggregateFunction::GeoMean
+            | AggregateFunction::Min
+            | AggregateFunction::Max
+            | AggregateFunction::Avg
+            | AggregateFunction::Sum
+            | AggregateFunction::Sum2
+            | AggregateFunction::Any
+            | AggregateFunction::Group => true,
+            _ => false,
+        }
+    }
+
+    pub fn new(func: IncrementalAggrFuncKind) -> Self {
+        use IncrementalAggregationHandler::*;
+        match func {
+            IncrementalAggrFuncKind::Avg => Avg(IncrementalAggrAvg {}),
+            IncrementalAggrFuncKind::Count => Count(IncrementalAggrCount {}),
+            IncrementalAggrFuncKind::Geomean => Geomean(IncrementalAggrGeomean {}),
+            IncrementalAggrFuncKind::Min => Min(IncrementalAggrMin {}),
+            IncrementalAggrFuncKind::Max => Max(IncrementalAggrMax {}),
+            IncrementalAggrFuncKind::Sum => Sum(IncrementalAggrSum {}),
+            IncrementalAggrFuncKind::Sum2 => Sum2(IncrementalAggrSum2 {}),
+            IncrementalAggrFuncKind::Any => Any(IncrementalAggrAny {}),
+            IncrementalAggrFuncKind::Group => Group(IncrementalAggrGroup {}),
         }
     }
     pub fn update(&self, iac: &mut IncrementalAggrContext, values: &[f64]) {
+        use IncrementalAggregationHandler::*;
         match self {
-            Handler::Avg(h) => h.update(iac, values),
-            Handler::Count(h) => h.update(iac, values),
-            Handler::Geomean(h) => h.update(iac, values),
-            Handler::Min(h) => h.update(iac, values),
-            Handler::Max(h) => h.update(iac, values),
-            Handler::Sum(h) => h.update(iac, values),
-            Handler::Sum2(h) => h.update(iac, values),
-            Handler::Any(h) => h.update(iac, values),
-            Handler::Group(h) => h.update(iac, values),
+            Avg(h) => h.update(iac, values),
+            Count(h) => h.update(iac, values),
+            Geomean(h) => h.update(iac, values),
+            Min(h) => h.update(iac, values),
+            Max(h) => h.update(iac, values),
+            Sum(h) => h.update(iac, values),
+            Sum2(h) => h.update(iac, values),
+            Any(h) => h.update(iac, values),
+            Group(h) => h.update(iac, values),
         }
     }
     pub fn merge(&self, dst: &mut IncrementalAggrContext, src: &IncrementalAggrContext) {
+        use IncrementalAggregationHandler::*;
         match self {
-            Handler::Avg(h) => h.merge(dst, src),
-            Handler::Count(h) => h.merge(dst, src),
-            Handler::Geomean(h) => h.merge(dst, src),
-            Handler::Min(h) => h.merge(dst, src),
-            Handler::Max(h) => h.merge(dst, src),
-            Handler::Sum(h) => h.merge(dst, src),
-            Handler::Sum2(h) => h.merge(dst, src),
-            Handler::Any(h) => h.merge(dst, src),
-            Handler::Group(h) => h.merge(dst, src),
+            Avg(h) => h.merge(dst, src),
+            Count(h) => h.merge(dst, src),
+            Geomean(h) => h.merge(dst, src),
+            Min(h) => h.merge(dst, src),
+            Max(h) => h.merge(dst, src),
+            Sum(h) => h.merge(dst, src),
+            Sum2(h) => h.merge(dst, src),
+            Any(h) => h.merge(dst, src),
+            Group(h) => h.merge(dst, src),
         }
     }
     pub fn finalize(&self, iac: &mut IncrementalAggrContext) {
+        use IncrementalAggregationHandler::*;
         match self {
-            Handler::Avg(h) => h.finalize(iac),
-            Handler::Count(h) => h.finalize(iac),
-            Handler::Geomean(h) => h.finalize(iac),
-            Handler::Min(h) => h.finalize(iac),
-            Handler::Max(h) => h.finalize(iac),
-            Handler::Sum(h) => h.finalize(iac),
-            Handler::Sum2(h) => h.finalize(iac),
-            Handler::Any(h) => h.finalize(iac),
-            Handler::Group(h) => h.finalize(iac),
+            Avg(h) => h.finalize(iac),
+            Count(h) => h.finalize(iac),
+            Geomean(h) => h.finalize(iac),
+            Min(h) => h.finalize(iac),
+            Max(h) => h.finalize(iac),
+            Sum(h) => h.finalize(iac),
+            Sum2(h) => h.finalize(iac),
+            Any(h) => h.finalize(iac),
+            Group(h) => h.finalize(iac),
         }
     }
     // Whether to keep the original MetricName for every time series during aggregation
     pub fn keep_original(&self) -> bool {
+        use IncrementalAggregationHandler::*;
         match self {
-            Handler::Avg(h) => h.keep_original(),
-            Handler::Count(h) => h.keep_original(),
-            Handler::Geomean(h) => h.keep_original(),
-            Handler::Min(h) => h.keep_original(),
-            Handler::Max(h) => h.keep_original(),
-            Handler::Sum(h) => h.keep_original(),
-            Handler::Sum2(h) => h.keep_original(),
-            Handler::Any(h) => h.keep_original(),
-            Handler::Group(h) => h.keep_original(),
+            Avg(h) => h.keep_original(),
+            Count(h) => h.keep_original(),
+            Geomean(h) => h.keep_original(),
+            Min(h) => h.keep_original(),
+            Max(h) => h.keep_original(),
+            Sum(h) => h.keep_original(),
+            Sum2(h) => h.keep_original(),
+            Any(h) => h.keep_original(),
+            Group(h) => h.keep_original(),
         }
     }
 }

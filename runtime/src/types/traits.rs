@@ -1,5 +1,6 @@
-use chrono::prelude::*;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use chrono::prelude::*;
 
 // Unix timestamp in milliseconds.
 // TODO: make this a newType
@@ -7,6 +8,7 @@ pub type Timestamp = i64;
 
 pub trait TimestampTrait {
     fn from(v: i64) -> Self;
+    fn from_secs(v: i64) -> Self;
     fn now() -> Self;
     fn from_systemtime(time: SystemTime) -> Self;
     fn add(&self, d: Duration) -> Self;
@@ -19,6 +21,10 @@ pub trait TimestampTrait {
 impl TimestampTrait for Timestamp {
     fn from(v: i64) -> Self {
         v
+    }
+
+    fn from_secs(v: i64) -> Self {
+        v * 1000
     }
 
     fn now() -> Self {

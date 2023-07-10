@@ -15,10 +15,13 @@ mod tests {
         rollup_resets, rollup_scrape_interval, rollup_stddev, rollup_sum, rollup_zscore_over_time,
     };
     use crate::functions::rollup::{
-        get_rollup_function_factory_by_name, RollupConfig, RollupFuncArg, RollupHandler,
-        RollupHandlerEnum,
+        get_rollup_function_factory, RollupConfig, RollupFuncArg, RollupHandler, RollupHandlerEnum,
+        RollupHandlerFactory,
     };
-    use crate::{compare_floats, compare_values, test_rows_equal, QueryValue, Timeseries};
+    use crate::{
+        compare_floats, compare_values, test_rows_equal, QueryValue, RuntimeError, RuntimeResult,
+        Timeseries,
+    };
 
     // https://github.com/VictoriaMetrics/VictoriaMetrics/blob/master/app/vmselect/promql/rollup_test.go
 
@@ -28,6 +31,13 @@ mod tests {
         123.0, 34.0, 44.0, 21.0, 54.0, 34.0, 99.0, 12.0, 44.0, 32.0, 34.0, 34.0,
     ];
     const TEST_TIMESTAMPS: [i64; 12] = [5, 15, 24, 36, 49, 60, 78, 80, 97, 115, 120, 130];
+
+    fn get_rollup_function_factory_by_name(name: &str) -> RuntimeResult<RollupHandlerFactory> {
+        match RollupFunction::from_str(name) {
+            Ok(func) => Ok(get_rollup_function_factory(func)),
+            Err(_) => Err(RuntimeError::UnknownFunction(String::from(name))),
+        }
+    }
 
     #[test]
     fn test_rollup_ideriv_duplicate_timestamps() {

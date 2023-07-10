@@ -5,8 +5,8 @@ use std::sync::{Arc, RwLock};
 use metricsql::ast::AggregationExpr;
 use metricsql::functions::AggregateFunction;
 
-use crate::functions::aggregate::Handler;
-use crate::{RuntimeResult, Timeseries};
+use crate::functions::aggregate::IncrementalAggregationHandler;
+use crate::{RuntimeError, RuntimeResult, Timeseries};
 
 pub enum IncrementalAggrFuncKind {
     Any,
@@ -88,18 +88,23 @@ pub struct IncrementalAggrFuncContext<'a> {
     ae: &'a AggregationExpr,
     // todo: use Rc/Arc based on cfg
     context_map: RwLock<ContextHash>,
-    handler: Handler,
+    handler: IncrementalAggregationHandler,
 }
 
 impl<'a> IncrementalAggrFuncContext<'a> {
-    pub(crate) fn new(ae: &'a AggregationExpr, handler: Handler) -> Self {
+    pub(crate) fn new(ae: &'a AggregationExpr) -> RuntimeResult<Self> {
         let m: HashMap<u64, HashMap<String, IncrementalAggrContext>> = HashMap::new();
-
-        Self {
+        let handler = IncrementalAggregationHandler::try_from(ae.function).map_err(|e| {
+            RuntimeError::General(format!(
+                "cannot create incremental aggregation handler: {}",
+                e
+            ))
+        })?;
+        Ok(Self {
             ae,
             context_map: RwLock::new(m),
             handler,
-        }
+        })
     }
 
     pub fn update_timeseries(&self, ts_orig: &mut Timeseries, worker_id: u64) -> RuntimeResult<()> {
