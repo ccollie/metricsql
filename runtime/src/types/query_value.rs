@@ -146,10 +146,14 @@ impl QueryValue {
     }
 
     // todo: get_series_into()
-    pub fn get_instant_vector(&self) -> RuntimeResult<Vec<Timeseries>> {
+    pub fn get_instant_vector(&self, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
         match self {
             QueryValue::InstantVector(val) => Ok(val.clone()), // ????
-            _ => panic!("BUG: invalid series parameter"),
+            QueryValue::Scalar(n) => Ok(eval_number(ec, *n)),
+            _ => {
+                let msg = format!("cannot cast {} to an instant vector", self.data_type());
+                return Err(RuntimeError::TypeCastError(msg));
+            }
         }
     }
 

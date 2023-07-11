@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use num_traits::SaturatingMul;
 use rayon::prelude::*;
-use tracing::{field, span_enabled, trace_span, Level, Span};
+use tracing::{field, trace_span, Span};
 
 use lib::{get_float64s, get_int64s, is_stale_nan, AtomicCounter, RelaxedU64Counter};
 use metricsql::ast::*;
@@ -34,6 +34,7 @@ pub(crate) struct RollupExecutor<'a> {
     func: RollupFunction,
     func_handler: RollupHandlerEnum,
     keep_metric_names: bool,
+    is_tracing: bool,
     /// Max number of timeseries to return
     pub(crate) timeseries_limit: usize,
     pub(crate) is_incr_aggregate: bool,
@@ -57,6 +58,7 @@ impl<'a> RollupExecutor<'a> {
             keep_metric_names: function.keep_metric_name(),
             timeseries_limit: 0,
             is_incr_aggregate: false,
+            is_tracing: false,
         }
     }
 
@@ -65,7 +67,8 @@ impl<'a> RollupExecutor<'a> {
         ctx: &Arc<Context>,
         ec: &EvalConfig,
     ) -> RuntimeResult<QueryValue> {
-        let _ = if ctx.trace_enabled() {
+        self.is_tracing = ctx.trace_enabled();
+        let _ = if self.is_tracing {
             trace_span!(
                 "rollup",
                 "function" = self.func.name(),
@@ -170,7 +173,7 @@ impl<'a> RollupExecutor<'a> {
     ) -> RuntimeResult<Vec<Timeseries>> {
         // TODO: determine whether to use rollup result cache here.
 
-        let span = if ctx.trace_enabled() {
+        let span = if self.is_tracing {
             let function = self.func.name();
             trace_span!(
                 "subquery",
@@ -200,7 +203,7 @@ impl<'a> RollupExecutor<'a> {
 
         // unconditionally align start and end args to step for subquery as Prometheus does.
         (ec_sq.start, ec_sq.end) = align_start_end(ec_sq.start, ec_sq.end, ec_sq.step);
-        let tss_sq = eval_expr(ctx, &ec_sq, self.expr)?;
+        let tss_sq = eval_expr(ctx, &ec_sq, &self.re.expr)?;
 
         let tss_sq = tss_sq.as_instant_vec(&ec)?;
         if tss_sq.len() == 0 {
@@ -284,9 +287,8 @@ impl<'a> RollupExecutor<'a> {
     ) -> RuntimeResult<Vec<Timeseries>> {
         let window = duration_value(&self.re.window, ec.step);
 
-        let is_tracing = ctx.trace_enabled();
         let span = {
-            if is_tracing {
+            if self.is_tracing {
                 trace_span!(
                     "rollup",
                     start = ec.start,
@@ -423,8 +425,7 @@ impl<'a> RollupExecutor<'a> {
     where
         F: Fn(&mut [f64], &[i64]) -> () + Send + Sync,
     {
-        let is_tracing = span_enabled!(Level::TRACE);
-        let span = if is_tracing {
+        let span = if self.is_tracing {
             let function = self.func.name();
             trace_span!(
                 "rollup",
@@ -503,7 +504,7 @@ impl<'a> RollupExecutor<'a> {
 
         let tss = ctx.iafc.finalize();
 
-        if is_tracing {
+        if self.is_tracing {
             let samples_scanned = ctx.samples_scanned_total.get();
             span.record("series", tss.len());
             span.record("samples_scanned", samples_scanned);
@@ -523,8 +524,7 @@ impl<'a> RollupExecutor<'a> {
     where
         F: Fn(&mut [f64], &[i64]) -> () + Send + Sync,
     {
-        let is_tracing = span_enabled!(Level::TRACE); //
-        let span = if is_tracing {
+        let span = if self.is_tracing {
             let function = self.func.name();
             let source_series = rss.len();
             // ("aggregation", ae.name.as_str()),
@@ -589,7 +589,7 @@ impl<'a> RollupExecutor<'a> {
         // https://users.rust-lang.org/t/how-to-move-the-content-of-mutex-wrapped-by-arc/10259/7
         let res = Arc::try_unwrap(series).unwrap().into_inner().unwrap();
 
-        if is_tracing {
+        if self.is_tracing {
             let samples_scanned = ctx.samples_scanned_total.get();
             span.record("series", res.len());
             span.record("samples_scanned", samples_scanned);
@@ -655,7 +655,7 @@ fn new_timeseries_map(
     shared_timestamps: &Arc<Vec<Timestamp>>,
     mn: &MetricName,
 ) -> Option<Rc<RefCell<TimeseriesMap>>> {
-    if TimeseriesMap::is_valid_function(func) {
+    if !TimeseriesMap::is_valid_function(func) {
         return None;
     }
     let map = TimeseriesMap::new(keep_metric_names, shared_timestamps, mn);
@@ -787,8 +787,9 @@ where
         .collect();
 
     let mut series: Vec<Timeseries> = Vec::with_capacity(tss.len());
+    let tss = res?;
     let mut sample_total = 0_u64;
-    for (timeseries, sample_count) in res?.into_iter() {
+    for (timeseries, sample_count) in tss.into_iter() {
         sample_total += sample_count;
         series.extend::<Vec<Timeseries>>(timeseries.into())
     }

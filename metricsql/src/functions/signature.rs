@@ -17,10 +17,11 @@
 
 //! Signature module contains foundational types that are used to represent signatures, types,
 //! and return types of functions in DataFusion.
+use serde::{Deserialize, Serialize};
+
 use crate::common::ValueType;
 use crate::functions::MAX_ARG_COUNT;
 use crate::parser::{ParseError, ParseResult};
-use serde::{Deserialize, Serialize};
 
 ///A function's volatility, which defines the functions eligibility for certain optimizations
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
@@ -41,7 +42,7 @@ pub enum Volatility {
 /// A function's type signature, which defines the function's supported argument types.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TypeSignature {
-    /// arbitrary number of arguments of an common type out of a list of valid types
+    /// arbitrary number of arguments of any common type out of a list of valid types
     /// second element is the min number of arguments
     /// A function such as `concat` is `Variadic(vec![ValueType::String, ValueType::Float], 1)`
     Variadic(Vec<ValueType>, usize),
@@ -53,8 +54,8 @@ pub enum TypeSignature {
     /// fixed number of arguments of an arbitrary type out of a list of valid types
     /// A function of one argument of f64 is `Uniform(1, ValueType::Scalar)`
     Uniform(usize, ValueType),
-    /// exact number of arguments of an exact type
-    Exact(Vec<ValueType>),
+    /// arguments of an exact type with an optional minimum
+    Exact(Vec<ValueType>, Option<usize>),
     /// fixed number of arguments of arbitrary types
     Any(usize),
 }
@@ -81,7 +82,18 @@ impl TypeSignature {
         }
 
         return match self {
-            TypeSignature::Exact(valid_types) => expect_arg_count(name, arg_len, valid_types.len()),
+            TypeSignature::Exact(valid_types, min) => {
+                let max = valid_types.len();
+                if let Some(min) = min {
+                    if !(*min..=max).contains(&arg_len) {
+                        return Err(ParseError::ArgumentError(format!(
+                            "The function {name}() expected between {min} and {max} arguments but received {arg_len}",
+                        )));
+                    }
+                    return Ok(());
+                }
+                expect_arg_count(name, arg_len, max)
+            }
             TypeSignature::Any(min)
             | TypeSignature::Uniform(min, _)
             | TypeSignature::VariadicEqual(_, min)
@@ -153,7 +165,22 @@ impl Signature {
     /// exact - Creates a signature which must match the types in exact_types in order.
     pub fn exact(exact_types: Vec<ValueType>, volatility: Volatility) -> Self {
         Signature {
-            type_signature: TypeSignature::Exact(exact_types),
+            type_signature: TypeSignature::Exact(exact_types, None),
+            volatility,
+        }
+    }
+
+    /// exact - Creates a signature which must match the types in exact_types in order, but with
+    /// an minimum number of args.
+    pub fn exact_with_min_args(
+        exact_types: Vec<ValueType>,
+        min: usize,
+        volatility: Volatility,
+    ) -> Self {
+        // todo: panic if out of range
+        let min_arg = min.clamp(0, exact_types.len());
+        Signature {
+            type_signature: TypeSignature::Exact(exact_types, Some(min_arg)),
             volatility,
         }
     }
@@ -185,7 +212,7 @@ impl Signature {
             TypeSignature::Variadic(types, min) => (types.clone(), *min),
             TypeSignature::VariadicEqual(data_type, min) => (vec![*data_type; MAX_ARG_COUNT], *min),
             TypeSignature::Uniform(count, data_type) => (vec![*data_type; MAX_ARG_COUNT], *count),
-            TypeSignature::Exact(types) => (types.clone(), types.len()),
+            TypeSignature::Exact(types, min) => (types.clone(), min.unwrap_or(types.len())),
             TypeSignature::VariadicAny(min) => {
                 (vec![ValueType::InstantVector; MAX_ARG_COUNT], *min)
             }
@@ -229,7 +256,7 @@ impl<'a> Iterator for TypeIterator<'a> {
                     None
                 }
             }
-            Exact(types) => {
+            Exact(types, _) => {
                 if self.arg_index < types.len() {
                     self.arg_index += 1;
                     Some(types[self.arg_index - 1].clone())

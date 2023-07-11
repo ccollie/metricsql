@@ -89,17 +89,17 @@ fn check_ast_for_binary_expr(mut ex: BinaryExpr) -> Result<Expr, String> {
     let left_type = ex.left.value_type();
     let right_type = ex.right.value_type();
 
-    if is_comparison {
-        match (&left_type, &right_type, ex.returns_bool()) {
-            (ValueType::Scalar, ValueType::Scalar, false) => {
-                return Err("comparisons between scalars must use BOOL modifier".into());
-            }
-            (ValueType::String, ValueType::String, false) => {
-                return Err("comparisons between strings must use BOOL modifier".into());
-            }
-            _ => {}
-        }
-    }
+    // if is_comparison {
+    //     match (&left_type, &right_type, ex.returns_bool()) {
+    //         (ValueType::Scalar, ValueType::Scalar, false) => {
+    //             return Err("comparisons between scalars must use BOOL modifier".into());
+    //         }
+    //         (ValueType::String, ValueType::String, false) => {
+    //             return Err("comparisons between strings must use BOOL modifier".into());
+    //         }
+    //         _ => {}
+    //     }
+    // }
 
     // For `on` matching, a label can only appear in one of the lists.
     // Every time series of the result vector must be uniquely identifiable.

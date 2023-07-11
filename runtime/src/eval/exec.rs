@@ -315,36 +315,37 @@ pub(super) fn eval_rollup_func_args(
 
 // todo: COW
 fn get_rollup_expr_arg(arg: &Expr) -> RuntimeResult<RollupExpr> {
-    let mut re: RollupExpr = match arg {
-        Expr::Rollup(re) => re.clone(),
-        _ => {
-            // Wrap non-rollup arg into RollupExpr.
-            RollupExpr::new(arg.clone())
-        }
-    };
+    return match arg {
+        Expr::Rollup(re) => {
+            let mut re = re.clone();
+            if !re.for_subquery() {
+                // Return standard rollup if it doesn't contain subquery.
+                return Ok(re);
+            }
 
-    if !re.for_subquery() {
-        // Return standard rollup if it doesn't contain subquery.
-        return Ok(re);
-    }
+            match &re.expr.as_ref() {
+                Expr::MetricExpression(_) => {
+                    // Convert me[w:step] -> default_rollup(me)[w:step]
 
-    return match &re.expr.as_ref() {
-        Expr::MetricExpression(_) => {
-            // Convert me[w:step] -> default_rollup(me)[w:step]
+                    let arg = Expr::Rollup(RollupExpr::new(*re.expr.clone()));
 
-            let arg = Expr::Rollup(RollupExpr::new(*re.expr.clone()));
-
-            match FunctionExpr::default_rollup(arg) {
-                Err(e) => return Err(RuntimeError::General(format!("{:?}", e))),
-                Ok(fe) => {
-                    re.expr = Box::new(Expr::Function(fe));
+                    match FunctionExpr::default_rollup(arg) {
+                        Err(e) => return Err(RuntimeError::General(format!("{:?}", e))),
+                        Ok(fe) => {
+                            re.expr = Box::new(Expr::Function(fe));
+                            Ok(re)
+                        }
+                    }
+                }
+                _ => {
+                    // arg contains subquery.
                     Ok(re)
                 }
             }
         }
         _ => {
-            // arg contains subquery.
-            Ok(re)
+            // Wrap non-rollup arg into RollupExpr.
+            Ok(RollupExpr::new(arg.clone()))
         }
     };
 }

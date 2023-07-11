@@ -2029,7 +2029,6 @@ const ROLLUP_DECREASES: RollupFunc = rollup_resets;
 pub(super) fn rollup_resets(rfa: &mut RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
-    let values = &rfa.values;
     if rfa.values.is_empty() {
         if rfa.prev_value.is_nan() {
             return NAN;
@@ -2037,17 +2036,19 @@ pub(super) fn rollup_resets(rfa: &mut RollupFuncArg) -> f64 {
         return 0.0;
     }
     let mut prev_value = rfa.prev_value;
-    let mut start: usize = 0;
+    let mut start = 0;
     if prev_value.is_nan() {
-        prev_value = values[0];
+        prev_value = rfa.values[0];
         start = 1;
     }
-    if values.len() - start == 0 {
+
+    let values = &rfa.values[start..];
+    if values.is_empty() {
         return 0.0;
     }
 
     let mut n = 0;
-    for v in values.iter().skip(start) {
+    for v in values.iter() {
         if *v < prev_value {
             n += 1;
         }

@@ -43,7 +43,7 @@ fn should_parallelize_param_eval(signature: &Signature) -> bool {
             let types = &[*data_type];
             check_args(types)
         }
-        TypeSignature::Exact(valid_types) => check_args(valid_types),
+        TypeSignature::Exact(valid_types, _) => check_args(valid_types),
         TypeSignature::Any(number) => {
             if *number < 2 {
                 return false;

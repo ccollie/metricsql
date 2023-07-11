@@ -225,6 +225,11 @@ impl EvalConfig {
     pub fn get_shared_timestamps(&mut self) -> Arc<Vec<i64>> {
         self.get_timestamps()
     }
+
+    pub fn data_points(&self) -> usize {
+        let n: usize = (1 + (self.end - self.start) / self.step) as usize;
+        n
+    }
 }
 
 impl Default for EvalConfig {
