@@ -12,8 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::cell::OnceCell;
 use std::iter::zip;
 use std::sync::Arc;
+use std::time;
 
 use datafusion::{
     arrow::{
@@ -36,17 +38,21 @@ use crate::common::time;
 pub const TIME_RANGE_UDF_NAME: &str = "time_range";
 
 /// Implementation of time_range
-pub(crate) static TIME_RANGE_UDF: Lazy<ScalarUDF> = Lazy::new(|| {
-    create_udf(
-        TIME_RANGE_UDF_NAME,
-        // expects three string
-        vec![DataType::Int64, DataType::Utf8, DataType::Utf8],
-        // returns boolean
-        Arc::new(DataType::Boolean),
-        Volatility::Immutable,
-        time_range_expr_impl(),
-    )
-});
+pub(crate) fn time_range_udf() -> &'static ScalarUDF {
+    static INSTANCE: OnceCell<ScalarUDF> = OnceCell::new();
+
+    INSTANCE.get_or_init(|| {
+        create_udf(
+            TIME_RANGE_UDF_NAME,
+            // expects three string
+            vec![DataType::Int64, DataType::Utf8, DataType::Utf8],
+            // returns boolean
+            Arc::new(DataType::Boolean),
+            Volatility::Immutable,
+            time_range_expr_impl(),
+        )
+    })
+}
 
 /// time_range function for datafusion
 pub fn time_range_expr_impl() -> ScalarFunctionImplementation {
@@ -148,11 +154,11 @@ mod tests {
                 ])),
             ],
         )
-            .unwrap();
+        .unwrap();
 
         // declare a new context. In spark API, this corresponds to a new spark SQLsession
         let ctx = SessionContext::new();
-        ctx.register_udf(TIME_RANGE_UDF.clone());
+        ctx.register_udf(time_range_udf().clone());
 
         // declare a table in memory. In spark API, this corresponds to createDataFrame(...).
         let provider = MemTable::try_new(schema, vec![vec![batch]]).unwrap();

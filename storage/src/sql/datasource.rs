@@ -17,15 +17,14 @@ use std::time::Duration;
 
 use datafusion::catalog::catalog::CatalogProvider;
 use datafusion::optimizer::utils::conjunction;
-use datafusion::parquet::format::MilliSeconds;
 use datafusion::prelude::JoinType;
 use datafusion::{
     arrow::{
         array::{Float64Array, Int64Array, StringArray},
         datatypes::{Schema, SchemaRef},
     },
-    common::{OwnedTableReference, ScalarValue, SchemaReference, TableReference},
-    datasource::{DefaultTableSource, TableProvider, TableType},
+    common::{OwnedTableReference, ScalarValue, TableReference},
+    datasource::{DefaultTableSource, TableProvider},
     error::{DataFusionError, Result},
     logical_expr::{
         BinaryExpr, Expr as DfExpr, Extension, LogicalPlan, LogicalPlanBuilder, Operator,
@@ -37,6 +36,12 @@ use snafu::{ensure, OptionExt, ResultExt};
 
 use metricsql::common::{LabelFilterOp, MatchOp};
 use metricsql::prelude::MetricExpr;
+use runtime::Label;
+
+use crate::error::{
+    CatalogSnafu, ColumnNotFoundSnafu, DataFusionPlanningSnafu, TableNameNotFoundSnafu,
+    TimeIndexNotFoundSnafu, UnknownTableSnafu, ValueNotFoundSnafu,
+};
 
 const DEFAULT_TIME_INDEX_COLUMN: &str = "time";
 

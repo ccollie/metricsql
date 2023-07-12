@@ -1534,6 +1534,7 @@ fn transform_interpolate(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timese
         while i < values.len() {
             let v = values[i];
             if !v.is_nan() {
+                i += 1;
                 continue;
             }
             if i > 0 {

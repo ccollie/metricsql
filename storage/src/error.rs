@@ -16,10 +16,10 @@ use std::any::Any;
 
 use datafusion::catalog;
 use datafusion::error::DataFusionError;
-use snafu::Location;
+use snafu::{Location, Snafu};
 
 use common_error::prelude::*;
-use metricsql::ast::{Expr as PromExpr};
+use metricsql::ast::Expr as PromExpr;
 
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub))]
@@ -34,9 +34,9 @@ pub enum Error {
     },
 
     #[snafu(display(
-    "Internal error during building DataFusion plan, error: {}, location: {}",
-    source,
-    location
+        "Internal error during building DataFusion plan, error: {}, location: {}",
+        source,
+        location
     ))]
     DataFusionPlanning {
         source: DataFusionError,
@@ -50,9 +50,9 @@ pub enum Error {
     UnknownTable { location: Location },
 
     #[snafu(display(
-    "Cannot find time index column in table {}, location: {}",
-    table,
-    location
+        "Cannot find time index column in table {}, location: {}",
+        table,
+        location
     ))]
     TimeIndexNotFound { table: String, location: Location },
 
@@ -60,24 +60,24 @@ pub enum Error {
     ValueNotFound { table: String, location: Location },
 
     #[snafu(display(
-    "Cannot accept multiple vector as function input, PromQL expr: {:?}, location: {}",
-    expr,
-    location
+        "Cannot accept multiple vector as function input, PromQL expr: {:?}, location: {}",
+        expr,
+        location
     ))]
     MultipleVector { expr: PromExpr, location: Location },
 
     #[snafu(display(
-    "Expect a PromQL expr but not found, input expr: {:?}, location: {}",
-    expr,
-    location
+        "Expect a PromQL expr but not found, input expr: {:?}, location: {}",
+        expr,
+        location
     ))]
     ExpectExpr { expr: PromExpr, location: Location },
     #[snafu(display(
-    "Illegal range: offset {}, length {}, array len {}, location: {}",
-    offset,
-    length,
-    len,
-    location
+        "Illegal range: offset {}, length {}, array len {}, location: {}",
+        offset,
+        length,
+        len,
+        location
     ))]
     IllegalRange {
         offset: u32,

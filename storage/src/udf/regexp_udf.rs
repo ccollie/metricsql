@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 use datafusion::{
     arrow::{
-        array::{ArrayRef, as_string_array, BooleanArray},
+        array::{as_string_array, ArrayRef, BooleanArray},
         datatypes::DataType,
     },
     error::DataFusionError,
@@ -73,8 +73,7 @@ pub fn regex_match_expr_impl(matches: bool) -> ScalarFunctionImplementation {
     // N.B., this function does not utilise the Arrow regexp compute
     // kernel because in order to act as a filter it needs to return a
     // boolean array of comparison results, not an array of strings as
-    // the regex compute kernel does and it needs to implement the
-    // regexp syntax for influxrpc.
+    // the regex compute kernel does
 
     let func = move |args: &[ColumnarValue]| {
         assert_eq!(args.len(), 2); // only works over a single column and pattern at a time.
@@ -194,10 +193,10 @@ fn clean_non_meta_escapes(pattern: &str) -> String {
             match (cur_state, c, next_char) {
                 (SlashState::No, '\\', Some(next_char))
                 | (SlashState::Double, '\\', Some(next_char))
-                if !is_valid_character_after_escape(next_char) =>
-                    {
-                        None
-                    }
+                    if !is_valid_character_after_escape(next_char) =>
+                {
+                    None
+                }
                 _ => Some(c),
             }
         })
@@ -243,7 +242,7 @@ mod tests {
                 Arc::new(StringArray::from_slice(&["NY", "Pune", "SF", "Beijing"])),
             ],
         )
-            .unwrap();
+        .unwrap();
 
         // declare a new context. In spark API, this corresponds to a new spark SQLsession
         let ctx = SessionContext::new();

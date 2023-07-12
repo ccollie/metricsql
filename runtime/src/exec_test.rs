@@ -2578,7 +2578,7 @@ mod tests {
     #[test]
     fn test_mode() {
         let q = r##"mode((
-        alias(3, "#m1"),
+        alias(3, "m1"),
         alias(2, "m2"),
         alias(3, "m3"),
         alias(4, "m4"),
@@ -2640,7 +2640,7 @@ mod tests {
     #[test]
     fn zscore() {
         let q = r##"sort_by_label(round(zscore((
-        label_set(time()/100+10, "#k", "v1"),
+        label_set(time()/100+10, "k", "v1"),
         label_set(time()/200+5, "k", "v2"),
         label_set(time()/110-10, "k", "v3"),
         label_set(time()/90-5, "k", "v4"),
