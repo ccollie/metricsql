@@ -166,7 +166,7 @@ fn eval_binary_op(
         // the following cases can be handled cheaply without invoking async runtime
         (Expr::Number(left), Expr::Number(right)) => {
             // todo: add support for bool modifier
-            let value = scalar_binary_operations(be.op, left.value, right.value)?;
+            let value = scalar_binary_operations(be.op, left.value, right.value, be.bool_modifier)?;
             Ok(Value::Scalar(value))
         }
         (Expr::Duration(left), Expr::Duration(right)) => {
@@ -188,8 +188,7 @@ fn eval_binary_op(
 
             match (lhs, rhs) {
                 (QueryValue::Scalar(left), QueryValue::Scalar(right)) => {
-                    let value = scalar_binary_operations(be.op, left, right)?;
-                    // todo: add support for bool modifier
+                    let value = scalar_binary_operations(be.op, left, right, be.bool_modifier)?;
                     Ok(Value::Scalar(value))
                 }
                 (QueryValue::InstantVector(_), QueryValue::InstantVector(_)) => {

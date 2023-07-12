@@ -250,3 +250,58 @@ pub fn string_compare(a: &str, b: &str, op: Operator, is_bool: bool) -> ParseRes
         Err(e) => Err(e),
     }
 }
+
+/// Supported operation between two float type values.
+/// For one off operations. This differs from the `get_scalar_binop_handler` in that it
+/// is optimized for a single operation. The `get_scalar_binop_handler` is optimized for
+/// a single operation that is applied to many values (it minimizes the number of branches).
+pub fn scalar_binary_operation(
+    lhs: f64,
+    rhs: f64,
+    op: Operator,
+    return_bool: bool,
+) -> ParseResult<f64> {
+    use Operator::*;
+
+    let value = if op.is_comparison() {
+        let val = match op {
+            Eql => lhs == rhs,
+            NotEq => lhs != rhs,
+            Gt => lhs > rhs,
+            Lt => lhs < rhs,
+            Gte => lhs >= rhs,
+            Lte => lhs <= rhs,
+            _ => {
+                unreachable!("Unsupported scalar comparison operation: {} {:?} {:?}", op.as_str(), lhs, rhs)
+            }
+        };
+        if return_bool {
+            val as u32 as f64
+        } else {
+            // if the return value was true, that means our element
+            // satisfies the comparison, hence return it
+            if val {
+                lhs
+            } else {
+                f64::NAN
+            }
+        }
+    } else {
+        match op {
+            Add => lhs + rhs,
+            Sub => lhs - rhs,
+            Mul => lhs * rhs,
+            Div => lhs / rhs,
+            Pow => lhs.powf(rhs),
+            Mod => lhs % rhs,
+            Atan2 => lhs.atan2(rhs),
+            _ => {
+                return Err(ParseError::General(format!(
+                    "Unsupported scalar operation: {:?} {:?} {:?}",
+                    op.as_str(), lhs, rhs
+                )))
+            }
+        }
+    };
+    Ok(value)
+}
