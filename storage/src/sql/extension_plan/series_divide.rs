@@ -313,6 +313,7 @@ impl SeriesDivideStream {
 
 #[cfg(test)]
 mod test {
+    use datafusion::arrow::datatypes;
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use datafusion::from_slice::FromSlice;
     use datafusion::physical_plan::memory::MemoryExec;
