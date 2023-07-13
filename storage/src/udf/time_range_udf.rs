@@ -29,8 +29,6 @@ use datafusion::{
     sql::sqlparser::parser::ParserError,
 };
 
-use once_cell::sync::Lazy;
-
 use crate::common::str;
 use crate::common::time;
 

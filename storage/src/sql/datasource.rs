@@ -42,6 +42,7 @@ use crate::error::{
     CatalogSnafu, ColumnNotFoundSnafu, DataFusionPlanningSnafu, TableNameNotFoundSnafu,
     TimeIndexNotFoundSnafu, UnknownTableSnafu, ValueNotFoundSnafu,
 };
+use crate::sql::extension_plan::{SeriesDivide, SeriesNormalize};
 
 const DEFAULT_TIME_INDEX_COLUMN: &str = "time";
 
@@ -207,8 +208,7 @@ impl SqlDataSource {
                         df_group.filter(col(mat.name.clone()).not_eq(lit(mat.value.clone())))?
                 }
                 MatchOp::Re(_re) => {
-                    let regexp_match_udf =
-                        crate::service::search::datafusion::regexp_udf::REGEX_MATCH_UDF.clone();
+                    let regexp_match_udf = crate::udf::regexp_udf().clone();
                     df_group = df_group.filter(
                         regexp_match_udf.call(vec![col(mat.name.clone()), lit(mat.value.clone())]),
                     )?

@@ -45,7 +45,7 @@ pub(super) fn eval_aggr_func(
                     _ => {
                         // should not happen
                         unreachable!(
-                            "Expected a rollup function in aggregation. Found  \"{}\"",
+                            "Expected a rollup function in aggregation. Found \"{}\"",
                             fe.function
                         )
                     }
@@ -95,7 +95,8 @@ fn try_get_arg_rollup_func_with_metric_expr(
     if ae.args.len() != 1 {
         return Ok(None);
     }
-    let e = &ae.args[0];
+
+    let expr = &ae.args[0];
     // Make sure e contains one of the following:
     // - metricExpr
     // - metricExpr[d]
@@ -120,20 +121,20 @@ fn try_get_arg_rollup_func_with_metric_expr(
 
         match FunctionExpr::from_single_arg(func_name, expr.clone()) {
             Err(e) => Err(RuntimeError::General(format!(
-                "Error creating function {}: {:?}",
-                func_name, e
+                "Error creating function {func_name}: {:?}",
+                e
             ))),
             Ok(fe) => Ok(Some(fe)),
         }
     }
 
-    return match &ae.args[0] {
-        Expr::MetricExpression(me) => return create_func(me, e, "", false),
+    return match expr {
+        Expr::MetricExpression(me) => return create_func(me, expr, "", false),
         Expr::Rollup(re) => {
             match re.expr.deref() {
                 Expr::MetricExpression(me) => {
                     // e = metricExpr[d]
-                    create_func(me, e, "", re.for_subquery())
+                    create_func(me, expr, "", re.for_subquery())
                 }
                 _ => Ok(None),
             }
@@ -143,7 +144,7 @@ fn try_get_arg_rollup_func_with_metric_expr(
                 BuiltinFunction::Rollup(_) => {
                     return if let Some(arg) = fe.get_arg_for_optimization() {
                         match arg.deref() {
-                            Expr::MetricExpression(me) => create_func(me, e, &fe.name, false),
+                            Expr::MetricExpression(me) => create_func(me, expr, &fe.name, false),
                             Expr::Rollup(re) => {
                                 match &*re.expr {
                                     Expr::MetricExpression(me) => {

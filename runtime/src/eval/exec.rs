@@ -165,7 +165,6 @@ fn eval_binary_op(
         }
         // the following cases can be handled cheaply without invoking async runtime
         (Expr::Number(left), Expr::Number(right)) => {
-            // todo: add support for bool modifier
             let value = scalar_binary_operations(be.op, left.value, right.value, be.bool_modifier)?;
             Ok(Value::Scalar(value))
         }
@@ -195,24 +194,10 @@ fn eval_binary_op(
                     eval_vector_vector_binop(be, ctx, ec)
                 }
                 (QueryValue::InstantVector(vector), QueryValue::Scalar(scalar)) => {
-                    eval_vector_scalar_binop(
-                        ctx,
-                        vector,
-                        scalar,
-                        be.op,
-                        be.keep_metric_names,
-                        be.bool_modifier,
-                    )
+                    eval_vector_scalar_binop(ctx, be, vector, scalar)
                 }
                 (QueryValue::Scalar(scalar), QueryValue::InstantVector(vector)) => {
-                    eval_scalar_vector_binop(
-                        ctx,
-                        vector,
-                        scalar,
-                        be.op,
-                        be.keep_metric_names,
-                        be.bool_modifier,
-                    )
+                    eval_scalar_vector_binop(ctx, be, vector, scalar)
                 }
                 (QueryValue::String(left), QueryValue::String(right)) => {
                     eval_string_string_op(be.op, &left, &right, be.bool_modifier)

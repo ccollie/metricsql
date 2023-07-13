@@ -252,7 +252,7 @@ pub fn string_compare(a: &str, b: &str, op: Operator, is_bool: bool) -> ParseRes
 }
 
 /// Supported operation between two float type values.
-/// For one off operations. This differs from the `get_scalar_binop_handler` in that it
+/// For one-off operations. This differs from the `get_scalar_binop_handler` in that it
 /// is optimized for a single operation. The `get_scalar_binop_handler` is optimized for
 /// a single operation that is applied to many values (it minimizes the number of branches).
 pub fn scalar_binary_operation(
@@ -265,14 +265,19 @@ pub fn scalar_binary_operation(
 
     let value = if op.is_comparison() {
         let val = match op {
-            Eql => lhs == rhs,
-            NotEq => lhs != rhs,
+            Eql => op_eq(lhs, rhs),
+            NotEq => op_neq(lhs, rhs),
             Gt => lhs > rhs,
             Lt => lhs < rhs,
             Gte => lhs >= rhs,
             Lte => lhs <= rhs,
             _ => {
-                unreachable!("Unsupported scalar comparison operation: {} {:?} {:?}", op.as_str(), lhs, rhs)
+                unreachable!(
+                    "Unsupported scalar comparison operation: {} {:?} {:?}",
+                    op.as_str(),
+                    lhs,
+                    rhs
+                )
             }
         };
         if return_bool {
@@ -298,7 +303,9 @@ pub fn scalar_binary_operation(
             _ => {
                 return Err(ParseError::General(format!(
                     "Unsupported scalar operation: {:?} {:?} {:?}",
-                    op.as_str(), lhs, rhs
+                    op.as_str(),
+                    lhs,
+                    rhs
                 )))
             }
         }
