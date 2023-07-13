@@ -11,7 +11,6 @@ use metricsql::prelude::*;
 
 use crate::context::Context;
 use crate::eval::binary::vector_binop_handlers::{exec_binop, BinaryOpFuncArg};
-use crate::eval::eval_number;
 use crate::eval::exec::eval_expr;
 use crate::eval::utils::series_len;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
@@ -32,6 +31,8 @@ pub(crate) fn eval_vector_vector_binop(
     }
     .entered();
 
+    // todo debug_assert!(expr.left.is_instant_vector() && expr.right.is_instant_vector());
+
     let (left, right) = if expr.op == Operator::And || expr.op == Operator::If {
         // Fetch right-side series at first, since it usually contains
         // lower number of time series for `and` and `if` operator.
@@ -42,8 +43,8 @@ pub(crate) fn eval_vector_vector_binop(
         exec_binary_op_args(ctx, ec, &expr.left, &expr.right, expr)?
     };
 
-    let left_series = to_vector(ec, left)?;
-    let right_series = to_vector(ec, right)?;
+    let left_series = to_vector(left)?;
+    let right_series = to_vector(right)?;
     let mut bfa = BinaryOpFuncArg::new(left_series, &expr, right_series);
 
     let result = exec_binop(&mut bfa)
@@ -132,17 +133,9 @@ fn exec_binary_op_args(
         return Ok((QueryValue::empty_vec(), QueryValue::empty_vec()));
     }
     let sec_expr = push_down_filters(be, &mut first, &expr_second, &ec)?;
-    return match sec_expr {
-        Cow::Borrowed(_) => {
-            // if it hasn't been modified, default to existing evaluator
-            let other = eval_expr(ctx, ec, expr_second)?;
-            Ok((first, other))
-        }
-        Cow::Owned(expr) => {
-            let second = eval_expr(ctx, ec, &expr)?;
-            Ok((first, second))
-        }
-    };
+    let second = eval_expr(ctx, ec, &sec_expr)?;
+
+    Ok((first, second))
 }
 
 fn push_down_filters<'a>(
@@ -151,23 +144,20 @@ fn push_down_filters<'a>(
     dest: &'a Expr,
     ec: &EvalConfig,
 ) -> RuntimeResult<Cow<'a, Expr>> {
-    if can_pushdown_filters(dest) {
-        let tss_first = first.as_instant_vec(ec)?;
-        let mut common_filters = get_common_label_filters(&tss_first[0..]);
-        if !common_filters.is_empty() {
-            trim_filters_by_group_modifier(&mut common_filters, &expr);
-            let mut copy = dest.clone();
-            push_down_binary_op_filters_in_place(&mut copy, &mut common_filters);
-            return Ok(Cow::Owned(copy));
-        }
+    let tss_first = first.as_instant_vec(ec)?;
+    let mut common_filters = get_common_label_filters(&tss_first[0..]);
+    if !common_filters.is_empty() {
+        trim_filters_by_group_modifier(&mut common_filters, &expr);
+        let mut copy = dest.clone();
+        push_down_binary_op_filters_in_place(&mut copy, &mut common_filters);
+        return Ok(Cow::Owned(copy));
     }
     Ok(Cow::Borrowed(dest))
 }
 
-fn to_vector(ec: &EvalConfig, value: QueryValue) -> RuntimeResult<Vec<Timeseries>> {
+fn to_vector(value: QueryValue) -> RuntimeResult<Vec<Timeseries>> {
     match value {
         QueryValue::InstantVector(val) => Ok(val.into()), // todo: use std::mem::take ??
-        QueryValue::Scalar(n) => Ok(eval_number(ec, n)),
         _ => unreachable!(
             "Bug: binary_op. Unexpected {} operand",
             value.data_type_name()
@@ -214,14 +204,7 @@ fn can_push_down_common_filters(be: &BinaryExpr) -> bool {
     true
 }
 
-fn is_non_grouping(ae: &AggregationExpr) -> bool {
-    match ae.modifier {
-        Some(ref m) => me.is_empty(),
-        None => true,
-    }
-}
-
-pub(super) fn get_common_label_filters(tss: &[Timeseries]) -> Vec<LabelFilter> {
+fn get_common_label_filters(tss: &[Timeseries]) -> Vec<LabelFilter> {
     // todo(perf): use fnv or xxxhash
     let mut kv_map: HashMap<String, BTreeSet<String>> = HashMap::new();
     for ts in tss.iter() {
@@ -248,19 +231,10 @@ pub(super) fn get_common_label_filters(tss: &[Timeseries]) -> Vec<LabelFilter> {
 
         let vals: Vec<&String> = values.iter().collect::<Vec<_>>();
 
-        let str_value: String;
-        let mut is_regex = false;
-
-        if values.len() == 1 {
-            str_value = vals[0].into()
+        let lf = if values.len() == 1 {
+            LabelFilter::equal(key, vals[0].into()).unwrap()
         } else {
-            str_value = join_regexp_values(&vals);
-            is_regex = true;
-        }
-
-        let lf = if is_regex {
-            LabelFilter::equal(key, str_value).unwrap()
-        } else {
+            let str_value = join_regexp_values(&vals);
             LabelFilter::regex_equal(key, str_value).unwrap()
         };
 
@@ -283,67 +257,3 @@ fn join_regexp_values(a: &Vec<&String>) -> String {
     }
     res
 }
-
-//#[cfg(test)]
-/*
-mod tests {
-    use crate::eval::binary::get_common_label_filters;
-    use crate::{Rows, Timeseries};
-    use metricsql::ast::MetricExpr;
-
-    #[test]
-    fn test_get_common_label_filters() {
-        let f = |metrics: &str, lfs_expected: &str| {
-            let mut tss: Vec<Timeseries> = vec![];
-
-            let mut rows = Rows::try_from(metrics).expect("error initializing rows from string");
-
-            match rows.unmarshal(metrics) {
-                Err(err) => {
-                    panic!("unexpected error when parsing {}: {:?}", metrics, err);
-                }
-                Ok(_) => {}
-            }
-            for row in rows.iter() {
-                let mut ts = Timeseries::default();
-                for tag in row.tags.iter() {
-                    ts.metric_name.set_tag(&tag.key, &tag.value);
-                }
-                tss.push(ts)
-            }
-
-            let lfs = get_common_label_filters(&tss);
-            let me = MetricExpr::with_filters(lfs);
-
-            let lfs_marshaled = me.to_string();
-            assert_eq!(
-                lfs_marshaled, lfs_expected,
-                "unexpected common label filters;\ngot\n{}\nwant\n{}",
-                lfs_marshaled, lfs_expected
-            )
-        };
-
-        f("", "{}");
-        f("m 1", "{}");
-        f(r#"m { a="b" } 1"#, r#"{a = "b"}"#);
-        f(r#"m { c="d", a="b" } 1"#, r#"{a = "b", c = "d"}"#);
-        f(
-            r#"m1 { a="foo" } 1
-          m2 { a="bar" } 1"#,
-            r#"{a = ~"bar|foo"}"#,
-        );
-        f(
-            r#"m1 { a="foo" } 1
-          m2 { b="bar" } 1"#,
-            "{}",
-        );
-        f(
-            r#"m1 { a="foo", b="bar" } 1
-          m2 { b="bar", c="x" } 1"#,
-            r#"{b = "bar"}"#,
-        );
-    }
-}
-
-
-*/
