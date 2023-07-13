@@ -1,18 +1,16 @@
-use lru_time_cache::LruCache;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+
+use lru_time_cache::LruCache;
 
 use metricsql::ast::{optimize, Expr};
 use metricsql::parser;
 use metricsql::parser::ParseError;
 
-use crate::eval::{create_evaluator, ExprEvaluator};
-
 const PARSE_CACHE_MAX_LEN: usize = 500;
 
 pub struct ParseCacheValue {
     pub expr: Option<Expr>,
-    pub evaluator: Option<ExprEvaluator>,
     pub err: Option<ParseError>,
     pub has_subquery: bool,
 }
@@ -91,31 +89,16 @@ impl ParseCache {
             Ok(expr) => {
                 let optimized = optimize(expr);
                 if let Ok(expression) = optimized {
-                    match create_evaluator(&expression) {
-                        Ok(evaluator) => {
-                            let has_subquery = expression.contains_subquery();
-                            ParseCacheValue {
-                                expr: Some(expression),
-                                evaluator: Some(evaluator),
-                                err: None,
-                                has_subquery,
-                            }
-                        }
-                        Err(e) => ParseCacheValue {
-                            expr: Some(expression),
-                            evaluator: Some(ExprEvaluator::default()),
-                            has_subquery: false,
-                            err: Some(ParseError::General(format!(
-                                "Error creating evaluator: {:?}",
-                                e
-                            ))),
-                        },
+                    let has_subquery = expression.contains_subquery();
+                    ParseCacheValue {
+                        expr: Some(expression),
+                        err: None,
+                        has_subquery,
                     }
                 } else {
                     let err = optimized.err().unwrap();
                     ParseCacheValue {
                         expr: None,
-                        evaluator: Some(ExprEvaluator::default()),
                         has_subquery: false,
                         err: Some(ParseError::General(format!(
                             "Error optimizing expression: {:?}",
@@ -126,7 +109,6 @@ impl ParseCache {
             }
             Err(e) => ParseCacheValue {
                 expr: None,
-                evaluator: Some(ExprEvaluator::default()),
                 err: Some(e.clone()),
                 has_subquery: false,
             },

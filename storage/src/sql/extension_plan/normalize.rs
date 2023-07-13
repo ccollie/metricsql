@@ -26,10 +26,10 @@ use datafusion::error::DataFusionError;
 use datafusion::execution::context::TaskContext;
 use datafusion::logical_expr::{EmptyRelation, Expr, LogicalPlan, UserDefinedLogicalNodeCore};
 use datafusion::physical_expr::PhysicalSortExpr;
+use datafusion::physical_plan::metrics::{BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet};
 use datafusion::physical_plan::{
     DisplayFormatType, ExecutionPlan, Partitioning, RecordBatchStream, SendableRecordBatchStream,
 };
-use datafusion::physical_plan::metrics::{BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet};
 use futures::{Stream, StreamExt};
 use snafu::ResultExt;
 
@@ -39,6 +39,7 @@ use datatypes::arrow::record_batch::RecordBatch;
 use greptime_proto::substrait_extension as pb;
 use prost::Message;
 
+use crate::error::DeserializeSnafu;
 use crate::extension_plan::Millisecond;
 
 /// Normalize the input record batch. Notice that for simplicity, this method assumes
@@ -129,7 +130,7 @@ impl SeriesNormalize {
             time_index: self.time_index_column_name.clone(),
             filter_nan: self.need_filter_out_nan,
         }
-            .encode_to_vec()
+        .encode_to_vec()
     }
 
     pub fn deserialize(bytes: &[u8]) -> Result<Self> {
@@ -352,7 +353,7 @@ mod test {
             schema.clone(),
             vec![timestamp_column, field_column, path_column],
         )
-            .unwrap();
+        .unwrap();
 
         MemoryExec::try_new(&[vec![data]], schema, None).unwrap()
     }

@@ -1,6 +1,5 @@
 use std::collections::hash_map::ValuesMut;
 use std::collections::HashMap;
-use std::iter;
 use std::sync::Arc;
 
 use metricsql::functions::RollupFunction;
@@ -17,18 +16,11 @@ pub(crate) struct TimeseriesMap {
 
 impl TimeseriesMap {
     pub fn new(
-        func: &RollupFunction,
         keep_metric_names: bool,
         shared_timestamps: &Arc<Vec<i64>>,
         mn_src: &MetricName,
-    ) -> Option<TimeseriesMap> {
-        if !is_eligible_function(func) {
-            return None;
-        }
-
+    ) -> Self {
         let ts_len = shared_timestamps.len();
-        let mut values: Vec<f64> = Vec::with_capacity(shared_timestamps.len());
-        values.extend(iter::repeat(f64::NAN).take(ts_len));
 
         let mut origin: Timeseries = Timeseries::default();
         origin.metric_name.copy_from(mn_src);
@@ -36,14 +28,14 @@ impl TimeseriesMap {
             origin.metric_name.reset_metric_group()
         }
         origin.timestamps = Arc::clone(&shared_timestamps);
-        origin.values = values;
+        origin.values = vec![f64::NAN; ts_len];
         let m: HashMap<String, Timeseries> = HashMap::new();
 
-        Some(TimeseriesMap {
+        TimeseriesMap {
             origin,
             hist: Histogram::new(),
             series: m,
-        })
+        }
     }
 
     pub fn update(&mut self, value: f64) {
@@ -83,9 +75,9 @@ impl TimeseriesMap {
     pub fn non_zero_buckets(&mut self) -> NonZeroBuckets {
         self.hist.non_zero_buckets()
     }
-}
 
-fn is_eligible_function(func: &RollupFunction) -> bool {
-    use RollupFunction::*;
-    matches!(*func, HistogramOverTime | QuantilesOverTime)
+    pub fn is_valid_function(func: &RollupFunction) -> bool {
+        use RollupFunction::*;
+        matches!(*func, HistogramOverTime | QuantilesOverTime)
+    }
 }

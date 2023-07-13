@@ -1,16 +1,57 @@
-use crate::eval::eval_number;
-use crate::functions::types::get_single_timeseries;
-use crate::utils::format_number;
-use crate::{EvalConfig, RuntimeError, RuntimeResult, Timeseries};
-use metricsql::common::{Value, ValueType};
 use std::borrow::Cow;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
+use serde::ser::SerializeSeq;
+use serde::{Serialize, Serializer};
+
+use metricsql::ast::DurationExpr;
+use metricsql::common::{Value, ValueType};
+
+use crate::eval::eval_number;
+use crate::functions::types::get_single_timeseries;
+use crate::utils::format_number;
+use crate::{EvalConfig, RuntimeError, RuntimeResult, Timeseries};
+
+pub type Labels = Vec<Label>;
+
+#[derive(Debug, Clone)]
+pub struct Label {
+    pub name: String,
+    pub value: String,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Sample {
+    /// Time in microseconds
+    pub timestamp: i64,
+    pub value: f64,
+}
+
+impl Serialize for Sample {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut seq = serializer.serialize_seq(Some(2))?;
+        seq.serialize_element(&(self.timestamp / 1_000_000))?;
+        seq.serialize_element(&self.value.to_string())?;
+        seq.end()
+    }
+}
+
+impl Sample {
+    pub(crate) fn new(timestamp: i64, value: f64) -> Self {
+        Self { timestamp, value }
+    }
+}
+
+pub type InstantVector = Vec<Timeseries>; // todo: Vec<(label, Sample)> or somesuch
+
 #[derive(Debug, PartialEq)]
 pub enum QueryValue {
     RangeVector(Vec<Timeseries>),
-    InstantVector(Vec<Timeseries>),
+    InstantVector(InstantVector),
     Scalar(f64),
     String(String),
 }
@@ -34,6 +75,12 @@ impl QueryValue {
             QueryValue::String(_) => ValueType::String,
             QueryValue::InstantVector(_) => ValueType::InstantVector,
         }
+    }
+
+    pub fn from_duration(dur: &DurationExpr, step: i64) -> Self {
+        let d = dur.value(step);
+        let d_sec = d as f64 / 1000_f64;
+        QueryValue::Scalar(d_sec)
     }
 
     pub fn data_type_name(&self) -> &'static str {
@@ -99,10 +146,14 @@ impl QueryValue {
     }
 
     // todo: get_series_into()
-    pub fn get_instant_vector(&self) -> RuntimeResult<Vec<Timeseries>> {
+    pub fn get_instant_vector(&self, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
         match self {
             QueryValue::InstantVector(val) => Ok(val.clone()), // ????
-            _ => panic!("BUG: invalid series parameter"),
+            QueryValue::Scalar(n) => Ok(eval_number(ec, *n)),
+            _ => {
+                let msg = format!("cannot cast {} to an instant vector", self.data_type());
+                return Err(RuntimeError::TypeCastError(msg));
+            }
         }
     }
 
@@ -169,6 +220,15 @@ impl QueryValue {
 
     pub fn empty_vec() -> Self {
         QueryValue::InstantVector(vec![])
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            QueryValue::InstantVector(val) => val.len(), // ????
+            QueryValue::RangeVector(val) => val.len(),
+            QueryValue::String(v) => v.len(),
+            _ => 0,
+        }
     }
 }
 

@@ -7,9 +7,10 @@ use chrono::Utc;
 use tracing::{field, info, trace_span, Span};
 
 use lib::round_to_decimal_digits;
+use metricsql::ast::Expr;
 
 use crate::context::Context;
-use crate::eval::{EvalConfig, Evaluator, ExprEvaluator};
+use crate::eval::{eval_expr, EvalConfig};
 use crate::parser_cache::ParseCacheValue;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::search::QueryResult;
@@ -42,8 +43,8 @@ pub(crate) fn exec_internal(
 
     let parsed = parse_promql_internal(context, q)?;
 
-    match (&parsed.evaluator, &parsed.has_subquery) {
-        (Some(evaluator), has_subquery) => {
+    match (&parsed.expr, &parsed.has_subquery) {
+        (Some(expr), has_subquery) => {
             if *has_subquery {
                 ec.ensure_timestamps()?;
             }
@@ -78,7 +79,7 @@ pub(crate) fn exec_internal(
             }
             .entered();
 
-            let rv = evaluator.eval(&ctx, ec)?;
+            let rv = eval_expr(&ctx, ec, expr)?;
 
             if is_tracing {
                 let ts_count: usize;
@@ -138,8 +139,8 @@ pub fn exec(
     }
 
     // at this point, parsed.evaluator is Some, but lets avoid unwrap in any case
-    let may_sort = if let Some(evaluator) = &parsed.evaluator {
-        may_sort_results(&evaluator, &rv)
+    let may_sort = if let Some(expr) = &parsed.expr {
+        may_sort_results(expr, &rv)
     } else {
         false
     };
@@ -160,10 +161,10 @@ pub fn exec(
     Ok(result)
 }
 
-fn may_sort_results(e: &ExprEvaluator, _tss: &[Timeseries]) -> bool {
+fn may_sort_results(e: &Expr, _tss: &[Timeseries]) -> bool {
     return match e {
-        ExprEvaluator::Function(fe) => !fe.may_sort_results,
-        ExprEvaluator::Aggregate(ae) => !ae.may_sort_results,
+        Expr::Function(fe) => !fe.function.may_sort_results(),
+        Expr::Aggregation(ae) => !ae.function.may_sort_results(),
         _ => true,
     };
 }

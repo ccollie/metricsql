@@ -56,7 +56,7 @@ fn binary_op_comparison(bfa: &mut BinaryOpFuncArg) -> BinaryOpFuncResult {
     binary_op_func_impl(bf, bfa)
 }
 
-pub(super) fn exec_binop(bfa: &mut BinaryOpFuncArg) -> BinaryOpFuncResult {
+pub(in crate::eval) fn exec_binop(bfa: &mut BinaryOpFuncArg) -> BinaryOpFuncResult {
     use Operator::*;
     match bfa.be.op {
         Add => binary_op_add(bfa),
@@ -560,7 +560,7 @@ fn create_timeseries_map_by_tag_set(
     return (m_left, m_right);
 }
 
-pub(super) fn is_scalar(arg: &[Timeseries]) -> bool {
+pub(in crate::eval) fn is_scalar(arg: &[Timeseries]) -> bool {
     if arg.len() != 1 {
         return false;
     }
