@@ -15,7 +15,7 @@
 use std::any::Any;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll, ready};
+use std::task::{ready, Context, Poll};
 
 use datafusion::arrow::array::{Array, StringArray};
 use datafusion::arrow::compute;
@@ -26,15 +26,15 @@ use datafusion::error::Result as DataFusionResult;
 use datafusion::execution::context::TaskContext;
 use datafusion::logical_expr::{EmptyRelation, Expr, LogicalPlan, UserDefinedLogicalNodeCore};
 use datafusion::physical_expr::PhysicalSortExpr;
+use datafusion::physical_plan::metrics::{BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet};
 use datafusion::physical_plan::{
     DisplayFormatType, Distribution, ExecutionPlan, Partitioning, RecordBatchStream,
     SendableRecordBatchStream, Statistics,
 };
-use datafusion::physical_plan::metrics::{BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet};
+use futures::{Stream, StreamExt};
 use snafu::ResultExt;
 
 use datatypes::arrow::compute;
-use futures::{ready, Stream, StreamExt};
 use greptime_proto::substrait_extension as pb;
 use prost::Message;
 
@@ -98,7 +98,7 @@ impl SeriesDivide {
         pb::SeriesDivide {
             tag_columns: self.tag_columns.clone(),
         }
-            .encode_to_vec()
+        .encode_to_vec()
     }
 
     pub fn deserialize(bytes: &[u8]) -> Result<Self> {
@@ -313,6 +313,7 @@ impl SeriesDivideStream {
 
 #[cfg(test)]
 mod test {
+    use datafusion::arrow::datatypes;
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use datafusion::from_slice::FromSlice;
     use datafusion::physical_plan::memory::MemoryExec;

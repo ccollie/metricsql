@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 use datafusion::{
     arrow::{
-        array::{ArrayRef, as_string_array, BooleanArray},
+        array::{as_string_array, ArrayRef, BooleanArray},
         datatypes::DataType,
     },
     error::DataFusionError,
@@ -27,12 +27,21 @@ use datafusion::{
     scalar::ScalarValue,
 };
 
+/// The name of the match UDF given to DataFusion.
+pub const MATCH_UDF_NAME: &str = "str_match";
+/// The name of the match_ignore_case UDF given to DataFusion.
+pub const MATCH_UDF_IGNORE_CASE_NAME: &str = "str_match_ignore_case";
+/// The name of the regex_match UDF given to DataFusion.
+pub const REGEX_MATCH_UDF_NAME: &str = "re_match";
+/// The name of the not_regex_match UDF given to DataFusion.
+pub const REGEX_NOT_MATCH_UDF_NAME: &str = "re_not_match";
+
 /// Implementation of regexp_match
 pub(crate) fn regex_match_udf() -> &'static ScalarUDF {
     static INSTANCE: OnceCell<ScalarUDF> = OnceCell::new();
     INSTANCE.get_or_init(|| {
         create_udf(
-            super::REGEX_MATCH_UDF_NAME,
+            REGEX_MATCH_UDF_NAME,
             // takes two arguments: regex, pattern
             vec![DataType::Utf8, DataType::Utf8],
             Arc::new(DataType::Boolean),
@@ -47,7 +56,7 @@ pub(crate) fn regex_not_match_udf() -> &'static ScalarUDF {
     static INSTANCE: OnceCell<ScalarUDF> = OnceCell::new();
     INSTANCE.get_or_init(|| {
         create_udf(
-            super::REGEX_NOT_MATCH_UDF_NAME,
+            REGEX_NOT_MATCH_UDF_NAME,
             // takes two arguments: regex, pattern
             vec![DataType::Utf8, DataType::Utf8],
             Arc::new(DataType::Boolean),
@@ -73,8 +82,7 @@ pub fn regex_match_expr_impl(matches: bool) -> ScalarFunctionImplementation {
     // N.B., this function does not utilise the Arrow regexp compute
     // kernel because in order to act as a filter it needs to return a
     // boolean array of comparison results, not an array of strings as
-    // the regex compute kernel does and it needs to implement the
-    // regexp syntax for influxrpc.
+    // the regex compute kernel does
 
     let func = move |args: &[ColumnarValue]| {
         assert_eq!(args.len(), 2); // only works over a single column and pattern at a time.
@@ -194,10 +202,10 @@ fn clean_non_meta_escapes(pattern: &str) -> String {
             match (cur_state, c, next_char) {
                 (SlashState::No, '\\', Some(next_char))
                 | (SlashState::Double, '\\', Some(next_char))
-                if !is_valid_character_after_escape(next_char) =>
-                    {
-                        None
-                    }
+                    if !is_valid_character_after_escape(next_char) =>
+                {
+                    None
+                }
                 _ => Some(c),
             }
         })
@@ -243,7 +251,7 @@ mod tests {
                 Arc::new(StringArray::from_slice(&["NY", "Pune", "SF", "Beijing"])),
             ],
         )
-            .unwrap();
+        .unwrap();
 
         // declare a new context. In spark API, this corresponds to a new spark SQLsession
         let ctx = SessionContext::new();

@@ -1,13 +1,11 @@
-mod cpu;
-mod memory;
-mod memory_limiter;
-mod format;
-mod iters;
-mod encoding;
-
 pub use cpu::*;
 pub(crate) use encoding::*;
+pub(crate) use format::*;
 pub use memory::*;
 pub use memory_limiter::*;
-pub(crate) use format::*;
-pub use iters::*;
+
+mod cpu;
+mod encoding;
+mod format;
+mod memory;
+mod memory_limiter;

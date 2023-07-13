@@ -485,11 +485,33 @@ impl TransformFunction {
                 vec![ValueType::Scalar, ValueType::InstantVector],
                 Volatility::Stable,
             ),
-            LabelCopy | LabelDel | LabelJoin | LabelKeep | LabelLowercase | LabelMap
-            | LabelMatch | LabelMove | LabelSet => {
+            LabelCopy | LabelMove | LabelSet => {
                 let mut types = vec![ValueType::String; MAX_ARG_COUNT];
                 types.insert(0, ValueType::InstantVector);
-                Signature::exact(types, Volatility::Stable)
+                Signature::exact_with_min_args(types, 3, Volatility::Stable)
+            }
+            LabelDel | LabelKeep | LabelLowercase | LabelUppercase => {
+                let mut types = vec![ValueType::String; MAX_ARG_COUNT];
+                types.insert(0, ValueType::InstantVector);
+                Signature::exact_with_min_args(types, 2, Volatility::Stable)
+            }
+            LabelJoin => {
+                let mut types = vec![ValueType::String; MAX_ARG_COUNT];
+                types.insert(0, ValueType::InstantVector);
+                Signature::exact_with_min_args(types, 4, Volatility::Stable)
+            }
+            LabelMap => {
+                let mut types = vec![ValueType::String; MAX_ARG_COUNT];
+                types.insert(0, ValueType::InstantVector);
+                Signature::exact_with_min_args(types, 4, Volatility::Stable)
+            }
+            LabelMatch | LabelMismatch => {
+                let types = vec![
+                    ValueType::InstantVector,
+                    ValueType::String,
+                    ValueType::String,
+                ];
+                Signature::exact_with_min_args(types, 3, Volatility::Stable)
             }
             LabelGraphiteGroup => {
                 // label_graphite_group(q, groupNum1, ... groupNumN)
@@ -550,8 +572,9 @@ impl TransformFunction {
                 vec![ValueType::Scalar, ValueType::InstantVector],
                 Volatility::Stable,
             ),
-            Round => Signature::exact(
+            Round => Signature::exact_with_min_args(
                 vec![ValueType::InstantVector, ValueType::Scalar],
+                1,
                 Volatility::Stable,
             ),
             Ru => Signature::exact(
@@ -565,7 +588,7 @@ impl TransformFunction {
             SortByLabel | SortByLabelDesc | SortByLabelNumeric | SortByLabelNumericDesc => {
                 let mut types = vec![ValueType::String; MAX_ARG_COUNT];
                 types.insert(0, ValueType::InstantVector);
-                Signature::exact(types, Volatility::Stable)
+                Signature::exact_with_min_args(types, 2, Volatility::Stable)
             }
             Step => Signature::exact(vec![], Volatility::Stable),
             Time => Signature::exact(vec![], Volatility::Stable),

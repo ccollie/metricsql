@@ -213,9 +213,6 @@ impl PartialOrd<Matrix> for Matrix {
     }
 }
 
-fn (m Matrix) Less(i, j int) bool { return labels.Compare(m[i].metric, m[j].metric) < 0 }
-
-
 // Result holds the resulting value of an execution or an error
 // if any occurred.
 pub(crate) struct QueryResult {

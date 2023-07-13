@@ -3,12 +3,13 @@ mod tests {
     use std::collections::BTreeMap;
     use std::sync::atomic::{AtomicU64, Ordering};
 
-    use crate::rayon::iter::ParallelIterator;
     use rayon::iter::IntoParallelRefMutIterator;
 
-    use crate::functions::aggregate::{Handler, IncrementalAggrFuncContext};
-    use crate::{compare_values, RuntimeError, RuntimeResult, Timeseries};
     use metricsql::ast::AggregationExpr;
+
+    use crate::functions::aggregate::{IncrementalAggrFuncContext, IncrementalAggregationHandler};
+    use crate::rayon::iter::ParallelIterator;
+    use crate::{compare_values, RuntimeError, RuntimeResult, Timeseries};
 
     const NAN: f64 = f64::NAN;
 
@@ -41,7 +42,7 @@ mod tests {
 
     fn test_incremental(name: &str, values_expected: &[f64]) {
         let tss_src = make_source_timeseries();
-        let handler = Handler::try_from(name).unwrap();
+        let handler = IncrementalAggregationHandler::try_from(name).unwrap();
         let ae = AggregationExpr::from_name(name)
             .expect(format!("{} is an invalid aggregate function", name).as_str());
         let tss_expected = [Timeseries::new(
@@ -51,7 +52,7 @@ mod tests {
 
         // run the test multiple times to make sure there are no side effects on concurrency
         (0..10).for_each(move |i| {
-            let mut iafc = IncrementalAggrFuncContext::new(&ae, &handler);
+            let mut iafc = IncrementalAggrFuncContext::new(&ae).unwrap();
             let mut tss_src_copy = copy_timeseries(&tss_src);
             match test_incremental_parallel_aggr(&mut iafc, &mut tss_src_copy, &tss_expected) {
                 Err(err) => panic!("unexpected error on iteration {}: {:?}", i, err),

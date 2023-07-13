@@ -19,8 +19,7 @@ use metricsql::functions::TransformFunction;
 use metricsql::parser::{compile_regexp, parse_number};
 
 use crate::chrono_tz::Tz;
-use crate::eval::binop_handlers::merge_non_overlapping_timeseries;
-use crate::eval::{eval_number, eval_time, EvalConfig};
+use crate::eval::{eval_number, eval_time, merge_non_overlapping_timeseries, EvalConfig};
 use crate::functions::rollup::{linear_regression, mad, stddev, stdvar};
 use crate::functions::utils::{
     float_to_int_bounded, get_first_non_nan_index, get_last_non_nan_index,
@@ -40,22 +39,6 @@ pub struct TransformFuncArg<'a> {
     pub fe: &'a FunctionExpr,
     pub args: Vec<QueryValue>,
     pub keep_metric_names: bool,
-}
-
-impl<'a> TransformFuncArg<'a> {
-    pub fn new(
-        ec: &'a EvalConfig,
-        fe: &'a FunctionExpr,
-        args: Vec<QueryValue>,
-        keep_metric_names: bool,
-    ) -> Self {
-        Self {
-            ec,
-            fe,
-            args,
-            keep_metric_names,
-        }
-    }
 }
 
 // https://stackoverflow.com/questions/57937436/how-to-alias-an-impl-trait
@@ -329,15 +312,16 @@ pub(crate) fn get_absent_timeseries(ec: &EvalConfig, arg: &Expr) -> Vec<Timeseri
 }
 
 fn transform_clamp(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let min = get_scalar_float(tfa, 1, None)?;
-    let max = get_scalar_float(tfa, 2, None)?;
+    let mins = get_scalar(tfa, 1)?;
+    let maxs = get_scalar(tfa, 2)?;
     // todo: are these guaranteed to be of equal length ?
     let tf = |values: &mut [f64]| {
-        if max < min {
-            return;
-        }
-        for v in values.iter_mut() {
-            *v = v.clamp(min, max);
+        for ((v, min), max) in values.iter_mut().zip(mins.iter()).zip(maxs.iter()) {
+            if *v < *min {
+                *v = *min;
+            } else if *v > *max {
+                *v = *max;
+            }
         }
     };
 
@@ -345,10 +329,12 @@ fn transform_clamp(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>>
 }
 
 fn transform_clamp_max(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let max = get_scalar_float(tfa, 1, None)?;
+    let maxs = get_scalar(tfa, 1)?;
     let tf = |values: &mut [f64]| {
-        for v in values.iter_mut() {
-            *v = v.max(max);
+        for (v, max) in values.iter_mut().zip(maxs.iter()) {
+            if *v > *max {
+                *v = *max;
+            }
         }
     };
 
@@ -356,10 +342,12 @@ fn transform_clamp_max(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseri
 }
 
 fn transform_clamp_min(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let min = get_scalar_float(tfa, 1, None)?;
+    let mins = get_scalar(tfa, 1)?;
     let tf = |values: &mut [f64]| {
-        for v in values.iter_mut() {
-            *v = v.min(min);
+        for (v, min) in values.iter_mut().zip(mins.iter()) {
+            if *v < *min {
+                *v = *min;
+            }
         }
     };
 
@@ -1546,6 +1534,7 @@ fn transform_interpolate(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timese
         while i < values.len() {
             let v = values[i];
             if !v.is_nan() {
+                i += 1;
                 continue;
             }
             if i > 0 {
@@ -1758,7 +1747,7 @@ fn transform_union(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>>
     let mut m: HashSet<String> = HashSet::with_capacity(len);
 
     for arg in tfa.args.iter_mut().skip(1) {
-        let other_series = arg.get_instant_vector()?;
+        let other_series = arg.get_instant_vector(tfa.ec)?;
         for mut ts in other_series.into_iter() {
             // todo: get into a pre-allocated buffer
             let key = ts.metric_name.to_string();
@@ -1961,11 +1950,30 @@ fn transform_label_copy_ext(
     Ok(series)
 }
 
+fn get_arg<'a>(tfa: &'a TransformFuncArg, index: usize) -> RuntimeResult<&'a QueryValue> {
+    if index >= tfa.args.len() {
+        return Err(RuntimeError::ArgumentError(format!(
+            "expected at least {} args; got {}",
+            index + 1,
+            tfa.args.len()
+        )));
+    }
+    Ok(&tfa.args[index])
+}
+
 fn get_string_pairs(
     tfa: &mut TransformFuncArg,
     start: usize,
 ) -> RuntimeResult<(Vec<String>, Vec<String>)> {
-    let arg_len = tfa.args.len();
+    if start >= tfa.args.len() {
+        return Err(RuntimeError::ArgumentError(format!(
+            "expected at least {} args; got {}",
+            start + 2,
+            tfa.args.len()
+        )));
+    }
+    let args = &tfa.args[start..];
+    let arg_len = args.len();
     if arg_len % 2 != 0 {
         return Err(RuntimeError::ArgumentError(format!(
             "the number of string args must be even; got {}",
@@ -2046,12 +2054,12 @@ fn transform_label_transform(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Ti
 }
 
 fn transform_label_replace(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let regex = tfa.args[5].get_string()?;
+    let regex = get_string(tfa, 4)?;
 
     process_anchored_regex(tfa, regex.as_str(), |tfa, r| {
-        let dst_label = tfa.args[1].get_string()?;
-        let replacement = tfa.args[2].get_string()?;
-        let src_label = tfa.args[3].get_string()?;
+        let dst_label = get_string(tfa, 1)?;
+        let replacement = get_string(tfa, 2)?;
+        let src_label = get_string(tfa, 3)?;
         let mut series = get_series(tfa, 0)?;
 
         label_replace(&mut series, &src_label, &r, &dst_label, &replacement)
@@ -2096,7 +2104,7 @@ fn label_replace(
 }
 
 fn transform_label_value(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let label_name = tfa.args[1].get_string()?;
+    let label_name = get_string(tfa, 1)?;
     let mut x: f64;
 
     let mut series = get_series(tfa, 0)?;
@@ -2251,17 +2259,21 @@ fn transform_limit_offset(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Times
 }
 
 fn transform_round(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    if tfa.args.len() == 0 {
-        let nearest_integer = |values: &mut [f64]| {
-            for v in values {
-                *v = v.round();
-            }
-        };
+    let args_len = tfa.args.len();
 
-        return transform_series(tfa, nearest_integer);
+    if args_len < 1 || args_len > 2 {
+        return Err(RuntimeError::ArgumentError(format!(
+            "unexpected number of arguments: #{}; want 1 or 2",
+            tfa.args.len()
+        )));
     }
 
-    let nearest = get_scalar(tfa, 1)?;
+    let nearest = if args_len == 1 {
+        let len = tfa.ec.data_points();
+        vec![1_f64; len]
+    } else {
+        get_scalar(tfa, 1)?
+    };
 
     let tf = move |values: &mut [f64]| {
         let mut n_prev: f64 = values[0];
@@ -2293,20 +2305,21 @@ fn transform_sgn(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
 }
 
 fn transform_scalar(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    match &tfa.args[0] {
+    let arg = get_arg(tfa, 0)?;
+    match arg {
         // Verify whether the arg is a string.
         // Then try converting the string to number.
         QueryValue::String(s) => {
             let n = parse_number(&s).map_or_else(|_| f64::NAN, |n| n);
             Ok(eval_number(&mut tfa.ec, n))
         }
-        QueryValue::Scalar(f) => Ok(eval_number(&mut tfa.ec, *f)),
+        QueryValue::Scalar(f) => Ok(eval_number(&tfa.ec, *f)),
         _ => {
             // The arg isn't a string. Extract scalar from it.
             if tfa.args.len() != 1 {
-                Ok(eval_number(&mut tfa.ec, NAN))
+                Ok(eval_number(&tfa.ec, NAN))
             } else {
-                let mut arg = tfa.args[0].get_instant_vector()?.remove(0);
+                let mut arg = arg.get_instant_vector(tfa.ec)?.remove(0);
                 arg.metric_name.reset();
                 Ok(vec![arg])
             }
@@ -2770,9 +2783,8 @@ fn remove_counter_resets_maybe_nans(values: &mut Vec<f64>) {
     }
 }
 
-fn get_string(tfa: &TransformFuncArg, arg_num: usize) -> RuntimeResult<String> {
-    // todo: range check
-    match &tfa.args[arg_num] {
+fn get_string_value(arg: &QueryValue, arg_num: usize) -> RuntimeResult<String> {
+    let res = match arg {
         QueryValue::String(s) => Ok(s.clone()), // todo: use .into ??
         QueryValue::Scalar(f) => Ok(f.to_string()),
         QueryValue::InstantVector(series) => {
@@ -2796,30 +2808,47 @@ fn get_string(tfa: &TransformFuncArg, arg_num: usize) -> RuntimeResult<String> {
         _ => Err(RuntimeError::ArgumentError(
             "string parameter expected ".to_string(),
         )),
+    };
+    res
+}
+
+fn get_string(tfa: &TransformFuncArg, arg_num: usize) -> RuntimeResult<String> {
+    if let Some(arg) = tfa.args.get(arg_num) {
+        return get_string_value(arg, arg_num);
     }
+    let msg = format!("missing arg # {}", arg_num + 1);
+    return Err(RuntimeError::ArgumentError(msg));
 }
 
 fn get_label(tfa: &TransformFuncArg, name: &str, arg_num: usize) -> RuntimeResult<String> {
-    match tfa.args[arg_num].get_string() {
-        Ok(lbl) => Ok(lbl.to_string()),
-        Err(_) => {
-            let msg = format!("cannot read {} label name", name);
-            return Err(RuntimeError::ArgumentError(msg));
-        }
+    if let Some(arg) = tfa.args.get(arg_num) {
+        return get_string_value(arg, arg_num);
     }
+    let msg = format!("cannot read {} label name", name);
+    return Err(RuntimeError::ArgumentError(msg));
 }
 
 pub fn get_series(tfa: &TransformFuncArg, arg_num: usize) -> RuntimeResult<Vec<Timeseries>> {
-    Ok(tfa.args[arg_num].get_instant_vector()?)
+    if let Some(arg) = tfa.args.get(arg_num) {
+        return arg.get_instant_vector(tfa.ec);
+    }
+    let msg = format!("missing series arg # {}", arg_num + 1);
+    return Err(RuntimeError::ArgumentError(msg));
 }
 
-// TODO: COW
+// TODO: COW, or return Iterator
 pub fn get_scalar(tfa: &TransformFuncArg, arg_num: usize) -> RuntimeResult<Vec<f64>> {
     // todo: check bounds
-    let arg = &tfa.args[arg_num];
+    let arg = tfa.args.get(arg_num);
+    if arg.is_none() {
+        let msg = format!("missing scalar arg # {}", arg_num + 1);
+        return Err(RuntimeError::ArgumentError(msg));
+    }
+    let arg = arg.unwrap();
     match arg {
         QueryValue::Scalar(val) => {
-            let len = tfa.ec.timestamps().len();
+            // todo: use object pool here
+            let len = tfa.ec.data_points();
             // todo: tinyvec
             let values = vec![*val; len];
             Ok(values)

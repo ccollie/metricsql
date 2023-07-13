@@ -1,8 +1,9 @@
 extern crate datafusion;
+extern crate regex;
+extern crate regex_syntax;
 extern crate snafu;
 extern crate tokio;
 
-mod binaries;
 mod error;
 mod sql;
 mod udf;

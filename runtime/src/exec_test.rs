@@ -246,7 +246,7 @@ mod tests {
         test_query(q, vec![r1, r2]);
 
         // (a, b) offset 100s
-        let q = r##"sort((label_set(time(), "#foo", "bar"), label_set(time()+10, "foo", "baz")) offset 100s)"##;
+        let q = r##"sort((label_set(time(), "foo", "bar"), label_set(time()+10, "foo", "baz")) offset 100s)"##;
         let mut r1 = make_result(&[800_f64, 1000.0, 1200.0, 1400.0, 1600.0, 1800.0]);
         r1.metric_name.set_tag("foo", "bar");
         let mut r2 = make_result(&[810_f64, 1010.0, 1210.0, 1410.0, 1610.0, 1810.0]);
@@ -262,7 +262,7 @@ mod tests {
         test_query(q, vec![r1, r2]);
 
         // (a offset 100s, b offset 50s) offset 400s
-        let q = r##"sort((label_set(time() offset 100s, "#foo", "bar"), label_set(time()+10, "foo", "baz") offset 50s) offset 400s)"##;
+        let q = r##"sort((label_set(time() offset 100s, "foo", "bar"), label_set(time()+10, "foo", "baz") offset 50s) offset 400s)"##;
         let mut r1 = make_result(&[400_f64, 600.0, 800.0, 1000.0, 1200.0, 1400.0]);
         r1.metric_name.set_tag("foo", "bar");
         let mut r2 = make_result(&[410_f64, 610.0, 810.0, 1010.0, 1210.0, 1410.0]);
@@ -337,7 +337,7 @@ mod tests {
 
     #[test]
     fn timestamp_with_name() {
-        let q = r##"timestamp_with_name(alias(time()>=1600.0,"#foo"))"##;
+        let q = r##"timestamp_with_name(alias(time()>=1600.0,"foo"))"##;
         let mut r = make_result(&[NAN, NAN, NAN, 1600.0, 1800.0, 2000.0]);
         r.metric_name.set_metric_group("foo");
         test_query(q, vec![r]);
@@ -456,7 +456,7 @@ mod tests {
             &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
         );
 
-        let q = r##"absent(label_set(scalar(1 or label_set(2, "#xx", "foo")), "yy", "foo"))"##;
+        let q = r##"absent(label_set(scalar(1 or label_set(2, "xx", "foo")), "yy", "foo"))"##;
         assert_result_eq(q, &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
 
         assert_result_eq("absent(time() > 1500)", &[1.0, 1.0, 1.0, NAN, NAN, NAN]);
@@ -480,7 +480,7 @@ mod tests {
     fn absent_over_time_multi_ts() {
         let q = r##"
         absent_over_time((
-        alias((time() < 1400)[200s:], "#one"),
+        alias((time() < 1400)[200s:], "one"),
         alias((time() > 1600)[200s:], "two"),
         ))"##;
         assert_result_eq(q, &[NAN, NAN, 1.0, 1.0, NAN, NAN]);
@@ -501,7 +501,7 @@ mod tests {
             &[1000.0, 1200.0, 1400.0, 1400.0, 1400.0, 1400.0],
         );
 
-        let q = r##"clamp_max(alias(time(), "#foobar"), 1400)"##;
+        let q = r##"clamp_max(alias(time(), "foobar"), 1400)"##;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1400.0, 1400.0, 1400.0]);
         r.metric_name.set_metric_group("foobar");
         test_query(q, vec![r]);
@@ -526,7 +526,7 @@ mod tests {
 
     #[test]
     fn test_exp() {
-        let q = r##"exp(alias(time()/1e3, "#foobar"))"##;
+        let q = r##"exp(alias(time()/1e3, "foobar"))"##;
         let r = make_result(&[
             2.718281828459045,
             3.3201169227365472,
@@ -537,7 +537,7 @@ mod tests {
         ]);
         test_query(q, vec![r]);
 
-        let q = r##"exp(alias(time()/1e3, "#foobar")) keep_metric_names"##;
+        let q = r##"exp(alias(time()/1e3, "foobar")) keep_metric_names"##;
         let mut r = make_result(&[
             2.718281828459045,
             3.3201169227365472,
@@ -778,7 +778,7 @@ mod tests {
             ],
         );
 
-        let q = r##"round(sqrt(sum2(label_set(10, "#foo", "bar") or label_set(time()/100, "baz", "sss"))))"##;
+        let q = r##"round(sqrt(sum2(label_set(10, "foo", "bar") or label_set(time()/100, "baz", "sss"))))"##;
         assert_result_eq(q, &[14.0, 16.0, 17.0, 19.0, 21.0, 22.0]);
     }
 
@@ -837,7 +837,7 @@ mod tests {
 
     #[test]
     fn default_for_nan_series() {
-        let q = r##"label_set(0, "#foo", "bar")/0 default 7"##;
+        let q = r##"label_set(0, "foo", "bar")/0 default 7"##;
         let mut r = make_result(&[7_f64, 7.0, 7.0, 7.0, 7.0, 7.0]);
         r.metric_name.set_tag("foo", "bar");
         test_query(q, vec![r]);
@@ -845,7 +845,7 @@ mod tests {
 
     #[test]
     fn alias() {
-        let q = r##"alias(time(), "#foobar")"##;
+        let q = r##"alias(time(), "foobar")"##;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric_name.set_metric_group("foobar");
         test_query(q, vec![r]);
@@ -853,7 +853,7 @@ mod tests {
 
     #[test]
     fn label_set_tag() {
-        let q = r##"label_set(time(), "#tagname", "tagvalue")"##;
+        let q = r##"label_set(time(), "tagname", "tagvalue")"##;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric_name.set_tag("tagname", "tagvalue");
         test_query(q, vec![r]);
@@ -870,7 +870,7 @@ mod tests {
     #[test]
     fn label_set_metric_name_tag() {
         let q = r##"label_set(
-        label_set(time(), "#__name__", "foobar"),
+        label_set(time(), "__name__", "foobar"),
         "tagname", "tagvalue"
         )"##;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
@@ -882,7 +882,7 @@ mod tests {
     #[test]
     fn label_set_del_metric_name() {
         let q = r##"label_set(
-        label_set(time(), "#__name__", "foobar"),
+        label_set(time(), "__name__", "foobar"),
         "__name__", ""
         )"##;
         let r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
@@ -892,7 +892,7 @@ mod tests {
     #[test]
     fn r#label_set_del_tag() {
         let q = r##"label_set(
-        label_set(time(), "#tagname", "foobar"),
+        label_set(time(), "tagname", "foobar"),
         "tagname", ""
         )"##;
         assert_result_eq(q, &[1000.0, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
@@ -900,7 +900,7 @@ mod tests {
 
     #[test]
     fn r#label_set_multi() {
-        let q = r##"label_set(time()+100, "#t1", "v1", "t2", "v2", "__name__", "v3")"##;
+        let q = r##"label_set(time()+100, "t1", "v1", "t2", "v2", "__name__", "v3")"##;
         let mut r = make_result(&[1100_f64, 1300.0, 1500.0, 1700.0, 1900.0, 2100.0]);
         r.metric_name.set_metric_group("v3");
         r.metric_name.set_tag("t1", "v1");
@@ -912,7 +912,7 @@ mod tests {
     #[test]
     fn label_map_match() {
         let q = r##"sort(label_map((
-        label_set(time(), "#label", "v1"),
+        label_set(time(), "label", "v1"),
         label_set(time()+100, "label", "v2"),
         label_set(time()+200, "label", "v3"),
         label_set(time()+300, "x", "y"),
@@ -936,7 +936,7 @@ mod tests {
     #[test]
     fn label_uppercase() {
         let q = r##"label_uppercase(
-        label_set(time(), "#foo", "bAr", "XXx", "yyy", "zzz", "abc"),
+        label_set(time(), "foo", "bAr", "XXx", "yyy", "zzz", "abc"),
         "foo", "XXx", "aaa"
         )"##;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
@@ -950,7 +950,7 @@ mod tests {
     #[test]
     fn label_lowercase() {
         let q = r##"label_lowercase(
-        label_set(time(), "#foo", "bAr", "XXx", "yyy", "zzz", "aBc"),
+        label_set(time(), "foo", "bAr", "XXx", "yyy", "zzz", "aBc"),
         "foo", "XXx", "aaa"
         )"##;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
@@ -964,7 +964,7 @@ mod tests {
     #[test]
     fn label_copy_new_tag() {
         let q = r##"label_copy(
-        label_set(time(), "#tagname", "foobar"),
+        label_set(time(), "tagname", "foobar"),
         "tagname", "xxx"
         )"##;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
@@ -977,7 +977,7 @@ mod tests {
     #[test]
     fn label_move_new_tag() {
         let q = r##"label_move(
-        label_set(time(), "#tagname", "foobar"),
+        label_set(time(), "tagname", "foobar"),
         "tagname", "xxx"
         )"##;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
@@ -988,7 +988,7 @@ mod tests {
     #[test]
     fn label_copy_same_tag() {
         let q = r##"label_copy(
-        label_set(time(), "#tagname", "foobar"),
+        label_set(time(), "tagname", "foobar"),
         "tagname", "tagname"
         )"##;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
@@ -999,7 +999,7 @@ mod tests {
     #[test]
     fn label_move_same_tag() {
         let q = r##"label_move(
-        label_set(time(), "#tagname", "foobar"),
+        label_set(time(), "tagname", "foobar"),
         "tagname", "tagname"
         )"##;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
@@ -1011,7 +1011,7 @@ mod tests {
     #[test]
     fn label_copy_same_tag_non_existing_src() {
         let q = r##"label_copy(
-        label_set(time(), "#tagname", "foobar"),
+        label_set(time(), "tagname", "foobar"),
         "non-existing-tag", "tagname"
         )"##;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
@@ -1022,7 +1022,7 @@ mod tests {
     #[test]
     fn label_move_same_tag_non_existing_src() {
         let q = r##"label_move(
-        label_set(time(), "#tagname", "foobar"),
+        label_set(time(), "tagname", "foobar"),
         "non-existing-tag", "tagname"
         )"##;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
@@ -1033,7 +1033,7 @@ mod tests {
     #[test]
     fn label_copy_existing_tag() {
         let q = r##"label_copy(
-        label_set(time(), "#tagname", "foobar", "xx", "yy"),
+        label_set(time(), "tagname", "foobar", "xx", "yy"),
         "xx", "tagname"
         )"##;
 
@@ -1047,7 +1047,7 @@ mod tests {
     #[test]
     fn label_move_existing_tag() {
         let q = r##"label_move(
-        label_set(time(), "#tagname", "foobar", "xx", "yy"),
+        label_set(time(), "tagname", "foobar", "xx", "yy"),
         "xx", "tagname"
         )"##;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
@@ -1059,7 +1059,7 @@ mod tests {
     #[test]
     fn label_copy_from_metric_group() {
         let q = r##"label_copy(
-        label_set(time(), "#tagname", "foobar", "__name__", "yy"),
+        label_set(time(), "tagname", "foobar", "__name__", "yy"),
         "__name__", "aa"
         )"##;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
@@ -1073,7 +1073,7 @@ mod tests {
     #[test]
     fn label_move_from_metric_group() {
         let q = r##"label_move(
-        label_set(time(), "#tagname", "foobar", "__name__", "yy"),
+        label_set(time(), "tagname", "foobar", "__name__", "yy"),
         "__name__", "aa"
         )"##;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
@@ -1086,7 +1086,7 @@ mod tests {
     #[test]
     fn label_copy_to_metric_group() {
         let q = r##"label_copy(
-        label_set(time(), "#tagname", "foobar"),
+        label_set(time(), "tagname", "foobar"),
         "tagname", "__name__"
         )"##;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
@@ -1099,7 +1099,7 @@ mod tests {
     #[test]
     fn label_move_to_metric_group() {
         let q = r##"label_move(
-        label_set(time(), "#tagname", "foobar"),
+        label_set(time(), "tagname", "foobar"),
         "tagname", "__name__"
         )"##;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
@@ -1109,14 +1109,14 @@ mod tests {
 
     #[test]
     fn drop_common_labels_single_series() {
-        let q = r##"drop_common_labels(label_set(time(), "#foo", "bar", "__name__", "xxx", "q", "we"))"##;
+        let q = r##"drop_common_labels(label_set(time(), "foo", "bar", "__name__", "xxx", "q", "we"))"##;
         assert_result_eq(q, &[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
     }
 
     #[test]
     fn drop_common_labels_multi_series() {
         let q = r##"sort_desc(drop_common_labels((
-        label_set(time(), "#foo", "bar", "__name__", "xxx", "q", "we"),
+        label_set(time(), "foo", "bar", "__name__", "xxx", "q", "we"),
         label_set(time()/10, "foo", "bar", "__name__", "yyy"),
         )))"##;
         let mut r1 = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
@@ -1130,7 +1130,7 @@ mod tests {
     #[test]
     fn drop_common_labels_multi_args() {
         let q = r##"sort(drop_common_labels(
-        label_set(time(), "#foo", "bar", "__name__", "xxx", "q", "we"),
+        label_set(time(), "foo", "bar", "__name__", "xxx", "q", "we"),
         label_set(time()/10, "foo", "bar", "__name__", "xxx"),
         ))"##;
         let r1 = make_result(&[100_f64, 120.0, 140.0, 160.0, 180.0, 200.0]);
@@ -1140,14 +1140,14 @@ mod tests {
     }
 
     #[test]
-    fn label_keep_nolabels() {
+    fn label_keep_no_labels() {
         let q = r#"label_keep(time(), "foo", "bar")"#;
         assert_result_eq(q, &[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
     }
 
     #[test]
     fn label_keep_certain_labels() {
-        let q = r##"label_keep(label_set(time(), "#foo", "bar", "__name__", "xxx", "q", "we"), "foo", "nonexisting-label")"##;
+        let q = r##"label_keep(label_set(time(), "foo", "bar", "__name__", "xxx", "q", "we"), "foo", "nonexisting-label")"##;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric_name.set_tag("foo", "bar");
         test_query(q, vec![r]);
@@ -1155,7 +1155,7 @@ mod tests {
 
     #[test]
     fn label_keep_metric_name() {
-        let q = r##"label_keep(label_set(time(), "#foo", "bar", "__name__", "xxx", "q", "we"), "nonexisting-label", "__name__")"##;
+        let q = r##"label_keep(label_set(time(), "foo", "bar", "__name__", "xxx", "q", "we"), "nonexisting-label", "__name__")"##;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric_name.set_metric_group("xxx");
         test_query(q, vec![r]);
@@ -1164,14 +1164,14 @@ mod tests {
     #[test]
     fn label_del_no_labels() {
         assert_result_eq(
-            r##"label_del(time(), "#foo", "bar")"##,
+            r##"label_del(time(), "foo", "bar")"##,
             &[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0],
         );
     }
 
     #[test]
     fn label_del_certain_labels() {
-        let q = r##"label_del(label_set(time(), "#foo", "bar", "__name__", "xxx", "q", "we"), "foo", "nonexisting-label")"##;
+        let q = r##"label_del(label_set(time(), "foo", "bar", "__name__", "xxx", "q", "we"), "foo", "nonexisting-label")"##;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric_name.set_metric_group("xxx");
         r.metric_name.set_tag("q", "we");
@@ -1180,7 +1180,7 @@ mod tests {
 
     #[test]
     fn label_del_metric_name() {
-        let q = r##"label_del(label_set(time(), "#foo", "bar", "__name__", "xxx", "q", "we"), "nonexisting-label", "__name__")"##;
+        let q = r##"label_del(label_set(time(), "foo", "bar", "__name__", "xxx", "q", "we"), "nonexisting-label", "__name__")"##;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric_name.set_tag("foo", "bar");
         r.metric_name.set_tag("q", "we");
@@ -1189,13 +1189,13 @@ mod tests {
 
     #[test]
     fn label_join_empty() {
-        let q = r##"label_join(vector(time()), "#tt", "(sep)", "BAR")"##;
+        let q = r##"label_join(vector(time()), "tt", "(sep)", "BAR")"##;
         assert_result_eq(q, &[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
     }
 
     #[test]
     fn label_join_tt() {
-        let q = r##"label_join(vector(time()), "#tt", "(sep)", "foo", "BAR")"##;
+        let q = r##"label_join(vector(time()), "tt", "(sep)", "foo", "BAR")"##;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric_name.set_tag("tt", "(sep)");
         test_query(q, vec![r]);
@@ -1203,7 +1203,7 @@ mod tests {
 
     #[test]
     fn label_join_name() {
-        let q = r##"label_join(time(), "#__name__", "(sep)", "foo", "BAR", "")"##;
+        let q = r##"label_join(time(), "__name__", "(sep)", "foo", "BAR", "")"##;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric_name.set_metric_group("(sep)(sep)");
         test_query(q, vec![r]);
@@ -1222,7 +1222,7 @@ mod tests {
     fn label_value() {
         let q = r##"with (
         x = (
-        label_set(time() > 1500, "#foo", "123.456", "__name__", "aaa"),
+        label_set(time() > 1500, "foo", "123.456", "__name__", "aaa"),
         label_set(-time(), "foo", "bar", "__name__", "bbb"),
         label_set(-time(), "__name__", "bxs"),
         label_set(-time(), "foo", "45", "bar", "xs"),
@@ -1241,14 +1241,14 @@ mod tests {
 
     #[test]
     fn label_transform_mismatch() {
-        let q = r##"label_transform(time(), "#__name__", "foobar", "xx")"##;
+        let q = r##"label_transform(time(), "__name__", "foobar", "xx")"##;
         assert_result_eq(q, &[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
     }
 
     #[test]
     fn label_transform_match() {
         let q = r##"label_transform(
-        label_set(time(), "#foo", "a.bar.baz"),
+        label_set(time(), "foo", "a.bar.baz"),
         "foo", "\\.", "-")"##;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric_name.set_tag("foo", "a-bar-baz");
@@ -1257,7 +1257,7 @@ mod tests {
 
     #[test]
     fn label_replace_with_non_existing_src() {
-        let q = r##"label_replace(time(), "#__name__", "x${1}y", "foo", ".+")"##;
+        let q = r##"label_replace(time(), "__name__", "x${1}y", "foo", ".+")"##;
         let r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         test_query(q, vec![r]);
     }
@@ -1279,7 +1279,7 @@ mod tests {
 
     #[test]
     fn label_replace_with_mismatch() {
-        let q = r##"label_replace(label_set(time(), "#foo", "foobar"), "__name__", "x${1}y", "foo", "bar(.+)")"##;
+        let q = r##"label_replace(label_set(time(), "foo", "foobar"), "__name__", "x${1}y", "foo", "bar(.+)")"##;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric_name.set_tag("foo", "foobar");
         test_query(q, vec![r])
@@ -1287,7 +1287,7 @@ mod tests {
 
     #[test]
     fn label_replace_match() {
-        let q = r##"label_replace(time(), "#__name__", "x${1}y", "foo", ".*")"##;
+        let q = r##"label_replace(time(), "__name__", "x${1}y", "foo", ".*")"##;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric_name.set_metric_group("xy");
         test_query(q, vec![r])
@@ -1298,7 +1298,7 @@ mod tests {
         let q = r##"
         label_replace(
         label_replace(
-        label_replace(time(), "#__name__", "x${1}y", "foo", ".*"),
+        label_replace(time(), "__name__", "x${1}y", "foo", ".*"),
         "xxx", "foo${1}bar(${1})", "__name__", "(.+)"),
         "xxx", "AA$1", "xxx", "foox(.+)"
         )"##;
@@ -1312,7 +1312,7 @@ mod tests {
     fn label_match() {
         let q = r##"
         label_match((
-        alias(time(), "#foo"),
+        alias(time(), "foo"),
         alias(2*time(), "bar"),
         ), "__name__", "f.+")"##;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
@@ -1324,7 +1324,7 @@ mod tests {
     fn label_mismatch() {
         let q = r##"
         label_mismatch((
-        alias(time(), "#foo"),
+        alias(time(), "foo"),
         alias(2*time(), "bar"),
         ), "__name__", "f.+")"##;
         let mut r = make_result(&[2000_f64, 2400.0, 2800.0, 3200.0, 3600.0, 4000.0]);
@@ -1335,7 +1335,7 @@ mod tests {
     #[test]
     fn label_graphite_group() {
         let q = r##"sort(label_graphite_group((
-        alias(1, "#foo.bar.baz"),
+        alias(1, "foo.bar.baz"),
         alias(2, "abc"),
         label_set(alias(3, "a.xx.zz.asd"), "qwe", "rty"),
         ), 1, 3))"##;
@@ -1353,7 +1353,7 @@ mod tests {
     #[test]
     fn limit_offset() {
         let q = r##"limit_offset(1, 1, sort_by_label((
-        label_set(time()*1, "#foo", "y"),
+        label_set(time()*1, "foo", "y"),
         label_set(time()*2, "foo", "a"),
         label_set(time()*3, "foo", "x"),
         ), "foo"))"##;
@@ -1380,7 +1380,7 @@ mod tests {
     fn sum_label_graphite_group() {
         let q = r##"sort(sum by (__name__) (
         label_graphite_group((
-        alias(1, "#foo.bar.baz"),
+        alias(1, "foo.bar.baz"),
         alias(2, "x.y.z"),
         alias(3, "qe.bar.qqq"),
         ), 1)
@@ -1394,7 +1394,7 @@ mod tests {
 
     #[test]
     fn two_timeseries() {
-        let q = r##"sort_desc(time() or label_set(2, "#xx", "foo"))"##;
+        let q = r##"sort_desc(time() or label_set(2, "xx", "foo"))"##;
         let r1 = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         let mut r2 = make_result(&[2_f64, 2.0, 2.0, 2.0, 2.0, 2.0]);
         r2.metric_name.set_tag("xx", "foo");
@@ -1418,13 +1418,13 @@ mod tests {
 
     #[test]
     fn scalar_multi_timeseries() {
-        let q = r##"scalar(1 or label_set(2, "#xx", "foo"))"##;
+        let q = r##"scalar(1 or label_set(2, "xx", "foo"))"##;
         test_query(q, vec![]);
     }
 
     #[test]
     fn sort() {
-        let q = r##"sort(2 or label_set(1, "#xx", "foo"))"##;
+        let q = r##"sort(2 or label_set(1, "xx", "foo"))"##;
         let mut r1 = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r1.metric_name.set_tag("xx", "foo");
         let r2 = make_result(&[2_f64, 2.0, 2.0, 2.0, 2.0, 2.0]);
@@ -1433,7 +1433,7 @@ mod tests {
 
     #[test]
     fn sort_desc() {
-        let q = r##"sort_desc(1 or label_set(2, "#xx", "foo"))"##;
+        let q = r##"sort_desc(1 or label_set(2, "xx", "foo"))"##;
         let mut r1 = make_result(&[2_f64, 2.0, 2.0, 2.0, 2.0, 2.0]);
         r1.metric_name.set_tag("xx", "foo");
         let r2 = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
@@ -1443,7 +1443,7 @@ mod tests {
     #[test]
     fn sort_by_label() {
         let q = r##"sort_by_label((
-        alias(1, "#foo"),
+        alias(1, "foo"),
         alias(2, "bar"),
         ), "__name__")"##;
         let mut r1 = make_result(&[2_f64, 2.0, 2.0, 2.0, 2.0, 2.0]);
@@ -1469,7 +1469,7 @@ mod tests {
     #[test]
     fn sort_by_label_multiple_labels() {
         let q = r##"sort_by_label((
-        label_set(1, "#x", "b", "y", "aa"),
+        label_set(1, "x", "b", "y", "aa"),
         label_set(2, "x", "a", "y", "aa"),
         ), "y", "x")"##;
         let mut r1 = make_result(&[2_f64, 2.0, 2.0, 2.0, 2.0, 2.0]);
@@ -1518,7 +1518,7 @@ mod tests {
     #[test]
     fn array_cmp_scalar_leave_metric_group() {
         let q = r##"sort_desc((
-        label_set(time(), "#__name__", "foo", "a", "x"),
+        label_set(time(), "__name__", "foo", "a", "x"),
         label_set(time()+200, "__name__", "bar", "a", "x"),
         ) > 1300)"##;
         let mut r1 = make_result(&[NAN, 1400.0, 1600.0, 1800.0, 2000.0, 2200.0]);
@@ -1533,7 +1533,7 @@ mod tests {
     #[test]
     fn arr_cmp_bool_scalar_drop_metric_group() {
         let q = r##"sort_desc((
-        label_set(time(), "#__name__", "foo", "a", "x"),
+        label_set(time(), "__name__", "foo", "a", "x"),
         label_set(time()+200, "__name__", "bar", "a", "y"),
         ) >= bool 1200)"##;
         let mut r1 = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
@@ -1562,12 +1562,12 @@ mod tests {
 
     #[test]
     fn compare_to_nan_right() {
-        assert_result_eq("1 != NAN", &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
+        assert_result_eq("1 != bool NAN", &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
     }
 
     #[test]
     fn compare_to_nan_left() {
-        assert_result_eq("NAN != 1", &[]);
+        assert_result_eq("NAN != bool 1", &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
     }
 
     #[test]
@@ -1620,20 +1620,20 @@ mod tests {
 
     #[test]
     fn scalar_default_scalar_from_vector() {
-        let q = r##"time() > 1400 default scalar(label_set(123, "#foo", "bar"))"##;
+        let q = r##"time() > 1400 default scalar(label_set(123, "foo", "bar"))"##;
         assert_result_eq(q, &[123.0, 123.0, 123.0, 1600.0, 1800.0, 2000.0]);
     }
 
     #[test]
     fn scalar_default_vector1() {
-        let q = r##"time() > 1400 default label_set(123, "#foo", "bar")"##;
+        let q = r##"time() > 1400 default label_set(123, "foo", "bar")"##;
         assert_result_eq(q, &[NAN, NAN, NAN, 1600.0, 1800.0, 2000.0]);
     }
 
     #[test]
     fn scalar_default_vector2() {
         let q = r##"time() > 1400 default (
-        label_set(123, "#foo", "bar"),
+        label_set(123, "foo", "bar"),
         label_set(456, "__name__", "xxx"),
         )"##;
         assert_result_eq(q, &[456.0, 456.0, 456.0, 1600.0, 1800.0, 2000.0]);
@@ -1648,7 +1648,7 @@ mod tests {
     #[test]
     fn vector_default_scalar() {
         let q = r##"sort_desc(union(
-        label_set(time() > 1400.0, "#__name__", "x", "foo", "bar"),
+        label_set(time() > 1400.0, "__name__", "x", "foo", "bar"),
         label_set(time() < 1700, "__name__", "y", "foo", "baz")) default 123)"##;
         let mut r1 = make_result(&[123_f64, 123.0, 123.0, 1600.0, 1800.0, 2000.0]);
         r1.metric_name.set_metric_group("x");
@@ -1661,7 +1661,7 @@ mod tests {
 
     #[test]
     fn vector_divided_by_scalar() {
-        let q = r##"sort_desc((label_set(time(), "#foo", "bar") or label_set(10, "foo", "qwert")) / 2)"##;
+        let q = r##"sort_desc((label_set(time(), "foo", "bar") or label_set(10, "foo", "qwert")) / 2)"##;
         let mut r1 = make_result(&[500_f64, 600.0, 700.0, 800.0, 900.0, 1000.0]);
         r1.metric_name.set_tag("foo", "bar");
         let mut r2 = make_result(&[5_f64, 5.0, 5.0, 5.0, 5.0, 5.0]);
@@ -1679,7 +1679,7 @@ mod tests {
 
     #[test]
     fn scalar_multiplied_by_vector() {
-        let q = r##"sort_desc(2 * (label_set(time(), "#foo", "bar") or label_set(10, "foo", "qwert")))"##;
+        let q = r##"sort_desc(2 * (label_set(time(), "foo", "bar") or label_set(10, "foo", "qwert")))"##;
         let mut r1 = make_result(&[2000_f64, 2400.0, 2800.0, 3200.0, 3600.0, 4000.0]);
         r1.metric_name.set_tag("foo", "bar");
         let mut r2 = make_result(&[20_f64, 20.0, 20.0, 20.0, 20.0, 20.0]);
@@ -1691,7 +1691,7 @@ mod tests {
     #[test]
     fn scalar_on_group_right_vector() {
         // scalar * on() group_right vector
-        let q = r##"sort_desc(2 * on() group_right() (label_set(time(), "#foo", "bar") or label_set(10, "foo", "qwert")))"##;
+        let q = r##"sort_desc(2 * on() group_right() (label_set(time(), "foo", "bar") or label_set(10, "foo", "qwert")))"##;
         let mut r1 = make_result(&[2000_f64, 2400.0, 2800.0, 3200.0, 3600.0, 4000.0]);
         r1.metric_name.set_tag("foo", "bar");
         let mut r2 = make_result(&[20_f64, 20.0, 20.0, 20.0, 20.0, 20.0]);
@@ -1702,7 +1702,7 @@ mod tests {
 
     #[test]
     fn scalar_multiply_by_ignoring_foo_group_right_vector() {
-        let q = r##"sort_desc(label_set(2, "#a", "2") * ignoring(foo,a) group_right(a) (label_set(time(), "foo", "bar", "a", "1"), label_set(10, "foo", "qwert")))"##;
+        let q = r##"sort_desc(label_set(2, "a", "2") * ignoring(foo,a) group_right(a) (label_set(time(), "foo", "bar", "a", "1"), label_set(10, "foo", "qwert")))"##;
         let mut r1 = make_result(&[2000_f64, 2400.0, 2800.0, 3200.0, 3600.0, 4000.0]);
         r1.metric_name.set_tag("a", "2");
         r1.metric_name.set_tag("foo", "bar");
@@ -1716,7 +1716,7 @@ mod tests {
 
     #[test]
     fn scalar_multiply_ignoring_vector() {
-        let q = r##"sort_desc(label_set(2, "#foo", "bar") * ignoring(a) (label_set(time(), "foo", "bar") or label_set(10, "foo", "qwert")))"##;
+        let q = r##"sort_desc(label_set(2, "foo", "bar") * ignoring(a) (label_set(time(), "foo", "bar") or label_set(10, "foo", "qwert")))"##;
         let mut r = make_result(&[2000_f64, 2400.0, 2800.0, 3200.0, 3600.0, 4000.0]);
         r.metric_name.set_tag("foo", "bar");
         test_query(q, vec![r]);
@@ -1725,7 +1725,7 @@ mod tests {
     #[test]
     fn scalar_multiply_by_on_foo_vector() {
         //"scalar * on(foo) vector"
-        let q = r##"sort_desc(label_set(2, "#foo", "bar", "aa", "bb") * on(foo) (label_set(time(), "foo", "bar", "xx", "yy") or label_set(10, "foo", "qwert")))"##;
+        let q = r##"sort_desc(label_set(2, "foo", "bar", "aa", "bb") * on(foo) (label_set(time(), "foo", "bar", "xx", "yy") or label_set(10, "foo", "qwert")))"##;
         let mut r = make_result(&[2000_f64, 2400.0, 2800.0, 3200.0, 3600.0, 4000.0]);
         r.metric_name.set_tag("foo", "bar");
         test_query(q, vec![r]);
@@ -1741,7 +1741,7 @@ mod tests {
 
     #[test]
     fn vector_multiply_by_on_foo_group_left() {
-        let q = r##"sort(label_set(time()/10, "#foo", "bar", "xx", "yy", "__name__", "qwert") + on(foo) group_left(op) (
+        let q = r##"sort(label_set(time()/10, "foo", "bar", "xx", "yy", "__name__", "qwert") + on(foo) group_left(op) (
         label_set(time() < 1400.0, "foo", "bar", "op", "le"),
         label_set(time() >= 1400.0, "foo", "bar", "op", "ge"),
         ))"##;
@@ -1759,7 +1759,7 @@ mod tests {
 
     #[test]
     fn vector_multiplied_by_on_foo_duplicate_nonoverlapping_timeseries() {
-        let q = r##"label_set(time()/10, "#foo", "bar", "xx", "yy", "__name__", "qwert") + on(foo) (
+        let q = r##"label_set(time()/10, "foo", "bar", "xx", "yy", "__name__", "qwert") + on(foo) (
         label_set(time() < 1400.0, "foo", "bar", "op", "le"),
         label_set(time() >= 1400.0, "foo", "bar", "op", "ge"),
         )"##;
@@ -1770,7 +1770,7 @@ mod tests {
 
     #[test]
     fn vector_multiply_by_on_foo_group_left_duplicate_nonoverlapping_timeseries() {
-        let q = r##"label_set(time()/10, "#foo", "bar", "xx", "yy", "__name__", "qwert") + on(foo) group_left() (
+        let q = r##"label_set(time()/10, "foo", "bar", "xx", "yy", "__name__", "qwert") + on(foo) group_left() (
         label_set(time() < 1400.0, "foo", "bar", "op", "le"),
         label_set(time() >= 1400.0, "foo", "bar", "op", "ge"),
         )"##;
@@ -1783,7 +1783,7 @@ mod tests {
 
     #[test]
     fn vector_multiplied_by_on_foo_group_left_name() {
-        let q = r##"label_set(time()/10, "#foo", "bar", "xx", "yy", "__name__", "qwert") + on(foo) group_left(__name__)
+        let q = r##"label_set(time()/10, "foo", "bar", "xx", "yy", "__name__", "qwert") + on(foo) group_left(__name__)
         label_set(time(), "foo", "bar", "__name__", "aaa")"##;
         let mut r1 = make_result(&[1100_f64, 1320.0, 1540.0, 1760.0, 1980.0, 2200.0]);
         r1.metric_name.set_metric_group("aaa");
@@ -1795,7 +1795,7 @@ mod tests {
 
     #[test]
     fn vector_multiplied_by_on_foo_group_right() {
-        let q = r##"sort(label_set(time()/10, "#foo", "bar", "xx", "yy", "__name__", "qwert") + on(foo) group_right(xx) (
+        let q = r##"sort(label_set(time()/10, "foo", "bar", "xx", "yy", "__name__", "qwert") + on(foo) group_right(xx) (
         label_set(time(), "foo", "bar", "__name__", "aaa"),
         label_set(time()+3, "foo", "bar", "__name__", "yyy","ppp", "123"),
         ))"##;
@@ -1812,7 +1812,7 @@ mod tests {
 
     #[test]
     fn vector_multiply_by_on_group_left_scalar() {
-        let q = r##"sort_desc((label_set(time(), "#foo", "bar") or label_set(10, "foo", "qwert")) * on() group_left 2)"##;
+        let q = r##"sort_desc((label_set(time(), "foo", "bar") or label_set(10, "foo", "qwert")) * on() group_left 2)"##;
         let mut r1 = make_result(&[2000_f64, 2400.0, 2800.0, 3200.0, 3600.0, 4000.0]);
         r1.metric_name.set_tag("foo", "bar");
         let mut r2 = make_result(&[20_f64, 20.0, 20.0, 20.0, 20.0, 20.0]);
@@ -1823,7 +1823,7 @@ mod tests {
     #[test]
     fn vector_plus_vector_matching() {
         let q = r##"sort_desc(
-        (label_set(time(), "#t1", "v1") or label_set(10, "t2", "v2"))
+        (label_set(time(), "t1", "v1") or label_set(10, "t2", "v2"))
         +
         (label_set(100, "t1", "v1") or label_set(time(), "t2", "v2"))
         )"##;
@@ -1837,7 +1837,7 @@ mod tests {
     #[test]
     fn vector_vector_partial_matching() {
         let q = r##"sort_desc(
-        (label_set(time(), "#t1", "v1") or label_set(10, "t2", "v2"))
+        (label_set(time(), "t1", "v1") or label_set(10, "t2", "v2"))
         +
         (label_set(100, "t1", "v1") or label_set(time(), "t2", "v3"))
         )"##;
@@ -1849,7 +1849,7 @@ mod tests {
     #[test]
     fn vector_plus_vector_no_matching() {
         let q = r##"sort_desc(
-        (label_set(time(), "#t2", "v1") or label_set(10, "t2", "v2"))
+        (label_set(time(), "t2", "v1") or label_set(10, "t2", "v2"))
         +
         (label_set(100, "t1", "v1") or label_set(time(), "t2", "v3"))
         )"##;
@@ -1859,7 +1859,7 @@ mod tests {
     #[test]
     fn vector_plus_vector_on_matching() {
         let q = r##"sort_desc(
-        (label_set(time(), "#t1", "v123", "t2", "v3") or label_set(10, "t2", "v2"))
+        (label_set(time(), "t1", "v123", "t2", "v3") or label_set(10, "t2", "v2"))
         + on (foo, t2)
         (label_set(100, "t1", "v1") or label_set(time(), "t2", "v3"))
         )"##;
@@ -1872,7 +1872,7 @@ mod tests {
     #[test]
     fn vector_plus_vector_on_group_left_matching() {
         let q = r##"sort_desc(
-        (label_set(time(), "#t1", "v123", "t2", "v3"), label_set(10, "t2", "v3", "xxx", "yy"))
+        (label_set(time(), "t1", "v123", "t2", "v3"), label_set(10, "t2", "v3", "xxx", "yy"))
         + on (foo, t2) group_left (t1, noxxx)
         (label_set(100, "t1", "v1"), label_set(time(), "t2", "v3", "noxxx", "aa"))
         )"##;
@@ -1891,7 +1891,7 @@ mod tests {
     #[test]
     fn vector_plus_vector_on_group_left_name() {
         let q = r##"sort_desc(
-        (union(label_set(time(), "#t2", "v3", "__name__", "vv3", "x", "y"), label_set(10, "t2", "v3", "__name__", "yy")))
+        (union(label_set(time(), "t2", "v3", "__name__", "vv3", "x", "y"), label_set(10, "t2", "v3", "__name__", "yy")))
         + on (t2, dfdf) group_left (__name__, xxx)
         (label_set(100, "t1", "v1") or label_set(time(), "t2", "v3", "__name__", "abc"))
         )"##;
@@ -1909,7 +1909,7 @@ mod tests {
     #[test]
     fn vector_plus_vector_ignoring_matching() {
         let q = r##"sort_desc(
-        (label_set(time(), "#t1", "v123", "t2", "v3") or label_set(10, "t2", "v2"))
+        (label_set(time(), "t1", "v123", "t2", "v3") or label_set(10, "t2", "v2"))
         + ignoring (foo, t1, bar)
         (label_set(100, "t1", "v1") or label_set(time(), "t2", "v3"))
         )"##;
@@ -1949,13 +1949,13 @@ mod tests {
 
     #[test]
     fn histogram_quantile_single_value_no_le() {
-        let q = r##"histogram_quantile(0.6, label_set(100, "#foo", "bar"))"##;
+        let q = r##"histogram_quantile(0.6, label_set(100, "foo", "bar"))"##;
         test_query(q, vec![]);
     }
 
     #[test]
     fn histogram_share_single_value_no_le() {
-        let q = r##"histogram_share(123, label_set(100, "#foo", "bar"))"##;
+        let q = r##"histogram_share(123, label_set(100, "foo", "bar"))"##;
         test_query(q, vec![]);
     }
 
@@ -1967,16 +1967,16 @@ mod tests {
 
     #[test]
     fn histogram_share_single_value_invalid_le() {
-        let q = r##"histogram_share(50, label_set(100, "#le", "foobar"))"##;
+        let q = r##"histogram_share(50, label_set(100, "le", "foobar"))"##;
         test_query(q, vec![]);
     }
 
     #[test]
     fn histogram_quantile_single_value_inf_le() {
-        let q = r##"histogram_quantile(0.6, label_set(100, "#le", "+Inf"))"##;
+        let q = r##"histogram_quantile(0.6, label_set(100, "le", "+Inf"))"##;
         test_query(q, vec![]);
 
-        let q = r##"histogram_quantile(0.6, label_set(100, "#le", "200"))"##;
+        let q = r##"histogram_quantile(0.6, label_set(100, "le", "200"))"##;
         let r = make_result(&[120_f64, 120.0, 120.0, 120.0, 120.0, 120.0]);
         test_query(q, vec![r]);
     }
@@ -1984,7 +1984,7 @@ mod tests {
     #[test]
     fn histogram_quantile_zero_value_inf_le() {
         let q = r##"histogram_quantile(0.6, (
-        label_set(100, "#le", "+Inf"),
+        label_set(100, "le", "+Inf"),
         label_set(0, "le", "42"),
         ))"##;
         assert_result_eq(q, &[42.0, 42.0, 42.0, 42.0, 42.0, 42.0]);
@@ -2030,13 +2030,13 @@ mod tests {
 
     #[test]
     fn histogram_share_single_value_valid_le() {
-        let q = r##"histogram_share(300, label_set(100, "#le", "200"))"##;
+        let q = r##"histogram_share(300, label_set(100, "le", "200"))"##;
         assert_result_eq(q, &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
 
-        let q = r##"histogram_share(80, label_set(100, "#le", "200"))"##;
+        let q = r##"histogram_share(80, label_set(100, "le", "200"))"##;
         assert_result_eq(q, &[0.4, 0.4, 0.4, 0.4, 0.4, 0.4]);
 
-        let q = r##"histogram_share(200, label_set(100, "#le", "200"))"##;
+        let q = r##"histogram_share(200, label_set(100, "le", "200"))"##;
         assert_result_eq(q, &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
     }
 
@@ -2053,7 +2053,7 @@ mod tests {
 
     #[test]
     fn histogram_share_single_value_valid_le_bounds_label() {
-        let q = r##"sort(histogram_share(120, label_set(100, "#le", "200"), "foobar"))"##;
+        let q = r##"sort(histogram_share(120, label_set(100, "le", "200"), "foobar"))"##;
         let mut r1 = make_result(&[0_f64, 0.0, 0.0, 0.0, 0.0, 0.0]);
         r1.metric_name.set_tag("foobar", "lower");
         let r2 = make_result(&[0.6, 0.6, 0.6, 0.6, 0.6, 0.6]);
@@ -2065,7 +2065,7 @@ mod tests {
     #[test]
     fn histogram_quantile_single_value_valid_le_max_phi() {
         let q = r##"histogram_quantile(1, (
-        label_set(100, "#le", "200"),
+        label_set(100, "le", "200"),
         label_set(0, "le", "55"),
         ))"##;
         assert_result_eq(q, &[200.0, 200.0, 200.0, 200.0, 200.0, 200.0]);
@@ -2074,7 +2074,7 @@ mod tests {
     #[test]
     fn histogram_quantile_single_value_valid_le_max_le() {
         let q = r##"histogram_share(200, (
-        label_set(100, "#le", "200"),
+        label_set(100, "le", "200"),
         label_set(0, "le", "55"),
         ))"##;
         assert_result_eq(q, &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
@@ -2083,7 +2083,7 @@ mod tests {
     #[test]
     fn histogram_quantile_single_value_valid_le_min_phi() {
         let q = r##"histogram_quantile(0, (
-        label_set(100, "#le", "200"),
+        label_set(100, "le", "200"),
         label_set(0, "le", "55"),
         ))"##;
         assert_result_eq(q, &[55.0, 55.0, 55.0, 55.0, 55.0, 55.0]);
@@ -2092,7 +2092,7 @@ mod tests {
     #[test]
     fn histogram_share_single_value_valid_le_min_le() {
         let q = r##"histogram_share(0, (
-        label_set(100, "#le", "200"),
+        label_set(100, "le", "200"),
         label_set(0, "le", "55"),
         ))"##;
         assert_result_eq(q, &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
@@ -2101,7 +2101,7 @@ mod tests {
     #[test]
     fn histogram_share_single_value_valid_le_low_le() {
         let q = r##"histogram_share(55, (
-        label_set(100, "#le", "200"),
+        label_set(100, "le", "200"),
         label_set(0, "le", "55"),
         ))"##;
         assert_result_eq(q, &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
@@ -2110,7 +2110,7 @@ mod tests {
     #[test]
     fn histogram_share_single_value_valid_le_mid_le() {
         let q = r##"histogram_share(105, (
-        label_set(100, "#le", "200"),
+        label_set(100, "le", "200"),
         label_set(0, "le", "55"),
         ))"##;
         assert_result_eq(
@@ -2128,26 +2128,26 @@ mod tests {
 
     #[test]
     fn histogram_quantile_single_value_valid_le_min_phi_no_zero_bucket() {
-        let q = r##"histogram_quantile(0, label_set(100, "#le", "200"))"##;
+        let q = r##"histogram_quantile(0, label_set(100, "le", "200"))"##;
         assert_result_eq(q, &[0_f64, 0.0, 0.0, 0.0, 0.0, 0.0]);
     }
 
     #[test]
     fn histogram_quantile_scalar_phi() {
-        let q = r##"histogram_quantile(time() / 2 / 1e3, label_set(100, "#le", "200"))"##;
+        let q = r##"histogram_quantile(time() / 2 / 1e3, label_set(100, "le", "200"))"##;
         assert_result_eq(q, &[100.0, 120.0, 140.0, 160.0, 180.0, 200.0]);
     }
 
     #[test]
     fn histogram_share_scalar_phi() {
-        let q = r##"histogram_share(time() / 8, label_set(100, "#le", "200"))"##;
+        let q = r##"histogram_share(time() / 8, label_set(100, "le", "200"))"##;
         assert_result_eq(q, &[0.625, 0.75, 0.875, 1.0, 1.0, 1.0]);
     }
 
     #[test]
     fn histogram_quantile_valid() {
         let q = r##"sort(histogram_quantile(0.6,
-        label_set(90, "#foo", "bar", "le", "10")
+        label_set(90, "foo", "bar", "le", "10")
         or label_set(100, "foo", "bar", "le", "30")
         or label_set(300, "foo", "bar", "le", "+Inf")
         or label_set(200, "tag", "xx", "le", "10")
@@ -2163,7 +2163,7 @@ mod tests {
     #[test]
     fn histogram_share_valid() {
         let q = r##"sort(histogram_share(25,
-        label_set(90, "#foo", "bar", "le", "10")
+        label_set(90, "foo", "bar", "le", "10")
         or label_set(100, "foo", "bar", "le", "30")
         or label_set(300, "foo", "bar", "le", "+Inf")
         or label_set(200, "tag", "xx", "le", "10")
@@ -2186,7 +2186,7 @@ mod tests {
     #[test]
     fn histogram_quantile_negative_bucket_count() {
         let q = r##"histogram_quantile(0.6,
-        label_set(90, "#foo", "bar", "le", "10")
+        label_set(90, "foo", "bar", "le", "10")
         or label_set(-100, "foo", "bar", "le", "30")
         or label_set(300, "foo", "bar", "le", "+Inf")
         )"##;
@@ -2198,7 +2198,7 @@ mod tests {
     #[test]
     fn histogram_quantile_nan_bucket_count_some() {
         let q = r##"round(histogram_quantile(0.6,
-        label_set(90, "#foo", "bar", "le", "10")
+        label_set(90, "foo", "bar", "le", "10")
         or label_set(NaN, "foo", "bar", "le", "30")
         or label_set(300, "foo", "bar", "le", "+Inf")
         ),0.01)"##;
@@ -2210,7 +2210,7 @@ mod tests {
     #[test]
     fn histogram_quantile_normal_bucket_count() {
         let q = r##"histogram_quantile(0.2,
-        label_set(0, "#foo", "bar", "le", "10")
+        label_set(0, "foo", "bar", "le", "10")
         or label_set(100, "foo", "bar", "le", "30")
         or label_set(300, "foo", "bar", "le", "+Inf")
         )"##;
@@ -2240,7 +2240,7 @@ mod tests {
     #[test]
     fn histogram_share_normal_bucket_count() {
         let q = r##"histogram_share(35,
-        label_set(0, "#foo", "bar", "le", "10")
+        label_set(0, "foo", "bar", "le", "10")
         or label_set(100, "foo", "bar", "le", "30")
         or label_set(300, "foo", "bar", "le", "+Inf")
         )"##;
@@ -2259,7 +2259,7 @@ mod tests {
     #[test]
     fn histogram_quantile_normal_bucket_count_bounds_label() {
         let q = r##"sort(histogram_quantile(0.2,
-        label_set(0, "#foo", "bar", "le", "10")
+        label_set(0, "foo", "bar", "le", "10")
         or label_set(100, "foo", "bar", "le", "30")
         or label_set(300, "foo", "bar", "le", "+Inf"),
         "xxx"
@@ -2280,7 +2280,7 @@ mod tests {
     #[test]
     fn histogram_share_normal_bucket_count_bounds_label() {
         let q = r##"sort(histogram_share(22,
-        label_set(0, "#foo", "bar", "le", "10")
+        label_set(0, "foo", "bar", "le", "10")
         or label_set(100, "foo", "bar", "le", "30")
         or label_set(300, "foo", "bar", "le", "+Inf"),
         "xxx"
@@ -2307,7 +2307,7 @@ mod tests {
     #[test]
     fn histogram_quantile_zero_bucket_count() {
         let q = r##"histogram_quantile(0.6,
-        label_set(0, "#foo", "bar", "le", "10")
+        label_set(0, "foo", "bar", "le", "10")
         or label_set(0, "foo", "bar", "le", "30")
         or label_set(0, "foo", "bar", "le", "+Inf")
         )"##;
@@ -2317,7 +2317,7 @@ mod tests {
     #[test]
     fn histogram_quantile_nan_bucket_count_all() {
         let q = r##"histogram_quantile(0.6,
-        label_set(NAN, "#foo", "bar", "le", "10")
+        label_set(NAN, "foo", "bar", "le", "10")
         or label_set(NAN, "foo", "bar", "le", "30")
         or label_set(NAN, "foo", "bar", "le", "+Inf")
         )"##;
@@ -2327,7 +2327,7 @@ mod tests {
     #[test]
     fn buckets_limit_zero() {
         let q = r##"buckets_limit(0, (
-        alias(label_set(100, "#le", "INF", "x", "y"), "metric"),
+        alias(label_set(100, "le", "INF", "x", "y"), "metric"),
         alias(label_set(50, "le", "120", "x", "y"), "metric"),
         ))"##;
         test_query(q, vec![]);
@@ -2336,7 +2336,7 @@ mod tests {
     #[test]
     fn buckets_limit_unused() {
         let q = r##"sort(buckets_limit(5, (
-        alias(label_set(100, "#le", "INF", "x", "y"), "metric"),
+        alias(label_set(100, "le", "INF", "x", "y"), "metric"),
         alias(label_set(50, "le", "120", "x", "y"), "metric"),
         )))"##;
 
@@ -2356,7 +2356,7 @@ mod tests {
     #[test]
     fn buckets_limit_used() {
         let q = r##"sort(buckets_limit(2, (
-        alias(label_set(100, "#le", "INF", "x", "y"), "metric"),
+        alias(label_set(100, "le", "INF", "x", "y"), "metric"),
         alias(label_set(98, "le", "300", "x", "y"), "metric"),
         alias(label_set(52, "le", "200", "x", "y"), "metric"),
         alias(label_set(50, "le", "120", "x", "y"), "metric"),
@@ -2385,7 +2385,7 @@ mod tests {
     #[test]
     fn prometheus_buckets_missing_vmrange() {
         let q = r##"sort(prometheus_buckets((
-        alias(label_set(time()/20, "#foo", "bar", "le", "0.2"), "xyz"),
+        alias(label_set(time()/20, "foo", "bar", "le", "0.2"), "xyz"),
         alias(label_set(time()/100, "foo", "bar", "vmrange", "foobar"), "xxx"),
         alias(label_set(time()/100, "foo", "bar", "vmrange", "30...foobar"), "xxx"),
         alias(label_set(time()/100, "foo", "bar", "vmrange", "30...40"), "xxx"),
@@ -2435,7 +2435,7 @@ mod tests {
     #[test]
     fn prometheus_buckets_valid() {
         let q = r##"sort(prometheus_buckets((
-        alias(label_set(90, "#foo", "bar", "vmrange", "0...0"), "xxx"),
+        alias(label_set(90, "foo", "bar", "vmrange", "0...0"), "xxx"),
         alias(label_set(time()/20, "foo", "bar", "vmrange", "0...0.2"), "xxx"),
         alias(label_set(time()/100, "foo", "bar", "vmrange", "0.2...40"), "xxx"),
         alias(label_set(time()/10, "foo", "bar", "vmrange", "40...Inf"), "xxx"),
@@ -2467,7 +2467,7 @@ mod tests {
     #[test]
     fn prometheus_buckets_overlapped_ranges() {
         let q = r##"sort(prometheus_buckets((
-        alias(label_set(90, "#foo", "bar", "vmrange", "0...0"), "xxx"),
+        alias(label_set(90, "foo", "bar", "vmrange", "0...0"), "xxx"),
         alias(label_set(time()/20, "foo", "bar", "vmrange", "0...0.2"), "xxx"),
         alias(label_set(time()/20, "foo", "bar", "vmrange", "0.2...0.25"), "xxx"),
         alias(label_set(time()/20, "foo", "bar", "vmrange", "0...0.26"), "xxx"),
@@ -2511,7 +2511,7 @@ mod tests {
     #[test]
     fn prometheus_buckets_overlapped_ranges_at_the_end() {
         let q = r##"sort(prometheus_buckets((
-        alias(label_set(90, "#foo", "bar", "vmrange", "0...0"), "xxx"),
+        alias(label_set(90, "foo", "bar", "vmrange", "0...0"), "xxx"),
         alias(label_set(time()/20, "foo", "bar", "vmrange", "0...0.2"), "xxx"),
         alias(label_set(time()/20, "foo", "bar", "vmrange", "0.2...0.25"), "xxx"),
         alias(label_set(time()/20, "foo", "bar", "vmrange", "0...0.25"), "xxx"),
@@ -2552,7 +2552,7 @@ mod tests {
         let q = "median_over_time({})";
         test_query(q, vec![]);
 
-        assert_result_eq(r##"median_over_time("#foo")"##, &[]);
+        assert_result_eq(r##"median_over_time("foo")"##, &[]);
         assert_result_eq(
             "median_over_time(12)",
             &[12.0, 12.0, 12.0, 12.0, 12.0, 12.0],
@@ -2578,7 +2578,7 @@ mod tests {
     #[test]
     fn test_mode() {
         let q = r##"mode((
-        alias(3, "#m1"),
+        alias(3, "m1"),
         alias(2, "m2"),
         alias(3, "m3"),
         alias(4, "m4"),
@@ -2640,7 +2640,7 @@ mod tests {
     #[test]
     fn zscore() {
         let q = r##"sort_by_label(round(zscore((
-        label_set(time()/100+10, "#k", "v1"),
+        label_set(time()/100+10, "k", "v1"),
         label_set(time()/200+5, "k", "v2"),
         label_set(time()/110-10, "k", "v3"),
         label_set(time()/90-5, "k", "v4"),
@@ -2668,7 +2668,7 @@ mod tests {
     #[test]
     fn histogram_scalar() {
         let q = r##"sort(histogram(123)+(
-        label_set(0, "#le", "1.000e+02"),
+        label_set(0, "le", "1.000e+02"),
         label_set(0, "le", "1.136e+02"),
         label_set(0, "le", "1.292e+02"),
         label_set(1, "le", "+Inf"),
@@ -2688,7 +2688,7 @@ mod tests {
     #[test]
     fn histogram_vector() {
         let q = r##"sort(histogram((
-        label_set(1, "#foo", "bar"),
+        label_set(1, "foo", "bar"),
         label_set(1.1, "xx", "yy"),
         alias(1.15, "foobar"),
         ))+(
@@ -2748,44 +2748,44 @@ mod tests {
 
     #[test]
     fn sum_multi_vector() {
-        let q = r##"sum(label_set(10, "#foo", "bar") or label_set(time()/100, "baz", "sss"))"##;
+        let q = r##"sum(label_set(10, "foo", "bar") or label_set(time()/100, "baz", "sss"))"##;
         assert_result_eq(q, &[20.0, 22.0, 24.0, 26.0, 28.0, 30.0]);
     }
 
     #[test]
     fn geomean_multi_vector() {
-        let q = r##"round(geomean(label_set(10, "#foo", "bar") or label_set(time()/100, "baz", "sss")), 0.1)"##;
+        let q = r##"round(geomean(label_set(10, "foo", "bar") or label_set(time()/100, "baz", "sss")), 0.1)"##;
         assert_result_eq(q, &[10.0, 11.0, 11.8, 12.6, 13.4, 14.1]);
     }
 
     #[test]
     fn sum2_multi_vector() {
-        let q = r##"sum2(label_set(10, "#foo", "bar") or label_set(time()/100, "baz", "sss"))"##;
+        let q = r##"sum2(label_set(10, "foo", "bar") or label_set(time()/100, "baz", "sss"))"##;
         assert_result_eq(q, &[200.0, 244.0, 296.0, 356.0, 424.0, 500.0]);
     }
 
     #[test]
     fn avg_multi_vector() {
-        let q = r##"avg(label_set(10, "#foo", "bar") or label_set(time()/100, "baz", "sss"))"##;
+        let q = r##"avg(label_set(10, "foo", "bar") or label_set(time()/100, "baz", "sss"))"##;
         assert_result_eq(q, &[10.0, 11.0, 12.0, 13.0, 14.0, 15.0]);
     }
 
     #[test]
     fn stddev_multi_vector() {
-        let q = r##"stddev(label_set(10, "#foo", "bar") or label_set(time()/100, "baz", "sss"))"##;
+        let q = r##"stddev(label_set(10, "foo", "bar") or label_set(time()/100, "baz", "sss"))"##;
         assert_result_eq(q, &[0_f64, 1.0, 2.0, 3.0, 4.0, 5.0]);
     }
 
     #[test]
     fn count_multi_vector() {
-        let q = r##"count(label_set(time()<1500, "#foo", "bar") or label_set(time()<1800.0, "baz", "sss"))"##;
+        let q = r##"count(label_set(time()<1500, "foo", "bar") or label_set(time()<1800.0, "baz", "sss"))"##;
         assert_result_eq(q, &[2.0, 2.0, 2.0, 1.0, NAN, NAN]);
     }
 
     #[test]
     fn sum_multi_vector_by_known_tag() {
         // sum(multi-vector) by (known-tag)
-        let q = r##"sort(sum(label_set(10, "#foo", "bar") or label_set(time()/100, "baz", "sss")) by (foo))"##;
+        let q = r##"sort(sum(label_set(10, "foo", "bar") or label_set(time()/100, "baz", "sss")) by (foo))"##;
         let mut r1 = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
         r1.metric_name.set_tag("foo", "bar");
         let r2 = make_result(&[10_f64, 12.0, 14.0, 16.0, 18.0, 20.0]);
@@ -2795,7 +2795,7 @@ mod tests {
     #[test]
     fn sum_multi_vector_by_known_tag_limit_1() {
         // "sum(multi-vector) by (known-tag) limit 1"
-        let q = r##"sum(label_set(10, "#foo", "bar") or label_set(time()/100, "baz", "sss")) by (foo) limit 1"##;
+        let q = r##"sum(label_set(10, "foo", "bar") or label_set(time()/100, "baz", "sss")) by (foo) limit 1"##;
         let mut r = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
         r.metric_name.set_tag("foo", "bar");
         test_query(q, vec![r]);
@@ -2803,7 +2803,7 @@ mod tests {
 
     #[test]
     fn sum_multi_vector_by_known_tags() {
-        let q = r##"sum(label_set(10, "#foo", "bar", "baz", "sss", "x", "y") or label_set(time()/100, "baz", "sss", "foo", "bar")) by (foo, baz, foo)"##;
+        let q = r##"sum(label_set(10, "foo", "bar", "baz", "sss", "x", "y") or label_set(time()/100, "baz", "sss", "foo", "bar")) by (foo, baz, foo)"##;
         let mut r = make_result(&[20_f64, 22.0, 24.0, 26.0, 28.0, 30.0]);
         r.metric_name.set_tag("baz", "sss");
         r.metric_name.set_tag("foo", "bar");
@@ -2812,7 +2812,7 @@ mod tests {
 
     #[test]
     fn sum_multi_vector_by_name() {
-        let q = r##"sort(sum(label_set(10, "#__name__", "bar", "baz", "sss", "x", "y") or label_set(time()/100, "baz", "sss", "__name__", "aaa")) by (__name__))"##;
+        let q = r##"sort(sum(label_set(10, "__name__", "bar", "baz", "sss", "x", "y") or label_set(time()/100, "baz", "sss", "__name__", "aaa")) by (__name__))"##;
         let mut r1 = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
         r1.metric_name.set_metric_group("bar");
         let mut r2 = make_result(&[10_f64, 12.0, 14.0, 16.0, 18.0, 20.0]);
@@ -2822,7 +2822,7 @@ mod tests {
 
     #[test]
     fn min_multi_vector_by_unknown_tag() {
-        let q = r##"min(label_set(10, "#foo", "bar") or label_set(time()/100/1.5, "baz", "sss")) by (unknowntag)"##;
+        let q = r##"min(label_set(10, "foo", "bar") or label_set(time()/100/1.5, "baz", "sss")) by (unknowntag)"##;
         assert_result_eq(
             q,
             &[6.666666666666667, 8.0, 9.333333333333334, 10.0, 10.0, 10.0],
@@ -2831,7 +2831,7 @@ mod tests {
 
     #[test]
     fn max_multi_vector_by_unknown_tag() {
-        let q = r##"max(label_set(10, "#foo", "bar") or label_set(time()/100/1.5, "baz", "sss")) by (unknowntag)"##;
+        let q = r##"max(label_set(10, "foo", "bar") or label_set(time()/100/1.5, "baz", "sss")) by (unknowntag)"##;
         assert_result_eq(
             q,
             &[
@@ -2847,7 +2847,7 @@ mod tests {
 
     #[test]
     fn quantile_over_time() {
-        let q = r##"quantile_over_time(0.9, label_set(round(rand(0), 0.01), "#__name__", "foo", "xx", "yy")[200s:5s])"##;
+        let q = r##"quantile_over_time(0.9, label_set(round(rand(0), 0.01), "__name__", "foo", "xx", "yy")[200s:5s])"##;
         let mut r = make_result(&[
             0.893,
             0.892,
@@ -2865,7 +2865,7 @@ mod tests {
     #[test]
     fn quantiles_over_time_single_sample() {
         let q = r##"sort_by_label(
-        quantiles_over_time("#phi", 0.5, 0.9,
+        quantiles_over_time("phi", 0.5, 0.9,
         time()[100s:100s]
         ),
         "phi",
@@ -2882,7 +2882,7 @@ mod tests {
     #[test]
     fn quantiles_over_time_multiple_samples() {
         let q = r##"sort_by_label(
-        quantiles_over_time("#phi", 0.5, 0.9,
+        quantiles_over_time("phi", 0.5, 0.9,
         label_set(round(rand(0), 0.01), "__name__", "foo", "xx", "yy")[200s:5s]
         ),
         "phi",
@@ -2909,7 +2909,7 @@ mod tests {
 
     #[test]
     fn histogram_over_time() {
-        let q = r##"sort_by_label(histogram_over_time(alias(label_set(rand(0)*1.3+1.1, "#foo", "bar"), "xxx")[200s:5s]), "vmrange")"##;
+        let q = r##"sort_by_label(histogram_over_time(alias(label_set(rand(0)*1.3+1.1, "foo", "bar"), "xxx")[200s:5s]), "vmrange")"##;
         let mut r1 = make_result(&[1_f64, 2.0, 2.0, 2.0, NAN, 1.0]);
         r1.metric_name.set_tag("foo", "bar");
         r1.metric_name.set_tag("vmrange", "1.000e+00...1.136e+00");
@@ -2947,7 +2947,7 @@ mod tests {
         let q = r##"sort_by_label(
         buckets_limit(
         3,
-        sum(histogram_over_time(alias(label_set(rand(0)*1.3+1.1, "#foo", "bar"), "xxx")[200s:5s])) by (vmrange)
+        sum(histogram_over_time(alias(label_set(rand(0)*1.3+1.1, "foo", "bar"), "xxx")[200s:5s])) by (vmrange)
         ), "le"
         )"##;
         let mut r1 = make_result(&[40_f64, 40.0, 40.0, 40.0, 40.0, 40.0]);
@@ -2964,7 +2964,7 @@ mod tests {
 
     #[test]
     fn sum_histogram_over_time() {
-        let q = r##"sum(histogram_over_time(alias(label_set(rand(0)*1.3+1.1, "#foo", "bar"), "xxx")[200s:5s]))"##;
+        let q = r##"sum(histogram_over_time(alias(label_set(rand(0)*1.3+1.1, "foo", "bar"), "xxx")[200s:5s]))"##;
         assert_result_eq(q, &[40.0, 40.0, 40.0, 40.0, 40.0, 40.0]);
     }
 
@@ -3029,16 +3029,16 @@ mod tests {
     #[test]
     fn test_limitk() {
         let q =
-            r##"limitk(-1, label_set(10, "#foo", "bar") or label_set(time()/150, "baz", "sss"))"##;
+            r##"limitk(-1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"))"##;
         test_query(q, vec![]);
 
         let q =
-            r##"limitk(1, label_set(10, "#foo", "bar") or label_set(time()/150, "xbaz", "sss"))"##;
+            r##"limitk(1, label_set(10, "foo", "bar") or label_set(time()/150, "xbaz", "sss"))"##;
         let mut r1 = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
         r1.metric_name.set_tag("foo", "bar");
         test_query(q, vec![r1]);
 
-        let q = r##"sort(limitk(10, label_set(10, "#foo", "bar") or label_set(time()/150, "baz", "sss")))"##;
+        let q = r##"sort(limitk(10, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"##;
         let mut r1 = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
         r1.metric_name.set_tag("foo", "bar");
         let mut r2 = make_result(&[
@@ -3072,7 +3072,7 @@ mod tests {
 
     #[test]
     fn any() {
-        let q = r##"any(label_set(10, "#__name__", "x", "foo", "bar") or label_set(time()/150, "__name__", "y", "baz", "sss"))"##;
+        let q = r##"any(label_set(10, "__name__", "x", "foo", "bar") or label_set(time()/150, "__name__", "y", "baz", "sss"))"##;
         let mut r = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
         r.metric_name.set_metric_group("x");
         r.metric_name.set_tag("foo", "bar");
@@ -3081,14 +3081,14 @@ mod tests {
 
     #[test]
     fn any_empty_series() {
-        let q = r##"any(label_set(time()<0, "#foo", "bar"))"##;
+        let q = r##"any(label_set(time()<0, "foo", "bar"))"##;
         test_query(q, vec![])
     }
 
     #[test]
     fn group_by_test() {
         let q = r##"group((
-        label_set(5, "#__name__", "data", "test", "three samples", "point", "a"),
+        label_set(5, "__name__", "data", "test", "three samples", "point", "a"),
         label_set(6, "__name__", "data", "test", "three samples", "point", "b"),
         label_set(7, "__name__", "data", "test", "three samples", "point", "c"),
         )) by (test)"##;
@@ -3101,7 +3101,7 @@ mod tests {
     #[test]
     fn group_without_point() {
         let q = r##"group((
-        label_set(5, "#__name__", "data", "test", "three samples", "point", "a"),
+        label_set(5, "__name__", "data", "test", "three samples", "point", "a"),
         label_set(6, "__name__", "data", "test", "three samples", "point", "b"),
         label_set(7, "__name__", "data", "test", "three samples", "point", "c"),
         )) without (point)"##;
@@ -3113,10 +3113,10 @@ mod tests {
 
     #[test]
     fn top_k() {
-        let q = r##"sort(topk(-1, label_set(10, "#foo", "bar") or label_set(time()/150, "baz", "sss")))"##;
+        let q = r##"sort(topk(-1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"##;
         test_query(q, vec![]);
 
-        let q = r##"topk(1, label_set(10, "#foo", "bar") or label_set(time()/150, "baz", "sss"))"##;
+        let q = r##"topk(1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"))"##;
         let mut r1 = make_result(&[NAN, NAN, NAN, 10.666666666666666, 12.0, 13.333333333333334]);
         r1.metric_name.set_tag("baz", "sss");
         let mut r2 = make_result(&[10_f64, 10.0, 10.0, NAN, NAN, NAN]);
@@ -3126,7 +3126,7 @@ mod tests {
 
     #[test]
     fn topk_min() {
-        let q = r##"sort(topk_min(1, label_set(10, "#foo", "bar") or label_set(time()/150, "baz", "sss")))"##;
+        let q = r##"sort(topk_min(1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"##;
         let mut r1 = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
         r1.metric_name.set_tag("foo", "bar");
         test_query(q, vec![r1]);
@@ -3134,7 +3134,7 @@ mod tests {
 
     #[test]
     fn bottomk_min() {
-        let q = r##"sort(bottomk_min(1, label_set(10, "#foo", "bar") or label_set(time()/150, "baz", "sss")))"##;
+        let q = r##"sort(bottomk_min(1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"##;
         let mut r1 = make_result(&[
             6.666666666666667,
             8.0,
@@ -3150,7 +3150,7 @@ mod tests {
     #[test]
     fn topk_max() {
         let q =
-            r##"topk_max(1, label_set(10, "#foo", "bar") or label_set(time()/150, "baz", "sss"))"##;
+            r##"topk_max(1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"))"##;
         let mut r1 = make_result(&[
             6.666666666666667,
             8.0,
@@ -3162,7 +3162,7 @@ mod tests {
         r1.metric_name.set_tag("baz", "sss");
         test_query(q, vec![r1]);
 
-        let q = r##"sort_desc(topk_max(1, label_set(10, "#foo", "bar") or label_set(time()/150, "baz", "sss"), "remaining_sum=foo"))"##;
+        let q = r##"sort_desc(topk_max(1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"), "remaining_sum=foo"))"##;
         let mut r1 = make_result(&[
             6.666666666666667,
             8.0,
@@ -3177,7 +3177,7 @@ mod tests {
 
         test_query(q, vec![r1, r2]);
 
-        let q = r##"sort_desc(topk_max(2, label_set(10, "#foo", "bar") or label_set(time()/150, "baz", "sss"), "remaining_sum"))"##;
+        let q = r##"sort_desc(topk_max(2, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"), "remaining_sum"))"##;
         let mut r1 = make_result(&[
             6.666666666666667,
             8.0,
@@ -3192,7 +3192,7 @@ mod tests {
 
         test_query(q, vec![r1, r2]);
 
-        let q = r##"sort_desc(topk_max(3, label_set(10, "#foo", "bar") or label_set(time()/150, "baz", "sss"), "remaining_sum"))"##;
+        let q = r##"sort_desc(topk_max(3, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"), "remaining_sum"))"##;
         let mut r1 = make_result(&[
             6.666666666666667,
             8.0,
@@ -3207,7 +3207,7 @@ mod tests {
 
         test_query(q, vec![r1, r2]);
 
-        let q = r##"topk_max(1, histogram_over_time(alias(label_set(rand(0)*1.3+1.1, "#foo", "bar"), "xxx")[200s:5s]))"##;
+        let q = r##"topk_max(1, histogram_over_time(alias(label_set(rand(0)*1.3+1.1, "foo", "bar"), "xxx")[200s:5s]))"##;
         let mut r = make_result(&[6_f64, 6.0, 9.0, 13.0, 7.0, 7.0]);
         r.metric_name.set_tag("foo", "bar");
         r.metric_name.set_tag("vmrange", "1.668e+00...1.896e+00");
@@ -3217,7 +3217,7 @@ mod tests {
 
     #[test]
     fn bottomk_max() {
-        let q = r##"sort(bottomk_max(1, label_set(10, "#foo", "bar") or label_set(time()/150, "baz", "sss")))"##;
+        let q = r##"sort(bottomk_max(1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"##;
         let mut r1 = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
         r1.metric_name.set_tag("foo", "bar");
         test_query(q, vec![r1]);
@@ -3225,7 +3225,7 @@ mod tests {
 
     #[test]
     fn topk_avg() {
-        let q = r##"sort(topk_avg(1, label_set(10, "#foo", "bar") or label_set(time()/150, "baz", "sss")))"##;
+        let q = r##"sort(topk_avg(1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"##;
         let mut r1 = make_result(&[
             6.666666666666667,
             8.0,
@@ -3240,7 +3240,7 @@ mod tests {
 
     #[test]
     fn bottomk_avg() {
-        let q = r##"sort(bottomk_avg(1, label_set(10, "#foo", "bar") or label_set(time()/150, "baz", "sss")))"##;
+        let q = r##"sort(bottomk_avg(1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"##;
         let mut r1 = make_result(&[
             6.666666666666667,
             8.0,
@@ -3255,7 +3255,7 @@ mod tests {
 
     #[test]
     fn topk_median_1() {
-        let q = r##"sort(topk_median(1, label_set(10, "#foo", "bar") or label_set(time()/150, "baz", "sss")))"##;
+        let q = r##"sort(topk_median(1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"##;
         let mut r1 = make_result(&[
             6.666666666666667,
             8.0,
@@ -3270,7 +3270,7 @@ mod tests {
 
     #[test]
     fn topk_last_1() {
-        let q = r##"sort(topk_last(1, label_set(10, "#foo", "bar") or label_set(time()/150, "baz", "sss")))"##;
+        let q = r##"sort(topk_last(1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"##;
         let mut r1 = make_result(&[
             6.666666666666667,
             8.0,
@@ -3285,7 +3285,7 @@ mod tests {
 
     #[test]
     fn bottomk_median() {
-        let q = r##"sort(bottomk_median(1, label_set(10, "#foo", "bar") or label_set(time()/15, "baz", "sss")))"##;
+        let q = r##"sort(bottomk_median(1, label_set(10, "foo", "bar") or label_set(time()/15, "baz", "sss")))"##;
         let mut r1 = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
         r1.metric_name.set_tag("foo", "bar");
         test_query(q, vec![r1]);
@@ -3293,7 +3293,7 @@ mod tests {
 
     #[test]
     fn bottomk_last() {
-        let q = r##"sort(bottomk_last(1, label_set(10, "#foo", "bar") or label_set(time()/15, "baz", "sss")))"##;
+        let q = r##"sort(bottomk_last(1, label_set(10, "foo", "bar") or label_set(time()/15, "baz", "sss")))"##;
         let mut r1 = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
         r1.metric_name.set_tag("foo", "bar");
         test_query(q, vec![r1]);
@@ -3301,7 +3301,7 @@ mod tests {
 
     #[test]
     fn topk_nan_timeseries() {
-        let q = r##"topk(1, label_set(NaN, "#foo", "bar") or label_set(time()/150, "baz", "sss")) default 0"##;
+        let q = r##"topk(1, label_set(NaN, "foo", "bar") or label_set(time()/150, "baz", "sss")) default 0"##;
         let mut r1 = make_result(&[
             6.666666666666667,
             8.0,
@@ -3316,7 +3316,7 @@ mod tests {
 
     #[test]
     fn topk_2() {
-        let q = r##"sort(topk(2, label_set(10, "#foo", "bar") or label_set(time()/150, "baz", "sss")))"##;
+        let q = r##"sort(topk(2, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"##;
         let mut r1 = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
         r1.metric_name.set_tag("foo", "bar");
         let mut r2 = make_result(&[
@@ -3333,13 +3333,13 @@ mod tests {
 
     #[test]
     fn topk_nan() {
-        let q = r##"sort(topk(NaN, label_set(10, "#foo", "bar") or label_set(time()/150, "baz", "sss")))"##;
+        let q = r##"sort(topk(NaN, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"##;
         test_query(q, vec![]);
     }
 
     #[test]
     fn topk_100500() {
-        let q = r##"sort(topk(100500, label_set(10, "#foo", "bar") or label_set(time()/150, "baz", "sss")))"##;
+        let q = r##"sort(topk(100500, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"##;
         let mut r1 = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
         r1.metric_name.set_tag("foo", "bar");
         let mut r2 = make_result(&[
@@ -3357,7 +3357,7 @@ mod tests {
     #[test]
     fn bottomk() {
         let q =
-            r##"bottomk(1, label_set(10, "#foo", "bar") or label_set(time()/150, "baz", "sss"))"##;
+            r##"bottomk(1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"))"##;
         let mut r1 = make_result(&[NAN, NAN, NAN, 10.0, 10.0, 10.0]);
         r1.metric_name.set_tag("foo", "bar");
         let mut r2 = make_result(&[6.666666666666667, 8.0, 9.333333333333334, NAN, NAN, NAN]);
@@ -3367,7 +3367,7 @@ mod tests {
 
     #[test]
     fn keep_last_value() {
-        let q = r##"keep_last_value(label_set(time() < 1300 default time() > 1700, "#__name__", "foobar", "x", "y"))"##;
+        let q = r##"keep_last_value(label_set(time() < 1300 default time() > 1700, "__name__", "foobar", "x", "y"))"##;
         let mut r1 = make_result(&[1000_f64, 1200.0, 1200.0, 1200.0, 1800.0, 2000.0]);
         r1.metric_name.set_metric_group("foobar");
         r1.metric_name.set_tag("x", "y");
@@ -3376,7 +3376,7 @@ mod tests {
 
     #[test]
     fn keep_next_value() {
-        let q = r##"keep_next_value(label_set(time() < 1300 default time() > 1700, "#__name__", "foobar", "x", "y"))"##;
+        let q = r##"keep_next_value(label_set(time() < 1300 default time() > 1700, "__name__", "foobar", "x", "y"))"##;
         let mut r1 = make_result(&[1000_f64, 1200.0, 1800.0, 1800.0, 1800.0, 2000.0]);
         r1.metric_name.set_metric_group("foobar");
         r1.metric_name.set_tag("x", "y");
@@ -3385,7 +3385,7 @@ mod tests {
 
     #[test]
     fn interpolate() {
-        let q = r##"interpolate(label_set(time() < 1300 default time() > 1700, "#__name__", "foobar", "x", "y"))"##;
+        let q = r##"interpolate(label_set(time() < 1300 default time() > 1700, "__name__", "foobar", "x", "y"))"##;
         let mut r1 = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r1.metric_name.set_metric_group("foobar");
         r1.metric_name.set_tag("x", "y");
@@ -3427,7 +3427,7 @@ mod tests {
     fn distinct() {
         let q = r##"distinct(union(
         1+time() > 1100,
-        label_set(time() > 1700, "#foo", "bar"),
+        label_set(time() > 1700, "foo", "bar"),
         ))"##;
         assert_result_eq(q, &[NAN, 1.0, 1.0, 1.0, 2.0, 2.0]);
     }
@@ -3435,7 +3435,7 @@ mod tests {
     #[test]
     fn vector2_if_vector1() {
         let q = r##"(
-        label_set(time()/10, "#x", "y"),
+        label_set(time()/10, "x", "y"),
         label_set(time(), "foo", "bar", "__name__", "x"),
         ) if (
         label_set(time()>1400.0, "foo", "bar"),
@@ -3449,7 +3449,7 @@ mod tests {
     #[test]
     fn vector2_if_vector2() {
         let q = r##"sort((
-        label_set(time()/10, "#x", "y"),
+        label_set(time()/10, "x", "y"),
         label_set(time(), "foo", "bar", "__name__", "x"),
         ) if (
         label_set(time()>1400.0, "foo", "bar"),
@@ -3466,7 +3466,7 @@ mod tests {
     #[test]
     fn scalar_if_vector1() {
         let q = r##"time() if (
-        label_set(123, "#foo", "bar"),
+        label_set(123, "foo", "bar"),
         )"##;
         test_query(q, vec![]);
     }
@@ -3474,7 +3474,7 @@ mod tests {
     #[test]
     fn scalar_if_vector2() {
         let q = r##"time() if (
-        label_set(123, "#foo", "bar"),
+        label_set(123, "foo", "bar"),
         alias(time() > 1400.0, "xxx"),
         )"##;
         assert_result_eq(q, &[NAN, NAN, NAN, 1600.0, 1800.0, 2000.0]);
@@ -3500,7 +3500,7 @@ mod tests {
 
     #[test]
     fn ifnot_no_matching_timeseries() {
-        let q = r##"label_set(time(), "#foo", "bar") ifnot label_set(time() > 1400.0, "x", "y")"##;
+        let q = r##"label_set(time(), "foo", "bar") ifnot label_set(time() > 1400.0, "x", "y")"##;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric_name.set_tag("foo", "bar");
         test_query(q, vec![r]);
@@ -3508,10 +3508,11 @@ mod tests {
 
     #[test]
     fn test_quantile() {
-        let q = r##"quantile(-2, label_set(10, "#foo", "bar") or label_set(time()/150, "baz", "sss"))"##;
+        let q =
+            r##"quantile(-2, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"))"##;
         assert_result_eq(q, &[INF, INF, INF, INF, INF, INF]);
 
-        let q = r##"quantile(0.2, label_set(10, "#foo", "bar") or label_set(time()/150, "baz", "sss"))"##;
+        let q = r##"quantile(0.2, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"))"##;
         assert_result_eq(
             q,
             &[
@@ -3524,7 +3525,7 @@ mod tests {
             ],
         );
 
-        let q = r##"quantile(0.5, label_set(10, "#foo", "bar") or label_set(time()/150, "baz", "sss"))"##;
+        let q = r##"quantile(0.5, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"))"##;
         assert_result_eq(
             q,
             &[
@@ -3564,7 +3565,7 @@ mod tests {
 
     #[test]
     fn median() {
-        let q = r##"median(label_set(10, "#foo", "bar") or label_set(time()/150, "baz", "sss"))"##;
+        let q = r##"median(label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"))"##;
         let r = make_result(&[
             8.333333333333334,
             9.0,
@@ -3575,7 +3576,7 @@ mod tests {
         ]);
         test_query(q, vec![r]);
 
-        let q = r##"median(union(label_set(10, "#foo", "bar"), label_set(time()/150, "baz", "sss"), time()/200))"##;
+        let q = r##"median(union(label_set(10, "foo", "bar"), label_set(time()/150, "baz", "sss"), time()/200))"##;
         assert_result_eq(
             q,
             &[6.666666666666667, 8.0, 9.333333333333334, 10.0, 10.0, 10.0],
@@ -3585,13 +3586,13 @@ mod tests {
     #[test]
     fn quantile_3() {
         let q =
-            r##"quantile(3, label_set(10, "#foo", "bar") or label_set(time()/150, "baz", "sss"))"##;
+            r##"quantile(3, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"))"##;
         assert_result_eq(q, &[INF, INF, INF, INF, INF, INF]);
     }
 
     #[test]
     fn quantile_nan() {
-        let q = r##"quantile(NaN, label_set(10, "#foo", "bar") or label_set(time()/150, "baz", "sss"))"##;
+        let q = r##"quantile(NaN, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"))"##;
         test_query(q, vec![]);
     }
 
@@ -3630,7 +3631,7 @@ mod tests {
     #[test]
     fn outliersk_0() {
         let q = r##"outliersk(0, (
-        label_set(1300, "#foo", "bar"),
+        label_set(1300, "foo", "bar"),
         label_set(time(), "baz", "sss"),
         ))"##;
         test_query(q, vec![]);
@@ -3639,7 +3640,7 @@ mod tests {
     #[test]
     fn outliersk_1() {
         let q = r##"outliersk(1, (
-        label_set(2000.0, "#foo", "bar"),
+        label_set(2000.0, "foo", "bar"),
         label_set(time(), "baz", "sss"),
         ))"##;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
@@ -3650,7 +3651,7 @@ mod tests {
     #[test]
     fn outliersk_3() {
         let q = r##"sort_desc(outliersk(3, (
-        label_set(1300, "#foo", "bar"),
+        label_set(1300, "foo", "bar"),
         label_set(time(), "baz", "sss"),
         )))"##;
         let mut r1 = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
@@ -3822,7 +3823,7 @@ mod tests {
 
     #[test]
     fn rate_time() {
-        let q = r##"rate(label_set(alias(time(), "#foo"), "x", "y"))"##;
+        let q = r##"rate(label_set(alias(time(), "foo"), "x", "y"))"##;
         let mut r = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r.metric_name.set_tag("x", "y");
         test_query(q, vec![r]);
@@ -3832,13 +3833,13 @@ mod tests {
     fn rate() {
         test_query("rate({})", vec![]);
 
-        let q = r##"rate(label_set(alias(time(), "#foo"), "x", "y")) keep_metric_names"##;
+        let q = r##"rate(label_set(alias(time(), "foo"), "x", "y")) keep_metric_names"##;
         let mut r = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r.metric_name.set_metric_group("foo");
         r.metric_name.set_tag("x", "y");
         test_query(q, vec![r]);
 
-        let q = r##"sum(rate(label_set(alias(time(), "#foo"), "x", "y")) keep_metric_names) by (__name__)"##;
+        let q = r##"sum(rate(label_set(alias(time(), "foo"), "x", "y")) keep_metric_names) by (__name__)"##;
         let mut r = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r.metric_name.set_metric_group("foo");
         test_query(q, vec![r]);
@@ -4251,7 +4252,7 @@ mod tests {
         assert_result_eq("(1)", &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
 
         // identical_labels
-        let q = r##"(label_set(1, "#foo", "bar"), label_set(2, "foo", "bar"))"##;
+        let q = r##"(label_set(1, "foo", "bar"), label_set(2, "foo", "bar"))"##;
         let mut r = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r.metric_name.set_tag("foo", "bar");
         test_query(q, vec![r]);
@@ -4259,7 +4260,7 @@ mod tests {
 
     #[test]
     fn parens_expr_identical_labels_with_names() {
-        let q = r##"(label_set(1, "#foo", "bar", "__name__", "xx"), label_set(2, "__name__", "xx", "foo", "bar"))"##;
+        let q = r##"(label_set(1, "foo", "bar", "__name__", "xx"), label_set(2, "__name__", "xx", "foo", "bar"))"##;
         let mut r = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r.metric_name.set_metric_group("xx");
         r.metric_name.set_tag("foo", "bar");
@@ -4277,7 +4278,7 @@ mod tests {
 
     #[test]
     fn union_identical_labels() {
-        let q = r##"union(label_set(1, "#foo", "bar"), label_set(2, "foo", "bar"))"##;
+        let q = r##"union(label_set(1, "foo", "bar"), label_set(2, "foo", "bar"))"##;
         let mut r = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r.metric_name.set_tag("foo", "bar");
         test_query(q, vec![r])
@@ -4285,7 +4286,7 @@ mod tests {
 
     #[test]
     fn union_identical_labels_with_names() {
-        let q = r##"union(label_set(1, "#foo", "bar", "__name__", "xx"), label_set(2, "__name__", "xx", "foo", "bar"))"##;
+        let q = r##"union(label_set(1, "foo", "bar", "__name__", "xx"), label_set(2, "__name__", "xx", "foo", "bar"))"##;
         let mut r = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r.metric_name.set_metric_group("xx");
         r.metric_name.set_tag("foo", "bar");
@@ -4295,7 +4296,7 @@ mod tests {
     #[test]
     fn union_more_than_two() {
         let q = r##"union(
-    label_set(1, "#foo", "bar", "__name__", "xx"),
+    label_set(1, "foo", "bar", "__name__", "xx"),
     label_set(2, "__name__", "yy", "foo", "bar"),
     label_set(time(), "qwe", "123") or label_set(3, "__name__", "rt"))"##;
         let mut r1 = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
@@ -4314,7 +4315,7 @@ mod tests {
 
     #[test]
     fn union_identical_labels_different_names() {
-        let q = r##"union(label_set(1, "#foo", "bar", "__name__", "xx"), label_set(2, "__name__", "yy", "foo", "bar"))"##;
+        let q = r##"union(label_set(1, "foo", "bar", "__name__", "xx"), label_set(2, "__name__", "yy", "foo", "bar"))"##;
         let mut r1 = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r1.metric_name.set_metric_group("xx");
         r1.metric_name.set_tag("foo", "bar");
@@ -4326,7 +4327,7 @@ mod tests {
 
     #[test]
     fn parens_expr_identical_labels_different_names() {
-        let q = r##"(label_set(1, "#foo", "bar", "__name__", "xx"), label_set(2, "__name__", "yy", "foo", "bar"))"##;
+        let q = r##"(label_set(1, "foo", "bar", "__name__", "xx"), label_set(2, "__name__", "yy", "foo", "bar"))"##;
         let mut r1 = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r1.metric_name.set_metric_group("xx");
         r1.metric_name.set_tag("foo", "bar");
@@ -4339,7 +4340,7 @@ mod tests {
     #[test]
     fn nested_parens_expr() {
         let q = r##"((
-        alias(1, "#x1"),
+        alias(1, "x1"),
         ),(
         alias(2, "x2"),
         alias(3, "x3"),
@@ -4356,7 +4357,7 @@ mod tests {
     #[test]
     fn count_values_big_numbers() {
         let q = r##"sort_by_label(
-        count_values("#xxx", (alias(772424014, "first"), alias(772424230, "second"))),
+        count_values("xxx", (alias(772424014, "first"), alias(772424230, "second"))),
         "xxx"
         )"##;
         let mut r1 = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
@@ -4370,7 +4371,7 @@ mod tests {
 
     #[test]
     fn count_values() {
-        let q = r##"count_values("#xxx", label_set(10, "foo", "bar") or label_set(time()/100, "foo", "bar", "baz", "xx"))"##;
+        let q = r##"count_values("xxx", label_set(10, "foo", "bar") or label_set(time()/100, "foo", "bar", "baz", "xx"))"##;
         let mut r1 = make_result(&[2_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r1.metric_name.set_tag("xxx", "10");
 
@@ -4394,7 +4395,7 @@ mod tests {
 
     #[test]
     fn count_values_by_xxx() {
-        let q = r##"count_values("#xxx", label_set(10, "foo", "bar", "xxx", "aaa") or label_set(floor(time()/600), "foo", "bar", "baz", "xx")) by (xxx)"##;
+        let q = r##"count_values("xxx", label_set(10, "foo", "bar", "xxx", "aaa") or label_set(floor(time()/600), "foo", "bar", "baz", "xx")) by (xxx)"##;
         let mut r1 = make_result(&[1_f64, NAN, NAN, NAN, NAN, NAN]);
         r1.metric_name.set_tag("xxx", "1");
 
@@ -4415,7 +4416,7 @@ mod tests {
     #[test]
     fn count_values_without_baz() {
         let q =
-            r##"count_values("#xxx", label_set(floor(time()/600), "foo", "bar")) without (baz)"##;
+            r##"count_values("xxx", label_set(floor(time()/600), "foo", "bar")) without (baz)"##;
         let mut r1 = make_result(&[1_f64, NAN, NAN, NAN, NAN, NAN]);
         r1.metric_name.set_tag("foo", "bar");
         r1.metric_name.set_tag("xxx", "1");
@@ -4463,7 +4464,7 @@ mod tests {
     #[test]
     fn sort_by_label_numeric_multiple_labels_only_string() {
         let q = r##"sort_by_label_numeric((
-        label_set(1, "#x", "b", "y", "aa"),
+        label_set(1, "x", "b", "y", "aa"),
         label_set(2, "x", "a", "y", "aa"),
         ), "y", "x")"##;
         let mut r1 = make_result(&[2_f64, 2.0, 2.0, 2.0, 2.0, 2.0]);
@@ -4480,7 +4481,7 @@ mod tests {
     #[test]
     fn sort_by_label_numeric_multiple_labels_numbers_special_chars() {
         let q = r##"sort_by_label_numeric((
-        label_set(1, "#x", "1:0:2", "y", "1:0:1"),
+        label_set(1, "x", "1:0:2", "y", "1:0:1"),
         label_set(2, "x", "1:0:15", "y", "1:0:1"),
         ), "x", "y")"##;
         let mut r1 = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
@@ -4497,7 +4498,7 @@ mod tests {
     #[test]
     fn sort_by_label_numeric_desc_multiple_labels_numbers_special_chars() {
         let q = r##"sort_by_label_numeric_desc((
-        label_set(1, "#x", "1:0:2", "y", "1:0:1"),
+        label_set(1, "x", "1:0:2", "y", "1:0:1"),
         label_set(2, "x", "1:0:15", "y", "1:0:1"),
         ), "x", "y")"##;
         let mut r1 = make_result(&[2_f64, 2.0, 2.0, 2.0, 2.0, 2.0]);
@@ -4655,7 +4656,7 @@ mod tests {
         f("distinct()");
         f("alias()");
         f("alias(1)");
-        f(r##"alias(1, "#foo", "bar")"##);
+        f(r##"alias(1, "foo", "bar")"##);
         f("lifetime()");
         f("lag()");
         f("aggr_over_time()");
@@ -4708,23 +4709,23 @@ mod tests {
 
         // Invalid argument type
         f("median_over_time({}, 2)");
-        f(r##"smooth_exponential(1, 1 or label_set(2, "#x", "y"))"##);
+        f(r##"smooth_exponential(1, 1 or label_set(2, "x", "y"))"##);
         f("count_values(1, 2)");
-        f(r##"count_values(1 or label_set(2, "#xx", "yy"), 2)"##);
-        f(r##"quantile(1 or label_set(2, "#xx", "foo"), 1)"##);
-        f(r##"clamp_max(1, 1 or label_set(2, "#xx", "foo"))"##);
-        f(r##"clamp_min(1, 1 or label_set(2, "#xx", "foo"))"##);
-        f(r##"topk(label_set(2, "#xx", "foo") or 1, 12)"##);
-        f(r##"topk_avg(label_set(2, "#xx", "foo") or 1, 12)"##);
-        f(r##"limitk(label_set(2, "#xx", "foo") or 1, 12)"##);
-        f(r##"limit_offet((alias(1,"#foo"),alias(2,"bar")), 2, 10)"##);
-        f(r##"limit_offet(1, (alias(1,"#foo"),alias(2,"bar")), 10)"##);
-        f(r##"round(1, 1 or label_set(2, "#xx", "foo"))"##);
-        f(r##"histogram_quantile(1 or label_set(2, "#xx", "foo"), 1)"##);
-        f(r##"histogram_quantiles("#foo", 1 or label_set(2, "xxx", "foo"), 2)"##);
+        f(r##"count_values(1 or label_set(2, "xx", "yy"), 2)"##);
+        f(r##"quantile(1 or label_set(2, "xx", "foo"), 1)"##);
+        f(r##"clamp_max(1, 1 or label_set(2, "xx", "foo"))"##);
+        f(r##"clamp_min(1, 1 or label_set(2, "xx", "foo"))"##);
+        f(r##"topk(label_set(2, "xx", "foo") or 1, 12)"##);
+        f(r##"topk_avg(label_set(2, "xx", "foo") or 1, 12)"##);
+        f(r##"limitk(label_set(2, "xx", "foo") or 1, 12)"##);
+        f(r##"limit_offet((alias(1,"foo"),alias(2,"bar")), 2, 10)"##);
+        f(r##"limit_offet(1, (alias(1,"foo"),alias(2,"bar")), 10)"##);
+        f(r##"round(1, 1 or label_set(2, "xx", "foo"))"##);
+        f(r##"histogram_quantile(1 or label_set(2, "xx", "foo"), 1)"##);
+        f(r##"histogram_quantiles("foo", 1 or label_set(2, "xxx", "foo"), 2)"##);
         f("sort_by_label_numeric(1, 2)");
         f("label_set(1, 2, 3)");
-        f(r##"label_set(1, "#foo", (label_set(1, "foo", bar") or label_set(2, "xxx", "yy")))"##);
+        f(r##"label_set(1, "foo", (label_set(1, "foo", bar") or label_set(2, "xxx", "yy")))"##);
         f(r#"label_set(1, "foo", 3)"#);
         f("label_del(1, 2)");
         f("label_copy(1, 2)");
@@ -4769,7 +4770,7 @@ mod tests {
         f(r#"(label_set(1, "foo", bar"), label_set(2, "foo", "baz")) + group_right 1"#);
         f(r#"(label_set(1, "foo", bar"), label_set(2, "foo", "baz")) + on() group_right 1"#);
         f(
-            r##"(label_set(1, "#foo", bar"), label_set(2, "foo", "baz")) + on(a) group_right(b,c) 1"##,
+            r##"(label_set(1, "foo", bar"), label_set(2, "foo", "baz")) + on(a) group_right(b,c) 1"##,
         );
         f(r#"(label_set(1, "foo", bar"), label_set(2, "foo", "baz")) + on() 1"#);
         f(

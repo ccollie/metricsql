@@ -4,12 +4,12 @@ use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 use phf::phf_map;
+use serde::{Deserialize, Serialize};
 
 use crate::common::ValueType;
 use crate::functions::signature::{Signature, Volatility};
 use crate::functions::MAX_ARG_COUNT;
 use crate::parser::ParseError;
-use serde::{Deserialize, Serialize};
 
 /// Aggregation AggregateFunctions
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Hash, Serialize, Deserialize)]
@@ -222,12 +222,13 @@ pub fn aggregate_function_signature(fun: &AggregateFunction) -> Signature {
             Volatility::Stable,
         ),
         TopkMin | TopkMax | TopkAvg | TopkMedian | BottomkMin | BottomkMax | BottomkAvg
-        | BottomkLast | BottomkMedian => Signature::exact(
+        | BottomkLast | BottomkMedian => Signature::exact_with_min_args(
             vec![
                 ValueType::Scalar,
                 ValueType::InstantVector,
                 ValueType::String,
             ],
+            2,
             Volatility::Stable,
         ),
         Quantile => Signature::exact(
