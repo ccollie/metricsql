@@ -560,6 +560,13 @@ impl AggregationExpr {
             _ => false,
         };
     }
+
+    pub fn is_non_grouping(&self) -> bool {
+        match &self.modifier {
+            Some(modifier) => modifier.is_empty(),
+            _ => true,
+        }
+    }
 }
 
 impl Display for AggregationExpr {

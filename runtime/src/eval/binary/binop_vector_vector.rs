@@ -199,28 +199,25 @@ fn should_parallelize(be: &BinaryExpr) -> bool {
 }
 
 fn can_push_down_common_filters(be: &BinaryExpr) -> bool {
-    if !should_parallelize(&be) {
+    if matches!(be.op, Operator::Or | Operator::Default) {
         return false;
     }
-    match be.op {
-        Operator::Or | Operator::Default => false,
-        _ => {
-            return !(is_aggr_func_without_grouping(&be.left)
-                || is_aggr_func_without_grouping(&be.right));
+    match (&be.left, &be.right) {
+        (Expr::Aggregation(left), Expr::Aggregation(right)) => {
+            if left.is_non_grouping() || right.is_non_grouping() {
+                return false;
+            }
+            return true;
         }
+        _ => true,
     }
+    true
 }
 
-fn is_aggr_func_without_grouping(e: &Expr) -> bool {
-    match e {
-        Expr::Aggregation(afe) => {
-            if let Some(modifier) = &afe.modifier {
-                modifier.is_empty()
-            } else {
-                true
-            }
-        }
-        _ => false,
+fn is_non_grouping(ae: &AggregationExpr) -> bool {
+    match ae.modifier {
+        Some(ref m) => me.is_empty(),
+        None => true,
     }
 }
 
