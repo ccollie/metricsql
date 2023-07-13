@@ -29,7 +29,7 @@ use datafusion::{
     sql::sqlparser::parser::ParserError,
 };
 
-use crate::common::str;
+use crate::common::{parse_str_to_timestamp_micros, str};
 use crate::common::time;
 
 /// The name of the time_range UDF given to DataFusion.
@@ -82,7 +82,7 @@ pub fn time_range_expr_impl() -> ScalarFunctionImplementation {
                     // in arrow, any value can be null.
                     // Here we decide to make our UDF to return null when either argument is null.
                     (Some(base), (Some(min), Some(max))) => {
-                        let min = match time::parse_str_to_timestamp_micros(min) {
+                        let min = match parse_str_to_timestamp_micros(min) {
                             Ok(v) => v,
                             Err(_) => return None,
                         };

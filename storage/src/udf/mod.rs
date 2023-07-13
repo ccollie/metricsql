@@ -1,4 +1,4 @@
 pub(crate) use regexp_udf::*;
 
-mod regexp_udf;
-mod time_range_udf;
+pub mod regexp_udf;
+pub mod time_range_udf;

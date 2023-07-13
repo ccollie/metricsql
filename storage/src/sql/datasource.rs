@@ -70,12 +70,15 @@ struct PromPlannerContext {
     range: Option<Millisecond>,
 }
 
+
 pub struct SqlDataSource {
+    ctx: PromPlannerContext,
     pub catalog: Arc<Box<dyn CatalogProvider>>,
     pub table_provider: Arc<Box<dyn TableProvider>>,
     pub timestamp_column: String,
+    pub value_column: String,
     pub schema: SchemaRef,
-    ctx: PromPlannerContext,
+    pub metric_column_map: HashMap<String, String>,
 }
 
 impl SqlDataSource {
@@ -103,6 +106,7 @@ impl SqlDataSource {
             .filter(|mat| mat.op == LabelFilterOp::Equal)
             .map(|mat| (mat.label.as_str(), mat.value.as_str()))
             .collect();
+
         let ctxs = self
             .ctx
             .table_provider
@@ -194,7 +198,7 @@ impl SqlDataSource {
         )?;
         for mat in selector.label_filters.iter() {
             if mat.name == self.timestamp_column
-                || mat.name == VALUE_LABEL
+                || mat.name == self.value_column
                 || schema.field_with_name(&mat.name).is_err()
             {
                 continue;
@@ -228,6 +232,8 @@ impl SqlDataSource {
             .await?;
 
         let mut metrics: HashMap<String, RangeValue> = HashMap::default();
+        let value_column = &self.value_column;
+        let timestamp_column = &self.timestamp_column;
         for batch in &batches {
             let hash_values = batch
                 .column_by_name(HASH_LABEL)
@@ -242,7 +248,7 @@ impl SqlDataSource {
                 .downcast_ref::<Int64Array>()
                 .unwrap();
             let value_values = batch
-                .column_by_name(VALUE_LABEL)
+                .column_by_name(value_column)
                 .unwrap()
                 .as_any()
                 .downcast_ref::<Float64Array>()
@@ -253,7 +259,7 @@ impl SqlDataSource {
                     let mut labels = Vec::with_capacity(batch.num_columns());
                     for (k, v) in batch.schema().fields().iter().zip(batch.columns()) {
                         let name = k.name();
-                        if name == timestamp_column || name == HASH_LABEL || name == VALUE_LABEL {
+                        if name == timestamp_column || name == value_column {
                             continue;
                         }
                         let value = v.as_any().downcast_ref::<StringArray>().unwrap();

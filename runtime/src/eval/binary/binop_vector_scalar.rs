@@ -14,7 +14,7 @@ use crate::{Context, InstantVector, QueryValue, RuntimeResult};
 pub(crate) fn eval_vector_scalar_binop(
     ctx: &Arc<Context>,
     be: &BinaryExpr,
-    mut vector: InstantVector,
+    vector: InstantVector,
     scalar: f64,
 ) -> RuntimeResult<QueryValue> {
     use QueryValue::*;
@@ -32,6 +32,7 @@ pub(crate) fn eval_vector_scalar_binop(
 
     let handler = get_scalar_binop_handler(be.op, be.bool_modifier);
 
+    let mut vector = vector;
     // should not happen, but we can handle it
     for v in vector.iter_mut() {
         if !be.keep_metric_names {
@@ -42,5 +43,5 @@ pub(crate) fn eval_vector_scalar_binop(
             *value = handler(*value, scalar);
         }
     }
-    Ok(InstantVector(std::mem::take(&mut vector)))
+    Ok(InstantVector(vector))
 }

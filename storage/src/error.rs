@@ -27,12 +27,6 @@ pub enum Error {
     #[snafu(display("Unsupported expr type: {}, location: {}", name, location))]
     UnsupportedExpr { name: String, location: Location },
 
-    #[snafu(display("Unexpected token: {:?}, location: {}", token, location))]
-    UnexpectedToken {
-        token: TokenType,
-        location: Location,
-    },
-
     #[snafu(display(
         "Internal error during building DataFusion plan, error: {}, location: {}",
         source,

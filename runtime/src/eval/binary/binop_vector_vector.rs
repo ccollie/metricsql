@@ -192,16 +192,15 @@ fn can_push_down_common_filters(be: &BinaryExpr) -> bool {
     if matches!(be.op, Operator::Or | Operator::Default) {
         return false;
     }
-    match (&be.left, &be.right) {
+    return match (&be.left.as_ref(), &be.right.as_ref()) {
         (Expr::Aggregation(left), Expr::Aggregation(right)) => {
             if left.is_non_grouping() || right.is_non_grouping() {
                 return false;
             }
-            return true;
+            true
         }
         _ => true,
     }
-    true
 }
 
 fn get_common_label_filters(tss: &[Timeseries]) -> Vec<LabelFilter> {
