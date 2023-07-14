@@ -67,12 +67,6 @@ impl Engine {
                 param,
                 modifier,
             }) => self.aggregate_exprs(op, expr, param, modifier).await?,
-            PromExpr::Unary(UnaryExpr { expr }) => {
-                return Err(DataFusionError::NotImplemented(format!(
-                    "Unsupported Unary: {:?}",
-                    expr
-                )));
-            }
             PromExpr::Binary(expr) => {
                 let lhs = self.exec_expr(&expr.lhs).await?;
                 let rhs = self.exec_expr(&expr.rhs).await?;
@@ -106,25 +100,7 @@ impl Engine {
                     }
                 }
             }
-            PromExpr::Paren(ParenExpr { expr }) => {
-                return Err(DataFusionError::NotImplemented(format!(
-                    "Unsupported Paren: {:?}",
-                    expr
-                )));
-            }
-            PromExpr::Subquery(expr) => {
-                return Err(DataFusionError::NotImplemented(format!(
-                    "Unsupported Subquery: {:?}",
-                    expr
-                )));
-            }
             PromExpr::NumberLiteral(NumberLiteral { val }) => Value::Float(*val),
-            PromExpr::StringLiteral(expr) => {
-                return Err(DataFusionError::NotImplemented(format!(
-                    "Unsupported StringLiteral: {:?}",
-                    expr
-                )));
-            }
             PromExpr::VectorSelector(v) => {
                 let data = self.eval_vector_selector(v).await?;
                 if data.is_empty() {

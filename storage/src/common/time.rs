@@ -12,14 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::cell::OnceCell;
+
 use chrono::{DateTime, TimeZone, Utc};
-use once_cell::sync::Lazy;
 
 use super::json;
 
+pub const BASE_TIME: OnceCell<DateTime<Utc>> = OnceCell::<DateTime<Utc>>::new();
+
 // BASE_TIME is the time when the timestamp is 1 year, used to check a timestamp is in seconds or milliseconds or microseconds or nanoseconds
-pub static BASE_TIME: Lazy<DateTime<Utc>> =
-    Lazy::new(|| Utc.with_ymd_and_hms(1971, 1, 1, 0, 0, 0).unwrap());
+fn get_base_time() -> DateTime<Utc> {
+    BASE_TIME
+        .get_or_init(|| Utc.with_ymd_and_hms(1971, 1, 1, 0, 0, 0).unwrap())
+        .clone()
+}
 
 // check format: 1s, 1m, 1h, 1d, 1w, 1y, 1h10m30s
 static TIME_UNITS: [(char, u64); 7] = [
@@ -37,14 +43,15 @@ pub fn parse_i64_to_timestamp_micros(v: i64) -> i64 {
     if v == 0 {
         return Utc::now().timestamp_micros();
     }
+    let base_time = get_base_time();
     let mut duration = v;
-    if duration > BASE_TIME.timestamp_nanos() {
+    if duration > base_time.timestamp_nanos() {
         // nanoseconds
         duration /= 1000;
-    } else if duration > BASE_TIME.timestamp_micros() {
+    } else if duration > base_time.timestamp_micros() {
         // microseconds
         // noop
-    } else if duration > BASE_TIME.timestamp_millis() {
+    } else if duration > base_time.timestamp_millis() {
         // milliseconds
         duration *= 1000;
     } else {

@@ -1,5 +1,4 @@
 use datafusion::arrow::datatypes::{Field, Schema};
-use arrow_schema::{Field, Schema};
 use itertools::Itertools;
 
 use crate::common::schema_ext::SchemaExt;
@@ -42,23 +41,22 @@ pub fn get_fields_key_xxh3(fields: &[Field]) -> String {
 
 #[cfg(test)]
 mod test {
-    use datafusion::arrow::datatypes::DataType;
     use arrow_schema::{DataType, Field};
 
     use super::*;
 
     #[actix_web::test]
     async fn test_ingest() {
-        let mut schmea_vec = vec![
+        let mut schema_vec = vec![
             Field::new("log", DataType::Utf8, false),
             Field::new("pod_id", DataType::Int64, false),
         ];
 
         for i in 0..30 {
-            schmea_vec.push(Field::new(format!("field_{}", i), DataType::Utf8, false));
+            schema_vec.push(Field::new(format!("field_{}", i), DataType::Utf8, false));
         }
 
-        let schema = Schema::new(schmea_vec);
+        let schema = Schema::new(schema_vec);
 
         let start1 = std::time::Instant::now();
         for _ in 0..100000 {

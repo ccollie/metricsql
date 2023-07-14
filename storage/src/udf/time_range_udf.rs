@@ -29,8 +29,7 @@ use datafusion::{
     sql::sqlparser::parser::ParserError,
 };
 
-use crate::common::{parse_str_to_timestamp_micros, str};
-use crate::common::time;
+use crate::common::parse_str_to_timestamp_micros;
 
 /// The name of the time_range UDF given to DataFusion.
 pub const TIME_RANGE_UDF_NAME: &str = "time_range";
@@ -52,7 +51,7 @@ pub(crate) fn time_range_udf() -> &'static ScalarUDF {
     })
 }
 
-/// time_range function for datafusion
+/// time_range function for datafusion1
 pub fn time_range_expr_impl() -> ScalarFunctionImplementation {
     let func = move |args: &[ArrayRef]| -> datafusion::error::Result<ArrayRef> {
         if args.len() != 3 {
@@ -86,7 +85,7 @@ pub fn time_range_expr_impl() -> ScalarFunctionImplementation {
                             Ok(v) => v,
                             Err(_) => return None,
                         };
-                        let max = match time::parse_str_to_timestamp_micros(max) {
+                        let max = match parse_str_to_timestamp_micros(max) {
                             Ok(v) => v,
                             Err(_) => return None,
                         };

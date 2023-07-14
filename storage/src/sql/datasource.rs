@@ -12,16 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 use std::collections::{HashMap, HashSet};
+use std::hash::Hasher;
 use std::sync::Arc;
 use std::time::Duration;
 
+use datafusion::arrow::array::{Array, ArrayRef};
+use datafusion::arrow::datatypes::Fields;
 use datafusion::catalog::catalog::CatalogProvider;
 use datafusion::optimizer::utils::conjunction;
 use datafusion::prelude::JoinType;
 use datafusion::{
     arrow::{
         array::{Float64Array, Int64Array, StringArray},
-        datatypes::{Schema, SchemaRef},
+        datatypes::Schema,
     },
     common::{OwnedTableReference, ScalarValue, TableReference},
     datasource::{DefaultTableSource, TableProvider},
@@ -34,15 +37,16 @@ use datafusion::{
 use futures::future::try_join_all;
 use snafu::{ensure, OptionExt, ResultExt};
 
-use metricsql::common::{LabelFilterOp, MatchOp};
+use metricsql::common::{LabelFilter, LabelFilterOp, MatchOp};
 use metricsql::prelude::MetricExpr;
-use runtime::Label;
+use runtime::{Label, RangeValue, Sample};
 
 use crate::error::{
     CatalogSnafu, ColumnNotFoundSnafu, DataFusionPlanningSnafu, TableNameNotFoundSnafu,
     TimeIndexNotFoundSnafu, UnknownTableSnafu, ValueNotFoundSnafu,
 };
 use crate::sql::extension_plan::{SeriesDivide, SeriesNormalize};
+use crate::TableContext;
 
 const DEFAULT_TIME_INDEX_COLUMN: &str = "time";
 
@@ -61,7 +65,6 @@ struct PromPlannerContext {
     lookback_delta: Millisecond,
 
     // planner states
-    table_name: Option<String>,
     time_index_column: Option<String>,
     field_columns: Vec<String>,
     tag_columns: Vec<String>,
@@ -70,14 +73,11 @@ struct PromPlannerContext {
     range: Option<Millisecond>,
 }
 
-
 pub struct SqlDataSource {
     ctx: PromPlannerContext,
-    pub catalog: Arc<Box<dyn CatalogProvider>>,
     pub table_provider: Arc<Box<dyn TableProvider>>,
     pub timestamp_column: String,
     pub value_column: String,
-    pub schema: SchemaRef,
     pub metric_column_map: HashMap<String, String>,
 }
 
@@ -110,14 +110,17 @@ impl SqlDataSource {
         let ctxs = self
             .ctx
             .table_provider
-            .create_context(&self.ctx.org_id, table_name, (start, end), &filters)
+            .create_context(table_name, (start, end), &filters)
             .await?;
 
         let mut tasks = Vec::new();
-        for (ctx, schema, scan_stats) in ctxs {
+        for ctx in ctxs {
+            let TableContext {
+                session, schema, ..
+            } = ctx;
             let selector = selector.clone();
             let task = tokio::task::spawn(async move {
-                self.selector_load_data_from_datafusion(ctx, schema, selector, start, end)
+                self.selector_load_data_from_datafusion(session, schema, selector, start, end)
                     .await
             });
             tasks.push(task);
@@ -182,7 +185,7 @@ impl SqlDataSource {
         selector: MetricExpr,
         start: i64,
         end: i64,
-    ) -> Result<HashMap<String, RangeValue>> {
+    ) -> Result<HashMap<u64, RangeValue>> {
         let table_name = selector.metric_group;
         let table = match ctx.table(table_name).await {
             Ok(v) => v,
@@ -204,15 +207,15 @@ impl SqlDataSource {
                 continue;
             }
             match &mat.op {
-                MatchOp::Equal => {
+                LabelFilterOp::Equal => {
                     df_group = df_group.filter(col(mat.name.clone()).eq(lit(mat.value.clone())))?
                 }
-                MatchOp::NotEqual => {
+                LabelFilterOp::NotEqual => {
                     df_group =
                         df_group.filter(col(mat.name.clone()).not_eq(lit(mat.value.clone())))?
                 }
                 MatchOp::Re(_re) => {
-                    let regexp_match_udf = crate::udf::regexp_udf().clone();
+                    let regexp_match_udf = crate::udf::regex_match_udf().clone();
                     df_group = df_group.filter(
                         regexp_match_udf.call(vec![col(mat.name.clone()), lit(mat.value.clone())]),
                     )?
@@ -231,16 +234,10 @@ impl SqlDataSource {
             .collect()
             .await?;
 
-        let mut metrics: HashMap<String, RangeValue> = HashMap::default();
+        let mut metrics: HashMap<u64, RangeValue> = HashMap::default();
         let value_column = &self.value_column;
         let timestamp_column = &self.timestamp_column;
         for batch in &batches {
-            let hash_values = batch
-                .column_by_name(HASH_LABEL)
-                .unwrap()
-                .as_any()
-                .downcast_ref::<StringArray>()
-                .unwrap();
             let time_values = batch
                 .column_by_name(timestamp_column)
                 .unwrap()
@@ -253,23 +250,18 @@ impl SqlDataSource {
                 .as_any()
                 .downcast_ref::<Float64Array>()
                 .unwrap();
+
+            let mut labels_buf: Vec<Label> = Vec::with_capacity(batch.num_columns());
+            let fields = batch.schema().fields();
+            let columns = batch.columns();
+
             for i in 0..batch.num_rows() {
-                let hash = hash_values.value(i).to_string();
+                labels_buf.clear();
+                let hash = self.collect_row_labels(i, &mut labels_buf, fields, columns);
                 let entry = metrics.entry(hash).or_insert_with(|| {
-                    let mut labels = Vec::with_capacity(batch.num_columns());
-                    for (k, v) in batch.schema().fields().iter().zip(batch.columns()) {
-                        let name = k.name();
-                        if name == timestamp_column || name == value_column {
-                            continue;
-                        }
-                        let value = v.as_any().downcast_ref::<StringArray>().unwrap();
-                        labels.push(Arc::new(Label {
-                            name: name.to_string(),
-                            value: value.value(i).to_string(),
-                        }));
-                    }
-                    labels.sort_by(|a, b| a.name.cmp(&b.name));
-                    RangeValue::new(labels, Vec::with_capacity(20))
+                    labels_buf.sort_by(|a, b| a.name.cmp(&b.name));
+                    // maybe use an Arc to reduce memory usage
+                    RangeValue::new(labels_buf.clone(), Vec::with_capacity(20))
                 });
                 entry
                     .samples
@@ -279,15 +271,43 @@ impl SqlDataSource {
         Ok(metrics)
     }
 
+    fn collect_row_labels(
+        &self,
+        row: usize,
+        labels: &mut Vec<Label>,
+        fields: &Fields,
+        columns: &[ArrayRef],
+    ) -> u64 {
+        let mut hasher = xxhash_rust::xxh3::Xxh3::new();
+        for (k, v) in fields.iter().zip(columns) {
+            let name = k.name();
+            if name == self.timestamp_column || name == self.value_column {
+                continue;
+            }
+            let value = v.as_any().downcast_ref::<StringArray>().unwrap();
+            let str_value = value.value(row).to_string();
+
+            hasher.write(name.as_bytes());
+            hasher.write(str_value.as_bytes());
+
+            labels.push(Label {
+                name: name.to_string(),
+                value: str_value,
+            });
+        }
+        hasher.finish()
+    }
+
     // TODO(ruihang): ignore `MetricNameLabel` (`__name__`) matcher
-    fn matchers_to_expr(&self, label_matchers: Matchers) -> Result<Vec<DfExpr>> {
+    fn matchers_to_expr(&self, label_matchers: &[LabelFilter]) -> Result<Vec<DfExpr>> {
+        use LabelFilterOp::*;
         let mut exprs = Vec::with_capacity(label_matchers.matchers.len());
-        for matcher in label_matchers.matchers {
+        for matcher in label_matchers {
             let col = DfExpr::Column(Column::from_name(matcher.name));
             let lit = DfExpr::Literal(ScalarValue::Utf8(Some(matcher.value)));
             let expr = match matcher.op {
-                MatchOp::Equal => col.eq(lit),
-                MatchOp::NotEqual => col.not_eq(lit),
+                Equal => col.eq(lit),
+                NotEqual => col.not_eq(lit),
                 MatchOp::Re(_) => DfExpr::BinaryExpr(BinaryExpr {
                     left: Box::new(col),
                     op: Operator::RegexMatch,
@@ -342,6 +362,7 @@ impl SqlDataSource {
                         } else {
                             return Err(ColumnNotFoundSnafu {
                                 col: matcher.value.clone(),
+                                location: Default::default(),
                             }
                             .build());
                         }

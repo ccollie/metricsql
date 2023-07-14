@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
-use serde::ser::SerializeSeq;
+use serde::ser::{SerializeSeq, SerializeStruct};
 use serde::{Serialize, Serializer};
 
 use metricsql::ast::DurationExpr;
@@ -41,12 +41,61 @@ impl Serialize for Sample {
 }
 
 impl Sample {
-    pub(crate) fn new(timestamp: i64, value: f64) -> Self {
+    pub fn new(timestamp: i64, value: f64) -> Self {
         Self { timestamp, value }
     }
 }
 
 pub type InstantVector = Vec<Timeseries>; // todo: Vec<(label, Sample)> or somesuch
+
+#[derive(Debug, Clone)]
+pub struct RangeValue {
+    pub labels: Labels,
+    pub samples: Vec<Sample>,
+    //pub time_window: Option<TimeWindow>,
+}
+
+impl Serialize for RangeValue {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut seq = serializer.serialize_struct("range_value", 2)?;
+        let labels_map = self
+            .labels
+            .iter()
+            .map(|l| (l.name.as_str(), l.value.as_str()))
+            .collect::<FxIndexMap<_, _>>();
+        seq.serialize_field("metric", &labels_map)?;
+        seq.serialize_field("values", &self.samples)?;
+        seq.end()
+    }
+}
+
+impl RangeValue {
+    pub fn with_capacity(labels: Labels, capacity: usize) -> Self {
+        Self {
+            labels,
+            samples: Vec::with_capacity(capacity),
+            //time_window: None,
+        }
+    }
+
+    pub fn new<S>(labels: Labels, samples: S) -> Self
+    where
+        S: IntoIterator<Item = Sample>,
+    {
+        Self {
+            labels,
+            samples: Vec::from_iter(samples),
+            //time_window: None,
+        }
+    }
+
+    pub(crate) fn add_sample(&mut self, sample: Sample) {
+        self.samples.push(sample);
+    }
+}
 
 #[derive(Debug, PartialEq)]
 pub enum QueryValue {

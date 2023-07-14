@@ -21,6 +21,8 @@ use snafu::{Location, Snafu};
 use common_error::prelude::*;
 use metricsql::ast::Expr as PromExpr;
 
+use crate::status_code::StatusCode;
+
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub))]
 pub enum Error {
@@ -117,7 +119,6 @@ impl ErrorExt for Error {
             TimeIndexNotFound { .. }
             | ValueNotFound { .. }
             | UnsupportedExpr { .. }
-            | UnexpectedToken { .. }
             | MultipleVector { .. }
             | ExpectExpr { .. }
             | ExpectRangeSelector { .. }

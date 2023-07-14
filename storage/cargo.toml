@@ -8,8 +8,10 @@ async-recursion = "1.0.0"
 chrono = { workspace = true }
 datafusion = { version = "26" }
 futures = "0.3.17"
+itertools = { workspace = true }
 lib = { path = "../lib" }
 metricsql = { path = "../metricsql" }
+paste = "1.0.6"
 rayon = { workspace = true }
 runtime = { path = "../runtime" }
 regex = { workspace = true }

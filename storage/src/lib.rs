@@ -1,12 +1,37 @@
+extern crate core;
 extern crate datafusion;
 extern crate regex;
 extern crate regex_syntax;
 extern crate snafu;
 extern crate tokio;
-extern crate core;
 
+use std::sync::Arc;
+
+use datafusion::arrow::datatypes::Schema;
+use datafusion::prelude::SessionContext;
+
+mod common;
 mod error;
 mod sql;
+mod status_code;
 mod udf;
 mod utils;
-mod common;
+
+pub struct TableContext {
+    pub session: SessionContext,
+    pub name: String,
+    pub schema: Arc<Schema>,
+    pub filters: Vec<(String, String)>,
+    pub timestamp_column: String,
+    pub value_column: String,
+}
+
+#[async_trait]
+pub trait TableProvider: Sync + Send + 'static {
+    async fn create_context(
+        &self,
+        name: &str,
+        time_range: (i64, i64),
+        filters: &[(&str, &str)],
+    ) -> Result<Vec<TableContext>>;
+}

@@ -33,14 +33,11 @@ use datafusion::physical_plan::{
 use futures::{Stream, StreamExt};
 use snafu::ResultExt;
 
-use datatypes::arrow::datatypes::SchemaRef;
 use datatypes::arrow::error::Result as ArrowResult;
-use datatypes::arrow::record_batch::RecordBatch;
 use greptime_proto::substrait_extension as pb;
 use prost::Message;
 
 use crate::error::DeserializeSnafu;
-use crate::extension_plan::Millisecond;
 
 /// Normalize the input record batch. Notice that for simplicity, this method assumes
 /// the input batch only contains sample points from one time series.
