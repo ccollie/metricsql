@@ -10,9 +10,9 @@ use std::sync::Arc;
 use datafusion::arrow::datatypes::Schema;
 use datafusion::prelude::SessionContext;
 
+mod catalog;
 mod common;
 mod error;
-mod sql;
 mod status_code;
 mod udf;
 mod utils;

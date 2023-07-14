@@ -31,12 +31,11 @@ use datafusion::physical_plan::{
     DisplayFormatType, Distribution, ExecutionPlan, Partitioning, RecordBatchStream,
     SendableRecordBatchStream, Statistics,
 };
-use futures::{Stream, StreamExt};
-use snafu::ResultExt;
-
 use datatypes::arrow::compute;
+use futures::{Stream, StreamExt};
 use greptime_proto::substrait_extension as pb;
 use prost::Message;
+use snafu::ResultExt;
 
 use crate::error::{DeserializeSnafu, Result};
 

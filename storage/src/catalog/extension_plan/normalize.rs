@@ -30,12 +30,11 @@ use datafusion::physical_plan::metrics::{BaselineMetrics, ExecutionPlanMetricsSe
 use datafusion::physical_plan::{
     DisplayFormatType, ExecutionPlan, Partitioning, RecordBatchStream, SendableRecordBatchStream,
 };
-use futures::{Stream, StreamExt};
-use snafu::ResultExt;
-
 use datatypes::arrow::error::Result as ArrowResult;
+use futures::{Stream, StreamExt};
 use greptime_proto::substrait_extension as pb;
 use prost::Message;
+use snafu::ResultExt;
 
 use crate::error::DeserializeSnafu;
 
