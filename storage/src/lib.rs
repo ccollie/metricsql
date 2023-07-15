@@ -21,7 +21,6 @@ pub struct TableContext {
     pub session: SessionContext,
     pub name: String,
     pub schema: Arc<Schema>,
-    pub filters: Vec<(String, String)>,
     pub timestamp_column: String,
     pub value_column: String,
 }

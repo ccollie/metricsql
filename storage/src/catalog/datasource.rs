@@ -14,7 +14,6 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::Hasher;
 use std::sync::Arc;
-use std::time::Duration;
 
 use datafusion::arrow::array::{Array, ArrayRef};
 use datafusion::arrow::datatypes::Fields;
@@ -35,11 +34,10 @@ use datafusion::{
     prelude::{col, lit, Column, SessionContext},
 };
 use futures::future::try_join_all;
-use snafu::{ensure, OptionExt, ResultExt};
-
 use metricsql::common::{LabelFilter, LabelFilterOp, MatchOp};
 use metricsql::prelude::MetricExpr;
 use runtime::{Label, RangeValue, Sample};
+use snafu::{ensure, OptionExt, ResultExt};
 
 use crate::error::{
     CatalogSnafu, ColumnNotFoundSnafu, DataFusionPlanningSnafu, TableNameNotFoundSnafu,
@@ -61,8 +59,6 @@ struct PromPlannerContext {
     // query parameters
     start: Millisecond,
     end: Millisecond,
-    interval: Millisecond,
-    lookback_delta: Millisecond,
 
     // planner states
     time_index_column: Option<String>,
@@ -76,8 +72,6 @@ struct PromPlannerContext {
 pub struct SqlDataSource {
     ctx: PromPlannerContext,
     pub table_provider: Arc<Box<dyn TableProvider>>,
-    pub timestamp_column: String,
-    pub value_column: String,
     pub metric_column_map: HashMap<String, String>,
 }
 
@@ -180,29 +174,31 @@ impl SqlDataSource {
 
     async fn selector_load_data_from_datafusion(
         &self,
-        ctx: SessionContext,
-        schema: Arc<Schema>,
+        ctx: TableContext,
         selector: MetricExpr,
         start: i64,
         end: i64,
     ) -> Result<HashMap<u64, RangeValue>> {
         let table_name = selector.metric_group;
-        let table = match ctx.table(table_name).await {
+        let table = match ctx.session.table(table_name).await {
             Ok(v) => v,
             Err(_) => {
                 return Ok(HashMap::default());
             }
         };
 
+        let timestamp_column = &ctx.timestamp_column;
+        let value_column = &ctx.value_column;
+
         let mut df_group = table.clone().filter(
-            col(&self.timestamp_column)
+            col(timestamp_column)
                 .gt(lit(start))
-                .and(col(&self.timestamp_column).lt_eq(lit(end))),
+                .and(col(timestamp_column).lt_eq(lit(end))),
         )?;
         for mat in selector.label_filters.iter() {
-            if mat.name == self.timestamp_column
-                || mat.name == self.value_column
-                || schema.field_with_name(&mat.name).is_err()
+            if mat.name == timestamp_column
+                || mat.name == value_column
+                || ctx.schema.field_with_name(&mat.name).is_err()
             {
                 continue;
             }
@@ -229,14 +225,14 @@ impl SqlDataSource {
                 }
             }
         }
+
         let batches = df_group
-            .sort(vec![col(&self.timestamp_column).sort(true, true)])?
+            .sort(vec![col(timestamp_column).sort(true, true)])?
             .collect()
             .await?;
 
         let mut metrics: HashMap<u64, RangeValue> = HashMap::default();
-        let value_column = &self.value_column;
-        let timestamp_column = &self.timestamp_column;
+
         for batch in &batches {
             let time_values = batch
                 .column_by_name(timestamp_column)

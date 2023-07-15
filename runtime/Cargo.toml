@@ -12,6 +12,7 @@ include = [
 
 [dependencies]
 async-recursion = "1.0"
+async-trait = "0.1.51"
 phf = { workspace = true }
 enquote = { workspace = true }
 byte-slice-cast = "1.2.2"

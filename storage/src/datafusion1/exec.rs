@@ -38,8 +38,6 @@ use crate::service::search::sql::Sql;
 use super::storage::{file_list, StorageType};
 use super::transform_udf::get_all_transform;
 
-const AGGREGATE_UDF_LIST: [&str; 6] = ["min", "max", "count", "avg", "sum", "array_agg"];
-
 pub fn create_runtime_env() -> Result<RuntimeEnv> {
     let object_store_registry = DefaultObjectStoreRegistry::new();
 

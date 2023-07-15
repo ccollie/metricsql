@@ -30,7 +30,7 @@ use crate::error::{
 };
 use crate::{
     CatalogManager, DeregisterSchemaRequest, DeregisterTableRequest, RegisterSchemaRequest,
-    RegisterSystemTableRequest, RegisterTableRequest, RenameTableRequest,
+    RegisterSystemTableRequest, RegisterTableRequest,
 };
 
 type SchemaEntries = HashMap<String, HashMap<String, TableRef>>;
@@ -91,13 +91,6 @@ impl CatalogManager for MemoryCatalogManager {
                 schema: &request.schema,
             })?;
         let result = schema.remove(&request.table_name);
-        if result.is_some() {
-            decrement_gauge!(
-                crate::metrics::METRIC_CATALOG_MANAGER_TABLE_COUNT,
-                1.0,
-                &[crate::metrics::db_label(&request.catalog, &request.schema)],
-            );
-        }
         Ok(())
     }
 
@@ -119,23 +112,7 @@ impl CatalogManager for MemoryCatalogManager {
                 schema: &request.schema,
             })?
             .len();
-        decrement_gauge!(
-            crate::metrics::METRIC_CATALOG_MANAGER_TABLE_COUNT,
-            table_count as f64,
-            &[crate::metrics::db_label(&request.catalog, &request.schema)],
-        );
-
-        decrement_gauge!(
-            crate::metrics::METRIC_CATALOG_MANAGER_SCHEMA_COUNT,
-            1.0,
-            &[crate::metrics::db_label(&request.catalog, &request.schema)],
-        );
         Ok(true)
-    }
-
-    async fn register_system_table(&self, _request: RegisterSystemTableRequest) -> Result<()> {
-        // TODO(ruihang): support register system table request
-        Ok(())
     }
 
     async fn schema_exist(&self, catalog: &str, schema: &str) -> Result<bool> {
@@ -246,7 +223,6 @@ impl MemoryCatalogManager {
         match catalogs.entry(name) {
             Entry::Vacant(e) => {
                 e.insert(HashMap::new());
-                increment_gauge!(crate::metrics::METRIC_CATALOG_MANAGER_CATALOG_COUNT, 1.0);
                 Ok(true)
             }
             Entry::Occupied(_) => Ok(false),
@@ -291,11 +267,6 @@ impl MemoryCatalogManager {
             .fail();
         }
         schema.insert(request.table_name, request.table);
-        increment_gauge!(
-            crate::metrics::METRIC_CATALOG_MANAGER_TABLE_COUNT,
-            1.0,
-            &[crate::metrics::db_label(&request.catalog, &request.schema)],
-        );
         Ok(true)
     }
 
@@ -355,121 +326,6 @@ mod tests {
             .await
             .unwrap()
             .is_none());
-    }
-
-    #[tokio::test]
-    async fn test_mem_manager_rename_table() {
-        let catalog = MemoryCatalogManager::default();
-        let table_name = "test_table";
-        assert!(!catalog
-            .table_exist(DEFAULT_CATALOG_NAME, DEFAULT_SCHEMA_NAME, table_name)
-            .await
-            .unwrap());
-        // register test table
-        let table_id = 2333;
-        let register_request = RegisterTableRequest {
-            catalog: DEFAULT_CATALOG_NAME.to_string(),
-            schema: DEFAULT_SCHEMA_NAME.to_string(),
-            table_name: table_name.to_string(),
-            table_id,
-            table: Arc::new(NumbersTable::new(table_id)),
-        };
-        assert!(catalog.register_table(register_request).await.unwrap());
-        assert!(catalog
-            .table_exist(DEFAULT_CATALOG_NAME, DEFAULT_SCHEMA_NAME, table_name)
-            .await
-            .unwrap());
-
-        // rename test table
-        let new_table_name = "test_table_renamed";
-        let rename_request = RenameTableRequest {
-            catalog: DEFAULT_CATALOG_NAME.to_string(),
-            schema: DEFAULT_SCHEMA_NAME.to_string(),
-            table_name: table_name.to_string(),
-            new_table_name: new_table_name.to_string(),
-            table_id,
-        };
-        let _ = catalog.rename_table(rename_request).await.unwrap();
-
-        // test old table name not exist
-        assert!(!catalog
-            .table_exist(DEFAULT_CATALOG_NAME, DEFAULT_SCHEMA_NAME, table_name)
-            .await
-            .unwrap());
-
-        // test new table name exists
-        assert!(catalog
-            .table_exist(DEFAULT_CATALOG_NAME, DEFAULT_SCHEMA_NAME, new_table_name)
-            .await
-            .unwrap());
-        let registered_table = catalog
-            .table(DEFAULT_CATALOG_NAME, DEFAULT_SCHEMA_NAME, new_table_name)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(registered_table.table_info().ident.table_id, table_id);
-
-        let dup_register_request = RegisterTableRequest {
-            catalog: DEFAULT_CATALOG_NAME.to_string(),
-            schema: DEFAULT_SCHEMA_NAME.to_string(),
-            table_name: new_table_name.to_string(),
-            table_id: table_id + 1,
-            table: Arc::new(NumbersTable::new(table_id + 1)),
-        };
-        let result = catalog.register_table(dup_register_request).await;
-        let err = result.err().unwrap();
-        assert_eq!(StatusCode::TableAlreadyExists, err.status_code());
-    }
-
-    #[tokio::test]
-    async fn test_catalog_rename_table() {
-        let catalog = MemoryCatalogManager::default();
-        let table_name = "num";
-        let table_id = 2333;
-        let table: TableRef = Arc::new(NumbersTable::new(table_id));
-
-        // register table
-        let register_table_req = RegisterTableRequest {
-            catalog: DEFAULT_CATALOG_NAME.to_string(),
-            schema: DEFAULT_SCHEMA_NAME.to_string(),
-            table_name: table_name.to_string(),
-            table_id,
-            table,
-        };
-        assert!(catalog.register_table(register_table_req).await.unwrap());
-        assert!(catalog
-            .table(DEFAULT_CATALOG_NAME, DEFAULT_SCHEMA_NAME, table_name)
-            .await
-            .unwrap()
-            .is_some());
-
-        // rename table
-        let new_table_name = "numbers_new";
-        let rename_table_req = RenameTableRequest {
-            catalog: DEFAULT_CATALOG_NAME.to_string(),
-            schema: DEFAULT_SCHEMA_NAME.to_string(),
-            table_name: table_name.to_string(),
-            new_table_name: new_table_name.to_string(),
-            table_id,
-        };
-        assert!(catalog.rename_table(rename_table_req).await.unwrap());
-        assert!(catalog
-            .table(DEFAULT_CATALOG_NAME, DEFAULT_SCHEMA_NAME, table_name)
-            .await
-            .unwrap()
-            .is_none());
-        assert!(catalog
-            .table(DEFAULT_CATALOG_NAME, DEFAULT_SCHEMA_NAME, new_table_name)
-            .await
-            .unwrap()
-            .is_some());
-
-        let registered_table = catalog
-            .table(DEFAULT_CATALOG_NAME, DEFAULT_SCHEMA_NAME, new_table_name)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(registered_table.table_info().ident.table_id, table_id);
     }
 
     #[test]

@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
@@ -65,7 +66,7 @@ impl Serialize for RangeValue {
             .labels
             .iter()
             .map(|l| (l.name.as_str(), l.value.as_str()))
-            .collect::<FxIndexMap<_, _>>();
+            .collect::<HashMap<_, _>>();
         seq.serialize_field("metric", &labels_map)?;
         seq.serialize_field("values", &self.samples)?;
         seq.end()

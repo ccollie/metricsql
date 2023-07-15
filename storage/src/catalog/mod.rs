@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod helpers;
-mod information_schema;
-mod information_schema;
+mod consts;
 mod table_source;
 mod table_source_provider;
 mod tables;
