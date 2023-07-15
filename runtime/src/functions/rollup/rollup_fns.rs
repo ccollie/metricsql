@@ -372,10 +372,7 @@ pub(crate) fn get_rollup_aggr_funcs(expr: &Expr) -> RuntimeResult<Vec<RollupFunc
 }
 
 fn get_rollup_aggr_funcs_impl(fe: &FunctionExpr) -> RuntimeResult<Vec<RollupFunction>> {
-    let is_aggr_over_time = match fe.function {
-        BuiltinFunction::Rollup(rf) => rf == RollupFunction::AggrOverTime,
-        _ => false,
-    };
+    let is_aggr_over_time = fe.is_rollup_function(RollupFunction::AggrOverTime);
 
     if !is_aggr_over_time {
         let msg = format!(
@@ -413,6 +410,99 @@ fn get_rollup_aggr_funcs_impl(fe: &FunctionExpr) -> RuntimeResult<Vec<RollupFunc
     }
 
     Ok(aggr_funcs)
+}
+
+fn getRollupAggrFuncs(expr: &Expr) -> RuntimeResult<Vec<String>> {
+
+    fn get_funcs(args: &[Expr]) -> RuntimeResult<Vec<String>> {
+        if args.is_empty() {
+            return Err(
+                RuntimeError::ArgumentError("aggr_over_time() must contain at least a single aggregate function name".to_string())
+            );
+        }
+        let mut funcs = Vec::with_capacity(args.len());
+        for arg in args.iter() {
+            match arg {
+                Expr::StringLiteral(name) => {
+                    let func = get_rollup_func_by_name(&name)?;
+                    funcs.push(name.clone())
+                },
+                _ => {
+                    let msg = format!(
+                        "{arg} cannot be passed here; expecting quoted aggregate function name",
+                    );
+                    return Err(RuntimeError::ArgumentError(msg));
+                }
+            }
+        }
+        Ok(funcs)
+    }
+
+    let mut expr = match expr {
+        Expr::Aggregation(afe) => {
+            // This is for incremental aggregate function case:
+            //
+            //     sum(aggr_over_time(...))
+            // See aggr_incremental.rs for details.
+            &afe.args[0]
+        }
+        _ => expr,
+    };
+    match expr {
+        Expr::Function(fe) => {
+            let is_aggr_over_time = fe.is_rollup_function(RollupFunction::AggrOverTime);
+            if !is_aggr_over_time {
+                return Err(
+                    RuntimeError::ArgumentError(format!("BUG: unexpected function name: {}; want `aggr_over_time`", fe.name))
+                );
+            }
+            if fe.args.len() < 2 {
+                let msg = format!(
+                    "unexpected number of args to aggr_over_time(); got {}; want at least 2",
+                    fe.args.len()
+                );
+                return Err(RuntimeError::ArgumentError(msg));
+            }
+            let mut aggr_func_names = Vec::with_capacity(fe.args.len() - 1);
+            let args = &fe.args[0];
+            match args {
+                Expr::StringLiteral(name) => {
+                    aggr_func_names.push(name)
+                }
+                Expr::Parens(pe) => {
+                    if pe.expressions.is_empty() {
+                        return Err(
+                            RuntimeError::ArgumentError("unexpected empty parens; want at least one expression inside parens".to_string())
+                        );
+                    }
+                    return get_funcs(&pe.expressions);
+                }
+                Expr::Function(fe) => {
+                    // union is the only function that can be passed here
+                    if !fe.is_rollup_function(RollupFunction::Union) {
+                        return RuntimeError::General("{args} cannot be passed here; expecting quoted aggregate function name", args)
+                    }
+                }
+                _ => {
+                    return Err(
+                        RuntimeError::General("{args} cannot be passed here; expecting quoted aggregate function name", args)
+                    );
+                }
+            }
+            return aggrFuncNames, nil
+        }
+    }
+
+    if aggr_func_names.is_empty() {
+        return RuntimeResult::ArgumentError("aggr_over_time() must contain at least a single aggregate function name")
+    }
+    for s in aggr_func_names.iter() {
+        if rollupAggrFuncs[s] == nil {
+            let msg = format!("{} cannot be used in `aggr_over_time` function; expecting quoted aggregate function name")
+            return RuntimeResult.ArgumentError(msg);
+        }
+    }
+    Ok(aggr_func_names)
 }
 
 fn get_rollup_tag(expr: &Expr) -> RuntimeResult<Option<&String>> {

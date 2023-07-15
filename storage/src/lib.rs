@@ -1,11 +1,14 @@
+extern crate anyhow;
 extern crate core;
 extern crate datafusion;
+extern crate once_cell;
 extern crate regex;
 extern crate regex_syntax;
 extern crate snafu;
 extern crate tokio;
 
 use std::sync::Arc;
+use async_trait::async_trait;
 
 use datafusion::arrow::datatypes::Schema;
 use datafusion::prelude::SessionContext;

@@ -606,12 +606,7 @@ impl TransformFunction {
     }
 
     pub fn return_type(&self) -> ValueType {
-        match self {
-            TransformFunction::Time | TransformFunction::Pi | TransformFunction::Now => {
-                ValueType::Scalar
-            }
-            _ => ValueType::InstantVector,
-        }
+        ValueType::InstantVector
     }
 }
 

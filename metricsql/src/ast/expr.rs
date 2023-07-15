@@ -22,9 +22,7 @@ use crate::common::{
 };
 use crate::functions::{AggregateFunction, BuiltinFunction, TransformFunction};
 use crate::parser::{escape_ident, ParseError, ParseResult};
-use crate::prelude::{
-    get_aggregate_arg_idx_for_optimization, BuiltinFunctionType, InterpolatedSelector,
-};
+use crate::prelude::{get_aggregate_arg_idx_for_optimization, BuiltinFunctionType, InterpolatedSelector, RollupFunction};
 
 pub type BExpr = Box<Expr>;
 
@@ -407,6 +405,20 @@ impl FunctionExpr {
 
     pub fn is_rollup(&self) -> bool {
         self.function_type() == BuiltinFunctionType::Rollup
+    }
+    
+    pub fn is_rollup_function(&self, rf: RollupFunction) -> bool {
+        match self.function { 
+            BuiltinFunction::Rollup(r) => r == rf,
+            _ => false,
+        }
+    }
+    
+    pub fn is_aggregate_function(&self, af: AggregateFunction) -> bool {
+        match self.function {
+            BuiltinFunction::Aggregate(a) => a == af,
+            _ => false,
+        }
     }
 }
 

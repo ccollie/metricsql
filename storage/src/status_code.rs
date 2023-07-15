@@ -48,38 +48,19 @@ pub enum StatusCode {
     // ====== End of query related status code =========
 
     // ====== Begin of catalog related status code =====
-    /// Table already exists.
-    TableAlreadyExists = 4000,
     TableNotFound = 4001,
     TableColumnNotFound = 4002,
     TableColumnExists = 4003,
     DatabaseNotFound = 4004,
     // ====== End of catalog related status code =======
 
-    // ====== Begin of storage related status code =====
-    /// Storage is temporarily unable to handle the request
-    StorageUnavailable = 5000,
-    // ====== End of storage related status code =======
-
     // ====== Begin of server related status code =====
     /// Runtime resources exhausted, like creating threads failed.
     RuntimeResourcesExhausted = 6000,
 
-    /// Rate limit exceeded
-    RateLimited = 6001,
-    // ====== End of server related status code =======
-
     // ====== Begin of auth related status code =====
     /// User not exist
     UserNotFound = 7000,
-    /// Unsupported password type
-    UnsupportedPasswordType = 7001,
-    /// Username and password does not match
-    UserPasswordMismatch = 7002,
-    /// Not found http authorization header
-    AuthHeaderNotFound = 7003,
-    /// Invalid http authorization header
-    InvalidAuthHeader = 7004,
     /// Illegal request to connect catalog-schema
     AccessDenied = 7005,
     // ====== End of auth related status code =====
@@ -94,8 +75,7 @@ impl StatusCode {
     /// Returns `true` if the error with this code is retryable.
     pub fn is_retryable(&self) -> bool {
         match self {
-            StatusCode::StorageUnavailable
-            | StatusCode::RuntimeResourcesExhausted
+            StatusCode::RuntimeResourcesExhausted
             | StatusCode::Internal => true,
 
             StatusCode::Success
@@ -107,17 +87,11 @@ impl StatusCode {
             | StatusCode::InvalidSyntax
             | StatusCode::PlanQuery
             | StatusCode::EngineExecuteQuery
-            | StatusCode::TableAlreadyExists
             | StatusCode::TableNotFound
             | StatusCode::TableColumnNotFound
             | StatusCode::TableColumnExists
             | StatusCode::DatabaseNotFound
-            | StatusCode::RateLimited
             | StatusCode::UserNotFound
-            | StatusCode::UnsupportedPasswordType
-            | StatusCode::UserPasswordMismatch
-            | StatusCode::AuthHeaderNotFound
-            | StatusCode::InvalidAuthHeader
             | StatusCode::AccessDenied => false,
         }
     }
@@ -133,23 +107,18 @@ impl StatusCode {
             | StatusCode::Cancelled
             | StatusCode::PlanQuery
             | StatusCode::EngineExecuteQuery
-            | StatusCode::StorageUnavailable
             | StatusCode::RuntimeResourcesExhausted => true,
             StatusCode::Success
             | StatusCode::InvalidArguments
             | StatusCode::InvalidSyntax
-            | StatusCode::TableAlreadyExists
             | StatusCode::TableNotFound
             | StatusCode::TableColumnNotFound
             | StatusCode::TableColumnExists
             | StatusCode::DatabaseNotFound
-            | StatusCode::RateLimited
-            | StatusCode::UserNotFound
-            | StatusCode::UnsupportedPasswordType
-            | StatusCode::UserPasswordMismatch
-            | StatusCode::AuthHeaderNotFound
-            | StatusCode::InvalidAuthHeader
             | StatusCode::AccessDenied => false,
+            _ => {
+                false
+            }
         }
     }
 }
@@ -173,7 +142,6 @@ mod tests {
     #[test]
     fn test_display_status_code() {
         assert_status_code_display(StatusCode::Unknown, "Unknown");
-        assert_status_code_display(StatusCode::TableAlreadyExists, "TableAlreadyExists");
     }
 
     #[test]

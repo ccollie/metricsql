@@ -5,5 +5,5 @@ pub(crate) use time::*;
 mod hasher;
 mod json;
 mod schema_ext;
-mod time;
+pub(crate) mod time;
 mod timestamp;

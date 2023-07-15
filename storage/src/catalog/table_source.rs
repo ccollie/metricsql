@@ -23,7 +23,6 @@ use snafu::{ensure, OptionExt};
 use common_catalog::consts::INFORMATION_SCHEMA_NAME;
 use common_catalog::format_full_table_name;
 use session::context::QueryContext;
-use table::table::adapter::DfTableProviderAdapter;
 
 use crate::error::{QueryAccessDeniedSnafu, Result, TableNotExistSnafu};
 use crate::CatalogManagerRef;
