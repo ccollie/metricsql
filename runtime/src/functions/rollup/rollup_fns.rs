@@ -593,7 +593,7 @@ pub(crate) fn get_rollup_configs<'a>(
     };
 
     // todo: tinyvec
-    let mut rcs: Vec<RollupConfig> = Vec::with_capacity(1);
+    let mut rcs: Vec<RollupConfig> = Vec::with_capacity(4);
     match func {
         RollupFunction::Rollup => {
             append_rollup_configs(&mut rcs, expr)?;

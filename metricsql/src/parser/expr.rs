@@ -164,6 +164,41 @@ fn balance(
     Ok(Expr::BinaryOperator(expr))
 }
 
+fn balance_binary_op(be: BinaryExpr) -> Expr {
+    let rp = be.op.precedence();
+
+    // the duplicate match seems convoluted, but saves some cloning when we don't need to
+    // balance
+    let lp = match &be.left.as_ref() {
+        Expr::BinaryOperator(bel) => Some(bel.op.precedence()),
+        _ => None,
+    };
+
+    if let Some(lp) = lp {
+        if rp < lp {
+            return Expr::BinaryOperator(be);
+        }
+        if rp == lp && !be.op.is_right_associative() {
+            return Expr::BinaryOperator(be);
+        }
+
+        let mut be = be;
+        match &be.left.as_ref() {
+            Expr::BinaryOperator(bel) => {
+                let mut bel = bel.clone();
+                be.left = std::mem::take(&mut bel.right);
+                bel.right = balance_binary_op(be);
+                return Expr::BinaryOperator(bel);
+            }
+            _ => unreachable!("binary expr op changed type"),
+
+        }
+    }
+
+    Expr::BinaryOperator(be)
+
+}
+
 fn parse_group_modifier(p: &mut Parser) -> Result<GroupModifier, ParseError> {
     let tok = p.expect_one_of(&[Token::Ignoring, Token::On])?;
 
