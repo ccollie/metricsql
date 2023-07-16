@@ -79,8 +79,6 @@ pub struct MetricName {
     // todo: Consider https://crates.io/crates/btree-slab or heapless btree to minimize allocations
     pub tags: Vec<Tag>,
     #[serde(skip)]
-    pub(crate) hash: Option<u64>,
-    #[serde(skip)]
     sorted: bool,
 }
 
@@ -89,7 +87,6 @@ impl MetricName {
         MetricName {
             metric_group: name.to_string(),
             tags: vec![],
-            hash: None,
             sorted: true,
         }
     }
@@ -121,7 +118,6 @@ impl MetricName {
     pub fn reset(&mut self) {
         self.metric_group = "".to_string();
         self.tags.clear();
-        self.hash = None;
         self.sorted = true;
     }
 
@@ -136,7 +132,6 @@ impl MetricName {
             return;
         }
         self.upsert(key, value.into());
-        self.hash = None;
     }
 
     pub fn add_tags_from_hashmap(&mut self, tags: &HashMap<String, String>) {
@@ -147,7 +142,6 @@ impl MetricName {
             }
             self.upsert(key, value.clone());
         }
-        self.hash = None;
     }
 
     fn upsert(&mut self, key: &str, value: String) {
@@ -167,7 +161,6 @@ impl MetricName {
     pub fn set_tag<S: Into<String>>(&mut self, key: &str, value: S) {
         if key == METRIC_NAME_LABEL {
             self.metric_group = value.into();
-            self.hash = None;
             return;
         } else {
             self.upsert(key, value.into());
@@ -179,11 +172,7 @@ impl MetricName {
         if key == METRIC_NAME_LABEL {
             self.reset_metric_group();
         } else {
-            let count = self.tags.len();
             self.tags.retain(|x| x.key != key);
-            if count != self.tags.len() {
-                self.hash = None;
-            }
         }
     }
 
@@ -216,7 +205,6 @@ impl MetricName {
         } else {
             self.tags.retain(|tag| on_tags.contains(&tag.key));
         }
-        self.hash = None;
     }
 
     /// remove_tags_ignoring removes all the tags included in ignoring_tags.
@@ -237,7 +225,6 @@ impl MetricName {
         } else {
             self.tags.retain(|tag| !ignoring_tags.contains(&tag.key));
         }
-        self.hash = None;
     }
 
     pub fn update_tags_by_group_modifier(&mut self, modifier: &GroupModifier) {
@@ -262,7 +249,6 @@ impl MetricName {
             }
         }
         self.tags.retain(|tag| set.contains(&tag.key));
-        self.hash = None;
     }
 
     /// sets tags from src with keys matching add_tags.
@@ -283,7 +269,6 @@ impl MetricName {
                 }
             }
         }
-        self.hash = None;
     }
 
     pub fn append_tags_to_string(&self, dst: &mut Vec<u8>) {
@@ -389,15 +374,6 @@ impl MetricName {
         }
     }
 
-    pub(crate) fn fast_hash(&self, hasher: &mut Xxh3) -> u64 {
-        hasher.reset();
-        hasher.update(self.metric_group.as_bytes());
-        for tag in self.tags.iter() {
-            tag.update_hash(hasher);
-        }
-        hasher.digest()
-    }
-
     pub(crate) fn signature(&self) -> Signature {
         Signature::new(self)
     }
@@ -409,11 +385,11 @@ impl MetricName {
         }
     }
 
-    pub fn with_labels_iter<'a>(&'a self, names: &'a [String]) -> impl Iterator<Item=&Tag> {
+    pub fn with_labels_iter<'a>(&'a self, names: &'a [String]) -> impl Iterator<Item = &Tag> {
         WithLabelsIterator::new(self, names)
     }
 
-    pub fn without_labels_iter<'a>(&'a self, names: &'a [String]) -> impl Iterator<Item=&Tag> {
+    pub fn without_labels_iter<'a>(&'a self, names: &'a [String]) -> impl Iterator<Item = &Tag> {
         WithoutLabelsIterator::new(self, names)
     }
 
@@ -426,10 +402,7 @@ impl MetricName {
         Signature::from_tag_iter(self.without_labels_iter(names))
     }
 
-    pub fn signature_by_group_modifier(
-        &self,
-        modifier: &Option<GroupModifier>,
-    ) -> Signature {
+    pub fn signature_by_group_modifier(&self, modifier: &Option<GroupModifier>) -> Signature {
         match modifier {
             None => self.signature(),
             Some(m) => match m.op {

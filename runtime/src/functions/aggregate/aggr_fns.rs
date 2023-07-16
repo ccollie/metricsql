@@ -1,6 +1,8 @@
 use std::borrow::BorrowMut;
+use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap};
 use std::ops::{Deref, DerefMut};
+use std::sync::Arc;
 
 use lockfree_object_pool::LinearReusable;
 
@@ -18,11 +20,13 @@ use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::signature::Signature;
 use crate::{EvalConfig, QueryValue, Timeseries};
 
+const MAX_SERIES_PER_AGGR_FUNC: usize = 100000;
+
 // todo: add lifetime so we dont need to copy modifier
 pub struct AggrFuncArg<'a> {
     pub args: Vec<QueryValue>,
     pub ec: &'a EvalConfig,
-    pub modifier: Option<AggregateModifier>,
+    pub modifier: &'a Option<AggregateModifier>,
     pub limit: usize,
 }
 
@@ -173,67 +177,89 @@ fn aggr_func_ext(
     max_series: usize,
     keep_original: bool,
 ) -> RuntimeResult<Vec<Timeseries>> {
-    remove_empty_series(arg_orig);
-
     // Perform grouping.
-    let mut series_by_name: HashMap<Signature, Vec<Timeseries>> = HashMap::new();
-    // todo: parallelize hash calculation
-
-    for mut ts in arg_orig.drain(0..) {
-        ts.metric_name.remove_group_tags(modifier);
-
-        let key = ts.metric_name.signature();
-
-        let series_len = series_by_name.len();
-
-        let group = series_by_name.entry(key).or_default();
-
-        if group.len() == 0 && max_series > 0 && series_len >= max_series {
-            // We already reached time series limit after grouping. Skip other time series.
-            continue;
-        }
-
-        if keep_original {
-            // TODO: is it ok to do ts.into()? Does it allocate ?
-            group.push(ts);
-        } else {
-            // Todo(perf) - does this need to be copied ? Although arg_orig is passed
-            // mutably, this fn is the only consumer
-            let copy = ts.clone();
-            group.push(copy);
-        };
-    }
-
-    let mut src_tss_count = 0;
-    let mut dst_tss_count = 0;
+    let mut series_by_name = aggr_prepare_series(arg_orig, modifier, max_series, keep_original);
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(series_by_name.len());
-    for (_, tss) in series_by_name.iter_mut() {
+    for tss in series_by_name.values_mut() {
         let mut rv = afe(tss, modifier);
         rvs.append(&mut rv);
-        src_tss_count += tss.len();
-        dst_tss_count += rv.len();
-        if dst_tss_count > 2000 && dst_tss_count > 16 * src_tss_count {
-            // This looks like count_values explosion.
-            let msg = format!(
-                "too many timeseries after aggregation; \n
-                got {dst_tss_count}; want less than {}",
-                16 * src_tss_count
-            );
-            return Err(RuntimeError::from(msg));
-        }
     }
 
     Ok(rvs)
 }
 
+fn aggr_prepare_series(
+    arg_orig: &mut Vec<Timeseries>,
+    modifier: &Option<AggregateModifier>,
+    max_series: usize,
+    keep_original: bool,
+) -> HashMap<Signature, Vec<Timeseries>> {
+    // Remove empty time series, e.g. series with all NaN samples,
+    // since such series are ignored by aggregate functions.
+    remove_empty_series(arg_orig);
+
+    let capacity = arg_orig.len();
+
+    let mut args = arg_orig;
+
+    // Perform grouping.
+    let mut m = HashMap::with_capacity(capacity);
+    for mut ts in args.drain(0..) {
+        ts.metric_name.remove_group_tags(modifier);
+        ts.metric_name.sort_tags();
+        let k = ts.metric_name.signature();
+
+        let series = if keep_original { ts } else { ts.clone() };
+
+        let len = m.len();
+        match m.entry(k) {
+            Entry::Vacant(entry) => {
+                if max_series > 0 && len >= max_series {
+                    // We already reached time series limit after grouping. Skip other time series.
+                    continue;
+                }
+                let mut tss: Vec<Timeseries> = Vec::with_capacity(4);
+                tss.push(series);
+                entry.insert(tss);
+            }
+            Entry::Occupied(mut entry) => {
+                let tss = entry.get_mut();
+                tss.push(series);
+            }
+        }
+    }
+    return m;
+}
+
+// copy_timeseries_metric_names returns a copy of tss with real copy of MetricNames,
+// but with shallow copy of Timestamps and Values if makeCopy is set.
+//
+// Otherwise tss is returned.
+fn copy_timeseries_metric_names(tss: &Vec<Timeseries>) -> Vec<Timeseries> {
+    let mut rvs = Vec::with_capacity(tss.len());
+    for src in tss.iter() {
+        let dst = Timeseries {
+            metric_name: Default::default(),
+            values: vec![],
+            timestamps: Arc::clone(&src.timestamps),
+        };
+        rvs.push(dst);
+    }
+    return rvs;
+}
+
 fn aggr_func_any(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut tss = get_aggr_timeseries(afa)?;
-    let afe = move |tss: &mut Vec<Timeseries>, _modifier_: &Option<AggregateModifier>| {
-        tss.drain(0..).collect()
+    let afe = move |tss: &mut Vec<Timeseries>, _: &Option<AggregateModifier>| {
+        if tss.len() >= 1 {
+            let ts = std::mem::take(&mut tss[0]);
+            return vec![ts];
+        }
+        vec![]
     };
     // Only a single time series per group must be returned
     let limit = afa.limit.max(1);
-    aggr_func_ext(afe, &mut tss, &afa.modifier, limit, true)
+    aggr_func_ext(afe, &mut tss, afa.modifier, limit, true)
 }
 
 fn aggr_func_group(tss: &mut Vec<Timeseries>) {
@@ -547,7 +573,7 @@ fn aggr_func_share(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
         std::mem::take(tss)
     };
 
-    return aggr_func_ext(afe, &mut tss, &afa.modifier, afa.limit, true);
+    return aggr_func_ext(afe, &mut tss, afa.modifier, afa.limit, true);
 }
 
 fn aggr_func_zscore(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
@@ -590,15 +616,16 @@ fn aggr_func_zscore(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
         std::mem::take(tss)
     };
 
-    aggr_func_ext(afe, &mut tss, &afa.modifier, afa.limit, true)
+    aggr_func_ext(afe, &mut tss, afa.modifier, afa.limit, true)
 }
 
 fn aggr_func_count_values(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let dst_label = afa.args[0].get_string()?;
 
     // Remove dst_label from grouping like Prometheus does.
-    if let Some(modifier) = afa.modifier.borrow_mut() {
-        match modifier {
+    let modifier = if let Some(modifier) = &afa.modifier {
+        let mut new_modifier = modifier.clone();
+        match new_modifier.borrow_mut() {
             AggregateModifier::Without(args) => {
                 args.push(dst_label.clone());
             }
@@ -606,7 +633,10 @@ fn aggr_func_count_values(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries
                 args.retain(|x| x != &dst_label);
             }
         }
-    }
+        Some(new_modifier)
+    } else {
+        None
+    };
 
     let afe = move |tss: &mut Vec<Timeseries>, _: &Option<AggregateModifier>| -> Vec<Timeseries> {
         let mut values: Vec<f64> = Vec::with_capacity(16); // todo: calculate initial capacity
@@ -647,7 +677,24 @@ fn aggr_func_count_values(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries
     };
 
     let mut series = get_series(afa, 1)?;
-    aggr_func_ext(afe, &mut series, &afa.modifier, afa.limit, false)
+    let mut series_by_labels = aggr_prepare_series(&mut series, afa.modifier, afa.limit, false);
+
+    let mut rvs: Vec<Timeseries> = Vec::with_capacity(series_by_labels.len());
+    for tss in series_by_labels.values_mut() {
+        let mut rv = afe(tss, &modifier);
+        rvs.append(&mut rv);
+
+        // todo: how to config this limit?
+        if rvs.len() >= MAX_SERIES_PER_AGGR_FUNC {
+            let msg = format!(
+                "more than -search.MAX_SERIES_PER_AGGR_FUNC={} are generated by count_values()",
+                MAX_SERIES_PER_AGGR_FUNC
+            );
+            return Err(RuntimeError::AggregateError(msg));
+        }
+    }
+
+    Ok(rvs)
 }
 
 fn func_topk_impl(afa: &mut AggrFuncArg, is_reverse: bool) -> RuntimeResult<Vec<Timeseries>> {
@@ -674,7 +721,7 @@ fn func_topk_impl(afa: &mut AggrFuncArg, is_reverse: bool) -> RuntimeResult<Vec<
         };
 
     let mut series = get_series(afa, 1)?;
-    aggr_func_ext(afe, &mut series, &afa.modifier, afa.limit, true)
+    aggr_func_ext(afe, &mut series, afa.modifier, afa.limit, true)
 }
 
 fn range_topk_impl(
@@ -703,7 +750,7 @@ fn range_topk_impl(
     };
 
     let mut series = get_series(afa, 1)?;
-    aggr_func_ext(afe, &mut series, &afa.modifier, afa.limit, true)
+    aggr_func_ext(afe, &mut series, afa.modifier, afa.limit, true)
 }
 
 fn get_range_topk_timeseries<F>(
@@ -885,11 +932,11 @@ fn aggr_func_outliersk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> 
             sum2
         };
 
-        return get_range_topk_timeseries(tss, &afa.modifier, &ks, "", f, false);
+        return get_range_topk_timeseries(tss, afa.modifier, &ks, "", f, false);
     };
 
     let mut series = get_series(afa, 1)?;
-    aggr_func_ext(afe, &mut series, &afa.modifier, afa.limit, true)
+    aggr_func_ext(afe, &mut series, afa.modifier, afa.limit, true)
 }
 
 fn aggr_func_limitk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
@@ -918,7 +965,7 @@ fn aggr_func_limitk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     };
 
     let mut series = get_series(afa, 1)?;
-    aggr_func_ext(afe, &mut series, &afa.modifier, afa.limit, true)
+    aggr_func_ext(afe, &mut series, afa.modifier, afa.limit, true)
 }
 
 fn aggr_func_quantiles(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
@@ -963,21 +1010,21 @@ fn aggr_func_quantiles(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> 
         .args
         .remove(afa.args.len() - 1)
         .get_instant_vector(afa.ec)?;
-    aggr_func_ext(afe, &mut last, &afa.modifier, afa.limit, false)
+    aggr_func_ext(afe, &mut last, afa.modifier, afa.limit, false)
 }
 
 fn aggr_func_quantile(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let phis = get_scalar(&afa, 0)?;
     let afe = new_aggr_quantile_func(&phis);
     let mut series = get_series(afa, 1)?;
-    return aggr_func_ext(afe, &mut series, &afa.modifier, afa.limit, false);
+    return aggr_func_ext(afe, &mut series, afa.modifier, afa.limit, false);
 }
 
 fn aggr_func_median(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut tss = get_aggr_timeseries(afa)?;
     let phis = &eval_number(&afa.ec, 0.5)[0].values; // todo: use more efficient method
     let afe = new_aggr_quantile_func(phis);
-    return aggr_func_ext(afe, &mut tss, &afa.modifier, afa.limit, false);
+    return aggr_func_ext(afe, &mut tss, afa.modifier, afa.limit, false);
 }
 
 fn new_aggr_quantile_func(phis: &Vec<f64>) -> impl AggrFnExt + '_ {
@@ -1037,7 +1084,7 @@ fn aggr_func_outliers_mad(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries
     };
 
     let mut series = get_series(afa, 1)?;
-    aggr_func_ext(afe, &mut series, &afa.modifier, afa.limit, true)
+    aggr_func_ext(afe, &mut series, afa.modifier, afa.limit, true)
 }
 
 fn get_per_point_medians(tss: &mut Vec<Timeseries>) -> Vec<f64> {
@@ -1169,7 +1216,6 @@ fn expect_arg_count(tfa: &AggrFuncArg, expected: usize) -> RuntimeResult<()> {
         return Ok(());
     }
     return Err(RuntimeError::ArgumentError(format!(
-        "unexpected number of args; got {}; want {}",
-        arg_count, expected
+        "unexpected number of args; got {arg_count}; want {expected}",
     )));
 }

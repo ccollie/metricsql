@@ -17,8 +17,8 @@ use crate::eval::exec::eval_expr;
 use crate::eval::{align_start_end, eval_number, validate_max_points_per_timeseries};
 use crate::functions::aggregate::IncrementalAggrFuncContext;
 use crate::functions::rollup::{
-    eval_prefuncs, get_rollup_configs, rollup_func_keeps_metric_name, RollupConfig,
-    RollupHandlerEnum, TimeseriesMap, MAX_SILENCE_INTERVAL,
+    eval_prefuncs, get_rollup_configs, RollupConfig, RollupHandlerEnum, TimeseriesMap,
+    MAX_SILENCE_INTERVAL,
 };
 use crate::functions::transform::get_absent_timeseries;
 use crate::rayon::iter::ParallelIterator;
@@ -747,22 +747,6 @@ fn aggregate_absent_over_time(ec: &EvalConfig, expr: &Expr, tss: &[Timeseries]) 
         }
     }
     return rvs;
-}
-
-fn get_keep_metric_names(expr: &Expr) -> bool {
-    // todo: move to optimize stage. put result in ast node
-    return match expr {
-        Expr::BinaryOperator(be) => be.keep_metric_names,
-        Expr::Aggregation(ae) => ae.keep_metric_names,
-        Expr::Function(fe) => {
-            if fe.keep_metric_names {
-                // TODO: !!!! this is a hack. We need to fix this in the parser
-                return rollup_func_keeps_metric_name(&fe.name);
-            }
-            false
-        }
-        _ => false,
-    };
 }
 
 /// Executes `f` for each `Timeseries` in `tss` in parallel.

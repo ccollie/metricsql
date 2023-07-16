@@ -1,14 +1,14 @@
 use std::cell::RefCell;
 use std::default::Default;
-use std::ops::{Deref, DerefMut};
+use std::ops::DerefMut;
 use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::Arc;
 
 use lib::{get_float64s, is_stale_nan};
-use metricsql::ast::{Expr, FunctionExpr};
+use metricsql::ast::Expr;
 use metricsql::functions::{can_adjust_window, RollupFunction};
-use metricsql::prelude::BuiltinFunction;
+use metricsql::prelude::TransformFunction;
 
 use crate::eval::validate_max_points_per_timeseries;
 use crate::functions::rollup::types::RollupHandlerFactory;
@@ -345,88 +345,36 @@ pub(crate) fn rollup_func_keeps_metric_name(name: &str) -> bool {
 
 // todo: use in optimize so its cached in the ast
 pub(crate) fn get_rollup_aggr_funcs(expr: &Expr) -> RuntimeResult<Vec<RollupFunction>> {
-    fn raise_err(expr: &Expr) -> RuntimeResult<Vec<RollupFunction>> {
-        let msg = format!(
-            "BUG: unexpected expression; want FunctionExpr; got {}; value: {}",
-            expr.variant_name(),
-            expr
-        );
-        Err(RuntimeError::from(msg))
-    }
-
-    match expr {
-        Expr::Aggregation(afe) => {
-            // This is for incremental aggregate function case:
-            //
-            //     sum(aggr_over_time(...))
-            // See aggr_incremental.rs for details.
-            let _expr = &afe.args[0];
-            match _expr.deref() {
-                Expr::Function(f) => get_rollup_aggr_funcs_impl(f),
-                _ => raise_err(_expr),
-            }
-        }
-        Expr::Function(fe) => get_rollup_aggr_funcs_impl(fe),
-        _ => raise_err(expr),
-    }
-}
-
-fn get_rollup_aggr_funcs_impl(fe: &FunctionExpr) -> RuntimeResult<Vec<RollupFunction>> {
-    let is_aggr_over_time = fe.is_rollup_function(RollupFunction::AggrOverTime);
-
-    if !is_aggr_over_time {
-        let msg = format!(
-            "BUG: unexpected function name: `{}`; want `aggr_over_time`",
-            fe.name
-        );
-        return Err(RuntimeError::from(msg));
-    }
-
-    let arg_len = fe.args.len();
-    if arg_len < 2 {
-        let msg = format!(
-            "unexpected number of args to aggr_over_time(); got {arg_len}; want at least 2"
-        );
-        return Err(RuntimeError::from(msg));
-    }
-
-    let mut aggr_funcs: Vec<RollupFunction> = Vec::with_capacity(1);
-    for arg in fe.args.iter() {
-        match arg.deref() {
-            Expr::StringLiteral(name) => match get_rollup_func_by_name(&name) {
-                Err(_) => {
-                    let msg = format!("{name} cannot be used in `aggr_over_time` function; expecting quoted aggregate function name");
-                    return Err(RuntimeError::General(msg));
-                }
-                Ok(rf) => aggr_funcs.push(rf),
-            },
-            _ => {
+    fn get_func_by_name(name: &str) -> RuntimeResult<RollupFunction> {
+        return if let Ok(func) = get_rollup_func_by_name(name) {
+            if !func.is_aggregate_function() {
                 let msg = format!(
-                    "{arg} cannot be passed here; expecting quoted aggregate function name",
+                    "{name} cannot be used in `aggr_over_time` function; expecting aggregate function name",
                 );
                 return Err(RuntimeError::General(msg));
             }
-        }
+            Ok(func)
+        } else {
+            let msg =
+                format!("Unknown aggregate function {name} used in `aggr_over_time` function;",);
+            Err(RuntimeError::ArgumentError(msg))
+        };
     }
 
-    Ok(aggr_funcs)
-}
-
-fn getRollupAggrFuncs(expr: &Expr) -> RuntimeResult<Vec<String>> {
-
-    fn get_funcs(args: &[Expr]) -> RuntimeResult<Vec<String>> {
+    fn get_funcs(args: &[Expr]) -> RuntimeResult<Vec<RollupFunction>> {
         if args.is_empty() {
-            return Err(
-                RuntimeError::ArgumentError("aggr_over_time() must contain at least a single aggregate function name".to_string())
-            );
+            return Err(RuntimeError::ArgumentError(
+                "aggr_over_time() must contain at least a single aggregate function name"
+                    .to_string(),
+            ));
         }
         let mut funcs = Vec::with_capacity(args.len());
         for arg in args.iter() {
             match arg {
                 Expr::StringLiteral(name) => {
-                    let func = get_rollup_func_by_name(&name)?;
-                    funcs.push(name.clone())
-                },
+                    let func = get_func_by_name(&name)?;
+                    funcs.push(func)
+                }
                 _ => {
                     let msg = format!(
                         "{arg} cannot be passed here; expecting quoted aggregate function name",
@@ -438,7 +386,7 @@ fn getRollupAggrFuncs(expr: &Expr) -> RuntimeResult<Vec<String>> {
         Ok(funcs)
     }
 
-    let mut expr = match expr {
+    let expr = match expr {
         Expr::Aggregation(afe) => {
             // This is for incremental aggregate function case:
             //
@@ -452,9 +400,10 @@ fn getRollupAggrFuncs(expr: &Expr) -> RuntimeResult<Vec<String>> {
         Expr::Function(fe) => {
             let is_aggr_over_time = fe.is_rollup_function(RollupFunction::AggrOverTime);
             if !is_aggr_over_time {
-                return Err(
-                    RuntimeError::ArgumentError(format!("BUG: unexpected function name: {}; want `aggr_over_time`", fe.name))
-                );
+                return Err(RuntimeError::ArgumentError(format!(
+                    "BUG: unexpected function name: {}; want `aggr_over_time`",
+                    fe.name
+                )));
             }
             if fe.args.len() < 2 {
                 let msg = format!(
@@ -463,46 +412,38 @@ fn getRollupAggrFuncs(expr: &Expr) -> RuntimeResult<Vec<String>> {
                 );
                 return Err(RuntimeError::ArgumentError(msg));
             }
-            let mut aggr_func_names = Vec::with_capacity(fe.args.len() - 1);
+
             let args = &fe.args[0];
-            match args {
+            return match args {
                 Expr::StringLiteral(name) => {
-                    aggr_func_names.push(name)
+                    let func = get_func_by_name(&name)?;
+                    Ok(vec![func])
                 }
                 Expr::Parens(pe) => {
                     if pe.expressions.is_empty() {
-                        return Err(
-                            RuntimeError::ArgumentError("unexpected empty parens; want at least one expression inside parens".to_string())
-                        );
+                        return Err(RuntimeError::ArgumentError(
+                            "unexpected empty parens; want at least one expression inside parens"
+                                .to_string(),
+                        ));
                     }
-                    return get_funcs(&pe.expressions);
+                    get_funcs(&pe.expressions)
                 }
-                Expr::Function(fe) => {
-                    // union is the only function that can be passed here
-                    if !fe.is_rollup_function(RollupFunction::Union) {
-                        return RuntimeError::General("{args} cannot be passed here; expecting quoted aggregate function name", args)
-                    }
+                Expr::Function(fe) if fe.is_transform_function(TransformFunction::Union) => {
+                    get_funcs(&fe.args)
                 }
-                _ => {
-                    return Err(
-                        RuntimeError::General("{args} cannot be passed here; expecting quoted aggregate function name", args)
-                    );
-                }
-            }
-            return aggrFuncNames, nil
+                _ => Err(RuntimeError::General(format!(
+                    "{args} cannot be passed here; expecting quoted aggregate function name"
+                ))),
+            };
+        }
+        _ => {
+            let msg = format!(
+                "BUG: unexpected expression; want FunctionExpr; got {}; value: {expr}",
+                expr.variant_name()
+            );
+            Err(RuntimeError::ArgumentError(msg))
         }
     }
-
-    if aggr_func_names.is_empty() {
-        return RuntimeResult::ArgumentError("aggr_over_time() must contain at least a single aggregate function name")
-    }
-    for s in aggr_func_names.iter() {
-        if rollupAggrFuncs[s] == nil {
-            let msg = format!("{} cannot be used in `aggr_over_time` function; expecting quoted aggregate function name")
-            return RuntimeResult.ArgumentError(msg);
-        }
-    }
-    Ok(aggr_func_names)
 }
 
 fn get_rollup_tag(expr: &Expr) -> RuntimeResult<Option<&String>> {
@@ -693,25 +634,17 @@ pub(crate) fn get_rollup_configs<'a>(
             append_rollup_configs(&mut rcs, expr)?;
         }
         RollupFunction::AggrOverTime => {
-            match get_rollup_aggr_funcs(expr) {
-                Err(_) => {
-                    return Err(RuntimeError::ArgumentError(format!(
-                        "invalid args to {expr}"
-                    )))
+            let funcs = get_rollup_aggr_funcs(expr)?;
+            for rf in funcs {
+                if removes_counter_resets(rf) {
+                    // There is no need to save the previous pre_func, since it is either empty or the same.
+                    pre_funcs.clear();
+                    pre_funcs.push(remove_counter_resets_pre_func);
                 }
-                Ok(funcs) => {
-                    for rf in funcs {
-                        if removes_counter_resets(rf) {
-                            // There is no need to save the previous pre_func, since it is either empty or the same.
-                            pre_funcs.clear();
-                            pre_funcs.push(remove_counter_resets_pre_func);
-                        }
-                        let rollup_fn = get_rollup_fn(&rf)?;
-                        let handler = RollupHandlerEnum::wrap(rollup_fn);
-                        let clone = template.clone_with_fn(&handler, &rf.name());
-                        rcs.push(clone);
-                    }
-                }
+                let rollup_fn = get_rollup_fn(&rf)?;
+                let handler = RollupHandlerEnum::wrap(rollup_fn);
+                let clone = template.clone_with_fn(&handler, &rf.name());
+                rcs.push(clone);
             }
         }
         _ => {

@@ -14,7 +14,7 @@ use crate::{Context, InstantVector, QueryValue, RuntimeResult};
 pub(crate) fn eval_scalar_vector_binop(
     ctx: &Arc<Context>,
     be: &BinaryExpr,
-    mut vector: InstantVector,
+    vector: InstantVector,
     scalar: f64,
 ) -> RuntimeResult<QueryValue> {
     let _ = if ctx.trace_enabled() {

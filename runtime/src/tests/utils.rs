@@ -29,15 +29,7 @@ pub fn test_rows_equal(
     values_expected: &[f64],
     timestamps_expected: &[i64],
 ) {
-    assert_eq!(
-        values.len(),
-        values_expected.len(),
-        "unexpected values.len(); got {}; want {}\nvalues=\n{:?}\nvalues_expected=\n{:?}",
-        values.len(),
-        values_expected.len(),
-        values,
-        values_expected
-    );
+    compare_values(values, values_expected).unwrap();
     assert_eq!(timestamps.len(), timestamps_expected.len(),
                "unexpected timestamps.len(); got {}; want {}\ntimestamps=\n{:?}\ntimestamps_expected=\n{:?}",
                timestamps.len(), timestamps_expected.len(), timestamps, timestamps_expected);
@@ -142,21 +134,21 @@ pub fn test_timeseries_equal(tss: &[Timeseries], tss_expected: &[Timeseries]) {
 
 pub const EPSILON: f64 = 1e-14;
 
-pub fn compare_values(vs1: &[f64], vs2: &[f64]) -> RuntimeResult<()> {
+pub fn compare_values(actual: &[f64], expected: &[f64]) -> RuntimeResult<()> {
     assert_eq!(
-        vs1.len(),
-        vs2.len(),
+        actual.len(),
+        expected.len(),
         "unexpected number of values; got {}; want {}",
-        vs1.len(),
-        vs2.len()
+        actual.len(),
+        expected.len()
     );
-    for (v1, v2) in vs1.iter().zip(vs2.iter()) {
-        if v1.is_nan() {
-            assert!(v2.is_nan(), "unexpected value; got {v1}; want {v2}",);
-            continue;
-        }
-        let eps = (v1 - v2).abs();
-        assert!(eps <= EPSILON, "unexpected value; got {v1}; want {v2}",);
+    for (got, wanted) in actual.iter().zip(expected.iter()) {
+        assert!(
+            compare_floats(*wanted, *got),
+            "unexpected value; got {v1}; want {v2}",
+            v1 = *got,
+            v2 = *wanted
+        );
     }
     Ok(())
 }

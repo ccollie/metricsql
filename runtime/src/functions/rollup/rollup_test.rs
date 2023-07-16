@@ -59,7 +59,7 @@ mod tests {
         let n = rollup_ideriv(&mut rfa);
         assert!(n.is_nan(), "unexpected value; got {n}; want NAN");
 
-        let mut rfarfa = RollupFuncArg::default();
+        let mut rfa = RollupFuncArg::default();
         rfa.prev_value = NAN;
         rfa.values = vec![15.0];
         rfa.timestamps = vec![100];

@@ -68,7 +68,7 @@ pub(super) fn eval_aggr_func(
     let mut afa = AggrFuncArg {
         args,
         ec,
-        modifier: ae.modifier.clone(), // todo: avoid clone
+        modifier: &ae.modifier,
         limit: get_timeseries_limit(ae)?,
     };
 

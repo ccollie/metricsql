@@ -1573,15 +1573,25 @@ fn running_func_impl(
         ts.metric_name.reset_metric_group();
 
         // skip NaN values
-        let mut iter = ts.values.iter_mut().skip_while(|v| v.is_nan());
-
-        if let Some(prev_value) = iter.next() {
-            for (i, v) in iter.enumerate() {
-                if v.is_nan() {
-                    continue;
-                }
-                *v = rf(*prev_value, *v, i + 1);
+        let mut start = 0;
+        for (i, v) in ts.values.iter_mut().enumerate() {
+            if !v.is_nan() {
+                start = i;
+                break;
             }
+        }
+
+        // make sure there's at least 2 items remaining
+        if ts.values.len() - start < 2 {
+            continue;
+        }
+
+        let mut prev_value = ts.values[start];
+        for (i, v) in ts.values[start + 1..].iter_mut().enumerate() {
+            if !v.is_nan() {
+                prev_value = rf(prev_value, *v, i + 1);
+            }
+            *v = prev_value;
         }
     }
 
@@ -1622,7 +1632,7 @@ fn transform_range_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
 }
 
 fn transform_range_median(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let mut series = get_series(tfa, 1)?;
+    let mut series = get_series(tfa, 0)?;
     range_quantile(0.5, &mut series);
     Ok(series)
 }
@@ -1659,7 +1669,7 @@ fn transform_range_first(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timese
         }
 
         let v_first = ts.values[first];
-        for v in ts.values[0..first].iter_mut() {
+        for v in ts.values[first..].iter_mut() {
             if !v.is_nan() {
                 *v = v_first;
             }
@@ -1976,8 +1986,7 @@ fn get_string_pairs(
     let arg_len = args.len();
     if arg_len % 2 != 0 {
         return Err(RuntimeError::ArgumentError(format!(
-            "the number of string args must be even; got {}",
-            arg_len
+            "the number of string args must be even; got {arg_len}"
         )));
     }
     let result_len = arg_len / 2;
@@ -2463,18 +2472,18 @@ pub fn compare_str_alphanumeric<A: AsRef<str>, B: AsRef<str>>(a: A, b: B) -> Ord
             }
         };
 
-        let bzero = f64::from(b'0');
+        let b_zero = f64::from(b'0');
 
         if ('0'..='9').contains(&ca) && ('0'..='9').contains(&cb) {
-            let mut da = f64::from(ca as u32) - bzero;
-            let mut db = f64::from(cb as u32) - bzero;
+            let mut da = f64::from(ca as u32) - b_zero;
+            let mut db = f64::from(cb as u32) - b_zero;
 
             // this counter is to handle something like "001" > "01"
             let mut dc = 0isize;
 
             for ca in c1.by_ref() {
                 if ('0'..='9').contains(&ca) {
-                    da = da * 10.0 + (f64::from(ca as u32) - bzero);
+                    da = da * 10.0 + (f64::from(ca as u32) - b_zero);
                     dc += 1;
                 } else {
                     v1 = Some(ca);
@@ -2484,7 +2493,7 @@ pub fn compare_str_alphanumeric<A: AsRef<str>, B: AsRef<str>>(a: A, b: B) -> Ord
 
             for cb in c2.by_ref() {
                 if ('0'..='9').contains(&cb) {
-                    db = db * 10.0 + (f64::from(cb as u32) - bzero);
+                    db = db * 10.0 + (f64::from(cb as u32) - b_zero);
                     dc -= 1;
                 } else {
                     v2 = Some(cb);
@@ -2677,8 +2686,8 @@ fn transform_timezone_offset(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Ti
     let zone = match parse_zone(&tz_name) {
         Err(e) => {
             return Err(RuntimeError::ArgumentError(format!(
-                "cannot load timezone {}: {:?}",
-                tz_name, e
+                "cannot load timezone {tz_name}: {:?}",
+                e
             )))
         }
         Ok(res) => res,
