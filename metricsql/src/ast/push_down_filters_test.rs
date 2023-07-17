@@ -2,8 +2,7 @@
 mod tests {
     use crate::ast::push_down_filters::{get_common_label_filters, pushdown_binary_op_filters};
     use crate::ast::utils::expr_equals;
-    use crate::ast::{optimize, Expr, MetricExpr, PushDownFilterRewriter};
-    use crate::common::TreeNode;
+    use crate::ast::{optimize, Expr, MetricExpr};
     use crate::parser::parse;
 
     fn parse_or_panic(q: &str) -> Expr {
@@ -569,7 +568,7 @@ mod tests {
     fn test_optimize_at_modifier() {
         // @ modifier
         validate_optimized(
-            r#"foo @ end() + bar{baz="a"}"#,
+            r#"(foo @ end()) + bar{baz="a"}"#,
             r#"foo{baz="a"} @ end() + bar{baz="a"}"#,
         );
         validate_optimized(

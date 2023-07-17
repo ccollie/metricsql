@@ -203,7 +203,7 @@ impl MetricExpr {
         false
     }
 
-    pub fn name(&self) -> Option<&str> {
+    pub fn metric_name(&self) -> Option<&str> {
         match self
             .label_filters
             .iter()
@@ -935,19 +935,42 @@ impl BinaryExpr {
         }
         Ok(())
     }
-}
 
-impl Display for BinaryExpr {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        // Op is the operation itself, i.e. `+`, `-`, `*`, etc.
-        if self.left.is_binary_op() {
+    fn need_left_parens(&self) -> bool {
+        need_binary_op_arg_parens(&self.left)
+    }
+
+    fn need_right_parens(&self) -> bool {
+        if need_binary_op_arg_parens(&self.right) {
+            return true;
+        }
+        match &self.right.as_ref() {
+            Expr::MetricExpression(me) => {
+                return if let Some(mn) = &me.metric_name() {
+                    is_reserved_binary_op_ident(mn)
+                } else {
+                    false
+                };
+            }
+            Expr::Function(fe) => {
+                if is_reserved_binary_op_ident(&fe.name) {
+                    return true;
+                }
+                return self.keep_metric_names;
+            }
+            _ => false,
+        }
+    }
+
+    fn fmt_no_keep_metric_name(&self, f: &mut Formatter) -> fmt::Result {
+        if self.need_left_parens() {
             write!(f, "({})", self.left)?;
         } else {
-            write!(f, "{}", self.left)?;
+            write!(f, "{}", self.left)?
         }
         write!(f, " {}", self.op)?;
         if self.bool_modifier {
-            write!(f, " bool")?;
+            write!(f, "bool")?;
         }
         if let Some(modifier) = &self.group_modifier {
             write!(f, " {}", modifier)?;
@@ -956,14 +979,43 @@ impl Display for BinaryExpr {
             write!(f, " {}", modifier)?;
         }
         write!(f, " ")?;
-        if self.right.is_binary_op() {
+        if self.need_right_parens() {
             write!(f, "({})", self.right)?;
         } else {
-            write!(f, "{}", self.right)?;
+            write!(f, "{}", self.right)?
         }
+        Ok(())
+    }
+}
 
+fn is_reserved_binary_op_ident(s: &str) -> bool {
+    match s.to_ascii_lowercase().as_str() {
+        "group_left" | "group_right" | "on" | "ignoring" | "without" | "bool" => true,
+        _ => false,
+    }
+}
+
+fn need_binary_op_arg_parens(arg: &Expr) -> bool {
+    match arg {
+        Expr::BinaryOperator(_) => true,
+        Expr::Rollup(re) => {
+            if let Expr::BinaryOperator(be) = &*re.expr {
+                return be.keep_metric_names;
+            }
+            re.offset.is_some() || re.at.is_some()
+        }
+        _ => false,
+    }
+}
+
+impl Display for BinaryExpr {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         if self.keep_metric_names {
-            write!(f, " keep_metric_names")?;
+            write!(f, "(")?;
+            self.fmt_no_keep_metric_name(f)?;
+            write!(f, ") keep_metric_names")?;
+        } else {
+            self.fmt_no_keep_metric_name(f)?;
         }
         Ok(())
     }

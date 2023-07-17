@@ -1,4 +1,8 @@
-use super::expand::{expand_with_expr};
+use std::borrow::BorrowMut;
+use std::sync::Arc;
+
+use logos::{Logos, Span};
+
 use crate::ast::{DurationExpr, Expr, ParensExpr, WithArgExpr};
 use crate::common::StringExpr;
 use crate::parser::expand::resolve_ident;
@@ -10,8 +14,8 @@ use crate::parser::{
     ParseError, ParseResult,
 };
 use crate::prelude::unescape_ident;
-use logos::{Logos, Span};
-use std::sync::Arc;
+
+use super::expand::expand_with_expr;
 
 /// A token of MetricSql source.
 #[derive(Debug, Clone, PartialEq)]
@@ -379,7 +383,18 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn parse_parens_expr(&mut self) -> ParseResult<Expr> {
-        let list = self.parse_arg_list()?;
+        let mut list = self.parse_arg_list()?;
+        if list.len() == 1 {
+            match list[0].borrow_mut() {
+                Expr::BinaryOperator(be) => {
+                    if self.at(&Token::KeepMetricNames) {
+                        self.bump();
+                        be.keep_metric_names = true;
+                    }
+                }
+                _ => {}
+            }
+        }
         Ok(Expr::Parens(ParensExpr::new(list)))
     }
 

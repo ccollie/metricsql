@@ -1738,7 +1738,7 @@ mod tests {
     #[test]
     fn scalar_on_group_right_vector_keep_metric_names() {
         // scalar * on() group_right vector keep_metric_names
-        let q = r##"sort_desc(2 * on() group_right() (label_set(time(), "foo", "bar", "__name__", "q1") or label_set(10, "foo", "qwert", "__name__", "q2")) keep_metric_names)"##;
+        let q = r##"sort_desc(2 * on() group_right() (label_set(time(), "foo", "bar", "__name__", "q1"), label_set(10, "foo", "qwert", "__name__", "q2")) keep_metric_names)"##;
         let mut r1 = make_result(&[2000_f64, 2400.0, 2800.0, 3200.0, 3600.0, 4000.0]);
         r1.metric_name.metric_group = "q1".to_string();
 
@@ -1792,12 +1792,12 @@ mod tests {
     #[test]
     fn vector_multiply_by_on_foo_scalar_keep_metric_names() {
         let q = r##"
-            sort_desc(
-			    (
-		            label_set(time(), "foo", "bar", "xx", "yy", "__name__", "q1"),
-			        label_set(10, "foo", "qwert", "__name__", "q2")
-		        ) * on(foo) (label_set(2, "foo","bar","aa","bb", "__name__", "q2")) keep_metric_names
-		    )
+                (
+                    (
+		                label_set(time(), "foo", "bar", "xx", "yy", "__name__", "q1"),
+			            label_set(10, "foo", "qwert", "__name__", "q2")
+		            ) * on(foo) label_set(2, "foo","bar","aa","bb", "__name__", "q2")
+		        ) keep_metric_names`
         "##;
         let mut r = make_result(&[2000_f64, 2400.0, 2800.0, 3200.0, 3600.0, 4000.0]);
         r.metric_name.metric_group = "q1".to_string();
@@ -1914,11 +1914,12 @@ mod tests {
 
     #[test]
     fn vector_plus_vector_partial_matching_keep_metric_names() {
-        let q = r##"sort_desc(
-			(label_set(time(), "t1", "v1", "__name__", "q1") or label_set(10, "t2", "v2", "__name__", "q2"))
-			+
-			(label_set(100, "t1", "v1", "__name__", "q3") or label_set(time(), "t2", "v3")) keep_metric_names
-        )"##;
+        let q = r##"(
+		  (label_set(time(), "t1", "v1", "__name__", "q1") or label_set(10, "t2", "v2", "__name__", "q2"))
+		    +
+		  (label_set(100, "t1", "v1", "__name__", "q3") or label_set(time(), "t2", "v3"))
+		) keep_metric_names
+        "##;
         let mut r = make_result(&[1100_f64, 1300.0, 1500.0, 1700.0, 1900.0, 2100.0]);
         r.metric_name.metric_group = "q1".to_string();
         r.metric_name.set_tag("t1", "v1");
