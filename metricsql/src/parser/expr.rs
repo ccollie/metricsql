@@ -5,10 +5,10 @@ use crate::common::{
     GroupModifier, GroupModifierOp, JoinModifier, JoinModifierOp, Operator, StringExpr, ValueType,
 };
 use crate::functions::AggregateFunction;
-use crate::parser::{extract_string_value, ParseError, Parser, ParseResult, unescape_ident};
 use crate::parser::function::parse_func_expr;
 use crate::parser::parse_error::unexpected;
 use crate::parser::tokens::Token;
+use crate::parser::{extract_string_value, unescape_ident, ParseError, ParseResult, Parser};
 
 use super::aggregation::parse_aggr_func_expr;
 use super::rollup::parse_rollup_expr;
@@ -178,25 +178,24 @@ fn balance_binary_op(be: BinaryExpr) -> Expr {
         if rp < lp {
             return Expr::BinaryOperator(be);
         }
+
         if rp == lp && !be.op.is_right_associative() {
             return Expr::BinaryOperator(be);
         }
 
         let mut be = be;
-        match &be.left.as_ref() {
+        match be.left.as_mut() {
             Expr::BinaryOperator(bel) => {
-                let mut bel = bel.clone();
+                let mut be_left = std::mem::take(bel);
                 be.left = std::mem::take(&mut bel.right);
-                bel.right = balance_binary_op(be);
-                return Expr::BinaryOperator(bel);
+                be_left.right = Box::new(balance_binary_op(be));
+                return Expr::BinaryOperator(be_left);
             }
             _ => unreachable!("binary expr op changed type"),
-
         }
     }
 
     Expr::BinaryOperator(be)
-
 }
 
 fn parse_group_modifier(p: &mut Parser) -> Result<GroupModifier, ParseError> {

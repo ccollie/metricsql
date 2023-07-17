@@ -1,7 +1,8 @@
-use lockfree_object_pool::{LinearObjectPool, LinearReusable};
 use std::fmt;
 use std::fmt::Display;
 use std::sync::OnceLock;
+
+use lockfree_object_pool::{LinearObjectPool, LinearReusable};
 
 const E10MIN: i32 = -9;
 const E10MAX: i32 = 18;
@@ -289,6 +290,7 @@ fn get_bucket_ranges() -> &'static Vec<String> {
 
 // todo: move to utils ?
 // todo - return slices instead
+#[allow(dead_code)]
 fn split_metric_name(name: &str) -> (&str, &str) {
     if let Some(index) = name.find('{') {
         if let Some(tailing_index) = name.find('}') {

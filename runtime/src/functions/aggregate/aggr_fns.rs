@@ -2,7 +2,6 @@ use std::borrow::BorrowMut;
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap};
 use std::ops::{Deref, DerefMut};
-use std::sync::Arc;
 
 use lockfree_object_pool::LinearReusable;
 
@@ -200,11 +199,9 @@ fn aggr_prepare_series(
 
     let capacity = arg_orig.len();
 
-    let mut args = arg_orig;
-
     // Perform grouping.
     let mut m = HashMap::with_capacity(capacity);
-    for mut ts in args.drain(0..) {
+    for mut ts in arg_orig.drain(0..) {
         ts.metric_name.remove_group_tags(modifier);
         ts.metric_name.sort_tags();
         let k = ts.metric_name.signature();
@@ -229,23 +226,6 @@ fn aggr_prepare_series(
         }
     }
     return m;
-}
-
-// copy_timeseries_metric_names returns a copy of tss with real copy of MetricNames,
-// but with shallow copy of Timestamps and Values if makeCopy is set.
-//
-// Otherwise tss is returned.
-fn copy_timeseries_metric_names(tss: &Vec<Timeseries>) -> Vec<Timeseries> {
-    let mut rvs = Vec::with_capacity(tss.len());
-    for src in tss.iter() {
-        let dst = Timeseries {
-            metric_name: Default::default(),
-            values: vec![],
-            timestamps: Arc::clone(&src.timestamps),
-        };
-        rvs.push(dst);
-    }
-    return rvs;
 }
 
 fn aggr_func_any(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {

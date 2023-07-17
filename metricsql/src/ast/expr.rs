@@ -762,7 +762,7 @@ impl Display for RollupExpr {
 }
 
 /// BinaryOpExpr represents a binary operation.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct BinaryExpr {
     /// left contains left arg for the `left op right` expression.
     pub left: BExpression,

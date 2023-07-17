@@ -1,9 +1,10 @@
+use std::borrow::Cow;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
 use metricsql::ast::BinaryExpr;
 use metricsql::binaryop::{get_scalar_binop_handler, get_scalar_comparison_handler, BinopFunc};
-use metricsql::common::{GroupModifier, JoinModifier, JoinModifierOp, Operator};
+use metricsql::common::{GroupModifier, GroupModifierOp, JoinModifier, JoinModifierOp, Operator};
 
 use crate::eval::utils::remove_empty_series;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
@@ -147,7 +148,19 @@ fn adjust_binary_op_tags(
     let mut rvs_left: Vec<Timeseries> = Vec::with_capacity(4);
     let mut rvs_right: Vec<Timeseries> = Vec::with_capacity(4);
 
-    let should_reset_metric_group = bfa.be.should_reset_metric_group();
+    let group_tags = if let Some(modifier) = &bfa.be.group_modifier {
+        // Add __name__ to groupTags if metric name must be preserved.
+        if bfa.be.keep_metric_names && modifier.op == GroupModifierOp::On {
+            let mut labels = modifier.labels.clone();
+            labels.push("__name__".to_string());
+            labels.sort();
+            Cow::Owned(labels)
+        } else {
+            Cow::Borrowed(&modifier.labels)
+        }
+    } else {
+        Cow::Owned(vec![])
+    };
 
     for (k, tss_left) in m_left.iter_mut() {
         let mut tss_right = m_right.remove(k).unwrap_or(vec![]);
@@ -177,12 +190,18 @@ fn adjust_binary_op_tags(
             None => {
                 let mut ts_left = ensure_single_timeseries("left", &bfa.be, tss_left)?;
                 let ts_right = ensure_single_timeseries("right", &bfa.be, &mut tss_right)?;
-                if should_reset_metric_group {
-                    ts_left.metric_name.reset_metric_group();
-                }
+
+                reset_metric_group_if_required(&&bfa.be, &mut ts_left);
 
                 if let Some(modifier) = &bfa.be.group_modifier {
-                    ts_left.metric_name.update_tags_by_group_modifier(modifier);
+                    match modifier.op {
+                        GroupModifierOp::On => {
+                            ts_left.metric_name.remove_tags_on(&group_tags);
+                        }
+                        GroupModifierOp::Ignoring => {
+                            ts_left.metric_name.remove_tags_ignoring(&group_tags);
+                        }
+                    }
                 }
 
                 rvs_left.push(ts_left);
@@ -345,6 +364,20 @@ pub fn merge_non_overlapping_timeseries(dst: &mut Timeseries, src: &Timeseries) 
         }
     }
     true
+}
+
+pub(super) fn reset_metric_group_if_required(be: &BinaryExpr, ts: &mut Timeseries) {
+    if be.op.is_comparison() && !be.bool_modifier {
+        // Do not reset MetricGroup for non-boolean `compare` binary ops like Prometheus does.
+        return;
+    }
+    if be.keep_metric_names {
+        // Do not reset MetricGroup if it is explicitly requested via `a op b keep_metric_names`
+        // See https://docs.victoriametrics.com/MetricsQL.html#keep_metric_names
+        return;
+    }
+
+    ts.metric_name.reset_metric_group()
 }
 
 fn binary_op_if(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {

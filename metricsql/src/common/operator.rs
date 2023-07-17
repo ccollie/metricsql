@@ -29,6 +29,12 @@ pub enum Operator {
     Unless,
 }
 
+impl Default for Operator {
+    fn default() -> Self {
+        Operator::Eql
+    }
+}
+
 pub static BINARY_OPS_MAP: phf::Map<&'static str, Operator> = phf_map! {
     "+" => Operator::Add,
     "-" => Operator::Sub,

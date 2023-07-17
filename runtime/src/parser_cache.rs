@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use lru_time_cache::LruCache;
 
-use metricsql::ast::{optimize, Expr};
+use metricsql::ast::{adjust_comparison_ops, optimize, Expr};
 use metricsql::parser;
 use metricsql::parser::ParseError;
 
@@ -84,11 +84,13 @@ impl ParseCache {
         }
     }
 
+    // todo: pass options
     fn parse_internal(q: &str) -> ParseCacheValue {
         match parser::parse(q) {
             Ok(expr) => {
-                let optimized = optimize(expr);
-                if let Ok(expression) = optimized {
+                let mut optimized = optimize(expr);
+                if let Ok(mut expression) = optimized {
+                    adjust_comparison_ops(&mut expression);
                     let has_subquery = expression.contains_subquery();
                     ParseCacheValue {
                         expr: Some(expression),
@@ -114,4 +116,68 @@ impl ParseCache {
             },
         }
     }
+}
+
+fn escape_dots_in_regexp_label_filters(expr: &mut Expr) {
+    match expr {
+        Expr::MetricExpression(me) => {
+            for lfs in me.label_filterss.iter_mut() {
+                for f in lfs.iter_mut() {
+                    if f.is_regexp {
+                        f.value = escape_dots_in_regexp_label_filters(f.value.as_ref());
+                    }
+                }
+            }
+        }
+        Expr::Aggregation(agg) => {
+            for arg in agg.args.iter_mut() {
+                escape_dots_in_regexp_label_filters(arg);
+            }
+        }
+        Expr::BinaryOperator(be) => {
+            escape_dots_in_regexp_label_filters(&mut be.left);
+            escape_dots_in_regexp_label_filters(&mut be.right);
+        }
+        Expr::Function(fe) => {
+            for arg in fe.args.iter_mut() {
+                escape_dots_in_regexp_label_filters(arg);
+            }
+        }
+        Expr::Parens(pe) => {
+            for e in pe.expressions.iter_mut() {
+                escape_dots_in_regexp_label_filters(e);
+            }
+        }
+        Expr::Rollup(re) => {
+            escape_dots_in_regexp_label_filters(&mut re.expr);
+        }
+        _ => {}
+    }
+}
+
+fn escape_dots(s: &str) -> String {
+    let dots_count = strings.Count(s, ".");
+    if dots_count <= 0 {
+        return s.to_string();
+    }
+    let mut result = String::with_capacity(s.len() + 2 * dots_count);
+    let len = s.len();
+    let mut prev_ch = '\0';
+    for (i, ch) in s.chars().enumerate() {
+        if ch == '.'
+            && (i == 0 || prev_ch != '\\')
+            && (i + 1 == len
+                || i + 1 < len && s[i + 1] != '*' && s[i + 1] != '+' && s[i + 1] != '{')
+        {
+            // Escape a dot if the following conditions are met:
+            // - if it isn't escaped already, i.e. if there is no `\` char before the dot.
+            // - if there is no regexp modifiers such as '+', '*' or '{' after the dot.
+            result.push('\\');
+            result.push('.');
+        } else {
+            result.push(ch);
+        }
+        prev_ch = ch;
+    }
+    return result;
 }

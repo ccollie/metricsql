@@ -18,7 +18,6 @@ use datafusion::catalog;
 use datafusion::error::DataFusionError;
 use snafu::{Location, Snafu};
 
-use common_error::prelude::*;
 use metricsql::ast::Expr as PromExpr;
 
 use crate::status_code::StatusCode;

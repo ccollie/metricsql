@@ -7,6 +7,8 @@ use metricsql::binaryop::get_scalar_binop_handler;
 
 use crate::{Context, InstantVector, QueryValue, RuntimeResult};
 
+use super::reset_metric_group_if_required;
+
 /// BinaryEvaluatorScalarVector
 /// Ex:
 ///   http_requests_total{} * 2
@@ -35,9 +37,7 @@ pub(crate) fn eval_vector_scalar_binop(
     let mut vector = vector;
     // should not happen, but we can handle it
     for v in vector.iter_mut() {
-        if !be.keep_metric_names {
-            v.metric_name.reset_metric_group();
-        }
+        reset_metric_group_if_required(be, v);
 
         for value in v.values.iter_mut() {
             *value = handler(*value, scalar);

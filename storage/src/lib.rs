@@ -8,9 +8,10 @@ extern crate snafu;
 extern crate tokio;
 
 use std::sync::Arc;
-use async_trait::async_trait;
 
+use async_trait::async_trait;
 use datafusion::arrow::datatypes::Schema;
+use datafusion::error::DataFusionError;
 use datafusion::prelude::SessionContext;
 
 mod catalog;
@@ -35,5 +36,5 @@ pub trait TableProvider: Sync + Send + 'static {
         name: &str,
         time_range: (i64, i64),
         filters: &[(&str, &str)],
-    ) -> Result<Vec<TableContext>>;
+    ) -> Result<Vec<TableContext>, DataFusionError>;
 }

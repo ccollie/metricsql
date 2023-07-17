@@ -15,7 +15,6 @@
 use std::cell::OnceCell;
 use std::iter::zip;
 use std::sync::Arc;
-use std::time;
 
 use datafusion::{
     arrow::{
