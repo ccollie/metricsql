@@ -183,12 +183,14 @@ mod tests {
         );
         another(
             r#"foo @ start() + (bar offset 3m @ end()) / baz OFFSET -5m"#,
-            r#"foo @ start() + (bar offset 3m @ end() / baz offset -5m)"#,
+            r#"(foo @ start()) + ((bar offset 3m @ end()) / (baz offset -5m))"#,
         );
         same("sum(foo) @ start() + rate(bar @ (end() - 5m))");
         another("time() @ (start())", "time() @ start()");
         another("time() @ (start()+(1+1))", "time() @ (start() + 2)");
         same("time() @ (end() - 10m)");
+        another("a + b offset 5m @ 1235", "a + (b offset 5m @ 1235)");
+        another("a + b @ 1235 offset 5m", "a + (b offset 5m @ 1235)");
     }
 
     #[test]
@@ -283,14 +285,14 @@ mod tests {
 
         // All the above
         another(
-            r#"Sum(avg(M) * M{X=""}[5m] Offset 7m - 123, 35) BY (X, y) * alias(q, "Test")"#,
-            r#"sum((avg(M) * M{X=""}[5m] offset 7m) - 123, 35) by (X, y) * alias(q, "Test")"#,
+            r#"Sum(Ff(M) * M{X=""}[5m] Offset 7m - 123, 35) BY (X, y) * F2("Test")"#,
+            r#"sum((Ff(M) * (M{X=""}[5m] offset 7m)) - 123, 35) by(X,y) * F2("Test")"#,
         );
         another(
-            r#"# comment
-			Sum(avg(M) * M{X=""}[5m] Offset 7m - 123, 35) BY (X, y) # yet another comment
-			* alias(q, "Test")"#,
-            r#" sum((avg(M) * M{X=""}[5m] offset 7m) - 123, 35) by (X, y) * alias(q, "Test")"#,
+            r##"# comment
+                Sum(Ff(M) * M{X=""}[5m] Offset 7m - 123, 35) BY (X, y) # yet another comment
+                    * F2("Test")"##,
+            r#"sum((Ff(M) * (M{X=""}[5m] offset 7m)) - 123, 35) by(X,y) * F2("Test")"#,
         );
     }
 
@@ -389,9 +391,31 @@ mod tests {
         another(r#""a">=bool"b""#, "0");
         another(r#""a"<="b""#, "1");
         same(r#""a" - "b""#);
-        same("a / b keep_metric_names");
+        another("a / b keep_metric_names", "(a / b) keep_metric_names");
         another("a / 1 keep_metric_names", "a");
-        same("1 / a keep_metric_names");
+
+        same("(a + b) keep_metric_names");
+        another("((a) + (b)) keep_metric_names", "(a + b) keep_metric_names");
+        another(
+            "a + on(x) group_left(y) b offset 5m @ 1235 keep_metric_names",
+            "(a + on(x) group_left(y) (b offset 5m @ 1235)) keep_metric_names",
+        );
+        another(
+            "(a + on(x) group_left(y) b offset 5m keep_metric_names) @ 1235",
+            "((a + on(x) group_left(y) (b offset 5m)) keep_metric_names) @ 1235",
+        );
+        another(
+            "(a + on(x) group_left(y) b keep_metric_names) offset 5m @ 1235",
+            "((a + on(x) group_left(y) b) keep_metric_names) offset 5m @ 1235",
+        );
+        another(
+            "(a + on (x) group_left (y) b keep_metric_names) @ 1235 offset 5m",
+            "((a + on(x) group_left(y) b) keep_metric_names) offset 5m @ 1235",
+        );
+        another(
+            "rate(x) keep_metric_names + (abs(y) keep_metric_names) keep_metric_names",
+            "(rate(x) keep_metric_names + (abs(y) keep_metric_names)) keep_metric_names",
+        );
 
         another("(-1) ^ 0.5", "NaN");
         another("-1 ^ 0.5", "-1");
@@ -419,7 +443,7 @@ mod tests {
         );
         same("rate(foo[5m]) keep_metric_names");
         another("log2(foo) KEEP_metric_names + 1 / increase(bar[5m]) keep_metric_names offset 1h @ 435",
-				"log2(foo) keep_metric_names + (1 / increase(bar[5m]) keep_metric_names offset 1h @ 435)");
+                "log2(foo) keep_metric_names + (1 / (increase(bar[5m]) keep_metric_names offset 1h @ 435))")
     }
 
     #[test]
@@ -449,8 +473,14 @@ mod tests {
         // withExpr
         another("with () x", "x");
         another("with (x=1,) x", "1");
-        another("with (x = m offset 5h) x + x", "m offset 5h * 2");
-        another("with (x = m offset 5i) x + x", "m offset 5i * 2");
+        another(
+            "with (x = m offset 5h) x + x",
+            "(m offset 5h) + (m offset 5h)",
+        );
+        another(
+            "with (x = m offset 5i) x + x",
+            "(m offset 5i) + (m offset 5i)",
+        );
         another(r#"with (foo = bar{x="x"}) 1"#, "1");
         another(r#"with (foo = bar{x="x"}) "x""#, r#""x""#);
         another(r#"with (f="x") f"#, r#""x""#);

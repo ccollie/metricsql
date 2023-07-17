@@ -118,14 +118,12 @@ impl ParseCache {
     }
 }
 
-fn escape_dots_in_regexp_label_filters(expr: &mut Expr) {
+pub(crate) fn escape_dots_in_regexp_label_filters(expr: &mut Expr) {
     match expr {
         Expr::MetricExpression(me) => {
-            for lfs in me.label_filterss.iter_mut() {
-                for f in lfs.iter_mut() {
-                    if f.is_regexp {
-                        f.value = escape_dots_in_regexp_label_filters(f.value.as_ref());
-                    }
+            for lfs in me.label_filters.iter_mut() {
+                if lfs.is_regexp() {
+                    lfs.value = escape_dots(&lfs.value);
                 }
             }
         }
@@ -155,29 +153,83 @@ fn escape_dots_in_regexp_label_filters(expr: &mut Expr) {
     }
 }
 
-fn escape_dots(s: &str) -> String {
-    let dots_count = strings.Count(s, ".");
+pub(crate) fn escape_dots(s: &str) -> String {
+    // count the number of dots in the string
+    let dots_count = s.chars().filter(|&c| c == '.').count();
     if dots_count <= 0 {
         return s.to_string();
     }
     let mut result = String::with_capacity(s.len() + 2 * dots_count);
-    let len = s.len();
     let mut prev_ch = '\0';
-    for (i, ch) in s.chars().enumerate() {
+    let mut chars_iter = s.chars().peekable();
+    let mut i = 0;
+    while let Some(ch) = chars_iter.next() {
         if ch == '.'
             && (i == 0 || prev_ch != '\\')
-            && (i + 1 == len
-                || i + 1 < len && s[i + 1] != '*' && s[i + 1] != '+' && s[i + 1] != '{')
+            && if let Some(next) = chars_iter.peek() {
+                *next != '*' && *next != '+' && *next != '?' && *next != '{'
+            } else {
+                true
+            }
         {
             // Escape a dot if the following conditions are met:
             // - if it isn't escaped already, i.e. if there is no `\` char before the dot.
-            // - if there is no regexp modifiers such as '+', '*' or '{' after the dot.
+            // - if there is no regexp modifiers such as '*', '?' or '{' after the dot.
             result.push('\\');
             result.push('.');
         } else {
             result.push(ch);
         }
         prev_ch = ch;
+        i += 1;
     }
     return result;
+}
+
+#[cfg(test)]
+mod tests {
+    use metricsql::parser::parse;
+
+    use crate::parser_cache::{escape_dots, escape_dots_in_regexp_label_filters};
+
+    #[test]
+    fn test_escape_dots() {
+        fn f(input: &str, expected: &str) {
+            let result = escape_dots(input);
+            assert_eq!(
+                expected, result,
+                "unexpected result for escape_dots(\"{input}\"); got\n{result}\nwant\n{expected}",
+            )
+        }
+
+        f("", "");
+        f("a", "a");
+        f("foobar", "foobar");
+        f(".", r#"\."#);
+        f(".*", ".*");
+        f(".+", ".+");
+        f("..", r#"\.\."#);
+        f("foo.b.{2}ar..+baz.*", r#"foo\.b.{2}ar\..+baz.*"#)
+    }
+
+    #[test]
+    fn test_escape_dots_in_regexp_label_filters() {
+        fn f(s: &str, expected: &str) {
+            let mut e = parse(s).unwrap();
+            escape_dots_in_regexp_label_filters(&mut e);
+            let result = e.to_string();
+            assert_eq!(
+                expected, result,
+                "unexpected result for escape_dots_in_regexp_label_filters({s}); got\n{}\nwant\n{}",
+                result, expected
+            );
+        }
+        f("2", "2");
+        f("foo.bar + 123", "foo.bar + 123");
+        f(r#"avg{bar=~"baz.xx.yyy"}"#, r#"avg{bar=~"baz\\.xx\\.yyy"}"#);
+        f(
+            r#"avg(a.b{c="d.e",x=~"a.b.+[.a]",y!~"aaa.bb|cc.dd"}) + max(1,sum({x=~"aa.bb"}))"#,
+            r#"avg(a.b{c="d.e",x=~"a\\.b.+[\\.a]",y!~"aaa\\.bb|cc\\.dd"}) + max(1, sum({x=~"aa\\.bb"}))"#,
+        )
+    }
 }

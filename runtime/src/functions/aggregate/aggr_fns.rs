@@ -91,41 +91,41 @@ pub(crate) fn exec_aggregate_fn(
     use AggregateFunction::*;
 
     match function {
-        Sum => aggregate_sum(afa),
-        Min => aggregate_min(afa),
-        Max => aggregate_max(afa),
+        Any => aggr_func_any(afa),
         Avg => aggregate_avg(afa),
-        StdDev => aggregate_stddev(afa),
-        StdVar => aggregate_stdvar(afa),
-        Count => aggregate_count(afa),
-        CountValues => aggr_func_count_values(afa),
         Bottomk => aggregate_bottomk(afa),
-        Topk => aggregate_topk(afa),
-        Quantile => aggr_func_quantile(afa),
-        Quantiles => aggr_func_quantiles(afa),
-        Group => aggregate_group(afa),
-        Median => aggr_func_median(afa),
-        MAD => aggregate_mad(afa),
-        Limitk => aggr_func_limitk(afa),
-        Distinct => aggregate_distinct(afa),
-        Sum2 => aggregate_sum2(afa),
-        GeoMean => aggregate_geo_mean(afa),
-        Histogram => aggregate_histogram(afa),
-        TopkMin => aggregate_topk_min(afa),
-        TopkMax => aggregate_topk_max(afa),
-        TopkAvg => aggregate_topk_avg(afa),
-        TopkLast => aggregate_topk_last(afa),
-        TopkMedian => aggregate_topk_median(afa),
-        BottomkMin => aggregate_bottomk_min(afa),
-        BottomkMax => aggregate_bottomk_max(afa),
         BottomkAvg => aggregate_bottomk_avg(afa),
         BottomkLast => aggregate_bottomk_last(afa),
+        BottomkMax => aggregate_bottomk_max(afa),
         BottomkMedian => aggregate_bottomk_median(afa),
-        Any => aggr_func_any(afa),
-        Outliersk => aggr_func_outliersk(afa),
-        OutliersMAD => aggr_func_outliers_mad(afa),
+        BottomkMin => aggregate_bottomk_min(afa),
+        Count => aggregate_count(afa),
+        CountValues => aggr_func_count_values(afa),
+        Distinct => aggregate_distinct(afa),
+        GeoMean => aggregate_geo_mean(afa),
+        Group => aggregate_group(afa),
+        Histogram => aggregate_histogram(afa),
+        Limitk => aggr_func_limitk(afa),
+        MAD => aggregate_mad(afa),
+        Median => aggr_func_median(afa),
         Mode => aggregate_mode(afa),
         Share => aggr_func_share(afa),
+        Sum => aggregate_sum(afa),
+        Sum2 => aggregate_sum2(afa),
+        Min => aggregate_min(afa),
+        Max => aggregate_max(afa),
+        Outliersk => aggr_func_outliersk(afa),
+        OutliersMAD => aggr_func_outliers_mad(afa),
+        Quantile => aggr_func_quantile(afa),
+        Quantiles => aggr_func_quantiles(afa),
+        StdDev => aggregate_stddev(afa),
+        StdVar => aggregate_stdvar(afa),
+        Topk => aggregate_topk(afa),
+        TopkAvg => aggregate_topk_avg(afa),
+        TopkLast => aggregate_topk_last(afa),
+        TopkMax => aggregate_topk_max(afa),
+        TopkMedian => aggregate_topk_median(afa),
+        TopkMin => aggregate_topk_min(afa),
         ZScore => aggr_func_zscore(afa),
     }
 }
@@ -238,7 +238,10 @@ fn aggr_func_any(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
         vec![]
     };
     // Only a single time series per group must be returned
-    let limit = afa.limit.max(1);
+    let mut limit = afa.limit;
+    if limit > 1 {
+        limit = 1;
+    }
     aggr_func_ext(afe, &mut tss, afa.modifier, limit, true)
 }
 
@@ -1002,7 +1005,7 @@ fn aggr_func_quantile(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
 
 fn aggr_func_median(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut tss = get_aggr_timeseries(afa)?;
-    let phis = &eval_number(&afa.ec, 0.5)[0].values; // todo: use more efficient method
+    let phis = &eval_number(&afa.ec, 0.5)?[0].values; // todo: use more efficient method
     let afe = new_aggr_quantile_func(phis);
     return aggr_func_ext(afe, &mut tss, afa.modifier, afa.limit, false);
 }

@@ -88,7 +88,7 @@ impl<'a> RollupExecutor<'a> {
             let mut tss = self.eval_without_at(ctx, &mut ec_new)?;
 
             // expand single-point tss to the original time range.
-            let timestamps = ec.timestamps();
+            let timestamps = ec.get_timestamps()?;
             for ts in tss.iter_mut() {
                 ts.timestamps = Arc::clone(&timestamps);
                 ts.values = vec![ts.values[0]; timestamps.len()];
@@ -117,7 +117,6 @@ impl<'a> RollupExecutor<'a> {
             let mut result = ec.copy_no_timestamps();
             result.start += adjustment;
             result.end += adjustment;
-            result.ensure_timestamps()?;
             // There is no need in calling adjust_start_end() on ec_new if ec_new.may_cache is set to true,
             // since the time range alignment has been already performed by the caller,
             // so cache hit rate should be quite good.
@@ -150,7 +149,7 @@ impl<'a> RollupExecutor<'a> {
         };
 
         if self.func == RollupFunction::AbsentOverTime {
-            rvs = aggregate_absent_over_time(ec, &self.re.expr, &rvs)
+            rvs = aggregate_absent_over_time(ec, &self.re.expr, &rvs)?
         }
 
         if offset != 0 && rvs.len() > 0 {
@@ -210,7 +209,12 @@ impl<'a> RollupExecutor<'a> {
             return Ok(vec![]);
         }
 
-        let shared_timestamps = ec.timestamps();
+        let shared_timestamps = Arc::new(get_timestamps(
+            ec.start,
+            ec.end,
+            ec.step,
+            ec.max_points_per_series,
+        )?);
         let min_staleness_interval = ctx.config.min_staleness_interval.num_milliseconds() as usize;
         let (rcs, pre_funcs) = get_rollup_configs(
             &self.func,
@@ -305,7 +309,7 @@ impl<'a> RollupExecutor<'a> {
         .entered();
 
         if me.is_empty() {
-            return Ok(eval_number(ec, f64::NAN));
+            return eval_number(ec, f64::NAN);
         }
 
         // Search for partial results in cache.
@@ -733,10 +737,14 @@ fn get_at_timestamp(ctx: &Arc<Context>, ec: &EvalConfig, expr: &Expr) -> Runtime
 /// Values for returned series are set to nan if at least a single tss series contains nan at that point.
 /// This means that tss contains a series with non-empty results at that point.
 /// This follows Prometheus logic - see https://github.com/VictoriaMetrics/VictoriaMetrics/issues/2130
-fn aggregate_absent_over_time(ec: &EvalConfig, expr: &Expr, tss: &[Timeseries]) -> Vec<Timeseries> {
-    let mut rvs = get_absent_timeseries(ec, expr);
+fn aggregate_absent_over_time(
+    ec: &EvalConfig,
+    expr: &Expr,
+    tss: &[Timeseries],
+) -> RuntimeResult<Vec<Timeseries>> {
+    let mut rvs = get_absent_timeseries(ec, expr)?;
     if tss.len() == 0 {
-        return rvs;
+        return Ok(rvs);
     }
     for i in 0..tss[0].values.len() {
         for ts in tss {
@@ -746,7 +754,7 @@ fn aggregate_absent_over_time(ec: &EvalConfig, expr: &Expr, tss: &[Timeseries]) 
             }
         }
     }
-    return rvs;
+    Ok(rvs)
 }
 
 /// Executes `f` for each `Timeseries` in `tss` in parallel.
@@ -790,7 +798,8 @@ fn remove_nan_values(
     let mut has_nan = false;
     for v in values {
         if v.is_nan() {
-            has_nan = true
+            has_nan = true;
+            break;
         }
     }
 

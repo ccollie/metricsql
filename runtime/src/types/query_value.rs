@@ -199,7 +199,7 @@ impl QueryValue {
     pub fn get_instant_vector(&self, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
         match self {
             QueryValue::InstantVector(val) => Ok(val.clone()), // ????
-            QueryValue::Scalar(n) => Ok(eval_number(ec, *n)),
+            QueryValue::Scalar(n) => eval_number(ec, *n),
             _ => {
                 let msg = format!("cannot cast {} to an instant vector", self.data_type());
                 return Err(RuntimeError::TypeCastError(msg));
@@ -217,7 +217,7 @@ impl QueryValue {
     pub fn into_instant_vector(self, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
         match self {
             QueryValue::InstantVector(mut val) => Ok(std::mem::take(&mut val)), // use .into instead ????
-            QueryValue::Scalar(n) => Ok(eval_number(ec, n)),
+            QueryValue::Scalar(n) => eval_number(ec, n),
             _ => {
                 let msg = format!("cannot cast {} to an instant vector", self.data_type());
                 return Err(RuntimeError::TypeCastError(msg));
@@ -251,7 +251,7 @@ impl QueryValue {
     pub fn as_instant_vec(&self, ec: &EvalConfig) -> RuntimeResult<Cow<Vec<Timeseries>>> {
         match self {
             QueryValue::InstantVector(v) => Ok(Cow::Borrowed(v)),
-            QueryValue::Scalar(n) => Ok(Cow::Owned(eval_number(ec, *n))),
+            QueryValue::Scalar(n) => Ok(Cow::Owned(eval_number(ec, *n)?)),
             _ => {
                 let msg = format!("cannot cast {} to an instant vector", self.data_type());
                 return Err(RuntimeError::TypeCastError(msg));

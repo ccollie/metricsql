@@ -1738,7 +1738,7 @@ mod tests {
     #[test]
     fn scalar_on_group_right_vector_keep_metric_names() {
         // scalar * on() group_right vector keep_metric_names
-        let q = r##"sort_desc(2 * on() group_right() (label_set(time(), "foo", "bar", "__name__", "q1") or label_set(10, "foo", "qwert", "__name__", "q2")) keep_metric_names)"##;
+        let q = r##"sort_desc(2 * on() group_right() (label_set(time(), "foo", "bar", "__name__", "q1"), label_set(10, "foo", "qwert", "__name__", "q2")) keep_metric_names)"##;
         let mut r1 = make_result(&[2000_f64, 2400.0, 2800.0, 3200.0, 3600.0, 4000.0]);
         r1.metric_name.metric_group = "q1".to_string();
 
@@ -1792,12 +1792,12 @@ mod tests {
     #[test]
     fn vector_multiply_by_on_foo_scalar_keep_metric_names() {
         let q = r##"
-            sort_desc(
-			    (
-		            label_set(time(), "foo", "bar", "xx", "yy", "__name__", "q1"),
-			        label_set(10, "foo", "qwert", "__name__", "q2")
-		        ) * on(foo) (label_set(2, "foo","bar","aa","bb", "__name__", "q2")) keep_metric_names
-		    )
+                (
+                    (
+		                label_set(time(), "foo", "bar", "xx", "yy", "__name__", "q1"),
+			            label_set(10, "foo", "qwert", "__name__", "q2")
+		            ) * on(foo) label_set(2, "foo","bar","aa","bb", "__name__", "q2")
+		        ) keep_metric_names`
         "##;
         let mut r = make_result(&[2000_f64, 2400.0, 2800.0, 3200.0, 3600.0, 4000.0]);
         r.metric_name.metric_group = "q1".to_string();
@@ -1914,11 +1914,12 @@ mod tests {
 
     #[test]
     fn vector_plus_vector_partial_matching_keep_metric_names() {
-        let q = r##"sort_desc(
-			(label_set(time(), "t1", "v1", "__name__", "q1") or label_set(10, "t2", "v2", "__name__", "q2"))
-			+
-			(label_set(100, "t1", "v1", "__name__", "q3") or label_set(time(), "t2", "v3")) keep_metric_names
-        )"##;
+        let q = r##"(
+		  (label_set(time(), "t1", "v1", "__name__", "q1") or label_set(10, "t2", "v2", "__name__", "q2"))
+		    +
+		  (label_set(100, "t1", "v1", "__name__", "q3") or label_set(time(), "t2", "v3"))
+		) keep_metric_names
+        "##;
         let mut r = make_result(&[1100_f64, 1300.0, 1500.0, 1700.0, 1900.0, 2100.0]);
         r.metric_name.metric_group = "q1".to_string();
         r.metric_name.set_tag("t1", "v1");
@@ -3117,7 +3118,7 @@ mod tests {
         r1.metric_name.set_tag("foo", "bar");
         test_query(q, vec![r1]);
 
-        let q = r##"sort(limitk(10, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"##;
+        let q = r#"sort(limitk(10, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"#;
         let mut r1 = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
         r1.metric_name.set_tag("foo", "bar");
         let mut r2 = make_result(&[
@@ -3151,7 +3152,7 @@ mod tests {
 
     #[test]
     fn any() {
-        let q = r##"any(label_set(10, "__name__", "x", "foo", "bar") or label_set(time()/150, "__name__", "y", "baz", "sss"))"##;
+        let q = r#"any(label_set(10, "__name__", "x", "foo", "bar") or label_set(time()/150, "__name__", "y", "baz", "sss"))"#;
         let mut r = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
         r.metric_name.set_metric_group("x");
         r.metric_name.set_tag("foo", "bar");
@@ -3166,11 +3167,11 @@ mod tests {
 
     #[test]
     fn group_by_test() {
-        let q = r##"group((
+        let q = r#"group((
         label_set(5, "__name__", "data", "test", "three samples", "point", "a"),
         label_set(6, "__name__", "data", "test", "three samples", "point", "b"),
         label_set(7, "__name__", "data", "test", "three samples", "point", "c"),
-        )) by (test)"##;
+        )) by (test)"#;
         let mut r = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r.metric_name.reset_metric_group();
         r.metric_name.set_tag("test", "three samples");
@@ -3179,11 +3180,11 @@ mod tests {
 
     #[test]
     fn group_without_point() {
-        let q = r##"group((
+        let q = r#"group((
         label_set(5, "__name__", "data", "test", "three samples", "point", "a"),
         label_set(6, "__name__", "data", "test", "three samples", "point", "b"),
         label_set(7, "__name__", "data", "test", "three samples", "point", "c"),
-        )) without (point)"##;
+        )) without (point)"#;
         let mut r = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r.metric_name.reset_metric_group();
         r.metric_name.set_tag("test", "three samples");
@@ -3192,7 +3193,8 @@ mod tests {
 
     #[test]
     fn top_k() {
-        let q = r##"sort(topk(-1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"##;
+        let q =
+            r#"sort(topk(-1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"#;
         test_query(q, vec![]);
 
         let q = r##"topk(1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"))"##;
@@ -3205,7 +3207,7 @@ mod tests {
 
     #[test]
     fn topk_min() {
-        let q = r##"sort(topk_min(1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"##;
+        let q = r#"sort(topk_min(1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"#;
         let mut r1 = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
         r1.metric_name.set_tag("foo", "bar");
         test_query(q, vec![r1]);
@@ -3213,7 +3215,7 @@ mod tests {
 
     #[test]
     fn bottomk_min() {
-        let q = r##"sort(bottomk_min(1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"##;
+        let q = r#"sort(bottomk_min(1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"#;
         let mut r1 = make_result(&[
             6.666666666666667,
             8.0,
@@ -3229,7 +3231,7 @@ mod tests {
     #[test]
     fn topk_max() {
         let q =
-            r##"topk_max(1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"))"##;
+            r#"topk_max(1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"))"#;
         let mut r1 = make_result(&[
             6.666666666666667,
             8.0,
@@ -3241,7 +3243,7 @@ mod tests {
         r1.metric_name.set_tag("baz", "sss");
         test_query(q, vec![r1]);
 
-        let q = r##"sort_desc(topk_max(1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"), "remaining_sum=foo"))"##;
+        let q = r#"sort_desc(topk_max(1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"), "remaining_sum=foo"))"#;
         let mut r1 = make_result(&[
             6.666666666666667,
             8.0,
@@ -3256,7 +3258,7 @@ mod tests {
 
         test_query(q, vec![r1, r2]);
 
-        let q = r##"sort_desc(topk_max(2, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"), "remaining_sum"))"##;
+        let q = r#"sort_desc(topk_max(2, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"), "remaining_sum"))"#;
         let mut r1 = make_result(&[
             6.666666666666667,
             8.0,

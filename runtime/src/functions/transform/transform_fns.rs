@@ -269,7 +269,7 @@ fn do_transform_values(
 }
 
 fn transform_absent(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let mut rvs = get_absent_timeseries(&mut tfa.ec, &tfa.fe.args[0]);
+    let mut rvs = get_absent_timeseries(&mut tfa.ec, &tfa.fe.args[0])?;
 
     let series = get_series(tfa, 0)?;
     if series.len() == 0 {
@@ -291,9 +291,9 @@ fn transform_absent(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>
     return Ok(rvs);
 }
 
-pub(crate) fn get_absent_timeseries(ec: &EvalConfig, arg: &Expr) -> Vec<Timeseries> {
+pub(crate) fn get_absent_timeseries(ec: &EvalConfig, arg: &Expr) -> RuntimeResult<Vec<Timeseries>> {
     // Copy tags from arg
-    let mut rvs = eval_number(ec, 1.0);
+    let mut rvs = eval_number(ec, 1.0)?;
     match arg {
         Expr::MetricExpression(me) => {
             for tf in me.label_filters.iter() {
@@ -308,7 +308,7 @@ pub(crate) fn get_absent_timeseries(ec: &EvalConfig, arg: &Expr) -> Vec<Timeseri
         }
         _ => {}
     }
-    return rvs;
+    Ok(rvs)
 }
 
 fn transform_clamp(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
@@ -376,7 +376,7 @@ fn transform_datetime_impl(
     };
 
     let mut arg = if tfa.args.len() == 0 {
-        eval_time(&tfa.ec)
+        eval_time(&tfa.ec)?
     } else {
         get_series(tfa, 0)?
     };
@@ -1420,7 +1420,7 @@ fn transform_range_ru(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeserie
         (QueryValue::Scalar(left), QueryValue::Scalar(right)) => {
             // slight optimization
             let value = ru(*left, *right);
-            Ok(eval_number(&tfa.ec, value))
+            eval_number(&tfa.ec, value)
         }
         _ => {
             let mut free_series = get_series(tfa, 0)?; // todo: get_range_vector
@@ -1747,7 +1747,7 @@ fn transform_remove_resets(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Time
 
 fn transform_union(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     if tfa.args.len() < 1 {
-        return Ok(eval_number(&mut tfa.ec, NAN));
+        return eval_number(&mut tfa.ec, NAN);
     }
 
     let series = get_series(tfa, 0)?;
@@ -2320,13 +2320,13 @@ fn transform_scalar(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>
         // Then try converting the string to number.
         QueryValue::String(s) => {
             let n = parse_number(&s).map_or_else(|_| f64::NAN, |n| n);
-            Ok(eval_number(&mut tfa.ec, n))
+            eval_number(&mut tfa.ec, n)
         }
-        QueryValue::Scalar(f) => Ok(eval_number(&tfa.ec, *f)),
+        QueryValue::Scalar(f) => eval_number(&tfa.ec, *f),
         _ => {
             // The arg isn't a string. Extract scalar from it.
             if tfa.args.len() != 1 {
-                Ok(eval_number(&tfa.ec, NAN))
+                eval_number(&tfa.ec, NAN)
             } else {
                 let mut arg = arg.get_instant_vector(tfa.ec)?.remove(0);
                 arg.metric_name.reset();
@@ -2592,7 +2592,7 @@ macro_rules! create_rand_func {
     ($name: ident, $f:expr) => {
         fn $name(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
             let mut rng: StdRng = create_rng(tfa)?;
-            let mut tss = eval_number(&tfa.ec, 0.0);
+            let mut tss = eval_number(&tfa.ec, 0.0)?;
             for value in tss[0].values.iter_mut() {
                 *value = $f(&mut rng);
             }
@@ -2612,12 +2612,12 @@ create_rand_func!(transform_rand_exp, |r: &mut StdRng| {
 });
 
 fn transform_pi(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    Ok(eval_number(&tfa.ec, f64::PI()))
+    eval_number(&tfa.ec, f64::PI())
 }
 
 fn transform_now(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let now: f64 = Utc::now().timestamp() as f64 / 1e9_f64;
-    Ok(eval_number(&tfa.ec, now))
+    eval_number(&tfa.ec, now)
 }
 
 #[inline]
@@ -2693,7 +2693,7 @@ fn transform_timezone_offset(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Ti
         Ok(res) => res,
     };
 
-    let timestamps = tfa.ec.timestamps();
+    let timestamps = tfa.ec.get_timestamps()?;
     let mut values: Vec<f64> = Vec::with_capacity(timestamps.len());
     for v in timestamps.iter() {
         // todo(perf) construct a DateTime in the tz and update timestamp
@@ -2714,7 +2714,7 @@ fn transform_timezone_offset(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Ti
 }
 
 fn transform_time(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    Ok(eval_time(&mut tfa.ec))
+    eval_time(&mut tfa.ec)
 }
 
 fn transform_vector(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
@@ -2724,19 +2724,19 @@ fn transform_vector(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>
 
 fn transform_step(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let v = tfa.ec.step as f64 / 1e3_f64;
-    Ok(eval_number(&tfa.ec, v))
+    eval_number(&tfa.ec, v)
 }
 
 #[inline]
 fn transform_start(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let v = tfa.ec.start as f64 / 1e3_f64;
-    Ok(eval_number(&tfa.ec, v))
+    eval_number(&tfa.ec, v)
 }
 
 #[inline]
 fn transform_end(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let v = tfa.ec.end as f64 / 1e3_f64;
-    Ok(eval_number(&tfa.ec, v))
+    eval_number(&tfa.ec, v)
 }
 
 /// copy_timeseries returns a copy of tss.
