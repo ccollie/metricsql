@@ -543,7 +543,9 @@ impl SqlDataSource {
             .iter()
             .map(|col| DfExpr::Column(Column::from_name(col)).sort(false, false))
             .collect::<Vec<_>>();
+
         result.push(self.create_time_index_column_expr()?.sort(false, false));
+
         Ok(result)
     }
 

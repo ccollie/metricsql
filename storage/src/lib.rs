@@ -20,6 +20,7 @@ mod error;
 mod status_code;
 mod udf;
 mod utils;
+mod postgres;
 
 pub struct TableContext {
     pub session: SessionContext,

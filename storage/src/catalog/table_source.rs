@@ -14,6 +14,8 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+// for pgsql see
+/// https://github.com/apache/arrow-datafusion/blob/main/datafusion/core/tests/sqllogictests/src/engines/postgres/mod.rs
 
 use datafusion::common::{ResolvedTableReference, TableReference};
 use datafusion::datasource::provider_as_source;
