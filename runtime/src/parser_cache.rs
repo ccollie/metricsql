@@ -164,13 +164,14 @@ pub(crate) fn escape_dots(s: &str) -> String {
     let mut chars_iter = s.chars().peekable();
     let mut i = 0;
     while let Some(ch) = chars_iter.next() {
-        if ch == '.' && (i == 0 || prev_ch != '\\') && {
-            if let Some(next) = chars_iter.peek() {
-                (*next != '*' && *next != '+' && *next != '?' && *next != '{')
+        if ch == '.'
+            && (i == 0 || prev_ch != '\\')
+            && if let Some(next) = chars_iter.peek() {
+                *next != '*' && *next != '+' && *next != '?' && *next != '{'
             } else {
                 true
             }
-        } {
+        {
             // Escape a dot if the following conditions are met:
             // - if it isn't escaped already, i.e. if there is no `\` char before the dot.
             // - if there is no regexp modifiers such as '*', '?' or '{' after the dot.

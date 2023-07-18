@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 /// import commonly used items from the prelude:
 use rand::prelude::*;
+use serde::{Deserialize, Serialize};
 use tracing::span::EnteredSpan;
 use tracing::{field, info, span_enabled, trace_span, Level, Span};
 use xxhash_rust::xxh3::Xxh3;
@@ -485,7 +486,7 @@ pub fn merge_timeseries(
     b_start: i64,
     ec: &EvalConfig,
 ) -> RuntimeResult<Vec<Timeseries>> {
-    let shared_timestamps = ec.timestamps();
+    let shared_timestamps = ec.get_timestamps()?;
     if b_start == ec.start {
         // Nothing to merge - b covers all the time range.
         // Verify b is correct.
@@ -686,7 +687,7 @@ impl Default for RollupResultCacheMetaInfo {
     }
 }
 
-#[derive(Default, Clone, Eq, Hash)]
+#[derive(Default, Clone, Eq, Hash, Serialize, Deserialize)]
 pub(self) struct RollupResultCacheMetaInfoEntry {
     start: i64,
     end: i64,
@@ -733,7 +734,7 @@ impl PartialEq for RollupResultCacheMetaInfoEntry {
 
 /// RollupResultCacheKey must be globally unique across nodes,
 /// so it has prefix and suffix.
-#[derive(Hash, Copy, Eq, PartialEq, Clone)]
+#[derive(Hash, Copy, Eq, PartialEq, Clone, Serialize, Deserialize)]
 pub struct RollupResultCacheKey {
     prefix: u64,
     suffix: u64,

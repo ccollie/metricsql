@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::RwLock;
 
 use metricsql::common::LabelFilter;
 
@@ -74,7 +75,11 @@ pub fn align_start_end(start: Timestamp, end: Timestamp, step: i64) -> (Timestam
     return (new_start, new_end);
 }
 
-#[derive(Clone)]
+struct TimestampsInner {
+    timestamps: Arc<Vec<Timestamp>>,
+    initialized: bool,
+}
+
 pub struct EvalConfig {
     pub start: Timestamp,
     pub end: Timestamp,
@@ -113,7 +118,9 @@ pub struct EvalConfig {
     /// Whether to disable response caching. This may be useful during data back-filling
     pub disable_cache: bool,
 
-    _timestamps: Arc<Vec<Timestamp>>,
+    /// The timestamps for the query.
+    /// Note: investigate using https://docs.rs/arc-swap/latest/arc_swap/
+    _timestamps: RwLock<Arc<Vec<Timestamp>>>,
 }
 
 impl EvalConfig {
@@ -138,18 +145,12 @@ impl EvalConfig {
             round_digits: self.round_digits,
             enforced_tag_filters: self.enforced_tag_filters.clone(),
             // do not copy src.timestamps - they must be generated again.
-            _timestamps: Arc::new(vec![]),
+            _timestamps: RwLock::new(Arc::new(vec![])),
             no_stale_markers: self.no_stale_markers,
             max_points_per_series: self.max_points_per_series,
             disable_cache: self.disable_cache,
         };
         return ec;
-    }
-
-    pub fn adjust_by_offset(&mut self, offset: i64) {
-        self.start -= offset;
-        self.end -= offset;
-        self._timestamps = Arc::new(vec![]);
     }
 
     pub fn validate(&self) -> RuntimeResult<()> {
@@ -201,29 +202,32 @@ impl EvalConfig {
         self.max_series = state_config.max_unique_timeseries;
     }
 
-    pub fn timestamps(&self) -> Arc<Vec<i64>> {
-        Arc::clone(&self._timestamps)
-    }
+    pub fn get_timestamps(&self) -> RuntimeResult<Arc<Vec<Timestamp>>> {
+        let locked = self._timestamps.read().unwrap();
+        if locked.len() > 0 {
+            return Ok(Arc::clone(&locked));
+        }
+        drop(locked);
+        let mut write_locked = self._timestamps.write().unwrap();
+        if write_locked.len() > 0 {
+            return Ok(Arc::clone(&write_locked));
+        }
+        let ts = crate::eval::get_timestamps(
+            self.start,
+            self.end,
+            self.step,
+            self.max_points_per_series,
+        )?;
 
-    pub fn get_timestamps(&mut self) -> Arc<Vec<Timestamp>> {
-        self.ensure_timestamps().unwrap(); //???
-        Arc::clone(&self._timestamps)
+        let timestamps = Arc::new(ts);
+        let res = timestamps.clone();
+        *write_locked = timestamps;
+
+        Ok(res)
     }
 
     pub fn timerange_string(&self) -> String {
         format!("[{}..{}]", self.start.to_rfc3339(), self.end.to_rfc3339())
-    }
-
-    pub(crate) fn ensure_timestamps(&mut self) -> RuntimeResult<()> {
-        if self._timestamps.len() == 0 {
-            let ts = get_timestamps(self.start, self.end, self.step, self.max_points_per_series)?;
-            self._timestamps = Arc::new(ts);
-        }
-        Ok(())
-    }
-
-    pub fn get_shared_timestamps(&mut self) -> Arc<Vec<i64>> {
-        self.get_timestamps()
     }
 
     pub fn data_points(&self) -> usize {
@@ -248,7 +252,29 @@ impl Default for EvalConfig {
             no_stale_markers: true,
             max_points_per_series: 0,
             disable_cache: false,
-            _timestamps: Arc::new(vec![]),
+            _timestamps: RwLock::new(Arc::new(vec![])),
+        }
+    }
+}
+
+impl Clone for EvalConfig {
+    fn clone(&self) -> Self {
+        let timestamps = self.get_timestamps().unwrap_or_else(|_| Arc::new(vec![]));
+        Self {
+            start: self.start,
+            end: self.end,
+            step: self.step,
+            deadline: self.deadline,
+            max_series: self.max_series,
+            quoted_remote_addr: self.quoted_remote_addr.clone(),
+            _may_cache: self._may_cache,
+            lookback_delta: self.lookback_delta,
+            round_digits: self.round_digits,
+            enforced_tag_filters: self.enforced_tag_filters.clone(),
+            _timestamps: RwLock::new(timestamps),
+            no_stale_markers: self.no_stale_markers,
+            max_points_per_series: self.max_points_per_series,
+            disable_cache: self.disable_cache,
         }
     }
 }
@@ -299,30 +325,21 @@ pub fn get_timestamps(
     return Ok(timestamps);
 }
 
-pub(crate) fn eval_number(ec: &EvalConfig, n: f64) -> Vec<Timeseries> {
-    let timestamps = ec.timestamps();
-    // HACK!!!  ec.ensure_timestamps() should have been called before this function
-    if timestamps.len() == 0 {
-        // todo: this is a hack, we should not call get_timestamps here
-        let timestamps =
-            get_timestamps(ec.start, ec.end, ec.step, ec.max_points_per_series).unwrap();
-        let values = vec![n; timestamps.len()];
-        let ts = Timeseries::new(timestamps, values);
-        return vec![ts];
-    }
+pub(crate) fn eval_number(ec: &EvalConfig, n: f64) -> RuntimeResult<Vec<Timeseries>> {
+    let timestamps = ec.get_timestamps()?;
     let ts = Timeseries {
         metric_name: Default::default(),
         timestamps: timestamps.clone(),
         values: vec![n; timestamps.len()],
     };
-    vec![ts]
+    Ok(vec![ts])
 }
 
-pub(crate) fn eval_time(ec: &EvalConfig) -> Vec<Timeseries> {
-    let mut rv = eval_number(ec, f64::NAN);
+pub(crate) fn eval_time(ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
+    let mut rv = eval_number(ec, f64::NAN)?;
     let timestamps = rv[0].timestamps.clone(); // this is an Arc, so it's cheap to clone
     for (ts, val) in timestamps.iter().zip(rv[0].values.iter_mut()) {
         *val = (*ts as f64) / 1e3_f64;
     }
-    rv
+    Ok(rv)
 }

@@ -1,7 +1,6 @@
 use std::collections::HashSet;
-use std::ops::Deref;
-use std::string::String;
 use std::sync::Arc;
+use std::vec;
 
 use chrono::Utc;
 use tracing::{field, info, trace_span, Span};
@@ -14,6 +13,7 @@ use crate::eval::{eval_expr, EvalConfig};
 use crate::parser_cache::ParseCacheValue;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::search::QueryResult;
+use crate::signature::Signature;
 use crate::types::Timeseries;
 use crate::{ParseCacheResult, QueryValue};
 
@@ -46,7 +46,7 @@ pub(crate) fn exec_internal(
     match (&parsed.expr, &parsed.has_subquery) {
         (Some(expr), has_subquery) => {
             if *has_subquery {
-                ec.ensure_timestamps()?;
+                let _ = ec.get_timestamps()?;
             }
 
             let ctx = Arc::new(context);
@@ -94,7 +94,7 @@ pub(crate) fn exec_internal(
                         }
                     }
                     _ => {
-                        ts_count = ec.timestamps().len();
+                        ts_count = ec.data_points();
                         series_count = 1;
                     }
                 }
@@ -170,38 +170,43 @@ fn may_sort_results(e: &Expr, _tss: &[Timeseries]) -> bool {
 }
 
 pub(crate) fn timeseries_to_result(
-    tss: &mut [Timeseries],
+    tss: &mut Vec<Timeseries>,
     may_sort: bool,
 ) -> RuntimeResult<Vec<QueryResult>> {
+    remove_empty_series(tss);
+
+    if tss.is_empty() {
+        return Ok(vec![]);
+    }
+
     let mut result: Vec<QueryResult> = Vec::with_capacity(tss.len());
-    let mut m: HashSet<String> = HashSet::with_capacity(tss.len());
+    let mut m: HashSet<Signature> = HashSet::with_capacity(tss.len());
 
-    let timestamps = tss[0].timestamps.deref();
-
-    for ts in tss.iter() {
+    for ts in tss.iter_mut() {
         if ts.is_all_nans() {
             continue;
         }
 
-        // todo: use hash
-        let key = ts.metric_name.to_string();
+        ts.metric_name.sort_tags();
 
-        if m.contains(&key) {
+        let key = ts.metric_name.signature();
+
+        if m.insert(key) {
+            let res = QueryResult {
+                metric_name: ts.metric_name.clone(), // todo(perf) into vs clone/take
+                values: ts.values.clone(),           // perf) .into vs clone/take
+                timestamps: ts.timestamps.as_ref().clone(), // todo(perf): declare field as Rc<Vec<i64>>
+                rows_processed: 0,
+                worker_id: 0,
+            };
+
+            result.push(res);
+        } else {
             return Err(RuntimeError::from(format!(
                 "duplicate output timeseries: {}",
                 ts.metric_name
             )));
         }
-        m.insert(key);
-        let res = QueryResult {
-            metric_name: ts.metric_name.clone(), // todo(perf) into vs clone/take
-            values: ts.values.clone(),           // todo(perf) .into vs clone/take
-            timestamps: timestamps.clone(),      // todo: declare field as Rc<Vec<i64>>
-            rows_processed: 0,
-            worker_id: 0,
-        };
-
-        result.push(res);
     }
 
     if may_sort {
@@ -213,5 +218,8 @@ pub(crate) fn timeseries_to_result(
 
 #[inline]
 pub(super) fn remove_empty_series(tss: &mut Vec<Timeseries>) {
+    if tss.is_empty() {
+        return;
+    }
     tss.retain(|ts| !ts.values.iter().all(|v| v.is_nan()));
 }
