@@ -149,7 +149,7 @@ impl BuiltinFunction {
 
     pub fn get_arg_for_optimization<'a>(&'a self, args: &'a [Expr]) -> Option<&Expr> {
         match self.get_arg_idx_for_optimization(args.len()) {
-            Some(idx) => Some(&args[idx]),
+            Some(idx) => args.get(idx),
             None => None,
         }
     }

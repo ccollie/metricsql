@@ -197,14 +197,14 @@ impl<'a> RollupExecutor<'a> {
             ec_sq.start,
             ec_sq.end,
             ec_sq.step,
-            ec.max_points_per_series,
+            ec_sq.max_points_per_series,
         )?;
 
         // unconditionally align start and end args to step for subquery as Prometheus does.
         (ec_sq.start, ec_sq.end) = align_start_end(ec_sq.start, ec_sq.end, ec_sq.step);
         let tss_sq = eval_expr(ctx, &ec_sq, &self.re.expr)?;
 
-        let tss_sq = tss_sq.as_instant_vec(&ec)?;
+        let tss_sq = tss_sq.as_instant_vec(&ec_sq)?;
         if tss_sq.len() == 0 {
             return Ok(vec![]);
         }
@@ -714,11 +714,8 @@ fn get_at_timestamp(ctx: &Arc<Context>, ec: &EvalConfig, expr: &Expr) -> Runtime
                         return Err(RuntimeError::from(msg));
                     }
                     let ts = &v[0];
-                    if ts.values.len() > 1 {
-                        let msg = format!(
-                            "`@` modifier must return a single value; it returns {} series instead",
-                            ts.values.len()
-                        );
+                    if ts.values.is_empty() {
+                        let msg = "`@` modifier expression returned an empty value";
                         return Err(RuntimeError::from(msg));
                     }
                     Ok((ts.values[0] * 1000_f64) as i64)

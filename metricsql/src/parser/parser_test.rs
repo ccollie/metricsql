@@ -15,7 +15,7 @@ mod tests {
     }
 
     fn another(s: &str, expected: &str) {
-        let expr = parse_or_panic(s);
+        let expr = parse(s).expect(format!("Error parsing expression {s}").as_str());
         let optimized = optimize(expr).expect("Error optimizing expression");
         let expected_expr = parse_or_panic(expected);
         assert_eq_expr(&expected_expr, &optimized);

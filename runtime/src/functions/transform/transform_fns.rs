@@ -2025,9 +2025,9 @@ fn transform_label_join(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeser
         for (j, src_label) in src_labels.iter().enumerate() {
             if let Some(src_value) = ts.metric_name.get_tag_value(src_label) {
                 dst_value.push_str(&src_value);
-                if j + 1 < src_labels.len() {
-                    dst_value.push_str(&separator)
-                }
+            }
+            if j + 1 < src_labels.len() {
+                dst_value.push_str(&separator)
             }
         }
 
@@ -2673,7 +2673,7 @@ fn parse_zone(tz_name: &str) -> RuntimeResult<Tz> {
 }
 
 fn transform_timezone_offset(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let tz_name = match tfa.args[0].get_string() {
+    let tz_name = match get_string(tfa, 0) {
         Err(e) => {
             return Err(RuntimeError::ArgumentError(format!(
                 "cannot get timezone name from arg: {:?}",
