@@ -16,9 +16,9 @@ use lib::{fmt_duration_ms, hash_f64};
 
 use crate::ast::expr_equals;
 use crate::common::{
-    format_num, write_list, AggregateModifier, BinModifier, GroupModifier, GroupModifierOp,
-    JoinModifier, LabelFilter, LabelFilterOp, Operator, StringExpr, Value, ValueType,
-    VectorMatchCardinality, NAME_LABEL,
+    write_comma_separated, write_number, AggregateModifier, BinModifier, GroupModifier,
+    GroupModifierOp, JoinModifier, LabelFilter, LabelFilterOp, Operator, StringExpr, Value,
+    ValueType, VectorMatchCardinality, NAME_LABEL,
 };
 use crate::functions::{AggregateFunction, BuiltinFunction, TransformFunction};
 use crate::parser::{escape_ident, ParseError, ParseResult};
@@ -95,7 +95,7 @@ impl ExpressionNode for NumberLiteral {
 
 impl Display for NumberLiteral {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        format_num(f, self.value)
+        write_number(f, self.value)
     }
 }
 
@@ -292,7 +292,7 @@ impl Display for MetricExpr {
 
         if !lfs.is_empty() {
             write!(f, "{{")?;
-            write_list(lfs.iter(), f, false)?;
+            write_comma_separated(lfs.iter(), f, false)?;
             write!(f, "}}")?;
         }
         Ok(())
@@ -435,7 +435,7 @@ impl FunctionExpr {
 impl Display for FunctionExpr {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "{}", self.function.name())?;
-        write_list(&mut self.args.iter(), f, true)?;
+        write_comma_separated(&mut self.args.iter(), f, true)?;
         if self.keep_metric_names {
             write!(f, " keep_metric_names")?;
         }
@@ -596,7 +596,7 @@ impl Display for AggregationExpr {
         write!(f, "{}", self.function.to_string())?;
         let args_len = self.args.len();
         if args_len > 0 {
-            write_list(&mut self.args.iter(), f, true)?;
+            write_comma_separated(&mut self.args.iter(), f, true)?;
         }
         if let Some(modifier) = &self.modifier {
             write!(f, " {}", modifier)?;
@@ -1082,7 +1082,7 @@ impl Value for ParensExpr {
 
 impl Display for ParensExpr {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write_list(&mut self.expressions.iter(), f, true)?;
+        write_comma_separated(&mut self.expressions.iter(), f, true)?;
         Ok(())
     }
 }
@@ -1199,7 +1199,7 @@ impl Value for WithArgExpr {
 impl Display for WithArgExpr {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "{}", escape_ident(&self.name))?;
-        write_list(self.args.iter(), f, !self.args.is_empty())?;
+        write_comma_separated(self.args.iter(), f, !self.args.is_empty())?;
         write!(f, " = {}", self.expr)?;
         Ok(())
     }

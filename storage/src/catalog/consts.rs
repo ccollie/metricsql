@@ -15,7 +15,7 @@
 pub const SYSTEM_CATALOG_NAME: &str = "system";
 pub const INFORMATION_SCHEMA_NAME: &str = "information_schema";
 pub const SYSTEM_CATALOG_TABLE_NAME: &str = "system_catalog";
-pub const DEFAULT_CATALOG_NAME: &str = "greptime";
+pub const DEFAULT_CATALOG_NAME: &str = "metrix";
 pub const DEFAULT_SCHEMA_NAME: &str = "public";
 
 /// Reserves [0,MIN_USER_TABLE_ID) for internal usage.
@@ -29,6 +29,7 @@ pub const SCRIPTS_TABLE_ID: u32 = 1;
 pub const NUMBERS_TABLE_ID: u32 = 2;
 
 pub const MITO_ENGINE: &str = "mito";
+pub const DB_ENGINE: &str = "db";
 pub const IMMUTABLE_FILE_ENGINE: &str = "file";
 
 pub const SEMANTIC_TYPE_PRIMARY_KEY: &str = "PRIMARY KEY";

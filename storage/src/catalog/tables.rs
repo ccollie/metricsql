@@ -87,11 +87,7 @@ impl SystemCatalog {
             })
     }
 
-    pub async fn register_schema(
-        &self,
-        catalog: String,
-        schema: String,
-    ) -> crate::error::Result<usize> {
+    pub async fn register_schema(&self, catalog: String, schema: String) -> error::Result<usize> {
         let request = build_schema_insert_request(catalog, schema);
         self.information_schema
             .system

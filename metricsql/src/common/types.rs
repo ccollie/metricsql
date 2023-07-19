@@ -5,7 +5,7 @@ use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Serialize};
 
-use crate::common::write_list;
+use crate::common::write_comma_separated;
 use crate::parser::ParseError;
 
 pub type Labels = BTreeSet<String>;
@@ -127,11 +127,11 @@ impl Display for BinModifier {
         match &self.card {
             ManyToOne(labels) => {
                 write!(f, " group_left")?;
-                write_list(labels.iter(), f, true)?;
+                write_comma_separated(labels.iter(), f, true)?;
             }
             OneToMany(labels) => {
                 write!(f, " group_right")?;
-                write_list(labels.iter(), f, true)?;
+                write_comma_separated(labels.iter(), f, true)?;
             }
             _ => {}
         }
@@ -139,11 +139,11 @@ impl Display for BinModifier {
             match matching {
                 VectorMatchModifier::On(labels) => {
                     write!(f, " on")?;
-                    write_list(labels.iter(), f, true)?;
+                    write_comma_separated(labels.iter(), f, true)?;
                 }
                 VectorMatchModifier::Ignoring(labels) => {
                     write!(f, " ignoring")?;
-                    write_list(labels.iter(), f, true)?;
+                    write_comma_separated(labels.iter(), f, true)?;
                 }
             }
         }
@@ -200,11 +200,11 @@ impl Display for AggregateModifier {
         match self {
             AggregateModifier::By(vec) => {
                 write!(f, "by ")?;
-                write_list(vec.iter(), f, true)?;
-            },
+                write_comma_separated(vec.iter(), f, true)?;
+            }
             AggregateModifier::Without(vec) => {
                 write!(f, "without ")?;
-                write_list(vec.iter(), f, true)?;
+                write_comma_separated(vec.iter(), f, true)?;
             }
         }
         Ok(())
@@ -219,8 +219,8 @@ impl PartialEq<Self> for AggregateModifier {
             }
             (AggregateModifier::By(left), AggregateModifier::By(right)) => {
                 string_vecs_equal_unordered(left, right)
-            },
-            _ => false
+            }
+            _ => false,
         }
     }
 }
@@ -332,7 +332,7 @@ impl Display for GroupModifier {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "{} (", self.op)?;
         if !self.labels.is_empty() {
-            write_list(self.labels.iter(), f, false)?;
+            write_comma_separated(self.labels.iter(), f, false)?;
         }
         write!(f, ")")?;
         Ok(())
@@ -507,7 +507,7 @@ impl JoinModifier {
 impl Display for JoinModifier {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "{} ", self.op)?;
-        write_list(self.labels.iter(), f, true)?;
+        write_comma_separated(self.labels.iter(), f, true)?;
         Ok(())
     }
 }

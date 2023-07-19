@@ -1,7 +1,7 @@
 use std::fmt;
 use std::fmt::{Display, Formatter};
 
-pub fn format_num(f: &mut Formatter<'_>, value: f64) -> fmt::Result {
+pub fn write_number(f: &mut Formatter<'_>, value: f64) -> fmt::Result {
     if value.is_finite() {
         write!(f, "{}", value)
     } else if value.is_nan() {
@@ -13,7 +13,7 @@ pub fn format_num(f: &mut Formatter<'_>, value: f64) -> fmt::Result {
     }
 }
 
-pub(crate) fn write_list<T: Display>(
+pub(crate) fn write_comma_separated<T: Display>(
     values: impl Iterator<Item = T>,
     f: &mut Formatter,
     use_parens: bool,

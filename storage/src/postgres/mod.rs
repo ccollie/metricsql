@@ -19,21 +19,24 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use async_trait::async_trait;
-use bytes::Bytes;
-use futures::{SinkExt, StreamExt};
-use log::debug;
-use sqllogictest::DBOutput;
-use tokio::task::JoinHandle;
-
-use super::conversion::*;
-use crate::engines::output::{DFColumnType, DFOutput};
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+use datafusion::arrow::row::Row;
+use datafusion::common::Column;
+use futures::{SinkExt, StreamExt};
 use postgres_types::Type;
+use tokio::task::JoinHandle;
+use tracing::debug;
+
+use bytes::Bytes;
+use log::debug;
 use rust_decimal::Decimal;
+use sqllogictest::DBOutput;
 use tokio_postgres::{Column, Row};
 use types::PgRegtype;
 
-mod types;
+use crate::engines::output::{DFColumnType, DFOutput};
+
+use super::conversion::*;
 
 // default connect string, can be overridden by the `PG_URL` environment variable
 const PG_URI: &str = "postgresql://postgres@127.0.0.1/test";
@@ -71,8 +74,7 @@ impl Postgres {
     ///
     /// See https://docs.rs/tokio-postgres/latest/tokio_postgres/config/struct.Config.html#url for format
     pub async fn connect(relative_path: PathBuf) -> Result<Self> {
-        let uri =
-            std::env::var("PG_URI").map_or(PG_URI.to_string(), std::convert::identity);
+        let uri = std::env::var("PG_URI").map_or(PG_URI.to_string(), std::convert::identity);
 
         debug!("Using posgres connection string: {uri}");
 
@@ -157,9 +159,9 @@ impl Postgres {
             }
         }
 
-        let filename = filename.map(no_quotes).ok_or_else(|| {
-            Error::Copy(format!("Can not find filename in COPY: {sql}"))
-        })?;
+        let filename = filename
+            .map(no_quotes)
+            .ok_or_else(|| Error::Copy(format!("Can not find filename in COPY: {sql}")))?;
 
         let new_sql = new_sql.join(" ");
         debug!("Copying data from file {filename} using sql: {new_sql}");
@@ -216,10 +218,7 @@ impl sqllogictest::AsyncDB for Postgres {
     type Error = Error;
     type ColumnType = DFColumnType;
 
-    async fn run(
-        &mut self,
-        sql: &str,
-    ) -> Result<DBOutput<Self::ColumnType>, Self::Error> {
+    async fn run(&mut self, sql: &str) -> Result<DBOutput<Self::ColumnType>, Self::Error> {
         println!(
             "[{}] Running query: \"{}\"",
             self.relative_path.display(),
@@ -235,9 +234,9 @@ impl sqllogictest::AsyncDB for Postgres {
                 || lower_sql.starts_with("with")
                 || lower_sql.starts_with("describe")
                 || ((lower_sql.starts_with("insert")
-                || lower_sql.starts_with("update")
-                || lower_sql.starts_with("delete"))
-                && lower_sql.contains("returning"))
+                    || lower_sql.starts_with("update")
+                    || lower_sql.starts_with("delete"))
+                    && lower_sql.contains("returning"))
         };
 
         if lower_sql.starts_with("copy") {

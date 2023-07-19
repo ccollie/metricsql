@@ -12,11 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod consts;
-mod information_schema;
-mod local;
-mod manager;
-mod system;
-mod table_source;
-mod table_source_provider;
-mod tables;
+pub use manager::LocalCatalogManager;
+pub use memory::{new_memory_catalog_manager, MemoryCatalogManager};
+
+pub mod manager;
+pub mod memory;
