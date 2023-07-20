@@ -21,6 +21,7 @@ mod status_code;
 mod udf;
 mod utils;
 mod postgres;
+mod table;
 
 pub struct TableContext {
     pub session: SessionContext,

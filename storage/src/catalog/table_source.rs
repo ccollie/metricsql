@@ -16,12 +16,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 // for pgsql see
 /// https://github.com/apache/arrow-datafusion/blob/main/datafusion/core/tests/sqllogictests/src/engines/postgres/mod.rs
-
 use datafusion::common::{ResolvedTableReference, TableReference};
 use datafusion::datasource::provider_as_source;
 use datafusion::logical_expr::TableSource;
 use snafu::{ensure, OptionExt};
 
+use crate::catalog::manager::CatalogManagerRef;
 use common_catalog::consts::INFORMATION_SCHEMA_NAME;
 use common_catalog::format_full_table_name;
 
@@ -121,6 +121,7 @@ impl DfTableSourceProvider {
 mod tests {
     use std::borrow::Cow;
 
+    use crate::catalog::local::MemoryCatalogManager;
     use session::context::QueryContext;
 
     use crate::local::MemoryCatalogManager;

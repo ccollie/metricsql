@@ -41,7 +41,7 @@ pub trait CatalogManager: Send + Sync {
     /// Registers a catalog to catalog manager, returns whether the catalog exist before.
     async fn register_catalog(&self, name: String) -> Result<bool>;
 
-    /// Register a schema with catalog name and schema name. Retuens whether the
+    /// Register a schema with catalog name and schema name. Returns whether the
     /// schema registered.
     ///
     /// # Errors
@@ -99,7 +99,7 @@ pub type OpenSystemTableHook = Arc<dyn Fn(TableRef) -> Result<()> + Send + Sync>
 /// Register system table request:
 /// - When system table is already created and registered, the hook will be called
 ///     with table ref after opening the system table
-/// - When system table is not exists, create and register the table by create_table_request and calls open_hook with the created table.
+/// - When system table does not exist, create and register the table by create_table_request and calls open_hook with the created table.
 pub struct RegisterSystemTableRequest {
     pub create_table_request: CreateTableRequest,
     pub open_hook: Option<OpenSystemTableHook>,
@@ -124,6 +124,19 @@ impl Debug for RegisterTableRequest {
             .field("table", &self.table.table_info())
             .finish()
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct CreateTableRequest {
+    pub catalog_name: String,
+    pub schema_name: String,
+    pub table_name: String,
+    pub id: TableId,
+    pub engine: String,
+    pub create_if_not_exists: bool,
+    pub desc: Option<String>,
+    pub schema: RawSchema,
+    pub primary_key_indices: Vec<usize>,
 }
 
 #[derive(Debug, Clone)]

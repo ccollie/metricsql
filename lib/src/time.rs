@@ -4,7 +4,9 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 /// under the APACHE License 2.0
 /// http://www.apache.org/licenses/LICENSE-2.0
 /// https://docs.rs/arrow-array/29.0.0/src/arrow_array/lib.rs.html
-use chrono::{Datelike, DateTime, Duration, NaiveDateTime, NaiveTime, Timelike, TimeZone, Utc, Weekday};
+use chrono::{
+    DateTime, Datelike, Duration, NaiveDateTime, NaiveTime, TimeZone, Timelike, Utc, Weekday,
+};
 
 /// Number of seconds in a day
 pub const SECONDS_IN_DAY: i64 = 86_400;
@@ -16,7 +18,6 @@ pub const MICROSECONDS: i64 = 1_000_000;
 pub const NANOSECONDS: i64 = 1_000_000_000;
 
 const DAYS_IN_MONTH: [u8; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-
 
 pub type Time = Instant;
 
@@ -106,8 +107,7 @@ pub fn timestamp_ms_to_datetime(v: i64) -> Option<NaiveDateTime> {
 pub fn timestamp_secs_to_datetime(secs: i64) -> Option<NaiveDateTime> {
     NaiveDateTime::from_timestamp_opt(
         // extract seconds from seconds
-        secs,
-        0_u32,
+        secs, 0_u32,
     )
 }
 
@@ -139,6 +139,11 @@ pub fn timestamp_ns_to_datetime(v: i64) -> Option<NaiveDateTime> {
         sec, // discard extracted seconds
         nano_sec,
     )
+}
+
+/// Returns the time duration since UNIX_EPOCH in milliseconds.
+pub fn current_time_millis() -> i64 {
+    Utc::now().timestamp_millis()
 }
 
 #[inline]
@@ -237,10 +242,10 @@ pub fn datetime_part<Tz: TimeZone>(datetime: DateTime<Tz>, part: DateTimePart) -
 mod tests {
     use chrono::NaiveDateTime;
 
-    use crate::{
-        NANOSECONDS, timestamp_ms_to_datetime, timestamp_ns_to_datetime, timestamp_us_to_datetime,
-    };
     use crate::time::split_second;
+    use crate::{
+        timestamp_ms_to_datetime, timestamp_ns_to_datetime, timestamp_us_to_datetime, NANOSECONDS,
+    };
 
     #[test]
     fn negative_input_timestamp_ns_to_datetime() {

@@ -32,18 +32,26 @@ pub fn get_scalar_param_value(
 
 #[inline]
 pub fn get_string_param_value(
-    param: &QueryValue,
+    args: &Vec<QueryValue>,
+    arg_num: usize,
     func_name: &str,
     param_name: &str,
 ) -> RuntimeResult<String> {
+    let param = args.get(arg_num);
+    if param.is_none() {
+        let msg = format!(
+            "expected string arg for parameter \"{}\" of function {}; Got None",
+            param_name, func_name
+        );
+        return Err(RuntimeError::TypeCastError(msg));
+    }
+    let param = param.unwrap();
     match param {
         QueryValue::String(val) => Ok(val.clone()),
         _ => {
             let msg = format!(
-                "expected string arg for parameter \"{}\" of function {}; Got {}",
-                param_name,
-                func_name,
-                param.data_type_name()
+                "expected string arg for parameter \"{param_name}\" of function {func_name}; Got {}",
+                param
             );
             return Err(RuntimeError::TypeCastError(msg));
         }

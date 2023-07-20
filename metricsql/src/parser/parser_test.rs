@@ -285,14 +285,14 @@ mod tests {
 
         // All the above
         another(
-            r#"Sum(Ff(M) * M{X=""}[5m] Offset 7m - 123, 35) BY (X, y) * F2("Test")"#,
-            r#"sum((Ff(M) * (M{X=""}[5m] offset 7m)) - 123, 35) by(X,y) * F2("Test")"#,
+            r#"Sum(abs(M) * M{X=""}[5m] Offset 7m - 123, 35) BY (X, y) * scalar("Test")"#,
+            r#"sum((abs(M) * (M{X=""}[5m] offset 7m)) - 123, 35) by(X,y) * scalar("Test")"#,
         );
         another(
             r##"# comment
-                Sum(Ff(M) * M{X=""}[5m] Offset 7m - 123, 35) BY (X, y) # yet another comment
-                    * F2("Test")"##,
-            r#"sum((Ff(M) * (M{X=""}[5m] offset 7m)) - 123, 35) by(X,y) * F2("Test")"#,
+                Sum(abs(M) * M{X=""}[5m] Offset 7m - 123, 35) BY (X, y) # yet another comment
+                    * scalar("Test")"##,
+            r#"sum((abs(M) * (M{X=""}[5m] offset 7m)) - 123, 35) by(X,y) * scalar("Test")"#,
         );
     }
 
@@ -473,14 +473,8 @@ mod tests {
         // withExpr
         another("with () x", "x");
         another("with (x=1,) x", "1");
-        another(
-            "with (x = m offset 5h) x + x",
-            "(m offset 5h) + (m offset 5h)",
-        );
-        another(
-            "with (x = m offset 5i) x + x",
-            "(m offset 5i) + (m offset 5i)",
-        );
+        another("with (x = m offset 5h) x + x", "(m offset 5h) * 2");
+        another("with (x = m offset 5i) x + x", "(m offset 5i) * 2");
         another(r#"with (foo = bar{x="x"}) 1"#, "1");
         another(r#"with (foo = bar{x="x"}) "x""#, r#""x""#);
         another(r#"with (f="x") f"#, r#""x""#);

@@ -11,9 +11,13 @@ use metricsql::functions::AggregateFunction;
 
 use crate::eval::eval_number;
 use crate::exec::remove_empty_series;
+use crate::functions::arg_parse::{
+    get_float_arg, get_int_arg, get_scalar_arg_as_vec, get_series_arg, get_string_arg,
+};
+use crate::functions::rollup::{quantile, quantiles};
 use crate::functions::transform::vmrange_buckets_to_le;
 use crate::functions::utils::float_to_int_bounded;
-use crate::functions::{mode_no_nans, quantile, quantiles, skip_trailing_nans};
+use crate::functions::{mode_no_nans, skip_trailing_nans};
 use crate::histogram::{get_pooled_histogram, Histogram};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::signature::Signature;
@@ -603,7 +607,7 @@ fn aggr_func_zscore(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
 }
 
 fn aggr_func_count_values(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let dst_label = afa.args[0].get_string()?;
+    let dst_label = get_string_arg(&afa.args, 0)?;
 
     // Remove dst_label from grouping like Prometheus does.
     let modifier = if let Some(modifier) = &afa.modifier {
@@ -659,7 +663,7 @@ fn aggr_func_count_values(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries
         return rvs;
     };
 
-    let mut series = get_series(afa, 1)?;
+    let mut series = get_series_arg(&afa.args, 1, afa.ec)?;
     let mut series_by_labels = aggr_prepare_series(&mut series, afa.modifier, afa.limit, false);
 
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(series_by_labels.len());
@@ -681,7 +685,7 @@ fn aggr_func_count_values(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries
 }
 
 fn func_topk_impl(afa: &mut AggrFuncArg, is_reverse: bool) -> RuntimeResult<Vec<Timeseries>> {
-    let k = get_float_arg(&afa, 0)?;
+    let k = get_float_arg(&afa.args, 0, None)?;
 
     let afe =
         |tss: &mut Vec<Timeseries>, _modifier: &Option<AggregateModifier>| -> Vec<Timeseries> {
@@ -703,7 +707,7 @@ fn func_topk_impl(afa: &mut AggrFuncArg, is_reverse: bool) -> RuntimeResult<Vec<
             std::mem::take(tss)
         };
 
-    let mut series = get_series(afa, 1)?;
+    let mut series = get_series_arg(&afa.args, 1, afa.ec)?;
     aggr_func_ext(afe, &mut series, afa.modifier, afa.limit, true)
 }
 
@@ -713,10 +717,10 @@ fn range_topk_impl(
     is_reverse: bool,
 ) -> RuntimeResult<Vec<Timeseries>> {
     let args_len = afa.args.len();
-    let ks: Vec<f64> = get_scalar(&afa, 0)?;
+    let ks: Vec<f64> = get_scalar_arg_as_vec(&afa.args, 0, afa.ec)?;
 
     let remaining_sum_tag_name = if args_len == 3 {
-        afa.args[2].get_string()?
+        get_string_arg(&afa.args, 2)?
     } else {
         "".to_string()
     };
@@ -732,7 +736,7 @@ fn range_topk_impl(
         );
     };
 
-    let mut series = get_series(afa, 1)?;
+    let mut series = get_series_arg(&afa.args, 1, afa.ec)?;
     aggr_func_ext(afe, &mut series, afa.modifier, afa.limit, true)
 }
 
@@ -900,7 +904,7 @@ fn last_value(values: &[f64]) -> f64 {
 }
 
 fn aggr_func_outliersk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let ks = get_scalar(&afa, 0)?;
+    let ks = get_scalar_arg_as_vec(&afa.args, 0, afa.ec)?;
     let afe = |tss: &mut Vec<Timeseries>, _modifier: &Option<AggregateModifier>| {
         // Calculate medians for each point across tss.
         let medians = get_per_point_medians(tss);
@@ -918,14 +922,14 @@ fn aggr_func_outliersk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> 
         return get_range_topk_timeseries(tss, afa.modifier, &ks, "", f, false);
     };
 
-    let mut series = get_series(afa, 1)?;
+    let mut series = get_series_arg(&afa.args, 1, afa.ec)?;
     aggr_func_ext(afe, &mut series, afa.modifier, afa.limit, true)
 }
 
 fn aggr_func_limitk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     expect_arg_count(afa, 2)?;
 
-    let mut limit = get_int_arg(afa, 0)?;
+    let mut limit = get_int_arg(&afa.args, 0)?;
     if limit < 0 {
         limit = 0
     }
@@ -947,12 +951,12 @@ fn aggr_func_limitk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
         return res;
     };
 
-    let mut series = get_series(afa, 1)?;
+    let mut series = get_series_arg(&afa.args, 1, afa.ec)?;
     aggr_func_ext(afe, &mut series, afa.modifier, afa.limit, true)
 }
 
 fn aggr_func_quantiles(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let dst_label = get_string(afa, 0)?;
+    let dst_label = get_string_arg(&afa.args, 0)?;
 
     let mut phis: Vec<f64> = Vec::with_capacity(afa.args.len() - 2);
     for arg in afa.args[1..afa.args.len() - 1].iter() {
@@ -997,9 +1001,9 @@ fn aggr_func_quantiles(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> 
 }
 
 fn aggr_func_quantile(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let phis = get_scalar(&afa, 0)?;
+    let phis = get_scalar_arg_as_vec(&afa.args, 0, afa.ec)?;
     let afe = new_aggr_quantile_func(&phis);
-    let mut series = get_series(afa, 1)?;
+    let mut series = get_series_arg(&afa.args, 1, afa.ec)?;
     return aggr_func_ext(afe, &mut series, afa.modifier, afa.limit, false);
 }
 
@@ -1039,7 +1043,7 @@ fn aggr_func_mad(tss: &mut Vec<Timeseries>) {
 }
 
 fn aggr_func_outliers_mad(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let tolerances = get_scalar(&afa, 0)?;
+    let tolerances = get_scalar_arg_as_vec(&afa.args, 0, afa.ec)?;
 
     let afe = move |tss: &mut Vec<Timeseries>, _: &Option<AggregateModifier>| {
         // Calculate medians for each point across tss.
@@ -1066,7 +1070,7 @@ fn aggr_func_outliers_mad(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries
         std::mem::take(tss)
     };
 
-    let mut series = get_series(afa, 1)?;
+    let mut series = get_series_arg(&afa.args, 1, afa.ec)?;
     aggr_func_ext(afe, &mut series, afa.modifier, afa.limit, true)
 }
 
@@ -1118,79 +1122,6 @@ fn get_arg<'a>(tfa: &'a AggrFuncArg, arg_num: usize) -> RuntimeResult<&'a QueryV
         )));
     }
     Ok(&tfa.args[arg_num])
-}
-
-fn get_series(tfa: &AggrFuncArg, arg_num: usize) -> RuntimeResult<Vec<Timeseries>> {
-    let arg = get_arg(tfa, arg_num)?;
-    Ok(arg.get_instant_vector(tfa.ec)?)
-}
-
-// todo(perf) Cow
-fn get_scalar(tfa: &AggrFuncArg, arg_num: usize) -> RuntimeResult<Vec<f64>> {
-    let arg = get_arg(tfa, arg_num)?;
-    return match arg {
-        QueryValue::RangeVector(val) => {
-            let values = val
-                .iter()
-                .map(|ts| {
-                    if ts.values.len() > 0 {
-                        ts.values[0]
-                    } else {
-                        f64::NAN
-                    }
-                })
-                .collect();
-            Ok(values)
-        }
-        QueryValue::InstantVector(val) => {
-            if val.len() != 1 {
-                let msg = format!(
-                    "arg #{} must contain a single timeseries; got {} timeseries",
-                    arg_num + 1,
-                    val.len()
-                );
-                return Err(RuntimeError::ArgumentError(msg));
-            }
-            let mut res: Vec<f64> = Vec::with_capacity(val.len());
-            for ts in val.iter() {
-                let v = if ts.values.len() > 0 {
-                    ts.values[0]
-                } else {
-                    f64::NAN
-                };
-                res.push(v);
-            }
-            Ok(res)
-        } // ????
-        QueryValue::Scalar(n) => {
-            let len = tfa.ec.data_points();
-            let values = vec![*n; len];
-            Ok(values)
-        }
-        _ => Err(RuntimeError::InvalidNumber(
-            "vector parameter expected ".to_string(),
-        )),
-    };
-}
-
-pub(crate) fn get_int_arg(tfa: &AggrFuncArg, arg_num: usize) -> RuntimeResult<i64> {
-    let arg = get_arg(tfa, arg_num)?;
-    Ok(arg.get_scalar()? as i64)
-}
-
-pub(crate) fn get_float_arg(tfa: &AggrFuncArg, arg_num: usize) -> RuntimeResult<f64> {
-    let arg = get_arg(tfa, arg_num)?;
-    arg.get_scalar()
-}
-
-fn get_string(tfa: &AggrFuncArg, arg_num: usize) -> RuntimeResult<String> {
-    let arg = get_arg(tfa, arg_num)?;
-    return match arg {
-        QueryValue::String(s) => Ok(s.clone()),
-        _ => Err(RuntimeError::ArgumentError(
-            "string parameter expected ".to_string(),
-        )),
-    };
 }
 
 fn expect_arg_count(tfa: &AggrFuncArg, expected: usize) -> RuntimeResult<()> {

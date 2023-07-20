@@ -1,10 +1,3 @@
-use std::cmp::Ordering;
-use std::ops::DerefMut;
-
-use tinyvec::TinyVec;
-
-use lib::get_float64s;
-
 /// mode_no_nans returns mode for a.
 ///
 /// It is expected that a doesn't contain NaNs.
@@ -100,85 +93,6 @@ pub fn get_last_non_nan_index(values: &[f64]) -> usize {
         i -= 1;
     }
     i
-}
-
-/// quantiles calculates the given phis from originValues without modifying originValues, appends
-/// them to qs and returns the result.
-pub fn quantiles(qs: &mut [f64], phis: &[f64], origin_values: &[f64]) {
-    if origin_values.len() <= 64 {
-        let mut vec = tiny_vec!([f64; 64]);
-        prepare_tv_for_quantile_float64(&mut vec, origin_values);
-        return quantiles_sorted(qs, phis, &vec);
-    }
-
-    let mut block = get_float64s(phis.len());
-    let a = block.deref_mut();
-    prepare_for_quantile_float64(a, origin_values);
-    quantiles_sorted(qs, phis, a)
-}
-
-/// calculates the given phi from origin_values without modifying origin_values
-pub fn quantile(phi: f64, origin_values: &[f64]) -> f64 {
-    // todo: smallvec
-    let mut block = get_float64s(origin_values.len());
-    prepare_for_quantile_float64(&mut block, origin_values);
-    quantile_sorted(phi, &block)
-}
-
-/// prepare_for_quantile_float64 copies items from src to dst but removes NaNs and sorts the dst
-fn prepare_for_quantile_float64(dst: &mut Vec<f64>, src: &[f64]) {
-    for v in src {
-        if v.is_nan() {
-            continue;
-        }
-        dst.push(*v);
-    }
-    dst.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Less));
-}
-
-/// copies items from src to dst but removes NaNs and sorts the dst
-fn prepare_tv_for_quantile_float64(dst: &mut TinyVec<[f64; 64]>, src: &[f64]) {
-    for v in src {
-        if v.is_nan() {
-            continue;
-        }
-        dst.push(*v);
-    }
-    dst.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Less));
-}
-
-/// calculates the given phis over a sorted list of values, appends them to qs and returns the result.
-///
-/// It is expected that values won't contain NaN items.
-/// The implementation mimics Prometheus implementation for compatibility's sake.
-pub fn quantiles_sorted(qs: &mut [f64], phis: &[f64], values: &[f64]) {
-    for (phi, qs) in phis.iter().zip(qs.iter_mut()) {
-        *qs = quantile_sorted(*phi, values);
-    }
-}
-
-/// quantile_sorted calculates the given quantile over a sorted list of values.
-///
-/// It is expected that values won't contain NaN items.
-/// The implementation mimics Prometheus implementation for compatibility's sake.
-pub fn quantile_sorted(phi: f64, values: &[f64]) -> f64 {
-    if values.len() == 0 || phi.is_nan() {
-        return f64::NAN;
-    }
-    if phi < 0.0 {
-        return f64::NEG_INFINITY;
-    }
-    if phi > 1.0 {
-        return f64::INFINITY;
-    }
-    let n = values.len();
-    let rank = phi * (n - 1) as f64;
-
-    let lower_index = std::cmp::max(0, rank.floor() as usize);
-    let upper_index = std::cmp::min(n - 1, lower_index + 1) as usize;
-
-    let weight = rank - rank.floor();
-    return values[lower_index] * (1.0 - weight) + values[upper_index] * weight;
 }
 
 pub(crate) fn float_to_int_bounded(f: f64) -> i64 {

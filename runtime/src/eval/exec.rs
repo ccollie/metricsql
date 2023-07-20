@@ -286,12 +286,12 @@ pub(super) fn eval_rollup_func_args(
             args.push(QueryValue::Scalar(f64::NAN)); // placeholder
             continue;
         }
-        let ts = eval_expr(ctx, ec, arg).map_err(|err| {
+        let value = eval_expr(ctx, ec, arg).map_err(|err| {
             let msg = format!("cannot evaluate arg #{} for {}: {}", i + 1, fe, err);
-            RuntimeError::General(msg)
+            RuntimeError::ArgumentError(msg)
         })?;
 
-        args.push(ts);
+        args.push(value);
     }
 
     return Ok((args, re, rollup_arg_idx));

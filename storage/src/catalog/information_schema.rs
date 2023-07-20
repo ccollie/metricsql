@@ -18,6 +18,7 @@ use std::sync::{Arc, Weak};
 use async_trait::async_trait;
 use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::datasource::TableType;
+use datafusion::logical_expr::UserDefinedLogicalNode;
 use datafusion::physical_plan::SendableRecordBatchStream;
 use snafu::ResultExt;
 
@@ -40,7 +41,7 @@ use self::columns::InformationSchemaColumns;
 mod columns;
 mod tables;
 
-const TABLES: &str = "tables";
+const TABLES: &str = "table";
 const COLUMNS: &str = "columns";
 
 pub struct InformationSchemaProvider {

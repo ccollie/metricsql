@@ -88,7 +88,7 @@ impl ParseCache {
     fn parse_internal(q: &str) -> ParseCacheValue {
         match parser::parse(q) {
             Ok(expr) => {
-                let mut optimized = optimize(expr);
+                let optimized = optimize(expr);
                 if let Ok(mut expression) = optimized {
                     adjust_comparison_ops(&mut expression);
                     let has_subquery = expression.contains_subquery();

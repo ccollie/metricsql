@@ -49,10 +49,6 @@ pub fn create_runtime_env() -> Result<RuntimeEnv> {
     let fsn_url = url::Url::parse("fsn:///").unwrap();
     object_store_registry.register_store(&fsn_url, Arc::new(fsn));
 
-    let tmpfs = super::storage::tmpfs::Tmpfs::new();
-    let tmpfs_url = url::Url::parse("tmpfs:///").unwrap();
-    object_store_registry.register_store(&tmpfs_url, Arc::new(tmpfs));
-
     let rn_config =
         RuntimeConfig::new().with_object_store_registry(Arc::new(object_store_registry));
     RuntimeEnv::new(rn_config)

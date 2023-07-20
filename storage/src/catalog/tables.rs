@@ -12,12 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The `tables` table in system catalog keeps a record of all tables created by user.
+// The `table` table in system catalog keeps a record of all table created by user.
 
 use std::sync::Arc;
 
 use snafu::ResultExt;
 
+use crate::catalog::manager::DeregisterTableRequest;
+use crate::catalog::system::{
+    build_schema_insert_request, build_table_deletion_request, build_table_insert_request,
+    SystemCatalogTable,
+};
 use common_telemetry::logging;
 use table::metadata::TableId;
 use table::Table;
@@ -54,7 +59,7 @@ impl SystemCatalog {
         table_name: String,
         table_id: TableId,
         engine: String,
-    ) -> crate::error::Result<usize> {
+    ) -> error::Result<usize> {
         let request = build_table_insert_request(catalog, schema, table_name, table_id, engine);
         self.information_schema
             .system

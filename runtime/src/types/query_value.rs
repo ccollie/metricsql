@@ -195,7 +195,7 @@ impl QueryValue {
         }
     }
 
-    // todo: get_series_into()
+    // todo: get_series_into()/ COW
     pub fn get_instant_vector(&self, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
         match self {
             QueryValue::InstantVector(val) => Ok(val.clone()), // ????

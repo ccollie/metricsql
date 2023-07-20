@@ -20,6 +20,7 @@ use datafusion::datasource::provider_as_source;
 use datafusion::logical_expr::TableSource;
 use snafu::{ensure, OptionExt};
 
+use crate::catalog::manager::CatalogManagerRef;
 use common_catalog::consts::INFORMATION_SCHEMA_NAME;
 use common_catalog::format_full_table_name;
 use table::table::adapter::DfTableProviderAdapter;
@@ -120,6 +121,7 @@ impl DfTableSourceProvider {
 mod tests {
     use std::borrow::Cow;
 
+    use crate::catalog::local::MemoryCatalogManager;
     use session::context::QueryContext;
 
     use crate::local::MemoryCatalogManager;

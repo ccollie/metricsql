@@ -32,6 +32,7 @@ use common_time::util;
 use datatypes::prelude::{ConcreteDataType, ScalarVector, VectorRef};
 use datatypes::schema::{ColumnSchema, RawSchema, SchemaRef};
 use datatypes::vectors::{BinaryVector, TimestampMillisecondVector, UInt8Vector};
+use lib::current_time_millis;
 use store_api::storage::ScanRequest;
 use table::engine::{EngineContext, TableEngineRef};
 use table::metadata::{TableId, TableInfoRef};
@@ -44,7 +45,7 @@ use crate::catalog::consts::{
     DEFAULT_CATALOG_NAME, DEFAULT_SCHEMA_NAME, INFORMATION_SCHEMA_NAME, MITO_ENGINE,
     SYSTEM_CATALOG_NAME, SYSTEM_CATALOG_TABLE_ID, SYSTEM_CATALOG_TABLE_NAME,
 };
-use crate::catalog::manager::DeregisterTableRequest;
+use crate::catalog::manager::{CreateTableRequest, DeregisterTableRequest};
 use crate::error::{
     self, CreateSystemCatalogSnafu, EmptyValueSnafu, Error, InvalidEntryTypeSnafu, InvalidKeySnafu,
     OpenSystemCatalogSnafu, Result, ValueDeserializeSnafu,
@@ -116,7 +117,6 @@ impl SystemCatalogTable {
                 table_name: SYSTEM_CATALOG_TABLE_NAME.to_string(),
                 desc: Some("System catalog table".to_string()),
                 schema,
-                region_numbers: vec![0],
                 primary_key_indices: vec![ENTRY_TYPE_INDEX, KEY_INDEX],
                 create_if_not_exists: true,
                 table_options: TableOptions::default(),
@@ -280,7 +280,7 @@ pub fn build_insert_request(entry_type: EntryType, key: &[u8], value: &[u8]) -> 
         Arc::new(BinaryVector::from_slice(&[value])) as _,
     );
 
-    let now = util::current_time_millis();
+    let now = current_time_millis();
     let _ = columns_values.insert(
         "gmt_created".to_string(),
         Arc::new(TimestampMillisecondVector::from_slice([now])) as _,

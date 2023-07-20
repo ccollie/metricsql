@@ -126,7 +126,6 @@ impl RollupHandlerEnum {
     pub fn wrap(f: RollupFunc) -> Self {
         RollupHandlerEnum::Wrapped(f)
     }
-
     pub fn fake(name: &'static str) -> Self {
         RollupHandlerEnum::Fake(name)
     }

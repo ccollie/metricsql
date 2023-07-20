@@ -403,6 +403,35 @@ impl SqlDataSource {
         )))
     }
 
+    fn file_filters_from_matchers(&self, label_matchers: &[LabelFilter]) -> Result<Vec<DfExpr>> {
+        use LabelFilterOp::*;
+        let mut exprs = Vec::with_capacity(label_matchers.matchers.len());
+        for matcher in label_matchers {
+            let col = DfExpr::Column(Column::from_name(matcher.name));
+            let lit = DfExpr::Literal(ScalarValue::Utf8(Some(matcher.value)));
+            let expr = match matcher.op {
+                Equal => col.eq(lit),
+                NotEqual => col.not_eq(lit),
+                MatchOp::Re(_re) => {
+                    let regexp_match_udf = crate::udf::regex_match_udf().clone();
+                    df_group = df_group.filter(
+                        regexp_match_udf.call(vec![col(mat.name.clone()), lit(mat.value.clone())]),
+                    )?
+                }
+                MatchOp::NotRe(_re) => {
+                    let regexp_not_match_udf = crate::udf::regex_not_match_udf().clone();
+                    df_group = df_group.filter(
+                        regexp_not_match_udf
+                            .call(vec![col(mat.name.clone()), lit(mat.value.clone())]),
+                    )?
+                }
+            };
+            exprs.push(expr);
+        }
+
+        Ok(exprs)
+    }
+
     async fn selector_to_series_normalize_plan(
         &mut self,
         label_matchers: Matchers,
@@ -607,6 +636,18 @@ impl SqlDataSource {
                 .clone()
                 .with_context(|| TimeIndexNotFoundSnafu { table: "unknown" })?,
         )))
+    }
+
+    fn create_date_filters(&self) -> Result<Vec<DfExpr>> {
+        let scan_filters = Vec::with_capacity(2);
+        scan_filters.push(self.create_time_index_column_expr()?.gt_eq(DfExpr::Literal(
+            ScalarValue::TimestampMillisecond(Some(self.ctx.start), None),
+        )));
+        scan_filters.push(self.create_time_index_column_expr()?.lt_eq(DfExpr::Literal(
+            ScalarValue::TimestampMillisecond(Some(self.ctx.end), None),
+        )));
+
+        Ok(scan_filters)
     }
 
     fn create_tag_column_exprs(&self) -> Result<Vec<DfExpr>> {

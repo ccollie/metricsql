@@ -1,6 +1,5 @@
 use std::cell::RefCell;
 use std::default::Default;
-use std::ops::DerefMut;
 use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -11,12 +10,17 @@ use metricsql::functions::{can_adjust_window, RollupFunction};
 use metricsql::prelude::TransformFunction;
 
 use crate::eval::validate_max_points_per_timeseries;
+use crate::functions::mode_no_nans;
 use crate::functions::rollup::types::RollupHandlerFactory;
 use crate::functions::rollup::{
-    RollupFn, RollupFunc, RollupFuncArg, RollupHandler, RollupHandlerEnum,
+    filtered_counts::{
+        new_rollup_count_eq, new_rollup_count_gt, new_rollup_count_le, new_rollup_count_ne,
+        new_rollup_share_gt, new_rollup_share_le,
+    },
+    quantiles::{new_rollup_quantile, new_rollup_quantiles, quantile},
 };
-use crate::functions::types::{get_scalar_param_value, get_string_param_value};
-use crate::functions::{mode_no_nans, quantile, quantiles};
+use crate::functions::rollup::{RollupFunc, RollupFuncArg, RollupHandler, RollupHandlerEnum};
+use crate::functions::types::get_scalar_param_value;
 use crate::get_timestamps;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::types::{get_timeseries, Timestamp};
@@ -479,7 +483,7 @@ fn get_rollup_tag(expr: &Expr) -> RuntimeResult<Option<&String>> {
 
 pub(crate) type PreFunction = fn(&mut [f64], &[i64]) -> ();
 
-type FloatComparisonFunction = fn(left: f64, right: f64) -> bool;
+pub(super) type FloatComparisonFunction = fn(left: f64, right: f64) -> bool;
 
 #[inline]
 pub(crate) fn eval_prefuncs(fns: &Vec<PreFunction>, values: &mut [f64], timestamps: &[i64]) {
@@ -1225,73 +1229,6 @@ fn new_rollup_duration_over_time(args: &Vec<QueryValue>) -> RuntimeResult<Rollup
     Ok(RollupHandlerEnum::General(f))
 }
 
-fn new_rollup_share_le(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEnum> {
-    new_rollup_share_filter(args, "share_le_over_time", "le", |x, v| x <= v)
-}
-
-fn new_rollup_share_gt(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEnum> {
-    new_rollup_share_filter(args, "share_gt_over_time", "gt", |x, v| x > v)
-}
-
-fn new_rollup_share_filter(
-    args: &Vec<QueryValue>,
-    func_name: &str,
-    param_name: &str,
-    count_filter: FloatComparisonFunction,
-) -> RuntimeResult<RollupHandlerEnum> {
-    let rf = new_rollup_count_filter(args, func_name, param_name, count_filter)?;
-    let f = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
-        let n = rf.eval(rfa);
-        return n / rfa.values.len() as f64;
-    });
-
-    Ok(RollupHandlerEnum::General(f))
-}
-
-fn new_rollup_count_le(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEnum> {
-    new_rollup_count_filter(args, "count_le_over_time", "le", |x, v| x <= v)
-}
-
-fn new_rollup_count_gt(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEnum> {
-    new_rollup_count_filter(args, "count_gt_over_time", "gt", |x, v| x > v)
-}
-
-fn new_rollup_count_eq(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEnum> {
-    new_rollup_count_filter(args, "count_eq_over_time", "eq", |x, v| x == v)
-}
-
-fn new_rollup_count_ne(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEnum> {
-    new_rollup_count_filter(args, "count_ne_over_time", "ne", |x, v| x != v)
-}
-
-fn new_rollup_count_filter(
-    args: &Vec<QueryValue>,
-    func_name: &str,
-    param_name: &str,
-    count_predicate: FloatComparisonFunction,
-) -> RuntimeResult<RollupHandlerEnum> {
-    let limit = get_scalar_param_value(args, 1, func_name, param_name)?;
-
-    let handler = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
-        // There is no need in handling NaNs here, since they must be cleaned up
-        // before calling rollup fns.
-        if rfa.values.is_empty() {
-            return NAN;
-        }
-
-        let mut n = 0;
-        for v in rfa.values.iter() {
-            if count_predicate(*v, limit) {
-                n += 1;
-            }
-        }
-
-        n as f64
-    });
-
-    Ok(RollupHandlerEnum::General(handler))
-}
-
 fn new_rollup_hoeffding_bound_lower(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEnum> {
     let phi = get_scalar_param_value(args, 0, "hoeffding_bound_lower", "phi")?;
 
@@ -1345,60 +1282,6 @@ fn rollup_hoeffding_bound_internal(rfa: &mut RollupFuncArg, phi: f64) -> (f64, f
     // let bound = v_range * math.Sqrt(math.Log(1 / (1 - phi)) / (2 * values.len()));
     let bound = v_range * ((1.0 / (1.0 - phi)).ln() / (2 * rfa.values.len()) as f64).sqrt();
     return (bound, v_avg);
-}
-
-fn new_rollup_quantiles(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEnum> {
-    let phi_label = get_string_param_value(&args[0], "quantiles", "phi_label").unwrap();
-    let cap = args.len() - 1;
-
-    let mut phis = Vec::with_capacity(cap);
-    // todo: smallvec ??
-    let mut phi_labels: Vec<String> = Vec::with_capacity(cap);
-
-    for i in 1..args.len() {
-        // unwrap should be safe, since parameters types are checked before calling the function
-        let v = get_scalar_param_value(args, i, "quantiles", "phi").unwrap();
-        phis.push(v);
-        phi_labels.push(format!("{}", v));
-    }
-
-    let f: Box<dyn RollupFn<Output = f64>> = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
-        // There is no need in handling NaNs here, since they must be cleaned up
-        // before calling rollup fns.
-        if rfa.values.is_empty() {
-            return rfa.prev_value;
-        }
-        if rfa.values.len() == 1 {
-            // Fast path - only a single value.
-            return rfa.values[0];
-        }
-        // tinyvec ?
-        let mut qs = get_float64s(phis.len());
-        quantiles(qs.deref_mut(), &phis, &rfa.values);
-        let idx = rfa.idx;
-        let tsm = rfa.tsm.as_ref().unwrap();
-        let mut wrapped = tsm.borrow_mut();
-        for (phi_str, quantile) in phi_labels.iter().zip(qs.iter()) {
-            let ts = wrapped.get_or_create_timeseries(&phi_label, phi_str);
-            ts.values[idx] = *quantile;
-        }
-
-        return NAN;
-    });
-
-    Ok(RollupHandlerEnum::General(f))
-}
-
-fn new_rollup_quantile(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEnum> {
-    let phi = get_scalar_param_value(args, 0, "quantile_over_time", "phi")?;
-
-    let rf = Box::new(move |rfa: &mut RollupFuncArg| {
-        // There is no need in handling NaNs here, since they must be cleaned up
-        // before calling rollup fns.
-        quantile(phi, &rfa.values)
-    });
-
-    Ok(RollupHandlerEnum::General(rf))
 }
 
 pub(super) fn rollup_histogram(rfa: &mut RollupFuncArg) -> f64 {
@@ -1739,7 +1622,7 @@ pub(super) fn rollup_increase_pure(rfa: &mut RollupFuncArg) -> f64 {
     }
     if rfa.values.is_empty() {
         // Assume the counter didn't change since prev_value.
-        return 0 as f64;
+        return 0f64;
     }
     return rfa.values[count - 1] - rfa.prev_value;
 }
