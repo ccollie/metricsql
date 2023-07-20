@@ -175,11 +175,11 @@ impl SqlDataSource {
     async fn selector_load_data_from_datafusion(
         &self,
         ctx: TableContext,
+        table_name: &str,
         selector: MetricExpr,
         start: i64,
         end: i64,
     ) -> Result<HashMap<u64, RangeValue>> {
-        let table_name = selector.metric_group;
         let table = match ctx.session.table(table_name).await {
             Ok(v) => v,
             Err(_) => {
@@ -191,9 +191,7 @@ impl SqlDataSource {
         let value_column = &ctx.value_column;
 
         let mut df_group = table.clone().filter(
-            col(timestamp_column)
-                .gt(lit(start))
-                .and(col(timestamp_column).lt_eq(lit(end))),
+            self.create_date_filter(start, end)?
         )?;
         for mat in selector.label_filters.iter() {
             if mat.name == timestamp_column
@@ -202,28 +200,7 @@ impl SqlDataSource {
             {
                 continue;
             }
-            match &mat.op {
-                LabelFilterOp::Equal => {
-                    df_group = df_group.filter(col(mat.name.clone()).eq(lit(mat.value.clone())))?
-                }
-                LabelFilterOp::NotEqual => {
-                    df_group =
-                        df_group.filter(col(mat.name.clone()).not_eq(lit(mat.value.clone())))?
-                }
-                MatchOp::Re(_re) => {
-                    let regexp_match_udf = crate::udf::regex_match_udf().clone();
-                    df_group = df_group.filter(
-                        regexp_match_udf.call(vec![col(mat.name.clone()), lit(mat.value.clone())]),
-                    )?
-                }
-                MatchOp::NotRe(_re) => {
-                    let regexp_not_match_udf = crate::udf::regex_not_match_udf().clone();
-                    df_group = df_group.filter(
-                        regexp_not_match_udf
-                            .call(vec![col(mat.name.clone()), lit(mat.value.clone())]),
-                    )?
-                }
-            }
+            df_group = df_group.filter(self.matcher_to_expr(mat, true)?)?;
         }
 
         let batches = df_group
@@ -294,31 +271,136 @@ impl SqlDataSource {
         hasher.finish()
     }
 
-    // TODO(ruihang): ignore `MetricNameLabel` (`__name__`) matcher
-    fn matchers_to_expr(&self, label_matchers: &[LabelFilter]) -> Result<Vec<DfExpr>> {
-        use LabelFilterOp::*;
-        let mut exprs = Vec::with_capacity(label_matchers.matchers.len());
-        for matcher in label_matchers {
-            let col = DfExpr::Column(Column::from_name(matcher.name));
-            let lit = DfExpr::Literal(ScalarValue::Utf8(Some(matcher.value)));
-            let expr = match matcher.op {
-                Equal => col.eq(lit),
-                NotEqual => col.not_eq(lit),
-                MatchOp::Re(_) => DfExpr::BinaryExpr(BinaryExpr {
-                    left: Box::new(col),
-                    op: Operator::RegexMatch,
-                    right: Box::new(lit),
-                }),
-                MatchOp::NotRe(_) => DfExpr::BinaryExpr(BinaryExpr {
-                    left: Box::new(col),
-                    op: Operator::RegexNotMatch,
-                    right: Box::new(lit),
-                }),
-            };
-            exprs.push(expr);
+    /// Extract metric name from `__name__` matcher and set it into [PromPlannerContext].
+    /// Returns a new [Matchers] that doesn't contains metric name matcher.
+    fn preprocess_label_matchers(&mut self, label_matchers: &Matchers) -> Result<Matchers> {
+        let mut matchers = HashSet::new();
+        for matcher in &label_matchers.matchers {
+            if matcher.name == METRIC_NAME {
+                if matches!(matcher.op, MatchOp::Equal) {
+                    self.ctx.table_name = Some(matcher.value.clone());
+                } else {
+                    self.ctx
+                        .field_column_matcher
+                        .get_or_insert_default()
+                        .push(matcher.clone());
+                }
+            } else {
+                let _ = matchers.insert(matcher.clone());
+            }
+        }
+        Ok(Matchers { matchers })
+    }
+
+    // filter_columns filters the columns in the table according to the field matchers.
+    fn filter_columns(&self) {
+        // make a projection plan if there is any `__field__` matcher
+        if let Some(field_matchers) = &self.ctx.field_column_matcher {
+            let col_set = self.ctx.field_columns.iter().collect::<HashSet<_>>();
+            // opt-in set
+            let mut result_set = HashSet::new();
+            // opt-out set
+            let mut reverse_set = HashSet::new();
+            for matcher in field_matchers {
+                match &matcher.op {
+                    MatchOp::Equal => {
+                        if col_set.contains(&matcher.value) {
+                            let _ = result_set.insert(matcher.value.clone());
+                        } else {
+                            return Err(ColumnNotFoundSnafu {
+                                col: matcher.value.clone(),
+                                location: Default::default(),
+                            }
+                                .build());
+                        }
+                    }
+                    MatchOp::NotEqual => {
+                        if col_set.contains(&matcher.value) {
+                            let _ = reverse_set.insert(matcher.value.clone());
+                        } else {
+                            return Err(ColumnNotFoundSnafu {
+                                col: matcher.value.clone(),
+                            }
+                                .build());
+                        }
+                    }
+                    MatchOp::Re(regex) => {
+                        for col in &self.ctx.field_columns {
+                            if regex.is_match(col) {
+                                let _ = result_set.insert(col.clone());
+                            }
+                        }
+                    }
+                    MatchOp::NotRe(regex) => {
+                        for col in &self.ctx.field_columns {
+                            if regex.is_match(col) {
+                                let _ = reverse_set.insert(col.clone());
+                            }
+                        }
+                    }
+                }
+            }
+            // merge two set
+            if result_set.is_empty() {
+                result_set = col_set.into_iter().cloned().collect();
+            }
+            for col in reverse_set {
+                let _ = result_set.remove(&col);
+            }
+
+            self.ctx.field_columns = result_set.iter().cloned().collect();
         }
 
-        Ok(exprs)
+    }
+
+    // TODO(ruihang): ignore `MetricNameLabel` (`__name__`) matcher
+    fn matcher_to_expr(&self, matcher: &LabelFilter, in_memory: bool) -> Result<DfExpr> {
+        use LabelFilterOp::*;
+        let col = DfExpr::Column(Column::from_name(matcher.name));
+        let lit = DfExpr::Literal(ScalarValue::Utf8(Some(matcher.value)));
+        let expr = match matcher.op {
+            Equal => col.eq(lit),
+            NotEqual => col.not_eq(lit),
+            MatchOp::Re(_) => {
+                if in_memory {
+                    let regexp_match_udf = crate::udf::regex_match_udf().clone();
+                    regexp_match_udf.call(vec![col, lit])?
+                } else {
+                    DfExpr::BinaryExpr(BinaryExpr {
+                        left: Box::new(col),
+                        op: Operator::RegexMatch,
+                        right: Box::new(lit),
+                    })
+                }
+            },
+            MatchOp::NotRe(_) => {
+                if in_memory {
+                    let regexp_not_match_udf = crate::udf::regex_not_match_udf().clone();
+                    regexp_not_match_udf.call(vec![col, lit])?
+                } else {
+                    DfExpr::BinaryExpr(BinaryExpr {
+                        left: Box::new(col),
+                        op: Operator::RegexNotMatch,
+                        right: Box::new(lit),
+                    })
+                }
+            },
+        };
+
+        Ok(expr)
+    }
+
+    // TODO(ruihang): ignore `MetricNameLabel` (`__name__`) matcher
+    fn matchers_to_expr(&self, label_matchers: &[LabelFilter], in_memory: bool) -> Result<Vec<DfExpr>> {
+        label_matchers.iter().map(|matcher| self.matcher_to_expr(matcher, in_memory)).collect::<Result<_>>()
+    }
+
+    fn create_date_filter(&self, start: i64, end: i64) -> Result<DfExpr> {
+        self.create_time_index_column_expr()?.gt_eq(DfExpr::Literal(
+            ScalarValue::TimestampMillisecond(Some(start), None),
+        )).and(self.create_time_index_column_expr()?.lt_eq(DfExpr::Literal(
+            ScalarValue::TimestampMillisecond(Some(end), None),
+        )))
     }
 
     async fn selector_to_series_normalize_plan(
