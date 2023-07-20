@@ -170,8 +170,6 @@ impl SqlDataSource {
         Ok(())
     }
 
-    fn generate_datetime_filter() {}
-
     async fn selector_load_data_from_datafusion(
         &self,
         ctx: TableContext,
