@@ -75,11 +75,6 @@ pub fn align_start_end(start: Timestamp, end: Timestamp, step: i64) -> (Timestam
     return (new_start, new_end);
 }
 
-struct TimestampsInner {
-    timestamps: Arc<Vec<Timestamp>>,
-    initialized: bool,
-}
-
 pub struct EvalConfig {
     pub start: Timestamp,
     pub end: Timestamp,

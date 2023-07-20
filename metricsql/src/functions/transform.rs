@@ -581,6 +581,7 @@ impl TransformFunction {
                 vec![ValueType::RangeVector, ValueType::RangeVector],
                 Volatility::Stable,
             ),
+            Scalar => Signature::any(1, Volatility::Stable),
             SmoothExponential => Signature::exact(
                 vec![ValueType::InstantVector, ValueType::Scalar],
                 Volatility::Stable,
@@ -598,6 +599,14 @@ impl TransformFunction {
                 Signature::uniform(MAX_ARG_COUNT, ValueType::InstantVector, Volatility::Stable)
             }
             Vector => Signature::exact(vec![ValueType::InstantVector], Volatility::Stable),
+            // DateTime functions
+            DayOfMonth | DayOfWeek | DaysInMonth | Hour | Minute | Month | Year => {
+                Signature::exact_with_min_args(
+                    vec![ValueType::InstantVector],
+                    0,
+                    Volatility::Immutable,
+                )
+            }
             _ => {
                 // by default we take a single arg containing series
                 Signature::exact(vec![ValueType::InstantVector], Volatility::Immutable)
