@@ -12,20 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod adapter;
-mod adapter;
-pub mod numbers;
-pub mod scan;
-
 use std::any::Any;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use common_query::logical_plan::Expr;
-use common_recordbatch::SendableRecordBatchStream;
 use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::logical_expr::Expr;
 use datafusion::physical_plan::SendableRecordBatchStream;
+
+use common_query::logical_plan::Expr;
+use common_recordbatch::SendableRecordBatchStream;
 use datatypes::schema::SchemaRef;
 use store_api::storage::{RegionNumber, ScanRequest};
 
@@ -37,6 +33,10 @@ use crate::table::error::UnsupportedSnafu;
 use crate::table::metadata::{FilterPushDownType, TableId, TableInfoRef, TableType};
 use crate::table::requests::{AlterTableRequest, DeleteRequest, InsertRequest};
 use crate::RegionStat;
+
+pub mod adapter;
+pub mod numbers;
+pub mod scan;
 
 pub type AlterContext = anymap::Map<dyn Any + Send + Sync>;
 

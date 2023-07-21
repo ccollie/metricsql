@@ -15,16 +15,22 @@
 use std::any::Any;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::sync::atomic::AtomicU32;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, RwLock};
+
+use snafu::OptionExt;
 
 use common_catalog::consts::{DEFAULT_CATALOG_NAME, DEFAULT_SCHEMA_NAME, MIN_USER_TABLE_ID};
 use metrics::{decrement_gauge, increment_gauge};
-use snafu::OptionExt;
 use table::metadata::TableId;
 use table::table::TableIdProvider;
 use table::TableRef;
 
+use crate::catalog::consts::{DEFAULT_CATALOG_NAME, DEFAULT_SCHEMA_NAME, MIN_USER_TABLE_ID};
+use crate::catalog::manager::{
+    CatalogManager, DeregisterSchemaRequest, DeregisterTableRequest, RegisterSchemaRequest,
+    RegisterSystemTableRequest, RegisterTableRequest, RenameTableRequest,
+};
 use crate::error::{
     CatalogNotFoundSnafu, Result, SchemaNotFoundSnafu, TableExistsSnafu, TableNotFoundSnafu,
 };
@@ -201,6 +207,17 @@ impl CatalogManager for MemoryCatalogManager {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    async fn rename_table(&self, request: RenameTableRequest) -> Result<bool> {
+        todo!()
+    }
+
+    async fn register_system_table(
+        &self,
+        request: RegisterSystemTableRequest,
+    ) -> error::Result<()> {
+        todo!()
+    }
 }
 
 impl MemoryCatalogManager {
@@ -296,6 +313,8 @@ mod tests {
     use common_error::ext::ErrorExt;
     use common_error::status_code::StatusCode;
     use table::table::numbers::{NumbersTable, NUMBERS_TABLE_NAME};
+
+    use crate::catalog::consts::NUMBERS_TABLE_ID;
 
     use super::*;
 

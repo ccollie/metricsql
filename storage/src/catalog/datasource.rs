@@ -69,6 +69,8 @@ struct PromPlannerContext {
     field_column_matcher: Option<Vec<Matcher>>,
     /// The range in millisecond of range selector. None if there is no range selector.
     range: Option<Millisecond>,
+    skip_nan: bool,
+    supports_regex: bool,
 }
 
 pub struct SqlDataSource {
@@ -189,10 +191,9 @@ impl SqlDataSource {
 
         let timestamp_column = &ctx.timestamp_column;
         let value_column = &ctx.value_column;
+        let skip_nan = self.ctx.skip_nan;
 
-        let mut df_group = table.clone().filter(
-            self.create_date_filter(start, end)?
-        )?;
+        let mut df_group = table.clone().filter(self.create_date_filter(start, end)?)?;
         for mat in selector.label_filters.iter() {
             if mat.name == timestamp_column
                 || mat.name == value_column
@@ -203,6 +204,9 @@ impl SqlDataSource {
             df_group = df_group.filter(self.matcher_to_expr(mat, true)?)?;
         }
 
+        if skip_nan {
+            df_group = df_group.filter(col(value_column).is_not_null())?;
+        }
         let batches = df_group
             .sort(vec![col(timestamp_column).sort(true, true)])?
             .collect()
@@ -311,7 +315,7 @@ impl SqlDataSource {
                                 col: matcher.value.clone(),
                                 location: Default::default(),
                             }
-                                .build());
+                            .build());
                         }
                     }
                     MatchOp::NotEqual => {
@@ -321,7 +325,7 @@ impl SqlDataSource {
                             return Err(ColumnNotFoundSnafu {
                                 col: matcher.value.clone(),
                             }
-                                .build());
+                            .build());
                         }
                     }
                     MatchOp::Re(regex) => {
@@ -350,11 +354,10 @@ impl SqlDataSource {
 
             self.ctx.field_columns = result_set.iter().cloned().collect();
         }
-
     }
 
     // TODO(ruihang): ignore `MetricNameLabel` (`__name__`) matcher
-    fn matcher_to_expr(&self, matcher: &LabelFilter, in_memory: bool) -> Result<DfExpr> {
+    fn matcher_to_expr(&self, matcher: &LabelFilter, supports_regex: bool) -> Result<DfExpr> {
         use LabelFilterOp::*;
         let col = DfExpr::Column(Column::from_name(matcher.name));
         let lit = DfExpr::Literal(ScalarValue::Utf8(Some(matcher.value)));
@@ -362,7 +365,7 @@ impl SqlDataSource {
             Equal => col.eq(lit),
             NotEqual => col.not_eq(lit),
             MatchOp::Re(_) => {
-                if in_memory {
+                if !supports_regex {
                     let regexp_match_udf = crate::udf::regex_match_udf().clone();
                     regexp_match_udf.call(vec![col, lit])?
                 } else {
@@ -372,9 +375,9 @@ impl SqlDataSource {
                         right: Box::new(lit),
                     })
                 }
-            },
+            }
             MatchOp::NotRe(_) => {
-                if in_memory {
+                if !supports_regex {
                     let regexp_not_match_udf = crate::udf::regex_not_match_udf().clone();
                     regexp_not_match_udf.call(vec![col, lit])?
                 } else {
@@ -384,52 +387,33 @@ impl SqlDataSource {
                         right: Box::new(lit),
                     })
                 }
-            },
+            }
         };
 
         Ok(expr)
     }
 
     // TODO(ruihang): ignore `MetricNameLabel` (`__name__`) matcher
-    fn matchers_to_expr(&self, label_matchers: &[LabelFilter], in_memory: bool) -> Result<Vec<DfExpr>> {
-        label_matchers.iter().map(|matcher| self.matcher_to_expr(matcher, in_memory)).collect::<Result<_>>()
+    fn matchers_to_expr(
+        &self,
+        label_matchers: &[LabelFilter],
+        in_memory: bool,
+    ) -> Result<Vec<DfExpr>> {
+        label_matchers
+            .iter()
+            .map(|matcher| self.matcher_to_expr(matcher, in_memory))
+            .collect::<Result<_>>()
     }
 
     fn create_date_filter(&self, start: i64, end: i64) -> Result<DfExpr> {
-        self.create_time_index_column_expr()?.gt_eq(DfExpr::Literal(
-            ScalarValue::TimestampMillisecond(Some(start), None),
-        )).and(self.create_time_index_column_expr()?.lt_eq(DfExpr::Literal(
-            ScalarValue::TimestampMillisecond(Some(end), None),
-        )))
-    }
-
-    fn file_filters_from_matchers(&self, label_matchers: &[LabelFilter]) -> Result<Vec<DfExpr>> {
-        use LabelFilterOp::*;
-        let mut exprs = Vec::with_capacity(label_matchers.matchers.len());
-        for matcher in label_matchers {
-            let col = DfExpr::Column(Column::from_name(matcher.name));
-            let lit = DfExpr::Literal(ScalarValue::Utf8(Some(matcher.value)));
-            let expr = match matcher.op {
-                Equal => col.eq(lit),
-                NotEqual => col.not_eq(lit),
-                MatchOp::Re(_re) => {
-                    let regexp_match_udf = crate::udf::regex_match_udf().clone();
-                    df_group = df_group.filter(
-                        regexp_match_udf.call(vec![col(mat.name.clone()), lit(mat.value.clone())]),
-                    )?
-                }
-                MatchOp::NotRe(_re) => {
-                    let regexp_not_match_udf = crate::udf::regex_not_match_udf().clone();
-                    df_group = df_group.filter(
-                        regexp_not_match_udf
-                            .call(vec![col(mat.name.clone()), lit(mat.value.clone())]),
-                    )?
-                }
-            };
-            exprs.push(expr);
-        }
-
-        Ok(exprs)
+        self.create_time_index_column_expr()?
+            .gt_eq(DfExpr::Literal(ScalarValue::TimestampMillisecond(
+                Some(start),
+                None,
+            )))
+            .and(self.create_time_index_column_expr()?.lt_eq(DfExpr::Literal(
+                ScalarValue::TimestampMillisecond(Some(end), None),
+            )))
     }
 
     async fn selector_to_series_normalize_plan(
@@ -636,18 +620,6 @@ impl SqlDataSource {
                 .clone()
                 .with_context(|| TimeIndexNotFoundSnafu { table: "unknown" })?,
         )))
-    }
-
-    fn create_date_filters(&self) -> Result<Vec<DfExpr>> {
-        let scan_filters = Vec::with_capacity(2);
-        scan_filters.push(self.create_time_index_column_expr()?.gt_eq(DfExpr::Literal(
-            ScalarValue::TimestampMillisecond(Some(self.ctx.start), None),
-        )));
-        scan_filters.push(self.create_time_index_column_expr()?.lt_eq(DfExpr::Literal(
-            ScalarValue::TimestampMillisecond(Some(self.ctx.end), None),
-        )));
-
-        Ok(scan_filters)
     }
 
     fn create_tag_column_exprs(&self) -> Result<Vec<DfExpr>> {

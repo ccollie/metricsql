@@ -2543,21 +2543,19 @@ fn transform_sort_impl(
     series.sort_by(move |first, second| {
         let a = &first.values;
         let b = &second.values;
-        let mut n = a.len() - 1;
-        loop {
-            if !a[n].is_nan() && !b[n].is_nan() && a[n] != b[n] {
-                break;
-            }
-            if n == 0 {
-                return Ordering::Greater;
-            }
-            n -= 1;
-        }
+        let iter_a = a.iter().rev();
+        let iter_b = b.iter().rev();
 
-        if is_desc {
-            return b[n].total_cmp(&a[n]);
+        for (x, y) in iter_a.zip(iter_b) {
+            if !x.is_nan() && !y.is_nan() && x != y {
+                return if is_desc {
+                    y.total_cmp(x)
+                } else {
+                    x.total_cmp(y)
+                };
+            }
         }
-        return a[n].total_cmp(&b[n]);
+        Ordering::Equal
     });
 
     Ok(std::mem::take(&mut series))

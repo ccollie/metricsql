@@ -18,18 +18,16 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
+
 use common_base::readable_size::ReadableSize;
 use common_query::AddColumnLocation;
 use common_time::range::TimestampRange;
 use datatypes::prelude::VectorRef;
-use datatypes::schema::{ColumnSchema, RawSchema};
-use serde::{Deserialize, Serialize};
 use store_api::storage::RegionNumber;
 
 use crate::engine::TableReference;
 use crate::error;
-use crate::error::ParseTableOptionSnafu;
-use crate::metadata::{TableId, TableVersion};
 use crate::table::engine::TableReference;
 use crate::table::error::ParseTableOptionSnafu;
 use crate::table::metadata::{TableId, TableVersion};
@@ -54,7 +52,6 @@ pub struct CreateTableRequest {
     pub table_name: String,
     pub desc: Option<String>,
     pub schema: RawSchema,
-    pub region_numbers: Vec<u32>,
     pub primary_key_indices: Vec<usize>,
     pub create_if_not_exists: bool,
     pub table_options: TableOptions,
@@ -156,7 +153,6 @@ pub struct OpenTableRequest {
     pub schema_name: String,
     pub table_name: String,
     pub table_id: TableId,
-    pub region_numbers: Vec<RegionNumber>,
 }
 
 /// Alter table request
@@ -191,13 +187,6 @@ pub struct AddColumnRequest {
     pub column_schema: ColumnSchema,
     pub is_key: bool,
     pub location: Option<AddColumnLocation>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum AlterKind {
-    AddColumns { columns: Vec<AddColumnRequest> },
-    DropColumns { names: Vec<String> },
-    RenameTable { new_table_name: String },
 }
 
 /// Drop table request

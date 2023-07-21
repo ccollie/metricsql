@@ -20,10 +20,6 @@ use common_procedure::BoxedProcedure;
 use store_api::storage::RegionNumber;
 
 use crate::error::{self, Result};
-use crate::metadata::TableId;
-use crate::requests::{
-    AlterTableRequest, CloseTableRequest, CreateTableRequest, DropTableRequest, OpenTableRequest,
-};
 use crate::table::metadata::TableId;
 use crate::table::requests::{
     AlterTableRequest, CloseTableRequest, CreateTableRequest, DropTableRequest, OpenTableRequest,

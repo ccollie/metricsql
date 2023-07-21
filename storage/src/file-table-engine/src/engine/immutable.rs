@@ -77,17 +77,6 @@ impl TableEngine for ImmutableFileTableEngine {
             .context(table_error::TableOperationSnafu)
     }
 
-    async fn alter_table(
-        &self,
-        _ctx: &EngineContext,
-        _req: AlterTableRequest,
-    ) -> TableResult<TableRef> {
-        table_error::UnsupportedSnafu {
-            operation: "ALTER TABLE",
-        }
-        .fail()
-    }
-
     fn get_table(&self, _ctx: &EngineContext, table_id: TableId) -> TableResult<Option<TableRef>> {
         Ok(self.inner.get_table(table_id))
     }
@@ -122,17 +111,6 @@ impl TableEngineProcedure for ImmutableFileTableEngine {
     ) -> TableResult<BoxedProcedure> {
         let procedure = Box::new(CreateImmutableFileTable::new(request, self.clone()));
         Ok(procedure)
-    }
-
-    fn alter_table_procedure(
-        &self,
-        _ctx: &EngineContext,
-        _request: AlterTableRequest,
-    ) -> TableResult<BoxedProcedure> {
-        table_error::UnsupportedSnafu {
-            operation: "ALTER TABLE",
-        }
-        .fail()
     }
 
     fn drop_table_procedure(

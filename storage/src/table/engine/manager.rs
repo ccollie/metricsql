@@ -16,11 +16,13 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
-use common_telemetry::error;
 use snafu::{ensure, OptionExt};
+
+use common_telemetry::error;
 
 use crate::engine::{TableEngineProcedureRef, TableEngineRef};
 use crate::error::{EngineExistSnafu, EngineNotFoundSnafu, Result};
+use crate::table::engine::{TableEngineProcedureRef, TableEngineRef};
 use crate::table::error::EngineNotFoundSnafu;
 
 #[async_trait::async_trait]
@@ -140,12 +142,13 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::Arc;
 
-    use super::*;
     use crate::engine::TableEngine;
     use crate::error;
     use crate::table::engine::manager::MemoryTableEngineManager;
     use crate::table::engine::TableEngineProcedureRef;
     use crate::test_util::MockTableEngine;
+
+    use super::*;
 
     #[test]
     fn test_table_engine_manager() {

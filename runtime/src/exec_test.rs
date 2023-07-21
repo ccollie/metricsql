@@ -309,13 +309,11 @@ mod tests {
         );
         assert_result_eq(
             "timestamp(time()>=1600)",
-            &[1000.0, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0],
+            &[NAN, NAN, NAN, 1600.0, 1800.0, 2000.0],
         );
 
         let q = r#"timestamp(alias(time()>=1600.0,"foo"))"#;
         assert_result_eq(q, &[NAN, NAN, NAN, 1600.0, 1800.0, 2000.0]);
-
-        assert_result_eq("time()/100", &[10.0, 12.0, 14.0, 16.0, 18.0, 20.0]);
     }
 
     #[test]
@@ -343,6 +341,12 @@ mod tests {
         let mut r = make_result(&[NAN, NAN, NAN, 1600.0, 1800.0, 2000.0]);
         r.metric_name.set_metric_group("foo");
         test_query(q, vec![r]);
+    }
+
+    #[test]
+    fn time() {
+        assert_result_eq("time()/100", &[10.0, 12.0, 14.0, 16.0, 18.0, 20.0]);
+        assert_result_eq("1e3/time()*2*9*7", &[126.0, 105.0, 90.0, 78.75, 70.0, 63.0]);
     }
 
     #[test]

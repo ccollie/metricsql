@@ -16,19 +16,19 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use common_catalog::consts::{DEFAULT_CATALOG_NAME, DEFAULT_SCHEMA_NAME};
-use common_query::AddColumnLocation;
 use datafusion::arrow::datatypes::{Schema, SchemaBuilder, SchemaRef};
 use datafusion::logical_expr::TableProviderFilterPushDown;
 use datafusion::parquet::schema::types::ColumnDescriptor;
+use itertools::Itertools;
+use serde::{Deserialize, Serialize};
+use snafu::{ensure, ResultExt};
+
+use common_catalog::consts::{DEFAULT_CATALOG_NAME, DEFAULT_SCHEMA_NAME};
+use common_query::AddColumnLocation;
 use datafusion_expr::TableProviderFilterPushDown;
 pub use datatypes::error::{Error as ConvertError, Result as ConvertResult};
 use datatypes::schema::{ColumnSchema, RawSchema, Schema, SchemaBuilder, SchemaRef};
 use derive_builder::Builder;
-use itertools::Itertools;
-use serde::{Deserialize, Serialize};
-use snafu::{ensure, ResultExt};
-use store_api::storage::{ColumnDescriptor, ColumnDescriptorBuilder, ColumnId};
 
 use crate::error::{self, Result};
 use crate::requests::{AddColumnRequest, AlterKind, TableOptions};
@@ -407,7 +407,7 @@ impl TableMeta {
             column_names.push(column_name.clone());
             ensure!(
                 table_schema.column_schema_by_name(column_name).is_none(),
-                error::ColumnExistsSnafu {
+                ColumnExistsSnafu {
                     column_name,
                     table_name,
                 }
@@ -600,12 +600,14 @@ impl TryFrom<RawTableInfo> for TableInfo {
 
 #[cfg(test)]
 mod tests {
-    use crate::status_code::StatusCode;
+    use datafusion::arrow::datatypes::Schema;
+
     use common_error::ext::ErrorExt;
     use common_error::status_code::StatusCode;
-    use datafusion::arrow::datatypes::Schema;
     use datatypes::data_type::ConcreteDataType;
     use datatypes::schema::{ColumnSchema, Schema, SchemaBuilder};
+
+    use crate::status_code::StatusCode;
 
     use super::*;
 

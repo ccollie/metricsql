@@ -1079,9 +1079,10 @@ fn get_per_point_medians(tss: &mut Vec<Timeseries>) -> Vec<f64> {
         // todo: handle this case
         // panic!("BUG: expecting non-empty tss")
     }
-    let mut medians = Vec::with_capacity(tss[0].values.len());
-    let mut values = get_float64s(medians.len());
-    for n in 0..medians.len() {
+    let count = tss[0].values.len();
+    let mut medians = Vec::with_capacity(count);
+    let mut values = get_float64s(count);
+    for n in 0..count {
         values.clear();
         for ts in tss.iter() {
             let v = ts.values[n];
@@ -1097,7 +1098,7 @@ fn get_per_point_medians(tss: &mut Vec<Timeseries>) -> Vec<f64> {
 
 fn get_per_point_mads(tss: &Vec<Timeseries>, medians: &[f64]) -> Vec<f64> {
     let mut mads: Vec<f64> = Vec::with_capacity(medians.len());
-    let mut values = get_float64s(mads.len());
+    let mut values = get_float64s(medians.len());
     for (n, median) in medians.iter().enumerate() {
         values.clear();
         for ts in tss.iter() {

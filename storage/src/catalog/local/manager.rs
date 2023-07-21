@@ -14,7 +14,11 @@
 
 use std::any::Any;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+
+use datafusion::arrow::record_batch::RecordBatch;
+use snafu::{ensure, OptionExt, ResultExt};
+use tracing::{error, info};
 
 use common_catalog::consts::{
     DEFAULT_CATALOG_NAME, DEFAULT_SCHEMA_NAME, INFORMATION_SCHEMA_NAME, MIN_USER_TABLE_ID,
@@ -28,7 +32,6 @@ use datatypes::prelude::ScalarVector;
 use datatypes::vectors::{BinaryVector, UInt8Vector};
 use futures_util::lock::Mutex;
 use metrics::increment_gauge;
-use snafu::{ensure, OptionExt, ResultExt};
 use table::engine::manager::TableEngineManagerRef;
 use table::engine::EngineContext;
 use table::metadata::TableId;
@@ -37,6 +40,21 @@ use table::table::numbers::{NumbersTable, NUMBERS_TABLE_NAME};
 use table::table::TableIdProvider;
 use table::TableRef;
 
+use crate::catalog::consts::{
+    INFORMATION_SCHEMA_NAME, MIN_USER_TABLE_ID, MITO_ENGINE, SYSTEM_CATALOG_NAME,
+};
+use crate::catalog::information_schema::InformationSchemaProvider;
+use crate::catalog::local::MemoryCatalogManager;
+use crate::catalog::manager::{
+    handle_system_table_request, CatalogManager, CatalogManagerRef, DeregisterSchemaRequest,
+    DeregisterTableRequest, RegisterSchemaRequest, RegisterSystemTableRequest,
+    RegisterTableRequest, RenameTableRequest,
+};
+use crate::catalog::system::{
+    decode_system_catalog, Entry, SystemCatalogTable, TableEntry, ENTRY_TYPE_INDEX, KEY_INDEX,
+    VALUE_INDEX,
+};
+use crate::catalog::tables::SystemCatalog;
 use crate::error::{
     self, CatalogNotFoundSnafu, IllegalManagerStateSnafu, OpenTableSnafu, ReadSystemCatalogSnafu,
     Result, SchemaExistsSnafu, SchemaNotFoundSnafu, SystemCatalogSnafu,
@@ -45,10 +63,6 @@ use crate::error::{
 };
 use crate::information_schema::InformationSchemaProvider;
 use crate::local::memory::MemoryCatalogManager;
-use crate::system::{
-    decode_system_catalog, Entry, SystemCatalogTable, TableEntry, ENTRY_TYPE_INDEX, KEY_INDEX,
-    VALUE_INDEX,
-};
 use crate::tables::SystemCatalog;
 use crate::{
     handle_system_table_request, CatalogManager, CatalogManagerRef, DeregisterSchemaRequest,
@@ -427,6 +441,17 @@ impl CatalogManager for LocalCatalogManager {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    async fn rename_table(&self, request: RenameTableRequest) -> Result<bool> {
+        todo!()
+    }
+
+    async fn register_system_table(
+        &self,
+        request: RegisterSystemTableRequest,
+    ) -> error::Result<()> {
+        todo!()
+    }
 }
 
 #[cfg(test)]
@@ -435,6 +460,7 @@ mod tests {
 
     use mito::engine::MITO_ENGINE;
 
+    use crate::catalog::system::{CatalogEntry, SchemaEntry, TableEntry};
     use crate::system::{CatalogEntry, SchemaEntry};
 
     use super::*;

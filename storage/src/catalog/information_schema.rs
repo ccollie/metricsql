@@ -36,8 +36,6 @@ use crate::error::Result;
 use crate::information_schema::tables::InformationSchemaTables;
 use crate::CatalogManager;
 
-use self::columns::InformationSchemaColumns;
-
 mod columns;
 mod tables;
 
@@ -106,11 +104,11 @@ impl Table for InformationTable {
         self.stream_builder.schema()
     }
 
-    fn table_info(&self) -> table::metadata::TableInfoRef {
+    fn table_info(&self) -> TableInfoRef {
         unreachable!("Should not call table_info() of InformationTable directly")
     }
 
-    fn table_type(&self) -> table::metadata::TableType {
+    fn table_type(&self) -> TableType {
         TableType::View
     }
 

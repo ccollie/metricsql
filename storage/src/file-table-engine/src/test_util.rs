@@ -72,7 +72,7 @@ pub fn build_test_table_info() -> TableInfo {
     TableInfoBuilder::new(TEST_TABLE_NAME, table_meta)
         .table_version(0)
         .table_type(TableType::Base)
-        .catalog_name("greptime".to_string())
+        .catalog_name("metrix".to_string())
         .schema_name("public".to_string())
         .build()
         .unwrap()
@@ -112,7 +112,7 @@ pub fn new_create_request(schema: SchemaRef) -> CreateTableRequest {
 
     CreateTableRequest {
         id: 1,
-        catalog_name: "greptime".to_string(),
+        catalog_name: "metrix".to_string(),
         schema_name: "public".to_string(),
         table_name: TEST_TABLE_NAME.to_string(),
         desc: Some("a test table".to_string()),
