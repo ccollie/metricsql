@@ -17,6 +17,7 @@ use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
 use snafu::{ensure, OptionExt};
+use tracing::error;
 
 use common_telemetry::error;
 

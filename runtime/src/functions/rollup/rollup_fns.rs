@@ -4,7 +4,7 @@ use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use lib::{get_float64s, is_stale_nan};
+use lib::{get_pooled_vec_f64, is_stale_nan};
 use metricsql::ast::Expr;
 use metricsql::functions::{can_adjust_window, RollupFunction};
 use metricsql::prelude::TransformFunction;
@@ -17,14 +17,15 @@ use crate::functions::rollup::{
         new_rollup_count_eq, new_rollup_count_gt, new_rollup_count_le, new_rollup_count_ne,
         new_rollup_share_gt, new_rollup_share_le,
     },
+    holt_winters::new_rollup_holt_winters,
     quantiles::{new_rollup_quantile, new_rollup_quantiles, quantile},
 };
 use crate::functions::rollup::{RollupFunc, RollupFuncArg, RollupHandler, RollupHandlerEnum};
 use crate::functions::types::get_scalar_param_value;
-use crate::get_timestamps;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::types::{get_timeseries, Timestamp};
 use crate::QueryValue;
+use crate::{get_timestamps, EvalConfig};
 
 use super::timeseries_map::TimeseriesMap;
 
@@ -171,7 +172,7 @@ macro_rules! wrap_rollup_fn {
 macro_rules! make_factory {
     ( $name: ident, $rf: expr ) => {
         #[inline]
-        fn $name(_: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEnum> {
+        fn $name(_: &Vec<QueryValue>, _ec: &EvalConfig) -> RuntimeResult<RollupHandlerEnum> {
             Ok(RollupHandlerEnum::wrap($rf))
         }
     };
@@ -180,7 +181,7 @@ macro_rules! make_factory {
 macro_rules! fake_wrapper {
     ( $funcName: ident, $name: expr ) => {
         #[inline]
-        fn $funcName(_: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEnum> {
+        fn $funcName(_: &Vec<QueryValue>, _ec: &EvalConfig) -> RuntimeResult<RollupHandlerEnum> {
             Ok(RollupHandlerEnum::fake($name))
         }
     };
@@ -1086,57 +1087,10 @@ pub(super) fn deriv_values(values: &mut [f64], timestamps: &[Timestamp]) {
     values[values.len() - 1] = prev_deriv
 }
 
-fn new_rollup_holt_winters(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEnum> {
-    // unwrap is sound since arguments are checked before this is called
-    let sf = get_scalar_param_value(args, 1, "holt_winters", "sf")?;
-    let tf = get_scalar_param_value(args, 2, "holt_winters", "tf")?;
-
-    Ok(RollupHandlerEnum::General(Box::new(
-        move |rfa: &mut RollupFuncArg| -> f64 { holt_winters_internal(rfa, sf, tf) },
-    )))
-}
-
-fn holt_winters_internal(rfa: &mut RollupFuncArg, sf: f64, tf: f64) -> f64 {
-    // There is no need in handling NaNs here, since they must be cleaned up
-    // before calling rollup fns.
-    if rfa.values.is_empty() {
-        return rfa.prev_value;
-    }
-
-    if sf <= 0.0 || sf >= 1.0 {
-        return NAN;
-    }
-
-    if tf <= 0.0 || tf >= 1.0 {
-        return NAN;
-    }
-
-    let mut ofs = 0;
-
-    // See https://en.wikipedia.org/wiki/Exponential_smoothing#Double_exponential_smoothing .
-    // TODO: determine whether this shit really works.
-    let mut s0 = rfa.prev_value;
-    if s0.is_nan() {
-        ofs = 1;
-        s0 = rfa.values[0];
-
-        if rfa.values.len() <= 1 {
-            return s0;
-        }
-    }
-
-    let mut b0 = rfa.values[ofs] - s0;
-    for v in rfa.values[ofs..].iter() {
-        let s1 = sf * v + (1.0 - sf) * (s0 + b0);
-        let b1 = tf * (s1 - s0) + (1.0 - tf) * b0;
-        s0 = s1;
-        b0 = b1
-    }
-
-    s0
-}
-
-fn new_rollup_predict_linear(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEnum> {
+fn new_rollup_predict_linear(
+    args: &Vec<QueryValue>,
+    _ec: &EvalConfig,
+) -> RuntimeResult<RollupHandlerEnum> {
     let secs = get_scalar_param_value(args, 1, "predict_linear", "secs")?;
 
     let res = RollupHandlerEnum::General(Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
@@ -1203,7 +1157,10 @@ fn are_const_values(values: &[f64]) -> bool {
     true
 }
 
-fn new_rollup_duration_over_time(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEnum> {
+fn new_rollup_duration_over_time(
+    args: &Vec<QueryValue>,
+    _ec: &EvalConfig,
+) -> RuntimeResult<RollupHandlerEnum> {
     let max_interval = get_scalar_param_value(args, 1, "duration_over_time", "max_interval")?;
 
     let f = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
@@ -1229,7 +1186,10 @@ fn new_rollup_duration_over_time(args: &Vec<QueryValue>) -> RuntimeResult<Rollup
     Ok(RollupHandlerEnum::General(f))
 }
 
-fn new_rollup_hoeffding_bound_lower(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEnum> {
+fn new_rollup_hoeffding_bound_lower(
+    args: &Vec<QueryValue>,
+    _ec: &EvalConfig,
+) -> RuntimeResult<RollupHandlerEnum> {
     let phi = get_scalar_param_value(args, 0, "hoeffding_bound_lower", "phi")?;
 
     let f = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
@@ -1240,7 +1200,10 @@ fn new_rollup_hoeffding_bound_lower(args: &Vec<QueryValue>) -> RuntimeResult<Rol
     Ok(RollupHandlerEnum::General(f))
 }
 
-fn new_rollup_hoeffding_bound_upper(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEnum> {
+fn new_rollup_hoeffding_bound_upper(
+    args: &Vec<QueryValue>,
+    _ec: &EvalConfig,
+) -> RuntimeResult<RollupHandlerEnum> {
     let phi = get_scalar_param_value(args, 0, "hoeffding_bound_upper", "phi")?;
 
     let f = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
@@ -1351,7 +1314,7 @@ pub(crate) fn rollup_mad(rfa: &mut RollupFuncArg) -> f64 {
 pub(crate) fn mad(values: &[f64]) -> f64 {
     // See https://en.wikipedia.org/wiki/Median_absolute_deviation
     let median = quantile(0.5, values);
-    let mut ds = get_float64s(values.len());
+    let mut ds = get_pooled_vec_f64(values.len());
     for v in values.iter() {
         ds.push((v - median).abs())
     }
@@ -2062,7 +2025,7 @@ pub(super) fn rollup_mode_over_time(rfa: &mut RollupFuncArg) -> f64 {
         let mut a = vec![];
         return mode_no_nans(rfa.prev_value, &mut a);
     }
-    let mut a = get_float64s(rfa.values.len());
+    let mut a = get_pooled_vec_f64(rfa.values.len());
     a.extend(&rfa.values);
     mode_no_nans(rfa.prev_value, &mut a)
 }

@@ -8,6 +8,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::Xxh3;
 
+use crate::common::join_vector;
 use crate::parser::{compile_regexp, escape_ident, is_empty_regex, quote, ParseError};
 
 pub const NAME_LABEL: &str = "__name__";
@@ -16,6 +17,7 @@ pub type LabelName = String;
 
 pub type LabelValue = String;
 
+// NOTE: https://github.com/rust-lang/regex/issues/668
 #[derive(Debug, Clone)]
 pub enum MatchOp {
     Equal,
@@ -288,15 +290,57 @@ impl fmt::Display for LabelFilter {
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct MatcherList(Vec<LabelFilter>);
+pub struct Matchers(Vec<LabelFilter>);
 
-impl MatcherList {
+impl Matchers {
     pub fn len(&self) -> usize {
         self.0.len()
     }
+
+    /// find the matcher's value whose name equals the specified name. This function
+    /// is designed to prepare error message of invalid promql expression.
+    pub fn find_matcher_value(&self, name: &str) -> Option<String> {
+        for m in &self.0 {
+            if m.label.eq(name) {
+                return Some(m.value.clone());
+            }
+        }
+        None
+    }
+
+    /// find matchers whose name equals the specified name
+    pub fn find_matchers(&self, name: &str) -> Vec<LabelFilter> {
+        self.0
+            .iter()
+            .filter(|m| m.label.eq(name))
+            .cloned()
+            .collect()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn push(&mut self, m: LabelFilter) {
+        self.0.push(m);
+    }
+
+    pub fn sort(&mut self) {
+        self.0.sort();
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &LabelFilter> {
+        self.0.iter()
+    }
 }
 
-impl Deref for MatcherList {
+impl fmt::Display for Matchers {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", join_vector(&self.0, ",", true))
+    }
+}
+
+impl Deref for Matchers {
     type Target = Vec<LabelFilter>;
 
     fn deref(&self) -> &Self::Target {

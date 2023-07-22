@@ -50,7 +50,7 @@ impl TimeseriesMap {
         let value = label_value.to_string();
         let timestamps = &self.origin.timestamps;
         self.series.entry(value).or_insert_with_key(move |value| {
-            let values: Vec<f64> = Vec::with_capacity(1);
+            let values: Vec<f64> = vec![f64::NAN; timestamps.len()];
             let mut ts = Timeseries::with_shared_timestamps(&timestamps, &values);
             ts.metric_name.set_tag(label_name, value);
             ts
@@ -74,6 +74,13 @@ impl TimeseriesMap {
 
     pub fn non_zero_buckets(&mut self) -> NonZeroBuckets {
         self.hist.non_zero_buckets()
+    }
+
+    pub fn visit_non_zero_buckets<'a, F>(&self, f: F)
+    where
+        F: Fn(&'a str, u64),
+    {
+        self.hist.visit_non_zero_buckets(f)
     }
 
     pub fn is_valid_function(func: &RollupFunction) -> bool {

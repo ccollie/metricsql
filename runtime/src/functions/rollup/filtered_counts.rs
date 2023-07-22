@@ -1,10 +1,13 @@
 use crate::functions::arg_parse::get_float_arg;
 use crate::functions::rollup::{RollupFuncArg, RollupHandler, RollupHandlerEnum};
-use crate::{QueryValue, RuntimeError, RuntimeResult};
+use crate::{EvalConfig, QueryValue, RuntimeError, RuntimeResult};
 
 macro_rules! make_count_fn {
     ( $name: ident, $func_name: tt, $param_name: tt, $count_fn: expr ) => {
-        pub(super) fn $name(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEnum> {
+        pub(super) fn $name(
+            args: &Vec<QueryValue>,
+            _ec: &EvalConfig,
+        ) -> RuntimeResult<RollupHandlerEnum> {
             let limit = get_limit(args, $func_name, $param_name)?;
 
             println!("parsed limit: {}", limit);
@@ -107,12 +110,13 @@ fn not_equal(x: f64, y: f64) -> bool {
 
 fn new_rollup_share_filter<F>(
     args: &Vec<QueryValue>,
+    ec: &EvalConfig,
     base_factory: F,
 ) -> RuntimeResult<RollupHandlerEnum>
 where
-    F: Fn(&Vec<QueryValue>) -> RuntimeResult<RollupHandlerEnum> + 'static,
+    F: Fn(&Vec<QueryValue>, &EvalConfig) -> RuntimeResult<RollupHandlerEnum> + 'static,
 {
-    let rf = base_factory(args)?;
+    let rf = base_factory(args, ec)?;
     let f = move |rfa: &mut RollupFuncArg| -> f64 {
         let n = rf.eval(rfa);
         return n / rfa.values.len() as f64;
@@ -121,12 +125,18 @@ where
     Ok(RollupHandlerEnum::General(Box::new(f)))
 }
 
-pub(super) fn new_rollup_share_le(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEnum> {
+pub(super) fn new_rollup_share_le(
+    args: &Vec<QueryValue>,
+    ec: &EvalConfig,
+) -> RuntimeResult<RollupHandlerEnum> {
     // todo: map_err so we can get the function name
-    return new_rollup_share_filter(args, new_rollup_count_le);
+    return new_rollup_share_filter(args, ec, new_rollup_count_le);
 }
 
-pub(super) fn new_rollup_share_gt(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEnum> {
+pub(super) fn new_rollup_share_gt(
+    args: &Vec<QueryValue>,
+    ec: &EvalConfig,
+) -> RuntimeResult<RollupHandlerEnum> {
     // todo: map_err so we can get the function name
-    return new_rollup_share_filter(args, new_rollup_count_gt);
+    return new_rollup_share_filter(args, ec, new_rollup_count_gt);
 }

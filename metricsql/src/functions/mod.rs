@@ -182,7 +182,9 @@ impl BuiltinFunction {
                 if is_rollup_aggregation_over_time(*rf) {
                     match kind {
                         ValueType::RangeVector => Ok(ValueType::InstantVector),
-                        ValueType::InstantVector => Ok(ValueType::InstantVector),
+                        ValueType::Scalar | ValueType::InstantVector => {
+                            Ok(ValueType::InstantVector)
+                        }
                         _ => {
                             // invalid arg
                             Err(ParseError::General(format!(

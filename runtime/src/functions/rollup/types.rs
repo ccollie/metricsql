@@ -1,12 +1,13 @@
-use crate::types::Timestamp;
-use crate::{QueryValue, RuntimeResult};
-use clone_dyn::clone_dyn;
 use std::cell::RefCell;
 use std::fmt::{Debug, Formatter};
 use std::rc::Rc;
 use std::sync::Arc;
 
+use clone_dyn::clone_dyn;
+
 use crate::functions::rollup::TimeseriesMap;
+use crate::types::Timestamp;
+use crate::{EvalConfig, QueryValue, RuntimeResult};
 
 #[derive(Default, Clone, Debug)]
 pub struct RollupFuncArg {
@@ -67,9 +68,12 @@ pub trait RollupFn: Fn(&mut RollupFuncArg) -> f64 + Send + Sync {}
 impl<T> RollupFn for T where T: Fn(&mut RollupFuncArg) -> f64 + Send + Sync {}
 
 #[clone_dyn]
-pub(crate) trait NewRollupFn: Fn(&Vec<QueryValue>) -> Arc<dyn RollupFn> {}
+pub(crate) trait NewRollupFn:
+    Fn(&Vec<QueryValue>, &EvalConfig) -> Arc<dyn RollupFn>
+{
+}
 
-impl<T> NewRollupFn for T where T: Fn(&Vec<QueryValue>) -> Arc<dyn RollupFn> {}
+impl<T> NewRollupFn for T where T: Fn(&Vec<QueryValue>, &EvalConfig) -> Arc<dyn RollupFn> {}
 
 pub(crate) trait RollupHandler {
     fn init(&mut self, _args: &[QueryValue]) {}
@@ -143,4 +147,5 @@ impl RollupHandler for RollupHandlerEnum {
     }
 }
 
-pub(crate) type RollupHandlerFactory = fn(&Vec<QueryValue>) -> RuntimeResult<RollupHandlerEnum>;
+pub(crate) type RollupHandlerFactory =
+    fn(&Vec<QueryValue>, &EvalConfig) -> RuntimeResult<RollupHandlerEnum>;

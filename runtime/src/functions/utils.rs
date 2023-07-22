@@ -98,3 +98,7 @@ pub fn get_last_non_nan_index(values: &[f64]) -> usize {
 pub(crate) fn float_to_int_bounded(f: f64) -> i64 {
     (f as i64).clamp(i64::MIN, i64::MAX)
 }
+
+pub(crate) fn round_to_multiple(n: f64, multiple: f64) -> f64 {
+    (n / multiple).round() * multiple
+}

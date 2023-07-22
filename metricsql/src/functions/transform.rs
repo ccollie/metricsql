@@ -561,13 +561,13 @@ impl TransformFunction {
             Random | RandExponential | RandNormal => {
                 Signature::variadic_min(vec![ValueType::Scalar], 0, Volatility::Stable)
             }
-            RangeTrimSpikes => Signature::exact(
-                vec![ValueType::Scalar, ValueType::InstantVector],
-                Volatility::Stable,
-            ),
             RangeNormalize => {
                 Signature::variadic_min(vec![ValueType::InstantVector], 1, Volatility::Stable)
             }
+            RangeTrimOutliers | RangeTrimSpikes | RangeTrimZscore => Signature::exact(
+                vec![ValueType::Scalar, ValueType::InstantVector],
+                Volatility::Stable,
+            ),
             RangeQuantile => Signature::exact(
                 vec![ValueType::Scalar, ValueType::InstantVector],
                 Volatility::Stable,

@@ -7,7 +7,7 @@ use num_traits::SaturatingMul;
 use rayon::prelude::*;
 use tracing::{field, trace_span, Span};
 
-use lib::{get_float64s, get_int64s, is_stale_nan, AtomicCounter, RelaxedU64Counter};
+use lib::{get_pooled_vec_f64, get_pooled_vec_i64, is_stale_nan, AtomicCounter, RelaxedU64Counter};
 use metricsql::ast::*;
 use metricsql::functions::RollupFunction;
 
@@ -765,8 +765,8 @@ where
             let len = ts.values.len();
             // todo: should we have an upper limit here to avoid OOM? Or explicitly size down
             // afterward if needed?
-            let mut values = get_float64s(len);
-            let mut timestamps = get_int64s(len);
+            let mut values = get_pooled_vec_f64(len);
+            let mut timestamps = get_pooled_vec_i64(len);
 
             // todo(perf): have param for if values have NaNs
             remove_nan_values(&mut values, &mut timestamps, &ts.values, &ts.timestamps);

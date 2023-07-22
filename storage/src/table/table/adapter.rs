@@ -15,10 +15,6 @@
 use std::any::Any;
 use std::sync::{Arc, Mutex};
 
-use common_query::logical_plan::Expr;
-use common_query::physical_plan::DfPhysicalPlanAdapter;
-use common_query::DfPhysicalPlan;
-use common_recordbatch::OrderOption;
 use datafusion::arrow::datatypes::SchemaRef as DfSchemaRef;
 use datafusion::datasource::datasource::TableProviderFilterPushDown as DfTableProviderFilterPushDown;
 use datafusion::datasource::{TableProvider, TableType as DfTableType};
@@ -26,13 +22,22 @@ use datafusion::error::Result as DfResult;
 use datafusion::execution::context::SessionState;
 use datafusion::physical_expr::expressions::Column;
 use datafusion::physical_expr::PhysicalSortExpr;
+use datafusion::prelude::Expr;
+
+use common_query::logical_plan::Expr;
+use common_query::physical_plan::DfPhysicalPlanAdapter;
+use common_query::DfPhysicalPlan;
+use common_recordbatch::OrderOption;
 use datafusion_expr::expr::Expr as DfExpr;
 use datafusion_physical_expr::expressions::Column;
 use datafusion_physical_expr::PhysicalSortExpr;
 use store_api::storage::ScanRequest;
 
-use super::scan::StreamScanAdapter;
+use crate::table::metadata::TableType;
+use crate::table::table::TableRef;
 use crate::table::{TableRef, TableType};
+
+use super::scan::StreamScanAdapter;
 
 /// Adapt greptime's [TableRef] to DataFusion's [TableProvider].
 pub struct DfTableProviderAdapter {

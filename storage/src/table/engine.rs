@@ -43,7 +43,7 @@ pub struct TableReference<'a> {
 impl<'a> TableReference<'a> {
     pub fn bare(table: &'a str) -> Self {
         TableReference {
-            catalog: "greptime",
+            catalog: "metrix",
             schema: "public",
             table,
         }

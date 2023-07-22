@@ -257,7 +257,6 @@ impl MemoryCatalogManager {
         match catalog.entry(request.schema) {
             Entry::Vacant(e) => {
                 e.insert(HashMap::new());
-                increment_gauge!(crate::metrics::METRIC_CATALOG_MANAGER_SCHEMA_COUNT, 1.0);
                 Ok(true)
             }
             Entry::Occupied(_) => Ok(false),

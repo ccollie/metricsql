@@ -113,7 +113,7 @@ fn eval_function_op(
         BuiltinFunction::Rollup(rf) => {
             let nrf = get_rollup_function_factory(rf);
             let (args, re, _) = eval_rollup_func_args(ctx, ec, &fe)?;
-            let func_handler = nrf(&args)?;
+            let func_handler = nrf(&args, ec)?;
             let mut rollup_handler = RollupExecutor::new(rf, func_handler, expr, &re);
             let val = rollup_handler
                 .eval(ctx, ec)

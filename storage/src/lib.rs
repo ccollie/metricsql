@@ -18,10 +18,9 @@ mod catalog;
 mod common;
 mod error;
 mod status_code;
+mod table;
 mod udf;
 mod utils;
-mod postgres;
-mod table;
 
 pub struct TableContext {
     pub session: SessionContext,

@@ -5,7 +5,7 @@ use std::ops::{Deref, DerefMut};
 
 use lockfree_object_pool::LinearReusable;
 
-use lib::get_float64s;
+use lib::{get_pooled_vec_f64, get_pooled_vec_f64_filled};
 use metricsql::common::AggregateModifier;
 use metricsql::functions::AggregateFunction;
 
@@ -607,7 +607,7 @@ fn aggr_func_zscore(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
 }
 
 fn aggr_func_count_values(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let dst_label = get_string_arg(&afa.args, 0)?;
+    let dst_label = get_string_arg(&afa.args, 0)?.to_string();
 
     // Remove dst_label from grouping like Prometheus does.
     let modifier = if let Some(modifier) = &afa.modifier {
@@ -720,7 +720,7 @@ fn range_topk_impl(
     let ks: Vec<f64> = get_scalar_arg_as_vec(&afa.args, 0, afa.ec)?;
 
     let remaining_sum_tag_name = if args_len == 3 {
-        get_string_arg(&afa.args, 2)?
+        get_string_arg(&afa.args, 2)?.to_string()
     } else {
         "".to_string()
     };
@@ -756,13 +756,13 @@ where
         value: f64,
     }
 
-    let mut maxs: Vec<TsWithValue> = Vec::with_capacity(tss.len());
+    let mut maxes: Vec<TsWithValue> = Vec::with_capacity(tss.len());
     for ts in tss.drain(0..) {
         let value = f(&ts.values);
-        maxs.push(TsWithValue { ts, value });
+        maxes.push(TsWithValue { ts, value });
     }
 
-    maxs.sort_by(move |first, second| {
+    maxes.sort_by(move |first, second| {
         let a = first.value;
         let b = second.value;
         if is_reverse {
@@ -772,7 +772,7 @@ where
         }
     });
 
-    let series = maxs.into_iter().map(|x| x.ts);
+    let series = maxes.into_iter().map(|x| x.ts);
 
     tss.extend(series);
 
@@ -956,38 +956,45 @@ fn aggr_func_limitk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
 }
 
 fn aggr_func_quantiles(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let dst_label = get_string_arg(&afa.args, 0)?;
+    let dst_label = get_string_arg(&afa.args, 0)?.to_string();
 
-    let mut phis: Vec<f64> = Vec::with_capacity(afa.args.len() - 2);
+    // todo: I'm sure this should have been checked in the parser
+    let phi_count = afa.args.len() - 2;
+    if phi_count == 0 {
+        return Err(RuntimeError::AggregateError(
+            "quantiles() must have at least one phi argument".to_string(),
+        ));
+    }
+
+    // tinyvec ??
+    let mut phis: Vec<f64> = Vec::with_capacity(phi_count);
+
     for arg in afa.args[1..afa.args.len() - 1].iter() {
         phis.push(arg.get_scalar()?);
     }
 
     let afe = |tss: &mut Vec<Timeseries>, _modifier: &Option<AggregateModifier>| {
-        // todo: smallvec
-        let mut tss_dst: Vec<Timeseries> = Vec::with_capacity(phis.len());
-        for j in 0..phis.len() {
+        // todo: tinyvec ?
+        let mut tss_dst: Vec<Timeseries> = Vec::with_capacity(phi_count);
+        for j in 0..phi_count {
             let mut ts = tss[0].clone();
-            ts.metric_name.remove_tag(&dst_label);
-            // TODO
             ts.metric_name.set_tag(&dst_label, &format!("{}", phis[j]));
             tss_dst.push(ts);
         }
 
         //let _vals = tiny_vec!([f64; 10]);
-        let mut qs = get_float64s(phis.len());
+        let mut qs = get_pooled_vec_f64_filled(phis.len(), 0f64);
 
-        let mut values = get_float64s(phis.len());
-        for n in tss[0].values.iter() {
+        let mut values = get_pooled_vec_f64_filled(phis.len(), f64::NAN);
+        for n in 0..tss[0].values.len() {
             values.clear();
-            let idx = *n as usize; // todo: handle panic
             for ts in tss.iter() {
-                values.push(ts.values[idx]);
+                values.push(ts.values[n]);
             }
             quantiles(qs.deref_mut(), &phis, values.deref());
 
             for j in 0..tss_dst.len() {
-                tss_dst[j].values[idx] = qs[j];
+                tss_dst[j].values[n] = qs[j];
             }
         }
         return tss_dst;
@@ -997,6 +1004,7 @@ fn aggr_func_quantiles(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> 
         .args
         .remove(afa.args.len() - 1)
         .get_instant_vector(afa.ec)?;
+
     aggr_func_ext(afe, &mut last, afa.modifier, afa.limit, false)
 }
 
@@ -1017,7 +1025,7 @@ fn aggr_func_median(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
 fn new_aggr_quantile_func(phis: &Vec<f64>) -> impl AggrFnExt + '_ {
     move |tss: &mut Vec<Timeseries>, _: &Option<AggregateModifier>| -> Vec<Timeseries> {
         let count = tss[0].values.len();
-        let mut values = get_float64s(count);
+        let mut values = get_pooled_vec_f64(count);
 
         for n in 0..count {
             for ts in tss.iter() {
@@ -1081,7 +1089,7 @@ fn get_per_point_medians(tss: &mut Vec<Timeseries>) -> Vec<f64> {
     }
     let count = tss[0].values.len();
     let mut medians = Vec::with_capacity(count);
-    let mut values = get_float64s(count);
+    let mut values = get_pooled_vec_f64(count);
     for n in 0..count {
         values.clear();
         for ts in tss.iter() {
@@ -1098,7 +1106,7 @@ fn get_per_point_medians(tss: &mut Vec<Timeseries>) -> Vec<f64> {
 
 fn get_per_point_mads(tss: &Vec<Timeseries>, medians: &[f64]) -> Vec<f64> {
     let mut mads: Vec<f64> = Vec::with_capacity(medians.len());
-    let mut values = get_float64s(medians.len());
+    let mut values = get_pooled_vec_f64(medians.len());
     for (n, median) in medians.iter().enumerate() {
         values.clear();
         for ts in tss.iter() {

@@ -31,12 +31,10 @@ use crate::requests::{AlterTableRequest, DeleteRequest, InsertRequest};
 use crate::stats::TableStatistics;
 use crate::table::error::UnsupportedSnafu;
 use crate::table::metadata::{FilterPushDownType, TableId, TableInfoRef, TableType};
-use crate::table::requests::{AlterTableRequest, DeleteRequest, InsertRequest};
+use crate::table::requests::DeleteRequest;
 use crate::RegionStat;
 
 pub mod adapter;
-pub mod numbers;
-pub mod scan;
 
 pub type AlterContext = anymap::Map<dyn Any + Send + Sync>;
 
@@ -58,30 +56,12 @@ pub trait Table: Send + Sync {
         TableType::Base
     }
 
-    /// Insert values into table.
-    ///
-    /// Returns number of inserted rows.
-    async fn insert(&self, _request: InsertRequest) -> Result<usize> {
-        UnsupportedSnafu {
-            operation: "INSERT",
-        }
-        .fail()?
-    }
-
     async fn scan_to_stream(&self, request: ScanRequest) -> Result<SendableRecordBatchStream>;
 
     /// Tests whether the table provider can make use of any or all filter expressions
     /// to optimise data retrieval.
     fn supports_filters_pushdown(&self, filters: &[&Expr]) -> Result<Vec<FilterPushDownType>> {
         Ok(vec![FilterPushDownType::Unsupported; filters.len()])
-    }
-
-    /// Alter table.
-    async fn alter(&self, _context: AlterContext, _request: &AlterTableRequest) -> Result<()> {
-        UnsupportedSnafu {
-            operation: "ALTER TABLE",
-        }
-        .fail()?
     }
 
     /// Delete rows in the table.
@@ -109,33 +89,9 @@ pub trait Table: Send + Sync {
         Ok(())
     }
 
-    /// Get region stats in this table.
-    fn region_stats(&self) -> Result<Vec<RegionStat>> {
-        UnsupportedSnafu {
-            operation: "REGION_STATS",
-        }
-        .fail()?
-    }
-
-    /// Return true if contains the region
-    fn contains_region(&self, _region: RegionNumber) -> Result<bool> {
-        UnsupportedSnafu {
-            operation: "contain_region",
-        }
-        .fail()?
-    }
-
     /// Get statistics for this table, if available
     fn statistics(&self) -> Option<TableStatistics> {
         None
-    }
-
-    async fn compact(&self, region_number: Option<RegionNumber>, wait: Option<bool>) -> Result<()> {
-        let _ = (region_number, wait);
-        UnsupportedSnafu {
-            operation: "COMPACTION",
-        }
-        .fail()?
     }
 }
 

@@ -4,7 +4,7 @@ use rand_distr::num_traits::Pow;
 
 use crate::{
     append_float64_ones, append_float64_zeros, append_int64_ones, append_int64_zeros, frexp,
-    get_int64s, is_float64_ones, is_float64_zeros, is_int64_ones, is_int64_zeros, isinf, LN10_F64,
+    get_pooled_vec_i64, is_float64_ones, is_float64_zeros, is_int64_ones, is_int64_zeros, isinf, LN10_F64,
 };
 
 pub(crate) const V_INF_POS: i64 = 1 << (63 - 1);
@@ -190,7 +190,7 @@ pub fn append_float_to_decimal(dst: &mut Vec<i64>, src: &[f64]) -> i16 {
     }
 
     // todo(perf): use pool
-    let mut value_buf = get_int64s(src.len());
+    let mut value_buf = get_pooled_vec_i64(src.len());
     let mut exp_buf = Vec::with_capacity(src.len());
 
     // Determine the minimum exponent across all src items.

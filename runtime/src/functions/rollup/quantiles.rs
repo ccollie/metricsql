@@ -1,10 +1,13 @@
-use crate::functions::rollup::{RollupFuncArg, RollupHandlerEnum};
-use crate::functions::types::{get_scalar_param_value, get_string_param_value};
-use crate::{QueryValue, RuntimeResult};
-use lib::get_float64s;
 use std::cmp::Ordering;
 use std::ops::DerefMut;
+
 use tinyvec::TinyVec;
+
+use lib::get_pooled_vec_f64_filled;
+
+use crate::functions::rollup::{RollupFuncArg, RollupHandlerEnum};
+use crate::functions::types::{get_scalar_param_value, get_string_param_value};
+use crate::{EvalConfig, QueryValue, RuntimeResult};
 
 /// quantiles calculates the given phis from originValues without modifying originValues, appends
 /// them to qs and returns the result.
@@ -15,7 +18,7 @@ pub(crate) fn quantiles(qs: &mut [f64], phis: &[f64], origin_values: &[f64]) {
         return quantiles_sorted(qs, phis, &vec);
     }
 
-    let mut block = get_float64s(phis.len());
+    let mut block = get_pooled_vec_f64_filled(phis.len(), 0_f64);
     let a = block.deref_mut();
     prepare_for_quantile_float64(a, origin_values);
     quantiles_sorted(qs, phis, a)
@@ -24,7 +27,7 @@ pub(crate) fn quantiles(qs: &mut [f64], phis: &[f64], origin_values: &[f64]) {
 /// calculates the given phi from origin_values without modifying origin_values
 pub(crate) fn quantile(phi: f64, origin_values: &[f64]) -> f64 {
     // todo: smallvec
-    let mut block = get_float64s(origin_values.len());
+    let mut block = get_pooled_vec_f64_filled(origin_values.len(), 0_f64);
     prepare_for_quantile_float64(&mut block, origin_values);
     quantile_sorted(phi, &block)
 }
@@ -85,7 +88,10 @@ pub(crate) fn quantile_sorted(phi: f64, values: &[f64]) -> f64 {
     return values[lower_index] * (1.0 - weight) + values[upper_index] * weight;
 }
 
-pub(super) fn new_rollup_quantiles(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEnum> {
+pub(super) fn new_rollup_quantiles(
+    args: &Vec<QueryValue>,
+    ec: &EvalConfig,
+) -> RuntimeResult<RollupHandlerEnum> {
     let phi_label = get_string_param_value(&args, 0, "quantiles", "phi_label").unwrap();
     let cap = args.len() - 1;
 
@@ -107,7 +113,10 @@ pub(super) fn new_rollup_quantiles(args: &Vec<QueryValue>) -> RuntimeResult<Roll
     Ok(RollupHandlerEnum::General(f))
 }
 
-pub(super) fn new_rollup_quantile(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandlerEnum> {
+pub(super) fn new_rollup_quantile(
+    args: &Vec<QueryValue>,
+    ec: &EvalConfig,
+) -> RuntimeResult<RollupHandlerEnum> {
     let phi = get_scalar_param_value(args, 0, "quantile_over_time", "phi")?;
 
     let rf = Box::new(move |rfa: &mut RollupFuncArg| {
@@ -122,7 +131,7 @@ pub(super) fn new_rollup_quantile(args: &Vec<QueryValue>) -> RuntimeResult<Rollu
 fn quantiles_impl(
     rfa: &mut RollupFuncArg,
     label: &str,
-    phis: &Vec<f64>,
+    phis: &[f64],
     phi_labels: &Vec<String>,
 ) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
@@ -135,8 +144,8 @@ fn quantiles_impl(
         return rfa.values[0];
     }
     // tinyvec ?
-    let mut qs = get_float64s(phis.len());
-    quantiles(qs.deref_mut(), &phis, &rfa.values);
+    let mut qs = get_pooled_vec_f64_filled(phis.len(), 0f64);
+    quantiles(qs.deref_mut(), phis, &rfa.values);
     let idx = rfa.idx;
     let tsm = rfa.tsm.as_ref().unwrap();
     let mut wrapped = tsm.borrow_mut();

@@ -1,4 +1,4 @@
-use crate::{bit_len64, get_int64s, marshal_var_int_array, unmarshal_var_int_vec};
+use crate::{bit_len64, get_pooled_vec_i64, marshal_var_int_array, unmarshal_var_int_vec};
 use crate::encoding::encoding::check_precision_bits;
 use crate::error::Error;
 
@@ -21,7 +21,7 @@ pub fn marshal_int64_nearest_delta(
     check_precision_bits(precision_bits)?;
 
     let first_value = src[0];
-    let mut is = get_int64s(src.len());
+    let mut is = get_pooled_vec_i64(src.len());
     let mut v = first_value;
 
     if precision_bits == 64 {
@@ -66,7 +66,7 @@ pub(crate) fn unmarshal_int64_nearest_delta(
         )));
     }
 
-    let mut is = get_int64s(items_count);
+    let mut is = get_pooled_vec_i64(items_count);
     unmarshal_varint_list(&mut is, src, "nearest delta")?;
 
     let mut v = first_value;

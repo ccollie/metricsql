@@ -1,14 +1,16 @@
+use std::borrow::Cow;
+
 use crate::functions::utils::float_to_int_bounded;
 use crate::{EvalConfig, QueryValue, RuntimeError, RuntimeResult, Timeseries};
 
-pub(crate) fn get_string_arg(args: &[QueryValue], arg_num: usize) -> RuntimeResult<String> {
+pub(crate) fn get_string_arg(args: &[QueryValue], arg_num: usize) -> RuntimeResult<Cow<String>> {
     if arg_num > args.len() - 1 {
         let msg = format!("missing string arg # {}", arg_num + 1);
         return Err(RuntimeError::ArgumentError(msg));
     }
     let res = match &args[arg_num] {
-        QueryValue::String(s) => Ok(s.clone()), // todo: use .into ??
-        QueryValue::Scalar(f) => Ok(f.to_string()),
+        QueryValue::String(s) => Ok(Cow::Borrowed(s)), // todo: use .into ??
+        QueryValue::Scalar(f) => Ok(Cow::Owned(f.to_string())),
         QueryValue::InstantVector(series) => {
             if series.len() != 1 {
                 let msg = format!(
@@ -25,7 +27,8 @@ pub(crate) fn get_string_arg(args: &[QueryValue], arg_num: usize) -> RuntimeResu
                 }
             }
             // todo: return reference
-            return Ok(series[0].metric_name.metric_group.clone());
+            let res = Cow::Owned(series[0].metric_name.metric_group.clone());
+            return Ok(res);
         }
         _ => Err(RuntimeError::ArgumentError(
             "string parameter expected ".to_string(),

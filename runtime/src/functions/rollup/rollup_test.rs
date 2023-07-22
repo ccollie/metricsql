@@ -19,8 +19,8 @@ mod tests {
         RollupHandlerFactory,
     };
     use crate::{
-        compare_floats, compare_values, test_rows_equal, QueryValue, RuntimeError, RuntimeResult,
-        Timeseries,
+        compare_floats, compare_values, test_rows_equal, EvalConfig, QueryValue, RuntimeError,
+        RuntimeResult, Timeseries,
     };
 
     // https://github.com/VictoriaMetrics/VictoriaMetrics/blob/master/app/vmselect/promql/rollup_test.go
@@ -256,7 +256,9 @@ mod tests {
     fn test_rollup_func(func_name: &str, args: Vec<QueryValue>, expected: f64) {
         let func = RollupFunction::from_str(func_name).unwrap();
         let nrf = get_rollup_function_factory_by_name(func_name).unwrap();
-        let rf = nrf(&args).unwrap();
+        let ec: EvalConfig = Default::default();
+
+        let rf = nrf(&args, &ec).unwrap();
         let mut rfa = RollupFuncArg::default();
         rfa.prev_value = NAN;
         rfa.prev_timestamp = 0;
@@ -580,7 +582,8 @@ mod tests {
         let f = |func_name: &str, args: &[QueryValue]| {
             let nrf = get_rollup_function_factory_by_name(func_name).unwrap();
             let args = Vec::from(args);
-            let _rf = (nrf)(&args);
+            let ec: EvalConfig = Default::default();
+            let _rf = (nrf)(&args, &ec);
             // if rf != nil {
             //     panic!("expecting nil rf; got {}", rf)
             // }
