@@ -67,12 +67,9 @@ impl<'a> Display for TableReference<'a> {
 ///
 /// Returns [`CloseTableResult::Released`] and closed region numbers if a table was removed
 /// from the engine.
-/// Returns [`CloseTableResult::PartialClosed`] and closed region numbers if only partial
-/// regions were closed.
 #[derive(Debug)]
 pub enum CloseTableResult {
     Released,
-    PartialClosed,
     NotFound,
 }
 

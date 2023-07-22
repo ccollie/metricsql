@@ -109,9 +109,6 @@ pub enum Error {
         location: Location,
     },
 
-    #[snafu(display("Regions schemas mismatch in table: {}", table))]
-    RegionSchemaMismatch { table: String, location: Location },
-
     #[snafu(display("Failed to operate table, source: {}", source))]
     TableOperation { source: BoxedError },
 

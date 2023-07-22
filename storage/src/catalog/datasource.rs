@@ -590,6 +590,7 @@ impl SqlDataSource {
             .with_context(|| TimeIndexNotFoundSnafu { table: table_name })?
             .name
             .clone();
+
         self.ctx.time_index_column = Some(time_index);
 
         // set values columns
@@ -642,18 +643,6 @@ impl SqlDataSource {
         result.push(self.create_time_index_column_expr()?.sort(false, false));
 
         Ok(result)
-    }
-
-    fn create_empty_values_filter_expr(&self) -> Result<DfExpr> {
-        let mut exprs = Vec::with_capacity(self.ctx.field_columns.len());
-        for value in &self.ctx.field_columns {
-            let expr = DfExpr::Column(Column::from_name(value)).is_not_null();
-            exprs.push(expr);
-        }
-
-        conjunction(exprs.into_iter()).context(ValueNotFoundSnafu {
-            table: self.ctx.table_name.clone().unwrap(),
-        })
     }
 
     /// Build a inner join on time index column and tag columns to concat two logical plans.
