@@ -27,13 +27,11 @@ use common_catalog::consts::{
     SYSTEM_CATALOG_NAME, SYSTEM_CATALOG_TABLE_ID, SYSTEM_CATALOG_TABLE_NAME,
 };
 use common_recordbatch::SendableRecordBatchStream;
-use common_telemetry::debug;
 use common_time::util;
 use datatypes::prelude::{ConcreteDataType, ScalarVector, VectorRef};
 use datatypes::schema::{ColumnSchema, RawSchema, SchemaRef};
 use datatypes::vectors::{BinaryVector, TimestampMillisecondVector, UInt8Vector};
 use lib::current_time_millis;
-use store_api::storage::ScanRequest;
 use table::engine::{EngineContext, TableEngineRef};
 use table::metadata::{TableId, TableInfoRef};
 use table::requests::{

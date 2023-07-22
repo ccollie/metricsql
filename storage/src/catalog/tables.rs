@@ -23,7 +23,6 @@ use crate::catalog::system::{
     build_schema_insert_request, build_table_deletion_request, build_table_insert_request,
     SystemCatalogTable,
 };
-use common_telemetry::logging;
 use table::metadata::TableId;
 use table::Table;
 

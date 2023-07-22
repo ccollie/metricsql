@@ -43,7 +43,6 @@ use table::TableRef;
 use crate::catalog::consts::{
     INFORMATION_SCHEMA_NAME, MIN_USER_TABLE_ID, MITO_ENGINE, SYSTEM_CATALOG_NAME,
 };
-use crate::catalog::information_schema::InformationSchemaProvider;
 use crate::catalog::local::MemoryCatalogManager;
 use crate::catalog::manager::{
     handle_system_table_request, CatalogManager, CatalogManagerRef, DeregisterSchemaRequest,
@@ -61,7 +60,6 @@ use crate::error::{
     SystemCatalogTypeMismatchSnafu, TableEngineNotFoundSnafu, TableExistsSnafu, TableNotExistSnafu,
     TableNotFoundSnafu, UnimplementedSnafu,
 };
-use crate::information_schema::InformationSchemaProvider;
 use crate::local::memory::MemoryCatalogManager;
 use crate::tables::SystemCatalog;
 use crate::{
@@ -315,11 +313,7 @@ impl CatalogManager for LocalCatalogManager {
                         engine,
                     )
                     .await?;
-                increment_gauge!(
-                    crate::metrics::METRIC_CATALOG_MANAGER_TABLE_COUNT,
-                    1.0,
-                    &[crate::metrics::db_label(&catalog_name, &schema_name)],
-                );
+
                 Ok(true)
             }
         }
@@ -398,13 +392,6 @@ impl CatalogManager for LocalCatalogManager {
         schema_name: &str,
         table_name: &str,
     ) -> Result<Option<TableRef>> {
-        if schema_name == INFORMATION_SCHEMA_NAME {
-            let manager: CatalogManagerRef = self.catalogs.clone() as _;
-            let provider =
-                InformationSchemaProvider::new(catalog_name.to_string(), Arc::downgrade(&manager));
-            return provider.table(table_name);
-        }
-
         self.catalogs
             .table(catalog_name, schema_name, table_name)
             .await

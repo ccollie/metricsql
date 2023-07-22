@@ -22,8 +22,6 @@ use std::sync::Arc;
 use snafu::ResultExt;
 use tracing::info;
 
-use api::v1::meta::{RegionStat, TableIdent, TableName};
-use common_telemetry::{info, warn};
 use table::engine::{EngineContext, TableEngineRef};
 use table::metadata::TableId;
 use table::requests::CreateTableRequest;

@@ -117,7 +117,6 @@ pub fn new_create_request(schema: SchemaRef) -> CreateTableRequest {
         table_name: TEST_TABLE_NAME.to_string(),
         desc: Some("a test table".to_string()),
         schema: RawSchema::from(&*schema),
-        region_numbers: vec![0],
         create_if_not_exists: true,
         primary_key_indices: vec![0],
         table_options,

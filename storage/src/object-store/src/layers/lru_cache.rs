@@ -143,7 +143,7 @@ impl<I: Accessor, C: Accessor> LayeredAccessor for LruCacheAccessor<I, C> {
 
                 writer.close().await?;
 
-                match self.cache.read(&cache_path, OpRead::default()).await {
+                return match self.cache.read(&cache_path, OpRead::default()).await {
                     Ok((rp, reader)) => {
                         let r = {
                             // push new cache file name to lru
@@ -154,9 +154,9 @@ impl<I: Accessor, C: Accessor> LayeredAccessor for LruCacheAccessor<I, C> {
                         if let Some((k, _v)) = r {
                             let _ = self.cache.delete(&k, OpDelete::new()).await;
                         }
-                        return Ok(to_output_reader((rp, reader)));
+                        Ok(to_output_reader((rp, reader)))
                     }
-                    Err(_) => return self.inner.read(&path, args).await.map(to_output_reader),
+                    Err(_) => self.inner.read(&path, args).await.map(to_output_reader),
                 }
             }
             Err(err) => {

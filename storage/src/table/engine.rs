@@ -17,12 +17,11 @@ use std::sync::Arc;
 
 use common_base::paths::DATA_DIR;
 use common_procedure::BoxedProcedure;
-use store_api::storage::RegionNumber;
 
 use crate::error::{self, Result};
 use crate::table::metadata::TableId;
 use crate::table::requests::{
-    AlterTableRequest, CloseTableRequest, CreateTableRequest, DropTableRequest, OpenTableRequest,
+    CloseTableRequest, CreateTableRequest, DropTableRequest, OpenTableRequest,
 };
 use crate::table::table::TableRef;
 use crate::TableRef;
@@ -72,8 +71,8 @@ impl<'a> Display for TableReference<'a> {
 /// regions were closed.
 #[derive(Debug)]
 pub enum CloseTableResult {
-    Released(Vec<RegionNumber>),
-    PartialClosed(Vec<RegionNumber>),
+    Released,
+    PartialClosed,
     NotFound,
 }
 
@@ -99,15 +98,6 @@ pub trait TableEngine: Send + Sync {
         ctx: &EngineContext,
         request: OpenTableRequest,
     ) -> Result<Option<TableRef>>;
-
-    /// Alter table schema, options etc. by given request,
-    ///
-    /// Returns the table after altered.
-    async fn alter_table(
-        &self,
-        ctx: &EngineContext,
-        request: AlterTableRequest,
-    ) -> Result<TableRef>;
 
     /// Returns the table by it's name.
     fn get_table(&self, ctx: &EngineContext, table_id: TableId) -> Result<Option<TableRef>>;
@@ -151,13 +141,6 @@ pub trait TableEngineProcedure: Send + Sync {
         request: CreateTableRequest,
     ) -> Result<BoxedProcedure>;
 
-    /// Returns a procedure that alters a table by specific `request`.
-    fn alter_table_procedure(
-        &self,
-        ctx: &EngineContext,
-        request: AlterTableRequest,
-    ) -> Result<BoxedProcedure>;
-
     /// Returns a procedure that drops a table by specific `request`.
     fn drop_table_procedure(
         &self,
@@ -167,12 +150,6 @@ pub trait TableEngineProcedure: Send + Sync {
 }
 
 pub type TableEngineProcedureRef = Arc<dyn TableEngineProcedure>;
-
-/// Generate region name in the form of "{TABLE_ID}_{REGION_NUMBER}"
-#[inline]
-pub fn region_name(table_id: TableId, region_number: RegionNumber) -> String {
-    format!("{table_id}_{region_number:010}")
-}
 
 #[inline]
 pub fn table_dir(catalog_name: &str, schema_name: &str, table_id: TableId) -> String {

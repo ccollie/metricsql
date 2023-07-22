@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod procedure;
 #[cfg(test)]
 mod tests;
 
@@ -21,7 +20,6 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 pub use common_catalog::consts::MITO_ENGINE;
-use common_datasource::compression::CompressionType;
 use common_error::ext::BoxedError;
 use common_procedure::{BoxedProcedure, ProcedureManager};
 use common_telemetry::{debug, logging};
@@ -30,7 +28,6 @@ use datatypes::schema::Schema;
 use key_lock::KeyLock;
 use object_store::ObjectStore;
 use snafu::{ensure, OptionExt, ResultExt};
-use storage::manifest::manifest_compress_type;
 use store_api::storage::{
     CloseOptions, ColumnDescriptorBuilder, ColumnFamilyDescriptor, ColumnFamilyDescriptorBuilder,
     ColumnId, CompactionStrategy, EngineContext as StorageEngineContext, OpenOptions,
@@ -47,7 +44,7 @@ use table::requests::{
 use table::{error as table_error, Result as TableResult, Table, TableRef};
 
 use crate::config::EngineConfig;
-use crate::engine::procedure::{AlterMitoTable, CreateMitoTable, DropMitoTable, TableCreator};
+use crate::engine::procedure::{CreateMitoTable, DropMitoTable, TableCreator};
 use crate::error::{
     BuildColumnDescriptorSnafu, BuildColumnFamilyDescriptorSnafu, BuildRowKeyDescriptorSnafu,
     InvalidPrimaryKeySnafu, MissingTimestampIndexSnafu, Result, TableExistsSnafu,
@@ -139,24 +136,6 @@ impl<S: StorageEngine> TableEngine for MitoEngine<S> {
             .context(table_error::TableOperationSnafu)
     }
 
-    async fn alter_table(
-        &self,
-        _ctx: &EngineContext,
-        req: AlterTableRequest,
-    ) -> TableResult<TableRef> {
-        let _timer = common_telemetry::timer!(metrics::MITO_ALTER_TABLE_ELAPSED);
-
-        let mut procedure = AlterMitoTable::new(req, self.inner.clone())
-            .map_err(BoxedError::new)
-            .context(table_error::TableOperationSnafu)?;
-
-        procedure
-            .engine_alter_table()
-            .await
-            .map_err(BoxedError::new)
-            .context(table_error::TableOperationSnafu)
-    }
-
     fn get_table(&self, _ctx: &EngineContext, table_id: TableId) -> TableResult<Option<TableRef>> {
         Ok(self.inner.get_table(table_id))
     }
@@ -204,19 +183,6 @@ impl<S: StorageEngine> TableEngineProcedure for MitoEngine<S> {
         Ok(procedure)
     }
 
-    fn alter_table_procedure(
-        &self,
-        _ctx: &EngineContext,
-        request: AlterTableRequest,
-    ) -> TableResult<BoxedProcedure> {
-        let procedure = Box::new(
-            AlterMitoTable::new(request, self.inner.clone())
-                .map_err(BoxedError::new)
-                .context(table_error::TableOperationSnafu)?,
-        );
-        Ok(procedure)
-    }
-
     fn drop_table_procedure(
         &self,
         _ctx: &EngineContext,
@@ -237,7 +203,6 @@ pub(crate) struct MitoEngineInner<S: StorageEngine> {
     /// Writing to `tables` should also hold the `table_mutex`.
     tables: DashMap<TableId, Arc<MitoTable<S::Region>>>,
     object_store: ObjectStore,
-    compress_type: CompressionType,
     storage_engine: S,
     /// Table mutex is used to protect the operations such as creating/opening/closing
     /// a table, to avoid things like opening the same table simultaneously.
@@ -379,9 +344,7 @@ impl<S: StorageEngine> MitoEngineInner<S> {
         request: OpenTableRequest,
     ) -> TableResult<Option<TableRef>> {
         if let Some(table) = self.get_table(request.table_id) {
-            if let Some(table) = self.check_regions(table, &request.region_numbers)? {
-                return Ok(Some(table));
-            }
+            return Ok(Some(table));
         }
 
         // Acquires the mutex before opening a new table.
@@ -390,16 +353,7 @@ impl<S: StorageEngine> MitoEngineInner<S> {
 
             // Checks again, read lock should be enough since we are guarded by the mutex.
             if let Some(table) = self.get_mito_table(request.table_id) {
-                // Contains all regions or target region
-                if let Some(table) = self.check_regions(table.clone(), &request.region_numbers)? {
-                    Some(table)
-                } else {
-                    // Loads missing regions
-                    self.load_missing_regions(ctx, table.clone(), &request.region_numbers)
-                        .await?;
-
-                    Some(table as _)
-                }
+                Some(table as _)
             } else {
                 // Builds table from scratch
                 let table = self.recover_table(ctx, request.clone()).await?;
@@ -430,19 +384,6 @@ impl<S: StorageEngine> MitoEngineInner<S> {
 
         // Close the table to close all regions. Closing a region is idempotent.
         if let Some((_, table)) = &removed_table {
-            let mut regions = table.remove_regions(&table.region_ids()).await?;
-
-            let ctx = StorageEngineContext::default();
-
-            let _ = futures::future::try_join_all(
-                regions
-                    .drain()
-                    .map(|(_, region)| self.storage_engine.drop_region(&ctx, region)),
-            )
-            .await
-            .map_err(BoxedError::new)
-            .context(table_error::TableOperationSnafu)?;
-
             Ok(true)
         } else {
             Ok(false)
@@ -510,7 +451,7 @@ impl<S: StorageEngine> MitoEngineInner<S> {
         }
 
         // Partial closed
-        Ok(CloseTableResult::PartialClosed(removed_regions))
+        Ok(CloseTableResult::PartialClosed)
     }
 }
 
@@ -520,7 +461,6 @@ impl<S: StorageEngine> MitoEngineInner<S> {
             tables: DashMap::new(),
             storage_engine,
             object_store,
-            compress_type: manifest_compress_type(config.compress_manifest),
             table_mutex: Arc::new(KeyLock::new()),
         }
     }

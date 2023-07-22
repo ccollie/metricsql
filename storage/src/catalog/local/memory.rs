@@ -19,9 +19,6 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, RwLock};
 
 use snafu::OptionExt;
-
-use common_catalog::consts::{DEFAULT_CATALOG_NAME, DEFAULT_SCHEMA_NAME, MIN_USER_TABLE_ID};
-use metrics::{decrement_gauge, increment_gauge};
 use table::metadata::TableId;
 use table::table::TableIdProvider;
 use table::TableRef;
@@ -209,13 +206,6 @@ impl CatalogManager for MemoryCatalogManager {
     }
 
     async fn rename_table(&self, request: RenameTableRequest) -> Result<bool> {
-        todo!()
-    }
-
-    async fn register_system_table(
-        &self,
-        request: RegisterSystemTableRequest,
-    ) -> error::Result<()> {
         todo!()
     }
 }

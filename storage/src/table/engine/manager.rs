@@ -18,10 +18,6 @@ use std::sync::{Arc, RwLock};
 use async_trait::async_trait;
 use snafu::{ensure, OptionExt};
 use tracing::error;
-
-use common_telemetry::error;
-
-use crate::engine::{TableEngineProcedureRef, TableEngineRef};
 use crate::error::{EngineExistSnafu, EngineNotFoundSnafu, Result};
 use crate::table::engine::{TableEngineProcedureRef, TableEngineRef};
 use crate::table::error::EngineNotFoundSnafu;
@@ -142,6 +138,7 @@ mod tests {
     use std::assert_matches::assert_matches;
     use std::collections::HashMap;
     use std::sync::Arc;
+    use datafusion::logical_expr::UserDefinedLogicalNode;
 
     use crate::engine::TableEngine;
     use crate::error;

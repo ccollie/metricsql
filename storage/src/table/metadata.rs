@@ -144,17 +144,6 @@ impl TableMetaBuilder {
     }
 }
 
-/// The result after splitting requests by column location info.
-struct SplitResult<'a> {
-    /// column requests should be added at first place.
-    columns_at_first: Vec<&'a AddColumnRequest>,
-    /// column requests should be added after already exist columns.
-    columns_at_after: HashMap<String, Vec<&'a AddColumnRequest>>,
-    /// column requests should be added at last place.
-    columns_at_last: Vec<&'a AddColumnRequest>,
-    /// all column names should be added.
-    column_names: Vec<String>,
-}
 
 impl TableMeta {
     pub fn row_key_column_names(&self) -> impl Iterator<Item = &String> {
@@ -175,57 +164,6 @@ impl TableMeta {
             .map(|(_, cs)| &cs.name)
     }
 
-    /// Returns the new [TableMetaBuilder] after applying given `alter_kind`.
-    ///
-    /// The returned builder would derive the next column id of this meta.
-    pub fn builder_with_alter_kind(
-        &self,
-        table_name: &str,
-        alter_kind: &AlterKind,
-    ) -> Result<TableMetaBuilder> {
-        match alter_kind {
-            AlterKind::AddColumns { columns } => self.add_columns(table_name, columns),
-            AlterKind::DropColumns { names } => self.remove_columns(table_name, names),
-            // No need to rebuild table meta when renaming tables.
-            AlterKind::RenameTable { .. } => {
-                let mut meta_builder = TableMetaBuilder::default();
-                let _ = meta_builder
-                    .schema(self.schema.clone())
-                    .primary_key_indices(self.primary_key_indices.clone())
-                    .engine(self.engine.clone())
-                    .next_column_id(self.next_column_id);
-                Ok(meta_builder)
-            }
-        }
-    }
-
-    /// Allocate a new column for the table.
-    ///
-    /// This method would bump the `next_column_id` of the meta.
-    pub fn alloc_new_column(
-        &mut self,
-        table_name: &str,
-        new_column: &ColumnSchema,
-    ) -> Result<ColumnDescriptor> {
-        let desc = ColumnDescriptorBuilder::new(
-            self.next_column_id as ColumnId,
-            &new_column.name,
-            new_column.data_type.clone(),
-        )
-        .is_nullable(new_column.is_nullable())
-        .default_constraint(new_column.default_constraint().cloned())
-        .build()
-        .context(error::BuildColumnDescriptorSnafu {
-            table_name,
-            column_name: &new_column.name,
-        })?;
-
-        // Bump next column id.
-        self.next_column_id += 1;
-
-        Ok(desc)
-    }
-
     fn new_meta_builder(&self) -> TableMetaBuilder {
         let mut builder = TableMetaBuilder::default();
         let _ = builder
@@ -233,213 +171,9 @@ impl TableMeta {
             .engine_options(self.engine_options.clone())
             .options(self.options.clone())
             .created_on(self.created_on)
-            .region_numbers(self.region_numbers.clone())
             .next_column_id(self.next_column_id);
 
         builder
-    }
-
-    fn add_columns(
-        &self,
-        table_name: &str,
-        requests: &[AddColumnRequest],
-    ) -> Result<TableMetaBuilder> {
-        let table_schema = &self.schema;
-        let mut meta_builder = self.new_meta_builder();
-        let original_primary_key_indices: HashSet<&usize> =
-            self.primary_key_indices.iter().collect();
-
-        let SplitResult {
-            columns_at_first,
-            columns_at_after,
-            columns_at_last,
-            column_names,
-        } = self.split_requests_by_column_location(table_name, requests)?;
-        let mut primary_key_indices = Vec::with_capacity(self.primary_key_indices.len());
-        let mut columns = Vec::with_capacity(table_schema.num_columns() + requests.len());
-        // add new columns with FIRST, and in reverse order of requests.
-        columns_at_first.iter().rev().for_each(|request| {
-            if request.is_key {
-                // If a key column is added, we also need to store its index in primary_key_indices.
-                primary_key_indices.push(columns.len());
-            }
-            columns.push(request.column_schema.clone());
-        });
-        // add existed columns in original order and handle new columns with AFTER.
-        for (index, column_schema) in table_schema.column_schemas().iter().enumerate() {
-            if original_primary_key_indices.contains(&index) {
-                primary_key_indices.push(columns.len());
-            }
-            columns.push(column_schema.clone());
-            if let Some(requests) = columns_at_after.get(&column_schema.name) {
-                requests.iter().rev().for_each(|request| {
-                    if request.is_key {
-                        // If a key column is added, we also need to store its index in primary_key_indices.
-                        primary_key_indices.push(columns.len());
-                    }
-                    columns.push(request.column_schema.clone());
-                });
-            }
-        }
-        // add new columns without location info to last.
-        columns_at_last.iter().for_each(|request| {
-            if request.is_key {
-                // If a key column is added, we also need to store its index in primary_key_indices.
-                primary_key_indices.push(columns.len());
-            }
-            columns.push(request.column_schema.clone());
-        });
-
-        let mut builder = SchemaBuilder::try_from(columns)
-            .with_context(|_| error::SchemaBuildSnafu {
-                msg: format!("Failed to convert column schemas into schema for table {table_name}"),
-            })?
-            // Also bump the schema version.
-            .version(table_schema.version() + 1);
-        for (k, v) in table_schema.metadata().iter() {
-            builder = builder.add_metadata(k, v);
-        }
-        let new_schema = builder.build().with_context(|_| error::SchemaBuildSnafu {
-            msg: format!("Table {table_name} cannot add new columns {column_names:?}"),
-        })?;
-
-        // value_indices would be generated automatically.
-        let _ = meta_builder
-            .schema(Arc::new(new_schema))
-            .primary_key_indices(primary_key_indices);
-
-        Ok(meta_builder)
-    }
-
-    fn remove_columns(
-        &self,
-        table_name: &str,
-        column_names: &[String],
-    ) -> Result<TableMetaBuilder> {
-        let table_schema = &self.schema;
-        let column_names: HashSet<_> = column_names.iter().collect();
-        let mut meta_builder = self.new_meta_builder();
-
-        let timestamp_index = table_schema.timestamp_index();
-        // Check whether columns are existing and not in primary key index.
-        for column_name in &column_names {
-            if let Some(index) = table_schema.column_index_by_name(column_name) {
-                // This is a linear search, but since there won't be too much columns, the performance should
-                // be acceptable.
-                ensure!(
-                    !self.primary_key_indices.contains(&index),
-                    error::RemoveColumnInIndexSnafu {
-                        column_name: *column_name,
-                        table_name,
-                    }
-                );
-
-                if let Some(ts_index) = timestamp_index {
-                    // Not allowed to remove column in timestamp index.
-                    ensure!(
-                        index != ts_index,
-                        error::RemoveColumnInIndexSnafu {
-                            column_name: table_schema.column_name_by_index(ts_index),
-                            table_name,
-                        }
-                    );
-                }
-            } else {
-                return error::ColumnNotExistsSnafu {
-                    column_name: *column_name,
-                    table_name,
-                }
-                .fail()?;
-            }
-        }
-
-        // Collect columns after removal.
-        let columns: Vec<_> = table_schema
-            .column_schemas()
-            .iter()
-            .filter(|column_schema| !column_names.contains(&column_schema.name))
-            .cloned()
-            .collect();
-
-        let mut builder = SchemaBuilder::try_from_columns(columns)
-            .with_context(|_| error::SchemaBuildSnafu {
-                msg: format!("Failed to convert column schemas into schema for table {table_name}"),
-            })?
-            // Also bump the schema version.
-            .version(table_schema.version() + 1);
-        for (k, v) in table_schema.metadata().iter() {
-            builder = builder.add_metadata(k, v);
-        }
-        let new_schema = builder.build().with_context(|_| error::SchemaBuildSnafu {
-            msg: format!("Table {table_name} cannot add remove columns {column_names:?}"),
-        })?;
-
-        // Rebuild the indices of primary key columns.
-        let primary_key_indices = self
-            .primary_key_indices
-            .iter()
-            .map(|idx| table_schema.column_name_by_index(*idx))
-            // This unwrap is safe since we don't allow removing a primary key column.
-            .map(|name| new_schema.column_index_by_name(name).unwrap())
-            .collect();
-
-        let _ = meta_builder
-            .schema(Arc::new(new_schema))
-            .primary_key_indices(primary_key_indices);
-
-        Ok(meta_builder)
-    }
-
-    /// Split requests into different groups using column location info.
-    fn split_requests_by_column_location<'a>(
-        &self,
-        table_name: &str,
-        requests: &'a [AddColumnRequest],
-    ) -> Result<SplitResult<'a>> {
-        let table_schema = &self.schema;
-        let mut columns_at_first = Vec::new();
-        let mut columns_at_after = HashMap::new();
-        let mut columns_at_last = Vec::new();
-        let mut column_names = Vec::with_capacity(requests.len());
-        for request in requests {
-            // Check whether columns to add are already existing.
-            let column_name = &request.column_schema.name;
-            column_names.push(column_name.clone());
-            ensure!(
-                table_schema.column_schema_by_name(column_name).is_none(),
-                ColumnExistsSnafu {
-                    column_name,
-                    table_name,
-                }
-            );
-            match request.location.as_ref() {
-                Some(AddColumnLocation::First) => {
-                    columns_at_first.push(request);
-                }
-                Some(AddColumnLocation::After { column_name }) => {
-                    ensure!(
-                        table_schema.column_schema_by_name(column_name).is_some(),
-                        error::ColumnNotExistsSnafu {
-                            column_name,
-                            table_name,
-                        }
-                    );
-                    columns_at_after
-                        .entry(column_name.clone())
-                        .or_insert(Vec::new())
-                        .push(request);
-                }
-                None => {
-                    columns_at_last.push(request);
-                }
-            }
-        }
-        Ok(SplitResult {
-            columns_at_first,
-            columns_at_after,
-            columns_at_last,
-            column_names,
-        })
     }
 }
 
@@ -516,8 +250,6 @@ pub struct RawTableMeta {
     pub primary_key_indices: Vec<usize>,
     pub value_indices: Vec<usize>,
     pub engine: String,
-    pub next_column_id: ColumnId,
-    pub region_numbers: Vec<u32>,
     pub engine_options: HashMap<String, String>,
     pub options: TableOptions,
     pub created_on: DateTime<Utc>,
@@ -530,8 +262,6 @@ impl From<TableMeta> for RawTableMeta {
             primary_key_indices: meta.primary_key_indices,
             value_indices: meta.value_indices,
             engine: meta.engine,
-            next_column_id: meta.next_column_id,
-            region_numbers: meta.region_numbers,
             engine_options: meta.engine_options,
             options: meta.options,
             created_on: meta.created_on,
@@ -548,7 +278,6 @@ impl TryFrom<RawTableMeta> for TableMeta {
             primary_key_indices: raw.primary_key_indices,
             value_indices: raw.value_indices,
             engine: raw.engine,
-            next_column_id: raw.next_column_id,
             engine_options: raw.engine_options,
             options: raw.options,
             created_on: raw.created_on,
@@ -636,7 +365,6 @@ mod tests {
             .schema(schema)
             .primary_key_indices(vec![0])
             .engine("engine")
-            .next_column_id(3)
             .build()
             .unwrap();
         let info = TableInfoBuilder::default()
@@ -665,7 +393,6 @@ mod tests {
             .unwrap();
 
         let new_meta = add_columns_to_meta(&meta);
-        assert_eq!(meta.region_numbers, new_meta.region_numbers);
 
         let names: Vec<String> = new_meta
             .schema
@@ -699,8 +426,6 @@ mod tests {
             .unwrap()
             .build()
             .unwrap();
-
-        assert_eq!(meta.region_numbers, new_meta.region_numbers);
 
         let names: Vec<String> = new_meta
             .schema
@@ -741,7 +466,6 @@ mod tests {
             .schema(schema.clone())
             .primary_key_indices(vec![1])
             .engine("engine")
-            .next_column_id(4)
             .build()
             .unwrap();
 
@@ -777,7 +501,6 @@ mod tests {
             .schema(schema)
             .primary_key_indices(vec![0])
             .engine("engine")
-            .next_column_id(3)
             .build()
             .unwrap();
 
@@ -825,7 +548,6 @@ mod tests {
             .schema(schema)
             .primary_key_indices(vec![0])
             .engine("engine")
-            .next_column_id(3)
             .build()
             .unwrap();
 
@@ -859,7 +581,6 @@ mod tests {
             .schema(schema)
             .primary_key_indices(vec![0])
             .engine("engine")
-            .next_column_id(3)
             .build()
             .unwrap();
         assert_eq!(3, meta.next_column_id);
@@ -878,7 +599,6 @@ mod tests {
             .schema(schema)
             .primary_key_indices(vec![0])
             .engine("engine")
-            .next_column_id(3)
             .build()
             .unwrap();
 

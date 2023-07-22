@@ -15,18 +15,14 @@
 //! Table and TableEngine requests
 
 use std::collections::HashMap;
-use std::str::FromStr;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
 use common_base::readable_size::ReadableSize;
-use common_query::AddColumnLocation;
 use common_time::range::TimestampRange;
 use datatypes::prelude::VectorRef;
-use store_api::storage::RegionNumber;
 
-use crate::engine::TableReference;
 use crate::error;
 use crate::table::engine::TableReference;
 use crate::table::error::ParseTableOptionSnafu;
@@ -155,40 +151,6 @@ pub struct OpenTableRequest {
     pub table_id: TableId,
 }
 
-/// Alter table request
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AlterTableRequest {
-    pub catalog_name: String,
-    pub schema_name: String,
-    pub table_name: String,
-    pub table_id: TableId,
-    pub alter_kind: AlterKind,
-    // None in standalone.
-    pub table_version: Option<TableVersion>,
-}
-
-impl AlterTableRequest {
-    pub fn table_ref(&self) -> TableReference {
-        TableReference {
-            catalog: &self.catalog_name,
-            schema: &self.schema_name,
-            table: &self.table_name,
-        }
-    }
-
-    pub fn is_rename_table(&self) -> bool {
-        matches!(self.alter_kind, AlterKind::RenameTable { .. })
-    }
-}
-
-/// Add column request
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AddColumnRequest {
-    pub column_schema: ColumnSchema,
-    pub is_key: bool,
-    pub location: Option<AddColumnLocation>,
-}
-
 /// Drop table request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DropTableRequest {
@@ -233,7 +195,6 @@ pub struct InsertRequest {
     pub schema_name: String,
     pub table_name: String,
     pub columns_values: HashMap<String, VectorRef>,
-    pub region_number: RegionNumber,
 }
 
 /// Delete (by primary key) request
@@ -270,18 +231,7 @@ pub struct FlushTableRequest {
     pub catalog_name: String,
     pub schema_name: String,
     pub table_name: Option<String>,
-    pub region_number: Option<RegionNumber>,
     /// Wait until the flush is done.
-    pub wait: Option<bool>,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct CompactTableRequest {
-    pub catalog_name: String,
-    pub schema_name: String,
-    pub table_name: Option<String>,
-    pub region_number: Option<RegionNumber>,
-    /// Wait until the compaction is done.
     pub wait: Option<bool>,
 }
 
@@ -292,7 +242,6 @@ macro_rules! meter_insert_request {
             $req.catalog_name.to_string(),
             $req.schema_name.to_string(),
             $req.table_name.to_string(),
-            $req.region_number,
             $req
         );
     };
