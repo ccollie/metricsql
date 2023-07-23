@@ -98,7 +98,7 @@ impl Display for RollupFunction {
 }
 
 impl RollupFunction {
-    pub fn name(&self) -> &'static str {
+    pub const fn name(&self) -> &'static str {
         use RollupFunction::*;
 
         match self {
@@ -213,7 +213,7 @@ impl RollupFunction {
 
     /// These functions don't change physical meaning of input time series,
     /// so they don't drop metric name
-    pub fn keep_metric_name(&self) -> bool {
+    pub const fn keep_metric_name(&self) -> bool {
         use RollupFunction::*;
         matches!(
             self,
@@ -237,7 +237,7 @@ impl RollupFunction {
         )
     }
 
-    pub fn should_remove_counter_resets(&self) -> bool {
+    pub const fn should_remove_counter_resets(&self) -> bool {
         use RollupFunction::*;
         matches!(
             self,
@@ -251,7 +251,7 @@ impl RollupFunction {
         )
     }
 
-    pub fn is_aggregate_function(&self) -> bool {
+    pub const fn is_aggregate_function(&self) -> bool {
         use RollupFunction::*;
         matches!(
             self,
@@ -311,7 +311,7 @@ impl RollupFunction {
 ///
 /// This is needed for returning the expected non-empty graphs when zooming in the graph in Grafana,
 /// which is built with `func_name(metric)` query.
-pub fn can_adjust_window(func: &RollupFunction) -> bool {
+pub const fn can_adjust_window(func: &RollupFunction) -> bool {
     use RollupFunction::*;
     matches!(
         func,
@@ -462,7 +462,7 @@ impl FromStr for RollupTag {
 /// get_rollup_arg_idx returns the argument index for the given fe, which accepts the rollup argument.
 ///
 /// -1 is returned if fe isn't a rollup function.
-pub fn get_rollup_arg_idx(fe: &RollupFunction, arg_count: usize) -> i32 {
+pub const fn get_rollup_arg_idx(fe: &RollupFunction, arg_count: usize) -> i32 {
     use RollupFunction::*;
     match fe {
         QuantileOverTime | AggrOverTime | HoeffdingBoundLower | HoeffdingBoundUpper => 1,
@@ -471,7 +471,7 @@ pub fn get_rollup_arg_idx(fe: &RollupFunction, arg_count: usize) -> i32 {
     }
 }
 
-pub fn get_rollup_arg_idx_for_optimization(
+pub const fn get_rollup_arg_idx_for_optimization(
     func: RollupFunction,
     arg_count: usize,
 ) -> Option<usize> {

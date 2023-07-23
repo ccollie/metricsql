@@ -125,6 +125,13 @@ pub fn exec(
 ) -> RuntimeResult<Vec<QueryResult>> {
     let (rv, parsed) = exec_internal(context, ec, q)?;
 
+    // we ignore empty timeseries
+    if let QueryValue::Scalar(val) = rv {
+        if val.is_nan() {
+            return Ok(vec![]);
+        }
+    }
+
     let mut rv = rv.into_instant_vector(ec)?;
     if is_first_point_only {
         if rv[0].timestamps.len() > 0 {
@@ -134,6 +141,8 @@ pub fn exec(
                 ts.values.resize(1, f64::NAN);
                 ts.timestamps = Arc::clone(&timestamps);
             }
+        } else {
+            return Ok(vec![]);
         }
     }
 
@@ -160,14 +169,15 @@ pub(crate) fn timeseries_to_result(
     tss: &mut Vec<Timeseries>,
     may_sort: bool,
 ) -> RuntimeResult<Vec<QueryResult>> {
+    remove_empty_series(tss);
+    if tss.is_empty() {
+        return Ok(vec![]);
+    }
+
     let mut result: Vec<QueryResult> = Vec::with_capacity(tss.len());
     let mut m: HashSet<Signature> = HashSet::with_capacity(tss.len());
 
     for ts in tss.iter_mut() {
-        if ts.is_all_nans() {
-            continue;
-        }
-
         ts.metric_name.sort_tags();
 
         let key = ts.metric_name.signature();

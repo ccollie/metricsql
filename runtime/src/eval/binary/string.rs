@@ -11,7 +11,12 @@ pub(crate) fn eval_string_string_op(
     is_bool: bool,
 ) -> RuntimeResult<QueryValue> {
     match op {
-        Operator::Add => Ok(QueryValue::String(format!("{}{}", left, right))),
+        Operator::Add => {
+            let mut res = String::with_capacity(left.len() + right.len());
+            res += left;
+            res += right;
+            Ok(QueryValue::String(res))
+        }
         _ => {
             if op.is_comparison() {
                 let cmp = string_compare(right, left, op, is_bool).map_err(|_| {

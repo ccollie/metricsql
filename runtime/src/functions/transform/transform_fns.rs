@@ -1501,7 +1501,7 @@ fn transform_interpolate(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timese
             continue;
         }
 
-        let mut values = &mut ts.values[0..];
+        let values = &mut ts.values[0..];
 
         // skip leading and trailing NaNs
         let mut i = 0;

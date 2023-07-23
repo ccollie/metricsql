@@ -1,27 +1,25 @@
-use std::sync::Arc;
-
 use tracing::{field, trace_span, Span};
 
 use metricsql::ast::BinaryExpr;
 use metricsql::binaryop::get_scalar_binop_handler;
 
-use crate::{Context, InstantVector, QueryValue, RuntimeResult};
+use crate::{InstantVector, QueryValue, RuntimeResult};
 
 use super::reset_metric_group_if_required;
 
-/// BinaryEvaluatorScalarVector
+/// eval_vector_scalar_binop evaluates binary operation between vector and scalar.
 /// Ex:
 ///   http_requests_total{} * 2
 ///   http_requests_total{method="GET"} / 10
 pub(crate) fn eval_vector_scalar_binop(
-    ctx: &Arc<Context>,
     be: &BinaryExpr,
     vector: InstantVector,
     scalar: f64,
+    is_tracing: bool,
 ) -> RuntimeResult<QueryValue> {
     use QueryValue::*;
 
-    let _ = if ctx.trace_enabled() {
+    let _ = if is_tracing {
         trace_span!(
             "vector scalar binary op",
             "op" = be.op.as_str(),
@@ -35,7 +33,7 @@ pub(crate) fn eval_vector_scalar_binop(
     let handler = get_scalar_binop_handler(be.op, be.bool_modifier);
 
     let mut vector = vector;
-    // should not happen, but we can handle it
+
     for v in vector.iter_mut() {
         reset_metric_group_if_required(be, v);
 
@@ -43,5 +41,6 @@ pub(crate) fn eval_vector_scalar_binop(
             *value = handler(*value, scalar);
         }
     }
+
     Ok(InstantVector(vector))
 }

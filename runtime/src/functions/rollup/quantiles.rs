@@ -90,7 +90,7 @@ pub(crate) fn quantile_sorted(phi: f64, values: &[f64]) -> f64 {
 
 pub(super) fn new_rollup_quantiles(
     args: &Vec<QueryValue>,
-    ec: &EvalConfig,
+    _ec: &EvalConfig,
 ) -> RuntimeResult<RollupHandlerEnum> {
     let phi_label = get_string_param_value(&args, 0, "quantiles", "phi_label").unwrap();
     let cap = args.len() - 1;
@@ -115,7 +115,7 @@ pub(super) fn new_rollup_quantiles(
 
 pub(super) fn new_rollup_quantile(
     args: &Vec<QueryValue>,
-    ec: &EvalConfig,
+    _ec: &EvalConfig,
 ) -> RuntimeResult<RollupHandlerEnum> {
     let phi = get_scalar_param_value(args, 0, "quantile_over_time", "phi")?;
 

@@ -376,7 +376,7 @@ impl TransformFunction {
 
     /// These functions don't change physical meaning of input time series,
     /// so they don't drop metric name
-    pub fn keep_metric_name(&self) -> bool {
+    pub const fn keep_metric_name(&self) -> bool {
         use TransformFunction::*;
         matches!(
             self,
@@ -402,7 +402,7 @@ impl TransformFunction {
         )
     }
 
-    pub fn may_sort_results(&self) -> bool {
+    pub const fn may_sort_results(&self) -> bool {
         use TransformFunction::*;
         matches!(
             &self,
@@ -414,7 +414,7 @@ impl TransformFunction {
         )
     }
 
-    pub fn manipulates_labels(&self) -> bool {
+    pub const fn manipulates_labels(&self) -> bool {
         use TransformFunction::*;
         matches!(
             self,
@@ -619,7 +619,7 @@ impl TransformFunction {
     }
 }
 
-pub fn get_transform_arg_idx_for_optimization(
+pub const fn get_transform_arg_idx_for_optimization(
     func: TransformFunction,
     arg_count: usize,
 ) -> Option<usize> {

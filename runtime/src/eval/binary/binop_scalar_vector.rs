@@ -1,11 +1,9 @@
-use std::sync::Arc;
-
 use tracing::{field, trace_span, Span};
 
 use metricsql::ast::BinaryExpr;
 use metricsql::binaryop::get_scalar_binop_handler;
 
-use crate::{Context, InstantVector, QueryValue, RuntimeResult};
+use crate::{InstantVector, QueryValue, RuntimeResult};
 
 use super::reset_metric_group_if_required;
 
@@ -14,12 +12,12 @@ use super::reset_metric_group_if_required;
 ///   2 * http_requests_total{}
 ///   42 - http_requests_total{method="GET"}
 pub(crate) fn eval_scalar_vector_binop(
-    ctx: &Arc<Context>,
     be: &BinaryExpr,
     vector: InstantVector,
     scalar: f64,
+    is_tracing: bool,
 ) -> RuntimeResult<QueryValue> {
-    let _ = if ctx.trace_enabled() {
+    let _ = if is_tracing {
         trace_span!(
             "scalar vector binary op",
             "op" = be.op.as_str(),

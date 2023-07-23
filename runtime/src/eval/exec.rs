@@ -149,6 +149,7 @@ fn eval_binary_op(
     ec: &EvalConfig,
     be: &BinaryExpr,
 ) -> RuntimeResult<QueryValue> {
+    let is_tracing = ctx.trace_enabled();
     let res = match (&be.left.as_ref(), &be.right.as_ref()) {
         // vector op vector needs special handling
         (Expr::MetricExpression(_), Expr::MetricExpression(_)) => {
@@ -185,10 +186,10 @@ fn eval_binary_op(
                     eval_vector_vector_binop(be, ctx, ec)
                 }
                 (QueryValue::InstantVector(vector), QueryValue::Scalar(scalar)) => {
-                    eval_vector_scalar_binop(ctx, be, vector, scalar)
+                    eval_vector_scalar_binop(be, vector, scalar, is_tracing)
                 }
                 (QueryValue::Scalar(scalar), QueryValue::InstantVector(vector)) => {
-                    eval_scalar_vector_binop(ctx, be, vector, scalar)
+                    eval_scalar_vector_binop(be, vector, scalar, is_tracing)
                 }
                 (QueryValue::String(left), QueryValue::String(right)) => {
                     eval_string_string_op(be.op, &left, &right, be.bool_modifier)

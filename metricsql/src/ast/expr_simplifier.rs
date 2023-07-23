@@ -266,8 +266,10 @@ impl ConstEvaluator {
             }
             (Expr::StringLiteral(left), Expr::StringLiteral(right), op) => {
                 if op == Operator::Add {
-                    let val = format!("{}{}", left, right);
-                    return Ok(Expr::from(val));
+                    let mut res = String::with_capacity(left.len() + right.len());
+                    res += left;
+                    res += right;
+                    return Ok(Expr::from(res));
                 }
                 if op.is_comparison() {
                     let n = string_compare(&left, &right, op, be.bool_modifier)?;
@@ -446,7 +448,7 @@ impl TreeNodeRewriter for PushDownFilterRewriter {
 ///
 /// Example transformations that are applied:
 /// * `expr == bool 1` and `expr != false` to `expr` when `expr` is of boolean type
-/// * `expr == false` and `expr != true` to `!expr` when `expr` is of boolean type
+/// * `expr != true` to `!expr` when `expr` is of boolean type
 /// * `1 == bool 1` to `1`
 /// * `0 == bool 1` to `0`
 /// * `expr == NaN` and `expr != NaN` to `NaN`
@@ -564,7 +566,36 @@ impl TreeNodeRewriter for Simplifier {
                     // 0 / 0 -> NaN
                     Div if is_zero(&left) && is_zero(&right) => Expr::from(f64::NAN),
                     // A / 0 -> NaN
-                    Div if is_zero(&right) => Expr::from(f64::NAN),
+                    Div if is_zero(&right) => {
+                        // if we have an instant vector or sample, check if we need to maintain
+                        // the label set
+                        let mut should_keep_metric_names = keep_metric_names;
+                        if !should_keep_metric_names {
+                            if let Expr::Function(fe) = &left.as_ref() {
+                                if fe.keep_metric_names {
+                                    should_keep_metric_names = true;
+                                } else {
+                                    if let BuiltinFunction::Transform(tf) = fe.function {
+                                        should_keep_metric_names = tf.manipulates_labels();
+                                    }
+                                }
+                            }
+                        }
+                        if should_keep_metric_names {
+                            return Ok(Expr::BinaryOperator(BinaryExpr {
+                                bool_modifier,
+                                keep_metric_names,
+                                group_modifier,
+                                join_modifier,
+                                left,
+                                right,
+                                op,
+                                modifier,
+                            }));
+                        }
+
+                        Expr::from(f64::NAN)
+                    }
                     // 0 / A -> 0
                     Div if is_zero(&left) => *left,
 

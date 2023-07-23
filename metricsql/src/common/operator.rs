@@ -76,7 +76,7 @@ pub type Precedence = usize;
 
 impl Operator {
     #[inline]
-    pub fn precedence(self) -> Precedence {
+    pub const fn precedence(self) -> Precedence {
         use Operator::*;
 
         match self {
@@ -93,7 +93,7 @@ impl Operator {
     }
 
     #[inline]
-    pub fn kind(self) -> BinaryOpKind {
+    pub const fn kind(self) -> BinaryOpKind {
         use BinaryOpKind::*;
         use Operator::*;
 
@@ -105,24 +105,40 @@ impl Operator {
     }
 
     // See https://prometheus.io/docs/prometheus/latest/querying/operators/#binary-operator-precedence
-    pub fn is_right_associative(self) -> bool {
-        self == Operator::Pow
+    pub const fn is_right_associative(self) -> bool {
+        matches!(self, Operator::Pow)
     }
 
-    pub fn is_logical_op(&self) -> bool {
-        self.kind() == BinaryOpKind::Logical
+    pub const fn is_logical_op(&self) -> bool {
+        matches!(
+            self,
+            Operator::And
+                | Operator::Or
+                | Operator::Unless
+                | Operator::If
+                | Operator::IfNot
+                | Operator::Default
+        )
     }
 
-    pub fn is_comparison(&self) -> bool {
-        self.kind() == BinaryOpKind::Comparison
+    pub const fn is_comparison(&self) -> bool {
+        match self {
+            Operator::Eql
+            | Operator::Gte
+            | Operator::Gt
+            | Operator::Lt
+            | Operator::Lte
+            | Operator::NotEq => true,
+            _ => false,
+        }
     }
 
-    pub fn is_valid_string_op(&self) -> bool {
+    pub const fn is_valid_string_op(&self) -> bool {
         use Operator::*;
         matches!(self, Add | Eql | Gte | Gt | Lt | Lte | NotEq)
     }
 
-    pub fn get_reverse_cmp(&self) -> Operator {
+    pub const fn get_reverse_cmp(&self) -> Operator {
         match self {
             Operator::Gt => Operator::Lt,
             Operator::Lt => Operator::Gt,
@@ -134,12 +150,12 @@ impl Operator {
     }
 
     #[inline]
-    pub fn is_set_operator(&self) -> bool {
+    pub const fn is_set_operator(&self) -> bool {
         use Operator::*;
         matches!(self, And | Or | Unless)
     }
 
-    pub fn as_str(&self) -> &'static str {
+    pub const fn as_str(&self) -> &'static str {
         use Operator::*;
         match self {
             Add => "+",

@@ -1117,18 +1117,6 @@ fn get_per_point_mads(tss: &Vec<Timeseries>, medians: &[f64]) -> Vec<f64> {
     mads
 }
 
-// todo: pass function name for error reporting
-fn get_arg<'a>(tfa: &'a AggrFuncArg, arg_num: usize) -> RuntimeResult<&'a QueryValue> {
-    if arg_num >= tfa.args.len() {
-        return Err(RuntimeError::ArgumentError(format!(
-            "expecting at least {} arguments, got {}",
-            arg_num + 1,
-            tfa.args.len()
-        )));
-    }
-    Ok(&tfa.args[arg_num])
-}
-
 fn expect_arg_count(tfa: &AggrFuncArg, expected: usize) -> RuntimeResult<()> {
     let arg_count = tfa.args.len();
     if arg_count == expected {

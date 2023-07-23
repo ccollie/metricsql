@@ -72,7 +72,7 @@ impl AggregateFunction {
         aggregate_function_signature(self)
     }
 
-    pub fn may_sort_results(&self) -> bool {
+    pub const fn may_sort_results(&self) -> bool {
         use AggregateFunction::*;
         matches!(
             self,
@@ -91,7 +91,7 @@ impl AggregateFunction {
         )
     }
 
-    pub fn name(&self) -> &'static str {
+    pub const fn name(&self) -> &'static str {
         use AggregateFunction::*;
 
         match self {
