@@ -95,7 +95,7 @@ mod tests {
                 for j in 0..tags_count {
                     mn.add_tag(
                         format!("key_{}_{}_\x00\x01\x02", i, j).as_str(),
-                        format!("\x02\x00\x01value_{}_{}", i, j),
+                        format!("\x02\x00\x01value_{}_{}", i, j).as_str(),
                     );
                 }
 

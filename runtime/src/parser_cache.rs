@@ -13,6 +13,7 @@ pub struct ParseCacheValue {
     pub expr: Option<Expr>,
     pub err: Option<ParseError>,
     pub has_subquery: bool,
+    pub sort_results: bool,
 }
 
 pub struct ParseCache {
@@ -92,16 +93,19 @@ impl ParseCache {
                 if let Ok(mut expression) = optimized {
                     adjust_comparison_ops(&mut expression);
                     let has_subquery = expression.contains_subquery();
+                    let sort_results = should_sort_results(&expression);
                     ParseCacheValue {
                         expr: Some(expression),
                         err: None,
                         has_subquery,
+                        sort_results,
                     }
                 } else {
                     let err = optimized.err().unwrap();
                     ParseCacheValue {
                         expr: None,
                         has_subquery: false,
+                        sort_results: false,
                         err: Some(ParseError::General(format!(
                             "Error optimizing expression: {:?}",
                             err
@@ -113,9 +117,18 @@ impl ParseCache {
                 expr: None,
                 err: Some(e.clone()),
                 has_subquery: false,
+                sort_results: false,
             },
         }
     }
+}
+
+fn should_sort_results(e: &Expr) -> bool {
+    return match e {
+        Expr::Function(fe) => !fe.function.may_sort_results(),
+        Expr::Aggregation(ae) => !ae.function.may_sort_results(),
+        _ => true,
+    };
 }
 
 pub(crate) fn escape_dots_in_regexp_label_filters(expr: &mut Expr) {

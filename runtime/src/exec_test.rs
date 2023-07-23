@@ -2820,7 +2820,7 @@ mod tests {
     }
 
     #[test]
-    fn sum2() {
+    fn sum2_time() {
         assert_result_eq(
             "sum2(time()/100)",
             &[100.0, 144.0, 196.0, 256.0, 324.0, 400.0],

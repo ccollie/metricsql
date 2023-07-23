@@ -13,7 +13,7 @@ use metricsql::functions::RollupFunction;
 
 use crate::cache::rollup_result_cache::merge_timeseries;
 use crate::context::Context;
-use crate::eval::exec::eval_expr;
+use crate::eval::exec::exec_expr;
 use crate::eval::{align_start_end, eval_number, validate_max_points_per_timeseries};
 use crate::functions::aggregate::IncrementalAggrFuncContext;
 use crate::functions::rollup::{
@@ -202,7 +202,7 @@ impl<'a> RollupExecutor<'a> {
 
         // unconditionally align start and end args to step for subquery as Prometheus does.
         (ec_sq.start, ec_sq.end) = align_start_end(ec_sq.start, ec_sq.end, ec_sq.step);
-        let tss_sq = eval_expr(ctx, &ec_sq, &self.re.expr)?;
+        let tss_sq = exec_expr(ctx, &ec_sq, &self.re.expr)?;
 
         let tss_sq = tss_sq.as_instant_vec(&ec_sq)?;
         if tss_sq.len() == 0 {
@@ -700,7 +700,7 @@ fn process_result(
 }
 
 fn get_at_timestamp(ctx: &Arc<Context>, ec: &EvalConfig, expr: &Expr) -> RuntimeResult<i64> {
-    match eval_expr(ctx, ec, expr) {
+    match exec_expr(ctx, ec, expr) {
         Err(err) => {
             let msg = format!("cannot evaluate `@` modifier: {:?}", err);
             return Err(RuntimeError::from(msg));

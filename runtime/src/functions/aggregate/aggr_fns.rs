@@ -288,10 +288,6 @@ fn aggr_func_sum(tss: &mut Vec<Timeseries>) {
 }
 
 fn aggr_func_sum2(tss: &mut Vec<Timeseries>) {
-    if tss.len() == 1 {
-        return;
-    }
-
     for i in 0..tss[0].values.len() {
         let mut sum2: f64 = 0.0;
         let mut count: usize = 0;

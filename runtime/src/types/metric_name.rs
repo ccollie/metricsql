@@ -126,12 +126,12 @@ impl MetricName {
     }
 
     /// add_tag adds new tag to mn with the given key and value.
-    pub fn add_tag<S: Into<String>>(&mut self, key: &str, value: S) {
+    pub fn add_tag(&mut self, key: &str, value: &str) {
         if key == METRIC_NAME_LABEL {
             self.metric_group = value.into();
             return;
         }
-        self.upsert(key, value.into());
+        self.upsert(key, value);
     }
 
     pub fn add_tags_from_hashmap(&mut self, tags: &HashMap<String, String>) {
@@ -140,17 +140,21 @@ impl MetricName {
                 self.metric_group = value.into();
                 return;
             }
-            self.upsert(key, value.clone());
+            self.upsert(key, &value);
         }
     }
 
-    fn upsert(&mut self, key: &str, value: String) {
+    fn upsert(&mut self, key: &str, value: &str) {
         match self.tags.binary_search_by_key(&key, |tag| &tag.key) {
-            Ok(idx) => self.tags[idx].value = value,
+            Ok(idx) => {
+                let tag = &mut self.tags[idx];
+                tag.value.clear();
+                tag.value.push_str(&value);
+            }
             Err(idx) => {
                 let tag = Tag {
                     key: key.to_string(),
-                    value,
+                    value: value.to_string(),
                 };
                 self.tags.insert(idx, tag);
             }
@@ -158,12 +162,12 @@ impl MetricName {
     }
 
     /// adds new tag to mn with the given key and value.
-    pub fn set_tag<S: Into<String>>(&mut self, key: &str, value: S) {
+    pub fn set_tag(&mut self, key: &str, value: &str) {
         if key == METRIC_NAME_LABEL {
             self.metric_group = value.into();
             return;
         } else {
-            self.upsert(key, value.into());
+            self.upsert(key, value);
         }
     }
 
@@ -180,15 +184,35 @@ impl MetricName {
         self.tags.iter().position(|x| x.key == key).is_some()
     }
 
+    fn get_tag_index(&self, key: &str) -> Option<usize> {
+        if self.tags.is_empty() {
+            return None;
+        }
+        if self.tags.len() < 8 {
+            return self.tags.iter().position(|x| x.key == key);
+        }
+        self.tags.binary_search_by_key(&key, |tag| &tag.key).ok()
+    }
+
     /// returns tag value for the given tagKey.
     pub fn get_tag_value(&self, key: &str) -> Option<&String> {
         if key == METRIC_NAME_LABEL {
             return Some(&self.metric_group);
         }
-        self.tags
-            .binary_search_by_key(&key, |tag| &tag.key)
-            .ok()
-            .map(|index| &self.tags[index].value)
+        if let Some(index) = self.get_tag_index(key) {
+            return Some(&self.tags[index].value);
+        }
+        None
+    }
+
+    pub(crate) fn get_value_mut(&mut self, name: &str) -> Option<&mut String> {
+        if name == METRIC_NAME_LABEL {
+            return Some(&mut self.metric_group);
+        }
+        if let Some(index) = self.get_tag_index(name) {
+            return Some(&mut self.tags[index].value);
+        }
+        None
     }
 
     /// remove_tags_on removes all the tags not included to on_tags.
@@ -208,7 +232,7 @@ impl MetricName {
     }
 
     /// remove_tags_ignoring removes all the tags included in ignoring_tags.
-    pub fn remove_tags_ignoring(&mut self, ignoring_tags: &Vec<String>) {
+    pub fn remove_tags_ignoring(&mut self, ignoring_tags: &[String]) {
         if ignoring_tags.is_empty() {
             return;
         }

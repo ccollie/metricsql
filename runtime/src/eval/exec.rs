@@ -24,16 +24,7 @@ fn map_error<E: Display>(err: RuntimeError, e: E) -> RuntimeError {
     RuntimeError::General(format!("cannot evaluate {e}: {}", err))
 }
 
-pub fn eval_expr(ctx: &Arc<Context>, ec: &EvalConfig, e: &Expr) -> RuntimeResult<QueryValue> {
-    let rv = eval_expr_internal(ctx, ec, e)?;
-    return Ok(rv);
-}
-
-fn eval_expr_internal(
-    ctx: &Arc<Context>,
-    ec: &EvalConfig,
-    expr: &Expr,
-) -> RuntimeResult<QueryValue> {
+pub fn exec_expr(ctx: &Arc<Context>, ec: &EvalConfig, expr: &Expr) -> RuntimeResult<QueryValue> {
     let tracing = ctx.trace_enabled();
     match expr {
         Expr::StringLiteral(s) => Ok(QueryValue::String(s.to_string())),
@@ -136,7 +127,7 @@ fn eval_parens_op(
         ));
     }
     if pe.expressions.len() == 1 {
-        return eval_expr(ctx, ec, &pe.expressions[0]);
+        return exec_expr(ctx, ec, &pe.expressions[0]);
     }
     let union = BuiltinFunction::Transform(TransformFunction::Union);
     let fe = FunctionExpr {
@@ -181,9 +172,9 @@ fn eval_binary_op(
             eval_string_string_op(be.op, &left, &right, be.bool_modifier)
         }
         (left, right) => {
-            // todo: tokio.join!
-            let lhs = eval_expr(ctx, ec, &left)?;
-            let rhs = eval_expr(ctx, ec, &right)?;
+            // todo: rayon.join!
+            let lhs = exec_expr(ctx, ec, &left)?;
+            let rhs = exec_expr(ctx, ec, &right)?;
 
             match (lhs, rhs) {
                 (QueryValue::Scalar(left), QueryValue::Scalar(right)) => {
@@ -244,7 +235,7 @@ pub(super) fn eval_exprs_sequentially(
 ) -> RuntimeResult<Vec<Value>> {
     let res = args
         .iter()
-        .map(|expr| eval_expr(ctx, ec, expr))
+        .map(|expr| exec_expr(ctx, ec, expr))
         .collect::<RuntimeResult<Vec<Value>>>();
 
     res
@@ -286,7 +277,7 @@ pub(super) fn eval_rollup_func_args(
             args.push(QueryValue::Scalar(f64::NAN)); // placeholder
             continue;
         }
-        let value = eval_expr(ctx, ec, arg).map_err(|err| {
+        let value = exec_expr(ctx, ec, arg).map_err(|err| {
             let msg = format!("cannot evaluate arg #{} for {}: {}", i + 1, fe, err);
             RuntimeError::ArgumentError(msg)
         })?;

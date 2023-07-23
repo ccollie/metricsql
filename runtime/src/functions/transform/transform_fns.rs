@@ -1501,25 +1501,17 @@ fn transform_interpolate(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timese
             continue;
         }
 
+        let mut values = &mut ts.values[0..];
+
         // skip leading and trailing NaNs
         let mut i = 0;
-        for v in ts.values.iter() {
-            if v.is_nan() {
-                i += 1;
-            }
-            break;
+        while i < values.len() && values[i].is_nan() {
+            i += 1;
         }
 
-        let mut j = ts.values.len() - 1;
-        for v in ts.values.iter().rev() {
-            if v.is_nan() {
-                if j > i {
-                    j -= 1;
-                } else {
-                    continue;
-                }
-            }
-            break;
+        let mut j = values.len();
+        while j > i && values[j - 1].is_nan() {
+            j -= 1;
         }
 
         let values = &mut ts.values[i..j];
@@ -1792,7 +1784,7 @@ fn transform_label_del(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseri
 
     let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
     for ts in series.iter_mut() {
-        ts.metric_name.remove_tags(&del_labels[0..])
+        ts.metric_name.remove_tags_ignoring(&del_labels)
     }
 
     Ok(series)
@@ -2072,6 +2064,8 @@ fn transform_label_replace(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Time
     })
 }
 
+const EMPTY_STRING: &str = "";
+
 fn label_replace(
     tss: &mut Vec<Timeseries>,
     src_label: &str,
@@ -2081,14 +2075,19 @@ fn label_replace(
 ) -> RuntimeResult<Vec<Timeseries>> {
     for ts in tss.iter_mut() {
         let src_value = ts.metric_name.get_tag_value(src_label);
-        if src_value.is_none() {
+
+        // note: we can have a match-all regex like `.*` which will match an empty string
+        let haystack = if src_value.is_none() {
+            EMPTY_STRING
+        } else {
+            &src_value.unwrap()
+        };
+
+        if !r.is_match(haystack) {
             continue;
         }
-        let src_value = src_value.unwrap();
-        if !r.is_match(&src_value) {
-            continue;
-        }
-        let b = r.replace_all(&src_value, replacement);
+
+        let b = r.replace_all(haystack, replacement);
         if b.len() == 0 {
             ts.metric_name.remove_tag(dst_label)
         } else {
@@ -2096,7 +2095,7 @@ fn label_replace(
             // a borrowed ref to ts.metric_name
             match b {
                 Cow::Borrowed(_) => {
-                    let cloned = src_value.clone();
+                    let cloned = b.to_string();
                     ts.metric_name.set_tag(dst_label, &cloned);
                 }
                 Cow::Owned(owned) => {

@@ -6,10 +6,9 @@ use chrono::Utc;
 use tracing::{field, info, trace_span, Span};
 
 use lib::round_to_decimal_digits;
-use metricsql::ast::Expr;
 
 use crate::context::Context;
-use crate::eval::{eval_expr, EvalConfig};
+use crate::eval::{exec_expr, EvalConfig};
 use crate::parser_cache::ParseCacheValue;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::search::QueryResult;
@@ -79,7 +78,7 @@ pub(crate) fn exec_internal(
             }
             .entered();
 
-            let rv = eval_expr(&ctx, ec, expr)?;
+            let rv = exec_expr(&ctx, ec, expr)?;
 
             if is_tracing {
                 let ts_count: usize;
@@ -138,14 +137,7 @@ pub fn exec(
         }
     }
 
-    // at this point, parsed.evaluator is Some, but lets avoid unwrap in any case
-    let may_sort = if let Some(expr) = &parsed.expr {
-        may_sort_results(expr, &rv)
-    } else {
-        false
-    };
-
-    let mut result = timeseries_to_result(&mut rv, may_sort)?;
+    let mut result = timeseries_to_result(&mut rv, parsed.sort_results)?;
 
     let n = ec.round_digits as u8;
     if n < 100 {
@@ -156,29 +148,18 @@ pub fn exec(
         }
     }
 
-    info!("sorted = {may_sort}, round_digits = {}", ec.round_digits);
+    info!(
+        "sorted = {}, round_digits = {}",
+        parsed.sort_results, ec.round_digits
+    );
 
     Ok(result)
-}
-
-fn may_sort_results(e: &Expr, _tss: &[Timeseries]) -> bool {
-    return match e {
-        Expr::Function(fe) => !fe.function.may_sort_results(),
-        Expr::Aggregation(ae) => !ae.function.may_sort_results(),
-        _ => true,
-    };
 }
 
 pub(crate) fn timeseries_to_result(
     tss: &mut Vec<Timeseries>,
     may_sort: bool,
 ) -> RuntimeResult<Vec<QueryResult>> {
-    remove_empty_series(tss);
-
-    if tss.is_empty() {
-        return Ok(vec![]);
-    }
-
     let mut result: Vec<QueryResult> = Vec::with_capacity(tss.len());
     let mut m: HashSet<Signature> = HashSet::with_capacity(tss.len());
 
@@ -221,5 +202,5 @@ pub(super) fn remove_empty_series(tss: &mut Vec<Timeseries>) {
     if tss.is_empty() {
         return;
     }
-    tss.retain(|ts| !ts.values.iter().all(|v| v.is_nan()));
+    tss.retain(|ts| !ts.is_all_nans());
 }

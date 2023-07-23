@@ -97,6 +97,7 @@ fn op_atan2(left: f64, right: f64) -> f64 {
 }
 
 /// returns left or right if left is NaN.
+#[inline]
 fn op_default(left: f64, right: f64) -> f64 {
     if left.is_nan() {
         return right;
@@ -232,7 +233,7 @@ pub fn string_compare(a: &str, b: &str, op: Operator, is_bool: bool) -> ParseRes
         Operator::Gt => Ok(a > b),
         Operator::Lte => Ok(a <= b),
         Operator::Gte => Ok(a >= b),
-        _ => Err(ParseError::General(format!(
+        _ => Err(ParseError::Unsupported(format!(
             "unexpected operator {op} in string comparison"
         ))),
     };
@@ -272,12 +273,7 @@ pub fn scalar_binary_operation(
             Gte => lhs >= rhs,
             Lte => lhs <= rhs,
             _ => {
-                unreachable!(
-                    "Unsupported scalar comparison operation: {} {:?} {:?}",
-                    op.as_str(),
-                    lhs,
-                    rhs
-                )
+                unreachable!("Unsupported scalar comparison operation: {lhs} {op} {rhs}",)
             }
         };
         if return_bool {
@@ -300,12 +296,12 @@ pub fn scalar_binary_operation(
             Pow => lhs.powf(rhs),
             Mod => lhs % rhs,
             Atan2 => lhs.atan2(rhs),
+            Default => op_default(lhs, rhs),
+            If => op_if(lhs, rhs),
+            IfNot => if_not(lhs, rhs),
             _ => {
-                return Err(ParseError::General(format!(
-                    "Unsupported scalar operation: {:?} {:?} {:?}",
-                    op.as_str(),
-                    lhs,
-                    rhs
+                return Err(ParseError::Unsupported(format!(
+                    "Unsupported scalar operation: {lhs} {op} {rhs}",
                 )))
             }
         }

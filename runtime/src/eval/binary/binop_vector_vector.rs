@@ -11,7 +11,7 @@ use metricsql::prelude::*;
 
 use crate::context::Context;
 use crate::eval::binary::vector_binop_handlers::{exec_binop, BinaryOpFuncArg};
-use crate::eval::exec::eval_expr;
+use crate::eval::exec::exec_expr;
 use crate::eval::utils::series_len;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::types::Tag;
@@ -80,12 +80,12 @@ fn exec_binary_op_args(
             match rayon::join(
                 || {
                     trace!("left");
-                    eval_expr(ctx, ec, expr_first)
+                    exec_expr(ctx, ec, expr_first)
                 },
                 || {
                     trace!("right");
                     let ctx_clone = Arc::clone(ctx);
-                    eval_expr(&ctx_clone, ec, expr_second)
+                    exec_expr(&ctx_clone, ec, expr_second)
                 },
             ) {
                 (Ok(first), Ok(second)) => Ok((first, second)),
@@ -93,8 +93,8 @@ fn exec_binary_op_args(
                 (Ok(_), Err(err)) => Err(err),
             }
         } else {
-            let left = eval_expr(ctx, ec, expr_first)?;
-            let right = eval_expr(ctx, ec, expr_second)?;
+            let left = exec_expr(ctx, ec, expr_first)?;
+            let right = exec_expr(ctx, ec, expr_second)?;
             Ok((left, right))
         };
     }
@@ -125,7 +125,7 @@ fn exec_binary_op_args(
     //   See https://www.robustperception.io/exposing-the-software-version-to-prometheus
     //
     // Invariant: self.lhs and self.rhs are both ValueType::InstantVector
-    let mut first = eval_expr(ctx, ec, expr_first)?;
+    let mut first = exec_expr(ctx, ec, expr_first)?;
     // if first.is_empty() && self.op == Or, the result will be empty,
     // since the "exprFirst op exprSecond" would return an empty result in any case.
     // https://github.com/VictoriaMetrics/VictoriaMetrics/issues/3349
@@ -133,7 +133,7 @@ fn exec_binary_op_args(
         return Ok((QueryValue::empty_vec(), QueryValue::empty_vec()));
     }
     let sec_expr = push_down_filters(be, &mut first, &expr_second, &ec)?;
-    let second = eval_expr(ctx, ec, &sec_expr)?;
+    let second = exec_expr(ctx, ec, &sec_expr)?;
 
     Ok((first, second))
 }
@@ -200,7 +200,7 @@ fn can_push_down_common_filters(be: &BinaryExpr) -> bool {
             true
         }
         _ => true,
-    }
+    };
 }
 
 fn get_common_label_filters(tss: &[Timeseries]) -> Vec<LabelFilter> {

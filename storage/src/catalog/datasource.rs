@@ -645,37 +645,6 @@ impl SqlDataSource {
         Ok(result)
     }
 
-    /// Build a inner join on time index column and tag columns to concat two logical plans.
-    fn join_on_non_field_columns(
-        &self,
-        left: LogicalPlan,
-        right: LogicalPlan,
-    ) -> Result<LogicalPlan> {
-        let mut tag_columns = self
-            .ctx
-            .tag_columns
-            .iter()
-            .map(Column::from_name)
-            .collect::<Vec<_>>();
-
-        // push time index column if it exist
-        if let Some(time_index_column) = &self.ctx.time_index_column {
-            tag_columns.push(Column::from_name(time_index_column));
-        }
-
-        // Inner Join on time index column to concat two operator
-        LogicalPlanBuilder::from(left)
-            .join(
-                right,
-                JoinType::Inner,
-                (tag_columns.clone(), tag_columns),
-                None,
-            )
-            .context(DataFusionPlanningSnafu)?
-            .build()
-            .context(DataFusionPlanningSnafu)
-    }
-
     /// Build a projection that projects and performs operation expr for all value columns.
     /// Non-value columns (tag and timestamp) will be preserved in the projection.
     ///

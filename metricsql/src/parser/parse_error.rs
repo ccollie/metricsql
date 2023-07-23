@@ -1,6 +1,7 @@
-use logos::Span;
 use std::fmt;
 use std::fmt::{Display, Formatter};
+
+use logos::Span;
 use thiserror::Error;
 
 use crate::parser::tokens::Token;
@@ -38,6 +39,8 @@ pub enum ParseError {
     InvalidFunction(String),
     #[error("Division by zero")]
     DivisionByZero,
+    #[error("{0}")]
+    Unsupported(String),
     #[default]
     #[error("Parse error")]
     Other,
@@ -257,9 +260,10 @@ impl Display for ArgCountError {
 
 #[cfg(test)]
 mod tests {
+    use logos::Span;
+
     use crate::parser::invalid_token_error;
     use crate::parser::tokens::Token;
-    use logos::Span;
 
     fn check(expected: Vec<Token>, found: Option<Token>, range: Span, output: &str) {
         let error = invalid_token_error(&expected, found, &range, "".to_string());
