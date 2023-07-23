@@ -64,8 +64,10 @@ struct PromPlannerContext {
 
     // planner states
     time_index_column: Option<String>,
+    table_names: Vec<String>,
     field_columns: Vec<String>,
     tag_columns: Vec<String>,
+    name_matchers: Vec<Matcher>,
     field_column_matcher: Option<Vec<Matcher>>,
     /// The range in millisecond of range selector. None if there is no range selector.
     range: Option<Millisecond>,
@@ -76,13 +78,17 @@ struct PromPlannerContext {
 pub struct SqlDataSource {
     ctx: PromPlannerContext,
     pub table_provider: Arc<Box<dyn TableProvider>>,
-    pub metric_column_map: HashMap<String, String>,
 }
 
 impl SqlDataSource {
-    fn map_to_table_name(metric_name: &str) -> String {
-        // todo: map to field instead
-        metric_name.to_string()
+
+    fn get_table(&self, table_name: &str) -> Result<Arc<dyn TableProvider>> {
+        let table_ref = TableReference::from(table_name);
+        let table = self
+            .table_provider
+            .resolve_table(table_ref)
+            .context(CatalogSnafu)?;
+        Ok(table)
     }
 
     // todo: generate datetime_filter
@@ -221,6 +227,7 @@ impl SqlDataSource {
                 .as_any()
                 .downcast_ref::<Int64Array>()
                 .unwrap();
+
             let value_values = batch
                 .column_by_name(value_column)
                 .unwrap()
@@ -326,6 +333,66 @@ impl SqlDataSource {
                                 col: matcher.value.clone(),
                             }
                             .build());
+                        }
+                    }
+                    MatchOp::Re(regex) => {
+                        for col in &self.ctx.field_columns {
+                            if regex.is_match(col) {
+                                let _ = result_set.insert(col.clone());
+                            }
+                        }
+                    }
+                    MatchOp::NotRe(regex) => {
+                        for col in &self.ctx.field_columns {
+                            if regex.is_match(col) {
+                                let _ = reverse_set.insert(col.clone());
+                            }
+                        }
+                    }
+                }
+            }
+            // merge two set
+            if result_set.is_empty() {
+                result_set = col_set.into_iter().cloned().collect();
+            }
+            for col in reverse_set {
+                let _ = result_set.remove(&col);
+            }
+
+            self.ctx.field_columns = result_set.iter().cloned().collect();
+        }
+    }
+
+    // filter_columns filters the columns in the table according to the field matchers.
+    fn extract_metrics(&self) {
+        // make a projection plan if there is any `__name__` matcher
+        if let Some(field_matchers) = &self.ctx.field_column_matcher {
+            let col_set = self.ctx.field_columns.iter().collect::<HashSet<_>>();
+            // opt-in set
+            let mut result_set = HashSet::new();
+            // opt-out set
+            let mut reverse_set = HashSet::new();
+            for matcher in field_matchers {
+                match &matcher.op {
+                    MatchOp::Equal => {
+                        if col_set.contains(&matcher.value) {
+                            let _ = result_set.insert(matcher.value.clone());
+                        } else {
+                            return Err(ColumnNotFoundSnafu {
+                                col: matcher.value.clone(),
+                                location: Default::default(),
+                            }
+                                .build());
+                        }
+                    }
+                    MatchOp::NotEqual => {
+                        if col_set.contains(&matcher.value) {
+                            let _ = reverse_set.insert(matcher.value.clone());
+                        } else {
+                            return Err(ColumnNotFoundSnafu {
+                                col: matcher.value.clone(),
+                            }
+                                .build());
                         }
                     }
                     MatchOp::Re(regex) => {
@@ -600,6 +667,7 @@ impl SqlDataSource {
             .field_column_names()
             .cloned()
             .collect();
+
         self.ctx.field_columns = values;
 
         // set primary key (tag) columns
@@ -609,6 +677,7 @@ impl SqlDataSource {
             .row_key_column_names()
             .cloned()
             .collect();
+
         self.ctx.tag_columns = tags;
 
         Ok(())

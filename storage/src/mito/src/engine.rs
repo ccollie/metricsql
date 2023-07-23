@@ -100,15 +100,15 @@ impl<S: StorageEngine> TableEngine for MitoEngine<S> {
 
         let _lock = self.inner.table_mutex.lock(request.id).await;
         if let Some(table) = self.inner.get_mito_table(request.id) {
-            if request.create_if_not_exists {
-                return Ok(table);
+            return if request.create_if_not_exists {
+                Ok(table)
             } else {
-                return TableExistsSnafu {
+                TableExistsSnafu {
                     table_name: request.table_name,
                 }
-                .fail()
-                .map_err(BoxedError::new)
-                .context(table_error::TableOperationSnafu)?;
+                    .fail()
+                    .map_err(BoxedError::new)
+                    .context(table_error::TableOperationSnafu)?
             }
         }
 

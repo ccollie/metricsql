@@ -31,7 +31,6 @@ use common_telemetry::{error, info};
 use datatypes::prelude::ScalarVector;
 use datatypes::vectors::{BinaryVector, UInt8Vector};
 use futures_util::lock::Mutex;
-use metrics::increment_gauge;
 use table::engine::manager::TableEngineManagerRef;
 use table::engine::EngineContext;
 use table::metadata::TableId;
@@ -40,8 +39,7 @@ use table::table::numbers::{NumbersTable, NUMBERS_TABLE_NAME};
 use table::table::TableIdProvider;
 use table::TableRef;
 
-use crate::catalog::consts::{
-    INFORMATION_SCHEMA_NAME, MIN_USER_TABLE_ID, MITO_ENGINE, SYSTEM_CATALOG_NAME,
+use crate::catalog::consts::{MIN_USER_TABLE_ID, MITO_ENGINE, SYSTEM_CATALOG_NAME,
 };
 use crate::catalog::local::MemoryCatalogManager;
 use crate::catalog::manager::{
@@ -61,9 +59,8 @@ use crate::error::{
     TableNotFoundSnafu, UnimplementedSnafu,
 };
 use crate::local::memory::MemoryCatalogManager;
-use crate::tables::SystemCatalog;
 use crate::{
-    handle_system_table_request, CatalogManager, CatalogManagerRef, DeregisterSchemaRequest,
+    CatalogManager, CatalogManagerRef, DeregisterSchemaRequest,
     DeregisterTableRequest, RegisterSchemaRequest, RegisterSystemTableRequest,
     RegisterTableRequest, RenameTableRequest,
 };
@@ -99,10 +96,6 @@ impl LocalCatalogManager {
 
     /// Scan all entries from system catalog table
     pub async fn init(&self) -> Result<()> {
-        let system_records = self.system.information_schema.system.records().await?;
-        let entries = self.collect_system_catalog_entries(system_records).await?;
-        let max_table_id = self.handle_system_catalog_entries(entries).await?;
-
         info!(
             "All system catalog entries processed, max table id: {}",
             max_table_id
@@ -430,13 +423,6 @@ impl CatalogManager for LocalCatalogManager {
     }
 
     async fn rename_table(&self, request: RenameTableRequest) -> Result<bool> {
-        todo!()
-    }
-
-    async fn register_system_table(
-        &self,
-        request: RegisterSystemTableRequest,
-    ) -> error::Result<()> {
         todo!()
     }
 }

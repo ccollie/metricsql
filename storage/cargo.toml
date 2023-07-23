@@ -10,6 +10,7 @@ async-trait = "0.1.51"
 chrono = { workspace = true }
 datafusion = { version = "27" }
 datafusion-remote-tables = { git = "https://github.com/splitgraph/seafowl", directory="/datafusion_remote_tables", branch = "main" }
+derive_builder = "0.11"
 futures = "0.3.17"
 itertools = { workspace = true }
 lib = { path = "../lib" }

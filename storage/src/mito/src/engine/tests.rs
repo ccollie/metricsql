@@ -99,7 +99,6 @@ async fn setup_table_with_column_default_constraint() -> (TempDir, String, Table
                 create_if_not_exists: true,
                 primary_key_indices: Vec::default(),
                 table_options: TableOptions::default(),
-                region_numbers: vec![0],
                 engine: MITO_ENGINE.to_string(),
             },
         )

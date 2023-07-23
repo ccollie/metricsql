@@ -12,16 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use datafusion::arrow::datatypes::{Schema, SchemaBuilder, SchemaRef};
+use datafusion::arrow::datatypes::{Schema, SchemaRef};
 use datafusion::logical_expr::TableProviderFilterPushDown;
-use datafusion::parquet::schema::types::ColumnDescriptor;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use snafu::{ensure, ResultExt};
+use snafu::ResultExt;
 
 use common_catalog::consts::{DEFAULT_CATALOG_NAME, DEFAULT_SCHEMA_NAME};
 use common_query::AddColumnLocation;
@@ -29,10 +28,7 @@ use datafusion_expr::TableProviderFilterPushDown;
 pub use datatypes::error::{Error as ConvertError, Result as ConvertResult};
 use datatypes::schema::{ColumnSchema, RawSchema, Schema, SchemaBuilder, SchemaRef};
 use derive_builder::Builder;
-
-use crate::error::{self, Result};
-use crate::requests::{AddColumnRequest, AlterKind, TableOptions};
-use crate::table::requests::{AddColumnRequest, AlterKind, TableOptions};
+use crate::table::requests::{TableOptions};
 
 pub type TableId = u32;
 pub type TableVersion = u64;
@@ -99,7 +95,6 @@ pub struct TableIdent {
 /// Note: if you add new fields to this struct, please ensure 'new_meta_builder' function works.
 /// TODO(dennis): find a better way to ensure 'new_meta_builder' works when adding new fields.
 #[derive(Clone, Debug, Builder, PartialEq, Eq)]
-#[builder(pattern = "mutable")]
 pub struct TableMeta {
     pub schema: SchemaRef,
     /// The indices of columns in primary key. Note that the index of timestamp column
@@ -109,7 +104,6 @@ pub struct TableMeta {
     pub value_indices: Vec<usize>,
     #[builder(default, setter(into))]
     pub engine: String,
-    pub next_column_id: ColumnId,
     /// Options for table engine.
     #[builder(default)]
     pub engine_options: HashMap<String, String>,
@@ -118,6 +112,10 @@ pub struct TableMeta {
     pub options: TableOptions,
     #[builder(default = "Utc::now()")]
     pub created_on: DateTime<Utc>,
+    #[builder(default, setter(into))]
+    pub timestamp_column: String,
+    #[builder(default, setter(into))]
+    pub value_column: String,
 }
 
 impl TableMetaBuilder {
@@ -137,8 +135,6 @@ impl TableMetaBuilder {
         Self {
             primary_key_indices: Some(Vec::new()),
             value_indices: Some(Vec::new()),
-            region_numbers: Some(Vec::new()),
-            next_column_id: Some(0),
             ..Default::default()
         }
     }
@@ -196,6 +192,10 @@ pub struct TableInfo {
     pub meta: TableMeta,
     #[builder(default = "TableType::Base")]
     pub table_type: TableType,
+    #[builder(default, setter(into))]
+    pub timestamp_column: String,
+    #[builder(default, setter(into))]
+    pub value_column: String,
 }
 
 pub type TableInfoRef = Arc<TableInfo>;
@@ -253,6 +253,8 @@ pub struct RawTableMeta {
     pub engine_options: HashMap<String, String>,
     pub options: TableOptions,
     pub created_on: DateTime<Utc>,
+    pub timestamp_column: String,
+    pub value_column: String,
 }
 
 impl From<TableMeta> for RawTableMeta {
@@ -265,6 +267,8 @@ impl From<TableMeta> for RawTableMeta {
             engine_options: meta.engine_options,
             options: meta.options,
             created_on: meta.created_on,
+            timestamp_column: meta.timestamp_column,
+            value_column: meta.value_column,
         }
     }
 }
@@ -281,6 +285,8 @@ impl TryFrom<RawTableMeta> for TableMeta {
             engine_options: raw.engine_options,
             options: raw.options,
             created_on: raw.created_on,
+            timestamp_column: raw.timestamp_column,
+            value_column: raw.value_column,
         })
     }
 }
@@ -295,6 +301,8 @@ pub struct RawTableInfo {
     pub schema_name: String,
     pub meta: RawTableMeta,
     pub table_type: TableType,
+    pub timestamp_column: String,
+    pub value_column: String,
 }
 
 impl From<TableInfo> for RawTableInfo {
@@ -307,6 +315,8 @@ impl From<TableInfo> for RawTableInfo {
             schema_name: info.schema_name,
             meta: RawTableMeta::from(info.meta),
             table_type: info.table_type,
+            timestamp_column: info.timestamp_column,
+            value_column: info.value_column,
         }
     }
 }
@@ -323,13 +333,15 @@ impl TryFrom<RawTableInfo> for TableInfo {
             schema_name: raw.schema_name,
             meta: TableMeta::try_from(raw.meta)?,
             table_type: raw.table_type,
+            timestamp_column: raw.timestamp_column,
+            value_column: raw.value_column,
         })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use datafusion::arrow::datatypes::Schema;
+    use datafusion::arrow::datatypes::{Schema, SchemaBuilder};
 
     use common_error::ext::ErrorExt;
     use common_error::status_code::StatusCode;

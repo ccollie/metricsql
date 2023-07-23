@@ -64,10 +64,6 @@ pub trait CatalogManager: Send + Sync {
     /// Rename a table to [RenameTableRequest::new_table_name], returns whether the table is renamed.
     async fn rename_table(&self, request: RenameTableRequest) -> Result<bool>;
 
-    /// Register a system table, should be called before starting the manager.
-    async fn register_system_table(&self, request: RegisterSystemTableRequest)
-        -> error::Result<()>;
-
     async fn catalog_names(&self) -> Result<Vec<String>>;
 
     async fn schema_names(&self, catalog: &str) -> Result<Vec<String>>;

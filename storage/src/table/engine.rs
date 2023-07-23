@@ -24,7 +24,6 @@ use crate::table::requests::{
     CloseTableRequest, CreateTableRequest, DropTableRequest, OpenTableRequest,
 };
 use crate::table::table::TableRef;
-use crate::TableRef;
 
 mod manager;
 

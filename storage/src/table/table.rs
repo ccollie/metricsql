@@ -23,20 +23,16 @@ use datafusion::physical_plan::SendableRecordBatchStream;
 use common_query::logical_plan::Expr;
 use common_recordbatch::SendableRecordBatchStream;
 use datatypes::schema::SchemaRef;
-use store_api::storage::{RegionNumber, ScanRequest};
+use store_api::storage::{ScanRequest};
 
 use crate::error::{Result, UnsupportedSnafu};
 use crate::metadata::{FilterPushDownType, TableId, TableInfoRef, TableType};
 use crate::requests::{AlterTableRequest, DeleteRequest, InsertRequest};
-use crate::stats::TableStatistics;
 use crate::table::error::UnsupportedSnafu;
 use crate::table::metadata::{FilterPushDownType, TableId, TableInfoRef, TableType};
-use crate::table::requests::DeleteRequest;
-use crate::RegionStat;
 
 pub mod adapter;
 
-pub type AlterContext = anymap::Map<dyn Any + Send + Sync>;
 
 /// Table abstraction.
 #[async_trait]
@@ -64,22 +60,12 @@ pub trait Table: Send + Sync {
         Ok(vec![FilterPushDownType::Unsupported; filters.len()])
     }
 
-    /// Delete rows in the table.
-    ///
-    /// Returns number of deleted rows.
-    async fn delete(&self, _request: DeleteRequest) -> Result<usize> {
-        UnsupportedSnafu {
-            operation: "DELETE",
-        }
-        .fail()?
-    }
-
     /// Flush table.
     ///
     /// Options:
     /// - region_number: specify region to flush.
     /// - wait: Whether to wait until flush is done.
-    async fn flush(&self, region_number: Option<RegionNumber>, wait: Option<bool>) -> Result<()> {
+    async fn flush(&self, wait: Option<bool>) -> Result<()> {
         let _ = (region_number, wait);
         UnsupportedSnafu { operation: "FLUSH" }.fail()?
     }
@@ -87,11 +73,6 @@ pub trait Table: Send + Sync {
     /// Close the table.
     async fn close(&self, _regions: &[RegionNumber]) -> Result<()> {
         Ok(())
-    }
-
-    /// Get statistics for this table, if available
-    fn statistics(&self) -> Option<TableStatistics> {
-        None
     }
 }
 

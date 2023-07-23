@@ -225,53 +225,12 @@ impl<R: Region> Table for MitoTable<R> {
         Ok(vec![FilterPushDownType::Inexact; filters.len()])
     }
 
-    /// Alter table changes the schemas of the table.
-    async fn alter(&self, _context: AlterContext, req: &AlterTableRequest) -> TableResult<()> {
-        let _lock = self.alter_lock.lock().await;
-
-        let table_info = self.table_info();
-        let table_version = table_info.ident.version;
-        let (new_info, alter_op) = self.info_and_op_for_alter(&table_info, &req.alter_kind)?;
-        let table_name = &table_info.name;
-
-        if let Some(alter_op) = &alter_op {
-            self.alter_regions(table_name, table_version, alter_op)
-                .await?;
-        }
-
-        // Persist the alteration to the manifest.
-        logging::debug!(
-            "start updating the manifest of table {} with new table info {:?}",
-            table_name,
-            new_info
-        );
-        let _ = self
-            .manifest
-            .update(TableMetaActionList::with_action(TableMetaAction::Change(
-                Box::new(TableChange {
-                    table_info: RawTableInfo::from(new_info.clone()),
-                }),
-            )))
-            .await
-            .context(UpdateTableManifestSnafu {
-                table_name: &self.table_info().name,
-            })
-            .map_err(BoxedError::new)
-            .context(table_error::TableOperationSnafu)?;
-
-        // Update in memory metadata of the table.
-        self.set_table_info(new_info);
-
-        Ok(())
-    }
-
     async fn delete(&self, request: DeleteRequest) -> TableResult<usize> {
         if request.key_column_values.is_empty() {
             return Ok(0);
         }
         let regions = self.regions.load();
         let mut rows_deleted = 0;
-        // TODO(hl): Should be tracked by procedure.
         // TODO(hl): Parse delete request into region->keys instead of delete in each region
         for region in regions.values() {
             let mut write_request = region.write_request();

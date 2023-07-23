@@ -26,7 +26,7 @@ use datatypes::prelude::VectorRef;
 use crate::error;
 use crate::table::engine::TableReference;
 use crate::table::error::ParseTableOptionSnafu;
-use crate::table::metadata::{TableId, TableVersion};
+use crate::table::metadata::TableId;
 
 pub const IMMUTABLE_TABLE_META_KEY: &str = "__private.immutable_table_meta";
 pub const IMMUTABLE_TABLE_LOCATION_KEY: &str = "location";

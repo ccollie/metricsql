@@ -29,13 +29,10 @@ use common_query::physical_plan::DfPhysicalPlanAdapter;
 use common_query::DfPhysicalPlan;
 use common_recordbatch::OrderOption;
 use datafusion_expr::expr::Expr as DfExpr;
-use datafusion_physical_expr::expressions::Column;
-use datafusion_physical_expr::PhysicalSortExpr;
 use store_api::storage::ScanRequest;
 
 use crate::table::metadata::TableType;
 use crate::table::table::TableRef;
-use crate::table::{TableRef, TableType};
 
 use super::scan::StreamScanAdapter;
 
