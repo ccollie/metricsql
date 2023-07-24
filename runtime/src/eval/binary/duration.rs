@@ -3,7 +3,6 @@ use metricsql::prelude::Operator;
 
 use crate::{QueryValue, RuntimeError, RuntimeResult};
 
-// todo: add dur * scalar, scalar * dur, dur / scalar, scalar / dur to optimizer
 pub(crate) fn eval_duration_scalar_op(
     dur: &DurationExpr,
     scalar: f64,

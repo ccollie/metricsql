@@ -15,7 +15,7 @@ use crate::eval::binary::{
 };
 use crate::eval::rollups::RollupExecutor;
 use crate::functions::rollup::{get_rollup_function_factory, rollup_default, RollupHandlerEnum};
-use crate::functions::transform::{get_transform_func, TransformFuncArg};
+use crate::functions::transform::{get_transform_func, handle_union, TransformFuncArg};
 use crate::{Context, EvalConfig, QueryValue, RuntimeError, RuntimeResult, Timeseries};
 
 type Value = QueryValue;
@@ -86,11 +86,10 @@ fn eval_function_op(
     expr: &Expr,
     fe: &FunctionExpr,
 ) -> RuntimeResult<QueryValue> {
-    let name = fe.function.name();
     return match fe.function {
         BuiltinFunction::Transform(tf) => {
             let span = if ctx.trace_enabled() {
-                trace_span!("transform", function = fe.name, series = field::Empty)
+                trace_span!("transform", function = tf.name(), series = field::Empty)
             } else {
                 Span::none()
             }
@@ -111,7 +110,7 @@ fn eval_function_op(
                 .map_err(|err| map_error(err, fe))?;
             Ok(val)
         }
-        _ => Err(RuntimeError::NotImplemented(name.to_string())),
+        _ => Err(RuntimeError::NotImplemented(fe.function.name().to_string())),
     };
 }
 
@@ -129,17 +128,8 @@ fn eval_parens_op(
     if pe.expressions.len() == 1 {
         return exec_expr(ctx, ec, &pe.expressions[0]);
     }
-    let union = BuiltinFunction::Transform(TransformFunction::Union);
-    let fe = FunctionExpr {
-        name: "union".to_string(),
-        function: union,
-        args: pe.expressions.clone(), // how to avoid ?
-        arg_idx_for_optimization: None,
-        keep_metric_names: false,
-        is_scalar: false,
-        return_type: Default::default(),
-    };
-    let rv = eval_transform_func(ctx, ec, &fe, TransformFunction::Union)?;
+    let args = eval_exprs_in_parallel(ctx, ec, &pe.expressions)?;
+    let rv = handle_union(args, ec)?;
     let val = QueryValue::InstantVector(rv);
     Ok(val)
 }

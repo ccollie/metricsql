@@ -252,11 +252,11 @@ fn aggr_func_any(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
 fn aggr_func_group(tss: &mut Vec<Timeseries>) {
     for i in 0..tss[0].values.len() {
         let mut v = f64::NAN;
-        for (i, ts) in tss.iter().enumerate() {
-            if ts.values[i].is_nan() {
-                continue;
+        for ts in tss.iter() {
+            if !ts.values[i].is_nan() {
+                v = 1f64;
+                // todo: break ?
             }
-            v = 1.0;
         }
         tss[0].values[i] = v;
     }

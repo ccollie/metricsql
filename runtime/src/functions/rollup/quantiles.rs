@@ -3,7 +3,7 @@ use std::ops::DerefMut;
 
 use tinyvec::TinyVec;
 
-use lib::get_pooled_vec_f64_filled;
+use lib::{get_pooled_vec_f64, get_pooled_vec_f64_filled};
 
 use crate::functions::rollup::{RollupFuncArg, RollupHandlerEnum};
 use crate::functions::types::{get_scalar_param_value, get_string_param_value};
@@ -18,7 +18,7 @@ pub(crate) fn quantiles(qs: &mut [f64], phis: &[f64], origin_values: &[f64]) {
         return quantiles_sorted(qs, phis, &vec);
     }
 
-    let mut block = get_pooled_vec_f64_filled(phis.len(), 0_f64);
+    let mut block = get_pooled_vec_f64(phis.len());
     let a = block.deref_mut();
     prepare_for_quantile_float64(a, origin_values);
     quantiles_sorted(qs, phis, a)
@@ -27,25 +27,20 @@ pub(crate) fn quantiles(qs: &mut [f64], phis: &[f64], origin_values: &[f64]) {
 /// calculates the given phi from origin_values without modifying origin_values
 pub(crate) fn quantile(phi: f64, origin_values: &[f64]) -> f64 {
     // todo: smallvec
-    let mut block = get_pooled_vec_f64_filled(origin_values.len(), 0_f64);
+    let mut block = get_pooled_vec_f64(origin_values.len());
     prepare_for_quantile_float64(&mut block, origin_values);
     quantile_sorted(phi, &block)
 }
 
 /// prepare_for_quantile_float64 copies items from src to dst but removes NaNs and sorts the dst
 fn prepare_for_quantile_float64(dst: &mut Vec<f64>, src: &[f64]) {
-    for v in src {
-        if v.is_nan() {
-            continue;
-        }
-        dst.push(*v);
-    }
+    dst.extend(src.iter().filter(|v| !v.is_nan()));
     dst.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Less));
 }
 
 /// copies items from src to dst but removes NaNs and sorts the dst
 fn prepare_tv_for_quantile_float64(dst: &mut TinyVec<[f64; 64]>, src: &[f64]) {
-    for v in src {
+    for v in src.iter() {
         if v.is_nan() {
             continue;
         }

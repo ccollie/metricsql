@@ -81,7 +81,6 @@ pub struct SqlDataSource {
 }
 
 impl SqlDataSource {
-
     fn get_table(&self, table_name: &str) -> Result<Arc<dyn TableProvider>> {
         let table_ref = TableReference::from(table_name);
         let table = self
@@ -364,49 +363,52 @@ impl SqlDataSource {
     }
 
     // filter_columns filters the columns in the table according to the field matchers.
-    fn extract_metrics(&self) {
+    fn extract_metrics(&self, field_matchers: &[LabelFilter]) -> Result<Vec<LabelFilter>> {
         // make a projection plan if there is any `__name__` matcher
-        if let Some(field_matchers) = &self.ctx.field_column_matcher {
-            let col_set = self.ctx.field_columns.iter().collect::<HashSet<_>>();
+        if let Some(field_matchers) = filters {
+            let table_names = self.ctx.table_names();
+            let table_set = table_names.iter().collect::<HashSet<_>>();
             // opt-in set
             let mut result_set = HashSet::new();
             // opt-out set
             let mut reverse_set = HashSet::new();
+            let mut result: Vec<LabelFilter> = Vec::new();
+
             for matcher in field_matchers {
+                if matcher.name != METRIC_NAME {
+                    result.push(matcher.clone());
+                    continue;
+                }
                 match &matcher.op {
                     MatchOp::Equal => {
                         if col_set.contains(&matcher.value) {
                             let _ = result_set.insert(matcher.value.clone());
                         } else {
-                            return Err(ColumnNotFoundSnafu {
+                            return Err(TableNotFoundSnafu {
                                 col: matcher.value.clone(),
                                 location: Default::default(),
                             }
-                                .build());
+                            .build());
                         }
                     }
                     MatchOp::NotEqual => {
                         if col_set.contains(&matcher.value) {
                             let _ = reverse_set.insert(matcher.value.clone());
                         } else {
-                            return Err(ColumnNotFoundSnafu {
+                            return Err(TableNotFoundSnafu {
                                 col: matcher.value.clone(),
                             }
-                                .build());
+                            .build());
                         }
                     }
                     MatchOp::Re(regex) => {
-                        for col in &self.ctx.field_columns {
-                            if regex.is_match(col) {
-                                let _ = result_set.insert(col.clone());
-                            }
+                        for table in &table_names.iter().filter(|table| regex.is_match(table)) {
+                            let _ = result_set.insert(col.clone());
                         }
                     }
                     MatchOp::NotRe(regex) => {
-                        for col in &self.ctx.field_columns {
-                            if regex.is_match(col) {
-                                let _ = reverse_set.insert(col.clone());
-                            }
+                        for table in &table_names.iter().filter(|table| regex.is_match(table)) {
+                            let _ = reverse_set.insert(col.clone());
                         }
                     }
                 }
@@ -419,7 +421,8 @@ impl SqlDataSource {
                 let _ = result_set.remove(&col);
             }
 
-            self.ctx.field_columns = result_set.iter().cloned().collect();
+            self.ctx.table_names = result_set.iter().cloned().collect();
+            Ok(result)
         }
     }
 

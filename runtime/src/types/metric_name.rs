@@ -217,17 +217,16 @@ impl MetricName {
 
     /// remove_tags_on removes all the tags not included to on_tags.
     pub fn remove_tags_on(&mut self, on_tags: &Vec<String>) {
-        let set: HashSet<_> = HashSet::from_iter(on_tags);
         // written this way to avoid an allocation
         // (to compare against METRIC_NAME_LABEL.to_string())
-        if !set.iter().any(|x| *x == METRIC_NAME_LABEL) {
+        if !on_tags.iter().any(|x| *x == METRIC_NAME_LABEL) {
             self.reset_metric_group()
         }
         if on_tags.len() >= SET_SEARCH_MIN_THRESHOLD {
             let set: HashSet<_> = HashSet::from_iter(on_tags);
-            self.tags.retain(|tag| set.contains(&tag.key));
+            self.tags.retain(|tag| !set.contains(&tag.key));
         } else {
-            self.tags.retain(|tag| on_tags.contains(&tag.key));
+            self.tags.retain(|tag| !on_tags.contains(&tag.key));
         }
     }
 
@@ -245,9 +244,9 @@ impl MetricName {
 
         if ignoring_tags.len() >= SET_SEARCH_MIN_THRESHOLD {
             let set: HashSet<_> = HashSet::from_iter(ignoring_tags);
-            self.tags.retain(|tag| !set.contains(&tag.key));
+            self.tags.retain(|tag| set.contains(&tag.key));
         } else {
-            self.tags.retain(|tag| !ignoring_tags.contains(&tag.key));
+            self.tags.retain(|tag| ignoring_tags.contains(&tag.key));
         }
     }
 
@@ -419,11 +418,11 @@ impl MetricName {
 
     /// `names` have to be sorted in ascending order.
     pub fn signature_with_labels(&self, names: &[String]) -> Signature {
-        Signature::from_tag_iter(self.with_labels_iter(names))
+        Signature::with_name_and_labels(&self.metric_group, self.with_labels_iter(names))
     }
 
     pub fn signature_without_labels(&self, names: &[String]) -> Signature {
-        Signature::from_tag_iter(self.without_labels_iter(names))
+        Signature::with_name_and_labels(&self.metric_group, self.without_labels_iter(names))
     }
 
     pub fn signature_by_group_modifier(&self, modifier: &Option<GroupModifier>) -> Signature {

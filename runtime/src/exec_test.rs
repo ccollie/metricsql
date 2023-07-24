@@ -52,8 +52,12 @@ mod tests {
     }
 
     fn assert_result_eq(q: &str, values: &[f64]) {
-        let r = make_result(values);
-        test_query(q, vec![r]);
+        if values.is_empty() {
+            test_query(q, vec![]);
+        } else {
+            let r = make_result(values);
+            test_query(q, vec![r]);
+        }
     }
 
     #[test]

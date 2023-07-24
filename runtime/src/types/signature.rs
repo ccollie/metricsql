@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::hash::Hash;
+use std::hash::{Hash, Hasher};
 
 use rayon::prelude::*;
 use xxhash_rust::xxh3::Xxh3;
@@ -26,24 +26,37 @@ impl Hash for Signature {
 impl Signature {
     pub fn new(labels: &MetricName) -> Self {
         let iter = labels.tags.iter();
-        Self::from_tag_iter(iter)
+        Self::with_name_and_labels(&labels.metric_group, iter)
     }
 
     pub fn with_labels(labels: &MetricName, names: &[String]) -> Signature {
         let iter = labels.with_labels_iter(names);
-        Self::from_tag_iter(iter)
+        Self::with_name_and_labels(&labels.metric_group, iter)
     }
 
     /// `signature_without_labels` is just as [`signature`], but only for labels not matching `names`.
     pub fn without_labels(labels: &MetricName, exclude_names: &[String]) -> Signature {
-        Self::from_tag_iter(labels.without_labels_iter(exclude_names))
+        let iter = labels.without_labels_iter(exclude_names);
+        Self::with_name_and_labels(&labels.metric_group, iter)
     }
 
     pub(crate) fn from_tag_iter<'a>(iter: impl Iterator<Item = &'a Tag>) -> Self {
         let mut hasher = Xxh3::new();
+        Self::update_from_iter(&mut hasher, iter);
+        let sig = hasher.digest();
+        Signature(sig)
+    }
+
+    fn update_from_iter<'a>(hasher: &mut Xxh3, iter: impl Iterator<Item = &'a Tag>) {
         for tag in iter {
-            tag.update_hash(&mut hasher);
+            tag.update_hash(hasher);
         }
+    }
+
+    pub fn with_name_and_labels<'a>(name: &String, iter: impl Iterator<Item = &'a Tag>) -> Self {
+        let mut hasher = Xxh3::new();
+        hasher.write(name.as_bytes());
+        Self::update_from_iter(&mut hasher, iter);
         let sig = hasher.digest();
         Signature(sig)
     }

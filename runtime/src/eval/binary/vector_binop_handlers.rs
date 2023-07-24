@@ -13,6 +13,7 @@ use crate::signature::{
 };
 use crate::types::signature::Signature;
 use crate::types::Timeseries;
+use crate::METRIC_NAME_LABEL;
 
 pub(crate) struct BinaryOpFuncArg<'a> {
     be: &'a BinaryExpr,
@@ -152,7 +153,7 @@ fn adjust_binary_op_tags(
         // Add __name__ to groupTags if metric name must be preserved.
         if bfa.be.keep_metric_names && modifier.op == GroupModifierOp::On {
             let mut labels = modifier.labels.clone();
-            labels.push("__name__".to_string());
+            labels.push(METRIC_NAME_LABEL.to_string());
             labels.sort();
             Cow::Owned(labels)
         } else {
@@ -289,7 +290,7 @@ fn group_join(
         map.clear();
 
         for mut ts_right in tss_right.drain(..) {
-            let mut ts_copy = ts_left.clone();
+            let mut ts_copy = ts_left.clone(); // todo: how to avoid clone ?
             ts_copy
                 .metric_name
                 .set_tags(join_tags, &mut ts_right.metric_name);

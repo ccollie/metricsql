@@ -27,6 +27,7 @@ use crate::functions::rollup::{linear_regression, mad, quantile, quantile_sorted
 use crate::functions::utils::{get_first_non_nan_index, get_last_non_nan_index};
 use crate::rand_distr::Distribution;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
+use crate::signature::Signature;
 use crate::{remove_empty_series, MetricName, QueryValue, Timeseries, METRIC_NAME_LABEL};
 
 use super::utils::{get_timezone_offset, ru};
@@ -1734,30 +1735,57 @@ fn transform_remove_resets(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Time
     Ok(series)
 }
 
-fn transform_union(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    if tfa.args.len() < 1 {
-        return eval_number(&mut tfa.ec, NAN);
+pub(crate) fn handle_union(
+    args: Vec<QueryValue>,
+    ec: &EvalConfig,
+) -> RuntimeResult<Vec<Timeseries>> {
+    if args.len() < 1 {
+        return eval_number(ec, NAN);
     }
 
-    let series = get_series_arg(&tfa.args, 0, tfa.ec)?;
-
-    let len = series.len();
+    let len = args[0].len();
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(len);
-    let mut m: HashSet<String> = HashSet::with_capacity(len);
+    let mut m: HashSet<Signature> = HashSet::with_capacity(len);
 
-    for arg in tfa.args.iter_mut().skip(1) {
-        let other_series = arg.get_instant_vector(tfa.ec)?;
-        for mut ts in other_series.into_iter() {
-            // todo: get into a pre-allocated buffer
-            let key = ts.metric_name.to_string();
-
+    fn process_vector(
+        v: &mut Vec<Timeseries>,
+        m: &mut HashSet<Signature>,
+        rvs: &mut Vec<Timeseries>,
+    ) {
+        for mut ts in v.iter_mut() {
+            ts.metric_name.sort_tags();
+            let key = ts.metric_name.signature();
             if m.insert(key) {
                 rvs.push(std::mem::take(&mut ts));
             }
         }
     }
 
-    return Ok(rvs);
+    let mut args = args;
+    for arg in args.iter_mut() {
+        // done this way to avoid allocating a new vector in the case of a InstantVector
+        match arg {
+            QueryValue::Scalar(v) => {
+                let mut ts = eval_number(ec, *v)?;
+                process_vector(&mut ts, &mut m, &mut rvs);
+            }
+            QueryValue::InstantVector(v) => process_vector(v, &mut m, &mut rvs),
+            QueryValue::RangeVector(v) => process_vector(v, &mut m, &mut rvs),
+            _ => {
+                return Err(RuntimeError::ArgumentError(
+                    "expected instant or range vector".to_string(),
+                ))
+            }
+        }
+    }
+
+    Ok(rvs)
+}
+
+fn transform_union(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    // we don't use args after this
+    let args = std::mem::take(&mut tfa.args);
+    handle_union(args, &mut tfa.ec)
 }
 
 fn transform_label_keep(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
@@ -2347,6 +2375,7 @@ fn sort_by_label_impl(tfa: &mut TransformFuncArg, is_desc: bool) -> RuntimeResul
             let a = first.metric_name.get_tag_value(&label);
             let b = second.metric_name.get_tag_value(&label);
             match (a, b) {
+                (None, None) => continue,
                 (Some(a1), Some(b1)) => {
                     if a1 == b1 {
                         continue;
@@ -2358,7 +2387,6 @@ fn sort_by_label_impl(tfa: &mut TransformFuncArg, is_desc: bool) -> RuntimeResul
                 }
                 (Some(_), None) => return Ordering::Greater,
                 (None, Some(_)) => return Ordering::Less,
-                (None, None) => return Ordering::Equal,
             }
         }
         return Ordering::Equal;
