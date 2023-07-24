@@ -4,9 +4,8 @@ use crate::{EvalConfig, QueryValue, RuntimeResult};
 
 pub(super) fn new_rollup_holt_winters(
     args: &Vec<QueryValue>,
-    ec: &EvalConfig,
+    _: &EvalConfig,
 ) -> RuntimeResult<RollupHandlerEnum> {
-    // unwrap is sound since arguments are checked before this is called
     let sf = get_scalar_param_value(args, 1, "holt_winters", "sf")?;
     let tf = get_scalar_param_value(args, 2, "holt_winters", "tf")?;
 

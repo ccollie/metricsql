@@ -95,18 +95,17 @@ pub fn test_metric_names_equal(mn: &MetricName, expected: &MetricName, pos: usiz
         expected
     );
 
-    for (i, tag) in mn.tags.iter().enumerate() {
-        let tag_expected = &expected.tags[i];
+    for (i, (tag, tag_expected)) in mn.tags.iter().zip(expected.tags.iter()).enumerate() {
         assert_eq!(
             tag.key, tag_expected.key,
-            "unexpected tag key at #{},{}; got {}; want {}; got={}, expected={}",
-            pos, i, tag.key, tag_expected.key, mn, expected
+            "unexpected tag key at #{pos}, {i}; got {}; want {}; got={mn}, expected={expected}",
+            tag.key, tag_expected.key
         );
 
         assert_eq!(
             tag.value, tag_expected.value,
-            "unexpected tag value at #{},{}; got {}; want {}; got={}, expected={}",
-            pos, i, tag.value, tag_expected.value, mn, expected
+            "unexpected tag value at #{pos},{i}; got {}; want {}; got={mn}, expected={expected}",
+            tag.value, tag_expected.value,
         )
     }
 }

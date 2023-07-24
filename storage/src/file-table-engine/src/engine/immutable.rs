@@ -177,7 +177,6 @@ impl EngineInner {
             catalog_name,
             schema_name,
             table_name,
-            create_if_not_exists,
             table_options,
             ..
         } = request;

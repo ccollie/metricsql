@@ -13,7 +13,6 @@
 // limitations under the License.
 
 //! Table manifest service
-pub mod action;
 
 use storage::manifest::ManifestImpl;
 use store_api::manifest::action::{ProtocolAction, ProtocolVersion};
@@ -51,9 +50,10 @@ mod tests {
     use store_api::manifest::{Manifest, MetaActionIterator};
     use table::metadata::{RawTableInfo, TableInfo};
 
-    use super::*;
     use crate::manifest::action::{TableChange, TableMetaAction, TableRemove};
     use crate::table::test_util;
+
+    use super::*;
 
     type TableManifestActionIter = MetaActionIteratorImpl<TableMetaActionList>;
 

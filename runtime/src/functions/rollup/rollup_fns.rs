@@ -10,6 +10,7 @@ use metricsql::functions::{can_adjust_window, RollupFunction};
 use metricsql::prelude::TransformFunction;
 
 use crate::eval::validate_max_points_per_timeseries;
+use crate::functions::arg_parse::get_scalar_arg_as_vec;
 use crate::functions::mode_no_nans;
 use crate::functions::rollup::types::RollupHandlerFactory;
 use crate::functions::rollup::{
@@ -375,17 +376,14 @@ pub(crate) fn get_rollup_aggr_funcs(expr: &Expr) -> RuntimeResult<Vec<RollupFunc
         }
         let mut funcs = Vec::with_capacity(args.len());
         for arg in args.iter() {
-            match arg {
-                Expr::StringLiteral(name) => {
-                    let func = get_func_by_name(&name)?;
-                    funcs.push(func)
-                }
-                _ => {
-                    let msg = format!(
-                        "{arg} cannot be passed here; expecting quoted aggregate function name",
-                    );
-                    return Err(RuntimeError::ArgumentError(msg));
-                }
+            if let Expr::StringLiteral(name) = arg {
+                let func = get_func_by_name(&name)?;
+                funcs.push(func)
+            } else {
+                let msg = format!(
+                    "{arg} cannot be passed here; expecting quoted aggregate function name",
+                );
+                return Err(RuntimeError::ArgumentError(msg));
             }
         }
         Ok(funcs)
@@ -1193,7 +1191,7 @@ fn new_rollup_hoeffding_bound_lower(
     let phi = get_scalar_param_value(args, 0, "hoeffding_bound_lower", "phi")?;
 
     let f = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
-        let (bound, avg) = rollup_hoeffding_bound_internal(rfa, phi);
+        let (bound, avg) = hoeffding_bound_internal(&rfa.values, phi);
         avg - bound
     });
 
@@ -1202,32 +1200,47 @@ fn new_rollup_hoeffding_bound_lower(
 
 fn new_rollup_hoeffding_bound_upper(
     args: &Vec<QueryValue>,
-    _ec: &EvalConfig,
+    ec: &EvalConfig,
 ) -> RuntimeResult<RollupHandlerEnum> {
-    let phi = get_scalar_param_value(args, 0, "hoeffding_bound_upper", "phi")?;
+    let phis = get_scalar_arg_as_vec(args, 0, ec)?;
 
     let f = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
-        let (bound, avg) = rollup_hoeffding_bound_internal(rfa, phi);
+        let phi = phis[rfa.idx % phis.len()];
+        let (bound, avg) = hoeffding_bound_internal(&rfa.values, phi);
         return avg + bound;
     });
 
     Ok(RollupHandlerEnum::General(f))
 }
 
-fn rollup_hoeffding_bound_internal(rfa: &mut RollupFuncArg, phi: f64) -> (f64, f64) {
+fn hoeffding_bound_internal(values: &[f64], phi: f64) -> (f64, f64) {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
-    if rfa.values.is_empty() {
+    if values.is_empty() {
         return (NAN, NAN);
     }
-    if rfa.values.len() == 1 {
-        return (0.0, rfa.values[0]);
+    if values.len() == 1 {
+        return (0.0, values[0]);
     }
-    // todo(perf): use online algorithm to calculate min, max, avg
-    let v_max = rollup_max(rfa);
-    let v_min = rollup_min(rfa);
-    let v_avg = rollup_avg(rfa);
-    let v_range = v_max - v_min;
+
+    let (v_avg, v_range) = {
+        let mut v_min = values[0];
+        let mut v_max = v_min;
+        let mut v_sum = 0.0;
+        for v in values.iter() {
+            if *v < v_min {
+                v_min = *v;
+            }
+            if *v > v_max {
+                v_max = *v;
+            }
+            v_sum += *v;
+        }
+        let v_avg = v_sum / values.len() as f64;
+        let v_range = v_max - v_min;
+        (v_avg, v_range)
+    };
+
     if v_range <= 0.0 {
         return (0.0, v_avg);
     }
@@ -1243,7 +1256,7 @@ fn rollup_hoeffding_bound_internal(rfa: &mut RollupFuncArg, phi: f64) -> (f64, f
     // and https://www.youtube.com/watch?v=6UwcqiNsZ8U&feature=youtu.be&t=1237
 
     // let bound = v_range * math.Sqrt(math.Log(1 / (1 - phi)) / (2 * values.len()));
-    let bound = v_range * ((1.0 / (1.0 - phi)).ln() / (2 * rfa.values.len()) as f64).sqrt();
+    let bound = v_range * ((1.0 / (1.0 - phi)).ln() / (2 * values.len()) as f64).sqrt();
     return (bound, v_avg);
 }
 
@@ -1467,9 +1480,20 @@ pub(super) fn rollup_rate_over_sum(rfa: &mut RollupFuncArg) -> f64 {
 }
 
 pub(super) fn rollup_range(rfa: &mut RollupFuncArg) -> f64 {
-    // todo(perf): calc internally rather than calling rollup_max and rollup_min
-    let max = rollup_max(rfa);
-    let min = rollup_min(rfa);
+    if rfa.values.is_empty() {
+        return NAN;
+    }
+    let values = &rfa.values;
+    let mut max = values[0];
+    let mut min = max;
+    for v in values.iter() {
+        if *v > max {
+            max = *v;
+        }
+        if *v < min {
+            min = *v;
+        }
+    }
     return max - min;
 }
 
