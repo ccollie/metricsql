@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::assert_matches::assert_matches;
-use std::sync::Arc;
-
 use common_catalog::consts::{DEFAULT_CATALOG_NAME, DEFAULT_SCHEMA_NAME, IMMUTABLE_FILE_ENGINE};
 use table::engine::{EngineContext, TableEngine, TableEngineProcedure};
 use table::requests::{AlterKind, AlterTableRequest, DropTableRequest, OpenTableRequest};

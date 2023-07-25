@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::any::Any;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -29,13 +28,14 @@ use table::error::{self as table_error, Result as TableResult};
 use table::metadata::{RawTableInfo, TableInfo, TableInfoRef, TableType};
 use table::{requests, Table};
 
-use super::format::create_stream;
 use crate::error::{self, ConvertRawSnafu, Result};
 use crate::manifest::immutable::{
     read_table_manifest, write_table_manifest, ImmutableMetadata, INIT_META_VERSION,
 };
 use crate::manifest::table_manifest_dir;
 use crate::table::format::{CreateScanPlanContext, ScanPlanConfig};
+
+use super::format::create_stream;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default)]

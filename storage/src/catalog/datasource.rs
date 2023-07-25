@@ -421,6 +421,9 @@ impl SqlDataSource {
                 let _ = result_set.remove(&col);
             }
 
+            if result_set.is_empty() {
+                // throw error !!! "Missing seleector"
+            }
             self.ctx.table_names = result_set.iter().cloned().collect();
             Ok(result)
         }

@@ -12,16 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use datafusion::arrow::error::ArrowError;
 use std::any::Any;
+
+use datafusion::arrow::error::ArrowError;
+use datafusion::error::DataFusionError;
+use snafu::{Location, Snafu};
 
 use common_error::ext::{BoxedError, ErrorExt};
 use common_error::status_code::StatusCode;
-use datafusion::error::DataFusionError;
 use datatypes::arrow::error::ArrowError;
-use snafu::{Location, Snafu};
 
-use crate::metadata::TableId;
 use crate::status_code::StatusCode;
 use crate::table::metadata::TableId;
 
@@ -151,7 +151,6 @@ impl ErrorExt for Error {
             Error::SchemaBuild { source, .. } => source.status_code(),
             Error::TableOperation { source } => source.status_code(),
             Error::ColumnNotExists { .. } => StatusCode::TableColumnNotFound,
-            Error::RegionSchemaMismatch { .. } => StatusCode::StorageUnavailable,
             Error::Unsupported { .. } => StatusCode::Unsupported,
             Error::ParseTableOption { .. }
             | Error::EngineNotFound { .. }

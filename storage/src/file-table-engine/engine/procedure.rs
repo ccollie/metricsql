@@ -14,14 +14,14 @@
 
 //! Procedures for immutable file table engine.
 
-mod create;
-mod drop;
-
 use common_procedure::ProcedureManager;
 
 use crate::engine::immutable::ImmutableFileTableEngine;
 pub(crate) use crate::engine::procedure::create::CreateImmutableFileTable;
 pub(crate) use crate::engine::procedure::drop::DropImmutableFileTable;
+
+mod create;
+mod drop;
 
 /// Register all procedure loaders to the procedure manager.
 ///

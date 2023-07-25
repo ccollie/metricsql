@@ -13,12 +13,12 @@
 // limitations under the License.
 
 use std::num::NonZeroUsize;
-use std::ops::DerefMut;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use lru::LruCache;
 use metrics::increment_counter;
+use opendal::raw::oio::ReadExt;
 use opendal::raw::oio::{Page, Read, Reader, Write};
 use opendal::raw::{
     Accessor, Layer, LayeredAccessor, OpAppend, OpDelete, OpList, OpRead, OpWrite, RpAppend,
@@ -99,8 +99,6 @@ impl<I, C> LruCacheAccessor<I, C> {
     }
 }
 
-use opendal::raw::oio::ReadExt;
-
 #[async_trait]
 impl<I: Accessor, C: Accessor> LayeredAccessor for LruCacheAccessor<I, C> {
     type Inner = I;
@@ -157,7 +155,7 @@ impl<I: Accessor, C: Accessor> LayeredAccessor for LruCacheAccessor<I, C> {
                         Ok(to_output_reader((rp, reader)))
                     }
                     Err(_) => self.inner.read(&path, args).await.map(to_output_reader),
-                }
+                };
             }
             Err(err) => {
                 increment_counter!(OBJECT_STORE_LRU_CACHE_ERROR, OBJECT_STORE_LRU_CACHE_ERROR_KIND => format!("{}", err.kind()));

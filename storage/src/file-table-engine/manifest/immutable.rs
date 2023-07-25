@@ -95,9 +95,6 @@ pub(crate) async fn read_table_manifest(
 
 #[cfg(test)]
 mod tests {
-    use std::assert_matches::assert_matches;
-
-    use super::*;
     use crate::error::Error;
     use crate::manifest::table_manifest_dir;
     use crate::test_util::{build_test_table_metadata, new_test_object_store, TEST_TABLE_NAME};

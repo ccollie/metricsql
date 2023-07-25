@@ -23,16 +23,13 @@ use datafusion::physical_plan::SendableRecordBatchStream;
 use common_query::logical_plan::Expr;
 use common_recordbatch::SendableRecordBatchStream;
 use datatypes::schema::SchemaRef;
-use store_api::storage::{ScanRequest};
+use store_api::storage::ScanRequest;
 
 use crate::error::{Result, UnsupportedSnafu};
 use crate::metadata::{FilterPushDownType, TableId, TableInfoRef, TableType};
 use crate::requests::{AlterTableRequest, DeleteRequest, InsertRequest};
 use crate::table::error::UnsupportedSnafu;
 use crate::table::metadata::{FilterPushDownType, TableId, TableInfoRef, TableType};
-
-pub mod adapter;
-
 
 /// Table abstraction.
 #[async_trait]
@@ -71,7 +68,7 @@ pub trait Table: Send + Sync {
     }
 
     /// Close the table.
-    async fn close(&self, _regions: &[RegionNumber]) -> Result<()> {
+    async fn close(&self) -> Result<()> {
         Ok(())
     }
 }
