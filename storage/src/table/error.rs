@@ -20,7 +20,6 @@ use snafu::{Location, Snafu};
 
 use common_error::ext::{BoxedError, ErrorExt};
 use common_error::status_code::StatusCode;
-use datatypes::arrow::error::ArrowError;
 
 use crate::status_code::StatusCode;
 use crate::table::metadata::TableId;
@@ -96,19 +95,6 @@ pub enum Error {
         location: Location,
     },
 
-    #[snafu(display(
-        "Failed to build column descriptor for table: {}, column: {}, source: {}",
-        table_name,
-        column_name,
-        source,
-    ))]
-    BuildColumnDescriptor {
-        source: store_api::storage::ColumnDescriptorBuilderError,
-        table_name: String,
-        column_name: String,
-        location: Location,
-    },
-
     #[snafu(display("Failed to operate table, source: {}", source))]
     TableOperation { source: BoxedError },
 
@@ -141,9 +127,6 @@ impl ErrorExt for Error {
             Error::Datafusion { .. }
             | Error::SchemaConversion { .. }
             | Error::TableProjection { .. } => StatusCode::EngineExecuteQuery,
-            Error::RemoveColumnInIndex { .. } | Error::BuildColumnDescriptor { .. } => {
-                StatusCode::InvalidArguments
-            }
             Error::TablesRecordBatch { .. } | Error::DuplicatedExecuteCall { .. } => {
                 StatusCode::Unexpected
             }

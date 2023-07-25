@@ -16,7 +16,7 @@ use std::any::Any;
 use std::sync::{Arc, Mutex};
 
 use datafusion::arrow::datatypes::SchemaRef as DfSchemaRef;
-use datafusion::datasource::datasource::TableProviderFilterPushDown as DfTableProviderFilterPushDown;
+use datafusion::datasource::TableProviderFilterPushDown as DfTableProviderFilterPushDown;
 use datafusion::datasource::{TableProvider, TableType as DfTableType};
 use datafusion::error::Result as DfResult;
 use datafusion::execution::context::SessionState;

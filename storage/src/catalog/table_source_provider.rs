@@ -20,12 +20,10 @@ use datafusion::datasource::provider_as_source;
 use datafusion::logical_expr::TableSource;
 use snafu::{ensure, OptionExt};
 
-use common_catalog::consts::INFORMATION_SCHEMA_NAME;
-use common_catalog::format_full_table_name;
-use table::table::adapter::DfTableProviderAdapter;
-
 use crate::catalog::manager::CatalogManagerRef;
-use crate::error::{QueryAccessDeniedSnafu, Result, TableNotExistSnafu};
+use crate::catalog::utils::format_full_table_name;
+use crate::error::{Result, TableNotExistSnafu};
+use crate::table::adapter::DfTableProviderAdapter;
 
 pub struct DfTableSourceProvider {
     catalog_manager: CatalogManagerRef,
@@ -123,7 +121,6 @@ mod tests {
     use session::context::QueryContext;
 
     use crate::catalog::local::MemoryCatalogManager;
-    use crate::local::MemoryCatalogManager;
 
     use super::*;
 

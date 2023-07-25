@@ -20,14 +20,12 @@ use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::logical_expr::Expr;
 use datafusion::physical_plan::SendableRecordBatchStream;
 
-use common_query::logical_plan::Expr;
 use common_recordbatch::SendableRecordBatchStream;
 use datatypes::schema::SchemaRef;
 use store_api::storage::ScanRequest;
 
 use crate::error::{Result, UnsupportedSnafu};
 use crate::metadata::{FilterPushDownType, TableId, TableInfoRef, TableType};
-use crate::requests::{AlterTableRequest, DeleteRequest, InsertRequest};
 use crate::table::error::UnsupportedSnafu;
 use crate::table::metadata::{FilterPushDownType, TableId, TableInfoRef, TableType};
 
@@ -63,7 +61,7 @@ pub trait Table: Send + Sync {
     /// - region_number: specify region to flush.
     /// - wait: Whether to wait until flush is done.
     async fn flush(&self, wait: Option<bool>) -> Result<()> {
-        let _ = (region_number, wait);
+        let _ = wait;
         UnsupportedSnafu { operation: "FLUSH" }.fail()?
     }
 

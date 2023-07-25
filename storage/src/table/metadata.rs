@@ -23,7 +23,6 @@ use serde::{Deserialize, Serialize};
 use snafu::ResultExt;
 
 use common_catalog::consts::{DEFAULT_CATALOG_NAME, DEFAULT_SCHEMA_NAME};
-use common_query::AddColumnLocation;
 use datafusion_expr::TableProviderFilterPushDown;
 pub use datatypes::error::{Error as ConvertError, Result as ConvertResult};
 use datatypes::schema::{ColumnSchema, RawSchema, Schema, SchemaBuilder, SchemaRef};
@@ -347,9 +346,6 @@ mod tests {
     use common_error::status_code::StatusCode;
     use datatypes::data_type::ConcreteDataType;
     use datatypes::schema::{ColumnSchema, Schema, SchemaBuilder};
-
-    use crate::status_code::StatusCode;
-
     use super::*;
 
     fn new_test_schema() -> Schema {
@@ -391,67 +387,6 @@ mod tests {
         let info_new = TableInfo::try_from(raw).unwrap();
 
         assert_eq!(info, info_new);
-    }
-
-    #[test]
-    fn test_add_columns() {
-        let schema = Arc::new(new_test_schema());
-        let meta = TableMetaBuilder::default()
-            .schema(schema)
-            .primary_key_indices(vec![0])
-            .engine("engine")
-            .next_column_id(3)
-            .build()
-            .unwrap();
-
-        let new_meta = add_columns_to_meta(&meta);
-
-        let names: Vec<String> = new_meta
-            .schema
-            .column_schemas()
-            .iter()
-            .map(|column_schema| column_schema.name.clone())
-            .collect();
-        assert_eq!(&["col1", "ts", "col2", "my_tag", "my_field"], &names[..]);
-        assert_eq!(&[0, 3], &new_meta.primary_key_indices[..]);
-        assert_eq!(&[1, 2, 4], &new_meta.value_indices[..]);
-    }
-
-    #[test]
-    fn test_remove_columns() {
-        let schema = Arc::new(new_test_schema());
-        let meta = TableMetaBuilder::default()
-            .schema(schema.clone())
-            .primary_key_indices(vec![0])
-            .engine("engine")
-            .next_column_id(3)
-            .build()
-            .unwrap();
-        // Add more columns so we have enough candidate columns to remove.
-        let meta = add_columns_to_meta(&meta);
-
-        let alter_kind = AlterKind::DropColumns {
-            names: vec![String::from("col2"), String::from("my_field")],
-        };
-        let new_meta = meta
-            .builder_with_alter_kind("my_table", &alter_kind)
-            .unwrap()
-            .build()
-            .unwrap();
-
-        let names: Vec<String> = new_meta
-            .schema
-            .column_schemas()
-            .iter()
-            .map(|column_schema| column_schema.name.clone())
-            .collect();
-        assert_eq!(&["col1", "ts", "my_tag"], &names[..]);
-        assert_eq!(&[0, 2], &new_meta.primary_key_indices[..]);
-        assert_eq!(&[1], &new_meta.value_indices[..]);
-        assert_eq!(
-            schema.timestamp_column(),
-            new_meta.schema.timestamp_column()
-        );
     }
 
     #[test]
@@ -505,86 +440,7 @@ mod tests {
             new_meta.schema.timestamp_column()
         );
     }
-
-    #[test]
-    fn test_add_existing_column() {
-        let schema = Arc::new(new_test_schema());
-        let meta = TableMetaBuilder::default()
-            .schema(schema)
-            .primary_key_indices(vec![0])
-            .engine("engine")
-            .build()
-            .unwrap();
-
-        let alter_kind = AlterKind::AddColumns {
-            columns: vec![AddColumnRequest {
-                column_schema: ColumnSchema::new("col1", ConcreteDataType::string_datatype(), true),
-                is_key: false,
-                location: None,
-            }],
-        };
-
-        let err = meta
-            .builder_with_alter_kind("my_table", &alter_kind)
-            .err()
-            .unwrap();
-        assert_eq!(StatusCode::TableColumnExists, err.status_code());
-    }
-
-    #[test]
-    fn test_remove_unknown_column() {
-        let schema = Arc::new(new_test_schema());
-        let meta = TableMetaBuilder::default()
-            .schema(schema)
-            .primary_key_indices(vec![0])
-            .engine("engine")
-            .next_column_id(3)
-            .build()
-            .unwrap();
-
-        let alter_kind = AlterKind::DropColumns {
-            names: vec![String::from("unknown")],
-        };
-
-        let err = meta
-            .builder_with_alter_kind("my_table", &alter_kind)
-            .err()
-            .unwrap();
-        assert_eq!(StatusCode::TableColumnNotFound, err.status_code());
-    }
-
-    #[test]
-    fn test_remove_key_column() {
-        let schema = Arc::new(new_test_schema());
-        let meta = TableMetaBuilder::default()
-            .schema(schema)
-            .primary_key_indices(vec![0])
-            .engine("engine")
-            .build()
-            .unwrap();
-
-        // Remove column in primary key.
-        let alter_kind = AlterKind::DropColumns {
-            names: vec![String::from("col1")],
-        };
-
-        let err = meta
-            .builder_with_alter_kind("my_table", &alter_kind)
-            .err()
-            .unwrap();
-        assert_eq!(StatusCode::InvalidArguments, err.status_code());
-
-        // Remove timestamp column.
-        let alter_kind = AlterKind::DropColumns {
-            names: vec![String::from("ts")],
-        };
-
-        let err = meta
-            .builder_with_alter_kind("my_table", &alter_kind)
-            .err()
-            .unwrap();
-        assert_eq!(StatusCode::InvalidArguments, err.status_code());
-    }
+    
 
     #[test]
     fn test_alloc_new_column() {

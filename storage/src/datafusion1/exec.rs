@@ -75,7 +75,6 @@ async fn register_udf(ctx: &mut SessionContext) {
 }
 
 pub async fn register_table(
-    session: &SearchSession,
     schema: Arc<Schema>,
     table_name: &str,
     files: &[String],
@@ -86,6 +85,7 @@ pub async fn register_table(
     let config = ListingTableConfig::new(prefix)
         .with_listing_options(listing_options)
         .with_schema(schema);
+    
     let table = ListingTable::try_new(config)?;
     ctx.register_table(table_name, Arc::new(table))?;
 
@@ -102,7 +102,7 @@ mod test {
     #[actix_web::test]
     async fn test_register_udf() {
         let mut ctx = SessionContext::new();
-        let _ = register_udf(&mut ctx, "nexus").await;
+        let _ = register_udf(&mut ctx).await;
         //assert!(res)
     }
 }

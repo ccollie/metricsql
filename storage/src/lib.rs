@@ -23,6 +23,7 @@ mod status_code;
 mod table;
 mod udf;
 mod utils;
+mod r#object
 
 pub struct TableContext {
     pub session: SessionContext,

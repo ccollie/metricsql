@@ -109,8 +109,6 @@ impl<R: Region> Table for MitoTable<R> {
         // columns_values is not empty, it's safe to unwrap
         let rows_num = columns_values.values().next().unwrap().len();
 
-        histogram!(MITO_INSERT_BATCH_SIZE, rows_num as f64);
-
         logging::trace!(
             "Insert into table {} region {} with data: {:?}",
             self.table_info().name,
