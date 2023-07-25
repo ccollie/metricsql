@@ -3,7 +3,7 @@ use metricsql::prelude::Operator;
 
 use crate::{QueryValue, RuntimeError, RuntimeResult};
 
-pub(crate) fn eval_duration_scalar_op(
+pub(crate) fn eval_duration_scalar_binop(
     dur: &DurationExpr,
     scalar: f64,
     op: Operator,
@@ -34,7 +34,7 @@ pub(crate) fn eval_duration_scalar_op(
     }
 }
 
-pub(crate) fn eval_duration_duration_op(
+pub(crate) fn eval_duration_duration_binop(
     dur_a: &DurationExpr,
     dur_b: &DurationExpr,
     op: Operator,

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use regex::escape;
 use tracing::{field, trace, trace_span, Span};
 
-use metricsql::common::{LabelFilter, Operator, ValueType};
+use metricsql::common::{LabelFilter, Operator};
 use metricsql::prelude::*;
 
 use crate::context::Context;
@@ -66,36 +66,26 @@ fn exec_binary_op_args(
     expr_second: &Expr,
     be: &BinaryExpr,
 ) -> RuntimeResult<(QueryValue, QueryValue)> {
-    let can_parallelize = should_parallelize(be);
     let can_push_down_filters = can_push_down_common_filters(be);
 
     if !can_push_down_filters {
-        // avoid multi-threading in simple case
         let op = be.op.as_str();
         let span = trace_span!("execute left and right sides in parallel", op);
         let _guard = span.enter();
-        return if can_parallelize {
-            // todo: have a special path for case where both sides are selectors
-            // i.e. both are io bound async
-            match rayon::join(
-                || {
-                    trace!("left");
-                    exec_expr(ctx, ec, expr_first)
-                },
-                || {
-                    trace!("right");
-                    let ctx_clone = Arc::clone(ctx);
-                    exec_expr(&ctx_clone, ec, expr_second)
-                },
-            ) {
-                (Ok(first), Ok(second)) => Ok((first, second)),
-                (Err(err), _) => Err(err),
-                (Ok(_), Err(err)) => Err(err),
-            }
-        } else {
-            let left = exec_expr(ctx, ec, expr_first)?;
-            let right = exec_expr(ctx, ec, expr_second)?;
-            Ok((left, right))
+        return match rayon::join(
+            || {
+                trace!("left");
+                exec_expr(ctx, ec, expr_first)
+            },
+            || {
+                trace!("right");
+                let ctx_clone = Arc::clone(ctx);
+                exec_expr(&ctx_clone, ec, expr_second)
+            },
+        ) {
+            (Ok(first), Ok(second)) => Ok((first, second)),
+            (Err(err), _) => Err(err),
+            (Ok(_), Err(err)) => Err(err),
         };
     }
 
@@ -162,29 +152,6 @@ fn to_vector(value: QueryValue) -> RuntimeResult<Vec<Timeseries>> {
             "Bug: binary_op. Unexpected {} operand",
             value.data_type_name()
         ),
-    }
-}
-
-fn should_parallelize_expr(expr: &BExpression) -> bool {
-    use Expr::*;
-
-    match expr.as_ref() {
-        StringLiteral(_) | Number(_) | Duration(_) => false,
-        _ => {
-            // todo: maybe have a complexity threshold
-            true
-        }
-    }
-}
-
-fn should_parallelize(be: &BinaryExpr) -> bool {
-    if should_parallelize_expr(&be.left) && should_parallelize_expr(&be.right) {
-        return true;
-    }
-
-    match (&be.left.return_type(), &be.right.return_type()) {
-        (ValueType::InstantVector, ValueType::InstantVector) => true,
-        _ => false,
     }
 }
 

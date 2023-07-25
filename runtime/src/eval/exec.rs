@@ -1,6 +1,7 @@
 use std::fmt::Display;
 use std::sync::Arc;
 
+use rayon::join;
 use tracing::{field, trace, trace_span, Span};
 
 use metricsql::ast::{BinaryExpr, Expr, FunctionExpr, ParensExpr, RollupExpr};
@@ -9,8 +10,8 @@ use metricsql::prelude::BuiltinFunction;
 
 use crate::eval::aggregate::eval_aggr_func;
 use crate::eval::binary::{
-    eval_duration_duration_op, eval_duration_scalar_op, eval_scalar_vector_binop,
-    eval_string_string_op, eval_vector_scalar_binop, eval_vector_vector_binop,
+    eval_duration_duration_binop, eval_duration_scalar_binop, eval_scalar_vector_binop,
+    eval_string_string_binop, eval_vector_scalar_binop, eval_vector_vector_binop,
     scalar_binary_operations,
 };
 use crate::eval::rollups::RollupExecutor;
@@ -145,29 +146,27 @@ fn eval_binary_op(
         (Expr::MetricExpression(_), Expr::MetricExpression(_)) => {
             eval_vector_vector_binop(be, ctx, ec)
         }
-        // the following cases can be handled cheaply without invoking async runtime
+        // the following cases can be handled cheaply without invoking async overhead
         (Expr::Number(left), Expr::Number(right)) => {
             let value = scalar_binary_operations(be.op, left.value, right.value, be.bool_modifier)?;
             Ok(Value::Scalar(value))
         }
         (Expr::Duration(left), Expr::Duration(right)) => {
-            eval_duration_duration_op(&left, right, be.op, ec.step)
+            eval_duration_duration_binop(&left, right, be.op, ec.step)
         }
         (Expr::Duration(dur), Expr::Number(scalar)) => {
-            eval_duration_scalar_op(&dur, scalar.value, be.op, ec.step)
+            eval_duration_scalar_binop(&dur, scalar.value, be.op, ec.step)
         }
         (Expr::Number(scalar), Expr::Duration(dur)) => {
-            eval_duration_scalar_op(&dur, scalar.value, be.op, ec.step)
+            eval_duration_scalar_binop(&dur, scalar.value, be.op, ec.step)
         }
         (Expr::StringLiteral(left), Expr::StringLiteral(right)) => {
-            eval_string_string_op(be.op, &left, &right, be.bool_modifier)
+            eval_string_string_binop(be.op, &left, &right, be.bool_modifier)
         }
         (left, right) => {
-            // todo: rayon.join!
-            let lhs = exec_expr(ctx, ec, &left)?;
-            let rhs = exec_expr(ctx, ec, &right)?;
+            let (lhs, rhs) = join(|| exec_expr(ctx, ec, &left), || exec_expr(ctx, ec, &right));
 
-            match (lhs, rhs) {
+            match (lhs?, rhs?) {
                 (QueryValue::Scalar(left), QueryValue::Scalar(right)) => {
                     let value = scalar_binary_operations(be.op, left, right, be.bool_modifier)?;
                     Ok(Value::Scalar(value))
@@ -182,7 +181,7 @@ fn eval_binary_op(
                     eval_scalar_vector_binop(be, vector, scalar, is_tracing)
                 }
                 (QueryValue::String(left), QueryValue::String(right)) => {
-                    eval_string_string_op(be.op, &left, &right, be.bool_modifier)
+                    eval_string_string_binop(be.op, &left, &right, be.bool_modifier)
                 }
                 _ => {
                     return Err(RuntimeError::NotImplemented(format!(

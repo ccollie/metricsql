@@ -3510,6 +3510,14 @@ mod tests {
     }
 
     #[test]
+    fn distinct_over_time_err() {
+        assert_result_eq(
+            "distinct_over_time((time() < 1700)[2.5i])",
+            &[3.0, 3.0, 3.0, 3.0, 2.0, 1.0],
+        );
+    }
+
+    #[test]
     fn distinct_over_time() {
         assert_result_eq(
             "distinct_over_time((time() < 1700)[500s])",

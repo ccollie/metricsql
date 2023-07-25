@@ -283,10 +283,9 @@ impl ConstEvaluator {
 
     fn get_single_scalar_arg(fe: &FunctionExpr) -> Option<f64> {
         if fe.args.len() == 1 {
-            return match &fe.args[0] {
-                Expr::Number(n) => Some(n.value),
-                _ => None,
-            };
+            if let Expr::Number(val) = &fe.args[0] {
+                return Some(val.value);
+            }
         }
         None
     }

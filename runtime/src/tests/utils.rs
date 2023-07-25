@@ -141,10 +141,10 @@ pub fn compare_values(actual: &[f64], expected: &[f64]) -> RuntimeResult<()> {
         actual.len(),
         expected.len()
     );
-    for (got, wanted) in actual.iter().zip(expected.iter()) {
+    for (i, (got, wanted)) in actual.iter().zip(expected.iter()).enumerate() {
         assert!(
             compare_floats(*wanted, *got),
-            "unexpected value; got {v1}; want {v2}",
+            "unexpected value comparing slice; expected {v2}, got {v1} at index {i}",
             v1 = *got,
             v2 = *wanted
         );

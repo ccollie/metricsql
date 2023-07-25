@@ -459,7 +459,7 @@ fn get_rollup_tag(expr: &Expr) -> RuntimeResult<Option<&String>> {
                 "unexpected number of args for rollup function {}; got {:?}; want 2",
                 fe.name, fe.args
             );
-            return Err(RuntimeError::General(msg));
+            return Err(RuntimeError::ArgumentError(msg));
         }
         let arg = &fe.args[1];
         if let Expr::StringLiteral(se) = arg {
@@ -528,6 +528,7 @@ wrap_rollup_fn!(FN_LOW, rollup_low);
 wrap_rollup_fn!(FN_HIGH, rollup_high);
 wrap_rollup_fn!(FN_FAKE, rollup_fake);
 
+// todo: use tinyvec for return values
 pub(crate) fn get_rollup_configs<'a>(
     func: &RollupFunction,
     rf: &'a RollupHandlerEnum,

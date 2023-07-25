@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use table::metadata::TableVersion;
+
 pub mod immutable;
 mod procedure;
 #[cfg(test)]
 mod tests;
-
-use table::metadata::TableVersion;
 
 const INIT_TABLE_VERSION: TableVersion = 0;
