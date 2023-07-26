@@ -76,7 +76,6 @@ impl ExprSimplifier {
     /// ```
     /// use metricsql::prelude::ExprSimplifier;
     /// use super::{selector, number, Expr};
-    /// use crate::ast::{ExprSimplifier};
     ///
     /// // Create the simplifier
     /// let simplifier = ExprSimplifier::new();
@@ -211,14 +210,8 @@ impl ConstEvaluator {
                 BuiltinFunction::Transform(_) => return Self::volatility_ok(function.volatility()),
                 _ => false,
             },
-            Expr::Number(_)
-            | Expr::StringLiteral(_)
-            | Expr::BinaryOperator(_)
-            | Expr::Duration(DurationExpr {
-                requires_step: false,
-                ..
-            }) => true,
-            Expr::Duration(_) => false,
+            Expr::Number(_) | Expr::StringLiteral(_) | Expr::BinaryOperator(_) => true,
+            Expr::Duration(de) => !de.requires_step(),
             Expr::StringExpr(se) => !se.is_expanded(),
             Expr::With(_) => false,
             Expr::WithSelector(_) => false,
@@ -239,25 +232,34 @@ impl ConstEvaluator {
             (Expr::Duration(ln), Expr::Duration(rn), op)
                 if op == Operator::Add || op == Operator::Sub =>
             {
-                if ln.requires_step == rn.requires_step {
-                    let n = scalar_binary_operation(
-                        ln.value as f64,
-                        rn.value as f64,
-                        op,
-                        be.bool_modifier,
-                    )? as i64;
-                    let dur = DurationExpr::new(n, ln.requires_step);
-                    return Ok(Expr::Duration(dur));
+                match (ln, rn) {
+                    (DurationExpr::Millis(left_val), DurationExpr::Millis(right_val)) => {
+                        let n = scalar_binary_operation(
+                            *left_val as f64,
+                            *right_val as f64,
+                            op,
+                            be.bool_modifier,
+                        )? as i64;
+                        let dur = DurationExpr::new(n);
+                        return Ok(Expr::Duration(dur));
+                    }
+                    (DurationExpr::StepValue(left_val), DurationExpr::StepValue(right_val)) => {
+                        let n =
+                            scalar_binary_operation(*left_val, *right_val, op, be.bool_modifier)?;
+                        let dur = DurationExpr::new_step(n);
+                        return Ok(Expr::Duration(dur));
+                    }
+                    _ => {}
                 }
             }
             // add/subtract number as secs to duration
             (Expr::Duration(ln), Expr::Number(NumberLiteral { value }), op)
-                if !ln.requires_step && (op == Operator::Add || op == Operator::Sub) =>
+                if !ln.requires_step() && (op == Operator::Add || op == Operator::Sub) =>
             {
                 let secs = *value * 1e3_f64;
                 let n =
-                    scalar_binary_operation(ln.value as f64, secs, op, be.bool_modifier)? as i64;
-                let dur = DurationExpr::new(n, ln.requires_step);
+                    scalar_binary_operation(ln.value(1) as f64, secs, op, be.bool_modifier)? as i64;
+                let dur = DurationExpr::new(n);
                 return Ok(Expr::Duration(dur));
             }
             (Expr::Number(ln), Expr::Number(rn), op) => {

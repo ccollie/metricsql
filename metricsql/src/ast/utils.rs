@@ -124,7 +124,7 @@ pub fn expr_equals(expr1: &Expr, expr2: &Expr) -> bool {
     use Expr::*;
 
     match (expr1, expr2) {
-        (Duration(d1), Duration(d2)) => d1.value == d2.value,
+        (Duration(d1), Duration(d2)) => d1 == d2,
         (MetricExpression(me1), MetricExpression(me2)) => me1 == me2,
         (StringLiteral(s1), StringLiteral(s2)) => s1 == s2,
         (Number(n1), Number(n2)) => n1 == n2,
@@ -210,7 +210,6 @@ fn expr_vec_equals(exprs1: &Vec<Expr>, exprs2: &Vec<Expr>) -> bool {
         .zip(exprs2.iter())
         .all(|(e1, e2)| expr_equals(e1, e2))
 }
-
 
 #[cfg(test)]
 pub mod tests {

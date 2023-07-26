@@ -209,33 +209,37 @@ impl<'a> Parser<'a> {
     pub fn parse_duration(&mut self) -> ParseResult<DurationExpr> {
         use Token::*;
 
-        let mut requires_step = false;
         let token = self.expect_one_of(&[Number, Duration])?;
         let last_ch: char = token.text.chars().last().unwrap();
 
-        let value = match token.kind {
+        match token.kind {
             Number => {
                 // there is a bit of ambiguity between a Number with a unit and a Duration in the
                 // case of tokens with the suffix 'm'. For example, does 60m mean 60 minutes or
                 // 60 million. We accept Duration here to deal with that special case
-                if last_ch == 'm' || last_ch == 'M' {
+                let millis = if last_ch == 'm' || last_ch == 'M' {
                     // treat as minute
                     parse_duration_value(token.text, 1)?
                 } else {
                     parse_number(token.text)? as i64
-                }
+                };
+                Ok(DurationExpr::new(millis))
             }
             Duration => {
-                requires_step = last_ch == 'i' || last_ch == 'I';
-                parse_duration_value(token.text, 1)?
+                if last_ch == 'i' || last_ch == 'I' {
+                    let step_text = &token.text[..token.text.len() - 1];
+                    if let Ok(value) = step_text.parse::<f64>() {
+                        Ok(DurationExpr::StepValue(value))
+                    } else {
+                        Err(ParseError::InvalidDuration(token.text.to_string()))
+                    }
+                } else {
+                    let millis = parse_duration_value(token.text, 1)?;
+                    Ok(DurationExpr::new(millis))
+                }
             }
             _ => unreachable!("parse_duration"),
-        };
-
-        Ok(DurationExpr {
-            value,
-            requires_step,
-        })
+        }
     }
 
     /// returns positive duration in milliseconds for the given s

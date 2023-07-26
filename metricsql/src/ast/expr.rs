@@ -123,27 +123,34 @@ impl Deref for NumberLiteral {
 }
 
 /// DurationExpr contains a duration
-#[derive(Default, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct DurationExpr {
-    /// Duration in milliseconds
-    pub value: i64,
-    pub requires_step: bool,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum DurationExpr {
+    /// duration value in milliseconds
+    Millis(i64),
+    StepValue(f64),
 }
 
 impl DurationExpr {
-    pub fn new(millis: i64, needs_step: bool) -> Self {
-        Self {
-            value: millis,
-            requires_step: needs_step,
+    pub fn new(millis: i64) -> Self {
+        Self::Millis(millis)
+    }
+
+    pub fn new_step(step: f64) -> Self {
+        Self::StepValue(step)
+    }
+
+    pub fn requires_step(&self) -> bool {
+        match self {
+            DurationExpr::Millis(_) => false,
+            DurationExpr::StepValue(_) => true,
         }
     }
 
     /// Duration returns the duration from de in milliseconds.
     pub fn value(&self, step: i64) -> i64 {
-        if self.requires_step {
-            self.value * step
-        } else {
-            self.value
+        match self {
+            DurationExpr::Millis(v) => *v,
+            DurationExpr::StepValue(v) => (*v * step as f64) as i64,
         }
     }
 
@@ -152,12 +159,17 @@ impl DurationExpr {
     }
 }
 
+impl Default for DurationExpr {
+    fn default() -> Self {
+        Self::Millis(0)
+    }
+}
+
 impl Display for DurationExpr {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        if self.requires_step {
-            write!(f, "{}i", self.value)
-        } else {
-            fmt_duration_ms(f, self.value)
+        match self {
+            DurationExpr::Millis(v) => fmt_duration_ms(f, *v),
+            DurationExpr::StepValue(v) => write!(f, "{v}i"),
         }
     }
 }
@@ -1311,7 +1323,7 @@ impl Expr {
         and ignoring (instance)
         sum(rate(some_queries{instance=~"localhost\\d+"} [5m])) > 100
     "#;
-    let ast = promql::parse(query).expect("valid query");
+    let ast = metricsql::parser::parse(query).expect("valid query");
     let series: Vec<String> = ast.series_names().collect();
     assert_eq!(series, vec![
             "something_used".to_string(),
