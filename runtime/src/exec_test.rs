@@ -1426,8 +1426,12 @@ mod tests {
     }
 
     #[test]
-    fn round() {
+    fn round_to_integer() {
         assert_result_eq("round(time()/1e3)", &[1.0, 1.0, 1.0, 2.0, 2.0, 2.0]);
+    }
+
+    #[test]
+    fn round_to_nearest() {
         assert_result_eq("round(time()/1e3, 0.5)", &[1.0, 1.0, 1.5, 1.5, 2.0, 2.0]);
         assert_result_eq(
             "round(-time()/1e3, 0.5)",

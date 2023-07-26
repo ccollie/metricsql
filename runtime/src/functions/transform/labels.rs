@@ -11,7 +11,7 @@ use crate::{MetricName, RuntimeError, RuntimeResult, Timeseries, METRIC_NAME_LAB
 
 const DOT_SEPARATOR: &str = ".";
 
-pub(crate) fn transform_label_keep(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn label_keep(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut keep_labels: Vec<String> = Vec::with_capacity(tfa.args.len());
     for i in 1..tfa.args.len() {
         let keep_label = get_string_arg(&tfa.args, i)?;
@@ -26,7 +26,7 @@ pub(crate) fn transform_label_keep(tfa: &mut TransformFuncArg) -> RuntimeResult<
     Ok(series)
 }
 
-pub(crate) fn transform_label_del(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn label_del(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut del_labels: Vec<String> = Vec::with_capacity(tfa.args.len());
     for i in 1..tfa.args.len() {
         let del_label = get_string_arg(&tfa.args, i)?;
@@ -41,25 +41,25 @@ pub(crate) fn transform_label_del(tfa: &mut TransformFuncArg) -> RuntimeResult<V
     Ok(series)
 }
 
-pub(crate) fn transform_label_set(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn label_set(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let (dst_labels, dst_values) = get_string_pairs(tfa, 1)?;
     let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
 
-    label_set(&mut series, &dst_labels, &dst_values);
+    handle_label_set(&mut series, &dst_labels, &dst_values);
 
     Ok(series)
 }
 
-pub(crate) fn transform_alias(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn alias(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let alias = get_string_arg(&tfa.args, 1)?.to_string();
     let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
 
-    label_set(&mut series, &[METRIC_NAME_LABEL.to_string()], &[alias]);
+    handle_label_set(&mut series, &[METRIC_NAME_LABEL.to_string()], &[alias]);
 
     Ok(series)
 }
 
-pub(crate) fn label_set(
+pub(crate) fn handle_label_set(
     series: &mut Vec<Timeseries>,
     dst_labels: &[String],
     dst_values: &[String],
@@ -75,15 +75,11 @@ pub(crate) fn label_set(
     }
 }
 
-pub(crate) fn transform_label_uppercase(
-    tfa: &mut TransformFuncArg,
-) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn label_uppercase(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     transform_label_value_func(tfa, |x| x.to_uppercase())
 }
 
-pub(crate) fn transform_label_lowercase(
-    tfa: &mut TransformFuncArg,
-) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn label_lowercase(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     transform_label_value_func(tfa, |x| x.to_lowercase())
 }
 
@@ -113,7 +109,7 @@ fn transform_label_value_func(
     Ok(series)
 }
 
-pub(crate) fn transform_label_map(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn label_map(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let label = get_label(tfa, "", 1)?.to_string();
 
     let (src_values, dst_values) = get_string_pairs(tfa, 2)?;
@@ -138,9 +134,7 @@ pub(crate) fn transform_label_map(tfa: &mut TransformFuncArg) -> RuntimeResult<V
     Ok(series)
 }
 
-pub(crate) fn transform_drop_common_labels(
-    tfa: &mut TransformFuncArg,
-) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn drop_common_labels(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
     for i in 1..tfa.args.len() {
         let mut other = get_series_arg(&tfa.args, i, tfa.ec)?;
@@ -169,11 +163,11 @@ pub(crate) fn transform_drop_common_labels(
     Ok(series)
 }
 
-pub(crate) fn transform_label_copy(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn label_copy(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     transform_label_copy_ext(tfa, false)
 }
 
-pub(crate) fn transform_label_move(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn label_move(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     transform_label_copy_ext(tfa, true)
 }
 
@@ -210,7 +204,7 @@ fn transform_label_copy_ext(
     Ok(series)
 }
 
-pub(crate) fn transform_label_join(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn label_join(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let dst_label = get_string_arg(&tfa.args, 1)?;
     let separator = get_string_arg(&tfa.args, 2)?;
 
@@ -247,9 +241,7 @@ pub(crate) fn transform_label_join(tfa: &mut TransformFuncArg) -> RuntimeResult<
     Ok(series)
 }
 
-pub(crate) fn transform_label_transform(
-    tfa: &mut TransformFuncArg,
-) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn label_transform(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let label = get_string_arg(&tfa.args, 1)?;
     let regex = get_string_arg(&tfa.args, 2)?;
     let replacement = get_string_arg(&tfa.args, 3)?;
@@ -267,12 +259,10 @@ pub(crate) fn transform_label_transform(
     }
 
     let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
-    label_replace(&mut series, &label, &r.unwrap(), &label, &replacement)
+    handle_label_replace(&mut series, &label, &r.unwrap(), &label, &replacement)
 }
 
-pub(crate) fn transform_label_replace(
-    tfa: &mut TransformFuncArg,
-) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn label_replace(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let regex = get_string_arg(&tfa.args, 4)?.to_string();
 
     process_anchored_regex(tfa, regex.as_str(), |tfa, r| {
@@ -281,13 +271,13 @@ pub(crate) fn transform_label_replace(
         let src_label = get_string_arg(&tfa.args, 3)?;
         let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
 
-        label_replace(&mut series, &src_label, &r, &dst_label, &replacement)
+        handle_label_replace(&mut series, &src_label, &r, &dst_label, &replacement)
     })
 }
 
 const EMPTY_STRING: &str = "";
 
-fn label_replace(
+fn handle_label_replace(
     tss: &mut Vec<Timeseries>,
     src_label: &str,
     r: &Regex,
@@ -329,7 +319,7 @@ fn label_replace(
     Ok(std::mem::take(tss))
 }
 
-pub(crate) fn transform_label_value(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn label_value(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let label_name = get_string_arg(&tfa.args, 1)?;
     let mut x: f64;
 
@@ -371,7 +361,7 @@ where
     }
 }
 
-pub(crate) fn transform_label_match(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn label_match(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let label_name = get_label(tfa, "", 1)?.to_string();
     let label_re = get_label(tfa, "regexp", 1)?.to_string();
 
@@ -389,9 +379,7 @@ pub(crate) fn transform_label_match(tfa: &mut TransformFuncArg) -> RuntimeResult
     })
 }
 
-pub(crate) fn transform_label_mismatch(
-    tfa: &mut TransformFuncArg,
-) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn label_mismatch(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let label_re = get_label(tfa, "regexp", 2)?.to_string();
 
     process_anchored_regex(tfa, &label_re, |tfa, r| {
@@ -409,9 +397,7 @@ pub(crate) fn transform_label_mismatch(
     })
 }
 
-pub(crate) fn transform_label_graphite_group(
-    tfa: &mut TransformFuncArg,
-) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn label_graphite_group(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut group_ids: Vec<i64> = Vec::with_capacity(tfa.args.len() - 1);
     let group_args = &tfa.args[1..];
     for (i, arg) in group_args.iter().enumerate() {

@@ -5,7 +5,7 @@ use crate::functions::arg_parse::get_series_arg;
 use crate::functions::transform::TransformFuncArg;
 use crate::{EvalConfig, RuntimeResult, Timeseries};
 
-pub(crate) fn transform_absent(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn absent(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut rvs = get_absent_timeseries(&mut tfa.ec, &tfa.fe.args[0])?;
 
     let series = get_series_arg(&tfa.args, 0, tfa.ec)?;

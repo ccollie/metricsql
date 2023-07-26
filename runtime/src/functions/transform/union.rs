@@ -5,6 +5,12 @@ use crate::functions::transform::TransformFuncArg;
 use crate::signature::Signature;
 use crate::{EvalConfig, QueryValue, RuntimeError, RuntimeResult, Timeseries};
 
+pub(crate) fn union(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    // we don't use args after this
+    let args = std::mem::take(&mut tfa.args);
+    handle_union(args, &mut tfa.ec)
+}
+
 pub(crate) fn handle_union(
     args: Vec<QueryValue>,
     ec: &EvalConfig,
@@ -50,10 +56,4 @@ pub(crate) fn handle_union(
     }
 
     Ok(rvs)
-}
-
-pub(crate) fn transform_union(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    // we don't use args after this
-    let args = std::mem::take(&mut tfa.args);
-    handle_union(args, &mut tfa.ec)
 }

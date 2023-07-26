@@ -6,14 +6,27 @@ use crate::common::math::{mean, quantile, quantile_sorted, stddev, stdvar};
 use crate::eval::eval_number;
 use crate::functions::arg_parse::{get_float_arg, get_series_arg};
 use crate::functions::rollup::{linear_regression, mad};
-use crate::functions::transform::running::{
-    transform_running_avg, transform_running_max, transform_running_min, transform_running_sum,
-};
-use crate::functions::transform::transform_fns::TransformFn;
+use crate::functions::transform::running::{running_avg, running_max, running_min, running_sum};
 use crate::functions::transform::utils::{expect_transform_args_num, ru};
-use crate::functions::transform::TransformFuncArg;
+use crate::functions::transform::{TransformFn, TransformFuncArg};
 use crate::functions::utils::{get_first_non_nan_index, get_last_non_nan_index};
 use crate::{QueryValue, RuntimeResult, Timeseries};
+
+pub(crate) fn range_avg(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    transform_range_impl(tfa, running_avg)
+}
+
+pub(crate) fn range_max(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    transform_range_impl(tfa, running_max)
+}
+
+pub(crate) fn range_min(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    transform_range_impl(tfa, running_min)
+}
+
+pub(crate) fn range_sum(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    transform_range_impl(tfa, running_sum)
+}
 
 fn transform_range_impl(
     tfa: &mut TransformFuncArg,
@@ -22,22 +35,6 @@ fn transform_range_impl(
     let mut rvs = running_fn(tfa)?;
     set_last_values(&mut rvs);
     return Ok(rvs);
-}
-
-pub(crate) fn transform_range_avg(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    transform_range_impl(tfa, transform_running_avg)
-}
-
-pub(crate) fn transform_range_max(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    transform_range_impl(tfa, transform_running_max)
-}
-
-pub(crate) fn transform_range_min(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    transform_range_impl(tfa, transform_running_min)
-}
-
-pub(crate) fn transform_range_sum(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    transform_range_impl(tfa, transform_running_sum)
 }
 
 pub(crate) fn transform_range_quantile(
@@ -50,7 +47,7 @@ pub(crate) fn transform_range_quantile(
     Ok(series)
 }
 
-pub(crate) fn transform_range_median(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn range_median(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
     range_quantile(0.5, &mut series);
     Ok(series)
@@ -78,7 +75,7 @@ pub(crate) fn range_quantile(phi: f64, series: &mut Vec<Timeseries>) {
     set_last_values(series);
 }
 
-pub(crate) fn transform_range_first(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn range_first(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
     for ts in series.iter_mut() {
         let len = ts.values.len();
@@ -98,7 +95,7 @@ pub(crate) fn transform_range_first(tfa: &mut TransformFuncArg) -> RuntimeResult
     Ok(series)
 }
 
-pub(crate) fn transform_range_last(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn range_last(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
     set_last_values(&mut series);
     Ok(series)
@@ -119,9 +116,7 @@ fn set_last_values(tss: &mut Vec<Timeseries>) {
     }
 }
 
-pub(crate) fn transform_range_trim_outliers(
-    tfa: &mut TransformFuncArg,
-) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn range_trim_outliers(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     expect_transform_args_num(tfa, 2)?;
     let k = get_float_arg(&tfa.args, 0, Some(0_f64))?;
 
@@ -139,9 +134,7 @@ pub(crate) fn transform_range_trim_outliers(
     return Ok(rvs);
 }
 
-pub(crate) fn transform_range_trim_spikes(
-    tfa: &mut TransformFuncArg,
-) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn range_trim_spikes(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     expect_transform_args_num(tfa, 2)?;
     let mut phi = get_float_arg(&tfa.args, 0, Some(0_f64))?;
 
@@ -177,7 +170,7 @@ pub(crate) fn transform_range_trim_spikes(
     Ok(rvs)
 }
 
-pub(crate) fn transform_range_linear_regression(
+pub(crate) fn range_linear_regression(
     tfa: &mut TransformFuncArg,
 ) -> RuntimeResult<Vec<Timeseries>> {
     let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?; // todo: get_matrix
@@ -196,7 +189,7 @@ pub(crate) fn transform_range_linear_regression(
     return Ok(series);
 }
 
-pub(crate) fn transform_range_stddev(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn range_stddev(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?; // todo: get_matrix
     for ts in series.iter_mut() {
         let dev = stddev(&ts.values);
@@ -207,7 +200,7 @@ pub(crate) fn transform_range_stddev(tfa: &mut TransformFuncArg) -> RuntimeResul
     return Ok(series);
 }
 
-pub(crate) fn transform_range_stdvar(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn range_stdvar(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?; // todo: get_matrix
     for ts in series.iter_mut() {
         let v = stdvar(&ts.values);
@@ -218,9 +211,7 @@ pub(crate) fn transform_range_stdvar(tfa: &mut TransformFuncArg) -> RuntimeResul
     return Ok(series);
 }
 
-pub(crate) fn transform_range_normalize(
-    tfa: &mut TransformFuncArg,
-) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn range_normalize(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut rvs: Vec<Timeseries> = vec![];
     let mut selected: Vec<usize> = Vec::with_capacity(tfa.args.len());
     for i in 0..tfa.args.len() {
@@ -254,14 +245,11 @@ pub(crate) fn transform_range_normalize(
     Ok(rvs)
 }
 
-pub(crate) fn transform_range_trim_zscore(
-    tfa: &mut TransformFuncArg,
-) -> RuntimeResult<Vec<Timeseries>> {
-    expect_transform_args_num(tfa, 2)?;
-    let z = get_float_arg(&tfa.args, 0, Some(0_f64))?.abs();
+pub(crate) fn range_trim_zscore(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    let z = get_float_arg(&tfa.args, 1, Some(0_f64))?.abs();
 
     // Trim samples with z-score above z.
-    let mut rvs = get_series_arg(&tfa.args, 1, tfa.ec)?;
+    let mut rvs = get_series_arg(&tfa.args, 0, tfa.ec)?;
     for ts in rvs.iter_mut() {
         // todo: use rapid calculation methods for mean and stddev.
         let q_stddev = stddev(&ts.values);
@@ -276,9 +264,8 @@ pub(crate) fn transform_range_trim_zscore(
     return Ok(rvs);
 }
 
-pub(crate) fn transform_range_zscore(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    expect_transform_args_num(tfa, 1)?;
-    let mut rvs = get_series_arg(&tfa.args, 1, tfa.ec)?;
+pub(crate) fn range_zscore(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    let mut rvs = get_series_arg(&tfa.args, 0, tfa.ec)?;
     for ts in rvs.iter_mut() {
         // todo: use rapid calculation methods for mean and stddev.
         let q_stddev = stddev(&ts.values);
@@ -290,7 +277,7 @@ pub(crate) fn transform_range_zscore(tfa: &mut TransformFuncArg) -> RuntimeResul
     Ok(rvs)
 }
 
-pub(crate) fn transform_range_ru(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn range_ru(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     if tfa.args.len() != 2 {
         // error
     }

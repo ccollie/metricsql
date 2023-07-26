@@ -1,40 +1,40 @@
-use crate::{RuntimeResult, Timeseries};
 use crate::functions::arg_parse::get_series_arg;
 use crate::functions::transform::TransformFuncArg;
+use crate::{RuntimeResult, Timeseries};
 
-pub(crate) fn transform_running_avg(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    running_func_impl(tfa, running_avg)
+pub(crate) fn running_avg(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    running_func_impl(tfa, handle_avg)
 }
 
-pub(crate) fn transform_running_sum(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    running_func_impl(tfa, running_sum)
+pub(crate) fn running_sum(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    running_func_impl(tfa, handle_sum)
 }
 
-pub(crate) fn transform_running_min(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    running_func_impl(tfa, running_min)
+pub(crate) fn running_min(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    running_func_impl(tfa, handle_min)
 }
 
-pub(crate) fn transform_running_max(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    running_func_impl(tfa, running_max)
+pub(crate) fn running_max(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    running_func_impl(tfa, handle_max)
 }
 
 #[inline]
-fn running_sum(a: f64, b: f64, _idx: usize) -> f64 {
+fn handle_sum(a: f64, b: f64, _idx: usize) -> f64 {
     a + b
 }
 
 #[inline]
-fn running_max(a: f64, b: f64, _idx: usize) -> f64 {
+fn handle_max(a: f64, b: f64, _idx: usize) -> f64 {
     a.max(b)
 }
 
 #[inline]
-fn running_min(a: f64, b: f64, _idx: usize) -> f64 {
+fn handle_min(a: f64, b: f64, _idx: usize) -> f64 {
     a.min(b)
 }
 
 #[inline]
-fn running_avg(a: f64, b: f64, idx: usize) -> f64 {
+fn handle_avg(a: f64, b: f64, idx: usize) -> f64 {
     // See `Rapid calculation methods` at https://en.wikipedia.org/wiki/Standard_deviation
     a + (b - a) / (idx + 1) as f64
 }

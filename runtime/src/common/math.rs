@@ -169,3 +169,17 @@ pub(crate) fn quantile_sorted(phi: f64, values: &[f64]) -> f64 {
 pub(crate) fn median(values: &[f64]) -> f64 {
     quantile(0.5, values)
 }
+
+pub(crate) fn mad(values: &[f64]) -> f64 {
+    // See https://en.wikipedia.org/wiki/Median_absolute_deviation
+    let median = quantile(0.5, values);
+    let mut ds = get_pooled_vec_f64(values.len());
+    for v in values.iter() {
+        ds.push((v - median).abs())
+    }
+    quantile(0.5, &ds)
+}
+
+pub(crate) fn round_to_multiple(n: f64, multiple: f64) -> f64 {
+    (n / multiple).round() * multiple
+}

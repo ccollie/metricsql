@@ -9,7 +9,7 @@ use metricsql::ast::Expr;
 use metricsql::functions::{can_adjust_window, RollupFunction};
 use metricsql::prelude::TransformFunction;
 
-use crate::common::math::{mode_no_nans, quantile, stddev, stdvar};
+use crate::common::math::{mad, mode_no_nans, quantile, stddev, stdvar};
 use crate::eval::validate_max_points_per_timeseries;
 use crate::functions::arg_parse::get_scalar_arg_as_vec;
 use crate::functions::rollup::quantiles::{new_rollup_quantile, new_rollup_quantiles};
@@ -888,7 +888,7 @@ impl RollupConfig {
     fn validate(&self) -> RuntimeResult<()> {
         // Sanity checks.
         if self.step <= 0 {
-            let msg = format!("BUG: Step must be bigger than 0; got {}", self.step);
+            let msg = format!("BUG: step must be bigger than 0; got {}", self.step);
             return Err(RuntimeError::from(msg));
         }
         if self.start > self.end {
@@ -899,7 +899,7 @@ impl RollupConfig {
             return Err(RuntimeError::from(msg));
         }
         if self.window < 0 {
-            let msg = format!("BUG: Window must be non-negative; got {}", self.window);
+            let msg = format!("BUG: window must be non-negative; got {}", self.window);
             return Err(RuntimeError::from(msg));
         }
         match validate_max_points_per_timeseries(
@@ -1321,18 +1321,7 @@ pub(super) fn rollup_min(rfa: &mut RollupFuncArg) -> f64 {
 pub(crate) fn rollup_mad(rfa: &mut RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup funcs.
-
     mad(&rfa.values)
-}
-
-pub(crate) fn mad(values: &[f64]) -> f64 {
-    // See https://en.wikipedia.org/wiki/Median_absolute_deviation
-    let median = quantile(0.5, values);
-    let mut ds = get_pooled_vec_f64(values.len());
-    for v in values.iter() {
-        ds.push((v - median).abs())
-    }
-    quantile(0.5, &ds)
 }
 
 pub(super) fn rollup_max(rfa: &mut RollupFuncArg) -> f64 {
@@ -1767,16 +1756,17 @@ pub(super) fn rollup_ideriv(rfa: &mut RollupFuncArg) -> f64 {
 pub(super) fn rollup_lifetime(rfa: &mut RollupFuncArg) -> f64 {
     // Calculate the duration between the first and the last data points.
     let timestamps = &rfa.timestamps;
+    let count = timestamps.len();
     if rfa.prev_value.is_nan() {
-        if timestamps.len() < 2 {
+        if count < 2 {
             return NAN;
         }
-        return (timestamps[timestamps.len() - 1] as f64 - timestamps[0] as f64) / 1e3_f64;
+        return (timestamps[count - 1] - timestamps[0]) as f64 / 1e3_f64;
     }
-    if timestamps.len() == 0 {
+    if count == 0 {
         return NAN;
     }
-    return (timestamps[timestamps.len() - 1] as f64 - rfa.prev_timestamp as f64) / 1e3_f64;
+    return (timestamps[count - 1] - rfa.prev_timestamp) as f64 / 1e3_f64;
 }
 
 pub(super) fn rollup_lag(rfa: &mut RollupFuncArg) -> f64 {

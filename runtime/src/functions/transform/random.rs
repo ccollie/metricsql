@@ -46,12 +46,12 @@ macro_rules! create_rand_func {
     };
 }
 
-create_rand_func!(transform_rand, |r: &mut StdRng| r.gen::<f64>());
+create_rand_func!(rand, |r: &mut StdRng| r.gen::<f64>());
 
-create_rand_func!(transform_rand_norm, |r: &mut StdRng| {
+create_rand_func!(rand_norm, |r: &mut StdRng| {
     <StandardNormal as Distribution<f64>>::sample::<StdRng>(&StandardNormal, r) as f64
 });
 
-create_rand_func!(transform_rand_exp, |r: &mut StdRng| {
+create_rand_func!(rand_exp, |r: &mut StdRng| {
     <Exp1 as Distribution<f64>>::sample::<StdRng>(&Exp1, r) as f64
 });

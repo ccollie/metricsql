@@ -5,35 +5,29 @@ use crate::functions::arg_parse::get_series_arg;
 use crate::functions::transform::TransformFuncArg;
 use crate::{RuntimeError, RuntimeResult, Timeseries};
 
-pub(crate) fn transform_sort(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn sort(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     transform_sort_impl(tfa, false)
 }
 
-pub(crate) fn transform_sort_desc(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn sort_desc(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     transform_sort_impl(tfa, true)
 }
 
-pub(crate) fn transform_sort_alpha_numeric(
-    tfa: &mut TransformFuncArg,
-) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn sort_alpha_numeric(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     label_alpha_numeric_sort_impl(tfa, false)
 }
 
-pub(crate) fn transform_sort_alpha_numeric_desc(
+pub(crate) fn sort_alpha_numeric_desc(
     tfa: &mut TransformFuncArg,
 ) -> RuntimeResult<Vec<Timeseries>> {
     label_alpha_numeric_sort_impl(tfa, true)
 }
 
-pub(crate) fn transform_sort_by_label(
-    tfa: &mut TransformFuncArg,
-) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn sort_by_label(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     sort_by_label_impl(tfa, false)
 }
 
-pub(crate) fn transform_sort_by_label_desc(
-    tfa: &mut TransformFuncArg,
-) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn sort_by_label_desc(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     sort_by_label_impl(tfa, true)
 }
 

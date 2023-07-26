@@ -3,7 +3,7 @@ use crate::functions::arg_parse::{get_int_arg, get_series_arg};
 use crate::functions::transform::TransformFuncArg;
 use crate::{RuntimeError, RuntimeResult, Timeseries};
 
-pub(crate) fn transform_limit_offset(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn limit_offset(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let limit: usize;
     let offset: usize;
 

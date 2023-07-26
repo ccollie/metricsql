@@ -2,9 +2,7 @@ use crate::functions::arg_parse::get_series_arg;
 use crate::functions::transform::TransformFuncArg;
 use crate::{RuntimeResult, Timeseries};
 
-pub(crate) fn transform_remove_resets(
-    tfa: &mut TransformFuncArg,
-) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn remove_resets(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
     for ts in series.iter_mut() {
         remove_counter_resets_maybe_nans(&mut ts.values);

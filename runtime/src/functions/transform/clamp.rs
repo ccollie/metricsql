@@ -1,9 +1,8 @@
 use crate::functions::arg_parse::get_scalar_arg_as_vec;
-use crate::functions::transform::transform_fns::transform_series;
-use crate::functions::transform::TransformFuncArg;
+use crate::functions::transform::{transform_series, TransformFuncArg};
 use crate::{RuntimeResult, Timeseries};
 
-pub(crate) fn transform_clamp(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn clamp(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let min_values = get_scalar_arg_as_vec(&tfa.args, 1, tfa.ec)?;
     let max_values = get_scalar_arg_as_vec(&tfa.args, 2, tfa.ec)?;
     // todo: are these guaranteed to be of equal length ?
@@ -24,7 +23,7 @@ pub(crate) fn transform_clamp(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<T
     transform_series(tfa, tf)
 }
 
-pub(crate) fn transform_clamp_max(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn clamp_max(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let max_values = get_scalar_arg_as_vec(&tfa.args, 1, tfa.ec)?;
     let tf = |values: &mut [f64]| {
         for (v, max) in values.iter_mut().zip(max_values.iter()) {
@@ -37,7 +36,7 @@ pub(crate) fn transform_clamp_max(tfa: &mut TransformFuncArg) -> RuntimeResult<V
     transform_series(tfa, tf)
 }
 
-pub(crate) fn transform_clamp_min(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn clamp_min(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let min_values = get_scalar_arg_as_vec(&tfa.args, 1, tfa.ec)?;
     let tf = |values: &mut [f64]| {
         for (v, min) in values.iter_mut().zip(min_values.iter()) {

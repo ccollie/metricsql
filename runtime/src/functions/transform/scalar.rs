@@ -4,7 +4,7 @@ use crate::eval::eval_number;
 use crate::functions::transform::TransformFuncArg;
 use crate::{QueryValue, RuntimeError, RuntimeResult, Timeseries};
 
-pub(crate) fn transform_scalar(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn scalar(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let arg = get_arg(tfa, 0)?;
     match arg {
         // Verify whether the arg is a string.

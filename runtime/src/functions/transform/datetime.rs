@@ -5,37 +5,34 @@ use lib::{datetime_part, timestamp_secs_to_utc_datetime, DateTimePart};
 
 use crate::eval::{eval_number, eval_time};
 use crate::functions::arg_parse::{get_series_arg, get_string_arg};
-use crate::functions::transform::transform_fns::do_transform_values;
-use crate::functions::transform::{get_timezone_offset, TransformFuncArg};
+use crate::functions::transform::{do_transform_values, get_timezone_offset, TransformFuncArg};
 use crate::{MetricName, RuntimeError, RuntimeResult, Timeseries};
 
-pub(crate) fn transform_hour(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn hour(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     transform_datetime_impl(tfa, DateTimePart::Hour)
 }
 
-pub(crate) fn transform_day_of_month(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn day_of_month(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     transform_datetime_impl(tfa, DateTimePart::DayOfMonth)
 }
 
-pub(crate) fn transform_day_of_week(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn day_of_week(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     transform_datetime_impl(tfa, DateTimePart::DayOfWeek)
 }
 
-pub(crate) fn transform_days_in_month(
-    tfa: &mut TransformFuncArg,
-) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn days_in_month(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     transform_datetime_impl(tfa, DateTimePart::DaysInMonth)
 }
 
-pub(crate) fn transform_minute(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn minute(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     transform_datetime_impl(tfa, DateTimePart::Minute)
 }
 
-pub(crate) fn transform_month(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn month(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     transform_datetime_impl(tfa, DateTimePart::Month)
 }
 
-pub(crate) fn transform_year(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn year(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     transform_datetime_impl(tfa, DateTimePart::Year)
 }
 
@@ -79,9 +76,7 @@ fn parse_zone(tz_name: &str) -> RuntimeResult<Tz> {
     }
 }
 
-pub(crate) fn transform_timezone_offset(
-    tfa: &mut TransformFuncArg,
-) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn timezone_offset(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let tz_name = match get_string_arg(&tfa.args, 0) {
         Err(e) => {
             return Err(RuntimeError::ArgumentError(format!(
@@ -122,11 +117,11 @@ pub(crate) fn transform_timezone_offset(
     Ok(vec![ts])
 }
 
-pub(crate) fn transform_now(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn now(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let now: f64 = Utc::now().timestamp() as f64 / 1e9_f64;
     eval_number(&tfa.ec, now)
 }
 
-pub(crate) fn transform_time(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn time(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     eval_time(&mut tfa.ec)
 }

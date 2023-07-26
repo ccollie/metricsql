@@ -10,9 +10,7 @@ use crate::functions::transform::utils::copy_timeseries;
 use crate::functions::transform::TransformFuncArg;
 use crate::{MetricName, QueryValue, RuntimeError, RuntimeResult, Timeseries};
 
-pub(crate) fn transform_buckets_limit(
-    tfa: &mut TransformFuncArg,
-) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut limit = get_int_arg(&tfa.args, 1)?;
 
     if limit <= 0 {
@@ -130,9 +128,7 @@ pub(crate) fn transform_buckets_limit(
     Ok(rvs)
 }
 
-pub(crate) fn transform_prometheus_buckets(
-    tfa: &mut TransformFuncArg,
-) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn prometheus_buckets(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let series = get_series_arg(&tfa.args, 0, tfa.ec)?;
     let rvs = vmrange_buckets_to_le(series);
     return Ok(rvs);
@@ -345,9 +341,7 @@ pub(crate) fn vmrange_buckets_to_le(tss: Vec<Timeseries>) -> Vec<Timeseries> {
     return rvs;
 }
 
-pub(crate) fn transform_histogram_share(
-    tfa: &mut TransformFuncArg,
-) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn histogram_share(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let les: Vec<f64> = get_scalar_arg_as_vec(&tfa.args, 0, tfa.ec)?;
 
     // Convert buckets with `vmrange` labels to buckets with `le` labels.
@@ -446,9 +440,7 @@ pub(crate) fn transform_histogram_share(
     return Ok(rvs);
 }
 
-pub(crate) fn transform_histogram_avg(
-    tfa: &mut TransformFuncArg,
-) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn histogram_avg(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let series = get_series_arg(&tfa.args, 0, tfa.ec)?;
     let mut tss = vmrange_buckets_to_le(series);
     let mut m = group_le_timeseries(&mut tss);
@@ -464,9 +456,7 @@ pub(crate) fn transform_histogram_avg(
     return Ok(rvs);
 }
 
-pub(crate) fn transform_histogram_stddev(
-    tfa: &mut TransformFuncArg,
-) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn histogram_stddev(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let series = get_series_arg(&tfa.args, 0, tfa.ec)?;
     let mut tss = vmrange_buckets_to_le(series);
     let m = group_le_timeseries(&mut tss);
@@ -483,9 +473,7 @@ pub(crate) fn transform_histogram_stddev(
     return Ok(rvs);
 }
 
-pub(crate) fn transform_histogram_stdvar(
-    tfa: &mut TransformFuncArg,
-) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn histogram_stdvar(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let series = get_series_arg(&tfa.args, 0, tfa.ec)?;
     let mut tss = vmrange_buckets_to_le(series);
     let m = group_le_timeseries(&mut tss);
@@ -557,9 +545,7 @@ fn stdvar_for_le_timeseries(i: usize, xss: &[LeTimeseries]) -> f64 {
     return stdvar;
 }
 
-pub(crate) fn transform_histogram_quantiles(
-    tfa: &mut TransformFuncArg,
-) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn histogram_quantiles(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let dst_label = tfa.args[0].get_string()?;
 
     let len = tfa.args.len();
@@ -585,7 +571,7 @@ pub(crate) fn transform_histogram_quantiles(
 
         tfa_tmp.args = vec![QueryValue::Scalar(phi_arg), QueryValue::InstantVector(tss)];
 
-        match transform_histogram_quantile(&mut tfa_tmp) {
+        match histogram_quantile(&mut tfa_tmp) {
             Err(e) => {
                 let msg = format!("cannot calculate quantile {}: {:?}", phi_str, e);
                 return Err(RuntimeError::General(msg));
@@ -603,9 +589,7 @@ pub(crate) fn transform_histogram_quantiles(
     Ok(rvs)
 }
 
-pub(crate) fn transform_histogram_quantile(
-    tfa: &mut TransformFuncArg,
-) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn histogram_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let phis: Vec<f64> = get_scalar_arg_as_vec(&tfa.args, 0, tfa.ec)?;
 
     // Convert buckets with `vmrange` labels to buckets with `le` labels.
@@ -737,19 +721,6 @@ pub(super) struct LeTimeseries {
     pub le: f64,
     pub ts: Timeseries,
 }
-
-// impl<'a> Default for LeTimeseries<'a> {
-//     fn default() -> Self {
-//         Self {
-//             le: 0.0,
-//             ts: &mut Timeseries {
-//                 metric_name: Default::default(),
-//                 values: vec![],
-//                 timestamps: Arc::new(vec![])
-//             }
-//         }
-//     }
-// }
 
 fn group_le_timeseries(tss: &mut Vec<Timeseries>) -> HashMap<String, Vec<LeTimeseries>> {
     let mut m: HashMap<String, Vec<LeTimeseries>> = HashMap::new();

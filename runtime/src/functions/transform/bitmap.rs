@@ -1,6 +1,5 @@
 use crate::functions::arg_parse::get_float_arg;
-use crate::functions::transform::transform_fns::transform_series;
-use crate::functions::transform::TransformFuncArg;
+use crate::functions::transform::{transform_series, TransformFuncArg};
 use crate::{RuntimeResult, Timeseries};
 
 pub(crate) fn transform_bitmap_and(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
