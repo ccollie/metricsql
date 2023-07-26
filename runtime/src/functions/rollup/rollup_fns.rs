@@ -9,9 +9,10 @@ use metricsql::ast::Expr;
 use metricsql::functions::{can_adjust_window, RollupFunction};
 use metricsql::prelude::TransformFunction;
 
+use crate::common::math::{mode_no_nans, quantile, stddev, stdvar};
 use crate::eval::validate_max_points_per_timeseries;
 use crate::functions::arg_parse::get_scalar_arg_as_vec;
-use crate::functions::mode_no_nans;
+use crate::functions::rollup::quantiles::{new_rollup_quantile, new_rollup_quantiles};
 use crate::functions::rollup::types::RollupHandlerFactory;
 use crate::functions::rollup::{
     filtered_counts::{
@@ -19,7 +20,6 @@ use crate::functions::rollup::{
         new_rollup_share_gt, new_rollup_share_le,
     },
     holt_winters::new_rollup_holt_winters,
-    quantiles::{new_rollup_quantile, new_rollup_quantiles, quantile},
 };
 use crate::functions::rollup::{RollupFunc, RollupFuncArg, RollupHandler, RollupHandlerEnum};
 use crate::functions::types::get_scalar_param_value;
@@ -1558,41 +1558,6 @@ pub(super) fn rollup_stddev(rfa: &mut RollupFuncArg) -> f64 {
 
 pub(super) fn rollup_stdvar(rfa: &mut RollupFuncArg) -> f64 {
     stdvar(&rfa.values)
-}
-
-pub(crate) fn stddev(values: &[f64]) -> f64 {
-    let std_var = stdvar(values);
-    return std_var.sqrt();
-}
-
-pub(crate) fn stdvar(values: &[f64]) -> f64 {
-    // See `Rapid calculation methods` at https://en.wikipedia.org/wiki/Standard_deviation
-
-    // There is no need in handling NaNs here, since they must be cleaned up
-    // before calling rollup fns.
-    if values.is_empty() {
-        return NAN;
-    }
-    if values.len() == 1 {
-        // Fast path.
-        return 0.0;
-    }
-    let mut avg: f64 = 0.0;
-    let mut count: usize = 0;
-    let mut q: f64 = 0.0;
-    for v in values {
-        if v.is_nan() {
-            continue;
-        }
-        count += 1;
-        let avg_new = avg + (*v - avg) / count as f64;
-        q += (*v - avg) * (*v - avg_new);
-        avg = avg_new
-    }
-    if count == 0 {
-        return NAN;
-    }
-    return q / count as f64;
 }
 
 pub(super) fn rollup_increase_pure(rfa: &mut RollupFuncArg) -> f64 {

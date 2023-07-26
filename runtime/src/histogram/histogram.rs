@@ -115,7 +115,7 @@ impl Histogram {
                 self.decimal_buckets
                     .resize_with(decimal_bucket_idx + 1, || [0u64; BUCKETS_PER_DECIMAL]);
             }
-            let mut bucket = &mut self.decimal_buckets[decimal_bucket_idx];
+            let bucket = &mut self.decimal_buckets[decimal_bucket_idx];
             bucket[offset] += 1;
         }
     }
@@ -275,7 +275,7 @@ fn create_bucket_ranges() -> [String; BUCKETS_COUNT] {
     let mut v: f64 = LOWER_MIN;
     let mut start = format_float(v);
 
-    for i in 0..BUCKETS_COUNT {
+    for _ in 0..BUCKETS_COUNT {
         v *= bucket_multiplier;
         let end = format_float(v);
         ranges.push(format!("{}...{}", start, end).to_string());

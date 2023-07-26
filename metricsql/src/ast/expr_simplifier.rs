@@ -770,14 +770,14 @@ mod tests {
         // rand() + (1 + 2) --> rand() + 3
         let fun = TransformFunction::Random;
         assert_eq!(fun.signature().volatility, Volatility::Volatile);
-        let rand = Expr::call("random", vec![]).expect("invalid function call");
+        let rand = Expr::call("rand", vec![]).expect("invalid function call");
         let expr = rand.clone() + (number(1.0) + number(2.0));
         let expected = rand + number(3.0);
         test_evaluate(expr, expected);
 
         // parenthesization matters: can't rewrite
         // (rand() + 1) + 2 --> (rand() + 1) + 2)
-        let rand = Expr::call("random", vec![]).expect("invalid function call");
+        let rand = Expr::call("rand", vec![]).expect("invalid function call");
         let expr = (rand + number(1.0)) + number(2.0);
         test_evaluate(expr.clone(), expr);
     }

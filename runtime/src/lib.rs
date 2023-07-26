@@ -53,6 +53,7 @@ mod search;
 mod types;
 mod utils;
 
+mod common;
 #[cfg(test)]
 mod exec_test;
 #[cfg(test)]

@@ -5,7 +5,8 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 /// http://www.apache.org/licenses/LICENSE-2.0
 /// https://docs.rs/arrow-array/29.0.0/src/arrow_array/lib.rs.html
 use chrono::{
-    DateTime, Datelike, Duration, NaiveDateTime, NaiveTime, TimeZone, Timelike, Utc, Weekday,
+    DateTime, Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Timelike, Utc,
+    Weekday,
 };
 
 /// Number of seconds in a day
@@ -217,6 +218,43 @@ pub enum DateTimePart {
     Year,
 }
 
+impl DateTimePart {
+    pub fn get_part_from_datetime<Tz: TimeZone>(self, datetime: DateTime<Tz>) -> Option<u32> {
+        datetime_part(datetime, self)
+    }
+
+    pub fn get_part_from_naive_datetime(&self, datetime: NaiveDateTime) -> u32 {
+        match self {
+            DateTimePart::DayOfMonth => datetime.day(),
+            DateTimePart::DayOfWeek => datetime.weekday().num_days_from_sunday(),
+            DateTimePart::DaysInMonth => {
+                let cur_month = datetime.month();
+                let cur_year = datetime.year();
+                let naive_date = if cur_month == 12 {
+                    NaiveDate::from_ymd_opt(cur_year + 1, 1, 1)
+                } else {
+                    NaiveDate::from_ymd_opt(cur_year, cur_month + 1, 1)
+                };
+                naive_date
+                    .unwrap()
+                    .signed_duration_since(NaiveDate::from_ymd_opt(cur_year, cur_month, 1).unwrap())
+                    .num_days() as u32
+            }
+            DateTimePart::Hour => datetime.hour(),
+            DateTimePart::Minute => datetime.minute(),
+            DateTimePart::Month => datetime.month(),
+            DateTimePart::Second => datetime.second(),
+            DateTimePart::Year => datetime.year() as u32,
+        }
+    }
+
+    pub fn get_part_from_timestamp_ms(&self, timestamp: i64) -> Option<u32> {
+        if let Some(datetime) = timestamp_ms_to_datetime(timestamp) {
+            return Some(self.get_part_from_naive_datetime(datetime));
+        }
+        None
+    }
+}
 pub fn datetime_part<Tz: TimeZone>(datetime: DateTime<Tz>, part: DateTimePart) -> Option<u32> {
     match part {
         DateTimePart::DayOfMonth => Some(datetime.day()),

@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::functions::transform::transform_fns::{fix_broken_buckets, LeTimeseries};
+    use crate::functions::transform::histogram::{fix_broken_buckets, LeTimeseries};
     use crate::functions::transform::vmrange_buckets_to_le;
     use crate::prometheus_parse::*;
     use crate::Timeseries;

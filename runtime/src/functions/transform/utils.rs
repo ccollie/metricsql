@@ -1,9 +1,35 @@
-use crate::{RuntimeError, RuntimeResult};
+use std::cmp::Ordering;
+
 use chrono::{TimeZone, Utc};
 use chrono_tz::Tz;
+
 use lib::timestamp_ms_to_datetime;
 use metricsql::parser::parse_number;
-use std::cmp::Ordering;
+
+use crate::functions::transform::TransformFuncArg;
+use crate::{RuntimeError, RuntimeResult, Timeseries};
+
+/// copy_timeseries returns a copy of tss.
+pub(super) fn copy_timeseries(tss: &[Timeseries]) -> Vec<Timeseries> {
+    let mut rvs: Vec<Timeseries> = Vec::with_capacity(tss.len());
+    for src in tss {
+        rvs.push(src.clone());
+    }
+    return rvs;
+}
+
+pub(super) fn expect_transform_args_num(
+    tfa: &TransformFuncArg,
+    expected: usize,
+) -> RuntimeResult<()> {
+    let arg_count = tfa.args.len();
+    if arg_count == expected {
+        return Ok(());
+    }
+    return Err(RuntimeError::ArgumentError(format!(
+        "unexpected number of args; got {arg_count}; want {expected}"
+    )));
+}
 
 pub fn cmp_alpha_numeric(a: &str, b: &str) -> RuntimeResult<Ordering> {
     let (mut a, mut b) = (a, b);
@@ -128,10 +154,12 @@ pub(crate) fn ru(free_value: f64, max_value: f64) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use crate::functions::transform::utils::{cmp_alpha_numeric, get_num_prefix};
-    use metricsql::parser::parse_number;
     use std::cmp::Ordering;
     use std::cmp::Ordering::{Equal, Greater, Less};
+
+    use metricsql::parser::parse_number;
+
+    use crate::functions::transform::utils::{cmp_alpha_numeric, get_num_prefix};
 
     fn test_prefix(s: &str, expected_prefix: &str) {
         let prefix = get_num_prefix(s);

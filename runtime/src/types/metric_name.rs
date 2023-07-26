@@ -215,39 +215,14 @@ impl MetricName {
         None
     }
 
-    /// remove_tags_on removes all the tags not included to on_tags.
+    /// remove_tags_on removes all the tags not included in on_tags.
     pub fn remove_tags_on(&mut self, on_tags: &Vec<String>) {
-        // written this way to avoid an allocation
-        // (to compare against METRIC_NAME_LABEL.to_string())
-        if !on_tags.iter().any(|x| *x == METRIC_NAME_LABEL) {
-            self.reset_metric_group()
-        }
-        if on_tags.len() >= SET_SEARCH_MIN_THRESHOLD {
-            let set: HashSet<_> = HashSet::from_iter(on_tags);
-            self.tags.retain(|tag| !set.contains(&tag.key));
-        } else {
-            self.tags.retain(|tag| !on_tags.contains(&tag.key));
-        }
+        self.retain_tags(on_tags)
     }
 
     /// remove_tags_ignoring removes all the tags included in ignoring_tags.
     pub fn remove_tags_ignoring(&mut self, ignoring_tags: &[String]) {
-        if ignoring_tags.is_empty() {
-            return;
-        }
-        if ignoring_tags
-            .iter()
-            .any(|x| x.as_str() == METRIC_NAME_LABEL)
-        {
-            self.reset_metric_group();
-        }
-
-        if ignoring_tags.len() >= SET_SEARCH_MIN_THRESHOLD {
-            let set: HashSet<_> = HashSet::from_iter(ignoring_tags);
-            self.tags.retain(|tag| set.contains(&tag.key));
-        } else {
-            self.tags.retain(|tag| ignoring_tags.contains(&tag.key));
-        }
+        self.remove_tags(ignoring_tags);
     }
 
     pub fn update_tags_by_group_modifier(&mut self, modifier: &GroupModifier) {
@@ -261,17 +236,37 @@ impl MetricName {
         }
     }
 
-    /// removes all the tags included in ignoring_tags.
-    pub fn remove_tags(&mut self, ignoring_tags: &[String]) {
-        let mut set: HashSet<&String> = HashSet::with_capacity(ignoring_tags.len());
-        for tag in ignoring_tags {
-            if tag == METRIC_NAME_LABEL {
-                self.reset_metric_group();
-            } else {
-                set.insert(tag);
-            }
+    /// removes all the tags included in labels.
+    pub fn remove_tags(&mut self, labels: &[String]) {
+        if labels.is_empty() {
+            return;
         }
-        self.tags.retain(|tag| set.contains(&tag.key));
+        if labels.iter().any(|x| x.as_str() == METRIC_NAME_LABEL) {
+            self.reset_metric_group();
+        }
+
+        if labels.len() >= SET_SEARCH_MIN_THRESHOLD {
+            let set: HashSet<_> = HashSet::from_iter(labels);
+            self.tags.retain(|tag| !set.contains(&tag.key));
+        } else {
+            self.tags.retain(|tag| !labels.contains(&tag.key));
+        }
+    }
+
+    pub fn retain_tags(&mut self, tags: &[String]) {
+        if !tags.iter().any(|x| *x == METRIC_NAME_LABEL) {
+            self.reset_metric_group()
+        }
+        if tags.is_empty() {
+            self.tags.clear();
+            return;
+        }
+        if tags.len() >= SET_SEARCH_MIN_THRESHOLD {
+            let set: HashSet<_> = HashSet::from_iter(tags);
+            self.tags.retain(|tag| set.contains(&tag.key));
+        } else {
+            self.tags.retain(|tag| tags.contains(&tag.key));
+        }
     }
 
     /// sets tags from src with keys matching add_tags.

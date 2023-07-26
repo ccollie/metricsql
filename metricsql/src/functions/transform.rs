@@ -559,7 +559,7 @@ impl TransformFunction {
             Now => Signature::exact(vec![], Volatility::Stable),
             Pi => Signature::exact(vec![], Volatility::Immutable),
             Random | RandExponential | RandNormal => {
-                Signature::variadic_min(vec![ValueType::Scalar], 0, Volatility::Stable)
+                Signature::variadic_min(vec![ValueType::Scalar], 0, Volatility::Volatile)
             }
             RangeNormalize => {
                 Signature::variadic_min(vec![ValueType::InstantVector], 1, Volatility::Stable)

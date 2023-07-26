@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::functions::mode_no_nans;
+    use crate::common::math::mode_no_nans;
 
     const NAN: f64 = f64::NAN;
 
