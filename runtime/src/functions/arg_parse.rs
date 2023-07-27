@@ -92,46 +92,6 @@ pub(crate) fn get_scalar_arg_as_vec(
     }
 }
 
-pub(crate) fn get_scalar_arg_iter<'a>(
-    args: &[QueryValue],
-    arg_num: usize,
-    ec: &EvalConfig,
-) -> RuntimeResult<impl Iterator<Item = f64>> {
-    // todo: check bounds
-    let arg = args.get(arg_num);
-    if arg.is_none() {
-        let msg = format!("missing scalar arg # {}", arg_num + 1);
-        return Err(RuntimeError::ArgumentError(msg));
-    }
-    let arg = arg.unwrap();
-    match arg {
-        QueryValue::Scalar(val) => {
-            let len = ec.data_points();
-            let iter = std::iter::repeat(*val).take(len);
-            Ok(iter)
-        }
-        QueryValue::InstantVector(s) => {
-            if s.len() != 1 {
-                let msg = format!(
-                    "arg # {} must contain a single timeseries; got {} timeseries",
-                    arg_num + 1,
-                    s.len()
-                );
-                return Err(RuntimeError::ArgumentError(msg));
-            }
-            Ok(s[0].values.iter())
-        }
-        _ => {
-            let msg = format!(
-                "arg # {} expected float or a single timeseries; got {}",
-                arg_num + 1,
-                arg.data_type()
-            );
-            return Err(RuntimeError::ArgumentError(msg));
-        }
-    }
-}
-
 pub(crate) fn get_float_arg(
     args: &[QueryValue],
     arg_num: usize,

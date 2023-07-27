@@ -11,15 +11,16 @@ pub fn test_results_equal(result: &Vec<QueryResult>, result_expected: &Vec<Query
         result_expected.len()
     );
 
-    for (i, actual) in result.iter().enumerate() {
-        let r_expected = &result_expected.get(i).unwrap();
-        test_metric_names_equal(&actual.metric_name, &r_expected.metric_name, i);
+    let mut i = 0;
+    for (actual, expected) in result.iter().zip(result_expected) {
+        test_metric_names_equal(&actual.metric_name, &expected.metric_name, i);
         test_rows_equal(
             &actual.values,
             &actual.timestamps,
-            &r_expected.values,
-            &r_expected.timestamps,
+            &expected.values,
+            &expected.timestamps,
         );
+        i = i + 1;
     }
 }
 

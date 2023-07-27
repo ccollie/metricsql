@@ -346,3 +346,27 @@ impl Display for QueryValue {
         }
     }
 }
+
+pub enum ScalarIterator {
+    Empty,
+    Single(f64),
+    Multiple(Vec<f64>),
+}
+
+impl ScalarIterator {}
+
+impl Iterator for ScalarIterator {
+    type Item = f64;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            ScalarIterator::Empty => None,
+            ScalarIterator::Single(v) => {
+                let res = *v;
+                *self = ScalarIterator::Empty;
+                Some(res)
+            }
+            ScalarIterator::Multiple(v) => v.pop(),
+        }
+    }
+}

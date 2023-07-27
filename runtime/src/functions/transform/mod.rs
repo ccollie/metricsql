@@ -31,7 +31,7 @@ use crate::functions::transform::labels::{
 use crate::functions::transform::limit_offset::limit_offset;
 use crate::functions::transform::math::{
     abs, acos, acosh, asin, asinh, atan, atanh, ceil, cos, cosh, deg, exp, floor, ln, log10, log2,
-    rad, sin, sinh, sqrt, tan, tanh, transform_pi, transform_round, transform_sgn,
+    rad, sgn, sin, sinh, sqrt, tan, tanh, transform_pi,
 };
 use crate::functions::transform::random::{rand, rand_exp, rand_norm};
 use crate::functions::transform::range::{
@@ -41,6 +41,7 @@ use crate::functions::transform::range::{
     transform_range_quantile,
 };
 use crate::functions::transform::remove_resets::remove_resets;
+use crate::functions::transform::round::round;
 use crate::functions::transform::running::{running_avg, running_max, running_min, running_sum};
 use crate::functions::transform::scalar::scalar;
 use crate::functions::transform::smooth_exponential::smooth_exponential;
@@ -69,6 +70,7 @@ mod math;
 mod random;
 mod range;
 mod remove_resets;
+mod round;
 mod running;
 mod scalar;
 mod smooth_exponential;
@@ -80,8 +82,6 @@ mod transform_test;
 mod union;
 mod utils;
 mod vector;
-
-const NAN: f64 = f64::NAN;
 
 pub struct TransformFuncArg<'a> {
     pub ec: &'a EvalConfig,
@@ -197,14 +197,14 @@ pub fn get_transform_func(f: TransformFunction) -> TransformFuncHandler {
         RangeTrimZscore => range_trim_zscore,
         RangeZscore => range_zscore,
         RemoveResets => remove_resets,
-        Round => transform_round,
+        Round => round,
         Ru => range_ru,
         RunningAvg => running_avg,
         RunningMax => running_max,
         RunningMin => running_min,
         RunningSum => running_sum,
         Scalar => scalar,
-        Sgn => transform_sgn,
+        Sgn => sgn,
         Sin => sin,
         Sinh => sinh,
         SmoothExponential => smooth_exponential,
@@ -235,6 +235,7 @@ pub(crate) fn transform_series(
     do_transform_values(&mut series, tf, tfa.keep_metric_names)
 }
 
+#[inline]
 pub(super) fn do_transform_values(
     arg: &mut Vec<Timeseries>,
     mut tf: impl TransformValuesFn,

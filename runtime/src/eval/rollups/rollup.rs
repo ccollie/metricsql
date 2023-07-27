@@ -3,7 +3,6 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
-use num_traits::SaturatingMul;
 use rayon::prelude::*;
 use tracing::{field, trace_span, Span};
 

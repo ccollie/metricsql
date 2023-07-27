@@ -6,9 +6,10 @@ mod tests {
 
     use metricsql::functions::RollupFunction;
 
+    use crate::common::math::linear_regression;
     use crate::functions::rollup::rollup_fns::{
-        delta_values, deriv_values, linear_regression, remove_counter_resets, rollup_avg,
-        rollup_changes, rollup_changes_prometheus, rollup_count, rollup_default, rollup_delta,
+        delta_values, deriv_values, remove_counter_resets, rollup_avg, rollup_changes,
+        rollup_changes_prometheus, rollup_count, rollup_default, rollup_delta,
         rollup_delta_prometheus, rollup_deriv_fast, rollup_deriv_slow, rollup_distinct,
         rollup_first, rollup_idelta, rollup_ideriv, rollup_integrate, rollup_lag, rollup_last,
         rollup_lifetime, rollup_max, rollup_min, rollup_mode_over_time, rollup_rate_over_sum,
