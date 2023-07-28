@@ -137,12 +137,6 @@ pub fn to_comparison_value(b: bool, x: f64) -> f64 {
     return if b { x } else { f64::NAN };
 }
 
-/// convert true to 1, false to 0.
-#[inline]
-fn to_float(b: bool) -> f64 {
-    return if b { 1_f64 } else { 0_f64 };
-}
-
 macro_rules! make_comparison_func {
     ($name: ident, $func: expr) => {
         pub fn $name(left: f64, right: f64) -> f64 {
@@ -302,6 +296,8 @@ pub fn scalar_binary_operation(
             Default => op_default(lhs, rhs),
             If => op_if(lhs, rhs),
             IfNot => if_not(lhs, rhs),
+            And | Or => lhs,
+            Unless => f64::NAN,
             _ => {
                 return Err(ParseError::Unsupported(format!(
                     "Unsupported scalar operation: {lhs} {op} {rhs}",

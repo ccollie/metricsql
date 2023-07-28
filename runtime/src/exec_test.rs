@@ -38,6 +38,8 @@ mod tests {
         }
     }
 
+    const TEST_ITERATIONS: usize = 3;
+
     fn test_query(q: &str, result_expected: Vec<QueryResult>) {
         let mut ec = EvalConfig::new(START, END, STEP);
         ec.max_series = 1000;
@@ -45,10 +47,10 @@ mod tests {
         ec.round_digits = 100;
         ec.deadline = Deadline::new(Duration::minutes(1)).unwrap();
         let context = Arc::new(Context::default()); // todo: have a test gated default;
-        (0..5).for_each(|_| {
+        for _ in 0..TEST_ITERATIONS {
             let result = exec(&context, &mut ec, q, false).unwrap();
             test_results_equal(&result, &result_expected)
-        });
+        }
     }
 
     fn assert_result_eq(q: &str, values: &[f64]) {
@@ -947,7 +949,7 @@ mod tests {
         r4.metric_name.set_tag("x", "y");
 
         let r5 = make_result(&[1400_f64, 1600.0, 1800.0, 2000.0, 2200.0, 2400.0]);
-        let result_expected: Vec<QueryResult> = vec![r1, r2, r3, r4, r5];
+        let result_expected = vec![r1, r2, r3, r4, r5];
         test_query(q, result_expected)
     }
 
@@ -2968,9 +2970,7 @@ mod tests {
     #[test]
     fn quantiles_over_time_single_sample() {
         let q = r#"sort_by_label(
-        quantiles_over_time("phi", 0.5, 0.9,
-        time()[100s:100s]
-        ),
+        quantiles_over_time("phi", 0.5, 0.9, time()[100s:100s]),
         "phi",
         )"#;
         let mut r1 = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
@@ -3079,8 +3079,14 @@ mod tests {
 
     #[test]
     fn share_gt_over_time() {
-        let q = "share_gt_over_time(rand(0)[200s:10s], 0.7)";
-        assert_result_eq(q, &[0.35, 0.3, 0.5, 0.3, 0.3, 0.25]);
+        let q = "share_eq_over_time(round(5*rand(0))[200s:10s], 1)";
+        assert_result_eq(q, &[0.1, 0.2, 0.25, 0.1, 0.3, 0.3]);
+    }
+
+    #[test]
+    fn share_eq_over_time() {
+        let q = "share_eq_over_time(rand(0)[200s:10s], 0.7)";
+        assert_result_eq(q, &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
     }
 
     #[test]

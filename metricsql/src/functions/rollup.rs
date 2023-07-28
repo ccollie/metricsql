@@ -3,6 +3,7 @@ use std::str::FromStr;
 
 use phf::phf_map;
 use serde::{Deserialize, Serialize};
+use strum_macros::EnumIter;
 
 use crate::common::ValueType;
 use crate::functions::signature::{Signature, Volatility};
@@ -10,7 +11,7 @@ use crate::functions::MAX_ARG_COUNT;
 use crate::parser::ParseError;
 
 /// Built-in Rollup Functions
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Hash, EnumIter, Serialize, Deserialize)]
 pub enum RollupFunction {
     AbsentOverTime,
     AggrOverTime,
@@ -70,6 +71,7 @@ pub enum RollupFunction {
     RollupRate,
     RollupScrapeInterval,
     ScrapeInterval,
+    ShareEqOverTime,
     ShareGtOverTime,
     ShareLeOverTime,
     StaleSamplesOverTime,
@@ -160,6 +162,7 @@ impl RollupFunction {
             RollupRate => "rollup_rate",
             RollupScrapeInterval => "rollup_scrape_interval",
             ScrapeInterval => "scrape_interval",
+            ShareEqOverTime => "share_eq_over_time",
             ShareGtOverTime => "share_gt_over_time",
             ShareLeOverTime => "share_le_over_time",
             StaleSamplesOverTime => "stale_samples_over_time",
@@ -186,9 +189,8 @@ impl RollupFunction {
         // note: the physical expression must accept the type returned by this function or the execution panics.
         match self {
             CountEqOverTime | CountLeOverTime | CountNeOverTime | CountGtOverTime
-            | DurationOverTime | PredictLinear | ShareGtOverTime | ShareLeOverTime => {
-                Signature::exact(vec![RangeVector, Scalar], Volatility::Immutable)
-            }
+            | DurationOverTime | PredictLinear | ShareEqOverTime | ShareGtOverTime
+            | ShareLeOverTime => Signature::exact(vec![RangeVector, Scalar], Volatility::Immutable),
             HoeffdingBoundLower | HoeffdingBoundUpper => {
                 Signature::exact(vec![Scalar, RangeVector], Volatility::Immutable)
             }
@@ -425,7 +427,7 @@ pub fn is_rollup_func(func: &str) -> bool {
     FUNCTION_MAP.contains_key(&lower)
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Hash, EnumIter, Serialize, Deserialize)]
 pub enum RollupTag {
     Min,
     Max,

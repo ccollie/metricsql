@@ -5,6 +5,7 @@ use std::str::FromStr;
 
 use phf::phf_map;
 use serde::{Deserialize, Serialize};
+use strum_macros::EnumIter;
 
 use crate::common::ValueType;
 use crate::functions::signature::{Signature, Volatility};
@@ -12,7 +13,7 @@ use crate::functions::MAX_ARG_COUNT;
 use crate::parser::ParseError;
 
 /// Aggregation AggregateFunctions
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Hash, EnumIter, Serialize, Deserialize)]
 pub enum AggregateFunction {
     /// calculate sum over dimensions
     Sum,

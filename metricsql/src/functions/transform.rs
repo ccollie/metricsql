@@ -3,6 +3,7 @@ use std::str::FromStr;
 
 use phf::phf_map;
 use serde::{Deserialize, Serialize};
+use strum_macros::EnumIter;
 
 use crate::common::ValueType;
 use crate::functions::signature::{Signature, Volatility};
@@ -12,7 +13,7 @@ use crate::parser::ParseError;
 // TODO: ttf
 
 /// Transform functions calculate transformations over rollup results.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Hash, EnumIter, Serialize, Deserialize)]
 pub enum TransformFunction {
     Abs,
     Absent,
@@ -595,8 +596,8 @@ impl TransformFunction {
             Time => Signature::exact(vec![], Volatility::Stable),
             TimezoneOffset => Signature::exact(vec![ValueType::String], Volatility::Stable),
             Union => {
-                // todo: specify minimum
-                Signature::uniform(MAX_ARG_COUNT, ValueType::InstantVector, Volatility::Stable)
+                let types = vec![ValueType::InstantVector; MAX_ARG_COUNT];
+                Signature::exact_with_min_args(types, 1, Volatility::Stable)
             }
             Vector => Signature::exact(vec![ValueType::InstantVector], Volatility::Stable),
             // DateTime functions

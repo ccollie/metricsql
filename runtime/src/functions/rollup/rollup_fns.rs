@@ -5,6 +5,7 @@ use metricsql::functions::RollupFunction;
 
 use crate::common::math::{linear_regression, mad, mode_no_nans, quantile, stddev, stdvar};
 use crate::functions::arg_parse::get_scalar_arg_as_vec;
+use crate::functions::rollup::filtered_counts::new_rollup_share_eq;
 use crate::functions::rollup::quantiles::{new_rollup_quantile, new_rollup_quantiles};
 use crate::functions::rollup::types::RollupHandlerFactory;
 use crate::functions::rollup::{
@@ -95,31 +96,13 @@ pub(crate) fn get_rollup_func_by_name(name: &str) -> RuntimeResult<RollupFunctio
     }
 }
 
-pub(crate) fn rollup_func_requires_config(f: &RollupFunction) -> bool {
-    use RollupFunction::*;
-
-    matches!(
-        f,
-        PredictLinear
-            | DurationOverTime
-            | HoltWinters
-            | ShareLeOverTime
-            | ShareGtOverTime
-            | CountLeOverTime
-            | CountGtOverTime
-            | CountEqOverTime
-            | CountNeOverTime
-            | HoeffdingBoundLower
-            | HoeffdingBoundUpper
-            | QuantilesOverTime
-            | QuantileOverTime
-    )
-}
-
 macro_rules! make_factory {
     ( $name: ident, $rf: expr ) => {
         #[inline]
-        fn $name(_: &Vec<QueryValue>, _ec: &EvalConfig) -> RuntimeResult<RollupHandlerEnum> {
+        pub(super) fn $name(
+            _: &Vec<QueryValue>,
+            _ec: &EvalConfig,
+        ) -> RuntimeResult<RollupHandlerEnum> {
             Ok(RollupHandlerEnum::wrap($rf))
         }
     };
@@ -255,6 +238,7 @@ pub(crate) fn get_rollup_function_factory(func: RollupFunction) -> RollupHandler
         RollupRate => new_rollup_rate,
         RollupScrapeInterval => new_rollup_scrape_interval_fake,
         ScrapeInterval => new_rollup_scrape_interval,
+        ShareEqOverTime => new_rollup_share_eq,
         ShareGtOverTime => new_rollup_share_gt,
         ShareLeOverTime => new_rollup_share_le,
         StaleSamplesOverTime => new_rollup_stale_samples_over_time,
@@ -273,13 +257,6 @@ pub(crate) fn get_rollup_function_factory(func: RollupFunction) -> RollupHandler
     };
 
     return imp;
-}
-
-pub(crate) fn rollup_func_keeps_metric_name(name: &str) -> bool {
-    match RollupFunction::from_str(name) {
-        Err(_) => false,
-        Ok(func) => func.keep_metric_name(),
-    }
 }
 
 pub(super) fn remove_counter_resets(values: &mut [f64]) {
@@ -1064,28 +1041,31 @@ pub(super) fn rollup_changes(rfa: &mut RollupFuncArg) -> f64 {
 pub(super) fn rollup_increases(rfa: &mut RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
-    if rfa.values.is_empty() {
-        if rfa.prev_value.is_nan() {
+    let mut prev_value = rfa.prev_value;
+    let mut values = &rfa.values[0..];
+
+    if values.is_empty() {
+        if prev_value.is_nan() {
             return NAN;
         }
         return 0.0;
     }
 
-    let mut start = 0;
-    if rfa.prev_value.is_nan() {
-        rfa.prev_value = rfa.values[0];
-        start = 1;
+    if prev_value.is_nan() {
+        prev_value = values[0];
+        values = &values[1..];
     }
-    if rfa.values.len() == start {
+
+    if values.is_empty() {
         return 0.0;
     }
 
     let mut n = 0;
-    for v in rfa.values.iter().skip(start) {
-        if *v > rfa.prev_value {
+    for v in values.iter() {
+        if *v > prev_value {
             n += 1;
         }
-        rfa.prev_value = *v;
+        prev_value = *v;
     }
 
     return n as f64;
@@ -1097,20 +1077,21 @@ const ROLLUP_DECREASES: RollupFunc = rollup_resets;
 pub(super) fn rollup_resets(rfa: &mut RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
-    if rfa.values.is_empty() {
+
+    let mut values = &rfa.values[0..];
+    if values.is_empty() {
         if rfa.prev_value.is_nan() {
             return NAN;
         }
         return 0.0;
     }
+
     let mut prev_value = rfa.prev_value;
-    let mut start = 0;
     if prev_value.is_nan() {
-        prev_value = rfa.values[0];
-        start = 1;
+        prev_value = values[0];
+        values = &values[1..];
     }
 
-    let values = &rfa.values[start..];
     if values.is_empty() {
         return 0.0;
     }

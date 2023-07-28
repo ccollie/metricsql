@@ -24,7 +24,6 @@ macro_rules! make_count_fn {
 
 make_count_fn!(new_rollup_count_le, "count_le_over_time", "le", count_le);
 make_count_fn!(new_rollup_count_gt, "count_gt_over_time", "gt", count_gt);
-make_count_fn!(new_rollup_count_ge, "count_ge_over_time", "ge", count_ge);
 make_count_fn!(new_rollup_count_eq, "count_eq_over_time", "eq", count_eq);
 make_count_fn!(new_rollup_count_ne, "count_ne_over_time", "ne", count_ne);
 
@@ -139,4 +138,12 @@ pub(super) fn new_rollup_share_gt(
 ) -> RuntimeResult<RollupHandlerEnum> {
     // todo: map_err so we can get the function name
     return new_rollup_share_filter(args, ec, new_rollup_count_gt);
+}
+
+pub(super) fn new_rollup_share_eq(
+    args: &Vec<QueryValue>,
+    ec: &EvalConfig,
+) -> RuntimeResult<RollupHandlerEnum> {
+    // todo: map_err so we can get the function name
+    return new_rollup_share_filter(args, ec, new_rollup_count_eq);
 }

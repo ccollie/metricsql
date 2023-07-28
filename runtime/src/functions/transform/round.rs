@@ -1,5 +1,3 @@
-use lib::{copysign, fmod, from_float, modf};
-
 use crate::functions::arg_parse::get_scalar_arg_as_vec;
 use crate::functions::transform::{transform_series, TransformFuncArg};
 use crate::{RuntimeError, RuntimeResult, Timeseries};
@@ -26,22 +24,6 @@ pub(crate) fn round(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>
     };
 
     transform_series(tfa, tf)
-}
-
-fn orig_round(values: &mut [f64], nearest: &[f64]) {
-    let mut n_prev: f64 = values[0];
-    let mut p10: f64 = 0.0;
-    for (v, n) in values.iter_mut().zip(nearest) {
-        if *n != n_prev {
-            n_prev = *n;
-            let (_, e) = from_float(*n);
-            p10 = -(e as f64).powi(10);
-        }
-        *v += 0.5 * copysign(*n, *v);
-        *v -= fmod(*v, *n);
-        let (x, _) = modf(*v * p10);
-        *v = x / p10;
-    }
 }
 
 fn prometheus_round(vals: &mut [f64], nearest: &[f64]) {

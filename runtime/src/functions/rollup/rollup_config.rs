@@ -30,8 +30,6 @@ macro_rules! wrap_rollup_fn {
 
 pub(crate) type PreFunction = fn(&mut [f64], &[i64]) -> ();
 
-pub(super) type FloatComparisonFunction = fn(left: f64, right: f64) -> bool;
-
 #[inline]
 pub(crate) fn eval_prefuncs(fns: &Vec<PreFunction>, values: &mut [f64], timestamps: &[i64]) {
     for f in fns {

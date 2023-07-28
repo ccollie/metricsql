@@ -6,6 +6,8 @@ extern crate num_traits;
 extern crate phf;
 extern crate regex;
 extern crate serde;
+extern crate strum;
+extern crate strum_macros;
 extern crate thiserror;
 #[macro_use]
 extern crate tinyvec;

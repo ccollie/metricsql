@@ -160,7 +160,7 @@ impl<'a> Parser<'a> {
         if self.at_set(kinds) {
             let prev = self.cursor;
             self.cursor += 1;
-            let tok = self.tokens.get(prev).unwrap();
+            let tok = &self.tokens[prev];
             Ok(tok)
         } else {
             Err(self.token_error(kinds))

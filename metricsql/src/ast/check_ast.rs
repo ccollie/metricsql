@@ -6,6 +6,7 @@ use crate::ast::{
     AggregationExpr, BExpression, BinaryExpr, Expr, FunctionExpr, InterpolatedSelector, MetricExpr,
     NumberLiteral, ParensExpr, RollupExpr, WithExpr,
 };
+use crate::common::ValueType::Scalar;
 use crate::common::{
     BinModifier, StringExpr, Value, ValueType, VectorMatchCardinality, NAME_LABEL,
 };
@@ -79,6 +80,8 @@ fn check_ast_for_string_expr(expr: StringExpr) -> Result<Expr, String> {
 /// prometheus, and the following coding blocks
 /// have been optimized for readability, but all logic SHOULD be covered.
 fn check_ast_for_binary_expr(mut ex: BinaryExpr) -> Result<Expr, String> {
+    use ValueType::*;
+
     let operator = ex.op;
     let is_comparison = operator.is_comparison();
 
@@ -89,6 +92,7 @@ fn check_ast_for_binary_expr(mut ex: BinaryExpr) -> Result<Expr, String> {
     let left_type = ex.left.value_type();
     let right_type = ex.right.value_type();
 
+    // we're more lenient than prometheus here
     // if is_comparison {
     //     match (&left_type, &right_type, ex.returns_bool()) {
     //         (ValueType::Scalar, ValueType::Scalar, false) => {
@@ -114,17 +118,19 @@ fn check_ast_for_binary_expr(mut ex: BinaryExpr) -> Result<Expr, String> {
     }
 
     if operator.is_set_operator() {
-        if left_type == ValueType::Scalar
-            || left_type == ValueType::String
-            || right_type == ValueType::Scalar
-            || right_type == ValueType::String
-        {
+        if left_type == String && right_type == String {
             return Err(format!(
-                "set operator '{operator}' not allowed in binary scalar/string expression",
+                "operator '{operator}' not allowed in string string operations"
             ));
         }
 
-        if left_type == ValueType::InstantVector && right_type == ValueType::InstantVector {
+        if left_type == String || right_type == String {
+            return Err(format!(
+                "set operator '{operator}' not allowed in binary {left_type}/{right_type} expression",
+            ));
+        }
+
+        if left_type == InstantVector && right_type == InstantVector {
             if let Some(ref modifier) = ex.modifier {
                 if matches!(modifier.card, VectorMatchCardinality::OneToMany(_))
                     || matches!(modifier.card, VectorMatchCardinality::ManyToOne(_))
@@ -147,25 +153,22 @@ fn check_ast_for_binary_expr(mut ex: BinaryExpr) -> Result<Expr, String> {
         }
     }
 
-    if left_type == ValueType::String && right_type == ValueType::String {
+    if left_type == String && right_type == String {
         if !operator.is_valid_string_op() {
             return Err(format!(
                 "operator '{operator}' not allowed in string string operations"
             ));
         }
-
         return Ok(Expr::BinaryOperator(ex));
     }
 
-    if left_type != ValueType::Scalar && left_type != ValueType::InstantVector {
+    let valid_types = [Scalar, InstantVector, RangeVector];
+
+    if !valid_types.contains(&left_type) || !valid_types.contains(&right_type) {
         return Err("binary expression must contain only scalar and instant vector types".into());
     }
 
-    if right_type != ValueType::Scalar && right_type != ValueType::InstantVector {
-        return Err("binary expression must contain only scalar and instant vector types".into());
-    }
-
-    if (left_type != ValueType::InstantVector || right_type != ValueType::InstantVector)
+    if (left_type != InstantVector || right_type != InstantVector)
         && ex.is_matching_labels_not_empty()
     {
         return Err("vector matching only allowed between instant vectors".into());

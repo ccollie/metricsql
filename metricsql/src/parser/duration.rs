@@ -1,109 +1,14 @@
-use std::fmt::{Display, Formatter};
 use std::str;
 
 use crate::parser::{ParseError, ParseResult};
 
 // todo: have ms orr nanoseconds as base
 const SECONDS_PER_MS: f64 = 1e-3;
-const SECONDS_PER_MICROSECOND: f64 = 1e-6;
-const SECONDS_PER_NANOSECOND: f64 = 1e-9;
 const SECONDS_PER_MINUTE: f64 = 60.0;
 const SECONDS_PER_HOUR: f64 = 60.0 * SECONDS_PER_MINUTE;
 const SECONDS_PER_DAY: f64 = 24.0 * SECONDS_PER_HOUR;
 const SECONDS_PER_WEEK: f64 = 7.0 * SECONDS_PER_DAY;
 const SECONDS_PER_YEAR: f64 = 365.0 * SECONDS_PER_DAY;
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub enum DurationUnit {
-    Year,
-    Week,
-    Day,
-    Hour,
-    Minute,
-    Second,
-    #[default]
-    Millisecond,
-    Step,
-}
-
-impl Display for DurationUnit {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            DurationUnit::Second => {
-                write!(f, "Second")
-            }
-            DurationUnit::Millisecond => {
-                write!(f, "Millisecond")
-            }
-            DurationUnit::Step => {
-                write!(f, "Step")
-            }
-            DurationUnit::Year => {
-                write!(f, "Year")
-            }
-            DurationUnit::Day => {
-                write!(f, "Day")
-            }
-            DurationUnit::Week => {
-                write!(f, "Week")
-            }
-            DurationUnit::Hour => {
-                write!(f, "Hour")
-            }
-            DurationUnit::Minute => {
-                write!(f, "Minute")
-            }
-        }
-    }
-}
-
-impl DurationUnit {
-    pub const fn factor(&self) -> f64 {
-        match self {
-            DurationUnit::Second => 1f64,
-            DurationUnit::Millisecond => SECONDS_PER_MS,
-            DurationUnit::Year => SECONDS_PER_YEAR,
-            DurationUnit::Week => SECONDS_PER_WEEK,
-            DurationUnit::Day => SECONDS_PER_DAY,
-            DurationUnit::Hour => SECONDS_PER_HOUR,
-            DurationUnit::Minute => SECONDS_PER_MINUTE,
-            DurationUnit::Step => 0f64,
-        }
-    }
-
-    pub(crate) fn short_name(&self) -> &'static str {
-        match self {
-            DurationUnit::Second => "s",
-            DurationUnit::Millisecond => "ms",
-            DurationUnit::Step => "i",
-            DurationUnit::Year => "y",
-            DurationUnit::Week => "w",
-            DurationUnit::Hour => "h",
-            DurationUnit::Minute => "m",
-            DurationUnit::Day => "d",
-        }
-    }
-}
-
-impl TryFrom<&str> for DurationUnit {
-    type Error = ParseError;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
-            "s" => Ok(DurationUnit::Second),
-            "ms" => Ok(DurationUnit::Millisecond),
-            "i" => Ok(DurationUnit::Step),
-            "y" => Ok(DurationUnit::Year),
-            "w" => Ok(DurationUnit::Week),
-            "h" => Ok(DurationUnit::Hour),
-            "m" => Ok(DurationUnit::Minute),
-            "d" => Ok(DurationUnit::Day),
-            _ => Err(ParseError::InvalidDuration(format!(
-                "duration suffix {value}"
-            ))),
-        }
-    }
-}
 
 /// positive_duration_value returns positive duration in milliseconds for the given s
 /// and the given step.

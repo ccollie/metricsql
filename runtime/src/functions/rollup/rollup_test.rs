@@ -326,6 +326,21 @@ mod tests {
     }
 
     #[test]
+    fn test_rollup_share_eq_over_time() {
+        fn f(eq: f64, expected: f64) {
+            let eqs = QueryValue::from(eq);
+            let args = vec![QueryValue::from(0), eqs];
+            test_rollup_func("share_eq_over_time", args, expected)
+        }
+
+        f(-123.0, 0.0);
+        f(34.0, 0.3333333333333333);
+        f(44.0, 0.16666666666666666);
+        f(123.0, 0.08333333333333333);
+        f(1000.0, 0.0)
+    }
+
+    #[test]
     fn test_rollup_share_gt_over_time() {
         let f = |gt: f64, v_expected: f64| {
             let gts = QueryValue::from(gt);

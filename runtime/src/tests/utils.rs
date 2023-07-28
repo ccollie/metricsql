@@ -171,26 +171,3 @@ pub fn compare_floats(expected: f64, actual: f64) -> bool {
         _ => false,
     };
 }
-
-/// returns true if the two sample lines only differ by a
-/// small relative error in their sample value.
-pub(crate) fn almost_equal(a: f64, b: f64) -> bool {
-    // NaN has no equality but for testing we still want to know whether both values
-    // are NaN.
-    if a.is_nan() && b.is_nan() {
-        return true;
-    }
-
-    // Cf. http://floating-point-gui.de/errors/comparison/
-    if a == b {
-        return true;
-    }
-
-    let diff = (a - b).abs();
-    let min_normal = f64::from_bits(0x0010000000000000); // The smallest positive normal value of type float64.
-    if a == 0_f64 || b == 0_f64 || diff < min_normal {
-        return diff < EPSILON * min_normal;
-    }
-
-    return diff / (a.abs() + b.abs()) < EPSILON;
-}
