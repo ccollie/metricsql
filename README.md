@@ -29,7 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ### Under Heavy Development !!!!
 
-This code is under heavy development and is not ready for production ore even casual use. The code base is
+This code is under heavy development and is not ready for production or even casual use. The code base is
 also in heavy flux and will change frequently.
 
 ### Features
