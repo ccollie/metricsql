@@ -438,6 +438,11 @@ impl RollupResultCache {
             Ok(None)
         }
     }
+
+    pub fn get_stats(&self) -> RollupCacheStats {
+        let inner = self.inner.lock().unwrap();
+        inner.stats.clone()
+    }
 }
 
 // let resultBufPool = ByteBufferPool

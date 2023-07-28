@@ -9,7 +9,6 @@ use tracing::{field, trace_span, Span};
 use lib::{get_pooled_vec_f64, get_pooled_vec_i64, is_stale_nan, AtomicCounter, RelaxedU64Counter};
 use metricsql::ast::*;
 use metricsql::functions::RollupFunction;
-use metricsql::prelude::BuiltinFunction;
 
 use crate::cache::rollup_result_cache::merge_timeseries;
 use crate::context::Context;
