@@ -20,7 +20,6 @@ use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::logical_expr::Expr;
 use datafusion::physical_plan::SendableRecordBatchStream;
 
-use common_recordbatch::SendableRecordBatchStream;
 use datatypes::schema::SchemaRef;
 use store_api::storage::ScanRequest;
 

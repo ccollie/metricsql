@@ -16,19 +16,17 @@ use std::any::Any;
 use std::sync::{Arc, Mutex};
 
 use datafusion::arrow::datatypes::SchemaRef as DfSchemaRef;
-use datafusion::datasource::TableProviderFilterPushDown as DfTableProviderFilterPushDown;
 use datafusion::datasource::{TableProvider, TableType as DfTableType};
 use datafusion::error::Result as DfResult;
 use datafusion::execution::context::SessionState;
+use datafusion::logical_expr::TableProviderFilterPushDown;
 use datafusion::physical_expr::expressions::Column;
 use datafusion::physical_expr::PhysicalSortExpr;
-use datafusion::prelude::Expr;
+use datafusion::prelude::Expr as DfExpr;
 
-use common_query::logical_plan::Expr;
 use common_query::physical_plan::DfPhysicalPlanAdapter;
 use common_query::DfPhysicalPlan;
 use common_recordbatch::OrderOption;
-use datafusion_expr::expr::Expr as DfExpr;
 use store_api::storage::ScanRequest;
 
 use crate::table::metadata::TableType;
@@ -89,7 +87,7 @@ impl TableProvider for DfTableProviderAdapter {
         filters: &[DfExpr],
         limit: Option<usize>,
     ) -> DfResult<Arc<dyn DfPhysicalPlan>> {
-        let filters: Vec<Expr> = filters.iter().map(Clone::clone).map(Into::into).collect();
+        let filters: Vec<DfExpr> = filters.iter().map(Clone::clone).map(Into::into).collect();
         let request = {
             let mut request = self.scan_req.lock().unwrap();
             request.filters = filters;
@@ -125,7 +123,7 @@ impl TableProvider for DfTableProviderAdapter {
     fn supports_filters_pushdown(
         &self,
         filters: &[&DfExpr],
-    ) -> DfResult<Vec<DfTableProviderFilterPushDown>> {
+    ) -> DfResult<Vec<TableProviderFilterPushDown>> {
         let filters = filters
             .iter()
             .map(|&x| x.clone().into())
