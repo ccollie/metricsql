@@ -1,7 +1,10 @@
 #[cfg(test)]
 mod tests {
+    use strum::IntoEnumIterator;
+
     use crate::ast::{expr_equals, optimize, Expr};
     use crate::parser::parse;
+    use crate::prelude::Operator;
 
     fn parse_or_panic(s: &str) -> Expr {
         parse(s).expect(format!("Error parsing expression {s}").as_str())
@@ -297,11 +300,6 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_binary_op_expr_tmp() {
-        another("nan + 2 *3 * inf", "NaN");
-    }
-
-    #[test]
     fn testing() {
         another("((foo, bar),(baz))", "((foo, bar), baz)");
     }
@@ -361,8 +359,6 @@ mod tests {
             r#"5 - 1 + 3 * 2 ^ 2 ^ 3 - 2  OR Metric {Bar= "Baz", aaa!="bb",cc=~"dd" ,zz !~"ff" } "#,
             r#"770 or Metric{Bar="Baz", aaa!="bb", cc=~"dd", zz!~"ff"}"#,
         );
-        another(r#""foo" + PI()"#, r#""foo" + 3.141592653589793"#);
-        same(r#""foo" + bar{x="y"}"#);
         same(r#"("foo"[3s] + bar{x="y"})[5m:3s] offset 10s"#);
         same(r#"("foo"[3s] + bar{x="y"})[5i:3i] offset 10i"#);
         same(r#"bar + "foo" offset 3s"#);
@@ -390,7 +386,6 @@ mod tests {
         another(r#""a">="b""#, "NaN");
         another(r#""a">=bool"b""#, "0");
         another(r#""a"<="b""#, "1");
-        same(r#""a" - "b""#);
         another("a / b keep_metric_names", "(a / b) keep_metric_names");
         another("a / 1 keep_metric_names", "a");
 
@@ -749,16 +744,40 @@ mod tests {
         another("with (sum(a,b)=a+b) sum(c,d)", "c + d")
     }
 
-    fn assert_invalid(s: &str) {
+    fn assert_invalid_ex(s: &str, msg_to_check: Option<&str>) {
         match parse(s) {
             Ok(_) => panic!("expecting error expr when parsing {}", s),
-            _ => {}
+            Err(e) => {
+                if let Some(msg) = msg_to_check {
+                    assert!(e.to_string().contains(msg));
+                }
+            }
         }
     }
 
+    fn assert_invalid(s: &str) {
+        assert_invalid_ex(s, None);
+    }
+
     #[test]
-    fn single_test_2() {
-        assert_invalid("foo{bar}");
+    fn test_mismatched_operand_error() {
+        fn f(s: &str) {
+            assert_invalid_ex(s, Some("mismatched operand types in binary expression"));
+        }
+
+        f(r#""foo" + PI()"#);
+        f(r#""foo" + bar{x="y"}"#);
+    }
+
+    #[test]
+    fn test_invalid_string_operator() {
+        for op in Operator::iter() {
+            if !op.is_valid_string_op() {
+                let expr = format!(r#""foo" {op} "bar""#);
+                let expected_msg = "not allowed in string string operations";
+                assert_invalid_ex(&expr, Some(&expected_msg))
+            }
+        }
     }
 
     #[test]

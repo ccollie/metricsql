@@ -6,7 +6,6 @@ use crate::ast::{
     AggregationExpr, BExpression, BinaryExpr, Expr, FunctionExpr, InterpolatedSelector, MetricExpr,
     NumberLiteral, ParensExpr, RollupExpr, WithExpr,
 };
-use crate::common::ValueType::Scalar;
 use crate::common::{
     BinModifier, StringExpr, Value, ValueType, VectorMatchCardinality, NAME_LABEL,
 };
@@ -165,7 +164,7 @@ fn check_ast_for_binary_expr(mut ex: BinaryExpr) -> Result<Expr, String> {
     let valid_types = [Scalar, InstantVector, RangeVector];
 
     if !valid_types.contains(&left_type) || !valid_types.contains(&right_type) {
-        return Err("binary expression must contain only scalar and instant vector types".into());
+        return Err("mismatched operand types in binary expression".into());
     }
 
     if (left_type != InstantVector || right_type != InstantVector)

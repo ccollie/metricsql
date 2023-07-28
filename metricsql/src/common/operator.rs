@@ -2,11 +2,12 @@ use std::fmt;
 
 use phf::phf_map;
 use serde::{Deserialize, Serialize};
+use strum_macros::EnumIter;
 
 use crate::parser::tokens::Token;
 use crate::parser::ParseError;
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, EnumIter, Serialize, Deserialize)]
 pub enum Operator {
     Add,
     And,
