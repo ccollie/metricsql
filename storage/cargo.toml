@@ -22,6 +22,7 @@ runtime = { path = "../runtime" }
 regex = { workspace = true }
 regex-syntax = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 snafu = "0.7.4"
 tokio = "1.29.1"
 tracing = { workspace = true }

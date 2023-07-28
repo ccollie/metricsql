@@ -12,9 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Table Engine config
+//! Path constants for table engines, cluster states and WAL
+/// All paths relative to data_home(file storage) or root path(S3, OSS etc).
 
-#[derive(Debug, Clone, Default)]
-pub struct EngineConfig {
-    pub compress_manifest: bool,
-}
+/// WAL dir for local file storage
+pub const WAL_DIR: &str = "wal/";
+
+/// Data dir for table engines
+pub const DATA_DIR: &str = "data/";
+
+/// Cluster state dir
+pub const CLUSTER_DIR: &str = "cluster/";
