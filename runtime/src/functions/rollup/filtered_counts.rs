@@ -67,10 +67,6 @@ fn count_le(values: &Vec<f64>, limit: f64) -> f64 {
     count_filtered(values, limit, less_or_equal)
 }
 
-fn count_ge(values: &Vec<f64>, limit: f64) -> f64 {
-    count_filtered(values, limit, greater_or_equal)
-}
-
 fn count_gt(values: &Vec<f64>, limit: f64) -> f64 {
     count_filtered(values, limit, greater)
 }
@@ -83,20 +79,12 @@ fn count_ne(values: &Vec<f64>, limit: f64) -> f64 {
     count_filtered(values, limit, not_equal)
 }
 
-fn less(x: f64, y: f64) -> bool {
-    x < y
-}
-
 fn less_or_equal(x: f64, y: f64) -> bool {
     x.le(&y)
 }
 
 fn greater(x: f64, y: f64) -> bool {
     x > y
-}
-
-fn greater_or_equal(x: f64, y: f64) -> bool {
-    x >= y
 }
 
 fn equal(x: f64, y: f64) -> bool {

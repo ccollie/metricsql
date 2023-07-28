@@ -9,8 +9,8 @@ use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use metricsql::common::LabelFilter;
 
 use crate::functions::remove_nan_values_in_place;
+use crate::provider::Deadline;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::search::Deadline;
 use crate::types::{MetricName, Timeseries, Timestamp, TimestampTrait};
 use crate::Context;
 
@@ -34,22 +34,22 @@ impl MetricDataProvider for NullMetricDataProvider {
 /// MetricDataProvider. It follows the idea of http.HandlerFunc.
 pub type QueryableFunc = fn(ctx: &Context, sq: &SearchQuery) -> RuntimeResult<QueryResults>;
 
-/// SearchQuery is used for sending search queries to external data sources.
+/// SearchQuery is used for sending provider queries to external data sources.
 #[derive(Default, Debug, Clone)]
 pub struct SearchQuery {
     /// The time range for searching time series
     pub min_timestamp: Timestamp,
     pub max_timestamp: Timestamp,
 
-    /// Tag filters for the search query
+    /// Tag filters for the provider query
     pub tag_filter_list: Vec<Vec<LabelFilter>>,
 
-    /// The maximum number of time series the search query can return.
+    /// The maximum number of time series the provider query can return.
     pub max_metrics: usize,
 }
 
 impl SearchQuery {
-    /// Create a new search query for the given args.
+    /// Create a new provider query for the given args.
     pub fn new(
         start: Timestamp,
         end: Timestamp,

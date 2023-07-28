@@ -2,6 +2,7 @@ use std::fmt::Display;
 use std::sync::Arc;
 
 use rayon::join;
+use rayon::prelude::IntoParallelRefIterator;
 use tracing::{field, trace, trace_span, Span};
 
 use metricsql::ast::{BinaryExpr, Expr, FunctionExpr, ParensExpr, RollupExpr};
@@ -17,6 +18,7 @@ use crate::eval::binary::{
 use crate::eval::rollups::RollupExecutor;
 use crate::functions::rollup::{get_rollup_function_factory, rollup_default, RollupHandlerEnum};
 use crate::functions::transform::{get_transform_func, handle_union, TransformFuncArg};
+use crate::rayon::iter::ParallelIterator;
 use crate::{Context, EvalConfig, QueryValue, RuntimeError, RuntimeResult, Timeseries};
 
 type Value = QueryValue;
@@ -146,7 +148,7 @@ fn eval_binary_op(
         (Expr::MetricExpression(_), Expr::MetricExpression(_)) => {
             eval_vector_vector_binop(be, ctx, ec)
         }
-        // the following cases can be handled cheaply without invoking async overhead
+        // the following cases can be handled cheaply without invoking rayon overhead (or maybe not :-) )
         (Expr::Number(left), Expr::Number(right)) => {
             let value = scalar_binary_operations(be.op, left.value, right.value, be.bool_modifier)?;
             Ok(Value::Scalar(value))
@@ -218,10 +220,39 @@ fn eval_transform_func(
     handler(&mut tfa).map_err(|err| map_error(err, fe))
 }
 
+#[inline]
+fn eval_args(ctx: &Arc<Context>, ec: &EvalConfig, args: &[Expr]) -> RuntimeResult<Vec<Value>> {
+    // see if we can evaluate all args in parallel
+    // todo: if rayon in cheap enough, we can avoid the check and always go parallel
+    // todo: see https://docs.rs/rayon/1.0.3/rayon/iter/trait.IndexedParallelIterator.html#method.with_min_len
+    let mut count = 0;
+    for (i, arg) in args.iter().enumerate() {
+        match arg {
+            Expr::StringLiteral(_) | Expr::Duration(_) | Expr::Number(_) => {
+                if i > 4 {
+                    break;
+                }
+                continue;
+            }
+            _ => {
+                count += 1;
+                if count > 1 {
+                    break;
+                }
+            }
+        }
+    }
+    if count > 1 {
+        eval_exprs_in_parallel(ctx, ec, args)
+    } else {
+        eval_exprs_sequentially(ctx, ec, args)
+    }
+}
+
 pub(super) fn eval_exprs_sequentially(
     ctx: &Arc<Context>,
     ec: &EvalConfig,
-    args: &Vec<Expr>,
+    args: &[Expr],
 ) -> RuntimeResult<Vec<Value>> {
     let res = args
         .iter()
@@ -234,10 +265,14 @@ pub(super) fn eval_exprs_sequentially(
 pub(super) fn eval_exprs_in_parallel(
     ctx: &Arc<Context>,
     ec: &EvalConfig,
-    args: &Vec<Expr>,
+    args: &[Expr],
 ) -> RuntimeResult<Vec<Value>> {
-    eval_exprs_sequentially(ctx, ec, args)
-    // todo!("eval_exprs_in_parallel")
+    let res: RuntimeResult<Vec<Value>> = args
+        .par_iter()
+        .map(|expr| exec_expr(ctx, ec, expr))
+        .collect();
+
+    res
 }
 
 pub(super) fn eval_rollup_func_args(
@@ -261,6 +296,7 @@ pub(super) fn eval_rollup_func_args(
     }
 
     let mut args = Vec::with_capacity(fe.args.len());
+    // todo(perf): extract rollup arg first, then evaluate the rest in parallel
     for (i, arg) in fe.args.iter().enumerate() {
         if i == rollup_arg_idx {
             re = get_rollup_expr_arg(arg)?;

@@ -29,10 +29,10 @@ pub use context::*;
 pub use eval::{get_timestamps, EvalConfig};
 pub use exec::*;
 pub use parser_cache::*;
+pub use provider::*;
 pub use query::*;
 pub use query_stats::*;
 pub use runtime_error::*;
-pub use search::*;
 #[cfg(test)]
 pub use tests::utils::*;
 pub use types::*;
@@ -46,10 +46,10 @@ mod functions;
 mod histogram;
 mod memory_pool;
 mod parser_cache;
+mod provider;
 mod query;
 mod query_stats;
 mod runtime_error;
-mod search;
 mod types;
 mod utils;
 

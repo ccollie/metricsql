@@ -117,7 +117,7 @@ impl ExprSimplifier {
 /// Note it does not handle algebraic rewrites such as `(a or false)`
 /// --> `a`, which is handled by [`Simplifier`]
 pub struct ConstEvaluator {
-    /// `can_evaluate` is used during the depth-first-search of the
+    /// `can_evaluate` is used during the depth-first-provider of the
     /// `Expr` tree to track if any siblings (or their descendants) were
     /// non evaluatable (e.g. had a column reference or volatile
     /// function)
@@ -374,7 +374,7 @@ pub(super) fn extract_datetime_part(epoch_secs: f64, part: DateTimePart) -> f64 
 /// - Adds missing filters to `foo{filters1} op bar{filters2}`
 ///   according to https://utcc.utoronto.ca/~cks/space/blog/sysadmin/PrometheusLabelNonOptimization
 pub struct PushDownFilterRewriter {
-    /// `can_evaluate` is used during the depth-first-search of the
+    /// `can_evaluate` is used during the depth-first-provider of the
     /// `Expr` tree to track if any siblings (or their descendants) were
     /// non evaluatable (e.g. had a column reference or volatile
     /// function)

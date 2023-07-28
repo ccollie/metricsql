@@ -1,13 +1,14 @@
-use chrono::Duration;
 use std::sync::Arc;
+
+use chrono::Duration;
 use tracing::{span_enabled, Level};
 
 use crate::active_queries::ActiveQueries;
 use crate::cache::rollup_result_cache::RollupResultCache;
 use crate::parser_cache::{ParseCache, ParseCacheValue};
+use crate::provider::{Deadline, QueryResults, SearchQuery};
 use crate::query_stats::query_stats::QueryStatsTracker;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::search::{Deadline, QueryResults, SearchQuery};
 use crate::{ActiveQueryEntry, MetricDataProvider, NullMetricDataProvider, ParseCacheResult};
 
 const DEFAULT_MAX_QUERY_LEN: usize = 16 * 1024;
@@ -27,6 +28,11 @@ pub struct Context {
 impl Context {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn with_provider(mut self, provider: Arc<dyn MetricDataProvider + Send + Sync>) -> Self {
+        self.metric_data_provider = provider;
+        self
     }
 
     pub fn process_search_query(
@@ -99,7 +105,7 @@ pub struct SessionConfig {
     /// Whether query tracing is enabled.
     pub trace_enabled: bool,
 
-    /// The maximum search query length in bytes
+    /// The maximum provider query length in bytes
     pub max_query_len: usize,
 
     /// The time when data points become visible in query results after the collection.
@@ -108,7 +114,7 @@ pub struct SessionConfig {
 
     /// The maximum amount of memory a single query may consume. Queries requiring more memory are
     /// rejected. The total memory limit for concurrently executed queries can be estimated as
-    /// `max_memory_per_query` multiplied by -search.maxConcurrentQueries
+    /// `max_memory_per_query` multiplied by -provider.maxConcurrentQueries
     pub max_memory_per_query: usize,
 
     /// Set this flag to true if the database doesn't contain Prometheus stale markers, so there is
@@ -135,7 +141,7 @@ pub struct SessionConfig {
     /// This option allows limiting memory usage
     pub max_unique_timeseries: usize,
 
-    /// Synonym to -search.lookback-delta from Prometheus.
+    /// Synonym to -provider.lookback-delta from Prometheus.
     /// The value is dynamically detected from interval between time series data-points if not set.
     /// It can be overridden on per-query basis via max_lookback arg.
     /// See also `max_staleness_interval` flag, which has the same meaning due to historical reasons

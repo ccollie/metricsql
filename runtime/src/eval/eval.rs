@@ -4,8 +4,8 @@ use std::sync::RwLock;
 use metricsql::common::LabelFilter;
 
 use crate::context::Context;
+use crate::provider::Deadline;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::search::Deadline;
 use crate::types::{Timeseries, Timestamp};
 use crate::TimestampTrait;
 

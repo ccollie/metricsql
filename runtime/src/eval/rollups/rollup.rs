@@ -20,9 +20,9 @@ use crate::functions::rollup::{
     MAX_SILENCE_INTERVAL,
 };
 use crate::functions::transform::get_absent_timeseries;
+use crate::provider::{join_tag_filter_list, QueryResult, QueryResults, SearchQuery};
 use crate::rayon::iter::ParallelIterator;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::search::{join_tag_filter_list, QueryResult, QueryResults, SearchQuery};
 use crate::{get_timeseries, get_timestamps, EvalConfig, MetricName, QueryValue};
 use crate::{Timeseries, Timestamp};
 

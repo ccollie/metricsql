@@ -28,7 +28,7 @@ use crate::{EvalConfig, Timeseries};
 /// The maximum duration since the current time for response data, which is always queried from the
 /// original raw data, without using the response cache. Increase this value if you see gaps in responses
 /// due to time synchronization issues between this library and data sources. See also
-/// -search.disableAutoCacheReset
+/// -provider.disableAutoCacheReset
 /// TODO: move to EvalConfig
 static CACHE_TIMESTAMP_OFFSET: i64 = 5000;
 

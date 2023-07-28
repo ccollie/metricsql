@@ -191,7 +191,7 @@ fn get_common_label_filters(tss: &[Timeseries]) -> Vec<LabelFilter> {
 
         if values.len() > 1000 {
             // Skip the filter on the given tag, since it needs to enumerate too many unique values.
-            // This may slow down the search for matching time series.
+            // This may slow down the provider for matching time series.
             continue;
         }
 

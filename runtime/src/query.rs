@@ -8,7 +8,7 @@ use metricsql::common::LabelFilter;
 
 use crate::eval::{adjust_start_end, validate_max_points_per_timeseries};
 use crate::exec::parse_promql_internal;
-use crate::search::join_tag_filter_list;
+use crate::provider::join_tag_filter_list;
 use crate::types::{Timestamp, TimestampTrait};
 use crate::{
     exec, remove_empty_values_and_timeseries, Context, Deadline, EvalConfig, QueryResult,

@@ -180,10 +180,6 @@ pub(crate) fn mad(values: &[f64]) -> f64 {
     quantile(0.5, &ds)
 }
 
-pub(crate) fn round_to_multiple(n: f64, multiple: f64) -> f64 {
-    (n / multiple).round() * multiple
-}
-
 pub(crate) fn linear_regression(
     values: &[f64],
     timestamps: &[i64],

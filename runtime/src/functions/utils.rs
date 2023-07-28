@@ -34,11 +34,6 @@ pub fn get_first_non_nan_index(values: &[f64]) -> usize {
     0
 }
 
-pub fn skip_leading_nans(values: &[f64]) -> &[f64] {
-    let i = get_first_non_nan_index(values);
-    return &values[i..];
-}
-
 pub fn skip_trailing_nans(values: &[f64]) -> &[f64] {
     let mut i = values.len() - 1;
     while i > 0 && values[i].is_nan() {

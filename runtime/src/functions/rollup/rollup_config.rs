@@ -362,8 +362,8 @@ impl RollupConfig {
                 window = max_prev_interval
             }
             if self.is_default_rollup && self.lookback_delta > 0 && window > self.lookback_delta {
-                // Implicit window exceeds -search.maxStalenessInterval, so limit it to
-                // -search.maxStalenessInterval
+                // Implicit window exceeds -provider.maxStalenessInterval, so limit it to
+                // -provider.maxStalenessInterval
                 // according to https://github.com/VictoriaMetrics/VictoriaMetrics/issues/784
                 window = self.lookback_delta
             }
@@ -535,7 +535,7 @@ fn seek_first_timestamp_idx_after(
         timestamps = &timestamps[0..end_idx];
     }
     if timestamps.len() < 16 {
-        // Fast path: the number of timestamps to search is small, so scan them all.
+        // Fast path: the number of timestamps to provider is small, so scan them all.
         for (i, timestamp) in timestamps.iter().enumerate() {
             if *timestamp > seek_timestamp {
                 return start_idx + i;
@@ -543,7 +543,7 @@ fn seek_first_timestamp_idx_after(
         }
         return start_idx + timestamps.len();
     }
-    // Slow path: too big timestamps.len(), so use binary search.
+    // Slow path: too big timestamps.len(), so use binary provider.
     let requested = seek_timestamp + 1;
     match timestamps.binary_search(&requested) {
         Ok(pos) => start_idx + pos,
