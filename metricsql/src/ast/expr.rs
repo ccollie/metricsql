@@ -982,7 +982,7 @@ impl BinaryExpr {
         }
         write!(f, " {}", self.op)?;
         if self.bool_modifier {
-            write!(f, "bool")?;
+            write!(f, " bool")?;
         }
         if let Some(modifier) = &self.group_modifier {
             write!(f, " {}", modifier)?;

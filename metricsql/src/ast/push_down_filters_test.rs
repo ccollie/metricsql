@@ -5,16 +5,24 @@ mod tests {
     use crate::ast::{optimize, Expr, MetricExpr};
     use crate::parser::parse;
 
-    fn parse_or_panic(q: &str) -> Expr {
+    fn parse_selector(q: &str) -> Expr {
+        // check_ast raises hell if we construct a MetricExpr with an empty filter set.
+        // This is a workaround to avoid that for testing purposes.
+        if q == "{}" {
+            return Expr::MetricExpression(MetricExpr {
+                label_filters: vec![],
+                ..Default::default()
+            });
+        }
         parse(q).expect(format!("unexpected error in parse({})", q).as_str())
     }
 
     #[test]
     fn test_pushdown_binary_op_filters() {
         let f = |q: &str, filters: &str, result_expected: &str| {
-            let expr = parse_or_panic(q);
+            let expr = parse_selector(q);
             let orig = expr.to_string();
-            let filters_expr = parse_or_panic(filters);
+            let filters_expr = parse_selector(filters);
             match filters_expr {
                 Expr::MetricExpression(mut me) => {
                     let result_expr = pushdown_binary_op_filters(&expr, &mut me.label_filters);
@@ -102,7 +110,7 @@ mod tests {
     #[test]
     fn test_get_common_label_filters() {
         let get_filters = |q: &str| -> String {
-            let e = parse(q).expect(format!("unexpected error in parse({})", q).as_str());
+            let e = parse_selector(q);
             let expr = optimize(e).expect(format!("unexpected error in optimize({})", q).as_str());
             let lfs = get_common_label_filters(&expr);
             let mut me = MetricExpr::with_filters(lfs);
@@ -630,10 +638,10 @@ mod tests {
     }
 
     fn validate_optimized(q: &str, expected: &str) {
-        let e = parse_or_panic(q);
+        let e = parse_selector(q);
         let orig = e.to_string();
         let e_optimized = optimize(e.clone()).expect("unexpected error in optimize()");
-        let e_expected = parse_or_panic(expected);
+        let e_expected = parse_selector(expected);
 
         assert!(
             expr_equals(&e_optimized, &e_expected),
