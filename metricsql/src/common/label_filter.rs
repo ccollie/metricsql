@@ -214,13 +214,35 @@ impl LabelFilter {
         match self.op {
             Equal => self.value.is_empty(),
             NotEqual => !self.value.is_empty(),
-            RegexEqual => {
-                let str = self.value.to_string();
-                is_empty_regex(&str)
-            }
+            RegexEqual => is_empty_regex(&self.value),
             RegexNotEqual => {
                 let str = self.value.to_string();
                 is_empty_regex(&str)
+            }
+        }
+    }
+
+    pub fn is_match(&self, str: &str) -> bool {
+        match self.op {
+            LabelFilterOp::Equal => self.value.eq(str),
+            LabelFilterOp::NotEqual => self.value.ne(str),
+            LabelFilterOp::RegexEqual => {
+                // slight optimization for frequent case
+                if str.is_empty() {
+                    return is_empty_regex(&self.value);
+                }
+                if let Ok(re) = compile_regexp(&self.value) {
+                    re.is_match(str)
+                } else {
+                    false
+                }
+            }
+            LabelFilterOp::RegexNotEqual => {
+                if let Ok(re) = compile_regexp(&self.value) {
+                    !re.is_match(str)
+                } else {
+                    false
+                }
             }
         }
     }

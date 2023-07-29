@@ -28,7 +28,7 @@ use crate::prelude::MetricExpr;
 ///
 /// example:
 /// ```
-/// use crate::metricsql::ast::*;
+/// use crate::metricsql::ast::utils::*;
 /// let c = selector("latency");
 /// ```
 pub fn selector(ident: impl Into<String>) -> Expr {

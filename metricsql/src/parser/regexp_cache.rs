@@ -4,9 +4,7 @@ use regex::Regex;
 /// todo: have cache.
 pub fn compile_regexp(re: &str) -> ParseResult<Regex> {
     match Regex::new(re) {
-        Err(_) => {
-            return Err(ParseError::InvalidRegex(re.to_string()));
-        }
+        Err(_) => Err(ParseError::InvalidRegex(re.to_string())),
         Ok(regex) => Ok(regex),
     }
 }
@@ -18,5 +16,12 @@ pub fn is_empty_regex(re: &str) -> bool {
             Err(_) => false,
             Ok(regex) => regex.is_match(""),
         },
+    }
+}
+
+pub(crate) fn is_regex_match(re: &str, s: &str) -> bool {
+    match compile_regexp(re) {
+        Err(_) => false,
+        Ok(regex) => regex.is_match(s),
     }
 }

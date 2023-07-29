@@ -34,8 +34,7 @@ impl LabelFilterExpr {
         if match_op == LabelFilterOp::RegexEqual || match_op == LabelFilterOp::RegexNotEqual {
             if value.is_expanded() {
                 let resolved_value = value.to_string();
-                let re_anchored = format!("^(?:{})$", resolved_value);
-                if compile_regexp(&re_anchored).is_err() {
+                if compile_regexp(&resolved_value).is_err() {
                     return Err(ParseError::InvalidRegex(resolved_value));
                 }
             }
@@ -143,6 +142,26 @@ impl LabelFilterExpr {
             RegexNotEqual => {
                 let str = self.value.to_string();
                 is_empty_regex(&str)
+            }
+        }
+    }
+
+    pub fn is_match(&self, str: &str) -> bool {
+        use LabelFilterOp::*;
+        let haystack = self.value.to_string();
+        match self.op {
+            Equal => haystack.eq(str),
+            NotEqual => haystack.ne(str),
+            RegexEqual => {
+                compile_regexp(&haystack)
+                    .map(|re| re.is_match(str))
+                    .unwrap_or(false)
+            }
+            RegexNotEqual => {
+                let str = self.value.to_string();
+                compile_regexp(&haystack)
+                    .map(|re| !re.is_match(&str))
+                    .unwrap_or(false)
             }
         }
     }

@@ -49,6 +49,12 @@ mod tests {
             }
         };
 
+        f(
+            r#"round(rate(x[5m] offset -1h)) + 123 / {a="b"}"#,
+            r#"{x!="y"}"#,
+            r#"round(rate(x{x!="y"}[5m] offset -1h)) + (123 / {a="b", x!="y"})"#,
+        );
+
         f("foo", "{}", "foo");
         f("foo", r#"{a="b"}"#, r#"foo{a="b"}"#);
         f(
