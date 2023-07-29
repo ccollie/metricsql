@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use crate::ast::{BinaryExpr, Expr};
 use crate::common::{
-    GroupModifier, GroupModifierOp, JoinModifier, JoinModifierOp, Operator, StringExpr, ValueType,
+    GroupModifier, GroupModifierOp, JoinModifier, JoinModifierOp, Operator, StringExpr,
 };
 use crate::functions::AggregateFunction;
 use crate::parser::function::parse_func_expr;
@@ -283,13 +283,12 @@ fn parse_unary_minus_expr(p: &mut Parser) -> ParseResult<Expr> {
     let expr = parse_single_expr(p)?;
 
     let rt = expr.return_type();
-    match rt {
-        ValueType::InstantVector | ValueType::Scalar => {}
-        _ => {
-            let msg =
-                format!("unary Expr only allowed on expressions of type scalar or instant vector");
-            return Err(unexpected("", &rt.to_string(), &msg, Some(&span)));
-        }
+    if !matches!(rt, ValueType::InstantVector | ValueType::Scalar) {
+        let msg = format!(
+            "unary Expr only allowed on expressions of type scalar or instant vector, got {:?}",
+            rt
+        );
+        return Err(unexpected("", &rt.to_string(), &msg, Some(&span)));
     }
 
     // Substitute `-expr` with `0 - expr`

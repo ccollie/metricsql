@@ -2,7 +2,7 @@ use std::str;
 
 use crate::parser::{ParseError, ParseResult};
 
-// todo: have ms orr nanoseconds as base
+// todo: have ms or nanoseconds as base
 const SECONDS_PER_MS: f64 = 1e-3;
 const SECONDS_PER_MINUTE: f64 = 60.0;
 const SECONDS_PER_HOUR: f64 = 60.0 * SECONDS_PER_MINUTE;

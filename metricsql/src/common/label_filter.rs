@@ -18,8 +18,9 @@ pub type LabelName = String;
 pub type LabelValue = String;
 
 // NOTE: https://github.com/rust-lang/regex/issues/668
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub enum MatchOp {
+    #[default]
     Equal,
     NotEqual,
     Re(Regex),

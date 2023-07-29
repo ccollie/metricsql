@@ -209,25 +209,21 @@ fn check_ast_for_rollup(mut ex: RollupExpr) -> Result<Expr, String> {
 }
 
 fn check_ast_for_vector_selector(ex: MetricExpr) -> Result<Expr, String> {
-    // A Vector selector must contain at least one non-empty matcher to prevent
-    // implicit selection of all metrics (e.g. by a typo).
-    if ex.is_empty_matchers() {
-        return Err("vector selector must contain at least one non-empty matcher".into());
+    match ex.metric_name() {
+        Some(ref name) => match ex.find_matcher_value(NAME_LABEL) {
+            Some(val) => Err(format!(
+                "metric name must not be set twice: '{}' or '{}'",
+                name, val
+            )),
+            None => Ok(Expr::MetricExpression(ex)),
+        },
+        None if ex.is_empty_matchers() => {
+            // When name is None, a vector selector must contain at least one non-empty matcher
+            // to prevent implicit selection of all metrics (e.g. by a typo).
+            Err("vector selector must contain at least one non-empty matcher".into())
+        }
+        _ => Ok(Expr::MetricExpression(ex)),
     }
-
-    let mut du = ex.find_matchers(NAME_LABEL);
-    if du.len() >= 2 {
-        // this is to ensure that the err information can be predicted with fixed order
-        du.sort();
-
-        return Err(format!(
-            "metric name must not be set twice: '{}' or '{}'",
-            du[0].name(),
-            du[1].name()
-        ));
-    }
-
-    Ok(Expr::MetricExpression(ex))
 }
 
 fn check_ast_for_interpolated_vector_selector(ex: InterpolatedSelector) -> Result<Expr, String> {

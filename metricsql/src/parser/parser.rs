@@ -51,7 +51,7 @@ impl<'a> Parser<'a> {
     pub fn tokenize(input: &'a str) -> ParseResult<Vec<TokenWithLocation<'a>>> {
         let mut lexer: logos::Lexer<'a, Token> = Token::lexer(input);
 
-        let mut tokens = Vec::with_capacity(16); // todo: pre-size
+        let mut tokens = Vec::with_capacity(64); // todo: pre-size
         loop {
             match lexer.next() {
                 Some(tok) => match tok {
@@ -389,14 +389,11 @@ impl<'a> Parser<'a> {
     pub(super) fn parse_parens_expr(&mut self) -> ParseResult<Expr> {
         let mut list = self.parse_arg_list()?;
         if list.len() == 1 {
-            match list[0].borrow_mut() {
-                Expr::BinaryOperator(be) => {
-                    if self.at(&Token::KeepMetricNames) {
-                        self.bump();
-                        be.keep_metric_names = true;
-                    }
+            if let Expr::BinaryOperator(be) = list[0].borrow_mut() {
+                if self.at(&Token::KeepMetricNames) {
+                    self.bump();
+                    be.keep_metric_names = true;
                 }
-                _ => {}
             }
         }
         Ok(Expr::Parens(ParensExpr::new(list)))

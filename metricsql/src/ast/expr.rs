@@ -261,6 +261,15 @@ impl MetricExpr {
             .collect()
     }
 
+    pub fn find_matcher_value(&self, name: &str) -> Option<String> {
+        for m in &self.label_filters {
+            if m.label.eq(name) {
+                return Some(m.value.clone());
+            }
+        }
+        None
+    }
+
     pub fn sort_filters(&mut self) {
         self.label_filters.sort_by(|a, b| {
             let mut res = a.label.cmp(&b.label);

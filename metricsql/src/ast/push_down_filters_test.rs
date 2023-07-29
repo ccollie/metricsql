@@ -32,7 +32,7 @@ mod tests {
                         "pushdown_binary_op_filters({}, {});",
                         q, filters
                     );
-                    // Verify that the original e didn't change after PushdownBinaryOpFilters() call
+                    // Verify that the original e didn't change after pushdown_binary_op_filters() call
                     let s = expr.to_string();
                     assert_eq!(
                         s, orig,

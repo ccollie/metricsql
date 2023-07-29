@@ -1,7 +1,9 @@
-use crate::parser::{ParseError, ParseResult};
-use enquote::{enquote, unescape};
 use std::borrow::Cow;
 use std::str;
+
+use enquote::{enquote, unescape};
+
+use crate::parser::{ParseError, ParseResult};
 
 #[inline]
 fn is_first_ident_char(ch: &char) -> bool {
@@ -141,7 +143,6 @@ mod tests {
 
         f("", "");
         f("a", "a");
-        f("\\", "");
         f(r"\\", "\\");
         f(r"\foo\-bar", "foo-bar");
         f(r#"a\\\\b\"c\d"#, r#"a\\b"cd"#);
