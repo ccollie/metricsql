@@ -1,6 +1,7 @@
-use chrono::Utc;
 use std::collections::HashMap;
 use std::sync::RwLock;
+
+use chrono::Utc;
 
 use crate::eval::EvalConfig;
 use crate::types::{Timestamp, TimestampTrait};
@@ -48,7 +49,7 @@ impl ActiveQueries {
             "".to_string()
         };
 
-        let start_time = start_time.unwrap_or_else(|| Timestamp::now());
+        let start_time = start_time.unwrap_or_else(Timestamp::now);
 
         let aqe = ActiveQueryEntry {
             start: ec.start,
@@ -72,7 +73,7 @@ impl ActiveQueries {
 
     pub fn get_all(&self) -> Vec<ActiveQueryEntry> {
         let inner = self.inner.read().unwrap();
-        let mut entries = inner.data.values().map(|x| x.clone()).collect::<Vec<_>>();
+        let mut entries = inner.data.values().cloned().collect::<Vec<_>>();
 
         entries.sort_by(|a, b| a.start_time.cmp(&b.start_time));
 

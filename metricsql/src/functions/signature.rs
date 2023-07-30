@@ -81,7 +81,7 @@ impl TypeSignature {
             Ok(())
         }
 
-        return match self {
+        match self {
             TypeSignature::Exact(valid_types, min) => {
                 let max = valid_types.len();
                 if let Some(min) = min {
@@ -99,16 +99,16 @@ impl TypeSignature {
             | TypeSignature::VariadicEqual(_, min)
             | TypeSignature::Variadic(_, min)
             | TypeSignature::VariadicAny(min) => expect_min_args(name, arg_len, *min),
-        };
+        }
     }
 
     pub fn is_variadic(&self) -> bool {
-        match self {
-            TypeSignature::Variadic(_, _) => true,
-            TypeSignature::VariadicEqual(_, _) => true,
-            TypeSignature::VariadicAny(_) => true,
-            _ => false,
-        }
+        matches!(
+            self,
+            TypeSignature::Variadic(_, _)
+                | TypeSignature::VariadicEqual(_, _)
+                | TypeSignature::VariadicAny(_)
+        )
     }
 }
 
@@ -242,9 +242,9 @@ impl<'a> Iterator for TypeIterator<'a> {
             Variadic(types, _min) => {
                 if self.arg_index < types.len() {
                     self.arg_index += 1;
-                    Some(types[self.arg_index - 1].clone())
+                    Some(types[self.arg_index - 1])
                 } else {
-                    Some(types[types.len() - 1].clone())
+                    Some(types[types.len() - 1])
                 }
             }
             VariadicEqual(data_type, _) => Some(*data_type),
@@ -259,7 +259,7 @@ impl<'a> Iterator for TypeIterator<'a> {
             Exact(types, _) => {
                 if self.arg_index < types.len() {
                     self.arg_index += 1;
-                    Some(types[self.arg_index - 1].clone())
+                    Some(types[self.arg_index - 1])
                 } else {
                     None
                 }

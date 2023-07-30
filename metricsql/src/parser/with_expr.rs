@@ -1,8 +1,9 @@
+use std::collections::HashSet;
+
 use crate::ast::{WithArgExpr, WithExpr};
 use crate::parser::tokens::Token;
 use crate::parser::{parse_expression, syntax_error};
 use crate::parser::{ParseError, ParseResult, Parser};
-use std::collections::HashSet;
 
 /// parses `WITH (withArgExpr...) expr`.
 pub(super) fn parse_with_expr(p: &mut Parser) -> ParseResult<WithExpr> {
@@ -95,7 +96,7 @@ fn parse_with_arg_expr(p: &mut Parser) -> ParseResult<WithArgExpr> {
             let end = p.cursor - 1;
             let range = start..end;
             let err = syntax_error(&msg, &range, "WithArgExpr".to_string());
-            return Err(err);
+            Err(err)
         }
     }
 }

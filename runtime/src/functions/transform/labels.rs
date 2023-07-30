@@ -60,14 +60,14 @@ pub(crate) fn alias(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>
 }
 
 pub(crate) fn handle_label_set(
-    series: &mut Vec<Timeseries>,
+    series: &mut [Timeseries],
     dst_labels: &[String],
     dst_values: &[String],
 ) {
     for ts in series.iter_mut() {
         for (dst_label, value) in dst_labels.iter().zip(dst_values.iter()) {
-            if value.len() == 0 {
-                ts.metric_name.remove_tag(&dst_label);
+            if value.is_empty() {
+                ts.metric_name.remove_tag(dst_label);
             } else {
                 ts.metric_name.set_tag(dst_label, value)
             }
@@ -98,7 +98,7 @@ fn transform_label_value_func(
             let dst_value = get_tag_value(&mut ts.metric_name, label);
             let transformed = &*f(&dst_value);
 
-            if transformed.len() == 0 {
+            if transformed.is_empty() {
                 ts.metric_name.remove_tag(label);
             } else {
                 ts.metric_name.set_tag(label, transformed);
@@ -120,11 +120,11 @@ pub(crate) fn label_map(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeser
 
     let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
     for ts in series.iter_mut() {
-        let mut dst_value = get_tag_value(&mut ts.metric_name, &label);
+        let mut dst_value = get_tag_value(&ts.metric_name, &label);
         if let Some(value) = m.get(dst_value.as_str()) {
             dst_value.push_str(value);
         }
-        if dst_value.len() == 0 {
+        if dst_value.is_empty() {
             ts.metric_name.remove_tag(&label);
         } else {
             ts.metric_name.set_tag(&label, &dst_value);
@@ -150,7 +150,7 @@ pub(crate) fn drop_common_labels(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
     let series_len = series.len();
     // m.iter().filter(|entry| entry.1)
     for (label_name, x) in counts_map.iter() {
-        for (_, count) in x {
+        for count in x.values() {
             if *count != series_len {
                 continue;
             }
@@ -185,7 +185,7 @@ fn transform_label_copy_ext(
                 continue;
             }
             let value = value.unwrap();
-            if value.len() == 0 {
+            if value.is_empty() {
                 // do not remove destination label if the source label doesn't exist.
                 continue;
             }
@@ -217,21 +217,21 @@ pub(crate) fn label_join(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timese
 
     let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
     for ts in series.iter_mut() {
-        let mut dst_value = get_tag_value(&mut ts.metric_name, &dst_label);
+        let mut dst_value = get_tag_value(&ts.metric_name, &dst_label);
         // use some manner of string buffer
 
         dst_value.clear(); //??? test this
 
         for (j, src_label) in src_labels.iter().enumerate() {
             if let Some(src_value) = ts.metric_name.get_tag_value(src_label) {
-                dst_value.push_str(&src_value);
+                dst_value.push_str(src_value);
             }
             if j + 1 < src_labels.len() {
                 dst_value.push_str(&separator)
             }
         }
 
-        if dst_value.len() == 0 {
+        if dst_value.is_empty() {
             ts.metric_name.remove_tag(&dst_label);
         } else {
             ts.metric_name.set_tag(&dst_label, &dst_value);
@@ -271,7 +271,7 @@ pub(crate) fn label_replace(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
         let src_label = get_string_arg(&tfa.args, 3)?;
         let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
 
-        handle_label_replace(&mut series, &src_label, &r, &dst_label, &replacement)
+        handle_label_replace(&mut series, &src_label, r, &dst_label, &replacement)
     })
 }
 
@@ -288,10 +288,10 @@ fn handle_label_replace(
         let src_value = ts.metric_name.get_tag_value(src_label);
 
         // note: we can have a match-all regex like `.*` which will match an empty string
-        let haystack = if src_value.is_none() {
-            EMPTY_STRING
+        let haystack = if let Some(v) = src_value {
+            v
         } else {
-            &src_value.unwrap()
+            EMPTY_STRING
         };
 
         if !r.is_match(haystack) {

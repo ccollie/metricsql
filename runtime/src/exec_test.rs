@@ -1613,7 +1613,7 @@ mod tests {
     }
 
     #[test]
-    fn test_timee_unless_time_greater_than_1500() {
+    fn test_time_unless_time_greater_than_1500() {
         assert_result_eq(
             "time() unless time() > 1500",
             &[1000_f64, 1200.0, 1400.0, NAN, NAN, NAN],

@@ -1,7 +1,9 @@
 use std::str::FromStr;
 
 use crate::ast::{BinaryExpr, Expr};
-use crate::common::{GroupModifier, GroupModifierOp, JoinModifier, JoinModifierOp, Operator, StringExpr, ValueType};
+use crate::common::{
+    GroupModifier, GroupModifierOp, JoinModifier, JoinModifierOp, Operator, StringExpr, ValueType,
+};
 use crate::functions::AggregateFunction;
 use crate::parser::function::parse_func_expr;
 use crate::parser::parse_error::unexpected;
@@ -110,40 +112,37 @@ fn balance(
     return_bool: bool,
     keep_metric_names: bool,
 ) -> ParseResult<Expr> {
-    match &lhs {
-        Expr::BinaryOperator(lhs_be) => {
-            let precedence = lhs_be.op.precedence() as i16 - op.precedence() as i16;
-            if (precedence < 0) || (precedence == 0 && op.is_right_associative()) {
-                let right = lhs_be.right.as_ref().clone();
-                let balanced = balance(
-                    right,
-                    op,
-                    rhs,
-                    group_modifier,
-                    join_modifier,
-                    return_bool,
-                    keep_metric_names,
-                )?;
+    if let Expr::BinaryOperator(lhs_be) = &lhs {
+        let precedence = lhs_be.op.precedence() as i16 - op.precedence() as i16;
+        if (precedence < 0) || (precedence == 0 && op.is_right_associative()) {
+            let right = lhs_be.right.as_ref().clone();
+            let balanced = balance(
+                right,
+                op,
+                rhs,
+                group_modifier,
+                join_modifier,
+                return_bool,
+                keep_metric_names,
+            )?;
 
-                // validate_scalar_op(&lhs_be.left,
-                //                    &balanced,
-                //                    lhs_be.op,
-                //                    lhs_be.bool_modifier)?;
+            // validate_scalar_op(&lhs_be.left,
+            //                    &balanced,
+            //                    lhs_be.op,
+            //                    lhs_be.bool_modifier)?;
 
-                let expr = BinaryExpr {
-                    op: lhs_be.op,
-                    left: lhs_be.left.clone(),
-                    right: Box::new(balanced),
-                    join_modifier: lhs_be.join_modifier.clone(),
-                    group_modifier: lhs_be.group_modifier.clone(),
-                    bool_modifier: lhs_be.bool_modifier,
-                    modifier: None,
-                    keep_metric_names: lhs_be.keep_metric_names,
-                };
-                return Ok(Expr::BinaryOperator(expr));
-            }
+            let expr = BinaryExpr {
+                op: lhs_be.op,
+                left: lhs_be.left.clone(),
+                right: Box::new(balanced),
+                join_modifier: lhs_be.join_modifier.clone(),
+                group_modifier: lhs_be.group_modifier.clone(),
+                bool_modifier: lhs_be.bool_modifier,
+                modifier: None,
+                keep_metric_names: lhs_be.keep_metric_names,
+            };
+            return Ok(Expr::BinaryOperator(expr));
         }
-        _ => {}
     }
 
     // validate_scalar_op(&lhs, &rhs, op, return_bool)?;
@@ -238,7 +237,7 @@ pub(super) fn parse_single_expr_without_rollup_suffix(p: &mut Parser) -> ParseRe
     match &tok.kind {
         StringLiteral => {
             let extracted = extract_string_value(tok.text)?;
-            let value = Expr::string_literal(&*extracted);
+            let value = Expr::string_literal(&extracted);
             p.bump();
             Ok(value)
         }
@@ -303,7 +302,7 @@ pub(super) fn parse_string_expr(p: &mut Parser) -> ParseResult<StringExpr> {
 }
 
 pub(super) fn handle_escape_ident(ident: &str) -> String {
-    if ident.contains(r#"\"#) {
+    if ident.contains('\\') {
         unescape_ident(ident)
     } else {
         ident.to_string()

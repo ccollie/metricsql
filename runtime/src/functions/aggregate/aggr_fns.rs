@@ -146,14 +146,14 @@ fn aggr_func_impl(
             std::mem::take(tss)
         }, // todo: avoid cloning
         &mut tss,
-        &arg.modifier,
+        arg.modifier,
         arg.limit,
         false,
     )
 }
 
 fn get_aggr_timeseries(tfa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    if tfa.args.len() < 1 {
+    if tfa.args.is_empty() {
         return Err(RuntimeError::ArgumentError(
             "aggregate function requires at least one argument".to_string(),
         ));
@@ -229,13 +229,13 @@ fn aggr_prepare_series(
             }
         }
     }
-    return m;
+    m
 }
 
 fn aggr_func_any(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut tss = get_aggr_timeseries(afa)?;
     let afe = move |tss: &mut Vec<Timeseries>, _: &Option<AggregateModifier>| {
-        if tss.len() >= 1 {
+        if !tss.is_empty() {
             let ts = std::mem::take(&mut tss[0]);
             return vec![ts];
         }
@@ -504,7 +504,7 @@ fn aggr_func_distinct(tss: &mut Vec<Timeseries>) {
             }
             values.push(v);
         }
-        values.sort_by(|a, b| a.total_cmp(&b));
+        values.sort_by(|a, b| a.total_cmp(b));
         values.dedup();
         let n = values.len();
         tss[0].values[i] = if n == 0 { f64::NAN } else { n as f64 };
@@ -556,7 +556,7 @@ fn aggr_func_share(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
         std::mem::take(tss)
     };
 
-    return aggr_func_ext(afe, &mut tss, afa.modifier, afa.limit, true);
+    aggr_func_ext(afe, &mut tss, afa.modifier, afa.limit, true)
 }
 
 fn aggr_func_zscore(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
@@ -642,8 +642,7 @@ fn aggr_func_count_values(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries
             dst.metric_name
                 .set_tag(&dst_label, format!("{}", v).as_str());
 
-            let mut i = 0;
-            for dst_value in dst.values.iter_mut() {
+            for (i, dst_value) in dst.values.iter_mut().enumerate() {
                 let mut count = 0;
                 for ts in tss.iter() {
                     if ts.values[i] == v {
@@ -651,12 +650,11 @@ fn aggr_func_count_values(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries
                     }
                 }
                 *dst_value = if count == 0 { f64::NAN } else { count as f64 };
-                i += 1;
             }
 
             rvs.push(dst);
         }
-        return rvs;
+        rvs
     };
 
     let mut series = get_series_arg(&afa.args, 1, afa.ec)?;
@@ -722,14 +720,7 @@ fn range_topk_impl(
     };
 
     let afe = move |tss: &mut Vec<Timeseries>, modifier: &Option<AggregateModifier>| {
-        return get_range_topk_timeseries(
-            tss,
-            modifier,
-            &ks,
-            &remaining_sum_tag_name,
-            f,
-            is_reverse,
-        );
+        get_range_topk_timeseries(tss, modifier, &ks, &remaining_sum_tag_name, f, is_reverse)
     };
 
     let mut series = get_series_arg(&afa.args, 1, afa.ec)?;
@@ -739,7 +730,7 @@ fn range_topk_impl(
 fn get_range_topk_timeseries<F>(
     tss: &mut Vec<Timeseries>,
     modifier: &Option<AggregateModifier>,
-    ks: &Vec<f64>,
+    ks: &[f64],
     remaining_sum_tag_name: &str,
     f: F,
     is_reverse: bool,
@@ -783,7 +774,7 @@ where
 
     remove_empty_series(tss);
     tss.reverse();
-    return tss.to_vec();
+    tss.to_vec()
 }
 
 fn get_remaining_sum_timeseries(
@@ -792,7 +783,7 @@ fn get_remaining_sum_timeseries(
     ks: &[f64],
     remaining_sum_tag_name: &str,
 ) -> Option<Timeseries> {
-    if remaining_sum_tag_name.len() == 0 || tss.len() == 0 {
+    if remaining_sum_tag_name.is_empty() || tss.is_empty() {
         return None;
     }
     let mut dst = tss[0].clone();
@@ -801,12 +792,9 @@ fn get_remaining_sum_timeseries(
     let mut tag_value = remaining_sum_tag_name;
     let mut remaining = remaining_sum_tag_name;
 
-    match remaining_sum_tag_name.rsplit_once('=') {
-        Some((tag, remains)) => {
-            tag_value = tag;
-            remaining = remains;
-        }
-        _ => {}
+    if let Some((tag, remains)) = remaining_sum_tag_name.rsplit_once('=') {
+        tag_value = tag;
+        remaining = remains;
     }
 
     dst.metric_name.remove_tag(remaining);
@@ -822,7 +810,7 @@ fn get_remaining_sum_timeseries(
                 continue;
             }
             sum += v;
-            count = count + 1;
+            count += 1;
         }
 
         if count == 0 {
@@ -830,7 +818,7 @@ fn get_remaining_sum_timeseries(
         }
         dst.values[i] = sum;
     }
-    return Some(dst);
+    Some(dst)
 }
 
 fn fill_nans_at_idx(idx: usize, k: f64, tss: &mut Vec<Timeseries>) {
@@ -847,7 +835,7 @@ fn get_int_k(k: f64, k_max: usize) -> usize {
         return 0;
     }
     let kn = float_to_int_bounded(k).clamp(0, k_max as i64);
-    return kn as usize;
+    kn as usize
 }
 
 fn min_value(values: &[f64]) -> f64 {
@@ -857,7 +845,7 @@ fn min_value(values: &[f64]) -> f64 {
             min = *v
         }
     }
-    return min;
+    min
 }
 
 fn max_value(values: &[f64]) -> f64 {
@@ -867,7 +855,7 @@ fn max_value(values: &[f64]) -> f64 {
             max = *v
         }
     }
-    return max;
+    max
 }
 
 fn avg_value(values: &[f64]) -> f64 {
@@ -893,7 +881,7 @@ fn median_value(values: &[f64]) -> f64 {
 
 fn last_value(values: &[f64]) -> f64 {
     let vals = skip_trailing_nans(values);
-    if vals.len() == 0 {
+    if vals.is_empty() {
         return f64::NAN;
     }
     values[values.len() - 1]
@@ -915,7 +903,7 @@ fn aggr_func_outliersk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> 
             sum2
         };
 
-        return get_range_topk_timeseries(tss, afa.modifier, &ks, "", f, false);
+        get_range_topk_timeseries(tss, afa.modifier, &ks, "", f, false)
     };
 
     let mut series = get_series_arg(&afa.args, 1, afa.ec)?;
@@ -938,13 +926,12 @@ fn aggr_func_limitk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
         // Sort series by metricName hash in order to get consistent set of output series
         // across multiple calls to limitk() function.
         // Sort series by hash in order to guarantee uniform selection across series.
-        for ts in tss.into_iter() {
+        for ts in tss.iter_mut() {
             let digest = ts.metric_name.signature();
             map.insert(digest, std::mem::take(ts));
         }
 
-        let res = map.into_values().take(limit).collect::<Vec<_>>();
-        return res;
+        map.into_values().take(limit).collect::<Vec<_>>()
     };
 
     let mut series = get_series_arg(&afa.args, 1, afa.ec)?;
@@ -993,7 +980,7 @@ fn aggr_func_quantiles(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> 
                 tss_dst[j].values[n] = qs[j];
             }
         }
-        return tss_dst;
+        tss_dst
     };
 
     let mut last = afa
@@ -1008,17 +995,17 @@ fn aggr_func_quantile(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let phis = get_scalar_arg_as_vec(&afa.args, 0, afa.ec)?;
     let afe = new_aggr_quantile_func(&phis);
     let mut series = get_series_arg(&afa.args, 1, afa.ec)?;
-    return aggr_func_ext(afe, &mut series, afa.modifier, afa.limit, false);
+    aggr_func_ext(afe, &mut series, afa.modifier, afa.limit, false)
 }
 
 fn aggr_func_median(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut tss = get_aggr_timeseries(afa)?;
-    let phis = &eval_number(&afa.ec, 0.5)?[0].values; // todo: use more efficient method
+    let phis = &eval_number(afa.ec, 0.5)?[0].values; // todo: use more efficient method
     let afe = new_aggr_quantile_func(phis);
-    return aggr_func_ext(afe, &mut tss, afa.modifier, afa.limit, false);
+    aggr_func_ext(afe, &mut tss, afa.modifier, afa.limit, false)
 }
 
-fn new_aggr_quantile_func(phis: &Vec<f64>) -> impl AggrFnExt + '_ {
+fn new_aggr_quantile_func(phis: &[f64]) -> impl AggrFnExt + '_ {
     move |tss: &mut Vec<Timeseries>, _: &Option<AggregateModifier>| -> Vec<Timeseries> {
         let count = tss[0].values.len();
         let mut values = get_pooled_vec_f64(count);
@@ -1032,7 +1019,7 @@ fn new_aggr_quantile_func(phis: &Vec<f64>) -> impl AggrFnExt + '_ {
             values.clear();
         }
 
-        return std::mem::take(tss);
+        std::mem::take(tss)
     }
 }
 
@@ -1079,7 +1066,7 @@ fn aggr_func_outliers_mad(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries
 }
 
 fn get_per_point_medians(tss: &mut Vec<Timeseries>) -> Vec<f64> {
-    if tss.len() == 0 {
+    if tss.is_empty() {
         // todo: handle this case
         // panic!("BUG: expecting non-empty tss")
     }
@@ -1100,7 +1087,7 @@ fn get_per_point_medians(tss: &mut Vec<Timeseries>) -> Vec<f64> {
     medians
 }
 
-fn get_per_point_mads(tss: &Vec<Timeseries>, medians: &[f64]) -> Vec<f64> {
+fn get_per_point_mads(tss: &[Timeseries], medians: &[f64]) -> Vec<f64> {
     let mut mads: Vec<f64> = Vec::with_capacity(medians.len());
     let mut values = get_pooled_vec_f64(medians.len());
     for (n, median) in medians.iter().enumerate() {
@@ -1122,7 +1109,7 @@ fn expect_arg_count(tfa: &AggrFuncArg, expected: usize) -> RuntimeResult<()> {
     if arg_count == expected {
         return Ok(());
     }
-    return Err(RuntimeError::ArgumentError(format!(
+    Err(RuntimeError::ArgumentError(format!(
         "unexpected number of args; got {arg_count}; want {expected}",
-    )));
+    )))
 }

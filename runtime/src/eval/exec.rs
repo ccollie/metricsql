@@ -61,16 +61,14 @@ pub fn exec_expr(ctx: &Arc<Context>, ec: &EvalConfig, expr: &Expr) -> RuntimeRes
             let handler = RollupHandlerEnum::Wrapped(rollup_default);
             let mut executor =
                 RollupExecutor::new(RollupFunction::DefaultRollup, handler, expr, &re);
-            let val = executor
-                .eval(ctx, ec)
-                .map_err(|err| map_error(err, &expr))?;
+            let val = executor.eval(ctx, ec).map_err(|err| map_error(err, expr))?;
             Ok(val)
         }
         Expr::Rollup(re) => {
             let handler = RollupHandlerEnum::Wrapped(rollup_default);
             let mut executor =
-                RollupExecutor::new(RollupFunction::DefaultRollup, handler, expr, &re);
-            executor.eval(ctx, ec).map_err(|err| map_error(err, &expr))
+                RollupExecutor::new(RollupFunction::DefaultRollup, handler, expr, re);
+            executor.eval(ctx, ec).map_err(|err| map_error(err, expr))
         }
         Expr::Aggregation(ae) => {
             trace!("aggregate {}()", ae.function.name());
@@ -98,14 +96,14 @@ fn eval_function_op(
             }
             .entered();
 
-            let rv = eval_transform_func(ctx, ec, &fe, tf)?;
+            let rv = eval_transform_func(ctx, ec, fe, tf)?;
             span.record("series", rv.len());
 
             Ok(QueryValue::InstantVector(rv))
         }
         BuiltinFunction::Rollup(rf) => {
             let nrf = get_rollup_function_factory(rf);
-            let (args, re, _) = eval_rollup_func_args(ctx, ec, &fe)?;
+            let (args, re, _) = eval_rollup_func_args(ctx, ec, fe)?;
             let func_handler = nrf(&args, ec)?;
             let mut rollup_handler = RollupExecutor::new(rf, func_handler, expr, &re);
             let val = rollup_handler
@@ -155,19 +153,19 @@ fn exec_binary_op(
             Ok(Value::Scalar(value))
         }
         (Expr::Duration(left), Expr::Duration(right)) => {
-            eval_duration_duration_binop(&left, right, be.op, ec.step)
+            eval_duration_duration_binop(left, right, be.op, ec.step)
         }
         (Expr::Duration(dur), Expr::Number(scalar)) => {
-            eval_duration_scalar_binop(&dur, scalar.value, be.op, ec.step)
+            eval_duration_scalar_binop(dur, scalar.value, be.op, ec.step)
         }
         (Expr::Number(scalar), Expr::Duration(dur)) => {
-            eval_duration_scalar_binop(&dur, scalar.value, be.op, ec.step)
+            eval_duration_scalar_binop(dur, scalar.value, be.op, ec.step)
         }
         (Expr::StringLiteral(left), Expr::StringLiteral(right)) => {
-            eval_string_string_binop(be.op, &left, &right, be.bool_modifier)
+            eval_string_string_binop(be.op, left, right, be.bool_modifier)
         }
         (left, right) => {
-            let (lhs, rhs) = join(|| exec_expr(ctx, ec, &left), || exec_expr(ctx, ec, &right));
+            let (lhs, rhs) = join(|| exec_expr(ctx, ec, left), || exec_expr(ctx, ec, right));
 
             match (lhs?, rhs?) {
                 (QueryValue::Scalar(left), QueryValue::Scalar(right)) => {
@@ -315,7 +313,7 @@ pub(super) fn eval_rollup_func_args(
         args.push(value);
     }
 
-    return Ok((args, re, rollup_arg_idx));
+    Ok((args, re, rollup_arg_idx))
 }
 
 // todo: COW

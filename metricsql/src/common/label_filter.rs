@@ -29,17 +29,11 @@ pub enum MatchOp {
 
 impl MatchOp {
     pub fn is_negative(&self) -> bool {
-        match self {
-            MatchOp::NotEqual | MatchOp::NotRe(_) => true,
-            _ => false,
-        }
+        matches!(self, MatchOp::NotEqual | MatchOp::NotRe(_))
     }
 
     pub fn is_regex(&self) -> bool {
-        match self {
-            Self::NotRe(_) | Self::Re(_) => true,
-            _ => false,
-        }
+        matches!(self, Self::NotRe(_) | Self::Re(_))
     }
 }
 
@@ -134,7 +128,7 @@ impl fmt::Display for LabelFilterOp {
 }
 
 /// LabelFilter represents MetricsQL label filter like `foo="bar"`.
-#[derive(Default, Debug, Clone, Eq, Hash, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct LabelFilter {
     pub op: LabelFilterOp,
 
@@ -270,12 +264,6 @@ impl LabelFilter {
     }
 }
 
-impl PartialEq<Self> for LabelFilter {
-    fn eq(&self, other: &Self) -> bool {
-        return self.op == other.op && self.label == other.label && self.value == other.value;
-    }
-}
-
 impl PartialOrd for LabelFilter {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         // Make sure the first label filter is __name__ (if any)
@@ -289,7 +277,7 @@ impl PartialOrd for LabelFilter {
                 order = self.op.to_string().cmp(&other.op.to_string());
             }
         }
-        return Some(order);
+        Some(order)
     }
 }
 

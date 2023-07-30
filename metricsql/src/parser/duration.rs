@@ -24,7 +24,7 @@ pub fn positive_duration_value(s: &str, step: i64) -> Result<i64, ParseError> {
             s
         )));
     }
-    return Ok(d);
+    Ok(d)
 }
 
 /// parse_duration_value returns the duration in milliseconds for the given s
@@ -152,7 +152,7 @@ fn scan_single_duration(s: &str, can_be_negative: bool) -> i32 {
     let mut curr: char = ch;
 
     for ch in cursor.chars() {
-        if !is_decimal_char(ch) {
+        if !ch.is_ascii_digit() {
             curr = ch;
             break;
         }
@@ -168,7 +168,7 @@ fn scan_single_duration(s: &str, can_be_negative: bool) -> i32 {
         i += 1;
         cursor = &s[i..];
         for c in cursor.chars() {
-            if !is_decimal_char(c) {
+            if !c.is_ascii_digit() {
                 curr = c;
                 break;
             }
@@ -194,10 +194,6 @@ fn scan_single_duration(s: &str, can_be_negative: bool) -> i32 {
         's' | 'h' | 'd' | 'w' | 'y' | 'i' => (i + 1) as i32,
         _ => -1,
     };
-}
-
-fn is_decimal_char(ch: char) -> bool {
-    ('0'..='9').contains(&ch)
 }
 
 #[cfg(test)]

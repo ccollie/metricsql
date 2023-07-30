@@ -79,10 +79,7 @@ impl ParseCache {
     pub fn get(&self, q: &str) -> Option<Arc<ParseCacheValue>> {
         // use interior mutability here
         let mut lru = self.lru.lock().unwrap();
-        match lru.get(q) {
-            None => None,
-            Some(v) => Some(Arc::clone(v)),
-        }
+        lru.get(q).map(Arc::clone)
     }
 
     // todo: pass options
@@ -124,9 +121,9 @@ impl ParseCache {
 }
 
 fn should_sort_results(e: &Expr) -> bool {
-    return match e {
+    match e {
         Expr::Function(fe) => !fe.function.may_sort_results(),
         Expr::Aggregation(ae) => !ae.function.may_sort_results(),
         _ => true,
-    };
+    }
 }

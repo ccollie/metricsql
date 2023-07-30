@@ -43,7 +43,7 @@ pub fn compare_str_alphanumeric<A: AsRef<str>, B: AsRef<str>>(a: A, b: B) -> Ord
 
         let b_zero = f64::from(b'0');
 
-        if ('0'..='9').contains(&ca) && ('0'..='9').contains(&cb) {
+        if ca.is_ascii_digit() && cb.is_ascii_digit() {
             let mut da = f64::from(ca as u32) - b_zero;
             let mut db = f64::from(cb as u32) - b_zero;
 
@@ -51,7 +51,7 @@ pub fn compare_str_alphanumeric<A: AsRef<str>, B: AsRef<str>>(a: A, b: B) -> Ord
             let mut dc = 0isize;
 
             for ca in c1.by_ref() {
-                if ('0'..='9').contains(&ca) {
+                if ca.is_ascii_digit() {
                     da = da * 10.0 + (f64::from(ca as u32) - b_zero);
                     dc += 1;
                 } else {
@@ -61,7 +61,7 @@ pub fn compare_str_alphanumeric<A: AsRef<str>, B: AsRef<str>>(a: A, b: B) -> Ord
             }
 
             for cb in c2.by_ref() {
-                if ('0'..='9').contains(&cb) {
+                if cb.is_ascii_digit() {
                     db = db * 10.0 + (f64::from(cb as u32) - b_zero);
                     dc -= 1;
                 } else {

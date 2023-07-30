@@ -82,7 +82,7 @@ pub fn group_series_by_modifier(
             })
             .collect();
 
-        for (ts, sig) in series.into_iter().zip(sigs.iter()) {
+        for (ts, sig) in series.iter_mut().zip(sigs.iter()) {
             m.entry(*sig).or_default().push(std::mem::take(ts));
         }
     } else {
@@ -93,7 +93,7 @@ pub fn group_series_by_modifier(
         }
     };
 
-    return m;
+    m
 }
 
 pub fn group_series_indexes_by_modifier(
@@ -122,7 +122,7 @@ pub fn group_series_indexes_by_modifier(
         }
     };
 
-    return m;
+    m
 }
 
 pub fn get_signatures_set_by_modifier(

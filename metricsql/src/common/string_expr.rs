@@ -76,16 +76,9 @@ impl StringExpr {
     }
 
     pub fn push_str(&mut self, tok: &str) {
-        if let Some(last) = self.0.last_mut() {
-            match last {
-                StringSegment::Literal(value) => {
-                    value.push_str(tok);
-                    self.1 = self.0.len() == 1;
-                }
-                _ => {
-                    self.0.push(StringSegment::Literal(tok.to_string()));
-                }
-            }
+        if let Some(StringSegment::Literal(value)) = self.0.last_mut() {
+            value.push_str(tok);
+            self.1 = self.0.len() == 1;
         } else {
             self.0.push(StringSegment::Literal(tok.to_string()));
         }
@@ -98,8 +91,8 @@ impl StringExpr {
 
     pub fn push(&mut self, segment: &StringSegment) {
         match segment {
-            StringSegment::Literal(s) => self.push_str(&s),
-            StringSegment::Ident(ident) => self.push_ident(&ident),
+            StringSegment::Literal(s) => self.push_str(s),
+            StringSegment::Ident(ident) => self.push_ident(ident),
         }
     }
 
@@ -161,9 +154,9 @@ impl StringExpr {
         let mut res = String::with_capacity(min_capacity);
         for s in self.0.iter() {
             match s {
-                StringSegment::Literal(lit) => res.push_str(&lit),
+                StringSegment::Literal(lit) => res.push_str(lit),
                 StringSegment::Ident(ident) => {
-                    if let Some(ident_value) = resolve_fn(&ident)? {
+                    if let Some(ident_value) = resolve_fn(ident)? {
                         res.push_str(&ident_value);
                     } else {
                         let msg = format!(
@@ -226,7 +219,7 @@ impl StringExpr {
 impl PartialOrd for StringExpr {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         for (left, right) in self.0.iter().zip(other.0.iter()) {
-            if let Some(cmp) = left.partial_cmp(&right) {
+            if let Some(cmp) = left.partial_cmp(right) {
                 if cmp != Ordering::Equal {
                     break;
                 }
@@ -245,10 +238,7 @@ impl Default for StringExpr {
 impl From<String> for StringExpr {
     fn from(s: String) -> Self {
         let segment = StringSegment::Literal(s);
-        StringExpr {
-            0: vec![segment],
-            1: true,
-        }
+        StringExpr(vec![segment], true)
     }
 }
 

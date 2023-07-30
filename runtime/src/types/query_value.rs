@@ -112,10 +112,7 @@ impl QueryValue {
     }
 
     pub fn is_numeric(&self) -> bool {
-        match self {
-            QueryValue::Scalar(_) => true,
-            _ => false,
-        }
+        matches!(self, QueryValue::Scalar(_))
     }
 
     pub fn data_type(&self) -> ValueType {
@@ -160,12 +157,10 @@ impl QueryValue {
                 }
                 Ok(ts.values[0])
             }
-            _ => {
-                return Err(RuntimeError::TypeCastError(format!(
-                    "{} cannot be converted to a scalar",
-                    self.data_type()
-                )))
-            }
+            _ => Err(RuntimeError::TypeCastError(format!(
+                "{} cannot be converted to a scalar",
+                self.data_type()
+            ))),
         }
     }
 
@@ -202,7 +197,7 @@ impl QueryValue {
             QueryValue::Scalar(n) => eval_number(ec, *n),
             _ => {
                 let msg = format!("cannot cast {} to an instant vector", self.data_type());
-                return Err(RuntimeError::TypeCastError(msg));
+                Err(RuntimeError::TypeCastError(msg))
             }
         }
     }
@@ -220,7 +215,7 @@ impl QueryValue {
             QueryValue::Scalar(n) => eval_number(ec, n),
             _ => {
                 let msg = format!("cannot cast {} to an instant vector", self.data_type());
-                return Err(RuntimeError::TypeCastError(msg));
+                Err(RuntimeError::TypeCastError(msg))
             }
         }
     }
@@ -230,10 +225,10 @@ impl QueryValue {
             QueryValue::String(s) => Ok(s.to_string()),
             QueryValue::InstantVector(series) => {
                 let ts = get_single_timeseries(series)?;
-                if ts.values.len() > 0 {
+                if !ts.values.is_empty() {
                     let all_nan = series[0].values.iter().all(|x| x.is_nan());
                     if !all_nan {
-                        let msg = format!("series contains non-string timeseries");
+                        let msg = "series contains non-string timeseries".to_string();
                         return Err(RuntimeError::ArgumentError(msg));
                     }
                 }
@@ -243,7 +238,7 @@ impl QueryValue {
             }
             _ => {
                 let msg = format!("cannot cast {} to a string", self.data_type());
-                return Err(RuntimeError::TypeCastError(msg));
+                Err(RuntimeError::TypeCastError(msg))
             }
         }
     }
@@ -254,7 +249,7 @@ impl QueryValue {
             QueryValue::Scalar(n) => Ok(Cow::Owned(eval_number(ec, *n)?)),
             _ => {
                 let msg = format!("cannot cast {} to an instant vector", self.data_type());
-                return Err(RuntimeError::TypeCastError(msg));
+                Err(RuntimeError::TypeCastError(msg))
             }
         }
     }

@@ -3,14 +3,14 @@ use std::str::FromStr;
 use crate::ast::{AggregationExpr, Expr};
 use crate::common::AggregateModifier;
 use crate::functions::{AggregateFunction, BuiltinFunction};
-use crate::parser::{Parser, ParseResult};
 use crate::parser::function::validate_function_args;
 use crate::parser::tokens::Token;
+use crate::parser::{ParseResult, Parser};
 
 /// parse_aggr_func_expr parses an aggregation Expr.
 ///
-///		<aggr_op> (<Vector_expr>) [by|without <labels>] [limit <number>]
-///		<aggr_op> [by|without <labels>] (<Vector_expr>) [limit <number>]
+///    <aggr_op> (<Vector_expr>) [by|without <labels>] [limit <number>]
+///    <aggr_op> [by|without <labels>] (<Vector_expr>) [limit<number>]
 ///
 pub(super) fn parse_aggr_func_expr(p: &mut Parser) -> ParseResult<Expr> {
     let tok = p.expect_identifier()?;
@@ -47,13 +47,13 @@ pub(super) fn parse_aggr_func_expr(p: &mut Parser) -> ParseResult<Expr> {
     }
 
     let kind = p.peek_kind();
-    return if kind.is_aggregate_modifier() {
+    if kind.is_aggregate_modifier() {
         handle_prefix(p, func)
     } else if kind == Token::LeftParen {
         handle_args(p, func, None)
     } else {
         Err(p.token_error(&[Token::By, Token::Without, Token::LeftParen]))
-    };
+    }
 }
 
 fn parse_aggregate_modifier(p: &mut Parser) -> ParseResult<AggregateModifier> {
@@ -65,7 +65,7 @@ fn parse_aggregate_modifier(p: &mut Parser) -> ParseResult<AggregateModifier> {
     let res = match tok {
         Token::By => AggregateModifier::By(args),
         Token::Without => AggregateModifier::Without(args),
-        _ => unreachable!()
+        _ => unreachable!(),
     };
 
     Ok(res)

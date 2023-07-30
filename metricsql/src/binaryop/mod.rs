@@ -135,14 +135,14 @@ fn return_left(left: f64, _right: f64) -> f64 {
     left
 }
 
-fn return_nan(_left: f64, _right: f64) -> f64 {
-    f64::NAN
-}
-
 /// convert true to x, false to NaN.
 #[inline]
 pub fn to_comparison_value(b: bool, x: f64) -> f64 {
-    return if b { x } else { f64::NAN };
+    if b {
+        x
+    } else {
+        f64::NAN
+    }
 }
 
 macro_rules! make_comparison_func {

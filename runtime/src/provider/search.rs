@@ -57,7 +57,7 @@ impl SearchQuery {
         max_metrics: usize,
     ) -> Self {
         let mut max = max_metrics;
-        if max_metrics <= 0 {
+        if max_metrics == 0 {
             max = 2e9 as usize
         }
         SearchQuery {
@@ -73,7 +73,7 @@ impl Display for SearchQuery {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut a: Vec<String> = Vec::with_capacity(self.tag_filter_list.len());
         for tfs in &self.tag_filter_list {
-            a.push(filters_to_string(&tfs))
+            a.push(filters_to_string(tfs))
         }
         let start = self.min_timestamp.to_string_millis();
         let end = self.max_timestamp.to_string_millis();
@@ -97,7 +97,7 @@ fn filters_to_string(tfs: &[LabelFilter]) -> String {
         a.push(format!("{}", tf))
     }
     a.push("}}".to_string());
-    return a.join(",");
+    a.join(",")
 }
 
 /// QueryResult is a single timeseries result.
@@ -150,8 +150,12 @@ impl QueryResult {
         self.timestamps.clear();
     }
 
-    pub fn len(self) -> usize {
+    pub fn len(&self) -> usize {
         self.timestamps.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.timestamps.is_empty()
     }
 }
 
@@ -180,7 +184,7 @@ impl Clone for QueryResults {
         let signal_value = self.signal.load(Ordering::Relaxed);
         QueryResults {
             tr: self.tr.clone(),
-            deadline: self.deadline.clone(),
+            deadline: self.deadline,
             series: self.series.clone(),
             signal: Arc::new(AtomicU32::new(signal_value)),
         }
@@ -197,8 +201,12 @@ impl QueryResults {
         self.series.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.series.is_empty()
+    }
+
     fn deadline_exceeded(&self) -> bool {
-        return self.deadline.exceeded();
+        self.deadline.exceeded()
     }
 
     pub fn should_stop(&mut self) -> bool {
@@ -209,7 +217,7 @@ impl QueryResults {
             self.signal.store(2, Ordering::SeqCst);
             return true;
         }
-        return false;
+        false
     }
 
     pub fn is_cancelled(&self) -> bool {
@@ -236,8 +244,8 @@ impl QueryResults {
 
         self.series
             .par_iter_mut()
-            .filter(|rs| rs.timestamps.len() > 0)
-            .try_for_each(|mut rs| {
+            .filter(|rs| !rs.timestamps.is_empty())
+            .try_for_each(|rs| {
                 if must_stop.load(Ordering::Relaxed) {
                     return Err(RuntimeError::TaskCancelledError("Search".to_string()));
                 }
@@ -248,7 +256,7 @@ impl QueryResults {
                 }
 
                 let worker_id = rs.worker_id;
-                f(Arc::clone(&sharable_ctx), &mut rs, worker_id)
+                f(Arc::clone(&sharable_ctx), rs, worker_id)
             })
     }
 
@@ -260,6 +268,6 @@ impl QueryResults {
 pub fn remove_empty_values_and_timeseries(tss: &mut Vec<QueryResult>) {
     tss.retain_mut(|ts| {
         remove_nan_values_in_place(&mut ts.values, &mut ts.timestamps);
-        ts.values.len() > 0
+        !ts.values.is_empty()
     });
 }

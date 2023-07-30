@@ -148,9 +148,9 @@ impl<'a> IncrementalAggrFuncContext<'a> {
                 entry.insert(iac);
             }
             Occupied(mut entry) => {
-                let mut iac = entry.get_mut();
+                let iac = entry.get_mut();
                 iac.values.resize(value_len, 0.0); // ?? NaN
-                self.handler.update(&mut iac, &ts.values);
+                self.handler.update(iac, &ts.values);
             }
         };
 
@@ -202,9 +202,9 @@ impl<'a> IncrementalAggrFuncContext<'a> {
                 entry.insert(iac);
             }
             Occupied(mut entry) => {
-                let mut iac = entry.get_mut();
+                let iac = entry.get_mut();
                 iac.values.resize(value_len, 0.0); // ?? NaN
-                self.handler.update(&mut iac, &ts.values);
+                self.handler.update(iac, &ts.values);
             }
         };
 
@@ -215,7 +215,7 @@ impl<'a> IncrementalAggrFuncContext<'a> {
         let mut m_global: HashMap<&String, IncrementalAggrContext> = HashMap::new();
         let mut hash = self.context_map.write().unwrap();
         for (_, m) in hash.iter_mut() {
-            for (k, iac) in m.into_iter() {
+            for (k, iac) in m.iter_mut() {
                 match m_global.get_mut(k) {
                     Some(iac_global) => {
                         self.handler.merge(iac_global, iac);
@@ -236,6 +236,6 @@ impl<'a> IncrementalAggrFuncContext<'a> {
             self.handler.finalize(&mut iac);
             tss.push(std::mem::take(&mut iac.ts));
         }
-        return tss;
+        tss
     }
 }

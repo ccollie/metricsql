@@ -88,7 +88,7 @@ pub fn validate_function_args(func: &BuiltinFunction, args: &[Expr]) -> ParseRes
     // validate function args
     let sig = func.signature();
 
-    sig.validate_arg_count(&func.name(), args.len())?;
+    sig.validate_arg_count(func.name(), args.len())?;
 
     // arg counts match, so if we accept any type, we're done
     match sig.type_signature {
@@ -98,7 +98,7 @@ pub fn validate_function_args(func: &BuiltinFunction, args: &[Expr]) -> ParseRes
 
     let mut i = 0;
     for (expected_type, actual) in sig.types().zip(args.iter()) {
-        validate_return_type(actual.return_type(), expected_type.clone(), 0)?;
+        validate_return_type(actual.return_type(), expected_type, 0)?;
 
         match *actual.deref() {
             // technically should not occur as a function parameter

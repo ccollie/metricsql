@@ -7,13 +7,14 @@ use strum_macros::EnumIter;
 use crate::parser::tokens::Token;
 use crate::parser::ParseError;
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, EnumIter, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash, EnumIter, Serialize, Deserialize)]
 pub enum Operator {
     Add,
     And,
     Atan2,
     Default,
     Div,
+    #[default]
     Eql,
     Mod,
     Mul,
@@ -28,12 +29,6 @@ pub enum Operator {
     NotEq,
     Or,
     Unless,
-}
-
-impl Default for Operator {
-    fn default() -> Self {
-        Operator::Eql
-    }
 }
 
 pub static BINARY_OPS_MAP: phf::Map<&'static str, Operator> = phf_map! {
@@ -123,15 +118,15 @@ impl Operator {
     }
 
     pub const fn is_comparison(&self) -> bool {
-        match self {
+        matches!(
+            self,
             Operator::Eql
-            | Operator::Gte
-            | Operator::Gt
-            | Operator::Lt
-            | Operator::Lte
-            | Operator::NotEq => true,
-            _ => false,
-        }
+                | Operator::Gte
+                | Operator::Gt
+                | Operator::Lt
+                | Operator::Lte
+                | Operator::NotEq
+        )
     }
 
     pub const fn is_valid_string_op(&self) -> bool {
@@ -188,10 +183,7 @@ impl TryFrom<&str> for Operator {
     fn try_from(op: &str) -> Result<Self, Self::Error> {
         match BINARY_OPS_MAP.get(op.to_lowercase().as_str()) {
             Some(op) => Ok(*op),
-            None => {
-                let result = Err(ParseError::General(format!("Unknown binary op {}", op)));
-                result
-            }
+            None => Err(ParseError::General(format!("Unknown binary op {}", op))),
         }
     }
 }

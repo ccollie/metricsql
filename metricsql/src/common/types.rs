@@ -103,7 +103,7 @@ impl BinModifier {
     pub fn intersect_labels(&self) -> Option<Vec<&String>> {
         if let Some(labels) = self.card.labels() {
             if let Some(matching) = &self.matching {
-                return Some(matching.labels().intersection(labels).into_iter().collect());
+                return Some(matching.labels().intersection(labels).collect());
             }
         };
         None
@@ -151,7 +151,7 @@ impl Display for BinModifier {
     }
 }
 
-#[derive(Debug, Clone, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub enum AggregateModifier {
     // todo: use BtreeSet<String>, since thee runtime expects these to be sorted
     By(Vec<String>),
@@ -261,7 +261,7 @@ impl TryFrom<&str> for GroupModifierOp {
 }
 
 /// An operator matching clause
-#[derive(Debug, Eq, Clone, Hash, Serialize, Deserialize)]
+#[derive(Debug, Eq, Clone, Serialize, Deserialize)]
 pub struct GroupModifier {
     /// Action applied to a list of vectors; whether `on (…)` or `ignored(…)` is used after the operator.
     pub op: GroupModifierOp,

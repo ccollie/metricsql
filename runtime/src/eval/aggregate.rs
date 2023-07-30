@@ -32,35 +32,33 @@ pub(super) fn eval_aggr_func(
     .entered();
 
     // todo: ensure that this is serialized otherwise the contained block will not be executed
-    if ae.can_incrementally_eval {
-        if IncrementalAggregationHandler::handles(ae.function) {
-            if let Some(fe) = try_get_arg_rollup_func_with_metric_expr(ae)? {
-                // There is an optimized path for calculating `AggrFuncExpr` over: RollupFunc
-                // over MetricExpr.
-                // The optimized path saves RAM for aggregates over big number of time series.
-                let (args, re, _) = eval_rollup_func_args(ctx, ec, &fe)?;
+    if ae.can_incrementally_eval && IncrementalAggregationHandler::handles(ae.function) {
+        if let Some(fe) = try_get_arg_rollup_func_with_metric_expr(ae)? {
+            // There is an optimized path for calculating `AggrFuncExpr` over: RollupFunc
+            // over MetricExpr.
+            // The optimized path saves RAM for aggregates over big number of time series.
+            let (args, re, _) = eval_rollup_func_args(ctx, ec, &fe)?;
 
-                let rf = match fe.function {
-                    BuiltinFunction::Rollup(rf) => rf,
-                    _ => {
-                        // should not happen
-                        unreachable!(
-                            "Expected a rollup function in aggregation. Found \"{}\"",
-                            fe.function
-                        )
-                    }
-                };
+            let rf = match fe.function {
+                BuiltinFunction::Rollup(rf) => rf,
+                _ => {
+                    // should not happen
+                    unreachable!(
+                        "Expected a rollup function in aggregation. Found \"{}\"",
+                        fe.function
+                    )
+                }
+            };
 
-                let nrf = get_rollup_function_factory(rf);
-                let func_handler = nrf(&args, ec)?;
-                let mut executor = RollupExecutor::new(rf, func_handler, expr, &re);
-                executor.timeseries_limit = get_timeseries_limit(ae)?;
-                executor.is_incr_aggregate = true;
+            let nrf = get_rollup_function_factory(rf);
+            let func_handler = nrf(&args, ec)?;
+            let mut executor = RollupExecutor::new(rf, func_handler, expr, &re);
+            executor.timeseries_limit = get_timeseries_limit(ae)?;
+            executor.is_incr_aggregate = true;
 
-                let val = executor.eval(ctx, ec)?;
-                span.record("series", val.len());
-                return Ok(val);
-            }
+            let val = executor.eval(ctx, ec)?;
+            span.record("series", val.len());
+            return Ok(val);
         }
     }
 
@@ -113,7 +111,7 @@ fn try_get_arg_rollup_func_with_metric_expr(
             return Ok(None);
         }
 
-        let func_name = if name.len() == 0 {
+        let func_name = if name.is_empty() {
             "default_rollup"
         } else {
             name

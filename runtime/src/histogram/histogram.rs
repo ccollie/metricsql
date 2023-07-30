@@ -139,12 +139,12 @@ impl Histogram {
         let sum = self.sum;
         if sum.floor() == sum {
             let msg = format!("{}_sum{} {}\n", name, labels, sum.floor());
-            dst.push_str(&*msg);
+            dst.push_str(&msg);
         } else {
             let msg = format!("{}_sum{} {}\n", name, labels, sum);
-            dst.push_str(&*msg);
+            dst.push_str(&msg);
         }
-        dst.push_str(&*format!("{}_count{} {}\n", name, labels, count_total));
+        dst.push_str(&format!("{}_count{} {}\n", name, labels, count_total));
     }
 
     /// Get an iterator over this histogram's buckets.
@@ -222,7 +222,7 @@ impl<'a> Iterator for NonZeroBuckets<'a> {
             self.lower_handled = true;
             if self.histogram.lower > 0 {
                 return Some(NonZeroBucket {
-                    vm_range: &LOWER_BUCKET_RANGE,
+                    vm_range: LOWER_BUCKET_RANGE,
                     count: self.histogram.lower,
                 });
             }
@@ -240,7 +240,7 @@ impl<'a> Iterator for NonZeroBuckets<'a> {
                 if self.index >= buckets.len() {
                     if self.histogram.upper > 0 {
                         break Some(NonZeroBucket {
-                            vm_range: &UPPER_BUCKET_RANGE,
+                            vm_range: UPPER_BUCKET_RANGE,
                             count: self.histogram.upper,
                         });
                     }

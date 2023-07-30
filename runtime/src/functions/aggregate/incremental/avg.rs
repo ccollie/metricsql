@@ -1,5 +1,6 @@
-use super::context::{IncrementalAggrContext, IncrementalAggrHandler};
 use itertools::izip;
+
+use super::context::{IncrementalAggrContext, IncrementalAggrHandler};
 
 pub struct IncrementalAggrAvg {}
 
@@ -59,7 +60,7 @@ impl IncrementalAggrHandler for IncrementalAggrAvg {
                 *dst_value = f64::NAN;
                 continue;
             }
-            *dst_value = *dst_value / count;
+            *dst_value /= count;
         }
     }
 

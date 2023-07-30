@@ -15,7 +15,7 @@ use crate::{MetricName, RuntimeError, RuntimeResult, Timeseries};
 
 fn get_value_compressor(values: &[f64]) -> Compressor<f64> {
     Compressor::<f64>::from_config(q_compress::auto_compressor_config(
-        &values,
+        values,
         q_compress::DEFAULT_COMPRESSION_LEVEL,
     ))
 }
@@ -48,7 +48,7 @@ pub(crate) fn compress_series(series: &[Timeseries], buf: &mut Vec<u8>) -> Runti
         .collect();
 
     // timestamp metadata
-    write_metatadata(&mut t_compressor, buf, &q_timestamps, &chunk_spec)?;
+    write_metatadata(&mut t_compressor, buf, q_timestamps, &chunk_spec)?;
 
     // write out series count
     write_usize(buf, series_count);
@@ -233,8 +233,7 @@ pub(super) fn estimate_size(tss: &[Timeseries]) -> usize {
     let timestamp_size = 8 * tss[0].timestamps.len();
 
     // Calculate the required size for marshaled tss.
-    let size = labels_size + value_size + timestamp_size;
-    size
+    labels_size + value_size + timestamp_size
 }
 
 fn write_metatadata<T: NumberLike>(

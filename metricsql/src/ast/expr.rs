@@ -75,12 +75,6 @@ impl From<usize> for NumberLiteral {
     }
 }
 
-impl Into<f64> for NumberLiteral {
-    fn into(self) -> f64 {
-        self.value
-    }
-}
-
 impl PartialEq<NumberLiteral> for NumberLiteral {
     fn eq(&self, other: &Self) -> bool {
         self.value == other.value || self.value.is_nan() && other.value.is_nan()
@@ -176,7 +170,7 @@ impl Display for DurationExpr {
 
 // todo: MetricExpr => Selector
 /// MetricExpr represents MetricsQL metric with optional filters, i.e. `foo{...}`.
-#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Eq, Serialize, Deserialize)]
 pub struct MetricExpr {
     /// LabelFilters contains a list of label filters from curly braces.
     /// Filter or metric name must be the first if present.
@@ -317,14 +311,6 @@ impl Display for MetricExpr {
             write!(f, "}}")?;
         }
         Ok(())
-    }
-}
-
-impl Default for MetricExpr {
-    fn default() -> Self {
-        Self {
-            label_filters: vec![],
-        }
     }
 }
 
@@ -503,7 +489,7 @@ impl AggregationExpr {
             args,
             modifier: None,
             limit: 0,
-            function: function.clone(),
+            function,
             keep_metric_names: false,
             arg_idx_for_optimization: get_aggregate_arg_idx_for_optimization(function, arg_len),
             can_incrementally_eval,
@@ -571,7 +557,7 @@ impl AggregationExpr {
                 return false;
             }
 
-            return true;
+            true
         }
 
         return match &args[0] {
@@ -614,7 +600,7 @@ impl AggregationExpr {
 
 impl Display for AggregationExpr {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{}", self.function.to_string())?;
+        write!(f, "{}", self.function)?;
         let args_len = self.args.len();
         if args_len > 0 {
             write_comma_separated(&mut self.args.iter(), f, true)?;
@@ -694,13 +680,13 @@ impl RollupExpr {
 
     pub fn set_window(mut self, expr: DurationExpr) -> ParseResult<Self> {
         self.window = Some(expr);
-        self.validate().map_err(|e| ParseError::General(e.into()))?;
+        self.validate().map_err(ParseError::General)?;
         Ok(self)
     }
 
     pub fn set_expr(&mut self, expr: impl ExpressionNode) -> ParseResult<()> {
         self.expr = Box::new(expr.cast());
-        self.validate().map_err(|e| ParseError::General(e.into()))
+        self.validate().map_err(ParseError::General)
     }
 
     fn validate(&self) -> Result<(), String> {
@@ -715,7 +701,7 @@ impl RollupExpr {
 
     pub fn return_type(&self) -> ValueType {
         // sub queries turn instant vectors into ranges
-        return match (self.window.is_some(), self.for_subquery()) {
+        match (self.window.is_some(), self.for_subquery()) {
             (false, false) => ValueType::InstantVector,
             (false, true) => ValueType::RangeVector,
             (true, false) => ValueType::RangeVector,
@@ -723,14 +709,11 @@ impl RollupExpr {
                 ValueType::RangeVector
                 // unreachable!("range and subquery are not allowed together in a rollup expression")
             }
-        };
+        }
     }
 
     pub fn wraps_metric_expr(&self) -> bool {
-        match *self.expr {
-            Expr::MetricExpression(_) => true,
-            _ => false,
-        }
+        matches!(*self.expr, Expr::MetricExpression(_))
     }
 }
 
@@ -875,7 +858,7 @@ impl BinaryExpr {
             std::mem::swap(&mut self.left, &mut self.right);
             return true;
         }
-        return false;
+        false
     }
 
     pub fn should_adjust_comparison_op(&self) -> bool {
@@ -895,10 +878,7 @@ impl BinaryExpr {
             // do not reset MetricGroup for non-boolean `compare` binary ops like Prometheus does.
             return false;
         }
-        match op {
-            Operator::Default | Operator::If | Operator::IfNot => false,
-            _ => true,
-        }
+        !matches!(op, Operator::Default | Operator::If | Operator::IfNot)
     }
 
     pub fn return_type(&self) -> ValueType {
@@ -920,9 +900,9 @@ impl BinaryExpr {
                     "Operator {} is not valid for (String, String)",
                     self.op
                 );
-                return ValueType::String;
+                ValueType::String
             }
-            _ => return ValueType::InstantVector,
+            _ => ValueType::InstantVector,
         }
     }
 
@@ -939,20 +919,19 @@ impl BinaryExpr {
     }
 
     pub fn validate_modifier_labels(&self) -> ParseResult<()> {
-        match (&self.group_modifier, &self.join_modifier) {
-            (Some(group_modifier), Some(join_modifier)) => {
-                if group_modifier.op == GroupModifierOp::On {
-                    let duplicates = intersection(&group_modifier.labels, &join_modifier.labels);
-                    if !duplicates.is_empty() {
-                        let msg = format!(
-                            "labels ({}) must not occur in ON and GROUP clause at once",
-                            duplicates.join(", ")
-                        );
-                        return Err(ParseError::SyntaxError(msg));
-                    }
+        if let (Some(group_modifier), Some(join_modifier)) =
+            (&self.group_modifier, &self.join_modifier)
+        {
+            if group_modifier.op == GroupModifierOp::On {
+                let duplicates = intersection(&group_modifier.labels, &join_modifier.labels);
+                if !duplicates.is_empty() {
+                    let msg = format!(
+                        "labels ({}) must not occur in ON and GROUP clause at once",
+                        duplicates.join(", ")
+                    );
+                    return Err(ParseError::SyntaxError(msg));
                 }
             }
-            _ => {}
         }
         Ok(())
     }
@@ -977,7 +956,7 @@ impl BinaryExpr {
                 if is_reserved_binary_op_ident(&fe.name) {
                     return true;
                 }
-                return self.keep_metric_names;
+                self.keep_metric_names
             }
             _ => false,
         }
@@ -1010,10 +989,10 @@ impl BinaryExpr {
 }
 
 fn is_reserved_binary_op_ident(s: &str) -> bool {
-    match s.to_ascii_lowercase().as_str() {
-        "group_left" | "group_right" | "on" | "ignoring" | "without" | "bool" => true,
-        _ => false,
-    }
+    matches!(
+        s.to_ascii_lowercase().as_str(),
+        "group_left" | "group_right" | "on" | "ignoring" | "without" | "bool"
+    )
 }
 
 fn need_binary_op_arg_parens(arg: &Expr) -> bool {
@@ -1172,10 +1151,7 @@ pub struct WithArgExpr {
 
 impl PartialEq for WithArgExpr {
     fn eq(&self, other: &Self) -> bool {
-        let res = self.name == other.name
-            && self.args == other.args
-            && expr_equals(&self.expr, &other.expr);
-        res
+        self.name == other.name && self.args == other.args && expr_equals(&self.expr, &other.expr)
     }
 }
 
@@ -1416,17 +1392,11 @@ impl Expr {
     }
 
     pub fn is_metric_expression(&self) -> bool {
-        match self {
-            Expr::MetricExpression(_) => true,
-            _ => false,
-        }
+        matches!(self, Expr::MetricExpression(_))
     }
 
     pub fn is_binary_op(&self) -> bool {
-        match self {
-            Expr::BinaryOperator(_) => true,
-            _ => false,
-        }
+        matches!(self, Expr::BinaryOperator(_))
     }
 
     /// returns a scalar expression
@@ -1658,6 +1628,6 @@ fn intersection(labels_a: &Vec<String>, labels_b: &Vec<String>) -> Vec<String> {
     let unique_b: HashSet<String> = labels_b.clone().into_iter().collect();
     unique_a
         .intersection(&unique_b)
-        .map(|i| i.clone())
+        .cloned()
         .collect::<Vec<_>>()
 }

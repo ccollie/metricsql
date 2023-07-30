@@ -47,6 +47,7 @@ pub fn optimize(expr: Expr) -> ParseResult<Expr> {
 }
 
 /// This structure handles API for expression simplification
+#[derive(Default)]
 pub struct ExprSimplifier {}
 
 impl ExprSimplifier {
@@ -116,6 +117,7 @@ impl ExprSimplifier {
 ///
 /// Note it does not handle algebraic rewrites such as `(a or false)`
 /// --> `a`, which is handled by [`Simplifier`]
+#[derive(Default)]
 pub struct ConstEvaluator {
     /// `can_evaluate` is used during the depth-first-provider of the
     /// `Expr` tree to track if any siblings (or their descendants) were
@@ -207,7 +209,7 @@ impl ConstEvaluator {
             Expr::Parens(_) => false,
             // only handle immutable scalar functions
             Expr::Function(FunctionExpr { function, .. }) => match function {
-                BuiltinFunction::Transform(_) => return Self::volatility_ok(function.volatility()),
+                BuiltinFunction::Transform(_) => Self::volatility_ok(function.volatility()),
                 _ => false,
             },
             Expr::Number(_) | Expr::StringLiteral(_) | Expr::BinaryOperator(_) => true,
@@ -274,13 +276,13 @@ impl ConstEvaluator {
                     return Ok(Expr::from(res));
                 }
                 if op.is_comparison() {
-                    let n = string_compare(&left, &right, op, be.bool_modifier)?;
+                    let n = string_compare(left, right, op, be.bool_modifier)?;
                     return Ok(Expr::from(n));
                 }
             }
             _ => {}
         }
-        return Ok(Expr::BinaryOperator(be));
+        Ok(Expr::BinaryOperator(be))
     }
 
     fn get_single_scalar_arg(fe: &FunctionExpr) -> Option<f64> {
@@ -294,7 +296,7 @@ impl ConstEvaluator {
 
     fn handle_function_expr(fe: FunctionExpr) -> ParseResult<Expr> {
         let arg_count = fe.args.len();
-        return match fe.function {
+        match fe.function {
             BuiltinFunction::Transform(func) => {
                 use TransformFunction::*;
 
@@ -343,14 +345,14 @@ impl ConstEvaluator {
                         f64::NAN
                     }
                 };
-                return if valid {
+                if valid {
                     Ok(Expr::from(value))
                 } else {
                     Ok(Expr::Function(fe.clone()))
-                };
+                }
             }
             _ => Ok(Expr::Function(fe)),
-        };
+        }
     }
 }
 
@@ -373,6 +375,7 @@ pub(super) fn extract_datetime_part(epoch_secs: f64, part: DateTimePart) -> f64 
 ///
 /// - Adds missing filters to `foo{filters1} op bar{filters2}`
 ///   according to https://utcc.utoronto.ca/~cks/space/blog/sysadmin/PrometheusLabelNonOptimization
+#[derive(Debug, Default)]
 pub struct PushDownFilterRewriter {
     /// `can_evaluate` is used during the depth-first-provider of the
     /// `Expr` tree to track if any siblings (or their descendants) were
@@ -453,6 +456,7 @@ impl TreeNodeRewriter for PushDownFilterRewriter {
 /// * `1 == bool 1` to `1`
 /// * `0 == bool 1` to `0`
 /// * `expr == NaN` and `expr != NaN` to `NaN`
+#[derive(Default)]
 pub struct Simplifier {}
 
 impl Simplifier {
@@ -575,10 +579,8 @@ impl TreeNodeRewriter for Simplifier {
                             if let Expr::Function(fe) = &left.as_ref() {
                                 if fe.keep_metric_names {
                                     should_keep_metric_names = true;
-                                } else {
-                                    if let BuiltinFunction::Transform(tf) = fe.function {
-                                        should_keep_metric_names = tf.manipulates_labels();
-                                    }
+                                } else if let BuiltinFunction::Transform(tf) = fe.function {
+                                    should_keep_metric_names = tf.manipulates_labels();
                                 }
                             }
                         }

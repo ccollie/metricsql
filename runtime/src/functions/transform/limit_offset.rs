@@ -17,7 +17,7 @@ pub(crate) fn limit_offset(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Time
         Ok(l) => {
             limit = l as usize;
         }
-    }
+    };
 
     match get_int_arg(&tfa.args, 1) {
         Err(_) => {

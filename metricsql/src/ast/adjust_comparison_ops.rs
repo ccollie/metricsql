@@ -27,11 +27,8 @@ pub fn adjust_comparison_ops(expr: &mut Expr) {
         }
         Expr::Rollup(re) => {
             adjust_comparison_ops(&mut re.expr);
-            match re.at {
-                Some(ref mut at) => {
-                    adjust_comparison_ops(at.as_mut());
-                }
-                _ => {}
+            if let Some(ref mut at) = re.at {
+                adjust_comparison_ops(at.as_mut());
             }
         }
         _ => {}

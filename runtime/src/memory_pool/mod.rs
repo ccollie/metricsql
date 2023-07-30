@@ -18,11 +18,12 @@
 //! Manages all available memory during query execution
 use std::sync::{Arc, Mutex};
 
-mod pool;
-pub mod proxy;
+pub use pool::*;
 
 use crate::{RuntimeError, RuntimeResult};
-pub use pool::*;
+
+mod pool;
+pub mod proxy;
 
 /// The pool of memory on which [`MemoryReservation`] record their memory reservations
 pub trait MemoryPool: Send + Sync + std::fmt::Debug {
@@ -195,14 +196,9 @@ pub struct SharedOptionalMemoryReservation(Arc<Mutex<Option<MemoryReservation>>>
 impl SharedOptionalMemoryReservation {
     /// Initialize inner [`MemoryReservation`] if `None`, otherwise -- do nothing
     pub fn initialize(&self, name: impl Into<String>, pool: &Arc<dyn MemoryPool>) {
-        match self.0.lock() {
-            Ok(mut reservation) => {
-                if reservation.is_none() {
-                    *reservation = Some(MemoryConsumer::new(name).register(pool));
-                }
-            }
-            Err(_) => {
-                // Do nothing
+        if let Ok(mut reservation) = self.0.lock() {
+            if reservation.is_none() {
+                *reservation = Some(MemoryConsumer::new(name).register(pool));
             }
         }
     }

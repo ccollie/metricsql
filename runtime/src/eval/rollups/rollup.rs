@@ -80,11 +80,11 @@ impl<'a> RollupExecutor<'a> {
         };
 
         if let Some(at_expr) = &self.re.at {
-            let at_timestamp = get_at_timestamp(ctx, ec, &at_expr)?;
+            let at_timestamp = get_at_timestamp(ctx, ec, at_expr)?;
             let mut ec_new = ec.copy_no_timestamps();
             ec_new.start = at_timestamp;
             ec_new.end = at_timestamp;
-            let mut tss = self.eval_without_at(ctx, &mut ec_new)?;
+            let mut tss = self.eval_without_at(ctx, &ec_new)?;
 
             // expand single-point tss to the original time range.
             let timestamps = ec.get_timestamps()?;
@@ -96,7 +96,7 @@ impl<'a> RollupExecutor<'a> {
             Ok(QueryValue::InstantVector(tss))
         } else {
             let value = self.eval_without_at(ctx, ec)?;
-            return Ok(QueryValue::InstantVector(value));
+            Ok(QueryValue::InstantVector(value))
         }
     }
 
@@ -151,7 +151,7 @@ impl<'a> RollupExecutor<'a> {
             rvs = aggregate_absent_over_time(ec, &self.re.expr, &rvs)?
         }
 
-        if offset != 0 && rvs.len() > 0 {
+        if offset != 0 && !rvs.is_empty() {
             // Make a copy of timestamps, since they may be used in other values.
             let src_timestamps = &rvs[0].timestamps;
             let dst_timestamps = src_timestamps.iter().map(|x| x + offset).collect();
@@ -262,8 +262,8 @@ impl<'a> RollupExecutor<'a> {
                         rc,
                         &mut ts,
                         &ts_sq.metric_name,
-                        &values,
-                        &timestamps,
+                        values,
+                        timestamps,
                         &shared_timestamps,
                     )?;
 
@@ -384,7 +384,7 @@ impl<'a> RollupExecutor<'a> {
             return Ok(tss);
         }
 
-        let rollup_memory_size = self.reserve_rollup_memory(ctx, ec, &mut rss, rcs.len())?;
+        let rollup_memory_size = self.reserve_rollup_memory(ctx, ec, &rss, rcs.len())?;
 
         defer! {
            ctx.rollup_result_cache.release_memory(rollup_memory_size).unwrap();
@@ -397,7 +397,7 @@ impl<'a> RollupExecutor<'a> {
         let ignore_staleness = ec.no_stale_markers;
         let tss = match self.expr {
             Expr::Aggregation(ae) => self.eval_with_incremental_aggregate(
-                &ae,
+                ae,
                 &mut rss,
                 rcs,
                 pre_func,
@@ -429,7 +429,7 @@ impl<'a> RollupExecutor<'a> {
         ignore_staleness: bool,
     ) -> RuntimeResult<Vec<Timeseries>>
     where
-        F: Fn(&mut [f64], &[i64]) -> () + Send + Sync,
+        F: Fn(&mut [f64], &[i64]) + Send + Sync,
     {
         let span = if self.is_tracing {
             let function = self.func.name();
@@ -471,13 +471,13 @@ impl<'a> RollupExecutor<'a> {
             &mut ctx,
             |ctx: Arc<&mut Context>, rs: &mut QueryResult, worker_id: u64| {
                 if !ctx.ignore_staleness {
-                    drop_stale_nans(&ctx.func, &mut rs.values, &mut rs.timestamps);
+                    drop_stale_nans(ctx.func, &mut rs.values, &mut rs.timestamps);
                 }
                 pre_func(&mut rs.values, &rs.timestamps);
 
                 for rc in ctx.rcs.iter() {
                     if let Some(tsm) = new_timeseries_map(
-                        &ctx.func,
+                        ctx.func,
                         ctx.keep_metric_names,
                         &ctx.timestamps,
                         &rs.metric_name,
@@ -528,7 +528,7 @@ impl<'a> RollupExecutor<'a> {
         no_stale_markers: bool,
     ) -> RuntimeResult<Vec<Timeseries>>
     where
-        F: Fn(&mut [f64], &[i64]) -> () + Send + Sync,
+        F: Fn(&mut [f64], &[i64]) + Send + Sync,
     {
         let span = if self.is_tracing {
             let function = self.func.name();
@@ -580,7 +580,7 @@ impl<'a> RollupExecutor<'a> {
                     let samples_scanned = process_result(
                         rs,
                         ctx.func,
-                        &rc,
+                        rc,
                         ctx.series.clone(),
                         ctx.timestamps,
                         ctx.keep_metric_names,
@@ -705,7 +705,7 @@ fn get_at_timestamp(ctx: &Arc<Context>, ec: &EvalConfig, expr: &Expr) -> Runtime
     match exec_expr(ctx, ec, expr) {
         Err(err) => {
             let msg = format!("cannot evaluate `@` modifier: {:?}", err);
-            return Err(RuntimeError::from(msg));
+            Err(RuntimeError::from(msg))
         }
         Ok(tss_at) => {
             match tss_at {
@@ -742,7 +742,7 @@ fn aggregate_absent_over_time(
     tss: &[Timeseries],
 ) -> RuntimeResult<Vec<Timeseries>> {
     let mut rvs = get_absent_timeseries(ec, expr)?;
-    if tss.len() == 0 {
+    if tss.is_empty() {
         return Ok(rvs);
     }
     for i in 0..tss[0].values.len() {
@@ -782,10 +782,10 @@ where
     let mut sample_total = 0_u64;
     for (timeseries, sample_count) in tss.into_iter() {
         sample_total += sample_count;
-        series.extend::<Vec<Timeseries>>(timeseries.into())
+        series.extend::<Vec<Timeseries>>(timeseries)
     }
 
-    return Ok((series, sample_total));
+    Ok((series, sample_total))
 }
 
 fn remove_nan_values(
@@ -804,8 +804,8 @@ fn remove_nan_values(
 
     if !has_nan {
         // Fast path - no NaNs.
-        dst_values.extend_from_slice(&values);
-        dst_timestamps.extend_from_slice(&timestamps);
+        dst_values.extend_from_slice(values);
+        dst_timestamps.extend_from_slice(timestamps);
         return;
     }
 
@@ -829,14 +829,14 @@ fn do_rollup_for_timeseries(
     shared_timestamps: &Arc<Vec<i64>>,
 ) -> RuntimeResult<u64> {
     ts_dst.metric_name.copy_from(mn_src);
-    if rc.tag_value.len() > 0 {
+    if !rc.tag_value.is_empty() {
         ts_dst.metric_name.set_tag("rollup", &rc.tag_value)
     }
     if !keep_metric_names {
         ts_dst.metric_name.reset_metric_group();
     }
     let samples_scanned = rc.exec(&mut ts_dst.values, values_src, timestamps_src)?;
-    ts_dst.timestamps = Arc::clone(&shared_timestamps);
+    ts_dst.timestamps = Arc::clone(shared_timestamps);
 
     Ok(samples_scanned)
 }

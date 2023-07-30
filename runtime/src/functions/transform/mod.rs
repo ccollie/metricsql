@@ -108,9 +108,9 @@ impl<T> TransformFn for T where
 
 pub type TransformFuncHandler = fn(&mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>>;
 
-pub(crate) trait TransformValuesFn: FnMut(&mut [f64]) -> () {}
+pub(crate) trait TransformValuesFn: FnMut(&mut [f64]) {}
 
-impl<T> TransformValuesFn for T where T: FnMut(&mut [f64]) -> () {}
+impl<T> TransformValuesFn for T where T: FnMut(&mut [f64]) {}
 
 pub fn get_transform_func(f: TransformFunction) -> TransformFuncHandler {
     use TransformFunction::*;

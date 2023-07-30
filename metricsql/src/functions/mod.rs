@@ -55,22 +55,19 @@ impl Display for BuiltinFunctionType {
 
 impl BuiltinFunction {
     pub fn new(name: &str) -> ParseResult<Self> {
-        let tf = TransformFunction::from_str(name);
-        if tf.is_ok() {
-            return Ok(BuiltinFunction::Transform(tf.unwrap()));
+        if let Ok(func) = TransformFunction::from_str(name) {
+            return Ok(BuiltinFunction::Transform(func));
         }
 
-        let af = AggregateFunction::from_str(name);
-        if af.is_ok() {
-            return Ok(BuiltinFunction::Aggregate(af.unwrap()));
+        if let Ok(af) = AggregateFunction::from_str(name) {
+            return Ok(BuiltinFunction::Aggregate(af));
         }
 
-        let rf = RollupFunction::from_str(name);
-        if rf.is_ok() {
-            return Ok(BuiltinFunction::Rollup(rf.unwrap()));
+        if let Ok(rf) = RollupFunction::from_str(name) {
+            return Ok(BuiltinFunction::Rollup(rf));
         }
 
-        Err(ParseError::InvalidFunction(format!("built-in::{}", name)))
+        Err(ParseError::InvalidFunction(format!("built-in::{name}")))
     }
 
     pub fn name(&self) -> &'static str {
@@ -125,10 +122,7 @@ impl BuiltinFunction {
     }
 
     pub fn is_aggregation(&self) -> bool {
-        match self {
-            BuiltinFunction::Aggregate(_) => true,
-            _ => false,
-        }
+        matches!(self, BuiltinFunction::Aggregate(_))
     }
 
     pub fn is_scalar(&self) -> bool {
@@ -170,14 +164,14 @@ impl BuiltinFunction {
         // determine the arg to pass through
         let arg = self.get_arg_for_optimization(args);
 
-        let kind = if arg.is_none() {
+        let kind = if let Some(exp) = arg {
+            exp.return_type()
+        } else {
             // todo: does this depend on the function type (rollup, transform, aggregation)
             ValueType::InstantVector
-        } else {
-            arg.unwrap().return_type()
         };
 
-        return match self {
+        match self {
             BuiltinFunction::Rollup(rf) => {
                 if is_rollup_aggregation_over_time(*rf) {
                     match kind {
@@ -198,7 +192,7 @@ impl BuiltinFunction {
                 }
             }
             _ => Ok(kind),
-        };
+        }
     }
 }
 

@@ -198,7 +198,7 @@ impl ArgCountError {
         min: usize,
         max: usize,
     ) -> Self {
-        Self::new_with_index(Some(usize::from(token.span.start)), signature, min, max)
+        Self::new_with_index(Some(token.span.start), signature, min, max)
     }
 
     /// Create a new instance of the error at a specific position

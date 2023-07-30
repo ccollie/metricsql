@@ -43,7 +43,7 @@ fn remove_counter_resets_pre_func(values: &mut [f64], _: &[i64]) {
 }
 
 #[inline]
-fn delta_values_pre_func(values: &mut [f64], _: &[i64]) -> () {
+fn delta_values_pre_func(values: &mut [f64], _: &[i64]) {
     delta_values(values);
 }
 
@@ -75,9 +75,9 @@ wrap_rollup_fn!(FN_HIGH, rollup_high);
 wrap_rollup_fn!(FN_FAKE, rollup_fake);
 
 // todo: use tinyvec for return values
-pub(crate) fn get_rollup_configs<'a>(
+pub(crate) fn get_rollup_configs(
     func: &RollupFunction,
-    rf: &'a RollupHandlerEnum,
+    rf: &RollupHandlerEnum,
     expr: &Expr,
     start: Timestamp,
     end: Timestamp,
@@ -108,7 +108,7 @@ pub(crate) fn get_rollup_configs<'a>(
         window,
         may_adjust_window,
         lookback_delta,
-        timestamps: Arc::clone(&shared_timestamps),
+        timestamps: Arc::clone(shared_timestamps),
         is_default_rollup,
         max_points_per_series,
         min_staleness_interval,
@@ -193,7 +193,7 @@ pub(crate) fn get_rollup_configs<'a>(
                 }
                 let rollup_fn = get_rollup_fn(&rf)?;
                 let handler = RollupHandlerEnum::wrap(rollup_fn);
-                let clone = template.clone_with_fn(&handler, &rf.name());
+                let clone = template.clone_with_fn(&handler, rf.name());
                 rcs.push(clone);
             }
         }
@@ -265,7 +265,7 @@ impl Default for RollupConfig {
 
 impl RollupConfig {
     fn clone_with_fn(&self, rollup_fn: &RollupHandlerEnum, tag_value: &str) -> Self {
-        return RollupConfig {
+        RollupConfig {
             tag_value: tag_value.to_string(), // should this be Arc ??
             handler: rollup_fn.clone(),
             start: self.start,
@@ -279,7 +279,7 @@ impl RollupConfig {
             max_points_per_series: self.max_points_per_series,
             min_staleness_interval: self.min_staleness_interval,
             samples_scanned_per_call: self.samples_scanned_per_call,
-        };
+        }
     }
 
     // mostly for testing
@@ -336,7 +336,7 @@ impl RollupConfig {
         // Extend dst_values in order to remove allocations below.
         dst_values.reserve(self.timestamps.len());
 
-        let scrape_interval = get_scrape_interval(&timestamps);
+        let scrape_interval = get_scrape_interval(timestamps);
         let mut max_prev_interval = get_max_prev_interval(scrape_interval);
         if self.lookback_delta > 0 && max_prev_interval > self.lookback_delta {
             max_prev_interval = self.lookback_delta
@@ -372,11 +372,7 @@ impl RollupConfig {
         let mut rfa = RollupFuncArg::default();
         rfa.idx = 0;
         rfa.window = window;
-        rfa.tsm = if let Some(t) = tsm {
-            Some(Rc::clone(t))
-        } else {
-            None
-        };
+        rfa.tsm = tsm.map(Rc::clone);
 
         let mut i = 0;
         let mut j = 0;
@@ -463,7 +459,7 @@ impl RollupConfig {
                     "BUG: {:?}; this must be validated before the call to rollupConfig.exec",
                     err
                 );
-                return Err(RuntimeError::from(msg));
+                Err(RuntimeError::from(msg))
             }
             _ => Ok(()),
         }
@@ -477,7 +473,7 @@ impl RollupConfig {
 const fn rollup_samples_scanned_per_call(rf: &RollupFunction) -> usize {
     use RollupFunction::*;
 
-    return match rf {
+    match rf {
         AbsentOverTime => 1,
         CountOverTime => 1,
         DefaultRollup => 1,
@@ -502,7 +498,7 @@ const fn rollup_samples_scanned_per_call(rf: &RollupFunction) -> usize {
         TimestampWithName => 1,
         TLastOverTime => 1,
         _ => 0, // == num rows
-    };
+    }
 }
 
 fn seek_first_timestamp_idx_after(
@@ -570,7 +566,7 @@ fn get_scrape_interval(timestamps: &[Timestamp]) -> i64 {
     if scrape_interval <= 0 {
         return MAX_SILENCE_INTERVAL;
     }
-    return scrape_interval;
+    scrape_interval
 }
 
 fn get_max_prev_interval(scrape_interval: i64) -> i64 {
@@ -592,11 +588,11 @@ fn get_max_prev_interval(scrape_interval: i64) -> i64 {
     if scrape_interval <= 32_000i64 {
         return scrape_interval + scrape_interval / 4;
     }
-    return scrape_interval + scrape_interval / 8;
+    scrape_interval + scrape_interval / 8
 }
 
 fn get_rollup_tag(expr: &Expr) -> RuntimeResult<Option<&String>> {
-    return if let Expr::Function(fe) = expr {
+    if let Expr::Function(fe) = expr {
         if fe.args.len() < 2 {
             return Ok(None);
         }
@@ -623,13 +619,13 @@ fn get_rollup_tag(expr: &Expr) -> RuntimeResult<Option<&String>> {
     } else {
         let msg = format!("BUG: unexpected expression; want FunctionExpr; got {expr};");
         Err(RuntimeError::ArgumentError(msg))
-    };
+    }
 }
 
 // todo: use in optimize so its cached in the ast
 fn get_rollup_aggr_funcs(expr: &Expr) -> RuntimeResult<Vec<RollupFunction>> {
     fn get_func_by_name(name: &str) -> RuntimeResult<RollupFunction> {
-        return if let Ok(func) = get_rollup_func_by_name(name) {
+        if let Ok(func) = get_rollup_func_by_name(name) {
             if !func.is_aggregate_function() {
                 let msg = format!(
                     "{name} cannot be used in `aggr_over_time` function; expecting aggregate function name",
@@ -641,7 +637,7 @@ fn get_rollup_aggr_funcs(expr: &Expr) -> RuntimeResult<Vec<RollupFunction>> {
             let msg =
                 format!("Unknown aggregate function {name} used in `aggr_over_time` function;",);
             Err(RuntimeError::ArgumentError(msg))
-        };
+        }
     }
 
     fn get_funcs(args: &[Expr]) -> RuntimeResult<Vec<RollupFunction>> {
@@ -654,7 +650,7 @@ fn get_rollup_aggr_funcs(expr: &Expr) -> RuntimeResult<Vec<RollupFunction>> {
         let mut funcs = Vec::with_capacity(args.len());
         for arg in args.iter() {
             if let Expr::StringLiteral(name) = arg {
-                let func = get_func_by_name(&name)?;
+                let func = get_func_by_name(name)?;
                 funcs.push(func)
             } else {
                 let msg = format!(
@@ -694,9 +690,9 @@ fn get_rollup_aggr_funcs(expr: &Expr) -> RuntimeResult<Vec<RollupFunction>> {
             }
 
             let args = &fe.args[0];
-            return match args {
+            match args {
                 Expr::StringLiteral(name) => {
-                    let func = get_func_by_name(&name)?;
+                    let func = get_func_by_name(name)?;
                     Ok(vec![func])
                 }
                 Expr::Parens(pe) => {
@@ -714,7 +710,7 @@ fn get_rollup_aggr_funcs(expr: &Expr) -> RuntimeResult<Vec<RollupFunction>> {
                 _ => Err(RuntimeError::General(format!(
                     "{args} cannot be passed here; expecting quoted aggregate function name"
                 ))),
-            };
+            }
         }
         _ => {
             let msg = format!(

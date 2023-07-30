@@ -9,7 +9,7 @@ use crate::parser::{compile_regexp, escape_ident, is_empty_regex, ParseError, Pa
 
 /// LabelFilterExpr represents `foo <op> ident + "bar"` expression, where <op> is `=`, `!=`, `=~` or `!~`.
 /// For internal use only, in the context of WITH expressions
-#[derive(Default, Debug, Clone, Hash, Eq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct LabelFilterExpr {
     pub op: LabelFilterOp,
 
@@ -31,12 +31,12 @@ impl LabelFilterExpr {
 
         assert!(!label.is_empty());
 
-        if match_op == LabelFilterOp::RegexEqual || match_op == LabelFilterOp::RegexNotEqual {
-            if value.is_expanded() {
-                let resolved_value = value.to_string();
-                if compile_regexp(&resolved_value).is_err() {
-                    return Err(ParseError::InvalidRegex(resolved_value));
-                }
+        if (match_op == LabelFilterOp::RegexEqual || match_op == LabelFilterOp::RegexNotEqual)
+            && value.is_expanded()
+        {
+            let resolved_value = value.to_string();
+            if compile_regexp(&resolved_value).is_err() {
+                return Err(ParseError::InvalidRegex(resolved_value));
             }
         }
 
@@ -152,11 +152,9 @@ impl LabelFilterExpr {
         match self.op {
             Equal => haystack.eq(str),
             NotEqual => haystack.ne(str),
-            RegexEqual => {
-                compile_regexp(&haystack)
-                    .map(|re| re.is_match(str))
-                    .unwrap_or(false)
-            }
+            RegexEqual => compile_regexp(&haystack)
+                .map(|re| re.is_match(str))
+                .unwrap_or(false),
             RegexNotEqual => {
                 let str = self.value.to_string();
                 compile_regexp(&haystack)
@@ -168,11 +166,7 @@ impl LabelFilterExpr {
 
     pub fn to_label_filter(&self) -> ParseResult<LabelFilter> {
         let empty_str = "".to_string();
-        let value = self
-            .value
-            .get_literal()?
-            .unwrap_or_else(|| &empty_str)
-            .to_string();
+        let value = self.value.get_literal()?.unwrap_or(&empty_str).to_string();
         LabelFilter::new(self.op, &self.label, value)
     }
 

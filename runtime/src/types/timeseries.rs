@@ -1,8 +1,9 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use super::MetricName;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
+
+use super::MetricName;
 
 #[derive(Default, Debug, Clone, PartialEq)]
 pub struct Timeseries {
@@ -62,7 +63,7 @@ impl Timeseries {
 }
 
 pub(crate) fn assert_identical_timestamps(tss: &[Timeseries], step: i64) -> RuntimeResult<()> {
-    if tss.len() == 0 {
+    if tss.is_empty() {
         return Ok(());
     }
     let ts_golden = &tss[0];
@@ -109,7 +110,7 @@ pub(crate) fn assert_identical_timestamps(tss: &[Timeseries], step: i64) -> Runt
         if ts.timestamps.len() == 0 {
             continue;
         }
-        if &ts.timestamps[0] == &ts_golden.timestamps[0] {
+        if ts.timestamps[0] == ts_golden.timestamps[0] {
             // Fast path - shared timestamps.
             continue;
         }

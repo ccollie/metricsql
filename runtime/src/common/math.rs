@@ -14,7 +14,7 @@ use lib::get_pooled_vec_f64;
 /// See https://en.wikipedia.org/wiki/Mode_(statistics)
 pub fn mode_no_nans(prev_value: f64, a: &mut Vec<f64>) -> f64 {
     let mut prev_value = prev_value;
-    if a.len() == 0 {
+    if a.is_empty() {
         return prev_value;
     }
     a.sort_by(|a, b| a.total_cmp(b));
@@ -41,7 +41,7 @@ pub fn mode_no_nans(prev_value: f64, a: &mut Vec<f64>) -> f64 {
     if d > d_max || mode.is_nan() {
         mode = prev_value
     }
-    return mode;
+    mode
 }
 
 pub(crate) fn mean(values: &[f64]) -> f64 {
@@ -54,7 +54,7 @@ pub(crate) fn mean(values: &[f64]) -> f64 {
         sum += v;
         n += 1;
     }
-    return sum / n as f64;
+    sum / n as f64
 }
 
 pub(crate) fn stdvar(values: &[f64]) -> f64 {
@@ -84,12 +84,12 @@ pub(crate) fn stdvar(values: &[f64]) -> f64 {
     if count == 0 {
         return f64::NAN;
     }
-    return q / count as f64;
+    q / count as f64
 }
 
 pub(crate) fn stddev(values: &[f64]) -> f64 {
     let std_var = stdvar(values);
-    return std_var.sqrt();
+    std_var.sqrt()
 }
 
 /// quantiles calculates the given phis from originValues without modifying origin_values, appends
@@ -147,7 +147,7 @@ pub(crate) fn quantiles_sorted(qs: &mut [f64], phis: &[f64], values: &[f64]) {
 /// It is expected that values won't contain NaN items.
 /// The implementation mimics Prometheus implementation for compatibility's sake.
 pub(crate) fn quantile_sorted(phi: f64, values: &[f64]) -> f64 {
-    if values.len() == 0 || phi.is_nan() {
+    if values.is_empty() || phi.is_nan() {
         return f64::NAN;
     }
     if phi < 0.0 {
@@ -160,10 +160,10 @@ pub(crate) fn quantile_sorted(phi: f64, values: &[f64]) -> f64 {
     let rank = phi * (n - 1) as f64;
 
     let lower_index = std::cmp::max(0, rank.floor() as usize);
-    let upper_index = std::cmp::min(n - 1, lower_index + 1) as usize;
+    let upper_index = std::cmp::min(n - 1, lower_index + 1);
 
     let weight = rank - rank.floor();
-    return values[lower_index] * (1.0 - weight) + values[upper_index] * weight;
+    values[lower_index] * (1.0 - weight) + values[upper_index] * weight
 }
 
 pub(crate) fn median(values: &[f64]) -> f64 {
@@ -215,7 +215,7 @@ pub(crate) fn linear_regression(
         k = (tv_sum - t_sum * v_sum / n) / t_diff;
     }
     let v = v_sum / n - k * t_sum / n;
-    return (v, k);
+    (v, k)
 }
 
 pub(crate) fn are_const_values(values: &[f64]) -> bool {

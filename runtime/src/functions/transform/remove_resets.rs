@@ -43,6 +43,6 @@ fn remove_counter_resets_maybe_nans(values: &mut Vec<f64>) {
             }
         }
         prev_value = *v;
-        *v = *v + correction;
+        *v += correction;
     }
 }

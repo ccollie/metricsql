@@ -1,13 +1,15 @@
-use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 
+use serde::{Deserialize, Serialize};
+
 /// A query value type
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, Copy, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ValueType {
     /// A 64-bit floating point number.
     Scalar,
     /// An owned String
     String,
+    #[default]
     InstantVector,
     RangeVector,
 }
@@ -25,16 +27,7 @@ impl ValueType {
     }
 
     pub fn is_scalar(&self) -> bool {
-        match self {
-            ValueType::Scalar => true,
-            _ => false,
-        }
-    }
-}
-
-impl Default for ValueType {
-    fn default() -> Self {
-        ValueType::InstantVector
+        matches!(self, ValueType::Scalar)
     }
 }
 

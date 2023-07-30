@@ -57,8 +57,8 @@ fn transform_datetime_impl(
         }
     };
 
-    let mut arg = if tfa.args.len() == 0 {
-        eval_time(&tfa.ec)?
+    let mut arg = if tfa.args.is_empty() {
+        eval_time(tfa.ec)?
     } else {
         get_series_arg(&tfa.args, 0, tfa.ec)?
     };
@@ -119,9 +119,9 @@ pub(crate) fn timezone_offset(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<T
 
 pub(crate) fn now(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let now: f64 = Utc::now().timestamp() as f64 / 1e9_f64;
-    eval_number(&tfa.ec, now)
+    eval_number(tfa.ec, now)
 }
 
 pub(crate) fn time(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    eval_time(&mut tfa.ec)
+    eval_time(tfa.ec)
 }

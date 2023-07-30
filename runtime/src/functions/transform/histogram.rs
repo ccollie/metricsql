@@ -48,7 +48,7 @@ pub(crate) fn buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
         match le_str {
             None => continue,
             Some(le_str) => {
-                if le_str.len() == 0 {
+                if le_str.is_empty() {
                     continue;
                 }
             }
@@ -80,7 +80,7 @@ pub(crate) fn buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
             // Fast path - the number of buckets doesn't exceed the given limit.
             // Keep all the buckets as is.
             let series = le_group
-                .into_iter()
+                .iter_mut()
                 .map(|x| tss.remove(x.ts_index))
                 .collect::<Vec<_>>();
             rvs.extend(series);
@@ -118,7 +118,7 @@ pub(crate) fn buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
         }
 
         let ts_iter = le_group
-            .into_iter()
+            .iter_mut()
             .map(|x| tss.remove(x.ts_index))
             .collect::<Vec<Timeseries>>();
 
@@ -131,7 +131,7 @@ pub(crate) fn buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
 pub(crate) fn prometheus_buckets(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let series = get_series_arg(&tfa.args, 0, tfa.ec)?;
     let rvs = vmrange_buckets_to_le(series);
-    return Ok(rvs);
+    Ok(rvs)
 }
 
 static ELLIPSIS: &str = "...";
@@ -174,9 +174,9 @@ pub(crate) fn vmrange_buckets_to_le(tss: Vec<Timeseries>) -> Vec<Timeseries> {
             None => "",
         };
 
-        if vm_range.len() == 0 {
+        if vm_range.is_empty() {
             if let Some(le) = ts.metric_name.get_tag_value("le") {
-                if le.len() > 0 {
+                if !le.is_empty() {
                     // Keep Prometheus-compatible buckets.
                     rvs.push(ts);
                 }
@@ -222,7 +222,7 @@ pub(crate) fn vmrange_buckets_to_le(tss: Vec<Timeseries>) -> Vec<Timeseries> {
         let mut ts: Timeseries = src.clone();
         ts.values.resize(ts.values.len(), 0.0);
         ts.metric_name.set_tag("le", le_str);
-        return ts;
+        ts
     };
 
     let is_zero_ts = |ts: &Timeseries| -> bool { ts.values.iter().all(|x| *x <= 0.0) };
@@ -236,7 +236,7 @@ pub(crate) fn vmrange_buckets_to_le(tss: Vec<Timeseries>) -> Vec<Timeseries> {
         let mut has_non_empty = false;
 
         let mut uniq_ts: HashMap<String, usize> = HashMap::with_capacity(xss.len());
-        for mut xs in xss.into_iter() {
+        for xs in xss.iter_mut() {
             if is_zero_ts(&xs.ts) {
                 // Skip time series with zeros. They are substituted by xss_new below.
                 // Skip buckets with zero values - they will be merged into a single bucket
@@ -279,7 +279,7 @@ pub(crate) fn vmrange_buckets_to_le(tss: Vec<Timeseries>) -> Vec<Timeseries> {
                     }
                 }
                 None => {
-                    xss_new.push(std::mem::take(&mut xs));
+                    xss_new.push(std::mem::take(xs));
                     uniq_ts.insert(xs.end_str.clone(), xss_new.len() - 1);
                 }
             }
@@ -318,7 +318,7 @@ pub(crate) fn vmrange_buckets_to_le(tss: Vec<Timeseries>) -> Vec<Timeseries> {
             })
         }
 
-        if xss_new.len() == 0 {
+        if xss_new.is_empty() {
             continue;
         }
 
@@ -338,7 +338,7 @@ pub(crate) fn vmrange_buckets_to_le(tss: Vec<Timeseries>) -> Vec<Timeseries> {
         }
     }
 
-    return rvs;
+    rvs
 }
 
 pub(crate) fn histogram_share(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
@@ -361,7 +361,7 @@ pub(crate) fn histogram_share(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<T
     // Calculate share for les
     let share = |i: usize, les: &[f64], xss: &mut Vec<LeTimeseries>| -> (f64, f64, f64) {
         let le_req = les[i];
-        if le_req.is_nan() || xss.len() == 0 {
+        if le_req.is_nan() || xss.is_empty() {
             return (f64::NAN, f64::NAN, f64::NAN);
         }
         fix_broken_buckets(i, xss);
@@ -396,7 +396,7 @@ pub(crate) fn histogram_share(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<T
             return (q, lower, upper);
         }
         // precondition: le_req > leLast
-        return (1.0, 1.0, 1.0);
+        (1.0, 1.0, 1.0)
     };
 
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(m.len());
@@ -408,7 +408,7 @@ pub(crate) fn histogram_share(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<T
         let mut ts_lower: Timeseries;
         let mut ts_upper: Timeseries;
 
-        if bounds_label.len() > 0 {
+        if !bounds_label.is_empty() {
             ts_lower = xss[0].ts.clone();
             ts_lower.metric_name.remove_tag(&bounds_label);
             ts_lower.metric_name.set_tag(&bounds_label, "lower");
@@ -424,20 +424,20 @@ pub(crate) fn histogram_share(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<T
         for i in 0..xss[0].ts.values.len() {
             let (q, lower, upper) = share(i, &les, &mut xss);
             xss[0].ts.values[i] = q;
-            if bounds_label.len() > 0 {
+            if !bounds_label.is_empty() {
                 ts_lower.values[i] = lower;
                 ts_upper.values[i] = upper
             }
         }
 
         rvs.push(std::mem::take(&mut xss[0].ts));
-        if bounds_label.len() > 0 {
+        if !bounds_label.is_empty() {
             rvs.push(ts_lower);
             rvs.push(ts_upper);
         }
     }
 
-    return Ok(rvs);
+    Ok(rvs)
 }
 
 pub(crate) fn histogram_avg(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
@@ -453,7 +453,7 @@ pub(crate) fn histogram_avg(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
         }
         rvs.push(std::mem::take(&mut xss[0].ts));
     }
-    return Ok(rvs);
+    Ok(rvs)
 }
 
 pub(crate) fn histogram_stddev(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
@@ -470,7 +470,7 @@ pub(crate) fn histogram_stddev(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<
         }
         rvs.push(std::mem::take(&mut xss[0].ts));
     }
-    return Ok(rvs);
+    Ok(rvs)
 }
 
 pub(crate) fn histogram_stdvar(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
@@ -485,7 +485,7 @@ pub(crate) fn histogram_stdvar(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<
         }
         rvs.push(std::mem::take(&mut xss[0].ts));
     }
-    return Ok(rvs);
+    Ok(rvs)
 }
 
 fn avg_for_le_timeseries(i: usize, xss: &[LeTimeseries]) -> f64 {
@@ -498,7 +498,7 @@ fn avg_for_le_timeseries(i: usize, xss: &[LeTimeseries]) -> f64 {
             continue;
         }
         let le = xs.le;
-        let n = f64::from(le + le_prev) / 2_f64;
+        let n = (le + le_prev) / 2_f64;
         let v = xs.ts.values[i];
         let weight = v - v_prev;
         sum += n * weight;
@@ -509,7 +509,7 @@ fn avg_for_le_timeseries(i: usize, xss: &[LeTimeseries]) -> f64 {
     if weight_total == 0.0 {
         return f64::NAN;
     }
-    return sum / weight_total;
+    sum / weight_total
 }
 
 fn stdvar_for_le_timeseries(i: usize, xss: &[LeTimeseries]) -> f64 {
@@ -542,7 +542,7 @@ fn stdvar_for_le_timeseries(i: usize, xss: &[LeTimeseries]) -> f64 {
         // Correct possible calculation error.
         stdvar = 0.0
     }
-    return stdvar;
+    stdvar
 }
 
 pub(crate) fn histogram_quantiles(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
@@ -562,7 +562,7 @@ pub(crate) fn histogram_quantiles(tfa: &mut TransformFuncArg) -> RuntimeResult<V
 
     for i in 1..len - 1 {
         let phi_arg = get_float_arg(&tfa.args, i, Some(0_f64))?;
-        if phi_arg < 0.0 || phi_arg > 1.0 {
+        if !(0.0..=1.0).contains(&phi_arg) {
             let msg = "got unexpected phi arg. it should contain only numbers in the range [0..1]";
             return Err(RuntimeError::ArgumentError(msg.to_string()));
         }
@@ -609,14 +609,14 @@ pub(crate) fn histogram_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
     // Calculate quantile for each group in m
     let last_non_inf = |_i: usize, xss: &[LeTimeseries]| -> f64 {
         let mut cur = xss;
-        while cur.len() > 0 {
+        while !cur.is_empty() {
             let xs_last = &cur[cur.len() - 1];
             if !isinf(xs_last.le, 0) {
                 return xs_last.le;
             }
             cur = &cur[0..cur.len() - 1]
         }
-        return f64::NAN;
+        f64::NAN
     };
 
     let quantile = |i: usize, phis: &[f64], xss: &mut Vec<LeTimeseries>| -> (f64, f64, f64) {
@@ -626,7 +626,7 @@ pub(crate) fn histogram_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
         }
         fix_broken_buckets(i, xss);
         let mut v_last: f64 = 0.0;
-        if xss.len() > 0 {
+        if !xss.is_empty() {
             v_last = xss[xss.len() - 1].ts.values[i]
         }
         if v_last == 0.0 {
@@ -664,7 +664,7 @@ pub(crate) fn histogram_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
             return (vv, le_prev, le);
         }
         let vv = last_non_inf(i, xss);
-        return (vv, vv, f64::INFINITY);
+        (vv, vv, f64::INFINITY)
     };
 
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(m.len());
@@ -675,7 +675,7 @@ pub(crate) fn histogram_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
         let mut ts_lower: Timeseries;
         let mut ts_upper: Timeseries;
 
-        if bounds_label.len() > 0 {
+        if !bounds_label.is_empty() {
             ts_lower = xss[0].ts.clone();
             ts_lower.metric_name.set_tag(&bounds_label, "lower");
 
@@ -694,7 +694,7 @@ pub(crate) fn histogram_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
         {
             let (v, lower, upper) = quantile(i, &phis, &mut xss);
             xss[0].ts.values[i] = v;
-            if bounds_label.len() > 0 {
+            if !bounds_label.is_empty() {
                 *ts_lower = lower;
                 *ts_upper = upper;
             }
@@ -707,7 +707,7 @@ pub(crate) fn histogram_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
         };
 
         rvs.push(std::mem::take(&mut dst.ts));
-        if bounds_label.len() > 0 {
+        if !bounds_label.is_empty() {
             rvs.push(ts_lower);
             rvs.push(ts_upper);
         }
@@ -722,12 +722,12 @@ pub(super) struct LeTimeseries {
     pub ts: Timeseries,
 }
 
-fn group_le_timeseries(tss: &mut Vec<Timeseries>) -> HashMap<String, Vec<LeTimeseries>> {
+fn group_le_timeseries(tss: &mut [Timeseries]) -> HashMap<String, Vec<LeTimeseries>> {
     let mut m: HashMap<String, Vec<LeTimeseries>> = HashMap::new();
 
-    for mut ts in tss.iter_mut() {
+    for ts in tss.iter_mut() {
         if let Some(tag_value) = ts.metric_name.get_tag_value("le") {
-            if tag_value.len() == 0 {
+            if tag_value.is_empty() {
                 continue;
             }
 
@@ -738,7 +738,7 @@ fn group_le_timeseries(tss: &mut Vec<Timeseries>) -> HashMap<String, Vec<LeTimes
 
                 m.entry(key).or_default().push(LeTimeseries {
                     le,
-                    ts: std::mem::take(&mut ts),
+                    ts: std::mem::take(ts),
                 });
             }
         }
@@ -795,18 +795,18 @@ fn merge_same_le(xss: &mut Vec<LeTimeseries>) -> Vec<LeTimeseries> {
     // See https://github.com/VictoriaMetrics/VictoriaMetrics/pull/3225
     let mut prev_le = xss[0].le;
     let mut dst = Vec::with_capacity(xss.len());
-    let mut iter = xss.into_iter();
+    let mut iter = xss.iter_mut();
     let first = iter.next();
     if first.is_none() {
         return dst;
     }
-    dst.push(std::mem::take(&mut first.unwrap()));
+    dst.push(std::mem::take(first.unwrap()));
     let mut dst_index = 0;
 
-    for mut xs in iter {
+    for xs in iter {
         if xs.le != prev_le {
-            prev_le = xs.le.clone();
-            dst.push(std::mem::take(&mut xs));
+            prev_le = xs.le;
+            dst.push(std::mem::take(xs));
             dst_index = dst.len() - 1;
             continue;
         }
@@ -817,5 +817,5 @@ fn merge_same_le(xss: &mut Vec<LeTimeseries>) -> Vec<LeTimeseries> {
             }
         }
     }
-    return dst;
+    dst
 }
