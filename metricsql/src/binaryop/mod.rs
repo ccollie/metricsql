@@ -125,10 +125,10 @@ pub fn op_if_not(left: f64, right: f64) -> f64 {
 
 #[inline]
 pub fn op_unless(left: f64, right: f64) -> f64 {
-    if !right.is_nan() {
-        return left;
+    if right != left {
+        return f64::NAN;
     }
-    f64::NAN
+    left
 }
 
 fn return_left(left: f64, _right: f64) -> f64 {

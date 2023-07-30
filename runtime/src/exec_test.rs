@@ -1620,6 +1620,7 @@ mod tests {
         );
     }
 
+    // todo: do the scalar vector versions of the following 2 tests
     #[test]
     fn test_time_unless_2() {
         test_query("time() unless 2", vec![]);

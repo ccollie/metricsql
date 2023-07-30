@@ -2,6 +2,7 @@ use tracing::{field, trace_span, Span};
 
 use metricsql::ast::BinaryExpr;
 use metricsql::binaryop::get_scalar_binop_handler;
+use metricsql::common::Operator;
 
 use crate::{InstantVector, QueryValue, RuntimeResult};
 
@@ -28,12 +29,19 @@ pub(crate) fn eval_vector_scalar_binop(
     }
     .entered();
 
-    let handler = get_scalar_binop_handler(be.op, be.bool_modifier);
-
     let mut vector = vector;
 
+    let is_unless = be.op == Operator::Unless;
+
+    let handler = get_scalar_binop_handler(be.op, be.bool_modifier);
     for v in vector.iter_mut() {
         // reset_metric_group_if_required(be, v);
+
+        // special case `unless` operator. If the vector has labels, then By definition we have mismatched
+        // labels, since rhs is a scalar. In that case, return the vector as is.
+        if is_unless && !v.metric_name.is_empty() {
+            continue;
+        }
 
         for value in v.values.iter_mut() {
             *value = handler(*value, scalar);

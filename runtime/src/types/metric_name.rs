@@ -91,6 +91,10 @@ impl MetricName {
         }
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.metric_group.is_empty() && self.tags.is_empty()
+    }
+
     /// from_strings creates new labels from pairs of strings.
     pub fn from_strings(ss: &[&str]) -> RuntimeResult<Self> {
         if ss.len() % 2 != 0 {
