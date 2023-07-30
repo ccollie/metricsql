@@ -79,8 +79,7 @@ fn exec_binary_op_args(
             },
             || {
                 trace!("right");
-                let ctx_clone = Arc::clone(ctx);
-                exec_expr(&ctx_clone, ec, expr_second)
+                exec_expr(ctx, ec, expr_second)
             },
         ) {
             (Ok(first), Ok(second)) => Ok((first, second)),

@@ -221,7 +221,8 @@ impl<'a> Parser<'a> {
                     // treat as minute
                     parse_duration_value(token.text, 1)?
                 } else {
-                    parse_number(token.text)? as i64
+                    let secs = parse_number(token.text)? as i64;
+                    secs * 1000
                 };
                 Ok(DurationExpr::new(millis))
             }

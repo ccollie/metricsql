@@ -45,7 +45,7 @@ pub fn exec_expr(ctx: &Arc<Context>, ec: &EvalConfig, expr: &Expr) -> RuntimeRes
             }
             .entered();
 
-            let rv = eval_binary_op(ctx, ec, be)?;
+            let rv = exec_binary_op(ctx, ec, be)?;
 
             span.record("series", rv.len());
 
@@ -137,17 +137,18 @@ fn eval_parens_op(
     Ok(val)
 }
 
-fn eval_binary_op(
+fn exec_binary_op(
     ctx: &Arc<Context>,
     ec: &EvalConfig,
     be: &BinaryExpr,
 ) -> RuntimeResult<QueryValue> {
     let is_tracing = ctx.trace_enabled();
     let res = match (&be.left.as_ref(), &be.right.as_ref()) {
-        // vector op vector needs special handling
-        (Expr::MetricExpression(_), Expr::MetricExpression(_)) => {
-            eval_vector_vector_binop(be, ctx, ec)
-        }
+        // vector op vector needs special handling where both contain selectors
+        (Expr::MetricExpression(_), Expr::MetricExpression(_))
+        | (Expr::Rollup(_), Expr::Rollup(_))
+        | (Expr::MetricExpression(_), Expr::Rollup(_))
+        | (Expr::Rollup(_), Expr::MetricExpression(_)) => eval_vector_vector_binop(be, ctx, ec),
         // the following cases can be handled cheaply without invoking rayon overhead (or maybe not :-) )
         (Expr::Number(left), Expr::Number(right)) => {
             let value = scalar_binary_operations(be.op, left.value, right.value, be.bool_modifier)?;
@@ -254,12 +255,12 @@ pub(super) fn eval_exprs_sequentially(
     ec: &EvalConfig,
     args: &[Expr],
 ) -> RuntimeResult<Vec<Value>> {
-    let res = args
-        .iter()
+    if args.is_empty() {
+        return Ok(Vec::new());
+    }
+    args.iter()
         .map(|expr| exec_expr(ctx, ec, expr))
-        .collect::<RuntimeResult<Vec<Value>>>();
-
-    res
+        .collect::<RuntimeResult<Vec<Value>>>()
 }
 
 pub(super) fn eval_exprs_in_parallel(
@@ -267,6 +268,9 @@ pub(super) fn eval_exprs_in_parallel(
     ec: &EvalConfig,
     args: &[Expr],
 ) -> RuntimeResult<Vec<Value>> {
+    if args.is_empty() {
+        return Ok(Vec::new());
+    }
     let res: RuntimeResult<Vec<Value>> = args
         .par_iter()
         .map(|expr| exec_expr(ctx, ec, expr))

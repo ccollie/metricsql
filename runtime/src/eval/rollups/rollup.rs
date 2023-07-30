@@ -201,6 +201,9 @@ impl<'a> RollupExecutor<'a> {
 
         // unconditionally align start and end args to step for subquery as Prometheus does.
         (ec_sq.start, ec_sq.end) = align_start_end(ec_sq.start, ec_sq.end, ec_sq.step);
+
+        // force refresh of timestamps
+        let _ = ec_sq.get_timestamps()?;
         let tss_sq = exec_expr(ctx, &ec_sq, &self.re.expr)?;
 
         let tss_sq = tss_sq.as_instant_vec(&ec_sq)?;

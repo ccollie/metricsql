@@ -398,7 +398,9 @@ impl MetricName {
 
     pub fn sort_tags(&mut self) {
         if !self.sorted {
-            self.tags.sort();
+            if self.tags.len() > 1 {
+                self.tags.sort();
+            }
             self.sorted = true;
         }
     }
@@ -417,6 +419,9 @@ impl MetricName {
     }
 
     pub fn signature_without_labels(&self, names: &[String]) -> Signature {
+        if names.is_empty() {
+            return self.signature();
+        }
         Signature::with_name_and_labels(&self.metric_group, self.without_labels_iter(names))
     }
 

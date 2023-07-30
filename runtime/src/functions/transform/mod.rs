@@ -33,7 +33,7 @@ use crate::functions::transform::math::{
     abs, acos, acosh, asin, asinh, atan, atanh, ceil, cos, cosh, deg, exp, floor, ln, log10, log2,
     rad, sgn, sin, sinh, sqrt, tan, tanh, transform_pi,
 };
-use crate::functions::transform::random::{rand, rand_exp, rand_norm};
+use crate::functions::transform::rand::{rand, rand_exp, rand_norm};
 use crate::functions::transform::range::{
     range_avg, range_first, range_last, range_linear_regression, range_max, range_median,
     range_min, range_normalize, range_ru, range_stddev, range_stdvar, range_sum,
@@ -67,7 +67,7 @@ mod keep_next_value;
 mod labels;
 mod limit_offset;
 mod math;
-mod random;
+mod rand;
 mod range;
 mod remove_resets;
 mod round;

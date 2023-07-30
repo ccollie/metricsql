@@ -75,7 +75,7 @@ impl ExprSimplifier {
     ///
     /// ```
     /// use metricsql::prelude::ExprSimplifier;
-    /// use super::{selector, number, Expr};
+    /// use crate::metricsql::prelude::{selector, number, Expr};
     ///
     /// // Create the simplifier
     /// let simplifier = ExprSimplifier::new();
