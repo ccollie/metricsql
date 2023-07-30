@@ -1,5 +1,4 @@
 use std::fmt::Display;
-use std::sync::Arc;
 
 use rayon::join;
 use rayon::prelude::IntoParallelRefIterator;
@@ -27,7 +26,7 @@ fn map_error<E: Display>(err: RuntimeError, e: E) -> RuntimeError {
     RuntimeError::General(format!("cannot evaluate {e}: {}", err))
 }
 
-pub fn exec_expr(ctx: &Arc<Context>, ec: &EvalConfig, expr: &Expr) -> RuntimeResult<QueryValue> {
+pub fn exec_expr(ctx: &Context, ec: &EvalConfig, expr: &Expr) -> RuntimeResult<QueryValue> {
     let tracing = ctx.trace_enabled();
     match expr {
         Expr::StringLiteral(s) => Ok(QueryValue::String(s.to_string())),
@@ -82,7 +81,7 @@ pub fn exec_expr(ctx: &Arc<Context>, ec: &EvalConfig, expr: &Expr) -> RuntimeRes
 }
 
 fn eval_function_op(
-    ctx: &Arc<Context>,
+    ctx: &Context,
     ec: &EvalConfig,
     expr: &Expr,
     fe: &FunctionExpr,
@@ -115,11 +114,7 @@ fn eval_function_op(
     };
 }
 
-fn eval_parens_op(
-    ctx: &Arc<Context>,
-    ec: &EvalConfig,
-    pe: &ParensExpr,
-) -> RuntimeResult<QueryValue> {
+fn eval_parens_op(ctx: &Context, ec: &EvalConfig, pe: &ParensExpr) -> RuntimeResult<QueryValue> {
     if pe.expressions.is_empty() {
         // should not happen !!
         return Err(RuntimeError::Internal(
@@ -135,11 +130,7 @@ fn eval_parens_op(
     Ok(val)
 }
 
-fn exec_binary_op(
-    ctx: &Arc<Context>,
-    ec: &EvalConfig,
-    be: &BinaryExpr,
-) -> RuntimeResult<QueryValue> {
+fn exec_binary_op(ctx: &Context, ec: &EvalConfig, be: &BinaryExpr) -> RuntimeResult<QueryValue> {
     let is_tracing = ctx.trace_enabled();
     let res = match (&be.left.as_ref(), &be.right.as_ref()) {
         // vector op vector needs special handling where both contain selectors
@@ -199,7 +190,7 @@ fn exec_binary_op(
 }
 
 fn eval_transform_func(
-    ctx: &Arc<Context>,
+    ctx: &Context,
     ec: &EvalConfig,
     fe: &FunctionExpr,
     func: TransformFunction,
@@ -220,7 +211,7 @@ fn eval_transform_func(
 }
 
 #[inline]
-fn eval_args(ctx: &Arc<Context>, ec: &EvalConfig, args: &[Expr]) -> RuntimeResult<Vec<Value>> {
+fn eval_args(ctx: &Context, ec: &EvalConfig, args: &[Expr]) -> RuntimeResult<Vec<Value>> {
     // see if we can evaluate all args in parallel
     // todo: if rayon in cheap enough, we can avoid the check and always go parallel
     // todo: see https://docs.rs/rayon/1.0.3/rayon/iter/trait.IndexedParallelIterator.html#method.with_min_len
@@ -249,7 +240,7 @@ fn eval_args(ctx: &Arc<Context>, ec: &EvalConfig, args: &[Expr]) -> RuntimeResul
 }
 
 pub(super) fn eval_exprs_sequentially(
-    ctx: &Arc<Context>,
+    ctx: &Context,
     ec: &EvalConfig,
     args: &[Expr],
 ) -> RuntimeResult<Vec<Value>> {
@@ -262,7 +253,7 @@ pub(super) fn eval_exprs_sequentially(
 }
 
 pub(super) fn eval_exprs_in_parallel(
-    ctx: &Arc<Context>,
+    ctx: &Context,
     ec: &EvalConfig,
     args: &[Expr],
 ) -> RuntimeResult<Vec<Value>> {
@@ -278,7 +269,7 @@ pub(super) fn eval_exprs_in_parallel(
 }
 
 pub(super) fn eval_rollup_func_args(
-    ctx: &Arc<Context>,
+    ctx: &Context,
     ec: &EvalConfig,
     fe: &FunctionExpr,
 ) -> RuntimeResult<(Vec<Value>, RollupExpr, usize)> {

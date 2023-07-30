@@ -61,11 +61,7 @@ impl<'a> RollupExecutor<'a> {
         }
     }
 
-    pub(crate) fn eval(
-        &mut self,
-        ctx: &Arc<Context>,
-        ec: &EvalConfig,
-    ) -> RuntimeResult<QueryValue> {
+    pub(crate) fn eval(&mut self, ctx: &Context, ec: &EvalConfig) -> RuntimeResult<QueryValue> {
         self.is_tracing = ctx.trace_enabled();
         let _ = if self.is_tracing {
             trace_span!(
@@ -126,11 +122,7 @@ impl<'a> RollupExecutor<'a> {
         }
     }
 
-    fn eval_without_at(
-        &self,
-        ctx: &Arc<Context>,
-        ec: &EvalConfig,
-    ) -> RuntimeResult<Vec<Timeseries>> {
+    fn eval_without_at(&self, ctx: &Context, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
         let (offset, ec_new) = self.adjust_eval_range(ec)?;
 
         let mut rvs = match &*self.re.expr {
@@ -164,11 +156,7 @@ impl<'a> RollupExecutor<'a> {
         Ok(rvs)
     }
 
-    fn eval_with_subquery(
-        &self,
-        ctx: &Arc<Context>,
-        ec: &EvalConfig,
-    ) -> RuntimeResult<Vec<Timeseries>> {
+    fn eval_with_subquery(&self, ctx: &Context, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
         // TODO: determine whether to use rollup result cache here.
 
         let span = if self.is_tracing {
@@ -287,7 +275,7 @@ impl<'a> RollupExecutor<'a> {
 
     fn eval_with_metric_expr(
         &self,
-        ctx: &Arc<Context>,
+        ctx: &Context,
         ec: &EvalConfig,
         me: &MetricExpr,
     ) -> RuntimeResult<Vec<Timeseries>> {
@@ -606,7 +594,7 @@ impl<'a> RollupExecutor<'a> {
 
     fn reserve_rollup_memory(
         &self,
-        ctx: &Arc<Context>,
+        ctx: &Context,
         ec: &EvalConfig,
         rss: &QueryResults,
         rcs_len: usize,
@@ -701,7 +689,7 @@ fn process_result(
     };
 }
 
-fn get_at_timestamp(ctx: &Arc<Context>, ec: &EvalConfig, expr: &Expr) -> RuntimeResult<i64> {
+fn get_at_timestamp(ctx: &Context, ec: &EvalConfig, expr: &Expr) -> RuntimeResult<i64> {
     match exec_expr(ctx, ec, expr) {
         Err(err) => {
             let msg = format!("cannot evaluate `@` modifier: {:?}", err);

@@ -1,5 +1,4 @@
 use std::borrow::Cow;
-use std::sync::Arc;
 
 use chrono::Duration;
 
@@ -198,7 +197,7 @@ struct CommonParams {
 /// Query handler for `Instant Queries`
 ///
 /// See https://prometheus.io/docs/prometheus/latest/querying/api/#instant-queries
-pub fn query(context: &Arc<Context>, params: &QueryParams) -> RuntimeResult<Vec<QueryResult>> {
+pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<QueryResult>> {
     let ct = Timestamp::now();
     let mut start = params.start;
     let mut end = params.end;
@@ -337,7 +336,7 @@ fn export_handler(ctx: &Context, cp: CommonParams) -> RuntimeResult<QueryResults
 /// query_range processes a range vector request
 ///
 /// See https://prometheus.io/docs/prometheus/latest/querying/api/#range-queries
-pub fn query_range(ctx: &Arc<Context>, params: &QueryParams) -> RuntimeResult<Vec<QueryResult>> {
+pub fn query_range(ctx: &Context, params: &QueryParams) -> RuntimeResult<Vec<QueryResult>> {
     let ct = Timestamp::now();
     let mut step = params.step.num_milliseconds();
     if step <= 0 {
@@ -357,7 +356,7 @@ pub fn query_range(ctx: &Arc<Context>, params: &QueryParams) -> RuntimeResult<Ve
 }
 
 fn query_range_handler(
-    ctx: &Arc<Context>,
+    ctx: &Context,
     ct: Timestamp,
     params: &QueryParams,
 ) -> RuntimeResult<Vec<QueryResult>> {

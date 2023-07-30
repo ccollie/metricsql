@@ -1,7 +1,6 @@
 use std::borrow::Cow;
 use std::collections::btree_set::BTreeSet;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use regex::escape;
 use tracing::{field, trace, trace_span, Span};
@@ -19,7 +18,7 @@ use crate::{EvalConfig, QueryValue, Timeseries};
 
 pub(crate) fn eval_vector_vector_binop(
     expr: &BinaryExpr,
-    ctx: &Arc<Context>,
+    ctx: &Context,
     ec: &EvalConfig,
 ) -> RuntimeResult<QueryValue> {
     let is_tracing = ctx.trace_enabled();
@@ -60,7 +59,7 @@ pub(crate) fn eval_vector_vector_binop(
 }
 
 fn exec_binary_op_args(
-    ctx: &Arc<Context>,
+    ctx: &Context,
     ec: &EvalConfig,
     expr_first: &Expr,
     expr_second: &Expr,

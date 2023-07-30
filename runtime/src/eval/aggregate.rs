@@ -1,5 +1,4 @@
 use std::ops::Deref;
-use std::sync::Arc;
 
 use tracing::{field, trace_span, Span};
 
@@ -16,7 +15,7 @@ use crate::utils::num_cpus;
 use crate::{EvalConfig, QueryValue};
 
 pub(super) fn eval_aggr_func(
-    ctx: &Arc<Context>,
+    ctx: &Context,
     ec: &EvalConfig,
     expr: &Expr,
     ae: &AggregationExpr,
