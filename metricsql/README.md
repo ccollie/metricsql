@@ -7,7 +7,12 @@ and [PromQL](https://medium.com/@valyala/promql-tutorial-for-beginners-9ab455142
 
 ```rust
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let expr = metricsql::parse(r#"sum(rate(foo{bar="baz"}[5m])) by (job)"#)?;
+    let query = r#"
+        sum(rate(node_cpu_seconds_total{mode="user"}[5m])) by (mode) 
+        or 
+        sum(rate(node_cpu_seconds_total{mode="system"}[5m])) by (mode)
+    "#;
+    let expr = metricsql::parse(query)?;
     // Now expr contains parsed MetricsQL as `Expr` enum variants.
     // See parse examples for more details.
 }
