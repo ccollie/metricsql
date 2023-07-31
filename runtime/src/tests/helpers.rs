@@ -11,12 +11,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{MetricName, RuntimeResult};
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::task::Context;
 
-pub type Labels = HashMap<String, String>;
+use crate::{RuntimeResult, Sample};
+
+pub(super) type Labels = HashMap<String, String>;
 
 /// Appender provides batched appends against a storage.
 /// It must be completed with a call to Commit or Rollback and must not be reused afterwards.
@@ -73,35 +74,6 @@ impl Appender for NoopAppender {
 
     fn rollback(&mut self) -> RuntimeResult<()> {
         Ok(())
-    }
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct Sample {
-    metric: MetricName,
-    t: i64,
-    v: f64,
-}
-
-impl Sample {
-    pub fn new(labels: MetricName, t: i64, v: f64) -> Self {
-        Self {
-            metric: labels,
-            t,
-            v,
-        }
-    }
-
-    pub fn from_hashmap(map: &HashMap<String, String>, t: i64, v: f64) -> Self {
-        let mut metric_name = MetricName::new("");
-        for (k, v) in map.iter() {
-            metric_name.set_tag(k.as_str(), v)
-        }
-        Self {
-            metric: metric_name,
-            t,
-            v,
-        }
     }
 }
 

@@ -11,19 +11,36 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-
 use std::collections::btree_set::BTreeSet;
 use std::fmt::{Display, Formatter};
+
+use crate::{MetricName, RuntimeError, RuntimeResult};
+
+pub enum DataType {
+    InstantVector,
+    RangeVector,
+    Matrix,
+    Scalar,
+    String,
+}
+
+pub enum TestValue {
+    InstantVector(Vec<Sample>),
+    RangeVector(Vec<Sample>),
+    Matrix(Vec<Sample>),
+    Scalar(Scalar),
+    String(StringValue),
+}
 
 pub(crate) trait Value {
     fn value_type(&self) -> DataType;
 }
 
-
 /// String represents a string value.
+#[derive(Debug, Clone, Copy, Hash, PartialEq, PartialOrd)]
 pub(crate) struct StringValue {
     pub t: i64,
-    pub v: String
+    pub v: String,
 }
 
 impl Value for StringValue {
@@ -34,16 +51,16 @@ impl Value for StringValue {
 
 impl Display for StringValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "string: {} @[{}]", s.v, self.t);
+        write!(f, "string: {} @[{}]", self.v, self.t)?;
         Ok(())
     }
 }
 
-
 /// Scalar is a data point that's explicitly not associated with a metric.
+#[derive(Debug, Clone, Copy, Hash, PartialEq, PartialOrd)]
 pub(crate) struct Scalar {
     pub t: i64,
-    pub v: f64
+    pub v: f64,
 }
 
 impl Value for Scalar {
@@ -54,16 +71,16 @@ impl Value for Scalar {
 
 impl Display for Scalar {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "scalar: {} @[{}]", self.v, self.t);
+        write!(f, "scalar: {} @[{}]", self.v, self.t)?;
         Ok(())
     }
 }
 
-
 /// Series is a stream of data points belonging to a metric.
+#[derive(Debug, Clone, Copy, Hash, PartialEq, PartialOrd)]
 pub(crate) struct Series {
     metric: MetricName,
-    points: Vec<Point>
+    points: Vec<Point>,
 }
 
 impl Value for Series {
@@ -78,42 +95,41 @@ impl Display for Series {
         for v in self.points.iter() {
             vals.push(v.to_string());
         }
-        write!(f, format!("{} =>\n{}", self.metric, vals.join("\n")));
+        write!(f, "{} =>\n{}", self.metric, vals.join("\n"))?;
         Ok(())
     }
 }
 
 /// Point represents a single data point for a given timestamp.
+#[derive(Debug, Clone, Copy, Hash, PartialEq, PartialOrd)]
 pub(crate) struct Point {
     pub t: i64,
-    pub v: f64
+    pub v: f64,
 }
 
 impl Display for Point {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} @[{}]", self.v, self.t);
+        write!(f, "{} @[{}]", self.v, self.t)?;
         Ok(())
     }
 }
-
 
 /// Sample is a single sample belonging to a metric.
 pub(crate) struct Sample {
     pub point: Point,
-    pub metric: MetricName
+    pub metric: MetricName,
 }
 
 impl Display for Sample {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} => {}", self.metric, self.t);
+        write!(f, "{} => {}", self.metric, self.point)?;
         Ok(())
     }
 }
 
-
 /// Vector is basically only an alias for model.Samples, but the
 /// contract is that in a Vector, all Samples have the same timestamp.
-pub(crate) struct  Vector(Vec<Sample>);
+pub(crate) struct Vector(Vec<Sample>);
 
 impl Display for Vector {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -121,11 +137,10 @@ impl Display for Vector {
         for s in self.iter() {
             entries.push(s.to_string())
         }
-        write!(f, "{}", entries.join("\n"));
+        write!(f, "{}", entries.join("\n"))?;
         Ok(())
     }
 }
-
 
 // contains_same_label_set checks if a vector has samples with the same labelset
 // Such a behavior is semantically undefined
@@ -134,7 +149,7 @@ impl Vector {
     fn contains_same_label_set(&self) -> bool {
         match self.len() {
             0 | 1 => false,
-            2 => return self.0[0].metric.hash() == self.0[1].metric.hash(),
+            2 => return self.0[0].metric.get_hash() == self.0[1].metric.get_hash(),
             _ => {
                 let l: BTreeSet<u64> = BTreeSet::new();
                 for ss in self.iter() {
@@ -144,12 +159,11 @@ impl Vector {
                     }
                     l.insert(hash);
                 }
-                return false
+                return false;
             }
         }
     }
 }
-
 
 /// Matrix is a slice of Series that implements sort.Interface and
 /// has a String method.
@@ -167,7 +181,7 @@ impl Matrix {
         for series in self.0.iter() {
             num_samples += series.points.len()
         }
-        return num_samples
+        return num_samples as u64;
     }
 
     pub fn len(&self) -> usize {
@@ -178,92 +192,73 @@ impl Matrix {
     // Such a behavior is semantically undefined.
     // https://github.com/prometheus/prometheus/issues/4562
     pub fn contains_same_labelset(&self) -> bool {
-        let m = self.0;
+        let m = &self.0;
         match m.len() {
             0 | 1 => false,
-            2 => return m[0].metric.hash() == m[1].metric.hash(),
+            2 => return m[0].metric.get_hash() == m[1].metric.get_hash(),
             _ => {
                 let l = BTreeSet::new();
                 for ss in m.iter() {
-                    let hash = ss.metric.hash();
+                    let hash = ss.metric.get_hash();
                     if l.contains(hash) {
                         return true;
                     }
                     l.insert(hash);
                 }
-                return false
+                return false;
             }
         }
     }
 }
-
-fn (m Matrix) Less(i, j int) bool { return labels.Compare(m[i].Metric, m[j].Metric) < 0 }
-
 
 // Result holds the resulting value of an execution or an error
 // if any occurred.
 pub(crate) struct QueryResult {
     err: Option<RuntimeError>,
     value: Value,
-    warnings: storage.Warnings
 }
 
 impl QueryResult {
     /// Vector returns a Vector if the result value is one. An error is returned if
     /// the result was an error or the result value is not a Vector.
     pub fn vector(&self) -> RuntimeResult<Vector> {
-        if let Some(err) = self.err {
-            return Err(err.clone())
+        if let Some(err) = &self.err {
+            return Err(err.clone());
         }
         match self.value {
             Vector(v) => Ok(v),
-            _ => {
-                Err(RuntimeError::from("query result is not a Vector"))
-            }
+            _ => Err(RuntimeError::from("query result is not a Vector")),
         }
     }
 
     /// scalar returns a Scalar if the result value is one. An error is returned if
     /// the result was an error or the result value is not a Scalar.
     pub fn scalar(&self) -> RuntimeResult<Scalar> {
-        if let Some(err) = self.err {
-            return Err(err.clone())
+        if let Some(err) = &self.err {
+            return Err(err.clone());
         }
         match self.value {
             Scalar(v) => Ok(v),
-            _ => {
-                Err(RuntimeError::from("query result is not a Scalar"))
-            }
+            _ => Err(RuntimeError::from("query result is not a Scalar")),
         }
     }
 
     /// scalar returns a Matrix if the result value is one. An error is returned if
     /// the result was an error or the result value is not a Matrix.
     pub fn matrix(&self) -> RuntimeResult<Matrix> {
-        if let Some(err) = self.err {
-            return Err(err.clone())
+        if let Some(err) = &self.err {
+            return Err(err.clone());
         }
         match self.value {
             Matrix(v) => Ok(v),
-            _ => {
-                Err(RuntimeError::from("query result is not a Matrix"))
-            }
+            _ => Err(RuntimeError::from("query result is not a Matrix")),
         }
     }
 }
 
-
-
-fn (r *Result) String() string {
-if r.Value == nil {
-return ""
-}
-return r.Value.String()
-}
-
 // StorageSeries simulates promql.Series as storage.Series.
 pub(crate) struct StorageSeries {
-    series: Series
+    series: Series,
 }
 
 impl StorageSeries {
@@ -271,30 +266,29 @@ impl StorageSeries {
         Self { series }
     }
 
-    pub fn labels(&self) -> Labels {
-        self.series.metric
+    pub fn labels(&self) -> &MetricName {
+        &self.series.metric
     }
 }
 
-
 struct StorageSeriesIterator {
     points: Vec<Point>,
-    curr: usize
+    curr: usize,
 }
 
 impl StorageSeriesIterator {
     pub fn new(series: Series) -> Self {
         Self {
             points: series.points.clone(),
-            curr: 0 // was - 1
+            curr: 0, // was - 1
         }
     }
 
-    pub fn next(self) -> Option<Point> {
+    pub fn next(&mut self) -> Option<Point> {
         if self.curr < self.points.len() {
             let p = self.points[self.curr];
             self.curr += 1;
-            return Some(p.clone())
+            return Some(p.clone());
         }
         None
     }
@@ -307,12 +301,12 @@ impl StorageSeriesIterator {
         while i < self.points.len() {
             if self.points[i].t >= t {
                 self.curr = i;
-                return true
+                return true;
             }
             i += 1
         }
         self.curr = self.points.len() - 1;
-        return false
+        return false;
     }
 
     pub fn at(self) -> Point {

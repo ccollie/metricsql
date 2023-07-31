@@ -1,16 +1,16 @@
-use crate::{MetricName, Sample};
-use metricsql::prelude::LabelFilter;
 use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
+
+use metricsql::prelude::LabelFilter;
+
+use crate::tests::helpers::Appender;
+use crate::tests::value::Point;
+use crate::{MetricName, Sample};
 
 pub struct TestSample {
     labels: Rc<MetricName>,
     t: i64,
     v: f64,
-}
-pub struct Point {
-    pub t: i64,
-    pub v: f64,
 }
 
 pub struct TestStorage {
@@ -18,6 +18,25 @@ pub struct TestStorage {
     labels_hash: BTreeMap<u64, Rc<MetricName>>,
     sample_values: BTreeMap<u64, Vec<Point>>,
     need_sort: BTreeSet<u64>,
+    pending_result: Vec<Sample>,
+}
+
+impl Appender for TestStorage {
+    fn append(&mut self, samples: &mut [Sample]) {
+        for sample in samples.iter_mut() {
+            self.pending_result.append(sample);
+        }
+    }
+
+    fn commit(&mut self) {
+        for sample in self.pending_result.iter_mut() {
+            self.add_sample(sample);
+        }
+    }
+
+    fn rollback(&mut self) {
+        self.pending_result.clear();
+    }
 }
 
 impl TestStorage {
@@ -26,6 +45,7 @@ impl TestStorage {
             labels_hash: Default::default(),
             sample_values: Default::default(),
             need_sort: Default::default(),
+            pending_result: Default::default(),
         }
     }
 
@@ -60,6 +80,7 @@ impl TestStorage {
         let _ = filters
             .iter()
             .for_each(|f| self.get_metric_ids_matching(f, &mut ids));
+
         for metric_id in ids {
             self.sort_if_needed(metric_id);
             if let Some(values) = self.sample_values.get(&metric_id) {
