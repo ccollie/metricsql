@@ -19,7 +19,7 @@ pub(crate) fn validate_max_points_per_timeseries(
     step: i64,
     max_points_per_timeseries: usize,
 ) -> RuntimeResult<()> {
-    let points = (end - start) / step + 1;
+    let points = (end - start).saturating_div(step + 1);
     if (max_points_per_timeseries > 0) && points > max_points_per_timeseries as i64 {
         let msg = format!(
             "too many points for the given step={}, start={} and end={}: {}; cannot exceed {}",
