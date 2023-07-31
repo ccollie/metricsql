@@ -8,7 +8,9 @@ use crate::functions::AggregateFunction;
 use crate::parser::function::parse_func_expr;
 use crate::parser::parse_error::unexpected;
 use crate::parser::tokens::Token;
-use crate::parser::{extract_string_value, unescape_ident, ParseError, ParseResult, Parser};
+use crate::parser::{
+    extract_string_value, parse_number, unescape_ident, ParseError, ParseResult, Parser,
+};
 
 use super::aggregation::parse_aggr_func_expr;
 use super::rollup::parse_rollup_expr;
@@ -45,16 +47,33 @@ pub(super) fn parse_expression(p: &mut Parser) -> ParseResult<Expr> {
             break;
         }
         let token = p.current_token()?;
-        if !token.kind.is_operator() {
+        let mut op_token = token.kind;
+
+        // Hack incoming:
+        // there is some ambiguity because of how the lexer handles negative numbers. In other words
+        // -25 is parsed as [-25] as opposed to [Operator(Minus), 25]. So for example `time()-1` is
+        // parsed as [time(), -1]. So we need to check for this case here.
+        let mut right_scalar: Option<Expr> = None;
+        if token.kind == Token::Number {
+            if let Ok(right) = parse_number(token.text) {
+                if right < 0_f64 {
+                    // we have something like `time()-1000`
+                    right_scalar = Some(Expr::from(right.abs()));
+                    op_token = Token::OpMinus;
+                }
+            }
+        }
+
+        if !op_token.is_operator() {
             return Ok(left);
         }
 
-        let operator = Operator::try_from(token.kind)?;
+        let operator = Operator::try_from(op_token)?;
 
         p.bump();
 
         let mut is_bool = false;
-        if p.at(&Token::Bool) {
+        if right_scalar.is_none() && p.at(&Token::Bool) {
             if !operator.is_comparison() {
                 let msg = format!("bool modifier cannot be applied to {operator}");
                 return Err(p.syntax_error(&msg));
@@ -80,7 +99,11 @@ pub(super) fn parse_expression(p: &mut Parser) -> ParseResult<Expr> {
             }
         }
 
-        let right = parse_single_expr(p)?;
+        let right = if let Some(right) = right_scalar {
+            right
+        } else {
+            parse_single_expr(p)?
+        };
 
         let mut keep_metric_names = false;
         if p.at(&Token::KeepMetricNames) {
