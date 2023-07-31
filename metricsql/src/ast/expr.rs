@@ -1478,6 +1478,22 @@ impl Expr {
         };
         Ok(Expr::BinaryOperator(ex))
     }
+
+    pub fn at_expr(self, at: Expr) -> Result<Self, String> {
+        let already_set_err = Err("@ <timestamp> may not be set multiple times".into());
+        match self {
+            Expr::Rollup(mut s) => match s.at {
+                None => {
+                    s.at = Some(Box::new(at));
+                    Ok(Expr::Rollup(s))
+                }
+                Some(_) => already_set_err,
+            },
+            _ => {
+                Err("@ modifier must be preceded by an vector selector or matrix selector or a subquery".into())
+            }
+        }
+    }
 }
 
 impl Display for Expr {
