@@ -10,14 +10,14 @@ pub(crate) fn scalar(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries
         // Verify whether the arg is a string.
         // Then try converting the string to number.
         QueryValue::String(s) => {
-            let n = parse_number(&s).map_or_else(|_| f64::NAN, |n| n);
-            eval_number(&mut tfa.ec, n)
+            let n = parse_number(s).map_or_else(|_| f64::NAN, |n| n);
+            eval_number(tfa.ec, n)
         }
-        QueryValue::Scalar(f) => eval_number(&tfa.ec, *f),
+        QueryValue::Scalar(f) => eval_number(tfa.ec, *f),
         _ => {
             // The arg isn't a string. Extract scalar from it.
             if tfa.args.len() != 1 {
-                eval_number(&tfa.ec, f64::NAN)
+                eval_number(tfa.ec, f64::NAN)
             } else {
                 let mut arg = arg.get_instant_vector(tfa.ec)?.remove(0);
                 arg.metric_name.reset();

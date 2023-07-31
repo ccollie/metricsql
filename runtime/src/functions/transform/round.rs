@@ -5,7 +5,7 @@ use crate::{RuntimeError, RuntimeResult, Timeseries};
 pub(crate) fn round(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let args_len = tfa.args.len();
 
-    if args_len < 1 || args_len > 2 {
+    if !(1..=2).contains(&args_len) {
         return Err(RuntimeError::ArgumentError(format!(
             "unexpected number of arguments: #{}; want 1 or 2",
             tfa.args.len()

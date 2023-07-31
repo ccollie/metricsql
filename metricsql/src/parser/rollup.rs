@@ -3,7 +3,6 @@ use crate::common::ValueType;
 use crate::parser::expr::parse_single_expr_without_rollup_suffix;
 use crate::parser::tokens::Token;
 use crate::parser::{syntax_error, ParseError, ParseResult, Parser};
-use logos::Span;
 
 pub(super) fn parse_rollup_expr(p: &mut Parser, e: Expr) -> ParseResult<Expr> {
     let mut re = RollupExpr::new(e);
@@ -26,7 +25,7 @@ pub(super) fn parse_rollup_expr(p: &mut Parser, e: Expr) -> ParseResult<Expr> {
 
     if p.at(&Token::At) {
         if at.is_some() {
-            let span = p.last_token_range().or(Some(Span::default())).unwrap();
+            let span = p.last_token_range().unwrap_or_default();
             let msg = "duplicate '@' token".to_string();
             return Err(syntax_error(&msg, &span, "".to_string()));
         }
@@ -45,7 +44,7 @@ fn parse_at_expr(p: &mut Parser) -> ParseResult<Expr> {
 
     p.expect(&At)?;
 
-    let span = p.last_token_range().or(Some(Span::default())).unwrap();
+    let span = p.last_token_range().unwrap_or_default();
     match parse_single_expr_without_rollup_suffix(p) {
         Ok(expr) => {
             // validate result type

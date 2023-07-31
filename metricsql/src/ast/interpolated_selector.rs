@@ -9,7 +9,7 @@ use crate::common::{LabelFilter, LabelFilterExpr, StringExpr, Value, ValueType, 
 use crate::parser::ParseResult;
 
 /// InterpolatedSelector represents a MetricsQL metric in the context of a WITH expression.
-#[derive(Debug, Clone, Hash, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct InterpolatedSelector {
     /// a list of label filter expressions from WITH clause.
     /// This is transformed into label_filters during compilation.
@@ -51,10 +51,10 @@ impl InterpolatedSelector {
     }
 
     pub fn name(&self) -> Option<String> {
-        match self.matchers.iter().find(|filter| filter.is_name_label()) {
-            Some(f) => Some(f.value.to_string()),
-            None => None,
-        }
+        self.matchers
+            .iter()
+            .find(|filter| filter.is_name_label())
+            .map(|f| f.value.to_string())
     }
 
     pub fn return_type(&self) -> ValueType {
@@ -120,12 +120,6 @@ impl Display for InterpolatedSelector {
         }
 
         Ok(())
-    }
-}
-
-impl Default for InterpolatedSelector {
-    fn default() -> Self {
-        Self { matchers: vec![] }
     }
 }
 

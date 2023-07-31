@@ -74,7 +74,7 @@ pub fn parse_positive_number(str: &str) -> ParseResult<f64> {
         _ => return parse_basic(str),
     }
 
-    return Err(InvalidNumber(str.to_string()));
+    Err(InvalidNumber(str.to_string()))
 }
 
 pub fn parse_number(str: &str) -> ParseResult<f64> {
@@ -93,7 +93,7 @@ pub fn parse_number(str: &str) -> ParseResult<f64> {
         };
     }
 
-    parse_positive_number(str).and_then(|value| Ok(if is_negative { -1.0 * value } else { value }))
+    parse_positive_number(str).map(|value| if is_negative { -1.0 * value } else { value })
 }
 
 type SuffixValue = (&'static str, usize);
@@ -117,7 +117,7 @@ const SUFFIXES: [SuffixValue; 16] = [
 ];
 
 pub fn get_number_suffix(s: &str) -> Option<&'static SuffixValue> {
-    if s.len() == 0 {
+    if s.is_empty() {
         return None;
     }
     let last_ch = s.chars().last().unwrap();
@@ -217,9 +217,9 @@ mod tests {
         f("0O765", 0o765 as f64);
         f("0765", 0o765 as f64);
         f("2k", (2 * 1000) as f64);
-        f("2.3Kb", 2.3 * 1000 as f64);
-        f("3ki", 3.0 * 1024 as f64);
-        f("4.5Kib", 4.5 * 1024 as f64);
+        f("2.3Kb", 2.3 * 1000_f64);
+        f("3ki", 3.0 * 1024_f64);
+        f("4.5Kib", 4.5 * 1024_f64);
         f("2m", 2.0 * (1000 * 1000) as f64);
         f("2.3Mb", 2.3 * (1000 * 1000) as f64);
         f("3Mi", 3.0 * 1024.0 * 1024.0);

@@ -11,7 +11,7 @@ pub(super) fn new_rollup_quantiles(
     args: &Vec<QueryValue>,
     _ec: &EvalConfig,
 ) -> RuntimeResult<RollupHandlerEnum> {
-    let phi_label = get_string_param_value(&args, 0, "quantiles", "phi_label").unwrap();
+    let phi_label = get_string_param_value(args, 0, "quantiles", "phi_label").unwrap();
     let cap = args.len() - 1;
 
     let mut phis = Vec::with_capacity(cap);
@@ -51,7 +51,7 @@ fn quantiles_impl(
     rfa: &mut RollupFuncArg,
     label: &str,
     phis: &[f64],
-    phi_labels: &Vec<String>,
+    phi_labels: &[String],
 ) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
@@ -73,5 +73,5 @@ fn quantiles_impl(
         ts.values[idx] = *quantile;
     }
 
-    return f64::NAN;
+    f64::NAN
 }

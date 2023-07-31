@@ -1,7 +1,6 @@
 use std::borrow::Cow;
 use std::collections::btree_set::BTreeSet;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use regex::escape;
 use tracing::{field, trace, trace_span, Span};
@@ -19,7 +18,7 @@ use crate::{EvalConfig, QueryValue, Timeseries};
 
 pub(crate) fn eval_vector_vector_binop(
     expr: &BinaryExpr,
-    ctx: &Arc<Context>,
+    ctx: &Context,
     ec: &EvalConfig,
 ) -> RuntimeResult<QueryValue> {
     let is_tracing = ctx.trace_enabled();
@@ -45,11 +44,11 @@ pub(crate) fn eval_vector_vector_binop(
 
     let left_series = to_vector(left)?;
     let right_series = to_vector(right)?;
-    let mut bfa = BinaryOpFuncArg::new(left_series, &expr, right_series);
+    let mut bfa = BinaryOpFuncArg::new(left_series, expr, right_series);
 
     let result = exec_binop(&mut bfa)
         .map_err(|err| RuntimeError::from(format!("cannot evaluate {}: {:?}", &expr, err)))
-        .and_then(|v| Ok(QueryValue::InstantVector(v)))?;
+        .map(QueryValue::InstantVector)?;
 
     if is_tracing {
         let series_count = series_len(&result);
@@ -60,7 +59,7 @@ pub(crate) fn eval_vector_vector_binop(
 }
 
 fn exec_binary_op_args(
-    ctx: &Arc<Context>,
+    ctx: &Context,
     ec: &EvalConfig,
     expr_first: &Expr,
     expr_second: &Expr,
@@ -79,8 +78,7 @@ fn exec_binary_op_args(
             },
             || {
                 trace!("right");
-                let ctx_clone = Arc::clone(ctx);
-                exec_expr(&ctx_clone, ec, expr_second)
+                exec_expr(ctx, ec, expr_second)
             },
         ) {
             (Ok(first), Ok(second)) => Ok((first, second)),
@@ -122,7 +120,7 @@ fn exec_binary_op_args(
     if first.is_empty() && be.op == Operator::Or {
         return Ok((QueryValue::empty_vec(), QueryValue::empty_vec()));
     }
-    let sec_expr = push_down_filters(be, &mut first, &expr_second, &ec)?;
+    let sec_expr = push_down_filters(be, &mut first, expr_second, ec)?;
     let second = exec_expr(ctx, ec, &sec_expr)?;
 
     Ok((first, second))
@@ -137,7 +135,7 @@ fn push_down_filters<'a>(
     let tss_first = first.as_instant_vec(ec)?;
     let mut common_filters = get_common_label_filters(&tss_first[0..]);
     if !common_filters.is_empty() {
-        trim_filters_by_group_modifier(&mut common_filters, &expr);
+        trim_filters_by_group_modifier(&mut common_filters, expr);
         let mut copy = dest.clone();
         push_down_binary_op_filters_in_place(&mut copy, &mut common_filters);
         return Ok(Cow::Owned(copy));
@@ -147,7 +145,7 @@ fn push_down_filters<'a>(
 
 fn to_vector(value: QueryValue) -> RuntimeResult<Vec<Timeseries>> {
     match value {
-        QueryValue::InstantVector(val) => Ok(val.into()), // todo: use std::mem::take ??
+        QueryValue::InstantVector(val) => Ok(val), // todo: use std::mem::take ??
         _ => unreachable!(
             "Bug: binary_op. Unexpected {} operand",
             value.data_type_name()

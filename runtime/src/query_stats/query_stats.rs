@@ -1,10 +1,11 @@
-use chrono::prelude::DateTime;
-use chrono::prelude::Utc;
-use chrono::Duration;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::ops::Sub;
 use std::sync::RwLock;
+
+use chrono::prelude::DateTime;
+use chrono::prelude::Utc;
+use chrono::Duration;
 
 const QUERY_STATS_DEFAULT_CAPACITY: usize = 250;
 
@@ -23,14 +24,14 @@ pub struct QueryStatRecord {
 
 impl QueryStatRecord {
     pub(crate) fn matches(&self, current_time: DateTime<Utc>, max_lifetime: Duration) -> bool {
-        if self.key.query.len() == 0 {
+        if self.key.query.is_empty() {
             return false;
         }
         let elapsed = current_time.sub(self.register_time);
         if elapsed.cmp(&max_lifetime) == Ordering::Greater {
             return false;
         }
-        return true;
+        true
     }
 }
 
@@ -76,6 +77,12 @@ impl QueryStatsConfig {
             last_queries_count: 1000,
             min_query_duration: Duration::milliseconds(1),
         }
+    }
+}
+
+impl Default for QueryStatsConfig {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -168,7 +175,7 @@ impl QueryStatsTracker {
             a.push(QueryStatByCount {
                 query: k.query.clone(),
                 time_range_secs: k.time_range_secs,
-                count: count as u64,
+                count,
             })
         }
         a.sort_by(|a, b| a.count.cmp(&b.count));
@@ -176,7 +183,7 @@ impl QueryStatsTracker {
             a.resize(top_n, QueryStatByCount::default());
         }
 
-        return a;
+        a
     }
 
     pub fn get_top_by_avg_duration(
@@ -223,7 +230,7 @@ impl QueryStatsTracker {
         if a.len() > top_n {
             a.resize(top_n, QueryStatByDuration::default());
         }
-        return a;
+        a
     }
 
     pub fn get_top_by_sum_duration(
@@ -266,6 +273,6 @@ impl QueryStatsTracker {
         if a.len() > top_n {
             a.resize(top_n, QueryStatByDuration::default());
         }
-        return a;
+        a
     }
 }

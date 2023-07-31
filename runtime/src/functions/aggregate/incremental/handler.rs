@@ -47,18 +47,18 @@ impl TryFrom<&str> for IncrementalAggregationHandler {
 
 impl IncrementalAggregationHandler {
     pub fn handles(func: AggregateFunction) -> bool {
-        match func {
+        matches!(
+            func,
             AggregateFunction::Count
-            | AggregateFunction::GeoMean
-            | AggregateFunction::Min
-            | AggregateFunction::Max
-            | AggregateFunction::Avg
-            | AggregateFunction::Sum
-            | AggregateFunction::Sum2
-            | AggregateFunction::Any
-            | AggregateFunction::Group => true,
-            _ => false,
-        }
+                | AggregateFunction::GeoMean
+                | AggregateFunction::Min
+                | AggregateFunction::Max
+                | AggregateFunction::Avg
+                | AggregateFunction::Sum
+                | AggregateFunction::Sum2
+                | AggregateFunction::Any
+                | AggregateFunction::Group
+        )
     }
 
     pub fn new(func: IncrementalAggrFuncKind) -> Self {

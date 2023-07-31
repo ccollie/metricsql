@@ -1613,14 +1613,21 @@ mod tests {
     }
 
     #[test]
-    fn test_unless() {
-        test_query("time() unless 2", vec![]);
+    fn test_time_unless_time_greater_than_1500() {
         assert_result_eq(
             "time() unless time() > 1500",
             &[1000_f64, 1200.0, 1400.0, NAN, NAN, NAN],
         );
+    }
 
-        // timseries-with-tags unless 2
+    // todo: do the scalar vector versions of the following 2 tests
+    #[test]
+    fn test_time_unless_2() {
+        test_query("time() unless 2", vec![]);
+    }
+
+    #[test]
+    fn test_timeseries_with_tags_unless_2() {
         let q = r#"label_set(time(), "foo", "bar") unless 2"#;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric_name.set_tag("foo", "bar");

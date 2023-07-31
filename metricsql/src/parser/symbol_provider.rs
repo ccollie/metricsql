@@ -1,8 +1,9 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use crate::parser::with_expr::must_parse_with_arg_expr;
 use crate::parser::ParseResult;
 use crate::prelude::WithArgExpr;
-use std::collections::HashMap;
-use std::sync::Arc;
 
 pub type SymbolProviderRef = Arc<dyn SymbolProvider>;
 
@@ -61,5 +62,11 @@ impl SymbolProvider for HashMapSymbolProvider {
 
     fn get_symbol(&self, name: &str) -> Option<&WithArgExpr> {
         self.0.get(name)
+    }
+}
+
+impl Default for HashMapSymbolProvider {
+    fn default() -> Self {
+        Self::new()
     }
 }

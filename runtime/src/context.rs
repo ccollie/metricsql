@@ -50,7 +50,7 @@ impl Context {
         if let Some(err) = &res.err {
             return Err(RuntimeError::ParseError(err.clone()));
         }
-        return Ok((res, cached));
+        Ok((res, cached))
     }
 
     #[inline]
@@ -81,16 +81,9 @@ impl Default for Context {
     }
 }
 
+#[derive(Clone, Debug, Default)]
 pub struct SessionState {
     pub config: SessionConfig,
-}
-
-impl Default for SessionState {
-    fn default() -> Self {
-        Self {
-            config: SessionConfig::default(),
-        }
-    }
 }
 
 /// Global configuration options for request context

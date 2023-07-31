@@ -10,8 +10,8 @@ use super::tokens::Token;
 
 /// parse_metric_expr parses a metric.
 ///
-///    	<label_set>
-///    	<metric_identifier> [<label_set>]
+///    <label_set>
+///    <metric_identifier> [<label_set>]
 ///
 pub fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expr> {
     let can_expand = p.can_lookup();
@@ -67,7 +67,7 @@ pub fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expr> {
 
 /// parse_label_filters parses a set of label matchers.
 ///
-///		'{' [ <label_name> <match_op> <match_string>, ... ] '}'
+/// '{' [ <label_name> <match_op> <match_string>, ... ] '}'
 ///
 fn parse_label_filters(p: &mut Parser) -> ParseResult<Vec<LabelFilterExpr>> {
     use Token::*;
@@ -112,7 +112,7 @@ fn parse_label_filter(p: &mut Parser) -> ParseResult<LabelFilterExpr> {
         _ => {
             return Err(unexpected(
                 "label filter",
-                &tok.text,
+                tok.text,
                 "=, !=, =~ or !~",
                 Some(&tok.span),
             ))

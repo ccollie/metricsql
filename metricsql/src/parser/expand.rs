@@ -62,7 +62,7 @@ pub fn should_expand(expr: &Expr) -> bool {
         BinaryOperator(be) => should_expand(&be.left) || should_expand(&be.right),
         MetricExpression(me) => me.is_only_metric_group(),
         StringExpr(se) => !se.is_expanded(),
-        Parens(pe) => !pe.expressions.is_empty() && pe.expressions.iter().any(|x| should_expand(x)),
+        Parens(pe) => !pe.expressions.is_empty() && pe.expressions.iter().any(should_expand),
         Rollup(re) => {
             if should_expand(&re.expr) {
                 return true;
@@ -143,10 +143,10 @@ fn remove_dupes(filters: &mut Vec<LabelFilter>) {
 
     for i in (0..filters.len()).rev() {
         let hash = get_hash(&mut hasher, &filters[i]);
-        if hash_map.contains_key(&hash) {
-            filters.remove(i);
+        if let std::collections::hash_map::Entry::Vacant(e) = hash_map.entry(hash) {
+            e.insert(true);
         } else {
-            hash_map.insert(hash, true);
+            filters.remove(i);
         }
     }
 }
@@ -263,7 +263,7 @@ fn expand_with_selector_expression(
                     format!("cannot expand {new_selector} to non-metric expression {expanded}",);
                 return Err(ParseError::General(msg));
             }
-            return Ok(expanded);
+            Ok(expanded)
         }
         Some(e) => Ok(e),
     }
@@ -281,7 +281,7 @@ fn get_expr_as_string(expr: &Expr) -> ParseResult<String> {
         Expr::StringLiteral(s) => Ok(s.to_string()),
         _ => {
             let msg = format!("must be string expression; got {}", expr);
-            return Err(ParseError::General(msg));
+            Err(ParseError::General(msg))
         }
     }
 }
@@ -309,10 +309,9 @@ fn expand_function(
     was: &Vec<WithArgExpr>,
     func: FunctionExpr,
 ) -> ParseResult<Expr> {
-    let wa = get_with_arg_expr(symbols, was, &func.name);
     let args = expand_with_args(symbols, was, func.args)?;
-    if wa.is_some() {
-        return expand_with_expr_ext(symbols, was, wa.unwrap(), args);
+    if let Some(wa) = get_with_arg_expr(symbols, was, &func.name) {
+        return expand_with_expr_ext(symbols, was, wa, args);
     }
     let res = FunctionExpr {
         name: func.name,
@@ -333,24 +332,23 @@ fn expand_aggregation(
 ) -> ParseResult<Expr> {
     let mut ae = ae;
     let args = expand_with_args(symbols, was, ae.args)?;
-    let wa = get_with_arg_expr(symbols, was, &ae.name);
-    if wa.is_some() {
+    if let Some(wa) = get_with_arg_expr(symbols, was, &ae.name) {
         // TODO:: if were in this method at all, Its a confirmed aggregate, so we should ensure
         // new name is also an aggregate
-        return expand_with_expr_ext(symbols, was, wa.unwrap(), args);
+        return expand_with_expr_ext(symbols, was, wa, args);
     }
     ae.args = args;
 
     if let Some(modifier) = &ae.modifier {
         match modifier {
             AggregateModifier::By(args) => {
-                let new_args = expand_modifier_args(symbols, was, &args)?;
+                let new_args = expand_modifier_args(symbols, was, args)?;
                 if args != &new_args {
                     ae.modifier = Some(AggregateModifier::By(new_args));
                 }
             }
             AggregateModifier::Without(args) => {
-                let new_args = expand_modifier_args(symbols, was, &args)?;
+                let new_args = expand_modifier_args(symbols, was, args)?;
                 if args != &new_args {
                     ae.modifier = Some(AggregateModifier::Without(new_args));
                 }
@@ -445,7 +443,7 @@ pub(super) fn resolve_ident(
 
 fn expand_modifier_args(
     symbols: &SymbolProviderRef,
-    was: &Vec<WithArgExpr>,
+    was: &[WithArgExpr],
     args: &[String],
 ) -> ParseResult<Vec<String>> {
     fn handle_metric_expr(expr: &Expr, arg: &String, args: &[String]) -> ParseResult<String> {
@@ -458,13 +456,11 @@ fn expand_modifier_args(
         match expr {
             Expr::MetricExpression(me) => {
                 if !me.is_only_metric_group() {
-                    return error(&expr, arg, args);
+                    return error(expr, arg, args);
                 }
                 Ok(me.label_filters[0].value.clone())
             }
-            _ => {
-                return error(&expr, arg, args);
-            }
+            _ => error(expr, arg, args),
         }
     }
 
@@ -488,13 +484,13 @@ fn expand_modifier_args(
         }
         match &wa.expr {
             Expr::MetricExpression(_) => {
-                let resolved = handle_metric_expr(&wa.expr, &arg, args)?;
+                let resolved = handle_metric_expr(&wa.expr, arg, args)?;
                 dst_args.push(resolved);
                 continue;
             }
             Expr::Parens(pe) => {
                 for p_arg in &pe.expressions {
-                    let resolved = handle_metric_expr(&p_arg, &arg, args)?;
+                    let resolved = handle_metric_expr(p_arg, arg, args)?;
                     dst_args.push(resolved);
                 }
                 continue;

@@ -39,7 +39,7 @@ impl Tag {
     pub fn new<S: Into<String>>(key: S, value: String) -> Self {
         Self {
             key: key.into(),
-            value: value.into(),
+            value,
         }
     }
 
@@ -91,6 +91,10 @@ impl MetricName {
         }
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.metric_group.is_empty() && self.tags.is_empty()
+    }
+
     /// from_strings creates new labels from pairs of strings.
     pub fn from_strings(ss: &[&str]) -> RuntimeResult<Self> {
         if ss.len() % 2 != 0 {
@@ -140,7 +144,7 @@ impl MetricName {
                 self.metric_group = value.into();
                 return;
             }
-            self.upsert(key, &value);
+            self.upsert(key, value);
         }
     }
 
@@ -149,7 +153,7 @@ impl MetricName {
             Ok(idx) => {
                 let tag = &mut self.tags[idx];
                 tag.value.clear();
-                tag.value.push_str(&value);
+                tag.value.push_str(value);
             }
             Err(idx) => {
                 let tag = Tag {
@@ -165,7 +169,6 @@ impl MetricName {
     pub fn set_tag(&mut self, key: &str, value: &str) {
         if key == METRIC_NAME_LABEL {
             self.metric_group = value.into();
-            return;
         } else {
             self.upsert(key, value);
         }
@@ -181,7 +184,7 @@ impl MetricName {
     }
 
     pub fn has_tag(&self, key: &str) -> bool {
-        self.tags.iter().position(|x| x.key == key).is_some()
+        self.tags.iter().any(|x| x.key == key)
     }
 
     fn get_tag_index(&self, key: &str) -> Option<usize> {
@@ -293,13 +296,11 @@ impl MetricName {
         dst.extend_from_slice("{{".as_bytes());
 
         let len = &self.tags.len();
-        let mut i = 0;
-        for Tag { key: k, value: v } in self.tags.iter() {
-            dst.extend_from_slice(format!("{}={}", k, enquote('"', &v)).as_bytes());
+        for (i, Tag { key: k, value: v }) in self.tags.iter().enumerate() {
+            dst.extend_from_slice(format!("{}={}", k, enquote('"', v)).as_bytes());
             if i + 1 < *len {
                 dst.extend_from_slice(", ".as_bytes())
             }
-            i += 1;
         }
         // ??????????????
         dst.extend_from_slice('}'.to_string().as_bytes());
@@ -350,7 +351,7 @@ impl MetricName {
         let (mut src, group) = read_string(src, "metric group")?;
 
         mn.metric_group = group;
-        src = &mn.unmarshal_tags(src)?;
+        src = mn.unmarshal_tags(src)?;
         Ok((src, mn))
     }
 
@@ -383,7 +384,7 @@ impl MetricName {
         // duplication, I know
         let label_counts = hm
             .entry(METRIC_NAME_LABEL.to_string())
-            .or_insert_with(|| HashMap::new());
+            .or_insert_with(HashMap::new);
         *label_counts
             .entry(self.metric_group.to_string())
             .or_insert(0) += 1;
@@ -398,7 +399,9 @@ impl MetricName {
 
     pub fn sort_tags(&mut self) {
         if !self.sorted {
-            self.tags.sort();
+            if self.tags.len() > 1 {
+                self.tags.sort();
+            }
             self.sorted = true;
         }
     }
@@ -417,6 +420,9 @@ impl MetricName {
     }
 
     pub fn signature_without_labels(&self, names: &[String]) -> Signature {
+        if names.is_empty() {
+            return self.signature();
+        }
         Signature::with_name_and_labels(&self.metric_group, self.without_labels_iter(names))
     }
 
@@ -436,9 +442,7 @@ fn count_label_value(
     label: &String,
     value: &String,
 ) {
-    let label_counts = hm
-        .entry(label.to_string())
-        .or_insert_with(|| HashMap::new());
+    let label_counts = hm.entry(label.to_string()).or_insert_with(HashMap::new);
     *label_counts.entry(value.to_string()).or_insert(0) += 1;
 }
 
@@ -446,13 +450,11 @@ impl Display for MetricName {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}{{", self.metric_group)?;
         let len = self.tags.len();
-        let mut i = 0;
-        for Tag { key: k, value: v } in self.tags.iter() {
-            write!(f, "{}={}", k, enquote('"', &v))?;
+        for (i, Tag { key: k, value: v }) in self.tags.iter().enumerate() {
+            write!(f, "{}={}", k, enquote('"', v))?;
             if i < len - 1 {
                 write!(f, ",")?;
             }
-            i += 1;
         }
         write!(f, "}}")?;
         Ok(())
@@ -474,7 +476,7 @@ impl PartialOrd for MetricName {
             }
         }
 
-        return Some(self.tags.len().cmp(&other.tags.len()));
+        Some(self.tags.len().cmp(&other.tags.len()))
     }
 }
 
@@ -497,7 +499,7 @@ impl<'a> Iterator for WithLabelsIterator<'a> {
     type Item = &'a Tag;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(tag) = self.tag_iter.next() {
+        for tag in self.tag_iter.by_ref() {
             while let Some(name) = self.names_iter.next() {
                 match name.cmp(&tag.key) {
                     Ordering::Less => {

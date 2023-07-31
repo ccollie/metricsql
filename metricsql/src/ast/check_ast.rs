@@ -191,17 +191,14 @@ fn check_ast_for_rollup(mut ex: RollupExpr) -> Result<Expr, String> {
                 "subquery @ modifier must be a scalar or expression, got {at_type} instead",
             ));
         }
-        match at.as_ref() {
-            Expr::Number(NumberLiteral { value, .. }) => {
-                if value.is_infinite()
-                    || value.is_nan()
-                    || value >= &(i64::MAX as f64)
-                    || value <= &(i64::MIN as f64)
-                {
-                    return Err(format!("timestamp out of bounds for @ modifier: {value}"));
-                }
+        if let Expr::Number(NumberLiteral { value, .. }) = at.as_ref() {
+            if value.is_infinite()
+                || value.is_nan()
+                || value >= &(i64::MAX as f64)
+                || value <= &(i64::MIN as f64)
+            {
+                return Err(format!("timestamp out of bounds for @ modifier: {value}"));
             }
-            _ => {}
         }
     }
 
@@ -209,25 +206,27 @@ fn check_ast_for_rollup(mut ex: RollupExpr) -> Result<Expr, String> {
 }
 
 fn check_ast_for_vector_selector(ex: MetricExpr) -> Result<Expr, String> {
-    // A Vector selector must contain at least one non-empty matcher to prevent
-    // implicit selection of all metrics (e.g. by a typo).
-    if ex.is_empty_matchers() {
-        return Err("vector selector must contain at least one non-empty matcher".into());
+    match ex.metric_name() {
+        Some(_) => {
+            let mut du = ex.find_matchers(NAME_LABEL);
+            if du.len() >= 2 {
+                // this is to ensure that the err information can be predicted with fixed order
+                du.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+                return Err(format!(
+                    "metric name must not be set twice: '{}' or '{}'",
+                    du[0].label, du[1].label
+                ));
+            }
+            Ok(Expr::MetricExpression(ex))
+        }
+        None if ex.is_empty_matchers() => {
+            // When name is None, a vector selector must contain at least one non-empty matcher
+            // to prevent implicit selection of all metrics (e.g. by a typo).
+            Err("vector selector must contain at least one non-empty matcher".into())
+        }
+        _ => Ok(Expr::MetricExpression(ex)),
     }
-
-    let mut du = ex.find_matchers(NAME_LABEL);
-    if du.len() >= 2 {
-        // this is to ensure that the err information can be predicted with fixed order
-        du.sort();
-
-        return Err(format!(
-            "metric name must not be set twice: '{}' or '{}'",
-            du[0].name(),
-            du[1].name()
-        ));
-    }
-
-    Ok(Expr::MetricExpression(ex))
 }
 
 fn check_ast_for_interpolated_vector_selector(ex: InterpolatedSelector) -> Result<Expr, String> {

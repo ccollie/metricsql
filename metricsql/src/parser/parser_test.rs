@@ -31,18 +31,8 @@ mod tests {
     }
 
     #[test]
-    fn test_with_single() {
-        another("-1 ^ 0.5", "-1");
-    }
-
-    #[test]
     fn single_test() {
-        // another("-1 ^ 0.5", "-1");
-        // assert_invalid(r#""foo" + bar"#);
-        another(
-            r#"with (f(a, b) = m{a, b}) f({a="x", b="y"}, {c="d"})"#,
-            r#"m{a="x", b="y", c="d"}"#,
-        );
+        another("-1 ^ 0.5", "-1");
     }
 
     #[test]

@@ -18,8 +18,9 @@ pub type LabelName = String;
 pub type LabelValue = String;
 
 // NOTE: https://github.com/rust-lang/regex/issues/668
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub enum MatchOp {
+    #[default]
     Equal,
     NotEqual,
     Re(Regex),
@@ -28,17 +29,11 @@ pub enum MatchOp {
 
 impl MatchOp {
     pub fn is_negative(&self) -> bool {
-        match self {
-            MatchOp::NotEqual | MatchOp::NotRe(_) => true,
-            _ => false,
-        }
+        matches!(self, MatchOp::NotEqual | MatchOp::NotRe(_))
     }
 
     pub fn is_regex(&self) -> bool {
-        match self {
-            Self::NotRe(_) | Self::Re(_) => true,
-            _ => false,
-        }
+        matches!(self, Self::NotRe(_) | Self::Re(_))
     }
 }
 
@@ -133,7 +128,7 @@ impl fmt::Display for LabelFilterOp {
 }
 
 /// LabelFilter represents MetricsQL label filter like `foo="bar"`.
-#[derive(Default, Debug, Clone, Eq, Hash, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct LabelFilter {
     pub op: LabelFilterOp,
 
@@ -213,13 +208,35 @@ impl LabelFilter {
         match self.op {
             Equal => self.value.is_empty(),
             NotEqual => !self.value.is_empty(),
-            RegexEqual => {
-                let str = self.value.to_string();
-                is_empty_regex(&str)
-            }
+            RegexEqual => is_empty_regex(&self.value),
             RegexNotEqual => {
                 let str = self.value.to_string();
                 is_empty_regex(&str)
+            }
+        }
+    }
+
+    pub fn is_match(&self, str: &str) -> bool {
+        match self.op {
+            LabelFilterOp::Equal => self.value.eq(str),
+            LabelFilterOp::NotEqual => self.value.ne(str),
+            LabelFilterOp::RegexEqual => {
+                // slight optimization for frequent case
+                if str.is_empty() {
+                    return is_empty_regex(&self.value);
+                }
+                if let Ok(re) = compile_regexp(&self.value) {
+                    re.is_match(str)
+                } else {
+                    false
+                }
+            }
+            LabelFilterOp::RegexNotEqual => {
+                if let Ok(re) = compile_regexp(&self.value) {
+                    !re.is_match(str)
+                } else {
+                    false
+                }
             }
         }
     }
@@ -247,12 +264,6 @@ impl LabelFilter {
     }
 }
 
-impl PartialEq<Self> for LabelFilter {
-    fn eq(&self, other: &Self) -> bool {
-        return self.op == other.op && self.label == other.label && self.value == other.value;
-    }
-}
-
 impl PartialOrd for LabelFilter {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         // Make sure the first label filter is __name__ (if any)
@@ -266,7 +277,7 @@ impl PartialOrd for LabelFilter {
                 order = self.op.to_string().cmp(&other.op.to_string());
             }
         }
-        return Some(order);
+        Some(order)
     }
 }
 

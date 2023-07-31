@@ -6,9 +6,9 @@ use crate::parser::{ParseError, ParseResult};
 use crate::prelude::syntax_error;
 
 fn unterminated_string_literal(_: &mut Lexer<Token>) -> ParseResult<()> {
-    return Err(ParseError::SyntaxError(
+    Err(ParseError::SyntaxError(
         "unterminated string literal".to_string(),
-    ));
+    ))
 }
 
 fn invalid_number(lex: &mut Lexer<Token>) -> ParseResult<()> {

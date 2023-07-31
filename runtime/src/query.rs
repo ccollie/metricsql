@@ -1,5 +1,4 @@
 use std::borrow::Cow;
-use std::sync::Arc;
 
 use chrono::Duration;
 
@@ -48,8 +47,8 @@ impl Default for QueryParams {
 
 impl QueryParams {
     pub fn validate(&self, context: &Context) -> RuntimeResult<()> {
-        if self.query.len() == 0 {
-            let msg = format!("no query specified");
+        if self.query.is_empty() {
+            let msg = "no query specified".to_string();
             return Err(RuntimeError::General(msg));
         }
 
@@ -153,7 +152,7 @@ impl QueryBuilder {
     pub fn build(&self, context: &Context) -> RuntimeResult<QueryParams> {
         let mut q: QueryParams = QueryParams::default();
 
-        let start = self.start.unwrap_or_else(|| Timestamp::now());
+        let start = self.start.unwrap_or_else(Timestamp::now);
         let mut end = self.end.unwrap_or(start);
 
         // Limit the `end` arg to the current time +2 days to prevent possible timestamp overflow
@@ -176,7 +175,7 @@ impl QueryBuilder {
         q.step = self
             .step
             .unwrap_or_else(|| Duration::milliseconds(DEFAULT_STEP));
-        if self.etfs.len() > 0 {
+        if !self.etfs.is_empty() {
             q.required_tag_filters = self.etfs.clone();
         }
         q.round_digits = self.round_digits;
@@ -198,7 +197,7 @@ struct CommonParams {
 /// Query handler for `Instant Queries`
 ///
 /// See https://prometheus.io/docs/prometheus/latest/querying/api/#instant-queries
-pub fn query(context: &Arc<Context>, params: &QueryParams) -> RuntimeResult<Vec<QueryResult>> {
+pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<QueryResult>> {
     let ct = Timestamp::now();
     let mut start = params.start;
     let mut end = params.end;
@@ -220,7 +219,7 @@ pub fn query(context: &Arc<Context>, params: &QueryParams) -> RuntimeResult<Vec<
 
     // Safety: at this point expr has a value. We error out above in case of failure
     let expr = parsed.expr.as_ref().unwrap();
-    if let Some(rollup) = get_rollup(&expr) {
+    if let Some(rollup) = get_rollup(expr) {
         let window = rollup.window.value(step);
         let offset = rollup.offset.value(step);
 
@@ -275,7 +274,7 @@ pub fn query(context: &Arc<Context>, params: &QueryParams) -> RuntimeResult<Vec<
         params_copy.start = start;
         params_copy.end = end;
 
-        return match query_range_handler(context, ct, &params) {
+        return match query_range_handler(context, ct, params) {
             Err(err) => {
                 let msg = format!("error when executing query={} on the time range (start={}, end={}, step={}): {:?}",
                                   &params_copy.query, start, end, step, err);
@@ -285,7 +284,7 @@ pub fn query(context: &Arc<Context>, params: &QueryParams) -> RuntimeResult<Vec<
         };
     }
 
-    let mut query_offset = get_latency_offset_milliseconds(&context);
+    let mut query_offset = get_latency_offset_milliseconds(context);
     if params.may_cache && ct - start < query_offset && start - ct < query_offset {
         // Adjust start time only if `nocache` arg isn't set.
         // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/241
@@ -298,24 +297,24 @@ pub fn query(context: &Arc<Context>, params: &QueryParams) -> RuntimeResult<Vec<
 
     let mut ec = EvalConfig::new(start, end, step);
 
-    if ec.enforced_tag_filters.len() > 0 {
+    if !ec.enforced_tag_filters.is_empty() {
         ec.enforced_tag_filters = params.required_tag_filters.clone(); // todo: .into()?
     }
 
     ec.deadline = params.deadline;
 
-    ec.update_from_context(&context);
+    ec.update_from_context(context);
 
-    match exec(&context, &mut ec, &params.query, true) {
+    match exec(context, &mut ec, &params.query, true) {
         Err(err) => {
             let msg = format!(
                 "error executing query={} for (time={}, step={}): {:?}",
                 &params.query, start, step, err
             );
-            return Err(RuntimeError::General(msg));
+            Err(RuntimeError::General(msg))
         }
         Ok(mut result) => {
-            if query_offset > 0 && result.len() > 0 {
+            if query_offset > 0 && !result.is_empty() {
                 // todo: verify see https://github.com/VictoriaMetrics/VictoriaMetrics/commit/0771d57860d87806b2eda684cc2d3b640939bf6b
                 for res in result.iter_mut() {
                     for j in res.timestamps.iter_mut() {
@@ -337,27 +336,27 @@ fn export_handler(ctx: &Context, cp: CommonParams) -> RuntimeResult<QueryResults
 /// query_range processes a range vector request
 ///
 /// See https://prometheus.io/docs/prometheus/latest/querying/api/#range-queries
-pub fn query_range(ctx: &Arc<Context>, params: &QueryParams) -> RuntimeResult<Vec<QueryResult>> {
+pub fn query_range(ctx: &Context, params: &QueryParams) -> RuntimeResult<Vec<QueryResult>> {
     let ct = Timestamp::now();
     let mut step = params.step.num_milliseconds();
     if step <= 0 {
         step = DEFAULT_STEP;
     }
 
-    match query_range_handler(ctx, ct, &params) {
+    match query_range_handler(ctx, ct, params) {
         Err(err) => {
             let msg = format!(
                 "error executing query={} on the time range (start={}, end={} step={}): {:?}",
                 &params.query, params.start, params.end, step, err
             );
-            return Err(RuntimeError::General(msg));
+            Err(RuntimeError::General(msg))
         }
         Ok(v) => Ok(v),
     }
 }
 
 fn query_range_handler(
-    ctx: &Arc<Context>,
+    ctx: &Context,
     ct: Timestamp,
     params: &QueryParams,
 ) -> RuntimeResult<Vec<QueryResult>> {
@@ -389,9 +388,9 @@ fn query_range_handler(
     ec.enforced_tag_filters = params.required_tag_filters.clone(); // todo: how to avoid this clone ??
     ec.round_digits = params.round_digits as i16;
     ec.lookback_delta = lookback_delta;
-    ec.update_from_context(&ctx);
+    ec.update_from_context(ctx);
 
-    let mut result = exec(&ctx, &mut ec, &params.query, false)?;
+    let mut result = exec(ctx, &mut ec, &params.query, false)?;
     if step < config.max_step_for_points_adjustment.num_milliseconds() {
         let query_offset = get_latency_offset_milliseconds(ctx);
         if ct - query_offset < end {
@@ -408,7 +407,7 @@ fn query_range_handler(
 
 /// adjust_last_points substitutes the last point values on the time range (start..end]
 /// with the previous point values, since these points may contain incomplete values.
-fn adjust_last_points(tss: &mut Vec<QueryResult>, start: Timestamp, end: Timestamp) {
+fn adjust_last_points(tss: &mut [QueryResult], start: Timestamp, end: Timestamp) {
     for ts in tss.iter_mut() {
         let n = ts.timestamps.len();
         if n <= 1 {
@@ -449,10 +448,8 @@ fn get_max_lookback(ctx: &Context, step: i64, max: Option<i64>) -> i64 {
         d = config.max_staleness_interval.num_milliseconds()
     }
     d = max.unwrap_or(d);
-    if config.set_lookback_to_step {
-        if step > 0 {
-            d = step;
-        }
+    if config.set_lookback_to_step && step > 0 {
+        d = step;
     }
     d
 }
@@ -479,15 +476,12 @@ fn get_rollup(expr: &Expr) -> Option<DeconstructedRollup> {
 
                 if re.step.is_none() {
                     // check whether expr contains PromQL metric selector wrapped into rollup.
-                    match &re.expr.as_ref() {
-                        Expr::MetricExpression(me) => {
-                            if me.label_filters.len() > 0 {
-                                res.filters = Some(&me.label_filters);
-                            }
+                    if let Expr::MetricExpression(me) = &re.expr.as_ref() {
+                        if !me.label_filters.is_empty() {
+                            res.filters = Some(&me.label_filters);
                         }
-                        // todo: see if we have default_rollup(metric{job="email"})
-                        _ => {}
                     }
+                    // todo: see if we have default_rollup(metric{job="email"})
                 }
                 return Some(res);
             }
@@ -535,7 +529,7 @@ where
     D: Into<Duration>,
 {
     let d_max = ctx.config.max_query_duration.num_milliseconds();
-    return get_deadline_with_max_duration(duration, start_time, d_max);
+    get_deadline_with_max_duration(duration, start_time, d_max)
 }
 
 fn get_deadline_with_max_duration<D, T>(
@@ -547,12 +541,12 @@ where
     T: Into<Timestamp>,
     D: Into<Duration>,
 {
-    let mut d = if candidate.is_none() {
-        0
+    let mut d = if let Some(val) = candidate {
+        val.into().num_milliseconds()
     } else {
-        candidate.unwrap().into().num_milliseconds()
+        0
     };
-    if d <= 0 || d > d_max {
+    if d == 0 || d > d_max {
         d = d_max
     }
     Deadline::with_start_time(start_time, Duration::milliseconds(d))

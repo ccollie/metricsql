@@ -8,7 +8,7 @@ impl IncrementalAggrHandler for IncrementalAggrGroup {
         update_count(iac, values);
     }
     fn merge(&self, dst: &mut IncrementalAggrContext, src: &IncrementalAggrContext) {
-        merge_count(dst, &src);
+        merge_count(dst, src);
     }
     fn finalize(&self, iac: &mut IncrementalAggrContext) {
         for v in iac.ts.values.iter_mut() {

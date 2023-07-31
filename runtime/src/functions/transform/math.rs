@@ -48,7 +48,7 @@ fn math_func_impl(
 }
 
 pub(crate) fn transform_pi(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    eval_number(&tfa.ec, f64::PI())
+    eval_number(tfa.ec, f64::PI())
 }
 
 pub(crate) fn sgn(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {

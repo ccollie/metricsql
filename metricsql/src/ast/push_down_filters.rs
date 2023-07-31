@@ -4,7 +4,9 @@ use std::iter::FromIterator;
 use std::vec::Vec;
 
 use crate::ast::{AggregationExpr, BinaryExpr, Expr, RollupExpr};
-use crate::common::{AggregateModifier, GroupModifierOp, JoinModifierOp, LabelFilter, NAME_LABEL, Operator};
+use crate::common::{
+    AggregateModifier, GroupModifierOp, JoinModifierOp, LabelFilter, Operator, NAME_LABEL,
+};
 
 /// push_down_filters optimizes e in order to improve its performance.
 ///
@@ -33,8 +35,8 @@ pub fn can_pushdown_filters(expr: &Expr) -> bool {
                 can_pushdown_filters(expr)
             }
         }
-        Function(f) => f.args.iter().any(|x| can_pushdown_filters(x)),
-        Aggregation(agg) => agg.args.iter().any(|x| can_pushdown_filters(x)),
+        Function(f) => f.args.iter().any(can_pushdown_filters),
+        Aggregation(agg) => agg.args.iter().any(can_pushdown_filters),
         BinaryOperator(_) => true,
         _ => false,
     }
@@ -46,11 +48,8 @@ pub(crate) fn optimize_label_filters_inplace(expr: &mut Expr) {
     match expr {
         Rollup(re) => {
             optimize_label_filters_inplace(&mut re.expr);
-            match re.at {
-                Some(ref mut at) => {
-                    optimize_label_filters_inplace(at.as_mut());
-                }
-                _ => {}
+            if let Some(ref mut at) = re.at {
+                optimize_label_filters_inplace(at.as_mut());
             }
         }
         Function(f) => {
@@ -170,8 +169,8 @@ fn trim_filters_by_aggr_modifier(lfs: &mut Vec<LabelFilter>, afe: &AggregationEx
     match &afe.modifier {
         None => lfs.clear(),
         Some(modifier) => match modifier {
-            AggregateModifier::By(args) => filter_label_filters_on(lfs, &args),
-            AggregateModifier::Without(args) => filter_label_filters_ignoring(lfs, &args),
+            AggregateModifier::By(args) => filter_label_filters_on(lfs, args),
+            AggregateModifier::Without(args) => filter_label_filters_ignoring(lfs, args),
         },
     }
 }
@@ -266,8 +265,8 @@ pub fn push_down_binary_op_filters_in_place(e: &mut Expr, common_filters: &mut V
             trim_filters_by_aggr_modifier(common_filters, aggr);
             if !common_filters.is_empty() {
                 if let Some(arg_idx) = aggr.arg_idx_for_optimization {
-                    let mut expr = aggr.args.get_mut(arg_idx).unwrap();
-                    push_down_binary_op_filters_in_place(&mut expr, common_filters);
+                    let expr = aggr.args.get_mut(arg_idx).unwrap();
+                    push_down_binary_op_filters_in_place(expr, common_filters);
                 }
             }
         }

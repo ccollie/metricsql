@@ -24,11 +24,9 @@ fn create_rng(tfa: &mut TransformFuncArg) -> RuntimeResult<StdRng> {
         };
     }
     match StdRng::from_rng(thread_rng()) {
-        Err(e) => {
-            return Err(RuntimeError::ArgumentError(
-                format!("Error constructing rng {:?}", e).to_string(),
-            ))
-        }
+        Err(e) => Err(RuntimeError::ArgumentError(
+            format!("Error constructing rng {:?}", e).to_string(),
+        )),
         Ok(rng) => Ok(rng),
     }
 }
@@ -49,9 +47,9 @@ macro_rules! create_rand_func {
 create_rand_func!(rand, |r: &mut StdRng| r.gen::<f64>());
 
 create_rand_func!(rand_norm, |r: &mut StdRng| {
-    <StandardNormal as Distribution<f64>>::sample::<StdRng>(&StandardNormal, r) as f64
+    <StandardNormal as Distribution<f64>>::sample::<StdRng>(&StandardNormal, r)
 });
 
 create_rand_func!(rand_exp, |r: &mut StdRng| {
-    <Exp1 as Distribution<f64>>::sample::<StdRng>(&Exp1, r) as f64
+    <Exp1 as Distribution<f64>>::sample::<StdRng>(&Exp1, r)
 });

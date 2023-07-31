@@ -39,7 +39,7 @@ pub fn skip_trailing_nans(values: &[f64]) -> &[f64] {
     while i > 0 && values[i].is_nan() {
         i -= 1;
     }
-    return &values[0..i + 1];
+    &values[0..i + 1]
 }
 
 #[inline]

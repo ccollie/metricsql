@@ -13,7 +13,7 @@ mod expr_simplifier;
 mod expr_tree_node;
 mod interpolated_selector;
 mod push_down_filters;
-mod utils;
+pub mod utils;
 
 mod adjust_comparison_ops;
 #[cfg(test)]

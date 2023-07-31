@@ -46,7 +46,7 @@ pub(crate) fn get_series_arg(
         return arg.get_instant_vector(ec);
     }
     let msg = format!("missing series arg # {}", arg_num + 1);
-    return Err(RuntimeError::ArgumentError(msg));
+    Err(RuntimeError::ArgumentError(msg))
 }
 
 // TODO: COW, or return Iterator
@@ -87,7 +87,7 @@ pub(crate) fn get_scalar_arg_as_vec(
                 arg_num + 1,
                 arg.data_type()
             );
-            return Err(RuntimeError::ArgumentError(msg));
+            Err(RuntimeError::ArgumentError(msg))
         }
     }
 }
@@ -129,7 +129,7 @@ pub(crate) fn get_float_arg(
         arg_num + 1,
         arg.data_type()
     );
-    return Err(RuntimeError::ArgumentError(msg));
+    Err(RuntimeError::ArgumentError(msg))
 }
 
 pub(crate) fn get_int_arg(args: &[QueryValue], arg_num: usize) -> RuntimeResult<i64> {

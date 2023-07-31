@@ -27,7 +27,7 @@ impl TimeseriesMap {
         if !keep_metric_names {
             origin.metric_name.reset_metric_group()
         }
-        origin.timestamps = Arc::clone(&shared_timestamps);
+        origin.timestamps = Arc::clone(shared_timestamps);
         origin.values = vec![f64::NAN; ts_len];
         let m: HashMap<String, Timeseries> = HashMap::new();
 
@@ -51,7 +51,7 @@ impl TimeseriesMap {
         let timestamps = &self.origin.timestamps;
         self.series.entry(value).or_insert_with_key(move |value| {
             let values: Vec<f64> = vec![f64::NAN; timestamps.len()];
-            let mut ts = Timeseries::with_shared_timestamps(&timestamps, &values);
+            let mut ts = Timeseries::with_shared_timestamps(timestamps, &values);
             ts.metric_name.set_tag(label_name, value);
             ts
         })

@@ -116,25 +116,33 @@ fn op_if(left: f64, right: f64) -> f64 {
 
 /// if_not returns left if right is NaN. Otherwise NaN is returned.
 #[inline]
-pub fn if_not(left: f64, right: f64) -> f64 {
+pub fn op_if_not(left: f64, right: f64) -> f64 {
     if right.is_nan() {
         return left;
     }
     f64::NAN
 }
 
-fn return_left(left: f64, _right: f64) -> f64 {
+#[inline]
+pub fn op_unless(left: f64, right: f64) -> f64 {
+    if right != left {
+        return f64::NAN;
+    }
     left
 }
 
-fn return_nan(_left: f64, _right: f64) -> f64 {
-    f64::NAN
+fn return_left(left: f64, _right: f64) -> f64 {
+    left
 }
 
 /// convert true to x, false to NaN.
 #[inline]
 pub fn to_comparison_value(b: bool, x: f64) -> f64 {
-    return if b { x } else { f64::NAN };
+    if b {
+        x
+    } else {
+        f64::NAN
+    }
 }
 
 macro_rules! make_comparison_func {
@@ -205,8 +213,8 @@ pub const fn get_scalar_binop_handler(op: Operator, is_bool: bool) -> BinopFunc 
         Operator::Pow => op_pow,
         Operator::Sub => op_minus,
         Operator::If => op_if,
-        Operator::IfNot => if_not,
-        Operator::Unless => return_nan,
+        Operator::IfNot => op_if_not,
+        Operator::Unless => op_unless,
         Operator::And | Operator::Or => return_left,
         Operator::Eql => get_scalar_comparison_handler(Operator::Eql, is_bool),
         Operator::NotEq => get_scalar_comparison_handler(Operator::NotEq, is_bool),
@@ -295,7 +303,7 @@ pub fn scalar_binary_operation(
             Atan2 => lhs.atan2(rhs),
             Default => op_default(lhs, rhs),
             If => op_if(lhs, rhs),
-            IfNot => if_not(lhs, rhs),
+            IfNot => op_if_not(lhs, rhs),
             And | Or => lhs,
             Unless => f64::NAN,
             _ => {

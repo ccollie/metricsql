@@ -14,25 +14,21 @@ pub(crate) fn get_single_timeseries(series: &Vec<Timeseries>) -> RuntimeResult<&
 }
 
 pub fn get_scalar_param_value(
-    args: &Vec<QueryValue>,
+    args: &[QueryValue],
     index: usize,
     func_name: &str,
     param_name: &str,
 ) -> RuntimeResult<f64> {
-    if let Some(param) = args.get(index) {
-        match param {
-            QueryValue::Scalar(val) => return Ok(*val),
-            // todo: handle instant vector
-            _ => {}
-        }
+    if let Some(QueryValue::Scalar(val)) = args.get(index) {
+        return Ok(*val);
     }
     let msg = format!("expected scalar arg for parameter '{param_name}' of function {func_name};",);
-    return Err(RuntimeError::TypeCastError(msg));
+    Err(RuntimeError::TypeCastError(msg))
 }
 
 #[inline]
 pub fn get_string_param_value(
-    args: &Vec<QueryValue>,
+    args: &[QueryValue],
     arg_num: usize,
     func_name: &str,
     param_name: &str,
@@ -53,7 +49,7 @@ pub fn get_string_param_value(
                 "expected string arg for parameter \"{param_name}\" of function {func_name}; Got {}",
                 param
             );
-            return Err(RuntimeError::TypeCastError(msg));
+            Err(RuntimeError::TypeCastError(msg))
         }
     }
 }

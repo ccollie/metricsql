@@ -42,10 +42,7 @@ impl TreeNode for Expr {
                 vec![left.as_ref().clone(), right.as_ref().clone()]
             }
             Expr::Aggregation(AggregationExpr { args, .. })
-            | Expr::Function(FunctionExpr { args, .. }) => {
-                let expr_vec = args.clone();
-                expr_vec
-            }
+            | Expr::Function(FunctionExpr { args, .. }) => args.clone(),
             Expr::Parens(p) => p.expressions.clone(),
             Expr::Rollup(RollupExpr { expr, at, .. }) => {
                 let mut expr_vec = Vec::with_capacity(2);
@@ -177,7 +174,7 @@ impl TreeNode for Expr {
                     expr: Box::new(transform(*w.expr)?),
                 };
                 Expr::With(with)
-            },
+            }
             Expr::WithSelector(_) => self.clone(),
         };
 

@@ -17,7 +17,7 @@ use crate::types::Timeseries;
 use crate::{ParseCacheResult, QueryValue};
 
 pub(crate) fn parse_promql_internal(
-    context: &Arc<Context>,
+    context: &Context,
     query: &str,
 ) -> RuntimeResult<Arc<ParseCacheValue>> {
     let span = trace_span!("parse", cached = field::Empty).entered();
@@ -27,7 +27,7 @@ pub(crate) fn parse_promql_internal(
 }
 
 pub(crate) fn exec_internal(
-    context: &Arc<Context>,
+    context: &Context,
     ec: &mut EvalConfig,
     q: &str,
 ) -> RuntimeResult<(QueryValue, Arc<ParseCacheValue>)> {
@@ -48,7 +48,6 @@ pub(crate) fn exec_internal(
                 let _ = ec.get_timestamps()?;
             }
 
-            let ctx = Arc::new(context);
             let qid = context
                 .active_queries
                 .register(ec, q, Some(start_time.timestamp()));
@@ -57,7 +56,7 @@ pub(crate) fn exec_internal(
                 context.active_queries.remove(qid);
             }
 
-            let is_tracing = ctx.trace_enabled();
+            let is_tracing = context.trace_enabled();
 
             let span = if is_tracing {
                 let mut query = q.to_string();
@@ -78,7 +77,7 @@ pub(crate) fn exec_internal(
             }
             .entered();
 
-            let rv = exec_expr(&ctx, ec, expr)?;
+            let rv = exec_expr(context, ec, expr)?;
 
             if is_tracing {
                 let ts_count: usize;
@@ -118,7 +117,7 @@ pub(crate) fn exec_internal(
 
 /// executes q for the given config.
 pub fn exec(
-    context: &Arc<Context>,
+    context: &Context,
     ec: &mut EvalConfig,
     q: &str,
     is_first_point_only: bool,

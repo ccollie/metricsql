@@ -30,6 +30,9 @@ impl<'source> TokenWithLocation<'source> {
     pub fn len(&self) -> usize {
         self.text.len()
     }
+    pub fn is_empty(&self) -> bool {
+        self.text.is_empty()
+    }
 }
 
 /// parser parses MetricsQL expression.
@@ -51,20 +54,17 @@ impl<'a> Parser<'a> {
     pub fn tokenize(input: &'a str) -> ParseResult<Vec<TokenWithLocation<'a>>> {
         let mut lexer: logos::Lexer<'a, Token> = Token::lexer(input);
 
-        let mut tokens = Vec::with_capacity(16); // todo: pre-size
-        loop {
-            match lexer.next() {
-                Some(tok) => match tok {
-                    Ok(tok) => {
-                        tokens.push(TokenWithLocation {
-                            kind: tok,
-                            text: lexer.slice(),
-                            span: lexer.span(),
-                        });
-                    }
-                    Err(e) => return Err(e),
-                },
-                _ => break,
+        let mut tokens = Vec::with_capacity(64); // todo: pre-size
+        while let Some(tok) = lexer.next() {
+            match tok {
+                Ok(tok) => {
+                    tokens.push(TokenWithLocation {
+                        kind: tok,
+                        text: lexer.slice(),
+                        span: lexer.span(),
+                    });
+                }
+                Err(e) => return Err(e),
             }
         }
 
@@ -134,7 +134,7 @@ impl<'a> Parser<'a> {
 
     pub(super) fn last_token_range(&self) -> Option<Span> {
         let index = if self.is_eof() {
-            if self.tokens.len() > 0 {
+            if !self.tokens.is_empty() {
                 self.tokens.len() - 1
             } else {
                 0
@@ -152,7 +152,7 @@ impl<'a> Parser<'a> {
             self.bump();
             Ok(())
         } else {
-            Err(self.token_error(&[kind.clone()]))
+            Err(self.token_error(&[*kind]))
         }
     }
 
@@ -169,7 +169,7 @@ impl<'a> Parser<'a> {
 
     pub(super) fn expect_identifier(&mut self) -> ParseResult<String> {
         let tok = self.expect_one_of(&[Token::Identifier])?;
-        let ident = if tok.text.contains(r#"\"#) {
+        let ident = if tok.text.contains('\\') {
             unescape_ident(tok.text)
         } else {
             tok.text.to_string()
@@ -181,7 +181,7 @@ impl<'a> Parser<'a> {
         let current_token = self.peek_token();
 
         if let Some(TokenWithLocation { kind, span, .. }) = current_token {
-            invalid_token_error(expected, Some(kind.clone()), span, "".to_string())
+            invalid_token_error(expected, Some(*kind), span, "".to_string())
         } else {
             // If we’re at the end of the input we use the range of the very last token in the input.
             let span = self.last_token_range().unwrap_or_default();
@@ -196,7 +196,7 @@ impl<'a> Parser<'a> {
 
     pub(super) fn parse_number(&mut self) -> ParseResult<f64> {
         let token = self.current_token()?;
-        let value = parse_number(&token.text).map_err(|_| {
+        let value = parse_number(token.text).map_err(|_| {
             let msg = format!("expect number, got {}", token.text);
             syntax_error(&msg, &token.span, "".to_string())
         })?;
@@ -221,7 +221,8 @@ impl<'a> Parser<'a> {
                     // treat as minute
                     parse_duration_value(token.text, 1)?
                 } else {
-                    parse_number(token.text)? as i64
+                    let secs = parse_number(token.text)? as i64;
+                    secs * 1000
                 };
                 Ok(DurationExpr::new(millis))
             }
@@ -263,7 +264,7 @@ impl<'a> Parser<'a> {
         use Token::*;
 
         self.expect(&LeftParen)?;
-        self.parse_comma_separated(&[RightParen], |parser| Ok(parser.expect_identifier()?))
+        self.parse_comma_separated(&[RightParen], |parser| parser.expect_identifier())
     }
 
     pub(super) fn parse_arg_list(&mut self) -> ParseResult<Vec<Expr>> {
@@ -389,14 +390,11 @@ impl<'a> Parser<'a> {
     pub(super) fn parse_parens_expr(&mut self) -> ParseResult<Expr> {
         let mut list = self.parse_arg_list()?;
         if list.len() == 1 {
-            match list[0].borrow_mut() {
-                Expr::BinaryOperator(be) => {
-                    if self.at(&Token::KeepMetricNames) {
-                        self.bump();
-                        be.keep_metric_names = true;
-                    }
+            if let Expr::BinaryOperator(be) = list[0].borrow_mut() {
+                if self.at(&Token::KeepMetricNames) {
+                    self.bump();
+                    be.keep_metric_names = true;
                 }
-                _ => {}
             }
         }
         Ok(Expr::Parens(ParensExpr::new(list)))

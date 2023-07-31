@@ -45,7 +45,7 @@ fn get_rollup_result_cache_key_prefix() -> u64 {
 fn get_default_cache_size() -> u64 {
     // todo: tune this
     let mut n = memory_limit().unwrap() / 16;
-    if n <= 0 {
+    if n < 1024 * 1024 {
         n = 1024 * 1024;
     }
     n
@@ -207,9 +207,9 @@ impl RollupResultCache {
             &compressed_result_buf,
             ec.start,
             ec.end,
-        ).or_else(|err| {
+        ).map_err(|err| {
             let msg = format!("BUG: cannot deserialize from RollupResultCache: {:?}; it looks like it was improperly saved", err);
-            Err(RuntimeError::SerializationError(msg))
+            RuntimeError::SerializationError(msg)
         })?;
 
         info!("unmarshal {} series", tss.len());
@@ -249,7 +249,7 @@ impl RollupResultCache {
             );
         }
 
-        return Ok((Some(tss), new_start));
+        Ok((Some(tss), new_start))
     }
 
     pub fn put(
@@ -430,13 +430,18 @@ impl RollupResultCache {
             match RollupResultCacheMetaInfo::from_buf(meta_info_buf.deref_mut()) {
                 Err(_) => {
                     let msg = "BUG: cannot unmarshal RollupResultCacheMetaInfo; it looks like it was improperly saved";
-                    return Err(RuntimeError::SerializationError(msg.to_string()));
+                    Err(RuntimeError::SerializationError(msg.to_string()))
                 }
                 Ok(mi) => Ok(Some((mi, hash))),
             }
         } else {
             Ok(None)
         }
+    }
+
+    pub fn get_stats(&self) -> RollupCacheStats {
+        let inner = self.inner.lock().unwrap();
+        inner.stats.clone()
     }
 }
 
@@ -450,7 +455,7 @@ fn marshal_rollup_result_cache_key(
     expr: &Expr,
     window: i64,
     step: i64,
-    etfs: &Vec<Vec<LabelFilter>>,
+    etfs: &[Vec<LabelFilter>],
 ) -> u64 {
     hasher.reset();
 
@@ -463,9 +468,9 @@ fn marshal_rollup_result_cache_key(
 
     for etf in etfs.iter() {
         for f in etf {
-            hasher.write(&f.label.as_bytes());
-            hasher.write(&f.op.as_str().as_bytes());
-            hasher.write(&f.value.as_bytes());
+            hasher.write(f.label.as_bytes());
+            hasher.write(f.op.as_str().as_bytes());
+            hasher.write(f.value.as_bytes());
         }
     }
 
@@ -493,7 +498,7 @@ pub fn merge_timeseries(
         let mut second = b;
         for ts_second in second.iter_mut() {
             ts_second.timestamps = Arc::clone(&shared_timestamps);
-            validate_timeseries_length(&ts_second)?;
+            validate_timeseries_length(ts_second)?;
         }
         // todo(perf): is this clone the most efficient
         return Ok(second);
@@ -546,7 +551,7 @@ pub fn merge_timeseries(
             t_start += ec.step;
         }
 
-        validate_timeseries_length(&ts_a)?;
+        validate_timeseries_length(ts_a)?;
 
         rvs.push(std::mem::take(ts_a));
     }
@@ -566,6 +571,7 @@ fn validate_timeseries_length(ts: &Timeseries) -> RuntimeResult<()> {
     Ok(())
 }
 
+#[derive(Clone, Default)]
 struct RollupResultCacheMetaInfo {
     entries: Vec<RollupResultCacheMetaInfoEntry>,
 }
@@ -611,7 +617,7 @@ impl RollupResultCacheMetaInfo {
             )));
         }
 
-        if src.len() > 0 {
+        if !src.is_empty() {
             return Err(RuntimeError::from(format!(
                 "unexpected non-empty tail left; len(tail)={}",
                 src.len()
@@ -678,12 +684,6 @@ impl RollupResultCacheMetaInfo {
 
     fn remove_key(&mut self, key: RollupResultCacheKey) {
         self.entries.retain(|x| x.key != key)
-    }
-}
-
-impl Default for RollupResultCacheMetaInfo {
-    fn default() -> Self {
-        Self { entries: vec![] }
     }
 }
 
@@ -763,7 +763,7 @@ impl RollupResultCacheKey {
     }
 
     pub(self) fn unmarshal(src: &[u8]) -> RuntimeResult<(RollupResultCacheKey, &[u8])> {
-        let (mut src, version) = read_u64(&src, "result cache version")?;
+        let (mut src, version) = read_u64(src, "result cache version")?;
         if version != ROLLUP_RESULT_CACHE_VERSION as u64 {
             return Err(RuntimeError::SerializationError(format!(
                 "invalid result cache version: {}",

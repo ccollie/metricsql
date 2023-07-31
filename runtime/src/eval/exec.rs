@@ -1,5 +1,4 @@
 use std::fmt::Display;
-use std::sync::Arc;
 
 use rayon::join;
 use rayon::prelude::IntoParallelRefIterator;
@@ -27,7 +26,7 @@ fn map_error<E: Display>(err: RuntimeError, e: E) -> RuntimeError {
     RuntimeError::General(format!("cannot evaluate {e}: {}", err))
 }
 
-pub fn exec_expr(ctx: &Arc<Context>, ec: &EvalConfig, expr: &Expr) -> RuntimeResult<QueryValue> {
+pub fn exec_expr(ctx: &Context, ec: &EvalConfig, expr: &Expr) -> RuntimeResult<QueryValue> {
     let tracing = ctx.trace_enabled();
     match expr {
         Expr::StringLiteral(s) => Ok(QueryValue::String(s.to_string())),
@@ -45,7 +44,7 @@ pub fn exec_expr(ctx: &Arc<Context>, ec: &EvalConfig, expr: &Expr) -> RuntimeRes
             }
             .entered();
 
-            let rv = eval_binary_op(ctx, ec, be)?;
+            let rv = exec_binary_op(ctx, ec, be)?;
 
             span.record("series", rv.len());
 
@@ -61,16 +60,14 @@ pub fn exec_expr(ctx: &Arc<Context>, ec: &EvalConfig, expr: &Expr) -> RuntimeRes
             let handler = RollupHandlerEnum::Wrapped(rollup_default);
             let mut executor =
                 RollupExecutor::new(RollupFunction::DefaultRollup, handler, expr, &re);
-            let val = executor
-                .eval(ctx, ec)
-                .map_err(|err| map_error(err, &expr))?;
+            let val = executor.eval(ctx, ec).map_err(|err| map_error(err, expr))?;
             Ok(val)
         }
         Expr::Rollup(re) => {
             let handler = RollupHandlerEnum::Wrapped(rollup_default);
             let mut executor =
-                RollupExecutor::new(RollupFunction::DefaultRollup, handler, expr, &re);
-            executor.eval(ctx, ec).map_err(|err| map_error(err, &expr))
+                RollupExecutor::new(RollupFunction::DefaultRollup, handler, expr, re);
+            executor.eval(ctx, ec).map_err(|err| map_error(err, expr))
         }
         Expr::Aggregation(ae) => {
             trace!("aggregate {}()", ae.function.name());
@@ -84,7 +81,7 @@ pub fn exec_expr(ctx: &Arc<Context>, ec: &EvalConfig, expr: &Expr) -> RuntimeRes
 }
 
 fn eval_function_op(
-    ctx: &Arc<Context>,
+    ctx: &Context,
     ec: &EvalConfig,
     expr: &Expr,
     fe: &FunctionExpr,
@@ -98,14 +95,14 @@ fn eval_function_op(
             }
             .entered();
 
-            let rv = eval_transform_func(ctx, ec, &fe, tf)?;
+            let rv = eval_transform_func(ctx, ec, fe, tf)?;
             span.record("series", rv.len());
 
             Ok(QueryValue::InstantVector(rv))
         }
         BuiltinFunction::Rollup(rf) => {
             let nrf = get_rollup_function_factory(rf);
-            let (args, re, _) = eval_rollup_func_args(ctx, ec, &fe)?;
+            let (args, re, _) = eval_rollup_func_args(ctx, ec, fe)?;
             let func_handler = nrf(&args, ec)?;
             let mut rollup_handler = RollupExecutor::new(rf, func_handler, expr, &re);
             let val = rollup_handler
@@ -117,11 +114,7 @@ fn eval_function_op(
     };
 }
 
-fn eval_parens_op(
-    ctx: &Arc<Context>,
-    ec: &EvalConfig,
-    pe: &ParensExpr,
-) -> RuntimeResult<QueryValue> {
+fn eval_parens_op(ctx: &Context, ec: &EvalConfig, pe: &ParensExpr) -> RuntimeResult<QueryValue> {
     if pe.expressions.is_empty() {
         // should not happen !!
         return Err(RuntimeError::Internal(
@@ -137,36 +130,33 @@ fn eval_parens_op(
     Ok(val)
 }
 
-fn eval_binary_op(
-    ctx: &Arc<Context>,
-    ec: &EvalConfig,
-    be: &BinaryExpr,
-) -> RuntimeResult<QueryValue> {
+fn exec_binary_op(ctx: &Context, ec: &EvalConfig, be: &BinaryExpr) -> RuntimeResult<QueryValue> {
     let is_tracing = ctx.trace_enabled();
     let res = match (&be.left.as_ref(), &be.right.as_ref()) {
-        // vector op vector needs special handling
-        (Expr::MetricExpression(_), Expr::MetricExpression(_)) => {
-            eval_vector_vector_binop(be, ctx, ec)
-        }
+        // vector op vector needs special handling where both contain selectors
+        (Expr::MetricExpression(_), Expr::MetricExpression(_))
+        | (Expr::Rollup(_), Expr::Rollup(_))
+        | (Expr::MetricExpression(_), Expr::Rollup(_))
+        | (Expr::Rollup(_), Expr::MetricExpression(_)) => eval_vector_vector_binop(be, ctx, ec),
         // the following cases can be handled cheaply without invoking rayon overhead (or maybe not :-) )
         (Expr::Number(left), Expr::Number(right)) => {
             let value = scalar_binary_operations(be.op, left.value, right.value, be.bool_modifier)?;
             Ok(Value::Scalar(value))
         }
         (Expr::Duration(left), Expr::Duration(right)) => {
-            eval_duration_duration_binop(&left, right, be.op, ec.step)
+            eval_duration_duration_binop(left, right, be.op, ec.step)
         }
         (Expr::Duration(dur), Expr::Number(scalar)) => {
-            eval_duration_scalar_binop(&dur, scalar.value, be.op, ec.step)
+            eval_duration_scalar_binop(dur, scalar.value, be.op, ec.step)
         }
         (Expr::Number(scalar), Expr::Duration(dur)) => {
-            eval_duration_scalar_binop(&dur, scalar.value, be.op, ec.step)
+            eval_duration_scalar_binop(dur, scalar.value, be.op, ec.step)
         }
         (Expr::StringLiteral(left), Expr::StringLiteral(right)) => {
-            eval_string_string_binop(be.op, &left, &right, be.bool_modifier)
+            eval_string_string_binop(be.op, left, right, be.bool_modifier)
         }
         (left, right) => {
-            let (lhs, rhs) = join(|| exec_expr(ctx, ec, &left), || exec_expr(ctx, ec, &right));
+            let (lhs, rhs) = join(|| exec_expr(ctx, ec, left), || exec_expr(ctx, ec, right));
 
             match (lhs?, rhs?) {
                 (QueryValue::Scalar(left), QueryValue::Scalar(right)) => {
@@ -200,7 +190,7 @@ fn eval_binary_op(
 }
 
 fn eval_transform_func(
-    ctx: &Arc<Context>,
+    ctx: &Context,
     ec: &EvalConfig,
     fe: &FunctionExpr,
     func: TransformFunction,
@@ -221,7 +211,7 @@ fn eval_transform_func(
 }
 
 #[inline]
-fn eval_args(ctx: &Arc<Context>, ec: &EvalConfig, args: &[Expr]) -> RuntimeResult<Vec<Value>> {
+fn eval_args(ctx: &Context, ec: &EvalConfig, args: &[Expr]) -> RuntimeResult<Vec<Value>> {
     // see if we can evaluate all args in parallel
     // todo: if rayon in cheap enough, we can avoid the check and always go parallel
     // todo: see https://docs.rs/rayon/1.0.3/rayon/iter/trait.IndexedParallelIterator.html#method.with_min_len
@@ -250,23 +240,26 @@ fn eval_args(ctx: &Arc<Context>, ec: &EvalConfig, args: &[Expr]) -> RuntimeResul
 }
 
 pub(super) fn eval_exprs_sequentially(
-    ctx: &Arc<Context>,
+    ctx: &Context,
     ec: &EvalConfig,
     args: &[Expr],
 ) -> RuntimeResult<Vec<Value>> {
-    let res = args
-        .iter()
+    if args.is_empty() {
+        return Ok(Vec::new());
+    }
+    args.iter()
         .map(|expr| exec_expr(ctx, ec, expr))
-        .collect::<RuntimeResult<Vec<Value>>>();
-
-    res
+        .collect::<RuntimeResult<Vec<Value>>>()
 }
 
 pub(super) fn eval_exprs_in_parallel(
-    ctx: &Arc<Context>,
+    ctx: &Context,
     ec: &EvalConfig,
     args: &[Expr],
 ) -> RuntimeResult<Vec<Value>> {
+    if args.is_empty() {
+        return Ok(Vec::new());
+    }
     let res: RuntimeResult<Vec<Value>> = args
         .par_iter()
         .map(|expr| exec_expr(ctx, ec, expr))
@@ -276,7 +269,7 @@ pub(super) fn eval_exprs_in_parallel(
 }
 
 pub(super) fn eval_rollup_func_args(
-    ctx: &Arc<Context>,
+    ctx: &Context,
     ec: &EvalConfig,
     fe: &FunctionExpr,
 ) -> RuntimeResult<(Vec<Value>, RollupExpr, usize)> {
@@ -311,7 +304,7 @@ pub(super) fn eval_rollup_func_args(
         args.push(value);
     }
 
-    return Ok((args, re, rollup_arg_idx));
+    Ok((args, re, rollup_arg_idx))
 }
 
 // todo: COW

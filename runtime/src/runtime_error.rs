@@ -59,21 +59,21 @@ impl From<&str> for RuntimeError {
 
 impl From<String> for RuntimeError {
     fn from(message: String) -> Self {
-        RuntimeError::General(String::from(message))
+        RuntimeError::General(message)
     }
 }
 
 impl<E: std::error::Error + 'static> From<(String, E)> for RuntimeError {
     fn from((message, err): (String, E)) -> Self {
         let msg = format!("{}: {}", message, err);
-        RuntimeError::General(String::from(msg))
+        RuntimeError::General(msg)
     }
 }
 
 impl<E: std::error::Error + 'static> From<(&str, E)> for RuntimeError {
     fn from((message, err): (&str, E)) -> Self {
         let msg = format!("{}: {}", message, err);
-        RuntimeError::General(String::from(msg))
+        RuntimeError::General(msg)
     }
 }
 

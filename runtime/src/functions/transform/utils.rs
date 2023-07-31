@@ -12,7 +12,7 @@ pub(super) fn copy_timeseries(tss: &[Timeseries]) -> Vec<Timeseries> {
     for src in tss {
         rvs.push(src.clone());
     }
-    return rvs;
+    rvs
 }
 
 pub(super) fn expect_transform_args_num(
@@ -23,9 +23,9 @@ pub(super) fn expect_transform_args_num(
     if arg_count == expected {
         return Ok(());
     }
-    return Err(RuntimeError::ArgumentError(format!(
+    Err(RuntimeError::ArgumentError(format!(
         "unexpected number of args; got {arg_count}; want {expected}"
-    )));
+    )))
 }
 
 pub fn get_timezone_offset(zone: &Tz, timestamp_msecs: i64) -> Option<i64> {

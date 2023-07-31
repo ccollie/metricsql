@@ -48,10 +48,10 @@ impl Deadline {
                 timeout
             )));
         }
-        return Ok(Deadline {
+        Ok(Deadline {
             deadline: start_time.into().add(timeout.num_milliseconds()),
             timeout,
-        });
+        })
     }
 
     /// returns true if deadline is exceeded.
@@ -106,10 +106,10 @@ pub(crate) fn join_tag_filter_list<'a>(
     src: &'a Vec<Vec<LabelFilter>>,
     etfs: &'a Vec<Vec<LabelFilter>>,
 ) -> Cow<'a, Vec<Vec<LabelFilter>>> {
-    if src.len() == 0 {
+    if src.is_empty() {
         return Cow::Borrowed::<'a>(etfs);
     }
-    if etfs.len() == 0 {
+    if etfs.is_empty() {
         return Cow::Borrowed::<'a>(src);
     }
     let mut dst: Vec<Vec<LabelFilter>> = Vec::with_capacity(src.len());
@@ -117,7 +117,7 @@ pub(crate) fn join_tag_filter_list<'a>(
         for etf in etfs.iter() {
             let mut tfs: Vec<LabelFilter> = tf.clone();
             tfs.append(&mut etf.clone());
-            dst.push(tfs.into());
+            dst.push(tfs);
         }
     }
     Cow::Owned::<'a>(dst)
@@ -126,7 +126,7 @@ pub(crate) fn join_tag_filter_list<'a>(
 /// parse_metric_selector parses s containing PromQL metric selector and returns the corresponding
 /// LabelFilters.
 pub fn parse_metric_selector(s: &str) -> RuntimeResult<Vec<LabelFilter>> {
-    return match parse(s) {
+    match parse(s) {
         Ok(expr) => match expr {
             Expr::MetricExpression(me) => {
                 if me.is_empty() {
@@ -141,5 +141,5 @@ pub fn parse_metric_selector(s: &str) -> RuntimeResult<Vec<LabelFilter>> {
             }
         },
         Err(err) => Err(RuntimeError::ParseError(err)),
-    };
+    }
 }

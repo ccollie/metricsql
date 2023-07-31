@@ -8,14 +8,14 @@ use crate::{EvalConfig, QueryValue, RuntimeError, RuntimeResult, Timeseries};
 pub(crate) fn union(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     // we don't use args after this
     let args = std::mem::take(&mut tfa.args);
-    handle_union(args, &mut tfa.ec)
+    handle_union(args, tfa.ec)
 }
 
 pub(crate) fn handle_union(
     args: Vec<QueryValue>,
     ec: &EvalConfig,
 ) -> RuntimeResult<Vec<Timeseries>> {
-    if args.len() < 1 {
+    if args.is_empty() {
         return eval_number(ec, f64::NAN);
     }
 
@@ -23,16 +23,12 @@ pub(crate) fn handle_union(
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(len);
     let mut m: HashSet<Signature> = HashSet::with_capacity(len);
 
-    fn process_vector(
-        v: &mut Vec<Timeseries>,
-        m: &mut HashSet<Signature>,
-        rvs: &mut Vec<Timeseries>,
-    ) {
-        for mut ts in v.iter_mut() {
+    fn process_vector(v: &mut [Timeseries], m: &mut HashSet<Signature>, rvs: &mut Vec<Timeseries>) {
+        for ts in v.iter_mut() {
             ts.metric_name.sort_tags();
             let key = ts.metric_name.signature();
             if m.insert(key) {
-                rvs.push(std::mem::take(&mut ts));
+                rvs.push(std::mem::take(ts));
             }
         }
     }

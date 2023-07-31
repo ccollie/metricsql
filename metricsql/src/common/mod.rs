@@ -7,8 +7,6 @@ pub use types::*;
 pub(crate) use utils::*;
 pub use value::*;
 
-use crate::parser::ParseError;
-
 mod label_filter;
 pub mod label_filter_expr;
 mod operator;
@@ -17,5 +15,3 @@ mod tree_node;
 mod types;
 mod utils;
 mod value;
-
-pub type Result<T> = std::result::Result<T, ParseError>;

@@ -40,7 +40,7 @@ fn new_rollup_filtered_count(
     Ok(RollupHandlerEnum::General(Box::new(f)))
 }
 
-fn get_limit(args: &Vec<QueryValue>, func_name: &str, param_name: &str) -> RuntimeResult<f64> {
+fn get_limit(args: &[QueryValue], func_name: &str, param_name: &str) -> RuntimeResult<f64> {
     get_float_arg(args, 1, None).map_err(|_| {
         RuntimeError::ArgumentError(format!(
             "expecting scalar as {param_name} arg to {func_name}()"
@@ -106,7 +106,7 @@ where
     let rf = base_factory(args, ec)?;
     let f = move |rfa: &mut RollupFuncArg| -> f64 {
         let n = rf.eval(rfa);
-        return n / rfa.values.len() as f64;
+        n / rfa.values.len() as f64
     };
 
     Ok(RollupHandlerEnum::General(Box::new(f)))
@@ -117,7 +117,7 @@ pub(super) fn new_rollup_share_le(
     ec: &EvalConfig,
 ) -> RuntimeResult<RollupHandlerEnum> {
     // todo: map_err so we can get the function name
-    return new_rollup_share_filter(args, ec, new_rollup_count_le);
+    new_rollup_share_filter(args, ec, new_rollup_count_le)
 }
 
 pub(super) fn new_rollup_share_gt(
@@ -125,7 +125,7 @@ pub(super) fn new_rollup_share_gt(
     ec: &EvalConfig,
 ) -> RuntimeResult<RollupHandlerEnum> {
     // todo: map_err so we can get the function name
-    return new_rollup_share_filter(args, ec, new_rollup_count_gt);
+    new_rollup_share_filter(args, ec, new_rollup_count_gt)
 }
 
 pub(super) fn new_rollup_share_eq(
@@ -133,5 +133,5 @@ pub(super) fn new_rollup_share_eq(
     ec: &EvalConfig,
 ) -> RuntimeResult<RollupHandlerEnum> {
     // todo: map_err so we can get the function name
-    return new_rollup_share_filter(args, ec, new_rollup_count_eq);
+    new_rollup_share_filter(args, ec, new_rollup_count_eq)
 }

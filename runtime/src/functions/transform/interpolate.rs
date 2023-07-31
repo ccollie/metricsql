@@ -5,7 +5,7 @@ use crate::{RuntimeResult, Timeseries};
 pub(crate) fn interpolate(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut tss = get_series_arg(&tfa.args, 0, tfa.ec)?;
     for ts in tss.iter_mut() {
-        if ts.len() == 0 {
+        if ts.is_empty() {
             continue;
         }
 

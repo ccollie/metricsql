@@ -19,7 +19,7 @@ pub(crate) fn validate_max_points_per_timeseries(
     step: i64,
     max_points_per_timeseries: usize,
 ) -> RuntimeResult<()> {
-    let points = (end - start) / step + 1;
+    let points = (end - start).saturating_div(step + 1);
     if (max_points_per_timeseries > 0) && points > max_points_per_timeseries as i64 {
         let msg = format!(
             "too many points for the given step={}, start={} and end={}: {}; cannot exceed {}",
@@ -60,7 +60,7 @@ pub fn adjust_start_end(start: Timestamp, end: Timestamp, step: i64) -> (Timesta
         new_points -= 1;
     }
 
-    return (start, _end);
+    (start, _end)
 }
 
 pub fn align_start_end(start: Timestamp, end: Timestamp, step: i64) -> (Timestamp, Timestamp) {
@@ -72,7 +72,7 @@ pub fn align_start_end(start: Timestamp, end: Timestamp, step: i64) -> (Timestam
     if adjust > 0 {
         new_end += step - adjust
     }
-    return (new_start, new_end);
+    (new_start, new_end)
 }
 
 pub struct EvalConfig {
@@ -128,7 +128,7 @@ impl EvalConfig {
     }
 
     pub fn copy_no_timestamps(&self) -> EvalConfig {
-        let ec = EvalConfig {
+        EvalConfig {
             start: self.start,
             end: self.end,
             step: self.step,
@@ -144,8 +144,7 @@ impl EvalConfig {
             no_stale_markers: self.no_stale_markers,
             max_points_per_series: self.max_points_per_series,
             disable_cache: self.disable_cache,
-        };
-        return ec;
+        }
     }
 
     pub fn validate(&self) -> RuntimeResult<()> {
@@ -317,7 +316,7 @@ pub fn get_timestamps(
         timestamps.push(ts);
     }
 
-    return Ok(timestamps);
+    Ok(timestamps)
 }
 
 pub(crate) fn eval_number(ec: &EvalConfig, n: f64) -> RuntimeResult<Vec<Timeseries>> {
