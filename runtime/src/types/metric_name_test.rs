@@ -29,16 +29,19 @@ mod tests {
         check_metric_name_sort_tags(&["server"], &["server"]);
         check_metric_name_sort_tags(
             &["host", "foo", "bar", "service"],
-            &["service", "host", "bar", "foo"],
+            &["bar", "foo", "host", "service"],
         );
         check_metric_name_sort_tags(
             &["model", "foo", "job", "host", "server", "instance"],
-            &["job", "model", "instance", "host", "server", "foo"],
+            &["foo", "host", "instance", "job", "model", "server"],
         )
     }
 
-    fn check_metric_name_sort_tags(tags: &[&str], _expected_tags: &[&str]) {
-        let expected_tags = tags.iter().map(|x| x.to_string()).collect::<Vec<String>>();
+    fn check_metric_name_sort_tags(tags: &[&str], expected: &[&str]) {
+        let expected_tags = expected
+            .iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<String>>();
         let mut mn = MetricName::default();
         for t in tags.iter() {
             mn.add_tag(t, "");
@@ -147,21 +150,18 @@ mod tests {
 
     #[test]
     fn test_metric_name_remove_tags_on() {
-        let mut empty_mn = MetricName::default();
-        empty_mn.metric_group = "name".to_string();
+        let mut empty_mn = MetricName::new("name");
         empty_mn.add_tag("key", "value");
         empty_mn.remove_tags_on(&vec![]);
         if empty_mn.metric_group.len() != 0 || empty_mn.tags.len() != 0 {
             panic!("expecting empty metric name got {}", &empty_mn)
         }
 
-        let mut as_is_mn = MetricName::default();
-        as_is_mn.metric_group = "name".to_string();
+        let mut as_is_mn = MetricName::new("name");
         as_is_mn.add_tag("key", "value");
         as_is_mn.remove_tags_on(&vec!["__name__".to_string(), "key".to_string()]);
 
-        let mut exp_as_is_mn = MetricName::default();
-        exp_as_is_mn.metric_group = "name".to_string();
+        let mut exp_as_is_mn = MetricName::new("name");
         exp_as_is_mn.add_tag("key", "value");
         assert_eq!(
             exp_as_is_mn, as_is_mn,
@@ -169,8 +169,7 @@ mod tests {
             &exp_as_is_mn, &as_is_mn
         );
 
-        let mut mn = MetricName::default();
-        mn.metric_group = "name".to_string();
+        let mut mn = MetricName::new("name");
 
         mn.add_tag("foo", "bar");
         mn.add_tag("baz", "qux");

@@ -3,10 +3,9 @@ use std::collections::HashSet;
 use std::iter::FromIterator;
 use std::vec::Vec;
 
-use crate::ast::{AggregationExpr, BinaryExpr, Expr, RollupExpr};
-use crate::common::{
-    AggregateModifier, GroupModifierOp, JoinModifierOp, LabelFilter, Operator, NAME_LABEL,
-};
+use crate::ast::{AggregationExpr, Expr, RollupExpr};
+use crate::common::{AggregateModifier, LabelFilter, Operator, VectorMatchModifier, NAME_LABEL};
+use crate::prelude::VectorMatchCardinality;
 
 /// push_down_filters optimizes e in order to improve its performance.
 ///
@@ -97,6 +96,15 @@ pub fn get_common_label_filters(e: &Expr) -> Vec<LabelFilter> {
         BinaryOperator(e) => {
             let mut lfs_left = get_common_label_filters(&e.left);
             let mut lfs_right = get_common_label_filters(&e.right);
+            let card = VectorMatchCardinality::OneToOne;
+            let group_modifier: Option<VectorMatchModifier> = None;
+
+            let (group_modifier, join_modifier) = if let Some(modifier) = &e.modifier {
+                (&modifier.matching, &modifier.card)
+            } else {
+                (&group_modifier, &card)
+            };
+
             match e.op {
                 Operator::Or => {
                     // {fCommon, f1} or {fCommon, f2} -> {fCommon}
@@ -106,7 +114,7 @@ pub fn get_common_label_filters(e: &Expr) -> Vec<LabelFilter> {
                     // {fCommon, f1} or on(f2) {fCommon, f2} -> {}
                     // {fCommon, f1} or on(f3) {fCommon, f2} -> {}
                     intersect_label_filters(&mut lfs_left, &lfs_right);
-                    trim_filters_by_group_modifier(&mut lfs_left, e);
+                    trim_filters_by_match_modifier(&mut lfs_left, group_modifier);
                     lfs_left
                 }
                 Operator::Unless => {
@@ -116,45 +124,46 @@ pub fn get_common_label_filters(e: &Expr) -> Vec<LabelFilter> {
                     // {f1} unless on(f2) {f2} -> {}
                     // {f1} unless on(f1, f2) {f2} -> {f1}
                     // {f1} unless on(f3) {f2} -> {}
-                    trim_filters_by_group_modifier(&mut lfs_left, e);
+                    trim_filters_by_match_modifier(&mut lfs_left, group_modifier);
                     lfs_left
                 }
                 _ => {
-                    if let Some(modifier) = &e.join_modifier {
-                        match modifier.op {
-                            JoinModifierOp::GroupLeft => {
-                                // {f1} * group_left() {f2} -> {f1, f2}
-                                // {f1} * on() group_left() {f2} -> {f1}
-                                // {f1} * on(f1) group_left() {f2} -> {f1}
-                                // {f1} * on(f2) group_left() {f2} -> {f1, f2}
-                                // {f1} * on(f1, f2) group_left() {f2} -> {f1, f2}
-                                // {f1} * on(f3) group_left() {f2} -> {f1}
-                                trim_filters_by_group_modifier(&mut lfs_right, e);
-                                union_label_filters(&mut lfs_left, &lfs_right);
-                                lfs_left
-                            }
-                            JoinModifierOp::GroupRight => {
-                                // {f1} * group_right() {f2} -> {f1, f2}
-                                // {f1} * on() group_right() {f2} -> {f2}
-                                // {f1} * on(f1) group_right() {f2} -> {f1, f2}
-                                // {f1} * on(f2) group_right() {f2} -> {f2}
-                                // {f1} * on(f1, f2) group_right() {f2} -> {f1, f2}
-                                // {f1} * on(f3) group_right() {f2} -> {f2}
-                                trim_filters_by_group_modifier(&mut lfs_left, e);
-                                union_label_filters(&mut lfs_left, &lfs_right);
-                                lfs_left
-                            }
+                    match join_modifier {
+                        // group_left
+                        VectorMatchCardinality::ManyToOne(_) => {
+                            // {f1} * group_left() {f2} -> {f1, f2}
+                            // {f1} * on() group_left() {f2} -> {f1}
+                            // {f1} * on(f1) group_left() {f2} -> {f1}
+                            // {f1} * on(f2) group_left() {f2} -> {f1, f2}
+                            // {f1} * on(f1, f2) group_left() {f2} -> {f1, f2}
+                            // {f1} * on(f3) group_left() {f2} -> {f1}
+                            trim_filters_by_match_modifier(&mut lfs_right, group_modifier);
+                            union_label_filters(&mut lfs_left, &lfs_right);
+                            lfs_left
                         }
-                    } else {
-                        // {f1} * {f2} -> {f1, f2}
-                        // {f1} * on() {f2} -> {}
-                        // {f1} * on(f1) {f2} -> {f1}
-                        // {f1} * on(f2) {f2} -> {f2}
-                        // {f1} * on(f1, f2) {f2} -> {f2}
-                        // {f1} * on(f3} {f2} -> {}
-                        union_label_filters(&mut lfs_left, &lfs_right);
-                        trim_filters_by_group_modifier(&mut lfs_left, e);
-                        lfs_left
+                        // group_right
+                        VectorMatchCardinality::OneToMany(_) => {
+                            // {f1} * group_right() {f2} -> {f1, f2}
+                            // {f1} * on() group_right() {f2} -> {f2}
+                            // {f1} * on(f1) group_right() {f2} -> {f1, f2}
+                            // {f1} * on(f2) group_right() {f2} -> {f2}
+                            // {f1} * on(f1, f2) group_right() {f2} -> {f1, f2}
+                            // {f1} * on(f3) group_right() {f2} -> {f2}
+                            trim_filters_by_match_modifier(&mut lfs_left, group_modifier);
+                            union_label_filters(&mut lfs_left, &lfs_right);
+                            lfs_left
+                        }
+                        _ => {
+                            // {f1} * {f2} -> {f1, f2}
+                            // {f1} * on() {f2} -> {}
+                            // {f1} * on(f1) {f2} -> {f1}
+                            // {f1} * on(f2) {f2} -> {f2}
+                            // {f1} * on(f1, f2) {f2} -> {f2}
+                            // {f1} * on(f3} {f2} -> {}
+                            union_label_filters(&mut lfs_left, &lfs_right);
+                            trim_filters_by_match_modifier(&mut lfs_left, group_modifier);
+                            lfs_left
+                        }
                     }
                 }
             }
@@ -175,18 +184,23 @@ fn trim_filters_by_aggr_modifier(lfs: &mut Vec<LabelFilter>, afe: &AggregationEx
     }
 }
 
-/// trims lfs by the specified be.group_modifier.op (e.g. on() or ignoring()).
+/// trims lfs by the specified be.modifier.matching (e.g. on() or ignoring()).
 ///
 /// The following cases are possible:
 /// - It returns lfs as is if be doesn't contain any group modifier
 /// - It returns only filters specified in on()
 /// - It drops filters specified inside ignoring()
-pub fn trim_filters_by_group_modifier(lfs: &mut Vec<LabelFilter>, be: &BinaryExpr) {
-    match &be.group_modifier {
+pub fn trim_filters_by_match_modifier(
+    lfs: &mut Vec<LabelFilter>,
+    group_modifier: &Option<VectorMatchModifier>,
+) {
+    match group_modifier {
         None => {}
-        Some(modifier) => match modifier.op {
-            GroupModifierOp::On => filter_label_filters_on(lfs, &modifier.labels),
-            GroupModifierOp::Ignoring => filter_label_filters_ignoring(lfs, &modifier.labels),
+        Some(modifier) => match modifier {
+            VectorMatchModifier::On(labels) => filter_label_filters_on(lfs, labels.as_ref()),
+            VectorMatchModifier::Ignoring(labels) => {
+                filter_label_filters_ignoring(lfs, labels.as_ref())
+            }
         },
     }
 }
@@ -255,7 +269,9 @@ pub fn push_down_binary_op_filters_in_place(e: &mut Expr, common_filters: &mut V
             }
         }
         BinaryOperator(bo) => {
-            trim_filters_by_group_modifier(common_filters, bo);
+            if let Some(modifier) = &bo.modifier {
+                trim_filters_by_match_modifier(common_filters, &modifier.matching);
+            }
             if !common_filters.is_empty() {
                 push_down_binary_op_filters_in_place(&mut bo.left, common_filters);
                 push_down_binary_op_filters_in_place(&mut bo.right, common_filters);

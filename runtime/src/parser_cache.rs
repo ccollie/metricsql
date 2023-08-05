@@ -3,15 +3,18 @@ use std::sync::{Arc, Mutex};
 
 use lru_time_cache::LruCache;
 
-use metricsql::ast::{adjust_comparison_ops, optimize, Expr};
+use metricsql::ast::Expr;
 use metricsql::parser;
 use metricsql::parser::ParseError;
+
+use crate::eval::{compile_expression, DAGNode};
 
 const PARSE_CACHE_MAX_LEN: usize = 500;
 
 pub struct ParseCacheValue {
     pub expr: Option<Expr>,
     pub err: Option<ParseError>,
+    pub eval_node: Option<DAGNode>,
     pub has_subquery: bool,
     pub sort_results: bool,
 }
@@ -86,21 +89,22 @@ impl ParseCache {
     fn parse_internal(q: &str) -> ParseCacheValue {
         match parser::parse(q) {
             Ok(expr) => {
-                let optimized = optimize(expr);
-                if let Ok(mut expression) = optimized {
-                    adjust_comparison_ops(&mut expression);
-                    let has_subquery = expression.contains_subquery();
-                    let sort_results = should_sort_results(&expression);
+                let node = compile_expression(&expr);
+                if let Ok(eval_node) = node {
+                    let has_subquery = expr.contains_subquery();
+                    let sort_results = should_sort_results(&expr);
                     ParseCacheValue {
-                        expr: Some(expression),
+                        expr: Some(expr),
+                        eval_node: Some(eval_node),
                         err: None,
                         has_subquery,
                         sort_results,
                     }
                 } else {
-                    let err = optimized.err().unwrap();
+                    let err = node.err().unwrap();
                     ParseCacheValue {
                         expr: None,
+                        eval_node: None,
                         has_subquery: false,
                         sort_results: false,
                         err: Some(ParseError::General(format!(
@@ -112,6 +116,7 @@ impl ParseCache {
             }
             Err(e) => ParseCacheValue {
                 expr: None,
+                eval_node: None,
                 err: Some(e.clone()),
                 has_subquery: false,
                 sort_results: false,

@@ -1,16 +1,12 @@
 pub(crate) use binary::merge_non_overlapping_timeseries;
+pub use dag::{compile_expression, DAGNode};
 pub use eval::*;
-pub use exec::*;
 pub use traits::*;
 
-mod aggregate;
-mod binary;
+pub mod binary;
+mod dag;
 mod eval;
-mod exec;
-mod rollups;
-mod traits;
-
-pub(crate) mod utils;
-
 #[cfg(test)]
 mod eval_test;
+mod traits;
+mod utils;

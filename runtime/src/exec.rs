@@ -8,7 +8,7 @@ use tracing::{field, info, trace_span, Span};
 use lib::round_to_decimal_digits;
 
 use crate::context::Context;
-use crate::eval::{exec_expr, EvalConfig};
+use crate::eval::EvalConfig;
 use crate::parser_cache::ParseCacheValue;
 use crate::provider::QueryResult;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
@@ -42,8 +42,8 @@ pub(crate) fn exec_internal(
 
     let parsed = parse_promql_internal(context, q)?;
 
-    match (&parsed.expr, &parsed.has_subquery) {
-        (Some(expr), has_subquery) => {
+    match (&parsed.eval_node, &parsed.has_subquery) {
+        (Some(eval_node), has_subquery) => {
             if *has_subquery {
                 let _ = ec.get_timestamps()?;
             }
@@ -77,7 +77,11 @@ pub(crate) fn exec_internal(
             }
             .entered();
 
-            let rv = exec_expr(context, ec, expr)?;
+            // DAGNodes can be stateful, therefore we need to clone the node before
+            // executing it.
+            let mut node = eval_node.clone();
+
+            let rv = node.execute(context, ec)?;
 
             if is_tracing {
                 let ts_count: usize;

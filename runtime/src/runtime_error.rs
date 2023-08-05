@@ -9,8 +9,8 @@ pub type RuntimeResult<T> = Result<T, RuntimeError>;
 
 #[derive(Debug, PartialEq, Clone, Error)]
 pub enum RuntimeError {
-    #[error("Duplicate argument `{0}`")]
-    DuplicateArgument(String),
+    #[error("Expression execution error `{0}`")]
+    ExecutionError(String),
     #[error("Expected number: found `{0}`")]
     InvalidNumber(String),
     #[error("Argument error: {0}")]
@@ -21,8 +21,6 @@ pub enum RuntimeError {
     General(String),
     #[error("Invalid regex: {0}")]
     InvalidRegex(String),
-    #[error("Aggregate Error: {0}")]
-    AggregateError(String),
     #[error("Unknown function `{0}`")]
     UnknownFunction(String),
     #[error(transparent)]
@@ -43,6 +41,8 @@ pub enum RuntimeError {
     ResourcesExhausted(String),
     #[error("{0}")]
     NotImplemented(String),
+    #[error("Cannot optimize expression: {0}")]
+    OptimizerError(String),
 }
 
 impl RuntimeError {

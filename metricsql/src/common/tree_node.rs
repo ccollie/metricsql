@@ -18,8 +18,9 @@
 //! This module provides common traits for visiting or rewriting tree
 //! data structures easily.
 
-use crate::parser::ParseResult;
 use std::sync::Arc;
+
+use crate::parser::ParseResult;
 
 pub type Result<T> = ParseResult<T>;
 
@@ -312,7 +313,7 @@ pub trait DynTreeNode {
     ) -> Result<Arc<Self>>;
 }
 
-/// Blanket implementation for Arc for any tye that implements
+/// Blanket implementation for Arc for any type that implements
 /// [`DynTreeNode`] (such as [`Arc<dyn PhysicalExpr>`])
 impl<T: DynTreeNode + ?Sized> TreeNode for Arc<T> {
     fn apply_children<F>(&self, op: &mut F) -> Result<VisitRecursion>

@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
@@ -16,9 +15,8 @@ use lib::{fmt_duration_ms, hash_f64};
 
 use crate::ast::expr_equals;
 use crate::common::{
-    write_comma_separated, write_number, AggregateModifier, BinModifier, GroupModifier,
-    GroupModifierOp, JoinModifier, LabelFilter, LabelFilterOp, Operator, StringExpr, Value,
-    ValueType, VectorMatchCardinality, NAME_LABEL,
+    write_comma_separated, write_number, AggregateModifier, BinModifier, LabelFilter,
+    LabelFilterOp, Operator, StringExpr, Value, ValueType, VectorMatchCardinality, NAME_LABEL,
 };
 use crate::functions::{AggregateFunction, BuiltinFunction, TransformFunction};
 use crate::parser::{escape_ident, ParseError, ParseResult};
@@ -77,9 +75,11 @@ impl From<usize> for NumberLiteral {
 
 impl PartialEq<NumberLiteral> for NumberLiteral {
     fn eq(&self, other: &Self) -> bool {
-        self.value == other.value || self.value.is_nan() && other.value.is_nan()
+        are_floats_equal(self.value, other.value)
     }
 }
+
+impl Eq for NumberLiteral {}
 
 impl ExpressionNode for NumberLiteral {
     fn cast(self) -> Expr {
@@ -117,10 +117,11 @@ impl Deref for NumberLiteral {
 }
 
 /// DurationExpr contains a duration
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum DurationExpr {
     /// duration value in milliseconds
     Millis(i64),
+    /// a value that is multiplied at evaluation time by the step value
     StepValue(f64),
 }
 
@@ -148,6 +149,14 @@ impl DurationExpr {
         }
     }
 
+    pub fn non_negative_value(&self, step: i64) -> Result<i64, String> {
+        let v = self.value(step);
+        if v < 0 {
+            return Err(format!("unexpected negative duration {v}dms").to_string());
+        }
+        Ok(v)
+    }
+
     pub fn return_type(&self) -> ValueType {
         ValueType::Scalar
     }
@@ -167,6 +176,20 @@ impl Display for DurationExpr {
         }
     }
 }
+
+impl PartialEq<DurationExpr> for DurationExpr {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (DurationExpr::Millis(v1), DurationExpr::Millis(v2)) => v1 == v2,
+            (DurationExpr::StepValue(v1), DurationExpr::StepValue(v2)) => {
+                are_floats_equal(*v1, *v2)
+            }
+            _ => false,
+        }
+    }
+}
+
+impl Eq for DurationExpr {}
 
 // todo: MetricExpr => Selector
 /// MetricExpr represents MetricsQL metric with optional filters, i.e. `foo{...}`.
@@ -777,21 +800,6 @@ pub struct BinaryExpr {
     /// Op is the operation itself, i.e. `+`, `-`, `*`, etc.
     pub op: Operator,
 
-    /// bool_modifier indicates whether `bool` modifier is present.
-    /// For example, `foo > bool bar`.
-    pub bool_modifier: bool,
-
-    /// If keep_metric_names is set to true, then the operation should keep metric names.
-    pub keep_metric_names: bool,
-
-    /// group_modifier contains modifier such as "on" or "ignoring".
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub group_modifier: Option<GroupModifier>,
-
-    /// join_modifier contains modifier such as "group_left" or "group_right".
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub join_modifier: Option<JoinModifier>,
-
     #[serde(skip_serializing_if = "Option::is_none")]
     pub modifier: Option<BinModifier>,
 }
@@ -804,10 +812,6 @@ impl BinaryExpr {
             op,
             left: Box::new(lhs),
             right: Box::new(rhs),
-            join_modifier: None,
-            group_modifier: None,
-            bool_modifier: false,
-            keep_metric_names: false,
             modifier: None,
         }
     }
@@ -815,13 +819,6 @@ impl BinaryExpr {
     /// Unary minus. Substitute `-expr` with `0 - expr`
     pub fn new_unary_minus(expr: Expr) -> Self {
         BinaryExpr::new(Operator::Sub, Expr::from(0.0), expr)
-    }
-
-    pub fn get_group_modifier_or_default(&self) -> (GroupModifierOp, Cow<Vec<String>>) {
-        match &self.group_modifier {
-            None => (GroupModifierOp::Ignoring, Cow::Owned::<Vec<String>>(vec![])),
-            Some(modifier) => (modifier.op, Cow::Borrowed(&modifier.labels)),
-        }
     }
 
     pub fn is_matching_on(&self) -> bool {
@@ -838,15 +835,38 @@ impl BinaryExpr {
     }
 
     /// intersect labels of card and matching
-    pub fn intersect_labels(&self) -> Option<Vec<&String>> {
+    pub fn intersect_labels(&self) -> Option<Vec<String>> {
         self.modifier
             .as_ref()
             .and_then(|modifier| modifier.intersect_labels())
     }
 
     pub fn with_bool_modifier(mut self) -> Self {
-        self.bool_modifier = true;
+        if !self.op.is_comparison() {
+            panic!("bool modifier is only allowed for comparison operators");
+        }
+        if let Some(modifier) = &mut self.modifier {
+            modifier.return_bool = true;
+        } else {
+            let modifier = BinModifier {
+                return_bool: true,
+                ..Default::default()
+            };
+            self.modifier = Some(modifier);
+        }
         self
+    }
+
+    pub fn set_keep_metric_names(&mut self) {
+        if let Some(modifier) = &mut self.modifier {
+            modifier.keep_metric_names = true;
+        } else {
+            let  modifier = BinModifier {
+                keep_metric_names: true,
+                ..Default::default()
+            };
+            self.modifier = Some(modifier);
+        }
     }
 
     /// Convert `num cmpOp query` expression to `query reverseCmpOp num` expression
@@ -874,7 +894,7 @@ impl BinaryExpr {
 
     pub fn should_reset_metric_group(&self) -> bool {
         let op = self.op;
-        if op.is_comparison() && !self.bool_modifier {
+        if op.is_comparison() && !self.returns_bool() {
             // do not reset MetricGroup for non-boolean `compare` binary ops like Prometheus does.
             return false;
         }
@@ -906,9 +926,15 @@ impl BinaryExpr {
         }
     }
 
+    /// indicates whether `bool` modifier is present.
+    /// For example, `foo > bool bar`.
     pub fn returns_bool(&self) -> bool {
-        //matches!(&self.modifier, Some(modifier) if modifier.return_bool)
-        self.bool_modifier
+        matches!(&self.modifier, Some(modifier) if modifier.return_bool)
+    }
+
+    /// Determines if the result of the operation should keep metric names.
+    pub fn keep_metric_names(&self) -> bool {
+        matches!(&self.modifier, Some(modifier) if modifier.keep_metric_names)
     }
 
     pub fn vector_match_cardinality(&self) -> Option<&VectorMatchCardinality> {
@@ -916,24 +942,6 @@ impl BinaryExpr {
             return Some(&modifier.card);
         }
         None
-    }
-
-    pub fn validate_modifier_labels(&self) -> ParseResult<()> {
-        if let (Some(group_modifier), Some(join_modifier)) =
-            (&self.group_modifier, &self.join_modifier)
-        {
-            if group_modifier.op == GroupModifierOp::On {
-                let duplicates = intersection(&group_modifier.labels, &join_modifier.labels);
-                if !duplicates.is_empty() {
-                    let msg = format!(
-                        "labels ({}) must not occur in ON and GROUP clause at once",
-                        duplicates.join(", ")
-                    );
-                    return Err(ParseError::SyntaxError(msg));
-                }
-            }
-        }
-        Ok(())
     }
 
     fn need_left_parens(&self) -> bool {
@@ -956,7 +964,7 @@ impl BinaryExpr {
                 if is_reserved_binary_op_ident(&fe.name) {
                     return true;
                 }
-                self.keep_metric_names
+                self.keep_metric_names()
             }
             _ => false,
         }
@@ -968,16 +976,7 @@ impl BinaryExpr {
         } else {
             write!(f, "{}", self.left)?
         }
-        write!(f, " {}", self.op)?;
-        if self.bool_modifier {
-            write!(f, " bool")?;
-        }
-        if let Some(modifier) = &self.group_modifier {
-            write!(f, " {}", modifier)?;
-        }
-        if let Some(modifier) = &self.join_modifier {
-            write!(f, " {}", modifier)?;
-        }
+        write!(f, "{}", self.get_op_matching_string())?;
         write!(f, " ")?;
         if self.need_right_parens() {
             write!(f, "({})", self.right)?;
@@ -985,6 +984,13 @@ impl BinaryExpr {
             write!(f, "{}", self.right)?
         }
         Ok(())
+    }
+
+    fn get_op_matching_string(&self) -> String {
+        match &self.modifier {
+            Some(modifier) => format!("{}{modifier}", self.op),
+            None => self.op.to_string(),
+        }
     }
 }
 
@@ -1000,7 +1006,7 @@ fn need_binary_op_arg_parens(arg: &Expr) -> bool {
         Expr::BinaryOperator(_) => true,
         Expr::Rollup(re) => {
             if let Expr::BinaryOperator(be) = &*re.expr {
-                return be.keep_metric_names;
+                return be.keep_metric_names();
             }
             re.offset.is_some() || re.at.is_some()
         }
@@ -1010,7 +1016,7 @@ fn need_binary_op_arg_parens(arg: &Expr) -> bool {
 
 impl Display for BinaryExpr {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        if self.keep_metric_names {
+        if self.keep_metric_names() {
             write!(f, "(")?;
             self.fmt_no_keep_metric_name(f)?;
             write!(f, ") keep_metric_names")?;
@@ -1470,11 +1476,7 @@ impl Expr {
             left: Box::new(lhs),
             right: Box::new(rhs),
             op,
-            bool_modifier: false,
-            keep_metric_names: false,
-            group_modifier: None,
             modifier,
-            join_modifier: None,
         };
         Ok(Expr::BinaryOperator(ex))
     }
@@ -1568,7 +1570,9 @@ impl From<&str> for Expr {
 
 pub(crate) fn binary_expr(left: Expr, op: Operator, right: Expr) -> Expr {
     let mut expr = BinaryExpr::new(op, left, right);
-    expr.bool_modifier = op.is_comparison();
+    if op.is_comparison() {
+        expr = expr.with_bool_modifier();
+    }
     Expr::BinaryOperator(expr)
 }
 
@@ -1646,4 +1650,9 @@ fn intersection(labels_a: &Vec<String>, labels_b: &Vec<String>) -> Vec<String> {
         .intersection(&unique_b)
         .cloned()
         .collect::<Vec<_>>()
+}
+
+fn are_floats_equal(left: f64, right: f64) -> bool {
+    // Special handling for nan == nan.
+    left == right || left.is_nan() && right.is_nan()
 }

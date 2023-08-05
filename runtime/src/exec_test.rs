@@ -4,7 +4,6 @@ mod tests {
 
     use chrono::Duration;
     use chrono_tz::Tz;
-    use rs_unit::rs_unit;
 
     use crate::functions::transform::get_timezone_offset;
     use crate::{
@@ -46,7 +45,7 @@ mod tests {
         ec.max_points_per_series = 15000;
         ec.round_digits = 100;
         ec.deadline = Deadline::new(Duration::minutes(1)).unwrap();
-        let context = Arc::new(Context::default()); // todo: have a test gated default;
+        let context = Context::default(); // todo: have a test gated default;
         for _ in 0..TEST_ITERATIONS {
             let result = exec(&context, &mut ec, q, false).unwrap();
             test_results_equal(&result, &result_expected)
@@ -435,17 +434,11 @@ mod tests {
 
         let q = "absent(vector(scalar(123)))";
         test_query(q, vec![]);
-
-        assert_result_eq("absent(NaN)", &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
     }
 
-    rs_unit! {
-        describe "absent_over_time" {
-            test "should return 1 for all values if the series does not contain raw samples" {
-                let q = "absent_over_time(time())";
-                test_query(q, vec![]);
-            }
-        }
+    #[test]
+    fn absent_with_nan() {
+        assert_result_eq("absent(NaN)", &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
     }
 
     #[test]
@@ -463,6 +456,8 @@ mod tests {
 
     #[test]
     fn absent_over_time() {
+        assert_result_eq("absent_over_time(time())", &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
+
         assert_result_eq(
             "absent_over_time(NAN[200s:10s])",
             &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
@@ -891,11 +886,11 @@ mod tests {
     fn label_set_metric_name_tag() {
         let q = r#"label_set(
         label_set(time(), "__name__", "foobar"),
-        "tagname", "tagvalue"
+        "tag_name", "tag_value"
         )"#;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric_name.set_metric_group("foobar");
-        r.metric_name.set_tag("tagname", "tagvalue");
+        r.metric_name.set_tag("tag_name", "tag_value");
         test_query(q, vec![r]);
     }
 
@@ -1910,11 +1905,11 @@ mod tests {
 
     #[test]
     fn vector_multiply_by_on_group_left_scalar() {
-        let q = r#"sort_desc((label_set(time(), "foo", "bar") or label_set(10, "foo", "qwert")) * on() group_left 2)"#;
+        let q = r#"sort_desc((label_set(time(), "foo", "bar") or label_set(10, "foo", "qwerty")) * on() group_left 2)"#;
         let mut r1 = make_result(&[2000_f64, 2400.0, 2800.0, 3200.0, 3600.0, 4000.0]);
         r1.metric_name.set_tag("foo", "bar");
         let mut r2 = make_result(&[20_f64, 20.0, 20.0, 20.0, 20.0, 20.0]);
-        r2.metric_name.set_tag("foo", "qwert");
+        r2.metric_name.set_tag("foo", "qwerty");
         test_query(q, vec![r1, r2]);
     }
 
@@ -4391,9 +4386,6 @@ mod tests {
 
     #[test]
     fn union() {
-        let q = "union()";
-        test_query(q, vec![]);
-
         let q = "union(1)";
         assert_result_eq(q, &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
     }

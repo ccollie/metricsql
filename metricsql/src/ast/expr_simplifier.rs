@@ -206,12 +206,9 @@ impl ConstEvaluator {
         // at plan time
         match expr {
             Expr::Aggregation(..) | Expr::MetricExpression(..) | Expr::Rollup(_) => false,
-            Expr::Parens(_) => false,
+            Expr::Parens(_) => true,
             // only handle immutable scalar functions
-            Expr::Function(FunctionExpr { function, .. }) => match function {
-                BuiltinFunction::Transform(_) => Self::volatility_ok(function.volatility()),
-                _ => false,
-            },
+            Expr::Function(_) => true,
             Expr::Number(_) | Expr::StringLiteral(_) | Expr::BinaryOperator(_) => true,
             Expr::Duration(de) => !de.requires_step(),
             Expr::StringExpr(se) => !se.is_expanded(),
@@ -230,6 +227,10 @@ impl ConstEvaluator {
     }
 
     fn handle_binary_expr(be: BinaryExpr) -> ParseResult<Expr> {
+        let is_bool = be.returns_bool();
+        // let temp = format!("{} {} {}", be.left, be.op, be.right);
+        // println!("{}", temp);
+
         match (be.left.as_ref(), be.right.as_ref(), be.op) {
             (Expr::Duration(ln), Expr::Duration(rn), op)
                 if op == Operator::Add || op == Operator::Sub =>
@@ -240,14 +241,13 @@ impl ConstEvaluator {
                             *left_val as f64,
                             *right_val as f64,
                             op,
-                            be.bool_modifier,
+                            is_bool,
                         )? as i64;
                         let dur = DurationExpr::new(n);
                         return Ok(Expr::Duration(dur));
                     }
                     (DurationExpr::StepValue(left_val), DurationExpr::StepValue(right_val)) => {
-                        let n =
-                            scalar_binary_operation(*left_val, *right_val, op, be.bool_modifier)?;
+                        let n = scalar_binary_operation(*left_val, *right_val, op, is_bool)?;
                         let dur = DurationExpr::new_step(n);
                         return Ok(Expr::Duration(dur));
                     }
@@ -259,13 +259,12 @@ impl ConstEvaluator {
                 if !ln.requires_step() && (op == Operator::Add || op == Operator::Sub) =>
             {
                 let secs = *value * 1e3_f64;
-                let n =
-                    scalar_binary_operation(ln.value(1) as f64, secs, op, be.bool_modifier)? as i64;
+                let n = scalar_binary_operation(ln.value(1) as f64, secs, op, is_bool)? as i64;
                 let dur = DurationExpr::new(n);
                 return Ok(Expr::Duration(dur));
             }
             (Expr::Number(ln), Expr::Number(rn), op) => {
-                let n = scalar_binary_operation(ln.value, rn.value, op, be.bool_modifier)?;
+                let n = scalar_binary_operation(ln.value, rn.value, op, is_bool)?;
                 return Ok(Expr::from(n));
             }
             (Expr::StringLiteral(left), Expr::StringLiteral(right), op) => {
@@ -276,7 +275,7 @@ impl ConstEvaluator {
                     return Ok(Expr::from(res));
                 }
                 if op.is_comparison() {
-                    let n = string_compare(left, right, op, be.bool_modifier)?;
+                    let n = string_compare(left, right, op, is_bool)?;
                     return Ok(Expr::from(n));
                 }
             }
@@ -477,10 +476,6 @@ impl TreeNodeRewriter for Simplifier {
         let new_expr = match expr {
             Expr::Parens(pe) => simplify_parens(pe),
             Expr::BinaryOperator(BinaryExpr {
-                bool_modifier,
-                keep_metric_names,
-                group_modifier,
-                join_modifier,
                 left,
                 right,
                 op,
@@ -509,10 +504,6 @@ impl TreeNodeRewriter for Simplifier {
                     {
                         let two = Expr::from(2.0);
                         Expr::BinaryOperator(BinaryExpr {
-                            bool_modifier,
-                            keep_metric_names,
-                            group_modifier,
-                            join_modifier,
                             right: Box::new(two),
                             left,
                             op: Mul,
@@ -574,7 +565,8 @@ impl TreeNodeRewriter for Simplifier {
                     Div if is_zero(&right) => {
                         // if we have an instant vector or sample, check if we need to maintain
                         // the label set
-                        let mut should_keep_metric_names = keep_metric_names;
+                        let mut should_keep_metric_names =
+                            matches!(&modifier, Some(modifier) if modifier.keep_metric_names);
                         if !should_keep_metric_names {
                             if let Expr::Function(fe) = &left.as_ref() {
                                 if fe.keep_metric_names {
@@ -586,10 +578,6 @@ impl TreeNodeRewriter for Simplifier {
                         }
                         if should_keep_metric_names {
                             return Ok(Expr::BinaryOperator(BinaryExpr {
-                                bool_modifier,
-                                keep_metric_names,
-                                group_modifier,
-                                join_modifier,
                                 left,
                                 right,
                                 op,
@@ -617,10 +605,6 @@ impl TreeNodeRewriter for Simplifier {
                     Mod if left == right => Expr::from(0.0), // what is nan % nan?
                     // no additional rewrites possible
                     _ => Expr::BinaryOperator(BinaryExpr {
-                        bool_modifier,
-                        keep_metric_names,
-                        group_modifier,
-                        join_modifier,
                         left,
                         right,
                         op,

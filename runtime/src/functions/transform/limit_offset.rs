@@ -1,4 +1,4 @@
-use crate::eval::utils::remove_empty_series;
+use crate::exec::remove_empty_series;
 use crate::functions::arg_parse::{get_int_arg, get_series_arg};
 use crate::functions::transform::TransformFuncArg;
 use crate::{RuntimeError, RuntimeResult, Timeseries};
@@ -10,8 +10,7 @@ pub(crate) fn limit_offset(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Time
     match tfa.args[0].get_int() {
         Err(e) => {
             return Err(RuntimeError::ArgumentError(format!(
-                "cannot obtain limit arg: {:?}",
-                e
+                "cannot obtain limit arg: {e:?}"
             )));
         }
         Ok(l) => {

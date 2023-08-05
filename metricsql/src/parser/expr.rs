@@ -2,15 +2,14 @@ use std::str::FromStr;
 
 use crate::ast::{BinaryExpr, Expr};
 use crate::common::{
-    GroupModifier, GroupModifierOp, JoinModifier, JoinModifierOp, Operator, StringExpr, ValueType,
+    BinModifier, Labels, Operator, StringExpr, ValueType, VectorMatchCardinality,
+    VectorMatchModifier,
 };
 use crate::functions::AggregateFunction;
 use crate::parser::function::parse_func_expr;
 use crate::parser::parse_error::unexpected;
 use crate::parser::tokens::Token;
-use crate::parser::{
-    extract_string_value, parse_number, unescape_ident, ParseError, ParseResult, Parser,
-};
+use crate::parser::{extract_string_value, parse_number, unescape_ident, ParseResult, Parser};
 
 use super::aggregation::parse_aggr_func_expr;
 use super::rollup::parse_rollup_expr;
@@ -72,21 +71,19 @@ pub(super) fn parse_expression(p: &mut Parser) -> ParseResult<Expr> {
 
         p.bump();
 
-        let mut is_bool = false;
+        let mut modifier = BinModifier::default();
+
         if right_scalar.is_none() && p.at(&Token::Bool) {
             if !operator.is_comparison() {
                 let msg = format!("bool modifier cannot be applied to {operator}");
                 return Err(p.syntax_error(&msg));
             }
-            is_bool = true;
+            modifier.return_bool = true;
             p.bump();
         }
 
-        let mut group_modifier: Option<GroupModifier> = None;
-        let mut join_modifier: Option<JoinModifier> = None;
-
         if p.at_set(&[Token::On, Token::Ignoring]) {
-            group_modifier = Some(parse_group_modifier(p)?);
+            parse_vector_match_modifier(p, &mut modifier)?;
             // join modifier
             let token = p.current_token()?;
             if [Token::GroupLeft, Token::GroupRight].contains(&token.kind) {
@@ -94,8 +91,7 @@ pub(super) fn parse_expression(p: &mut Parser) -> ParseResult<Expr> {
                     let msg = format!("modifier {} cannot be applied to {operator}", token.text);
                     return Err(p.syntax_error(&msg));
                 }
-                let join = parse_join_modifier(p)?;
-                join_modifier = Some(join);
+                parse_vector_match_cardinality(p, &mut modifier)?;
             }
         }
 
@@ -105,65 +101,34 @@ pub(super) fn parse_expression(p: &mut Parser) -> ParseResult<Expr> {
             parse_single_expr(p)?
         };
 
-        let mut keep_metric_names = false;
         if p.at(&Token::KeepMetricNames) {
             p.bump();
-            keep_metric_names = true;
+            modifier.keep_metric_names = true;
         }
 
-        left = balance(
-            left,
-            operator,
-            right,
-            group_modifier,
-            join_modifier,
-            is_bool,
-            keep_metric_names,
-        )?;
+        left = balance(left, operator, right, &mut modifier)?;
     }
 
     Ok(left)
 }
 
 // see https://github.com/influxdata/promql/blob/eb8f592be73d3164ad7a723b9f3d6a7f565ca780/parse.go#L425
-fn balance(
-    lhs: Expr,
-    op: Operator,
-    rhs: Expr,
-    group_modifier: Option<GroupModifier>,
-    join_modifier: Option<JoinModifier>,
-    return_bool: bool,
-    keep_metric_names: bool,
-) -> ParseResult<Expr> {
+fn balance(lhs: Expr, op: Operator, rhs: Expr, modifier: &mut BinModifier) -> ParseResult<Expr> {
     if let Expr::BinaryOperator(lhs_be) = &lhs {
         let precedence = lhs_be.op.precedence() as i16 - op.precedence() as i16;
         if (precedence < 0) || (precedence == 0 && op.is_right_associative()) {
             let right = lhs_be.right.as_ref().clone();
-            let balanced = balance(
-                right,
-                op,
-                rhs,
-                group_modifier,
-                join_modifier,
-                return_bool,
-                keep_metric_names,
-            )?;
-
-            // validate_scalar_op(&lhs_be.left,
-            //                    &balanced,
-            //                    lhs_be.op,
-            //                    lhs_be.bool_modifier)?;
+            let balanced = balance(right, op, rhs, modifier)?;
 
             let expr = BinaryExpr {
-                op: lhs_be.op,
-                left: lhs_be.left.clone(),
+                left: Box::new(Expr::BinaryOperator(lhs_be.clone())),
                 right: Box::new(balanced),
-                join_modifier: lhs_be.join_modifier.clone(),
-                group_modifier: lhs_be.group_modifier.clone(),
-                bool_modifier: lhs_be.bool_modifier,
-                modifier: None,
-                keep_metric_names: lhs_be.keep_metric_names,
+                op: lhs_be.op,
+                modifier: Some(std::mem::take(modifier)),
             };
+            // if !modifier.is_default() {
+            //     expr.modifier = Some(std::mem::take(modifier));
+            // }
             return Ok(Expr::BinaryOperator(expr));
         }
     }
@@ -171,14 +136,10 @@ fn balance(
     // validate_scalar_op(&lhs, &rhs, op, return_bool)?;
 
     let expr = BinaryExpr {
-        op,
         left: Box::new(lhs),
         right: Box::new(rhs),
-        join_modifier,
-        group_modifier,
-        bool_modifier: return_bool,
-        modifier: None,
-        keep_metric_names,
+        op,
+        modifier: Some(std::mem::take(modifier)),
     };
 
     Ok(Expr::BinaryOperator(expr))
@@ -218,39 +179,36 @@ fn balance_binary_op(be: BinaryExpr) -> Expr {
     Expr::BinaryOperator(be)
 }
 
-fn parse_group_modifier(p: &mut Parser) -> Result<GroupModifier, ParseError> {
+fn parse_vector_match_modifier(p: &mut Parser, modifier: &mut BinModifier) -> ParseResult<()> {
     let tok = p.expect_one_of(&[Token::Ignoring, Token::On])?;
+    let kind = tok.kind;
+    let labels = p.parse_ident_list()?;
 
-    let op: GroupModifierOp = match tok.kind {
-        Token::Ignoring => GroupModifierOp::Ignoring,
-        Token::On => GroupModifierOp::On,
-        _ => unreachable!(),
-    };
+    modifier.matching = Some(VectorMatchModifier::new(labels, kind == Token::On));
 
-    let mut args = p.parse_ident_list()?;
-    args.sort();
-
-    Ok(GroupModifier::new(op, args))
+    Ok(())
 }
 
-fn parse_join_modifier(p: &mut Parser) -> ParseResult<JoinModifier> {
+fn parse_vector_match_cardinality(p: &mut Parser, modifier: &mut BinModifier) -> ParseResult<()> {
     let tok = p.expect_one_of(&[Token::GroupLeft, Token::GroupRight])?;
+    let kind = tok.kind;
 
-    let op = match tok.kind {
-        Token::GroupLeft => JoinModifierOp::GroupLeft,
-        Token::GroupRight => JoinModifierOp::GroupRight,
-        _ => unreachable!(),
-    };
-
-    let mut labels = if !p.at(&Token::LeftParen) {
+    let labels = if !p.at(&Token::LeftParen) {
         // join modifier may ignore ident list.
         vec![]
     } else {
         p.parse_ident_list()?
     };
 
-    labels.sort();
-    Ok(JoinModifier::new(op, labels))
+    let label_set = Labels::from(labels);
+
+    modifier.card = match kind {
+        Token::GroupLeft => VectorMatchCardinality::ManyToOne(label_set),
+        Token::GroupRight => VectorMatchCardinality::OneToMany(label_set),
+        _ => unreachable!(),
+    };
+
+    Ok(())
 }
 
 pub(super) fn parse_single_expr_without_rollup_suffix(p: &mut Parser) -> ParseResult<Expr> {

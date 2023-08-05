@@ -9,7 +9,8 @@ use crate::ast::{
     WithArgExpr, WithExpr,
 };
 use crate::common::{
-    AggregateModifier, GroupModifier, JoinModifier, LabelFilter, StringExpr, StringSegment,
+    AggregateModifier, LabelFilter, Labels, StringExpr, StringSegment, VectorMatchCardinality,
+    VectorMatchModifier,
 };
 use crate::parser::symbol_provider::SymbolProviderRef;
 use crate::parser::{syntax_error, ParseError, ParseResult};
@@ -113,17 +114,36 @@ fn expand_binary_operator(
     be.left = expand_with_expr_box(symbols, was, be.left)?;
     be.right = expand_with_expr_box(symbols, was, be.right)?;
 
-    if let Some(modifier) = &be.group_modifier {
-        let labels = expand_modifier_args(symbols, was, &modifier.labels)?;
-        if labels != modifier.labels {
-            be.group_modifier = Some(GroupModifier::new(modifier.op, labels));
-        }
-    }
+    if let Some(modifier) = &mut be.modifier {
+        if let Some(matching) = &mut modifier.matching {
+            match matching {
+                VectorMatchModifier::On(labels) => {
+                    let new_labels = expand_modifier_args(symbols, was, labels.as_ref())?;
+                    if labels != &new_labels {
+                        *labels = Labels::from_iter(new_labels);
+                    }
+                }
+                VectorMatchModifier::Ignoring(labels) => {
+                    let new_labels = expand_modifier_args(symbols, was, labels.as_ref())?;
+                    if labels != &new_labels {
+                        *labels = Labels::from_iter(new_labels);
+                    }
+                }
+            }
 
-    if let Some(ref modifier) = &be.join_modifier {
-        let labels = expand_modifier_args(symbols, was, &modifier.labels)?;
-        if labels != modifier.labels {
-            be.join_modifier = Some(JoinModifier::new(modifier.op, labels));
+            match &modifier.card {
+                VectorMatchCardinality::ManyToOne(labels) => {
+                    let new_labels = expand_modifier_args(symbols, was, labels.as_ref())?;
+                    modifier.card =
+                        VectorMatchCardinality::ManyToOne(Labels::from_iter(new_labels));
+                }
+                VectorMatchCardinality::OneToMany(labels) => {
+                    let new_labels = expand_modifier_args(symbols, was, labels.as_ref())?;
+                    modifier.card =
+                        VectorMatchCardinality::ManyToOne(Labels::from_iter(new_labels));
+                }
+                _ => {}
+            }
         }
     }
 

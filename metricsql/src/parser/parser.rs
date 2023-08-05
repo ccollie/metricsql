@@ -393,7 +393,7 @@ impl<'a> Parser<'a> {
             if let Expr::BinaryOperator(be) = list[0].borrow_mut() {
                 if self.at(&Token::KeepMetricNames) {
                     self.bump();
-                    be.keep_metric_names = true;
+                    be.set_keep_metric_names();
                 }
             }
         }

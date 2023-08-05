@@ -172,12 +172,12 @@ pub(crate) fn median(values: &[f64]) -> f64 {
 
 pub(crate) fn mad(values: &[f64]) -> f64 {
     // See https://en.wikipedia.org/wiki/Median_absolute_deviation
-    let median = quantile(0.5, values);
+    let med = median(values);
     let mut ds = get_pooled_vec_f64(values.len());
     for v in values.iter() {
-        ds.push((v - median).abs())
+        ds.push((v - med).abs())
     }
-    quantile(0.5, &ds)
+    median(&ds)
 }
 
 pub(crate) fn linear_regression(

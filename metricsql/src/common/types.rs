@@ -1,4 +1,3 @@
-use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
 use std::fmt;
 use std::fmt::{Display, Formatter};
@@ -6,9 +5,8 @@ use std::fmt::{Display, Formatter};
 use serde::{Deserialize, Serialize};
 
 use crate::common::write_comma_separated;
+use crate::common::Labels;
 use crate::parser::ParseError;
-
-pub type Labels = BTreeSet<String>;
 
 /// Matching Modifier, for VectorMatching of binary expr.
 /// Label lists provided to matching keywords will determine how vectors are combined.
@@ -31,11 +29,11 @@ impl Display for VectorMatchModifier {
 
 impl VectorMatchModifier {
     pub fn new(labels: Vec<String>, is_on: bool) -> Self {
-        let labels = BTreeSet::from_iter(labels);
+        let names = Labels::from_iter(labels);
         if is_on {
-            VectorMatchModifier::On(labels)
+            VectorMatchModifier::On(names)
         } else {
-            VectorMatchModifier::Ignoring(labels)
+            VectorMatchModifier::Ignoring(names)
         }
     }
 
@@ -62,7 +60,11 @@ pub struct BinModifier {
     /// like a + b, no match modifier is needed.
     pub matching: Option<VectorMatchModifier>,
 
+    /// If keep_metric_names is set to true, then the operation should keep metric names.
+    pub keep_metric_names: bool,
+
     /// If a comparison operator, return 0/1 rather than filtering.
+    /// For example, `foo > bool bar`.
     pub return_bool: bool,
 }
 
@@ -71,6 +73,7 @@ impl Default for BinModifier {
         Self {
             card: VectorMatchCardinality::OneToOne,
             matching: None,
+            keep_metric_names: false,
             return_bool: false,
         }
     }
@@ -95,15 +98,21 @@ impl BinModifier {
         self
     }
 
-    pub fn is_labels_joint(&self) -> bool {
-        matches!((self.card.labels(), &self.matching),
-                 (Some(labels), Some(matching)) if !matching.labels().is_disjoint(labels))
+    pub fn with_keep_metric_names(mut self, keep_metric_names: bool) -> Self {
+        self.keep_metric_names = keep_metric_names;
+        self
     }
 
-    pub fn intersect_labels(&self) -> Option<Vec<&String>> {
+    pub fn is_labels_joint(&self) -> bool {
+        matches!((self.card.labels(), &self.matching),
+                 (Some(labels), Some(matching)) if !labels.is_joint(matching.labels()))
+    }
+
+    pub fn intersect_labels(&self) -> Option<Vec<String>> {
         if let Some(labels) = self.card.labels() {
             if let Some(matching) = &self.matching {
-                return Some(matching.labels().intersection(labels).collect());
+                let res = labels.intersect(matching.labels());
+                return Some(res.0);
             }
         };
         None
@@ -115,6 +124,13 @@ impl BinModifier {
 
     pub fn is_matching_labels_not_empty(&self) -> bool {
         matches!(&self.matching, Some(matching) if !matching.labels().is_empty())
+    }
+
+    pub fn is_default(&self) -> bool {
+        self.card == VectorMatchCardinality::OneToOne
+            && self.matching.is_none()
+            && !self.keep_metric_names
+            && !self.return_bool
     }
 }
 
@@ -146,6 +162,9 @@ impl Display for BinModifier {
                     write_comma_separated(labels.iter(), f, true)?;
                 }
             }
+        }
+        if self.keep_metric_names {
+            write!(f, " keep_metric_names")?;
         }
         Ok(())
     }
@@ -379,6 +398,13 @@ impl VectorMatchCardinality {
 
     pub fn is_group_right(&self) -> bool {
         matches!(self, VectorMatchCardinality::OneToMany(_))
+    }
+
+    pub fn is_grouping(&self) -> bool {
+        matches!(
+            self,
+            VectorMatchCardinality::ManyToOne(_) | VectorMatchCardinality::OneToMany(_)
+        )
     }
 
     pub fn labels(&self) -> Option<&Labels> {

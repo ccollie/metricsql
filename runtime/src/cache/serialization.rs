@@ -125,6 +125,7 @@ pub(crate) fn deserialize_series_between(
 ) -> RuntimeResult<Vec<Timeseries>> {
     let mut t_decompressor = Decompressor::<i64>::default();
 
+    #[allow(unused_assignments)]
     let mut size: usize = 0;
 
     // read timestamp metadata
@@ -168,6 +169,7 @@ pub(crate) fn deserialize_series_between(
         (compressed, size) = read_usize(compressed, "data length")?;
         let n = size;
 
+        #[allow(unused_assignments)]
         let mut ts: i64 = 0;
 
         (compressed, ts) = read_timestamp(compressed)?;

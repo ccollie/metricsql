@@ -180,7 +180,7 @@ fn transform_label_copy_ext(
     let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
     for ts in series.iter_mut() {
         for (src_label, dst_label) in src_labels.iter().zip(dst_labels.iter()) {
-            let value = ts.metric_name.get_tag_value(src_label);
+            let value = ts.metric_name.tag_value(src_label);
             if value.is_none() {
                 continue;
             }
@@ -223,7 +223,7 @@ pub(crate) fn label_join(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timese
         dst_value.clear(); //??? test this
 
         for (j, src_label) in src_labels.iter().enumerate() {
-            if let Some(src_value) = ts.metric_name.get_tag_value(src_label) {
+            if let Some(src_value) = ts.metric_name.tag_value(src_label) {
                 dst_value.push_str(src_value);
             }
             if j + 1 < src_labels.len() {
@@ -285,7 +285,7 @@ fn handle_label_replace(
     replacement: &str,
 ) -> RuntimeResult<Vec<Timeseries>> {
     for ts in tss.iter_mut() {
-        let src_value = ts.metric_name.get_tag_value(src_label);
+        let src_value = ts.metric_name.tag_value(src_label);
 
         // note: we can have a match-all regex like `.*` which will match an empty string
         let haystack = if let Some(v) = src_value {
@@ -321,19 +321,21 @@ fn handle_label_replace(
 
 pub(crate) fn label_value(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let label_name = get_string_arg(&tfa.args, 1)?;
-    let mut x: f64;
 
     let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
     for ts in series.iter_mut() {
         ts.metric_name.reset_metric_group();
-        if let Some(label_value) = ts.metric_name.get_tag_value(&label_name) {
-            x = match label_value.parse::<f64>() {
+        let v = match ts.metric_name.tag_value(&label_name) {
+            Some(v) => match v.parse::<f64>() {
                 Ok(v) => v,
                 Err(..) => f64::NAN,
-            };
+            },
+            None => f64::NAN,
+        };
 
-            for val in ts.values.iter_mut() {
-                *val = x;
+        for val in ts.values.iter_mut() {
+            if !val.is_nan() {
+                *val = v;
             }
         }
     }
@@ -368,7 +370,7 @@ pub(crate) fn label_match(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Times
     process_anchored_regex(tfa, &label_re, move |tfa, r| {
         let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
         series.retain(|ts| {
-            if let Some(label_value) = ts.metric_name.get_tag_value(&label_name) {
+            if let Some(label_value) = ts.metric_name.tag_value(&label_name) {
                 r.is_match(label_value)
             } else {
                 false
@@ -386,7 +388,7 @@ pub(crate) fn label_mismatch(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Ti
         let label_name = get_label(tfa, "", 1)?;
         let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
         series.retain(|ts| {
-            if let Some(label_value) = ts.metric_name.get_tag_value(&label_name) {
+            if let Some(label_value) = ts.metric_name.tag_value(&label_name) {
                 !r.is_match(label_value)
             } else {
                 false
@@ -478,7 +480,7 @@ fn get_string_pairs(
 }
 
 fn get_tag_value(mn: &MetricName, dst_label: &str) -> String {
-    match mn.get_tag_value(dst_label) {
+    match mn.tag_value(dst_label) {
         Some(val) => val.to_owned(),
         None => "".to_string(),
     }

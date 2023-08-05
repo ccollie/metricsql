@@ -20,6 +20,7 @@ extern crate rs_unit;
 extern crate scopeguard;
 #[macro_use]
 extern crate tinyvec;
+extern crate topologic;
 #[cfg(feature = "xxh64")]
 extern crate xxhash_rust;
 

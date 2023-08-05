@@ -8,10 +8,11 @@ use crate::functions::arg_parse::{
 };
 use crate::functions::transform::utils::copy_timeseries;
 use crate::functions::transform::TransformFuncArg;
+use crate::signature::Signature;
 use crate::{MetricName, QueryValue, RuntimeError, RuntimeResult, Timeseries};
 
 pub(crate) fn buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let mut limit = get_int_arg(&tfa.args, 1)?;
+    let mut limit = get_int_arg(&tfa.args, 0)?;
 
     if limit <= 0 {
         return Ok(vec![]);
@@ -34,39 +35,32 @@ pub(crate) fn buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
     struct Bucket {
         le: f64,
         hits: f64,
-        ts_index: usize,
+        ts: Timeseries,
     }
 
-    let mut bucket_map: HashMap<String, Vec<Bucket>> = HashMap::new();
+    let mut bucket_map: HashMap<Signature, Vec<Bucket>> = HashMap::new();
 
     let mut mn: MetricName = MetricName::default();
+    let empty_str = "".to_string();
 
-    for (ts_index, ts) in tss.iter().enumerate() {
-        let le_str = ts.metric_name.get_tag_value("le");
+    for ts in tss.into_iter() {
+        let le_str = ts.metric_name.tag_value("le").unwrap_or(&empty_str);
 
         // Skip time series without `le` tag.
-        match le_str {
-            None => continue,
-            Some(le_str) => {
-                if le_str.is_empty() {
-                    continue;
-                }
-            }
+        if le_str.is_empty() {
+            continue;
         }
-
-        let le_str = le_str.unwrap();
 
         if let Ok(le) = le_str.parse::<f64>() {
             mn.copy_from(&ts.metric_name);
             mn.remove_tag("le");
 
-            let key = ts.metric_name.to_string();
+            let key = ts.metric_name.signature();
 
-            bucket_map.entry(key).or_default().push(Bucket {
-                le,
-                hits: 0.0,
-                ts_index,
-            });
+            bucket_map
+                .entry(key)
+                .or_default()
+                .push(Bucket { le, hits: 0.0, ts });
         } else {
             // Skip time series with invalid `le` tag.
             continue;
@@ -79,10 +73,13 @@ pub(crate) fn buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
         if le_group.len() <= limit as usize {
             // Fast path - the number of buckets doesn't exceed the given limit.
             // Keep all the buckets as is.
+
+            // To properly remove items by index, we need to do it in reverse order.
             let series = le_group
-                .iter_mut()
-                .map(|x| tss.remove(x.ts_index))
+                .into_iter()
+                .map(|x| std::mem::take(&mut x.ts))
                 .collect::<Vec<_>>();
+
             rvs.extend(series);
             continue;
         }
@@ -93,11 +90,9 @@ pub(crate) fn buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
         for n in 0..points_count {
             let mut prev_value: f64 = 0.0;
             for bucket in le_group.iter_mut() {
-                if let Some(ts) = tss.get(bucket.ts_index) {
-                    let value = ts.values[n];
-                    bucket.hits += value - prev_value;
-                    prev_value = value
-                }
+                let value = bucket.ts.values[n];
+                bucket.hits += value - prev_value;
+                prev_value = value
             }
         }
         while le_group.len() > limit as usize {
@@ -118,8 +113,8 @@ pub(crate) fn buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
         }
 
         let ts_iter = le_group
-            .iter_mut()
-            .map(|x| tss.remove(x.ts_index))
+            .into_iter()
+            .map(|bucket| std::mem::take(&mut bucket.ts))
             .collect::<Vec<Timeseries>>();
 
         rvs.extend(ts_iter);
@@ -169,13 +164,13 @@ pub(crate) fn vmrange_buckets_to_le(tss: Vec<Timeseries>) -> Vec<Timeseries> {
     let mut buckets: HashMap<String, Vec<Bucket>> = HashMap::new();
 
     for ts in tss.into_iter() {
-        let vm_range = match ts.metric_name.get_tag_value("vmrange") {
+        let vm_range = match ts.metric_name.tag_value("vmrange") {
             Some(value) => value,
             None => "",
         };
 
         if vm_range.is_empty() {
-            if let Some(le) = ts.metric_name.get_tag_value("le") {
+            if let Some(le) = ts.metric_name.tag_value("le") {
                 if !le.is_empty() {
                     // Keep Prometheus-compatible buckets.
                     rvs.push(ts);
@@ -555,7 +550,6 @@ pub(crate) fn histogram_quantiles(tfa: &mut TransformFuncArg) -> RuntimeResult<V
 
     let mut tfa_tmp = TransformFuncArg {
         ec: tfa.ec,
-        fe: tfa.fe,
         args: vec![],
         keep_metric_names: tfa.keep_metric_names,
     };
@@ -563,7 +557,7 @@ pub(crate) fn histogram_quantiles(tfa: &mut TransformFuncArg) -> RuntimeResult<V
     for i in 1..len - 1 {
         let phi_arg = get_float_arg(&tfa.args, i, Some(0_f64))?;
         if !(0.0..=1.0).contains(&phi_arg) {
-            let msg = "got unexpected phi arg. it should contain only numbers in the range [0..1]";
+            let msg = "got unexpected phi arg. It should contain only numbers in the range [0..1]";
             return Err(RuntimeError::ArgumentError(msg.to_string()));
         }
         let phi_str = phi_arg.to_string();
@@ -726,7 +720,7 @@ fn group_le_timeseries(tss: &mut [Timeseries]) -> HashMap<String, Vec<LeTimeseri
     let mut m: HashMap<String, Vec<LeTimeseries>> = HashMap::new();
 
     for ts in tss.iter_mut() {
-        if let Some(tag_value) = ts.metric_name.get_tag_value("le") {
+        if let Some(tag_value) = ts.metric_name.tag_value("le") {
             if tag_value.is_empty() {
                 continue;
             }

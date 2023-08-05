@@ -53,8 +53,17 @@ pub(crate) fn transform_pi(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Time
 
 pub(crate) fn sgn(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let tf = |values: &mut [f64]| {
+        let mut zero = 0.0f64;
         for v in values {
-            *v = v.signum();
+            if let Some(value) = v.partial_cmp(&&mut zero) {
+                *v = match value {
+                    std::cmp::Ordering::Less => -1.0f64,
+                    std::cmp::Ordering::Equal => 0.0f64,
+                    std::cmp::Ordering::Greater => 1.0f64,
+                }
+            } else {
+                *v = f64::NAN;
+            }
         }
     };
 

@@ -11,7 +11,9 @@ use crate::functions::MAX_ARG_COUNT;
 use crate::parser::ParseError;
 
 /// Built-in Rollup Functions
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Hash, EnumIter, Serialize, Deserialize)]
+#[derive(
+    Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Hash, Default, EnumIter, Serialize, Deserialize,
+)]
 pub enum RollupFunction {
     AbsentOverTime,
     AggrOverTime,
@@ -25,6 +27,7 @@ pub enum RollupFunction {
     CountNeOverTime,
     CountOverTime,
     DecreasesOverTime,
+    #[default]
     DefaultRollup,
     Delta,
     DeltaPrometheus,
@@ -393,6 +396,7 @@ static FUNCTION_MAP: phf::Map<&'static str, RollupFunction> = phf_map! {
     "rollup_rate" => RollupFunction::RollupRate,
     "rollup_scrape_interval" => RollupFunction::RollupScrapeInterval,
     "scrape_interval" => RollupFunction::ScrapeInterval,
+    "share_eq_over_time" => RollupFunction::ShareEqOverTime,
     "share_gt_over_time" => RollupFunction::ShareGtOverTime,
     "share_le_over_time" => RollupFunction::ShareLeOverTime,
     "stale_samples_over_time" => RollupFunction::StaleSamplesOverTime,

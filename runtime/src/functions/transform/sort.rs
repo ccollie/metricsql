@@ -42,8 +42,24 @@ fn transform_sort_impl(
         let iter_a = a.iter().rev();
         let iter_b = b.iter().rev();
 
+        // Note: we handle NaN manually instead of relying on total_cmp because of
+        // its handling of negative and positive NaNs. We want to treat them as equal.
         for (x, y) in iter_a.zip(iter_b) {
-            if !x.is_nan() && !y.is_nan() && x != y {
+            if (x.is_nan() && y.is_nan()) || (x == y) {
+                continue;
+            } else if x.is_nan() {
+                return if is_desc {
+                    Ordering::Greater
+                } else {
+                    Ordering::Less
+                };
+            } else if y.is_nan() {
+                return if is_desc {
+                    Ordering::Less
+                } else {
+                    Ordering::Greater
+                };
+            } else {
                 return if is_desc {
                     y.total_cmp(x)
                 } else {
@@ -68,8 +84,8 @@ fn sort_by_label_impl(tfa: &mut TransformFuncArg, is_desc: bool) -> RuntimeResul
 
     series.sort_by(|first, second| {
         for label in labels.iter() {
-            let a = first.metric_name.get_tag_value(label);
-            let b = second.metric_name.get_tag_value(label);
+            let a = first.metric_name.tag_value(label);
+            let b = second.metric_name.tag_value(label);
             match (a, b) {
                 (None, None) => continue,
                 (Some(a1), Some(b1)) => {
@@ -81,8 +97,20 @@ fn sort_by_label_impl(tfa: &mut TransformFuncArg, is_desc: bool) -> RuntimeResul
                         return a1.cmp(b1);
                     }
                 }
-                (Some(_), None) => return Ordering::Greater,
-                (None, Some(_)) => return Ordering::Less,
+                (Some(_), None) => {
+                    return if is_desc {
+                        Ordering::Less
+                    } else {
+                        Ordering::Greater
+                    };
+                }
+                (None, Some(_)) => {
+                    return if is_desc {
+                        Ordering::Greater
+                    } else {
+                        Ordering::Less
+                    };
+                }
             }
         }
         Ordering::Equal
@@ -111,8 +139,8 @@ fn label_alpha_numeric_sort_impl(
     res.sort_by(|first, second| {
         for label in &labels {
             match (
-                first.metric_name.get_tag_value(label),
-                second.metric_name.get_tag_value(label),
+                first.metric_name.tag_value(label),
+                second.metric_name.tag_value(label),
             ) {
                 (None, None) => continue,
                 (Some(a), Some(b)) => {
