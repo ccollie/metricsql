@@ -168,10 +168,6 @@ fn aggregation_exprs_equal(ae1: &AggregationExpr, ae2: &AggregationExpr) -> bool
 
 fn binary_exprs_equal(be1: &BinaryExpr, be2: &BinaryExpr) -> bool {
     be1.op == be2.op
-        && be1.bool_modifier == be2.bool_modifier
-        && be1.group_modifier == be2.group_modifier
-        && be1.join_modifier == be2.join_modifier
-        && be1.keep_metric_names == be2.keep_metric_names
         && expr_equals(&be1.left, &be2.left)
         && expr_equals(&be1.right, &be2.right)
         && be1.modifier == be2.modifier

@@ -100,10 +100,7 @@ pub(crate) fn get_float_arg(
     // todo: check bounds
     let arg = &args[arg_num];
     match arg {
-        QueryValue::Scalar(val) => {
-            let v = *val;
-            return Ok(v);
-        }
+        QueryValue::Scalar(val) => return Ok(*val),
         QueryValue::InstantVector(s) => {
             let len = s.len();
             if len == 0 {
@@ -134,4 +131,45 @@ pub(crate) fn get_float_arg(
 
 pub(crate) fn get_int_arg(args: &[QueryValue], arg_num: usize) -> RuntimeResult<i64> {
     get_float_arg(args, arg_num, Some(0_f64)).map(float_to_int_bounded)
+}
+
+#[inline]
+pub(crate) fn get_string_param_value(
+    args: &[QueryValue],
+    arg_num: usize,
+    func_name: &str,
+    param_name: &str,
+) -> RuntimeResult<String> {
+    let param = args.get(arg_num);
+    if param.is_none() {
+        let msg = format!(
+            "expected string arg for parameter \"{}\" of function {}; Got None",
+            param_name, func_name
+        );
+        return Err(RuntimeError::TypeCastError(msg));
+    }
+    let param = param.unwrap();
+    match param {
+        QueryValue::String(val) => Ok(val.clone()),
+        _ => {
+            let msg = format!(
+                "expected string arg for parameter \"{param_name}\" of function {func_name}; Got {}",
+                param
+            );
+            Err(RuntimeError::TypeCastError(msg))
+        }
+    }
+}
+
+pub(crate) fn get_scalar_param_value(
+    args: &[QueryValue],
+    index: usize,
+    func_name: &str,
+    param_name: &str,
+) -> RuntimeResult<f64> {
+    if let Some(QueryValue::Scalar(val)) = args.get(index) {
+        return Ok(*val);
+    }
+    let msg = format!("expected scalar arg for parameter '{param_name}' of function {func_name};",);
+    Err(RuntimeError::TypeCastError(msg))
 }

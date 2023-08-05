@@ -1,6 +1,4 @@
 use tracing::{field, trace_span, Span};
-
-use metricsql::ast::BinaryExpr;
 use metricsql::binaryop::get_scalar_binop_handler;
 use metricsql::common::Operator;
 
@@ -11,9 +9,11 @@ use crate::{InstantVector, QueryValue, RuntimeResult};
 ///   http_requests_total{} * 2
 ///   http_requests_total{method="GET"} / 10
 pub(crate) fn eval_vector_scalar_binop(
-    be: &BinaryExpr,
     vector: InstantVector,
+    op: Operator,
     scalar: f64,
+    bool_modifier: bool,
+    keep_metric_names: bool,
     is_tracing: bool,
 ) -> RuntimeResult<QueryValue> {
     use QueryValue::*;
@@ -21,7 +21,7 @@ pub(crate) fn eval_vector_scalar_binop(
     let _ = if is_tracing {
         trace_span!(
             "vector scalar binary op",
-            "op" = be.op.as_str(),
+            "op" = op.as_str(),
             series = field::Empty
         )
     } else {
@@ -31,9 +31,9 @@ pub(crate) fn eval_vector_scalar_binop(
 
     let mut vector = vector;
 
-    let is_unless = be.op == Operator::Unless;
+    let is_unless = op == Operator::Unless;
 
-    let handler = get_scalar_binop_handler(be.op, be.bool_modifier);
+    let handler = get_scalar_binop_handler(op, bool_modifier);
     for v in vector.iter_mut() {
         // reset_metric_group_if_required(be, v);
 

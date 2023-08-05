@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-//! Tree node implementation for logical expr
+//! Tree node implementation for Ast expr
 
 use crate::ast::{
     AggregationExpr, BExpression, BinaryExpr, Expr, FunctionExpr, ParensExpr, RollupExpr,
@@ -50,6 +50,7 @@ impl TreeNode for Expr {
                 if let Some(at_expr) = at {
                     expr_vec.push(at_expr.as_ref().clone());
                 }
+                // todo: window, step, offset
                 expr_vec
             }
             Expr::With(w) => {
@@ -101,23 +102,15 @@ impl TreeNode for Expr {
                 can_incrementally_eval,
             }),
             Expr::BinaryOperator(BinaryExpr {
-                group_modifier,
-                join_modifier,
                 left,
                 op,
                 right,
-                bool_modifier,
                 modifier,
-                keep_metric_names,
             }) => Expr::BinaryOperator(BinaryExpr {
                 left: transform_boxed(left, &mut transform)?,
                 op,
-                bool_modifier,
-                group_modifier,
                 right: transform_boxed(right, &mut transform)?,
-                join_modifier,
                 modifier,
-                keep_metric_names,
             }),
             Expr::Duration(_) => self.clone(),
             Expr::Function(FunctionExpr {

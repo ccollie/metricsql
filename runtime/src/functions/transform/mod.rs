@@ -1,13 +1,12 @@
 pub(crate) use absent::get_absent_timeseries;
 pub(crate) use histogram::vmrange_buckets_to_le;
-use metricsql::ast::FunctionExpr;
 use metricsql::functions::TransformFunction;
-pub(crate) use union::handle_union;
-pub use utils::get_timezone_offset;
+pub(crate) use utils::{extract_labels, get_timezone_offset};
 
 use crate::eval::EvalConfig;
 use crate::functions::arg_parse::get_series_arg;
-use crate::functions::transform::absent::absent;
+pub(crate) use crate::functions::transform::absent::handle_absent;
+use crate::functions::transform::absent::transform_absent;
 use crate::functions::transform::bitmap::{
     transform_bitmap_and, transform_bitmap_or, transform_bitmap_xor,
 };
@@ -85,7 +84,6 @@ mod vector;
 
 pub struct TransformFuncArg<'a> {
     pub ec: &'a EvalConfig,
-    pub fe: &'a FunctionExpr,
     pub args: Vec<QueryValue>,
     pub keep_metric_names: bool,
 }
@@ -112,11 +110,11 @@ pub(crate) trait TransformValuesFn: FnMut(&mut [f64]) {}
 
 impl<T> TransformValuesFn for T where T: FnMut(&mut [f64]) {}
 
-pub fn get_transform_func(f: TransformFunction) -> TransformFuncHandler {
+fn get_transform_func(f: TransformFunction) -> TransformFuncHandler {
     use TransformFunction::*;
     match f {
         Abs => abs,
-        Absent => absent,
+        Absent => transform_absent,
         Acos => acos,
         Acosh => acosh,
         Alias => alias,
@@ -225,6 +223,14 @@ pub fn get_transform_func(f: TransformFunction) -> TransformFuncHandler {
         Vector => vector,
         Year => year,
     }
+}
+
+pub(crate) fn exec_transform_fn(
+    f: TransformFunction,
+    tfa: &mut TransformFuncArg,
+) -> RuntimeResult<Vec<Timeseries>> {
+    let func = get_transform_func(f);
+    func(tfa)
 }
 
 pub(crate) fn transform_series(

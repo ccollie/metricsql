@@ -25,7 +25,6 @@ pub(crate) fn handle_union(
 
     fn process_vector(v: &mut [Timeseries], m: &mut HashSet<Signature>, rvs: &mut Vec<Timeseries>) {
         for ts in v.iter_mut() {
-            ts.metric_name.sort_tags();
             let key = ts.metric_name.signature();
             if m.insert(key) {
                 rvs.push(std::mem::take(ts));

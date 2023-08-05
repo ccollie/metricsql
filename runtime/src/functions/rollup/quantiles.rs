@@ -3,14 +3,11 @@ use std::ops::DerefMut;
 use lib::get_pooled_vec_f64_filled;
 
 use crate::common::math::{quantile, quantiles};
-use crate::functions::rollup::{RollupFuncArg, RollupHandlerEnum};
-use crate::functions::types::{get_scalar_param_value, get_string_param_value};
-use crate::{EvalConfig, QueryValue, RuntimeResult};
+use crate::functions::arg_parse::{get_scalar_param_value, get_string_param_value};
+use crate::functions::rollup::{RollupFuncArg, RollupHandler};
+use crate::{QueryValue, RuntimeResult};
 
-pub(super) fn new_rollup_quantiles(
-    args: &Vec<QueryValue>,
-    _ec: &EvalConfig,
-) -> RuntimeResult<RollupHandlerEnum> {
+pub(super) fn new_rollup_quantiles(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandler> {
     let phi_label = get_string_param_value(args, 0, "quantiles", "phi_label").unwrap();
     let cap = args.len() - 1;
 
@@ -29,13 +26,10 @@ pub(super) fn new_rollup_quantiles(
         quantiles_impl(rfa, &phi_label, &phis, &phi_labels)
     });
 
-    Ok(RollupHandlerEnum::General(f))
+    Ok(RollupHandler::General(f))
 }
 
-pub(super) fn new_rollup_quantile(
-    args: &Vec<QueryValue>,
-    _ec: &EvalConfig,
-) -> RuntimeResult<RollupHandlerEnum> {
+pub(super) fn new_rollup_quantile(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandler> {
     let phi = get_scalar_param_value(args, 0, "quantile_over_time", "phi")?;
 
     let rf = Box::new(move |rfa: &mut RollupFuncArg| {
@@ -44,7 +38,7 @@ pub(super) fn new_rollup_quantile(
         quantile(phi, &rfa.values)
     });
 
-    Ok(RollupHandlerEnum::General(rf))
+    Ok(RollupHandler::General(rf))
 }
 
 fn quantiles_impl(

@@ -9,7 +9,7 @@ use enquote::enquote;
 use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::Xxh3;
 
-use metricsql::common::{AggregateModifier, GroupModifier, GroupModifierOp};
+use metricsql::common::{AggregateModifier, GroupModifier, GroupModifierOp, VectorMatchModifier};
 
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::signature::Signature;
@@ -78,8 +78,6 @@ pub struct MetricName {
     pub metric_group: String,
     // todo: Consider https://crates.io/crates/btree-slab or heapless btree to minimize allocations
     pub tags: Vec<Tag>,
-    #[serde(skip)]
-    sorted: bool,
 }
 
 impl MetricName {
@@ -87,7 +85,6 @@ impl MetricName {
         MetricName {
             metric_group: name.to_string(),
             tags: vec![],
-            sorted: true,
         }
     }
 
@@ -110,7 +107,7 @@ impl MetricName {
     }
 
     pub fn reset_metric_group(&mut self) {
-        self.metric_group = "".to_string();
+        self.metric_group.clear();
     }
 
     pub fn copy_from(&mut self, other: &MetricName) {
@@ -122,7 +119,6 @@ impl MetricName {
     pub fn reset(&mut self) {
         self.metric_group = "".to_string();
         self.tags.clear();
-        self.sorted = true;
     }
 
     pub fn set_metric_group(&mut self, value: &str) {
@@ -198,7 +194,7 @@ impl MetricName {
     }
 
     /// returns tag value for the given tagKey.
-    pub fn get_tag_value(&self, key: &str) -> Option<&String> {
+    pub fn tag_value(&self, key: &str) -> Option<&String> {
         if key == METRIC_NAME_LABEL {
             return Some(&self.metric_group);
         }
@@ -208,6 +204,7 @@ impl MetricName {
         None
     }
 
+    #[allow(unused)]
     pub(crate) fn get_value_mut(&mut self, name: &str) -> Option<&mut String> {
         if name == METRIC_NAME_LABEL {
             return Some(&mut self.metric_group);
@@ -219,8 +216,22 @@ impl MetricName {
     }
 
     /// remove_tags_on removes all the tags not included in on_tags.
-    pub fn remove_tags_on(&mut self, on_tags: &Vec<String>) {
-        self.retain_tags(on_tags)
+    /// don't stare too deeply. Just convince yourself that this is the correct behavior.
+    /// https://github.com/VictoriaMetrics/VictoriaMetrics/blob/cde5029bcecac116b59e245330f6caf625e75eea/lib/storage/metric_name.go#L247
+    pub fn remove_tags_on(&mut self, on_tags: &[String]) {
+        if !on_tags.iter().any(|x| *x == METRIC_NAME_LABEL) {
+            self.reset_metric_group()
+        }
+        if on_tags.is_empty() {
+            self.tags.clear();
+            return;
+        }
+        if on_tags.len() >= SET_SEARCH_MIN_THRESHOLD {
+            let set: HashSet<_> = HashSet::from_iter(on_tags);
+            self.tags.retain(|tag| set.contains(&tag.key));
+        } else {
+            self.tags.retain(|tag| on_tags.contains(&tag.key));
+        }
     }
 
     /// remove_tags_ignoring removes all the tags included in ignoring_tags.
@@ -281,7 +292,7 @@ impl MetricName {
             }
 
             // todo: use iterators instead
-            match src.get_tag_value(tag_name) {
+            match src.tag_value(tag_name) {
                 Some(tag_value) => {
                     self.set_tag(tag_name, tag_value);
                 }
@@ -369,7 +380,8 @@ impl MetricName {
         if let Some(m) = modifier.deref() {
             match m {
                 AggregateModifier::By(labels) => {
-                    self.remove_tags_on(labels);
+                    // we're grouping by `labels, so keep only those
+                    self.retain_tags(labels);
                 }
                 AggregateModifier::Without(labels) => {
                     self.remove_tags(labels);
@@ -377,6 +389,9 @@ impl MetricName {
                     self.reset_metric_group();
                 }
             }
+        } else {
+            // No grouping. Remove all tags.
+            self.remove_tags_on(&[]);
         };
     }
 
@@ -398,11 +413,8 @@ impl MetricName {
     }
 
     pub fn sort_tags(&mut self) {
-        if !self.sorted {
-            if self.tags.len() > 1 {
-                self.tags.sort();
-            }
-            self.sorted = true;
+        if self.tags.len() > 1 {
+            self.tags.sort();
         }
     }
 
@@ -426,12 +438,14 @@ impl MetricName {
         Signature::with_name_and_labels(&self.metric_group, self.without_labels_iter(names))
     }
 
-    pub fn signature_by_group_modifier(&self, modifier: &Option<GroupModifier>) -> Signature {
+    pub fn signature_by_match_modifier(&self, modifier: &Option<VectorMatchModifier>) -> Signature {
         match modifier {
-            None => self.signature(),
-            Some(m) => match m.op {
-                GroupModifierOp::On => self.signature_with_labels(m.labels()),
-                GroupModifierOp::Ignoring => self.signature_without_labels(m.labels()),
+            None => self.signature_without_labels(&[]),
+            Some(m) => match m {
+                VectorMatchModifier::On(labels) => self.signature_with_labels(labels.as_ref()),
+                VectorMatchModifier::Ignoring(labels) => {
+                    self.signature_without_labels(labels.as_ref())
+                }
             },
         }
     }

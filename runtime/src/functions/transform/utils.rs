@@ -2,9 +2,10 @@ use chrono::{TimeZone, Utc};
 use chrono_tz::Tz;
 
 use lib::timestamp_ms_to_datetime;
+use metricsql::ast::Expr;
 
 use crate::functions::transform::TransformFuncArg;
-use crate::{RuntimeError, RuntimeResult, Timeseries};
+use crate::{Label, Labels, RuntimeError, RuntimeResult, Timeseries};
 
 /// copy_timeseries returns a copy of tss.
 pub(super) fn copy_timeseries(tss: &[Timeseries]) -> Vec<Timeseries> {
@@ -48,4 +49,24 @@ pub(crate) fn ru(free_value: f64, max_value: f64) -> f64 {
     // ru(freev, maxv) = clamp_min(maxv - clamp_min(freev, 0), 0) / clamp_min(maxv, 0) * 100
     clamp_min(max_value - clamp_min(free_value, 0_f64), 0_f64) / clamp_min(max_value, 0_f64)
         * 100_f64
+}
+
+pub fn extract_labels(expr: &Expr) -> Option<Labels> {
+    if let Expr::MetricExpression(me) = expr {
+        let mut labels = Labels::default();
+        for tf in me.label_filters.iter() {
+            if tf.label.is_empty() {
+                continue;
+            }
+            if tf.is_regexp() || tf.is_negative() {
+                continue;
+            }
+            labels.push(Label {
+                name: tf.label.to_string(),
+                value: tf.value.clone(),
+            });
+        }
+        return Some(labels);
+    }
+    None
 }

@@ -1,93 +1,93 @@
-use std::borrow::Cow;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
-use rayon::prelude::*;
 use tracing::{field, trace_span, Span};
 
-use lib::{get_pooled_vec_f64, get_pooled_vec_i64, is_stale_nan, AtomicCounter, RelaxedU64Counter};
+use lib::{AtomicCounter, RelaxedU64Counter};
 use metricsql::ast::*;
 use metricsql::functions::RollupFunction;
 
 use crate::cache::rollup_result_cache::merge_timeseries;
 use crate::context::Context;
-use crate::eval::exec::exec_expr;
-use crate::eval::{align_start_end, eval_number, validate_max_points_per_timeseries};
+use crate::eval::dag::aggregate_node::get_timeseries_limit;
+use crate::eval::dag::utils::{
+    adjust_series_by_offset, expand_single_value, resolve_at_value, resolve_rollup_handler,
+};
+use crate::eval::dag::ExecutableNode;
+use crate::eval::eval_number;
+use crate::eval::utils::{adjust_eval_range, drop_stale_nans, duration_value};
 use crate::functions::aggregate::IncrementalAggrFuncContext;
 use crate::functions::rollup::{
-    eval_prefuncs, get_rollup_configs, RollupConfig, RollupHandlerEnum, TimeseriesMap,
+    eval_prefuncs, get_rollup_configs, RollupConfig, RollupHandler, TimeseriesMap,
     MAX_SILENCE_INTERVAL,
 };
 use crate::functions::transform::get_absent_timeseries;
 use crate::provider::{join_tag_filter_list, QueryResult, QueryResults, SearchQuery};
-use crate::rayon::iter::ParallelIterator;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::{get_timeseries, get_timestamps, EvalConfig, MetricName, QueryValue};
 use crate::{Timeseries, Timestamp};
 
-pub(crate) struct RollupExecutor<'a> {
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RollupNode {
     /// Source expression
-    expr: &'a Expr,
-    re: &'a RollupExpr,
-    func: RollupFunction,
-    func_handler: RollupHandlerEnum,
-    keep_metric_names: bool,
+    pub(crate) expr: Expr,
+    pub(crate) func: RollupFunction,
+    pub(crate) func_handler: RollupHandler,
+    pub(crate) keep_metric_names: bool,
     is_tracing: bool,
-    /// Max number of timeseries to return
-    pub(crate) timeseries_limit: usize,
+    pub(crate) metric_expr: MetricExpr,
+    /// window contains optional window value from square brackets. Equivalent to `range` in
+    /// prometheus terminology
+    ///
+    /// For example, `http_requests_total[5m]` will have Window value `5m`.
+    pub window: Option<DurationExpr>,
+
+    /// offset contains optional value from `offset` part.
+    ///
+    /// For example, `foobar{baz="aa"} offset 5m` will have offset value `5m`.
+    pub offset: Option<DurationExpr>,
+
+    /// step contains optional step value from square brackets. Equivalent to `resolution`
+    /// in the prometheus docs
+    ///
+    /// For example, `foobar[1h:3m]` will have step value `3m`.
+    pub step: Option<DurationExpr>,
+
+    at: Option<i64>,
+    pub(crate) at_index: Option<usize>,
+    pub(crate) arg_indexes: Vec<usize>,
     pub(crate) is_incr_aggregate: bool,
 }
 
-impl<'a> RollupExecutor<'a> {
-    pub(crate) fn new(
-        function: RollupFunction,
-        handler: RollupHandlerEnum,
-        // expr may contain:
-        // -: RollupFunc(m) if iafc is None
-        // - aggrFunc(rollupFunc(m)) if iafc isn't None
-        expr: &'a Expr,
-        re: &'a RollupExpr,
-    ) -> Self {
-        Self {
-            expr,
-            re,
-            func: function,
-            func_handler: handler,
-            keep_metric_names: function.keep_metric_name(),
-            timeseries_limit: 0,
-            is_incr_aggregate: false,
-            is_tracing: false,
-        }
+impl ExecutableNode for RollupNode {
+    fn set_dependencies(&mut self, dependencies: &mut [QueryValue]) -> RuntimeResult<()> {
+        self.at = resolve_at_value(self.at_index, dependencies)?;
+        self.func_handler = resolve_rollup_handler(self.func, &self.arg_indexes, dependencies)?;
+        Ok(())
     }
 
-    pub(crate) fn eval(&mut self, ctx: &Context, ec: &EvalConfig) -> RuntimeResult<QueryValue> {
+    fn execute(&mut self, ctx: &Context, ec: &EvalConfig) -> RuntimeResult<QueryValue> {
         self.is_tracing = ctx.trace_enabled();
         let _ = if self.is_tracing {
             trace_span!(
                 "rollup",
                 "function" = self.func.name(),
                 "expr" = self.expr.to_string().as_str(),
-                "rollup_expr" = self.re.to_string().as_str(),
                 "series" = field::Empty
             )
         } else {
             Span::none()
         };
 
-        if let Some(at_expr) = &self.re.at {
-            let at_timestamp = get_at_timestamp(ctx, ec, at_expr)?;
+        if let Some(at_timestamp) = &self.at {
             let mut ec_new = ec.copy_no_timestamps();
-            ec_new.start = at_timestamp;
-            ec_new.end = at_timestamp;
+            ec_new.start = *at_timestamp;
+            ec_new.end = *at_timestamp;
             let mut tss = self.eval_without_at(ctx, &ec_new)?;
 
             // expand single-point tss to the original time range.
-            let timestamps = ec.get_timestamps()?;
-            for ts in tss.iter_mut() {
-                ts.timestamps = Arc::clone(&timestamps);
-                ts.values = vec![ts.values[0]; timestamps.len()];
-            }
+            expand_single_value(&mut tss, ec)?;
 
             Ok(QueryValue::InstantVector(tss))
         } else {
@@ -95,194 +95,56 @@ impl<'a> RollupExecutor<'a> {
             Ok(QueryValue::InstantVector(value))
         }
     }
+}
 
-    #[inline]
-    fn adjust_eval_range(&self, ec: &'a EvalConfig) -> RuntimeResult<(i64, Cow<'a, EvalConfig>)> {
-        let offset: i64 = duration_value(&self.re.offset, ec.step);
-
-        let mut adjustment = 0 - offset;
-        if self.func == RollupFunction::RollupCandlestick {
-            // Automatically apply `offset -step` to `rollup_candlestick` function
-            // in order to obtain expected OHLC results.
-            // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/309#issuecomment-582113462
-            adjustment += ec.step
-        }
-
-        if adjustment != 0 {
-            let mut result = ec.copy_no_timestamps();
-            result.start += adjustment;
-            result.end += adjustment;
-            // There is no need in calling adjust_start_end() on ec_new if ec_new.may_cache is set to true,
-            // since the time range alignment has been already performed by the caller,
-            // so cache hit rate should be quite good.
-            // See also https://github.com/VictoriaMetrics/VictoriaMetrics/issues/976
-            Ok((offset, Cow::Owned(result)))
-        } else {
-            Ok((offset, Cow::Borrowed(ec)))
+impl RollupNode {
+    pub(crate) fn new(
+        function: RollupFunction,
+        handler: RollupHandler,
+        // expr may contain:
+        // -: RollupFunc(m) if iafc is None
+        // - aggrFunc(rollupFunc(m)) if iafc isn't None
+        expr: &Expr,
+    ) -> Self {
+        Self {
+            expr: expr.clone(),
+            func: function,
+            func_handler: handler,
+            keep_metric_names: function.keep_metric_name(),
+            is_incr_aggregate: false,
+            is_tracing: false,
+            metric_expr: Default::default(),
+            window: None,
+            step: None,
+            offset: None,
+            at: None,
+            at_index: None,
+            arg_indexes: vec![],
         }
     }
 
     fn eval_without_at(&self, ctx: &Context, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
-        let (offset, ec_new) = self.adjust_eval_range(ec)?;
+        let (offset, ec_new) = adjust_eval_range(&self.func, &self.offset, ec)?;
 
-        let mut rvs = match &*self.re.expr {
-            Expr::MetricExpression(me) => self.eval_with_metric_expr(ctx, &ec_new, me)?,
-            _ => {
-                if self.is_incr_aggregate {
-                    let msg = format!(
-                        "BUG:is_incr_aggregate must be false for rollup {} over subquery {}",
-                        self.func, self.re
-                    );
-                    return Err(RuntimeError::from(msg));
-                }
-                self.eval_with_subquery(ctx, &ec_new)?
-            }
-        };
+        let mut rvs = self.eval_metric_expr(ctx, &ec_new, &self.metric_expr)?;
 
         if self.func == RollupFunction::AbsentOverTime {
-            rvs = aggregate_absent_over_time(ec, &self.re.expr, &rvs)?
+            //  rvs = aggregate_absent_over_time(ec, &self.re.expr, &rvs)?
         }
 
-        if offset != 0 && !rvs.is_empty() {
-            // Make a copy of timestamps, since they may be used in other values.
-            let src_timestamps = &rvs[0].timestamps;
-            let dst_timestamps = src_timestamps.iter().map(|x| x + offset).collect();
-            let shared = Arc::new(dst_timestamps);
-            for ts in rvs.iter_mut() {
-                ts.timestamps = Arc::clone(&shared);
-            }
-        }
-
+        adjust_series_by_offset(&mut rvs, offset);
         Ok(rvs)
     }
-
-    fn eval_with_subquery(&self, ctx: &Context, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
-        // TODO: determine whether to use rollup result cache here.
-
-        let span = if self.is_tracing {
-            let function = self.func.name();
-            trace_span!(
-                "subquery",
-                function,
-                series = field::Empty,
-                source_series = field::Empty,
-                samples_scanned = field::Empty,
-            )
-        } else {
-            Span::none()
-        }
-        .entered();
-
-        let step = get_step(self.re, ec.step);
-        let window = duration_value(&self.re.window, ec.step);
-
-        let mut ec_sq = ec.copy_no_timestamps();
-        ec_sq.start -= window + MAX_SILENCE_INTERVAL + step;
-        ec_sq.end += step;
-        ec_sq.step = step;
-        validate_max_points_per_timeseries(
-            ec_sq.start,
-            ec_sq.end,
-            ec_sq.step,
-            ec_sq.max_points_per_series,
-        )?;
-
-        // unconditionally align start and end args to step for subquery as Prometheus does.
-        (ec_sq.start, ec_sq.end) = align_start_end(ec_sq.start, ec_sq.end, ec_sq.step);
-
-        // force refresh of timestamps
-        let _ = ec_sq.get_timestamps()?;
-        let tss_sq = exec_expr(ctx, &ec_sq, &self.re.expr)?;
-
-        let tss_sq = tss_sq.as_instant_vec(&ec_sq)?;
-        if tss_sq.len() == 0 {
-            return Ok(vec![]);
-        }
-
-        let shared_timestamps = Arc::new(get_timestamps(
-            ec.start,
-            ec.end,
-            ec.step,
-            ec.max_points_per_series,
-        )?);
-        let min_staleness_interval = ctx.config.min_staleness_interval.num_milliseconds() as usize;
-        let (rcs, pre_funcs) = get_rollup_configs(
-            &self.func,
-            &self.func_handler,
-            self.expr,
-            ec.start,
-            ec.end,
-            ec.step,
-            window,
-            ec.max_points_per_series,
-            min_staleness_interval,
-            ec.lookback_delta,
-            &shared_timestamps,
-        )?;
-
-        let (res, samples_scanned_total) = do_parallel(
-            &tss_sq,
-            move |ts_sq: &Timeseries,
-                  values: &mut [f64],
-                  timestamps: &[i64]|
-                  -> RuntimeResult<(Vec<Timeseries>, u64)> {
-                let mut res: Vec<Timeseries> = Vec::with_capacity(ts_sq.len());
-
-                eval_prefuncs(&pre_funcs, values, timestamps);
-                let mut scanned_total = 0_u64;
-
-                for rc in rcs.iter() {
-                    if let Some(tsm) = new_timeseries_map(
-                        &self.func,
-                        self.keep_metric_names,
-                        &shared_timestamps,
-                        &ts_sq.metric_name,
-                    ) {
-                        rc.do_timeseries_map(&tsm, values, timestamps)?;
-                        tsm.as_ref().borrow_mut().append_timeseries_to(&mut res);
-                        continue;
-                    }
-
-                    let mut ts: Timeseries = Default::default();
-
-                    let scanned_samples = do_rollup_for_timeseries(
-                        self.keep_metric_names,
-                        rc,
-                        &mut ts,
-                        &ts_sq.metric_name,
-                        values,
-                        timestamps,
-                        &shared_timestamps,
-                    )?;
-
-                    scanned_total += scanned_samples;
-
-                    res.push(ts);
-                }
-
-                Ok((res, scanned_total))
-            },
-        )?;
-
-        if !span.is_disabled() {
-            span.record("series", res.len());
-            span.record("source_series", tss_sq.len());
-            span.record("samples_scanned", samples_scanned_total);
-        }
-
-        Ok(res)
-    }
-
-    fn eval_with_metric_expr(
+    fn eval_metric_expr(
         &self,
         ctx: &Context,
         ec: &EvalConfig,
         me: &MetricExpr,
     ) -> RuntimeResult<Vec<Timeseries>> {
-        let window = duration_value(&self.re.window, ec.step);
+        let window = duration_value(&self.window, ec.step);
 
         let span = {
-            if self.is_tracing {
+            if ctx.trace_enabled() {
                 trace_span!(
                     "rollup",
                     start = ec.start,
@@ -307,7 +169,7 @@ impl<'a> RollupExecutor<'a> {
         let tss_cached: Vec<Timeseries>;
         let start: i64;
         {
-            let (cached, _start) = ctx.rollup_result_cache.get(ec, self.expr, window)?;
+            let (cached, _start) = ctx.rollup_result_cache.get(ec, &self.expr, window)?;
             tss_cached = cached.unwrap();
             start = _start;
         }
@@ -337,7 +199,7 @@ impl<'a> RollupExecutor<'a> {
         let (rcs, pre_funcs) = get_rollup_configs(
             &self.func,
             &self.func_handler,
-            self.expr,
+            &self.expr,
             start,
             ec.end,
             ec.step,
@@ -364,15 +226,24 @@ impl<'a> RollupExecutor<'a> {
         let filters = tfss.to_vec();
         let sq = SearchQuery::new(min_timestamp, ec.end, filters, ec.max_series);
         let mut rss = ctx.process_search_query(&sq, &ec.deadline)?;
-        let rss_len = rss.len();
-        if rss_len == 0 {
+
+        if rss.is_empty() {
             rss.cancel();
             let dst: Vec<Timeseries> = vec![];
             let tss = merge_timeseries(tss_cached, dst, start, ec)?;
             return Ok(tss);
         }
 
-        let rollup_memory_size = self.reserve_rollup_memory(ctx, ec, &rss, rcs.len())?;
+        let mut ae: Option<&AggregationExpr> = None;
+        let mut timeseries_limit = 0usize;
+
+        if let Expr::Aggregation(_ae) = &self.expr {
+            timeseries_limit = get_timeseries_limit(_ae)?;
+            ae = Some(_ae);
+        }
+
+        let rollup_memory_size =
+            self.reserve_rollup_memory(ctx, ec, &rss, timeseries_limit, rcs.len())?;
 
         defer! {
            ctx.rollup_result_cache.release_memory(rollup_memory_size).unwrap();
@@ -383,26 +254,27 @@ impl<'a> RollupExecutor<'a> {
         // shadow timestamps
         let shared_timestamps = shared_timestamps.clone(); // TODO: do we need to clone ?
         let ignore_staleness = ec.no_stale_markers;
-        let tss = match self.expr {
-            Expr::Aggregation(ae) => self.eval_with_incremental_aggregate(
+        let tss = if let Some(ae) = ae {
+            self.eval_with_incremental_aggregate(
                 ae,
                 &mut rss,
                 rcs,
                 pre_func,
                 &shared_timestamps,
                 ignore_staleness,
-            ),
-            _ => self.eval_no_incremental_aggregate(
+            )
+        } else {
+            self.eval_no_incremental_aggregate(
                 &mut rss,
                 rcs,
                 pre_func,
                 &shared_timestamps,
                 ignore_staleness,
-            ),
+            )
         }?;
 
         merge_timeseries(tss_cached, tss, start, ec).and_then(|res| {
-            ctx.rollup_result_cache.put(ec, self.expr, window, &res)?;
+            ctx.rollup_result_cache.put(ec, &self.expr, window, &res)?;
             Ok(res)
         })
     }
@@ -422,7 +294,7 @@ impl<'a> RollupExecutor<'a> {
         let span = if self.is_tracing {
             let function = self.func.name();
             trace_span!(
-                "rollup",
+                "aggregation",
                 function,
                 incremental = true,
                 series = rss.len(),
@@ -524,7 +396,7 @@ impl<'a> RollupExecutor<'a> {
             // ("aggregation", ae.name.as_str()),
             // todo: add rcs to properties
             trace_span!(
-                "rollup",
+                "aggregation",
                 function,
                 incremental = false,
                 source_series,
@@ -597,6 +469,7 @@ impl<'a> RollupExecutor<'a> {
         ctx: &Context,
         ec: &EvalConfig,
         rss: &QueryResults,
+        timeseries_limit: usize,
         rcs_len: usize,
     ) -> RuntimeResult<usize> {
         // Verify timeseries fit available memory after the rollup.
@@ -604,12 +477,12 @@ impl<'a> RollupExecutor<'a> {
         let points_per_timeseries = 1 + (ec.end - ec.start) / ec.step;
 
         let rss_len = rss.len();
-        let timeseries_len = if self.timeseries_limit > 0 {
+        let timeseries_len = if timeseries_limit > 0 {
             // The maximum number of output time series is limited by rss_len.
-            if self.timeseries_limit > rss_len {
+            if timeseries_limit > rss_len {
                 rss_len
             } else {
-                self.timeseries_limit
+                timeseries_limit
             }
         } else {
             rss_len
@@ -689,36 +562,6 @@ fn process_result(
     };
 }
 
-fn get_at_timestamp(ctx: &Context, ec: &EvalConfig, expr: &Expr) -> RuntimeResult<i64> {
-    match exec_expr(ctx, ec, expr) {
-        Err(err) => {
-            let msg = format!("cannot evaluate `@` modifier: {:?}", err);
-            Err(RuntimeError::from(msg))
-        }
-        Ok(tss_at) => {
-            match tss_at {
-                QueryValue::Scalar(v) => Ok((v * 1000_f64) as i64),
-                QueryValue::InstantVector(v) => {
-                    if v.len() != 1 {
-                        let msg = format!("`@` modifier must return a single series; it returns {} series instead", v.len());
-                        return Err(RuntimeError::from(msg));
-                    }
-                    let ts = &v[0];
-                    if ts.values.is_empty() {
-                        let msg = "`@` modifier expression returned an empty value";
-                        return Err(RuntimeError::from(msg));
-                    }
-                    Ok((ts.values[0] * 1000_f64) as i64)
-                }
-                _ => {
-                    let val = tss_at.get_int()?;
-                    Ok(val * 1000_i64)
-                }
-            }
-        }
-    }
-}
-
 /// aggregate_absent_over_time collapses tss to a single time series with 1 and nan values.
 ///
 /// Values for returned series are set to nan if at least a single tss series contains nan at that point.
@@ -742,69 +585,6 @@ fn aggregate_absent_over_time(
         }
     }
     Ok(rvs)
-}
-
-/// Executes `f` for each `Timeseries` in `tss` in parallel.
-pub(super) fn do_parallel<F>(tss: &Vec<Timeseries>, f: F) -> RuntimeResult<(Vec<Timeseries>, u64)>
-where
-    F: Fn(&Timeseries, &mut [f64], &[i64]) -> RuntimeResult<(Vec<Timeseries>, u64)> + Send + Sync,
-{
-    let res: RuntimeResult<Vec<(Vec<Timeseries>, u64)>> = tss
-        .par_iter()
-        .map(|ts| {
-            let len = ts.values.len();
-            // todo: should we have an upper limit here to avoid OOM? Or explicitly size down
-            // afterward if needed?
-            let mut values = get_pooled_vec_f64(len);
-            let mut timestamps = get_pooled_vec_i64(len);
-
-            // todo(perf): have param for if values have NaNs
-            remove_nan_values(&mut values, &mut timestamps, &ts.values, &ts.timestamps);
-
-            f(ts, &mut values, &mut timestamps)
-        })
-        .collect();
-
-    let mut series: Vec<Timeseries> = Vec::with_capacity(tss.len());
-    let tss = res?;
-    let mut sample_total = 0_u64;
-    for (timeseries, sample_count) in tss.into_iter() {
-        sample_total += sample_count;
-        series.extend::<Vec<Timeseries>>(timeseries)
-    }
-
-    Ok((series, sample_total))
-}
-
-fn remove_nan_values(
-    dst_values: &mut Vec<f64>,
-    dst_timestamps: &mut Vec<i64>,
-    values: &[f64],
-    timestamps: &[i64],
-) {
-    let mut has_nan = false;
-    for v in values {
-        if v.is_nan() {
-            has_nan = true;
-            break;
-        }
-    }
-
-    if !has_nan {
-        // Fast path - no NaNs.
-        dst_values.extend_from_slice(values);
-        dst_timestamps.extend_from_slice(timestamps);
-        return;
-    }
-
-    // Slow path - remove NaNs.
-    for (i, v) in values.iter().enumerate() {
-        if v.is_nan() {
-            continue;
-        }
-        dst_values.push(*v);
-        dst_timestamps.push(timestamps[i])
-    }
 }
 
 fn do_rollup_for_timeseries(
@@ -831,57 +611,4 @@ fn do_rollup_for_timeseries(
 
 fn mul_no_overflow(a: i64, b: i64) -> i64 {
     a.saturating_mul(b)
-}
-
-pub(crate) fn drop_stale_nans(
-    func: &RollupFunction,
-    values: &mut Vec<f64>,
-    timestamps: &mut Vec<i64>,
-) {
-    if *func == RollupFunction::DefaultRollup || *func == RollupFunction::StaleSamplesOverTime {
-        // do not drop Prometheus staleness marks (aka stale NaNs) for default_rollup() function,
-        // since it uses them for Prometheus-style staleness detection.
-        // do not drop staleness marks for stale_samples_over_time() function, since it needs
-        // to calculate the number of staleness markers.
-        return;
-    }
-    // Remove Prometheus staleness marks, so non-default rollup functions don't hit NaN values.
-    let has_stale_samples = values.iter().any(|x| is_stale_nan(*x));
-
-    if !has_stale_samples {
-        // Fast path: values have no Prometheus staleness marks.
-        return;
-    }
-
-    // Slow path: drop Prometheus staleness marks from values.
-    let mut k = 0;
-    for i in 0..values.len() {
-        let v = values[i];
-        if !is_stale_nan(v) {
-            values[k] = v;
-            timestamps[k] = timestamps[i];
-            k += 1;
-        }
-    }
-
-    values.truncate(k);
-    timestamps.truncate(k);
-}
-
-fn duration_value(dur: &Option<DurationExpr>, step: i64) -> i64 {
-    if let Some(ofs) = dur {
-        ofs.value(step)
-    } else {
-        0
-    }
-}
-
-#[inline]
-fn get_step(re: &RollupExpr, step: i64) -> i64 {
-    let res = duration_value(&re.step, step);
-    if res == 0 {
-        step
-    } else {
-        res
-    }
 }

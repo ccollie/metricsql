@@ -7,17 +7,18 @@ mod tests {
     use metricsql::functions::RollupFunction;
 
     use crate::common::math::linear_regression;
+    use crate::functions::rollup::delta::*;
+    use crate::functions::rollup::deriv::*;
+    use crate::functions::rollup::integrate::rollup_integrate;
     use crate::functions::rollup::rollup_fns::{
-        delta_values, deriv_values, remove_counter_resets, rollup_avg, rollup_changes,
-        rollup_changes_prometheus, rollup_count, rollup_default, rollup_delta,
-        rollup_delta_prometheus, rollup_deriv_fast, rollup_deriv_slow, rollup_distinct,
-        rollup_first, rollup_idelta, rollup_ideriv, rollup_integrate, rollup_lag, rollup_last,
-        rollup_lifetime, rollup_max, rollup_min, rollup_mode_over_time, rollup_rate_over_sum,
-        rollup_resets, rollup_scrape_interval, rollup_stddev, rollup_sum, rollup_zscore_over_time,
+        remove_counter_resets, rollup_avg, rollup_changes, rollup_changes_prometheus, rollup_count,
+        rollup_default, rollup_distinct, rollup_lag, rollup_lifetime, rollup_max, rollup_min,
+        rollup_mode_over_time, rollup_rate_over_sum, rollup_resets, rollup_scrape_interval,
+        rollup_stddev, rollup_sum, rollup_zscore_over_time,
     };
     use crate::functions::rollup::{
-        get_rollup_function_factory, RollupConfig, RollupFuncArg, RollupHandler, RollupHandlerEnum,
-        RollupHandlerFactory,
+        get_rollup_function_factory, get_rollup_function_handler, RollupConfig, RollupFuncArg,
+        RollupHandler, RollupHandlerFactory,
     };
     use crate::{
         compare_floats, compare_values, test_rows_equal, EvalConfig, QueryValue, RuntimeError,
@@ -256,10 +257,9 @@ mod tests {
 
     fn test_rollup_func(func_name: &str, args: Vec<QueryValue>, expected: f64) {
         let func = RollupFunction::from_str(func_name).unwrap();
-        let nrf = get_rollup_function_factory_by_name(func_name).unwrap();
         let ec: EvalConfig = Default::default();
 
-        let rf = nrf(&args, &ec).unwrap();
+        let rf = get_rollup_function_handler(func, &args).unwrap();
         let mut rfa = RollupFuncArg::default();
         rfa.prev_value = NAN;
         rfa.prev_timestamp = 0;
@@ -598,11 +598,16 @@ mod tests {
         let f = |func_name: &str, args: &[QueryValue]| {
             let nrf = get_rollup_function_factory_by_name(func_name).unwrap();
             let args = Vec::from(args);
-            let ec: EvalConfig = Default::default();
-            let _rf = (nrf)(&args, &ec);
-            // if rf != nil {
-            //     panic!("expecting nil rf; got {}", rf)
-            // }
+            let _rf = (nrf)(&args);
+            assert!(
+                _rf.is_err(),
+                "expecting err; got a rollup function for {}({})",
+                func_name,
+                args.iter()
+                    .map(|v| v.to_string())
+                    .collect::<Vec<String>>()
+                    .join(", ")
+            )
         };
 
         // Invalid number of args
@@ -649,7 +654,7 @@ mod tests {
         describe "rollup no window no points" {
             test "beforeStart" {
                 let mut rc = RollupConfig::default();
-                rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
+                rc.handler = RollupHandler::Wrapped(rollup_first);
                 rc.start = 0;
                 rc.end = 4;
                 rc.step = 1;
@@ -659,7 +664,7 @@ mod tests {
 
             test "afterEnd" {
                 let mut rc = RollupConfig::default();
-                rc.handler = RollupHandlerEnum::Wrapped(rollup_delta);
+                rc.handler = RollupHandler::Wrapped(rollup_delta);
                 rc.start = 120;
                 rc.end = 148;
                 rc.step = 4;
@@ -675,7 +680,7 @@ mod tests {
         describe "window no points" {
             test "beforeStart" {
                 let mut rc = RollupConfig::default();
-                rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
+                rc.handler = RollupHandler::Wrapped(rollup_first);
                 rc.start = 0;
                 rc.end = 4;
                 rc.step = 1;
@@ -685,7 +690,7 @@ mod tests {
 
             test "afterEnd" {
                 let mut rc = RollupConfig::default();
-                rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
+                rc.handler = RollupHandler::Wrapped(rollup_first);
                 rc.start = 161;
                 rc.end = 191;
                 rc.step = 10;
@@ -697,7 +702,7 @@ mod tests {
         describe "no window partial points" {
             test "beforeStart" {
                 let mut rc = RollupConfig::default();
-                rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
+                rc.handler = RollupHandler::Wrapped(rollup_first);
                 rc.start = 0;
                 rc.end = 25;
                 rc.step = 5;
@@ -711,7 +716,7 @@ mod tests {
 
             test "afterEnd" {
                 let mut rc = RollupConfig::default();
-                rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
+                rc.handler = RollupHandler::Wrapped(rollup_first);
                 rc.start = 100;
                 rc.end = 160;
                 rc.step = 20;
@@ -722,7 +727,7 @@ mod tests {
 
             test "middle" {
                 let mut rc = RollupConfig::default();
-                rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
+                rc.handler = RollupHandler::Wrapped(rollup_first);
                 rc.start = -50;
                 rc.end = 150;
                 rc.step = 50;
@@ -738,7 +743,7 @@ mod tests {
         describe "window partial points" {
             test "beforeStart" {
                 let mut rc = RollupConfig::default();
-                rc.handler = RollupHandlerEnum::Wrapped(rollup_last);
+                rc.handler = RollupHandler::Wrapped(rollup_last);
                 rc.start = 0;
                 rc.end = 20;
                 rc.step = 5;
@@ -752,7 +757,7 @@ mod tests {
 
             test "afterEnd" {
                 let mut rc = RollupConfig::default();
-                rc.handler = RollupHandlerEnum::Wrapped(rollup_last);
+                rc.handler = RollupHandler::Wrapped(rollup_last);
                 rc.start = 100;
                 rc.end = 160;
                 rc.step = 20;
@@ -766,7 +771,7 @@ mod tests {
 
             test "middle" {
                 let mut rc = RollupConfig::default();
-                rc.handler = RollupHandlerEnum::Wrapped(rollup_last);
+                rc.handler = RollupHandler::Wrapped(rollup_last);
                 rc.start = 0;
                 rc.end = 150;
                 rc.step = 50;
@@ -778,7 +783,7 @@ mod tests {
         describe "lookback delta" {
             test "one" {
                 let mut rc = RollupConfig::default();
-                rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
+                rc.handler = RollupHandler::Wrapped(rollup_first);
                 rc.start = 80;
                 rc.end = 140;
                 rc.step = 10;
@@ -792,7 +797,7 @@ mod tests {
 
             test "seven" {
                 let mut rc = RollupConfig::default();
-                rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
+                rc.handler = RollupHandler::Wrapped(rollup_first);
                 rc.start = 80;
                 rc.end = 140;
                 rc.step = 10;
@@ -806,7 +811,7 @@ mod tests {
 
             test "zero" {
                 let mut rc = RollupConfig::default();
-                rc.handler = RollupHandlerEnum::Wrapped(rollup_first);
+                rc.handler = RollupHandler::Wrapped(rollup_first);
                 rc.start = 80;
                 rc.end = 140;
                 rc.step = 10;
@@ -824,7 +829,7 @@ mod tests {
     #[test]
     fn test_rollup_count_no_window() {
         let mut rc = RollupConfig::default();
-        rc.handler = RollupHandlerEnum::Wrapped(rollup_count);
+        rc.handler = RollupHandler::Wrapped(rollup_count);
         rc.start = 0;
         rc.end = 160;
         rc.step = 40;
@@ -835,7 +840,7 @@ mod tests {
     #[test]
     fn test_rollup_min_no_window() {
         let mut rc = RollupConfig::default();
-        rc.handler = RollupHandlerEnum::Wrapped(rollup_min);
+        rc.handler = RollupHandler::Wrapped(rollup_min);
         rc.start = 0;
         rc.end = 160;
         rc.step = 40;
@@ -850,7 +855,7 @@ mod tests {
     #[test]
     fn test_rollup_max_no_window() {
         let mut rc = RollupConfig::default();
-        rc.handler = RollupHandlerEnum::Wrapped(rollup_max);
+        rc.handler = RollupHandler::Wrapped(rollup_max);
         rc.start = 0;
         rc.end = 160;
         rc.step = 40;
@@ -865,7 +870,7 @@ mod tests {
     #[test]
     fn test_rollup_sum_no_window() {
         let mut rc = RollupConfig::default();
-        rc.handler = RollupHandlerEnum::Wrapped(rollup_sum);
+        rc.handler = RollupHandler::Wrapped(rollup_sum);
         rc.start = 0;
         rc.end = 160;
         rc.step = 40;
@@ -881,7 +886,7 @@ mod tests {
     #[test]
     fn test_rollup_delta_no_window() {
         let mut rc = RollupConfig::default();
-        rc.handler = RollupHandlerEnum::Wrapped(rollup_delta);
+        rc.handler = RollupHandler::Wrapped(rollup_delta);
         rc.start = 0;
         rc.end = 160;
         rc.step = 40;
@@ -896,7 +901,7 @@ mod tests {
     #[test]
     fn test_rollup_delta_prometheus_no_window() {
         let mut rc = RollupConfig::default();
-        rc.handler = RollupHandlerEnum::Wrapped(rollup_delta_prometheus);
+        rc.handler = RollupHandler::Wrapped(rollup_delta_prometheus);
         rc.start = 0;
         rc.end = 160;
         rc.step = 40;
@@ -911,7 +916,7 @@ mod tests {
     #[test]
     fn test_rollup_idelta_no_window() {
         let mut rc = RollupConfig::default();
-        rc.handler = RollupHandlerEnum::Wrapped(rollup_idelta);
+        rc.handler = RollupHandler::Wrapped(rollup_idelta);
         rc.start = 10;
         rc.end = 130;
         rc.step = 40;
@@ -922,7 +927,7 @@ mod tests {
     #[test]
     fn test_rollup_lag_no_window() {
         let mut rc = RollupConfig::default();
-        rc.handler = RollupHandlerEnum::Wrapped(rollup_lag);
+        rc.handler = RollupHandler::Wrapped(rollup_lag);
         rc.start = 0;
         rc.end = 160;
         rc.step = 40;
@@ -937,7 +942,7 @@ mod tests {
     #[test]
     fn test_rollup_lifetime_1_no_window() {
         let mut rc = RollupConfig::default();
-        rc.handler = RollupHandlerEnum::Wrapped(rollup_lifetime);
+        rc.handler = RollupHandler::Wrapped(rollup_lifetime);
         rc.start = 0;
         rc.end = 160;
         rc.step = 40;
@@ -952,7 +957,7 @@ mod tests {
     #[test]
     fn test_rollup_lifetime_2_no_window() {
         let mut rc = RollupConfig::default();
-        rc.handler = RollupHandlerEnum::Wrapped(rollup_lifetime);
+        rc.handler = RollupHandler::Wrapped(rollup_lifetime);
         rc.start = 0;
         rc.end = 160;
         rc.step = 40;
@@ -967,7 +972,7 @@ mod tests {
     #[test]
     fn test_rollup_scrape_interval_1_no_window() {
         let mut rc = RollupConfig::default();
-        rc.handler = RollupHandlerEnum::Wrapped(rollup_scrape_interval);
+        rc.handler = RollupHandler::Wrapped(rollup_scrape_interval);
         rc.start = 0;
         rc.end = 160;
         rc.step = 40;
@@ -982,7 +987,7 @@ mod tests {
     #[test]
     fn test_rollup_scrape_interval_2_no_window() {
         let mut rc = RollupConfig::default();
-        rc.handler = RollupHandlerEnum::Wrapped(rollup_scrape_interval);
+        rc.handler = RollupHandler::Wrapped(rollup_scrape_interval);
         rc.start = 0;
         rc.end = 160;
         rc.step = 40;
@@ -1003,7 +1008,7 @@ mod tests {
     #[test]
     fn test_rollup_changes_no_window() {
         let mut rc = RollupConfig::default();
-        rc.handler = RollupHandlerEnum::Wrapped(rollup_changes);
+        rc.handler = RollupHandler::Wrapped(rollup_changes);
         rc.start = 0;
         rc.end = 160;
         rc.step = 40;
@@ -1014,7 +1019,7 @@ mod tests {
     #[test]
     fn test_rollup_changes_prometheus_no_window() {
         let mut rc = RollupConfig::default();
-        rc.handler = RollupHandlerEnum::Wrapped(rollup_changes_prometheus);
+        rc.handler = RollupHandler::Wrapped(rollup_changes_prometheus);
         rc.start = 0;
         rc.end = 160;
         rc.step = 40;
@@ -1025,7 +1030,7 @@ mod tests {
     #[test]
     fn test_rollup_changes_small_window_no_window() {
         let mut rc = RollupConfig::default();
-        rc.handler = RollupHandlerEnum::Wrapped(rollup_changes);
+        rc.handler = RollupHandler::Wrapped(rollup_changes);
         rc.start = 0;
         rc.end = 45;
         rc.step = 9;
@@ -1040,7 +1045,7 @@ mod tests {
     #[test]
     fn test_rollup_resets_no_window() {
         let mut rc = RollupConfig::default();
-        rc.handler = RollupHandlerEnum::Wrapped(rollup_resets);
+        rc.handler = RollupHandler::Wrapped(rollup_resets);
         rc.start = 0;
         rc.end = 160;
         rc.step = 40;
@@ -1051,7 +1056,7 @@ mod tests {
     #[test]
     fn test_rollup_avg_no_window() {
         let mut rc = RollupConfig::default();
-        rc.handler = RollupHandlerEnum::Wrapped(rollup_avg);
+        rc.handler = RollupHandler::Wrapped(rollup_avg);
         rc.start = 0;
         rc.end = 160;
         rc.step = 40;
@@ -1066,7 +1071,7 @@ mod tests {
     #[test]
     fn test_rollup_deriv_no_window() {
         let mut rc = RollupConfig::default();
-        rc.handler = RollupHandlerEnum::Wrapped(rollup_deriv_slow);
+        rc.handler = RollupHandler::Wrapped(rollup_deriv_slow);
         rc.start = 0;
         rc.end = 160;
         rc.step = 40;
@@ -1087,7 +1092,7 @@ mod tests {
     #[test]
     fn test_rollup_deriv_fast_no_window() {
         let mut rc = RollupConfig::default();
-        rc.handler = RollupHandlerEnum::Wrapped(rollup_deriv_fast);
+        rc.handler = RollupHandler::Wrapped(rollup_deriv_fast);
         rc.start = 0;
         rc.end = 20;
         rc.step = 4;
@@ -1102,7 +1107,7 @@ mod tests {
     #[test]
     fn test_rollup_ideriv_no_window() {
         let mut rc = RollupConfig::default();
-        rc.handler = RollupHandlerEnum::Wrapped(rollup_ideriv);
+        rc.handler = RollupHandler::Wrapped(rollup_ideriv);
         rc.start = 0;
         rc.end = 160;
         rc.step = 40;
@@ -1117,7 +1122,7 @@ mod tests {
     #[test]
     fn test_rollup_stddev_no_window() {
         let mut rc = RollupConfig::default();
-        rc.handler = RollupHandlerEnum::Wrapped(rollup_stddev);
+        rc.handler = RollupHandler::Wrapped(rollup_stddev);
         rc.start = 0;
         rc.end = 160;
         rc.step = 40;
@@ -1139,7 +1144,7 @@ mod tests {
     #[test]
     fn test_rollup_integrate_no_window() {
         let mut rc = RollupConfig::default();
-        rc.handler = RollupHandlerEnum::Wrapped(rollup_integrate);
+        rc.handler = RollupHandler::Wrapped(rollup_integrate);
         rc.start = 0;
         rc.end = 160;
         rc.step = 40;
@@ -1154,7 +1159,7 @@ mod tests {
     #[test]
     fn test_rollup_distinct_over_time_1_no_window() {
         let mut rc = RollupConfig::default();
-        rc.handler = RollupHandlerEnum::Wrapped(rollup_distinct);
+        rc.handler = RollupHandler::Wrapped(rollup_distinct);
         rc.start = 0;
         rc.end = 160;
         rc.step = 40;
@@ -1165,7 +1170,7 @@ mod tests {
     #[test]
     fn test_rollup_distinct_over_time_2_no_window() {
         let mut rc = RollupConfig::default();
-        rc.handler = RollupHandlerEnum::Wrapped(rollup_distinct);
+        rc.handler = RollupHandler::Wrapped(rollup_distinct);
         rc.start = 0;
         rc.end = 160;
         rc.step = 40;
@@ -1176,7 +1181,7 @@ mod tests {
     #[test]
     fn test_rollup_mode_over_time_no_window() {
         let mut rc = RollupConfig::default();
-        rc.handler = RollupHandlerEnum::Wrapped(rollup_mode_over_time);
+        rc.handler = RollupHandler::Wrapped(rollup_mode_over_time);
         rc.start = 0;
         rc.end = 160;
         rc.step = 40;
@@ -1191,7 +1196,7 @@ mod tests {
     #[test]
     fn test_rollup_rate_over_sum_no_window() {
         let mut rc = RollupConfig::default();
-        rc.handler = RollupHandlerEnum::Wrapped(rollup_rate_over_sum);
+        rc.handler = RollupHandler::Wrapped(rollup_rate_over_sum);
         rc.start = 0;
         rc.end = 160;
         rc.step = 40;
@@ -1206,7 +1211,7 @@ mod tests {
     #[test]
     fn test_rollup_zscore_over_time_no_window() {
         let mut rc = RollupConfig::default();
-        rc.handler = RollupHandlerEnum::Wrapped(rollup_zscore_over_time);
+        rc.handler = RollupHandler::Wrapped(rollup_zscore_over_time);
         rc.start = 0;
         rc.end = 160;
         rc.step = 40;
@@ -1228,7 +1233,7 @@ mod tests {
     fn test_rollup_big_number_of_values() {
         const SRC_VALUES_COUNT: i64 = 10000;
         let mut rc = RollupConfig::default();
-        rc.handler = RollupHandlerEnum::Wrapped(rollup_default);
+        rc.handler = RollupHandler::Wrapped(rollup_default);
         rc.end = SRC_VALUES_COUNT;
         rc.step = SRC_VALUES_COUNT / 5;
         rc.window = SRC_VALUES_COUNT / 4;

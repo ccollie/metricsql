@@ -3,7 +3,7 @@ use metricsql::common::Operator;
 use crate::{RuntimeError, RuntimeResult};
 
 /// Supported operation between two float type values.
-pub(crate) fn scalar_binary_operations(
+pub(crate) fn scalar_binary_operation(
     op: Operator,
     lhs: f64,
     rhs: f64,

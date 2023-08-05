@@ -4,7 +4,7 @@ use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 use serde::ser::{SerializeSeq, SerializeStruct};
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer};
 
 use metricsql::ast::DurationExpr;
 use metricsql::common::{Value, ValueType};
@@ -16,7 +16,7 @@ use crate::{EvalConfig, RuntimeError, RuntimeResult, Timeseries};
 
 pub type Labels = Vec<Label>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Label {
     pub name: String,
     pub value: String,
@@ -267,6 +267,10 @@ impl QueryValue {
         QueryValue::InstantVector(vec![])
     }
 
+    pub fn is_string_or_scalar(&self) -> bool {
+        matches!(self, QueryValue::String(_) | QueryValue::Scalar(_))
+    }
+
     pub fn len(&self) -> usize {
         match self {
             QueryValue::InstantVector(val) => val.len(), // ????
@@ -299,6 +303,18 @@ impl FromStr for QueryValue {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(QueryValue::String(s.to_string()))
+    }
+}
+
+impl From<String> for QueryValue {
+    fn from(s: String) -> Self {
+        QueryValue::String(s)
+    }
+}
+
+impl From<&str> for QueryValue {
+    fn from(s: &str) -> Self {
+        QueryValue::String(s.to_string())
     }
 }
 

@@ -7,13 +7,14 @@ use metricsql::functions::{can_adjust_window, RollupFunction, TransformFunction}
 
 use crate::common::math::quantile;
 use crate::eval::validate_max_points_per_timeseries;
+use crate::functions::rollup::candlestick::*;
+use crate::functions::rollup::delta::delta_values;
+use crate::functions::rollup::deriv::deriv_values;
 use crate::functions::rollup::rollup_fns::{
-    delta_values, deriv_values, remove_counter_resets, rollup_avg, rollup_close, rollup_fake,
-    rollup_high, rollup_low, rollup_max, rollup_min, rollup_open,
+    get_rollup_fn, remove_counter_resets, rollup_avg, rollup_max, rollup_min,
 };
 use crate::functions::rollup::{
-    get_rollup_fn, get_rollup_func_by_name, RollupFuncArg, RollupHandler, RollupHandlerEnum,
-    TimeseriesMap,
+    get_rollup_func_by_name, RollupFuncArg, RollupHandler, TimeseriesMap,
 };
 use crate::types::get_timeseries;
 use crate::{get_timestamps, RuntimeError, RuntimeResult, Timestamp};
@@ -24,7 +25,7 @@ pub const MAX_SILENCE_INTERVAL: i64 = 5 * 60 * 1000;
 // Pre-allocated handlers for closure to save allocations at runtime
 macro_rules! wrap_rollup_fn {
     ( $name: ident, $rf: expr ) => {
-        pub(crate) const $name: RollupHandlerEnum = RollupHandlerEnum::Wrapped($rf);
+        pub(crate) const $name: RollupHandler = RollupHandler::Wrapped($rf);
     };
 }
 
@@ -72,12 +73,39 @@ wrap_rollup_fn!(FN_MAX, rollup_max);
 wrap_rollup_fn!(FN_AVG, rollup_avg);
 wrap_rollup_fn!(FN_LOW, rollup_low);
 wrap_rollup_fn!(FN_HIGH, rollup_high);
-wrap_rollup_fn!(FN_FAKE, rollup_fake);
+
+fn get_tag_fn_from_str(name: &str) -> Option<&RollupHandler> {
+    match name {
+        "min" => Some(&FN_MIN),
+        "max" => Some(&FN_MAX),
+        "avg" => Some(&FN_AVG),
+        "open" => Some(&FN_OPEN),
+        "close" => Some(&FN_CLOSE),
+        "low" => Some(&FN_LOW),
+        "high" => Some(&FN_HIGH),
+        _ => None,
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct TagFunction {
+    pub tag_value: String,
+    pub(crate) func: RollupHandler,
+}
+
+#[derive(Clone, Default, Debug)]
+pub struct RollupFunctionHandlerMeta {
+    may_adjust_window: bool,
+    samples_scanned_per_call: usize,
+    is_default_rollup: bool,
+    pre_funcs: Vec<PreFunction>,
+    functions: Vec<TagFunction>,
+}
 
 // todo: use tinyvec for return values
 pub(crate) fn get_rollup_configs(
     func: &RollupFunction,
-    rf: &RollupHandlerEnum,
+    rf: &RollupHandler,
     expr: &Expr,
     start: Timestamp,
     end: Timestamp,
@@ -89,127 +117,69 @@ pub(crate) fn get_rollup_configs(
     shared_timestamps: &Arc<Vec<i64>>,
 ) -> RuntimeResult<(Vec<RollupConfig>, Vec<PreFunction>)> {
     // todo: use tinyvec
-    let mut pre_funcs: Vec<PreFunction> = Vec::with_capacity(3);
 
-    if func.should_remove_counter_resets() {
-        pre_funcs.push(remove_counter_resets_pre_func);
-    }
-
-    let may_adjust_window = can_adjust_window(func);
-    let is_default_rollup = *func == RollupFunction::DefaultRollup;
-    let samples_scanned_per_call = rollup_samples_scanned_per_call(func);
-
-    let template = RollupConfig {
-        tag_value: String::from(""),
-        handler: FN_FAKE.clone(),
+    let meta = get_rollup_function_handler_meta(&expr, func, Some(rf))?;
+    let rcs = get_rollup_configs_from_meta(
+        &meta,
         start,
         end,
         step,
         window,
-        may_adjust_window,
-        lookback_delta,
-        timestamps: Arc::clone(shared_timestamps),
-        is_default_rollup,
         max_points_per_series,
         min_staleness_interval,
-        samples_scanned_per_call,
+        lookback_delta,
+        shared_timestamps,
+    )?;
+
+    Ok((rcs, meta.pre_funcs))
+}
+
+// todo: use tinyvec for return values
+pub(crate) fn get_rollup_configs_from_meta(
+    meta: &RollupFunctionHandlerMeta,
+    start: Timestamp,
+    end: Timestamp,
+    step: i64,
+    window: i64,
+    max_points_per_series: usize,
+    min_staleness_interval: usize,
+    lookback_delta: i64,
+    shared_timestamps: &Arc<Vec<i64>>,
+) -> RuntimeResult<Vec<RollupConfig>> {
+    // todo: use tinyvec
+
+    let new_rollup_config = |rf: &RollupHandler, tag_value: String| -> RollupConfig {
+        RollupConfig {
+            tag_value,
+            handler: rf.clone(),
+            start,
+            end,
+            step,
+            window,
+            may_adjust_window: meta.may_adjust_window,
+            lookback_delta,
+            timestamps: Arc::clone(shared_timestamps),
+            is_default_rollup: meta.is_default_rollup,
+            max_points_per_series,
+            min_staleness_interval,
+            samples_scanned_per_call: meta.samples_scanned_per_call,
+        }
     };
 
-    let new_rollup_config = |rf: &RollupHandlerEnum, tag_value: &str| -> RollupConfig {
-        template.clone_with_fn(rf, tag_value)
-    };
+    let rcs = meta
+        .functions
+        .iter()
+        .map(|nf| new_rollup_config(&nf.func, nf.tag_value.clone()))
+        .collect::<Vec<_>>();
 
-    let append_rollup_configs = |dst: &mut Vec<RollupConfig>, expr: &Expr| -> RuntimeResult<()> {
-        let tag = get_rollup_tag(expr)?;
-        if let Some(tag) = tag {
-            match tag.as_str() {
-                "min" => dst.push(new_rollup_config(&FN_MIN, "min")),
-                "max" => dst.push(new_rollup_config(&FN_MAX, "max")),
-                "avg" => dst.push(new_rollup_config(&FN_AVG, "avg")),
-                _ => {
-                    let msg = format!(
-                        "unexpected rollup tag value {}; wanted min, max or avg",
-                        tag
-                    );
-                    return Err(RuntimeError::ArgumentError(msg));
-                }
-            }
-        } else {
-            dst.push(new_rollup_config(&FN_MIN, "min"));
-            dst.push(new_rollup_config(&FN_MAX, "max"));
-            dst.push(new_rollup_config(&FN_AVG, "avg"));
-        }
-        Ok(())
-    };
-
-    // todo: tinyvec
-    let mut rcs: Vec<RollupConfig> = Vec::with_capacity(4);
-    match func {
-        RollupFunction::Rollup => {
-            append_rollup_configs(&mut rcs, expr)?;
-        }
-        RollupFunction::RollupRate | RollupFunction::RollupDeriv => {
-            pre_funcs.push(deriv_values);
-            append_rollup_configs(&mut rcs, expr)?;
-        }
-        RollupFunction::RollupIncrease | RollupFunction::RollupDelta => {
-            pre_funcs.push(delta_values_pre_func);
-            append_rollup_configs(&mut rcs, expr)?;
-        }
-        RollupFunction::RollupCandlestick => {
-            let tag = get_rollup_tag(expr)?;
-            if let Some(tag) = tag {
-                match tag.as_str() {
-                    "open" => rcs.push(new_rollup_config(&FN_OPEN, "open")),
-                    "close" => rcs.push(new_rollup_config(&FN_CLOSE, "close")),
-                    "low" => rcs.push(new_rollup_config(&FN_LOW, "low")),
-                    "high" => rcs.push(new_rollup_config(&FN_HIGH, "high")),
-                    _ => {
-                        let msg = format!(
-                            "unexpected rollup tag value {}; wanted open, close, low or high",
-                            tag
-                        );
-                        return Err(RuntimeError::ArgumentError(msg));
-                    }
-                }
-            } else {
-                rcs.push(new_rollup_config(&FN_OPEN, "open"));
-                rcs.push(new_rollup_config(&FN_CLOSE, "close"));
-                rcs.push(new_rollup_config(&FN_LOW, "low"));
-                rcs.push(new_rollup_config(&FN_HIGH, "high"));
-            }
-        }
-        RollupFunction::RollupScrapeInterval => {
-            pre_funcs.push(calc_sample_intervals_pre_fn);
-            append_rollup_configs(&mut rcs, expr)?;
-        }
-        RollupFunction::AggrOverTime => {
-            let funcs = get_rollup_aggr_funcs(expr)?;
-            for rf in funcs {
-                if rf.should_remove_counter_resets() {
-                    // There is no need to save the previous pre_func, since it is either empty or the same.
-                    pre_funcs.clear();
-                    pre_funcs.push(remove_counter_resets_pre_func);
-                }
-                let rollup_fn = get_rollup_fn(&rf)?;
-                let handler = RollupHandlerEnum::wrap(rollup_fn);
-                let clone = template.clone_with_fn(&handler, rf.name());
-                rcs.push(clone);
-            }
-        }
-        _ => {
-            rcs.push(new_rollup_config(rf, ""));
-        }
-    }
-
-    Ok((rcs, pre_funcs))
+    Ok(rcs)
 }
 
 #[derive(Clone)]
 pub(crate) struct RollupConfig {
     /// This tag value must be added to "rollup" tag if non-empty.
     pub tag_value: String,
-    pub handler: RollupHandlerEnum,
+    pub handler: RollupHandler,
     pub start: i64,
     pub end: i64,
     pub step: i64,
@@ -247,7 +217,7 @@ impl Default for RollupConfig {
     fn default() -> Self {
         Self {
             tag_value: "".to_string(),
-            handler: RollupHandlerEnum::Fake("uninitialized"),
+            handler: RollupHandler::Fake("uninitialized"),
             start: 0,
             end: 0,
             step: 0,
@@ -264,24 +234,6 @@ impl Default for RollupConfig {
 }
 
 impl RollupConfig {
-    fn clone_with_fn(&self, rollup_fn: &RollupHandlerEnum, tag_value: &str) -> Self {
-        RollupConfig {
-            tag_value: tag_value.to_string(), // should this be Arc ??
-            handler: rollup_fn.clone(),
-            start: self.start,
-            end: self.end,
-            step: self.step,
-            window: self.window,
-            may_adjust_window: self.may_adjust_window,
-            lookback_delta: self.lookback_delta,
-            timestamps: Arc::clone(&self.timestamps),
-            is_default_rollup: self.is_default_rollup,
-            max_points_per_series: self.max_points_per_series,
-            min_staleness_interval: self.min_staleness_interval,
-            samples_scanned_per_call: self.samples_scanned_per_call,
-        }
-    }
-
     // mostly for testing
     pub(crate) fn get_timestamps(&mut self) -> RuntimeResult<Arc<Vec<i64>>> {
         self.ensure_timestamps()?;
@@ -591,6 +543,121 @@ fn get_max_prev_interval(scrape_interval: i64) -> i64 {
     scrape_interval + scrape_interval / 8
 }
 
+// todo: use tinyvec for return values
+pub(crate) fn get_rollup_function_handler_meta(
+    expr: &Expr,
+    func: &RollupFunction,
+    rf: Option<&RollupHandler>,
+) -> RuntimeResult<RollupFunctionHandlerMeta> {
+    // todo: use tinyvec
+    let mut pre_funcs: Vec<PreFunction> = Vec::with_capacity(3);
+
+    if func.should_remove_counter_resets() {
+        pre_funcs.push(remove_counter_resets_pre_func);
+    }
+
+    let new_function_config = |func: &RollupHandler, tag_value: &str| -> TagFunction {
+        TagFunction {
+            tag_value: tag_value.to_string(),
+            func: func.clone(),
+        }
+    };
+
+    let new_function_configs =
+        |dst: &mut Vec<TagFunction>, tag: Option<&String>, valid: &[&str]| -> RuntimeResult<()> {
+            if let Some(tag_value) = tag {
+                let func = get_tag_fn_from_str(&tag_value).ok_or_else(|| {
+                    RuntimeError::ArgumentError(format!(
+                        "unexpected rollup tag value {tag_value}; wanted {}",
+                        valid
+                            .iter()
+                            .map(|x| x.to_string())
+                            .collect::<Vec<String>>()
+                            .join(", ")
+                    ))
+                })?;
+                dst.push(new_function_config(func, tag_value));
+            } else {
+                for tag_value in valid {
+                    let func = get_tag_fn_from_str(tag_value).unwrap();
+                    dst.push(TagFunction {
+                        tag_value: tag_value.to_string(),
+                        func: func.clone(),
+                    });
+                }
+            }
+
+            Ok(())
+        };
+
+    let append_stats_function = |dst: &mut Vec<TagFunction>, expr: &Expr| -> RuntimeResult<()> {
+        static VALID: [&str; 3] = ["min", "max", "avg"];
+        let tag = get_rollup_tag(expr)?;
+        new_function_configs(dst, tag, &VALID)
+    };
+
+    // todo: tinyvec
+    let mut funcs: Vec<TagFunction> = Vec::with_capacity(4);
+    match func {
+        RollupFunction::Rollup => {
+            append_stats_function(&mut funcs, expr)?;
+        }
+        RollupFunction::RollupRate | RollupFunction::RollupDeriv => {
+            pre_funcs.push(deriv_values);
+            append_stats_function(&mut funcs, expr)?;
+        }
+        RollupFunction::RollupIncrease | RollupFunction::RollupDelta => {
+            pre_funcs.push(delta_values_pre_func);
+            append_stats_function(&mut funcs, expr)?;
+        }
+        RollupFunction::RollupCandlestick => {
+            static VALID: [&str; 4] = ["open", "close", "low", "high"];
+            let tag = get_rollup_tag(expr)?;
+            new_function_configs(&mut funcs, tag, &VALID)?;
+        }
+        RollupFunction::RollupScrapeInterval => {
+            pre_funcs.push(calc_sample_intervals_pre_fn);
+            append_stats_function(&mut funcs, expr)?;
+        }
+        RollupFunction::AggrOverTime => {
+            let fns = get_rollup_aggr_funcs(expr)?;
+            for rf in fns {
+                if rf.should_remove_counter_resets() {
+                    // There is no need to save the previous pre_func, since it is either empty or the same.
+                    pre_funcs.clear();
+                    pre_funcs.push(remove_counter_resets_pre_func);
+                }
+                let rollup_fn = get_rollup_fn(&rf)?;
+                let handler = RollupHandler::wrap(rollup_fn);
+                funcs.push(TagFunction {
+                    tag_value: rf.name().to_string(),
+                    func: handler,
+                });
+            }
+        }
+        _ => {
+            if let Some(rf) = rf {
+                funcs.push(TagFunction {
+                    tag_value: String::from(""),
+                    func: rf.clone(),
+                });
+            }
+        }
+    }
+
+    let may_adjust_window = can_adjust_window(func);
+    let is_default_rollup = *func == RollupFunction::DefaultRollup;
+    let samples_scanned_per_call = rollup_samples_scanned_per_call(func);
+
+    Ok(RollupFunctionHandlerMeta {
+        may_adjust_window,
+        is_default_rollup,
+        samples_scanned_per_call,
+        pre_funcs,
+        functions: funcs,
+    })
+}
+
 fn get_rollup_tag(expr: &Expr) -> RuntimeResult<Option<&String>> {
     if let Expr::Function(fe) = expr {
         if fe.args.len() < 2 {
@@ -662,16 +729,16 @@ fn get_rollup_aggr_funcs(expr: &Expr) -> RuntimeResult<Vec<RollupFunction>> {
         Ok(funcs)
     }
 
-    let expr = match expr {
-        Expr::Aggregation(afe) => {
-            // This is for incremental aggregate function case:
-            //
-            //     sum(aggr_over_time(...))
-            // See aggr_incremental.rs for details.
-            &afe.args[0]
-        }
-        _ => expr,
+    let expr = if let Expr::Aggregation(afe) = expr {
+        // This is for incremental aggregate function case:
+        //
+        //     sum(aggr_over_time(...))
+        // See aggr_incremental.rs for details.
+        &afe.args[0]
+    } else {
+        expr
     };
+
     match expr {
         Expr::Function(fe) => {
             let is_aggr_over_time = fe.is_rollup_function(RollupFunction::AggrOverTime);
