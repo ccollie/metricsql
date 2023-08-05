@@ -13,7 +13,8 @@ impl ClearCmd {
     }
 
     pub(crate) fn exec(&mut self, t: &mut Test) -> RuntimeResult<()> {
-        t.clear()
+        t.clear();
+        Ok(())
     }
 }
 

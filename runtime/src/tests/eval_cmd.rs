@@ -1,10 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fmt::Display;
+use std::ops::Add;
 
 use crate::{MetricName, RuntimeError, RuntimeResult, Sample, Timestamp};
 use crate::functions::types::AnyValue;
-use crate::tests::helpers::Labels;
+use crate::tests::helpers::{hash_labels, Labels};
 use crate::tests::test::{at_modifier_test_cases, AtModifierTestCase, Test};
 use crate::tests::types::SequenceValue;
 use crate::tests::utils::almost_equal;
@@ -51,12 +52,12 @@ impl EvalCmd {
     /// results for the query.
     pub fn expect(&mut self, pos: usize, m: Labels, vals: &[SequenceValue]) {
         if m.is_empty() {
-            self.expected.set(0, Entry { pos, vals });
+            self.expected.set(0, Entry { pos, vals: vals.into_vec() });
             return
         }
-        let h = m.hash();
+        let h = hash_labels(&m);
         self.metrics.set(h, m);
-        self.expected.set(h, Entry { pos, vals });
+        self.expected.set(h, Entry { pos, vals: vals.into_vec() });
     }
 
     pub(crate) fn exec(&mut self, test: &mut Test) -> RuntimeResult<()> {
@@ -69,7 +70,6 @@ impl EvalCmd {
 
         for iq in queries.iter() {
             let q = self.query_engine.new_instant_query(self.storage,
-                                                        nil,
                                                         iq.expr,
                                                         iq.eval_time)?;
 
@@ -97,7 +97,7 @@ impl EvalCmd {
             let q = self.queryEngine.new_range_query(self.storage, iq.expr,
                                                           iq.eval_time.add(-time.Minute),
                                                           iq.eval_time.add(time.Minute),
-                                                          time.Minute)
+                                                     time.Minute);
 
             let range_res = q.exec(t.context);
 
@@ -117,13 +117,17 @@ impl EvalCmd {
             for series in mat {
                 for point in series.points.iter() {
                     if point.t == timeMilliseconds(iq.eval_time) {
-                        vec.push(Sample { metric: series.metric, point });
+                        vec.push(Sample {
+                            metric: series.metric,
+                            timestamp: 0,
+                            value: 0.0,
+                        });
                         break
                     }
                 }
             }
 
-            if let QueryValue::Scalar(v) = res.Value {
+            if let AnyValue::Scalar(v) = res.value {
                 if vec.len() != 1 {
                     let msg = format!("expected 1 result for query {} (line {}) but got {}",
                                       iq.expr, self.line, vec.len());
@@ -133,7 +137,7 @@ impl EvalCmd {
                 self.compare_result(vec)
             }
             if err != nil {
-                return format!("error in {} {} (line {}) range mode: {}", cmd, iq.expr, cmd.line, err)
+                return format!("error in {cmd} {} (line {}) range mode: {}", iq.expr, cmd.line, err)
             }
         }
     }

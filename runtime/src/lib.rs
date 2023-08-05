@@ -6,6 +6,7 @@ extern crate effective_limits;
 extern crate enquote;
 extern crate integer_encoding;
 extern crate lockfree_object_pool;
+extern crate logos;
 extern crate lru_time_cache;
 extern crate minstant;
 extern crate once_cell;
@@ -20,6 +21,21 @@ extern crate scopeguard;
 extern crate tinyvec;
 #[cfg(feature = "xxh64")]
 extern crate xxhash_rust;
+
+pub use active_queries::*;
+pub use cache::*;
+pub use context::*;
+pub use eval::{get_timestamps, EvalConfig};
+pub use exec::*;
+pub use parser_cache::*;
+pub use prometheus::*;
+pub use query::*;
+pub use query_stats::*;
+pub use runtime_error::*;
+pub use search::*;
+#[cfg(test)]
+pub use tests::utils::*;
+pub use types::*;
 
 mod active_queries;
 mod cache;
@@ -37,21 +53,6 @@ mod search;
 mod types;
 mod utils;
 
-pub use active_queries::*;
-pub use cache::*;
-pub use context::*;
-pub use eval::{get_timestamps, EvalConfig};
-pub use exec::*;
-pub use parser_cache::*;
-pub use prometheus::*;
-pub use query::*;
-pub use query_stats::*;
-pub use runtime_error::*;
-pub use search::*;
-pub use types::*;
-
-#[cfg(test)]
-pub use tests::utils::*;
 #[cfg(test)]
 mod exec_test;
 #[cfg(test)]

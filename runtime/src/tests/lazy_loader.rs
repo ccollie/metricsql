@@ -37,7 +37,7 @@ impl LazyLoader {
                 metrics: Default::default(),
                 defs: Default::default(),
             },
-            storage: TestStorage::new(ll),
+            storage: TestStorage::new(),
             subquery_interval: Default::default(),
             query_engine: (),
             context: (),
@@ -45,7 +45,7 @@ impl LazyLoader {
             opts,
         };
 
-        ll.parse(input)?;
+        ll.parse(input, 0)?;
         ll.clear();
 
         Ok(ll)

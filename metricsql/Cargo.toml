@@ -8,7 +8,7 @@ edition = "2021"
 chrono = { wokspace = true }
 either = { workspace = true }
 enquote = { workspace = true }
-logos = "0.12.1"
+logos = "0.13.0"
 once_cell = { workspace = true }
 phf = { workspace = true }
 regex = { workspace = true }

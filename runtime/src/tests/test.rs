@@ -126,7 +126,7 @@ impl Test {
             let cmd = match cmd_str {
                 "clear" => TestCommand::Clear(ClearCmd::new()),
                 "load" => {
-                    let (i, cmd) = parse_load(&line, i)?;
+                    let (i, cmd) = parse_load(&lines, i)?;
                     cmd
                 }
                 _ => {
@@ -151,7 +151,7 @@ impl Test {
         if let Some(cancel_ctx) = &self.cancel_ctx {
             (cancel_ctx)()
         }
-        self.storage = TestStorage::new(t);
+        self.storage = TestStorage::new();
         let opts = EngineOpts {
             max_samples: 10000,
             timeout: 100 * time.Second,
@@ -179,11 +179,6 @@ impl Test {
             cmd.exec(self)?;
         }
         Ok(())
-    }
-
-    // Queryable allows querying the test data.
-    pub fn queryable(&self) -> Queryable {
-        return self.storage;
     }
 
     fn parse_eval(&mut self, lines: &[String], i: usize) -> RuntimeResult<(usize, EvalCmd)> {
@@ -388,7 +383,7 @@ pub(crate) fn at_modifier_test_cases(expr_str: String, eval_time: Timestamp) -> 
         let p = newParser(input);
 
         let parse_result = p.parse_generated(START_SERIES_DESCRIPTION)?;
-        let result = parse_result.(*seriesDescription)
+        let result = parse_result.(*SeriesDescription)
         labels = result.labels
         values = result.values
 
