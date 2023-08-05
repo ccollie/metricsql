@@ -1,6 +1,8 @@
 use std::time::Duration;
 
+use crate::tests::consts::space_regex;
 use crate::tests::load_cmd::LoadCmd;
+use crate::tests::test::get_lines;
 use crate::tests::test_storage::TestStorage;
 use crate::tests::types::CancelFunc;
 use crate::{RuntimeError, RuntimeResult};
@@ -29,13 +31,13 @@ pub struct LazyLoaderOpts {
 impl LazyLoader {
     /// new returns an initialized empty LazyLoader.
     fn new(input: &str, opts: LazyLoaderOpts) -> RuntimeResult<LazyLoader> {
-        let ll = LazyLoader {
+        let mut ll = LazyLoader {
             load_cmd: LoadCmd {
                 gap: Default::default(),
                 metrics: Default::default(),
                 defs: Default::default(),
             },
-            storage: (),
+            storage: TestStorage::new(ll),
             subquery_interval: Default::default(),
             query_engine: (),
             context: (),
@@ -50,31 +52,33 @@ impl LazyLoader {
     }
 
     /// parse the given load command.
-    fn parse(&mut self, input: &str) -> RuntimeResult<()> {
+    fn parse(&mut self, input: &str, i: usize) -> RuntimeResult<()> {
         let lines = get_lines(input);
         /// Accepts only 'load' command.
         for line in lines.iter() {
             if line.is_empty() {
                 continue;
             }
-            if strings.ToLower(patSpace.Split(l, 2)[0]) == "load" {
+            let parts = space_regex().split(line).collect();
+            if parts.len() < 2 {
+                return raise(i, format!("invalid command {}", l));
+            }
+            let cmd = parts.get(2).unwrap_or("".to_string()).to_lowercase();
+            if cmd == "load" {
                 self.load_cmd = parse_load(lines, i)?;
                 Ok(())
             }
-            return raise(i, format!("invalid command {}", l));
+            return raise(i, format!("invalid command {cmd}"));
         }
         return RuntimeError::from("no \"load\" command found");
     }
 
     // clear the current test storage of all inserted samples.
     pub fn clear(&mut self) -> RuntimeResult<()> {
-        match self.storage.close() {
-            Ok(_) => {}
-            Err(e) => {
-                return Err(RuntimeError::from(
-                    "Unexpected error while closing test storage.",
-                ))
-            }
+        if self.storage.close().is_err() {
+            return Err(RuntimeError::from(
+                "Unexpected error while closing test storage.",
+            ));
         }
         if let Some(cancel_func) = self.cancel_ctx {
             (cancel_func)();
@@ -107,7 +111,7 @@ impl LazyLoader {
                 }
                 app.append(0, m, s.t, s.v)?;
                 if i == samples.len() - 1 {
-                    self.load_cmd.defs[h] = nil
+                    self.load_cmd.defs[h] = None
                 }
             }
         }
@@ -117,14 +121,18 @@ impl LazyLoader {
     // Close closes resources associated with the LazyLoader.
     pub fn close(&mut self) -> RuntimeResult<()> {
         self.cancelCtx();
-        self.storage.close();
-        require.NoError(ll.T, err, "Unexpected error while closing test storage.")
+        self.storage.close().map_err(|e| {
+            RuntimeError::from(format!(
+                "Unexpected error while closing test storage: {}",
+                e
+            ))
+        })
     }
 
     // with_samples_till loads the samples till given timestamp and executes the given function.
-    fn with_samples_till(&mut self, ts: timestamp, func: fn(RuntimeError)) {
+    fn with_samples_till(&mut self, ts: timestamp) -> RuntimeResult<()> {
         let ts_milli = ts.Sub(time.Unix(0, 0).UTC()) / time.Millisecond;
-        func(self.append_till(ts_milli));
+        self.append_till(ts_milli)
     }
 
     /// Queryable allows querying the LazyLoader's data.

@@ -12,6 +12,7 @@ logos = "0.12.1"
 once_cell = { workspace = true }
 phf = { workspace = true }
 regex = { workspace = true }
+regex-syntax = "0.7.4"
 serde = { workspace = true }
 scopeguard = { workspace = true }
 thiserror = { workspace = true }

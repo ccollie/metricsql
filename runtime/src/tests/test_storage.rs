@@ -3,9 +3,11 @@ use std::rc::Rc;
 
 use metricsql::prelude::LabelFilter;
 
-use crate::tests::helpers::Appender;
+use crate::tests::helpers::{hash_labels, Appender, Labels};
 use crate::tests::value::Point;
-use crate::{MetricName, Sample};
+use crate::{
+    Deadline, MetricDataProvider, MetricName, QueryResults, RuntimeResult, Sample, SearchQuery,
+};
 
 pub struct TestSample {
     labels: Rc<MetricName>,
@@ -22,10 +24,15 @@ pub struct TestStorage {
 }
 
 impl Appender for TestStorage {
-    fn append(&mut self, samples: &mut [Sample]) {
-        for sample in samples.iter_mut() {
-            self.pending_result.append(sample);
-        }
+    fn append(&mut self, labels: &Labels, t: i64, v: f64) -> RuntimeResult<()> {
+        let h = hash_labels(labels);
+        let labels = self.labels_hash.entry(h).or_insert_with(|| Rc::new(l));
+        self.pending_result.push(Sample {
+            metric: labels.clone(),
+            timestamp: t,
+            value: v,
+        });
+        Ok(())
     }
 
     fn commit(&mut self) {
@@ -56,7 +63,7 @@ impl TestStorage {
             .or_insert_with(|| Rc::new(sample.metric.clone()));
 
         // todo: insert sort ?
-        self.sample_values
+        self.pending_result
             .entry(metric_id)
             .or_default()
             .push(Point {
@@ -123,7 +130,22 @@ impl TestStorage {
     }
 }
 
+impl MetricDataProvider for TestStorage {
+    fn search(&self, sq: &SearchQuery, _deadline: &Deadline) -> RuntimeResult<QueryResults> {
+        todo!()
+    }
+}
+
 fn matches_filter(mn: &MetricName, filter: &LabelFilter) -> bool {
+    for (k, v) in filter.iter() {
+        if let Some(v2) = mn.get(k) {
+            if v2 != v {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
     todo!()
 }
 

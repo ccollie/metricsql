@@ -13,16 +13,20 @@
 
 // https://github.com/prometheus/prometheus/blob/main/promql/test.go
 
+use std::cell::OnceCell;
 use std::fmt::Display;
 use std::fs;
 use std::ops::Index;
 use std::time::Duration;
+
+use chrono::{DateTime, Utc};
 
 use metricsql::parser::ParseErr;
 use metricsql::utils::parse_number;
 
 use crate::{Context, MetricName, RuntimeError, RuntimeResult, Timestamp};
 use crate::tests::clear_cmd::ClearCmd;
+use crate::tests::consts::{eval_instant_regex, load_regex, space_regex};
 use crate::tests::eval_cmd::EvalCmd;
 use crate::tests::load_cmd::LoadCmd;
 use crate::tests::test_storage::TestStorage;
@@ -33,19 +37,24 @@ use crate::tests::types::{CancelFunc, SequenceValue};
 /// step invariant. It also includes functions that use the timestamps
 /// of the passed instant vector argument to calculate a result since
 /// that can also change with change in eval time.
-fn is_at_modifier_unsafe_functions() -> bool {}
-
-// Step invariant functions.
-"days_in_month", "day_of_month", "day_of_week", "day_of_year",
-"hour", "minute", "month", "year",
-"predict_linear", "time",
-// Uses timestamp of the argument for the result,
-// hence unsafe to use with @ modifier.
-"timestamp"
+fn is_at_modifier_unsafe_functions() -> bool {
+    todo!()
 }
 
+// Step invariant functions.
+// "days_in_month", "day_of_month", "day_of_week", "day_of_year",
+// "hour", "minute", "month", "year",
+// "predict_linear", "time",
+// // Uses timestamp of the argument for the result,
+// // hence unsafe to use with @ modifier.
+// "timestamp"
+// }
 
-let testStartTime = time.Unix(0, 0).UTC()
+static TEST_START_TIME: OnceCell<DateTime<Utc>> = OnceCell::new();
+
+pub(crate) fn test_start_time() -> &'static DateTime<Utc> {
+    TEST_START_TIME.get_or_init(|| Utc::now())
+}
 
 pub enum TestCommand {
     Load(LoadCmd),
@@ -103,7 +112,7 @@ impl Test {
     }
 
     /// parse the given command sequence and appends it to the test.
-    fn parse(&mut self, input: String) -> RuntimeResult<()> {
+    fn parse(&mut self, input: &str) -> RuntimeResult<()> {
         let lines = get_lines(input);
         // Scan for steps line by line.
         let mut i = 0;
@@ -111,12 +120,13 @@ impl Test {
             if line.is_empty() {
                 continue;
             }
-            let cmd_str = Strings::toLower(patSpace.split(l, 2)[0]);
+            let parts = space_regex().split(line).collect();
+            let cmd_str = parts.get(2).unwrap_or("".to_string()).to_lower();
 
             let cmd = match cmd_str {
                 "clear" => TestCommand::Clear(ClearCmd::new()),
                 "load" => {
-                    let (i, cmd) = parse_load(lines, i)?;
+                    let (i, cmd) = parse_load(&line, i)?;
                     cmd
                 }
                 _ => {
@@ -177,14 +187,16 @@ impl Test {
     }
 
     fn parse_eval(&mut self, lines: &[String], i: usize) -> RuntimeResult<(usize, EvalCmd)> {
-        let line = lines[i];
-        if !patEvalInstant.MatchString(line) {
+        let line = &lines[i];
+
+        let (mod_, at, expr) = if let Some(captures) = eval_instant_regex().captures(&line) {
+            let mod_ = captures.get(1).unwrap().as_str();
+            let at = captures.get(2).unwrap().as_str();
+            let expr = captures.get(3).unwrap().as_str();
+            (mod_, at, expr)
+        } else {
             return raise(i, "invalid evaluation command. (eval[_fail|_ordered] instant [at <offset:duration>] <query>");
-        }
-        let parts = patEvalInstant.FindStringSubmatch(lines);
-        let mod_ = parts[1];
-        let at = parts[2];
-        let expr = parts[3];
+        };
 
         match metricsql::parser::parse(expr) {
             Err(err) => {
@@ -203,11 +215,12 @@ impl Test {
             Ok(_) => {}
         }
 
-        let offset = parse_duration(at);
-        if err != nil {
-            return raise(i, format!("invalid step definition {}: {:?}", parts[1], err));
-        }
-        let ts = testStartTime.add(Duration::from_millis(offset));
+        let offset = parse_duration(at)
+            .map_err(|e| {
+                RuntimeError::General(format!("invalid step definition {}: {:?}", parts[1], err));
+            });
+
+        let ts = test_start_time.add(Duration::from_millis(offset));
         let mut cmd = EvalCmd::new(expr, ts, i + 1);
         match mod_ {
             "ordered" => cmd.ordered = true,
@@ -219,13 +232,13 @@ impl Test {
         let mut j = 1;
         while i + 1 < lines.len() {
             i += 1;
-            let def_line = lines[i];
+            let def_line = &lines[i];
             if def_line.len() == 0 {
                 i -= 1;
                 break;
             }
             if let Some(f) = parse_number(&def_line) {
-                self.expect(0, nil, SequenceValue { value: f, omitted: false });
+                self.expect(0, SequenceValue { value: f, omitted: false });
                 break;
             }
             let (metric, vals) = parse_series_desc(defLine);
@@ -256,17 +269,18 @@ fn raise(line: usize, err: String) -> RuntimeResult<()> {
 }
 
 fn parse_load(lines: &[String], i: usize) -> RuntimeResult<(usize, LoadCmd)> {
-    if !PATTERN_LOAD.MatchString(lines[i]) {
+    let line = &lines[i];
+    let gap = if let Some(captures) = load_regex().captures(&line) {
+        captures.get(1).unwrap().as_str()
+    } else {
         return raise(i, "invalid load command. (load <step:duration>)");
-    }
-    let parts = PATTERN_LOAD.
-    match (lines[i]);
+    };
 
-    let gap = positive_duration_value(parts[1], 1);
-    if let Err(err) = gap {
-        return raise(i, format!("invalid step definition {}: {}", parts[1], err));
-    }
-    let gap = gap.unwrap();
+    let gap = positive_duration_value(gap, 1)
+        .map_err(|e| {
+            RuntimeError::General(format!("invalid step definition {}: {:?}", parts[1], err));
+        });
+
     let mut cmd = LoadCmd::new(time.Duration(gap));
     let mut i = i;
     while i + 1 < lines.len() {
@@ -289,16 +303,17 @@ fn parse_load(lines: &[String], i: usize) -> RuntimeResult<(usize, LoadCmd)> {
 }
 
 /// get_lines returns trimmed lines after removing the comments.
-fn get_lines(input: String) -> Vec<String> {
+pub(crate) fn get_lines(input: &str) -> Vec<String> {
     let lines = input.split("\n");
-    for (i, l) in lines.iter().enumerate() {
-        l = strings.TrimSpace(l);
+    let mut result = Vec::new();
+    for l in lines.iter() {
+        let mut l = l.trim();
         if l.starts_with("#") {
             l = ""
         }
-        lines[i] = l
+        result.push(l.clone());
     }
-    return lines;
+    result
 }
 
 pub(crate) struct AtModifierTestCase {
@@ -316,18 +331,13 @@ pub(crate) fn at_modifier_test_cases(expr_str: String, eval_time: Timestamp) -> 
     // If any selector already has the @ timestamp set, then it is untouched.
     parser.inspect(expr, |node: Node, path: &[Node]| -> RuntimeResult<()> {
         let mut subqTs = subqueryTimes(path);
-        if subqTs != nil {
-            // There is a subquery with timestamp in the path,
-            // hence don't change any timestamps further.
-            return nil;
-        }
         match node {
-            Expression::MetricExpression(me) => {
+            Expr::MetricExpression(me) => {
                 if n.timestamp == nil {
                     n.timestamp = makeInt64Pointer(ts)
                 }
 
-                Expression::MatrixSelector(me) => {
+                Expr::MatrixSelector(me) => {
                     if vs = n.VectorSelector.(*parser.VectorSelector);
                     vs.timestamp == 0
                     {
@@ -335,13 +345,13 @@ pub(crate) fn at_modifier_test_cases(expr_str: String, eval_time: Timestamp) -> 
                     }
                 }
 
-                Expression::RollupExpr(_) => {
+                Expr::RollupExpr(re) => {
                     if n.timestamp == nil {
                         n.timestamp = makeInt64Pointer(ts)
                     }
                 }
             }
-            Expression::Function(fe) => {
+            Expr::Function(fe) => {
                 _, ok: = AtModifierUnsafeFunctions[n.func.name];
                 contains_non_step_invariant = contains_non_step_invariant || ok
             }
@@ -365,7 +375,7 @@ pub(crate) fn at_modifier_test_cases(expr_str: String, eval_time: Timestamp) -> 
                 eval_time: timestamp.Time(et),
             })
         }
-        return test_cases;
+        Ok(test_cases)
     }
 
                    pub struct SeriesDescription {

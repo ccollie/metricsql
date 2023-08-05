@@ -35,9 +35,9 @@ impl Display for Entry {
 }
 
 impl EvalCmd {
-    pub(crate) fn new(expr: String, start: Timestamp, line: usize) -> EvalCmd {
+    pub(crate) fn new(expr: &str, start: Timestamp, line: usize) -> EvalCmd {
         return EvalCmd {
-            expr,
+            expr: expr.to_string(),
             start,
             line,
             fail: false,
@@ -68,7 +68,10 @@ impl EvalCmd {
         });
 
         for iq in queries.iter() {
-            let q = self.query_engine.new_instant_query(self.storage, nil, iq.expr, iq.eval_time)?;
+            let q = self.query_engine.new_instant_query(self.storage,
+                                                        nil,
+                                                        iq.expr,
+                                                        iq.eval_time)?;
 
             let res = q.exec(self.context);
             if res.err.is_some() {
@@ -91,7 +94,7 @@ impl EvalCmd {
 
             // Check query returns same result in range mode,
             // by checking against the middle step.
-            let q, err = self.queryEngine.new_range_query(self.storage, iq.expr,
+            let q = self.queryEngine.new_range_query(self.storage, iq.expr,
                                                           iq.eval_time.add(-time.Minute),
                                                           iq.eval_time.add(time.Minute),
                                                           time.Minute)
@@ -120,7 +123,7 @@ impl EvalCmd {
                 }
             }
 
-            if let Value::Scalar(v) = res.Value {
+            if let QueryValue::Scalar(v) = res.Value {
                 if vec.len() != 1 {
                     let msg = format!("expected 1 result for query {} (line {}) but got {}",
                                       iq.expr, self.line, vec.len());
@@ -142,10 +145,10 @@ impl EvalCmd {
                 return Err(RuntimeError::from("received range result on instant evaluation"));
             },
             AnyValue::InstantVector(vector) => {
-                let seen: BTreeSet<u64> = Default::default();
+                let mut seen: BTreeSet<u64> = Default::default();
                 for (pos, v) in vector.iter().enumerate() {
                     let fp = self.metric.hash();
-                    if !v.metrics.contains_key(fp) {
+                    if !v.metric_name.contains_key(fp) {
                         return fmt.Errorf("unexpected metric {} in result", v.metric);
                     }
                     let exp = self.expected.get(fp).unwrap(); // todo: expect()

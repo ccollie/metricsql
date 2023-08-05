@@ -13,7 +13,10 @@
 
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
+use std::hash::Hasher;
 use std::task::Context;
+
+use xxhash_rust::xxh3::Xxh3;
 
 use crate::{RuntimeResult, Sample};
 
@@ -129,4 +132,15 @@ impl Display for CollectResultAppender {
         }
         Ok(())
     }
+}
+
+pub(crate) fn hash_labels(labels: &Labels) -> u64 {
+    let mut hasher: Xxh3 = Xxh3::with_seed(0);
+    let mut keys = labels.keys().collect::<Vec<&String>>();
+    keys.sort();
+    for k in keys.iter() {
+        hasher.write(k.as_bytes());
+        hasher.write(labels.get(*k).unwrap().as_bytes());
+    }
+    hasher.digest()
 }

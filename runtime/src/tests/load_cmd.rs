@@ -1,11 +1,13 @@
+use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fmt::Display;
+use std::rc::Rc;
 use std::time::Duration;
 
-use crate::tests::helpers::{Appender, Labels};
-use crate::tests::test::Test;
-use crate::tests::test_storage::Point;
+use crate::tests::helpers::{hash_labels, Appender, Labels};
+use crate::tests::test::{test_start_time, Test};
+use crate::tests::test_storage::{Point, TestStorage};
 use crate::tests::types::SequenceValue;
 use crate::tests::value::Point;
 use crate::{MetricName, RuntimeResult};
@@ -28,8 +30,7 @@ impl LoadCmd {
     }
 
     pub(crate) fn exec(&mut self, t: &mut Test) -> RuntimeResult<()> {
-        let mut app = t.storage.get_appender(t.context);
-        match self.append(app) {
+        match self.append(t.storage) {
             Err(e) => {
                 app.rollback();
                 return Err(e);
@@ -43,9 +44,9 @@ impl LoadCmd {
 
     /// set a sequence of sample values for the given metric.
     pub fn set(&mut self, m: Labels, vals: &[SequenceValue]) {
-        let h = m.hash();
+        let h = hash_labels(&m);
         let mut samples: Vec<Point> = Vec::with_capacity(vals.len());
-        let ts = testStartTime;
+        let mut ts = test_start_time();
         for v in vals.iter() {
             if !v.omitted {
                 samples.push(Point {
@@ -55,16 +56,27 @@ impl LoadCmd {
             }
             ts += self.gap;
         }
+        match self.defs.entry(h) {
+            Entry::Vacant(e) => {
+                for s in samples.iter_mut() {
+                    s.labels = Rc::new(m.clone());
+                }
+                e.insert(samples);
+            }
+            Entry::Occupied(mut e) => {
+                e.get_mut().append(&mut samples);
+            }
+        }
         self.defs.insert(h, samples);
         self.metrics.insert(h, m);
     }
 
     /// append the defined time series to the storage.
-    fn append(&self, a: &mut Appender) -> RuntimeResult<()> {
+    fn append(&self, storage: &mut TestStorage) -> RuntimeResult<()> {
         for (h, samples) in self.defs.iter() {
             if let Some(m) = self.metrics.get(h) {
                 for s in samples.iter_mut() {
-                    a.append(0, m, s.t, s.v)?;
+                    storage.add_sample(s);
                 }
             }
         }
