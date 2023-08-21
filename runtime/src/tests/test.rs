@@ -20,7 +20,9 @@ use std::ops::Index;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
+use regex::Regex;
 
+use metricsql::ast::DurationExpr;
 use metricsql::parser::ParseErr;
 use metricsql::utils::parse_number;
 
@@ -31,6 +33,14 @@ use crate::tests::eval_cmd::EvalCmd;
 use crate::tests::load_cmd::LoadCmd;
 use crate::tests::test_storage::TestStorage;
 use crate::tests::types::{CancelFunc, SequenceValue};
+
+fn sample_regex() -> &'static Regex {
+    static SAMPLE_RE: OnceCell<Regex> = OnceCell::new();
+    SAMPLE_RE.get_or_init(|| {
+        Regex::new(r"^(?P<name>\w+)(\{(?P<labels>[^}]+)})?\s+(?P<value>\S+)(\s+(?P<timestamp>\S+))?")
+            .unwrap()
+    })
+}
 
 /// AtModifierUnsafeFunctions are the functions whose result
 /// can vary if evaluation time is changed when the arguments are
@@ -54,6 +64,12 @@ static TEST_START_TIME: OnceCell<DateTime<Utc>> = OnceCell::new();
 
 pub(crate) fn test_start_time() -> &'static DateTime<Utc> {
     TEST_START_TIME.get_or_init(|| Utc::now())
+}
+
+
+pub struct SeriesDescription {
+    labels: MetricName,
+    values: Vec<SequenceValue>,
 }
 
 pub enum TestCommand {
@@ -92,7 +108,7 @@ pub(crate) struct Test {
 
 impl Test {
     // returns an initialized empty Test.
-    pub fn new(input: String) -> RuntimeResult<Test> {
+    pub fn new(input: &str) -> RuntimeResult<Test> {
         let mut test = Test {
             cmds: vec![],
             storage: TestStorage::new(),
@@ -106,7 +122,7 @@ impl Test {
         Ok(test)
     }
 
-    pub fn from_file(filename: String) -> RuntimeResult<Test> {
+    pub fn from_file(filename: &str) -> RuntimeResult<Test> {
         let content = fs::read(filename)?;
         return Self::new(content);
     }
@@ -115,7 +131,6 @@ impl Test {
     fn parse(&mut self, input: &str) -> RuntimeResult<()> {
         let lines = get_lines(input);
         // Scan for steps line by line.
-        let mut i = 0;
         for (i, line) in lines.iter().enumerate() {
             if line.is_empty() {
                 continue;
@@ -154,7 +169,7 @@ impl Test {
         self.storage = TestStorage::new();
         let opts = EngineOpts {
             max_samples: 10000,
-            timeout: 100 * time.Second,
+            timeout: Duration::from_secs(100),
             NoStepSubqueryIntervalFn: Duration::from_millis(1000 * 60),
         };
 
@@ -181,7 +196,7 @@ impl Test {
         Ok(())
     }
 
-    fn parse_eval(&mut self, lines: &[String], i: usize) -> RuntimeResult<(usize, EvalCmd)> {
+    fn parse_eval(&mut self, lines: &[&str], i: usize) -> RuntimeResult<(usize, EvalCmd)> {
         let line = &lines[i];
 
         let (mod_, at, expr) = if let Some(captures) = eval_instant_regex().captures(&line) {
@@ -211,11 +226,11 @@ impl Test {
         }
 
         let offset = parse_duration(at)
-            .map_err(|e| {
-                RuntimeError::General(format!("invalid step definition {}: {:?}", parts[1], err));
-            });
+            .map_err(|err| {
+                RuntimeError::General(format!("invalid step definition {}: {:?}", at, err));
+            })?;
 
-        let ts = test_start_time.add(Duration::from_millis(offset));
+        let ts = test_start_time.add(Duration::from_millis(offset as u64));
         let mut cmd = EvalCmd::new(expr, ts, i + 1);
         match mod_ {
             "ordered" => cmd.ordered = true,
@@ -236,7 +251,7 @@ impl Test {
                 self.expect(0, SequenceValue { value: f, omitted: false });
                 break;
             }
-            let (metric, vals) = parse_series_desc(defLine);
+            let (metric, vals) = parse_series_desc(def_line);
             if err != nil {
                 let perr: ParseErr;
                 if errors.As(err, &perr) {
@@ -263,7 +278,7 @@ fn raise(line: usize, err: String) -> RuntimeResult<()> {
     };
 }
 
-fn parse_load(lines: &[String], i: usize) -> RuntimeResult<(usize, LoadCmd)> {
+pub(super) fn parse_load(lines: &[String], i: usize) -> RuntimeResult<(usize, LoadCmd)> {
     let line = &lines[i];
     let gap = if let Some(captures) = load_regex().captures(&line) {
         captures.get(1).unwrap().as_str()
@@ -271,12 +286,12 @@ fn parse_load(lines: &[String], i: usize) -> RuntimeResult<(usize, LoadCmd)> {
         return raise(i, "invalid load command. (load <step:duration>)");
     };
 
-    let gap = positive_duration_value(gap, 1)
-        .map_err(|e| {
-            RuntimeError::General(format!("invalid step definition {}: {:?}", parts[1], err));
-        });
+    let gap = parse_duration(gap)
+        .map_err(|err| {
+            RuntimeError::General(format!("invalid step definition {}: {:?}", gap, err));
+        })?;
 
-    let mut cmd = LoadCmd::new(time.Duration(gap));
+    let mut cmd = LoadCmd::new(Duration::from_millis(gap));
     let mut i = i;
     while i + 1 < lines.len() {
         i += 1;
@@ -347,8 +362,8 @@ pub(crate) fn at_modifier_test_cases(expr_str: String, eval_time: Timestamp) -> 
                 }
             }
             Expr::Function(fe) => {
-                _, ok: = AtModifierUnsafeFunctions[n.func.name];
-                contains_non_step_invariant = contains_non_step_invariant || ok
+                let ok = AtModifierUnsafeFunctions[n.func.name];
+                contains_non_step_invariant = contains_non_step_invariant || ok;
             }
         })
 
@@ -372,20 +387,23 @@ pub(crate) fn at_modifier_test_cases(expr_str: String, eval_time: Timestamp) -> 
         }
         Ok(test_cases)
     }
+}
 
-                   pub struct SeriesDescription {
-        labels: MetricName,
-        values: Vec<SequenceValue>,
-    }
+// ParseSeriesDesc parses the description of a time series.
+fn parse_series_desc(input: &str) -> RuntimeResult<SeriesDescription> {
+    let p = newParser(input);
 
-    // ParseSeriesDesc parses the description of a time series.
-    fn parse_series_desc(input: &str) -> RuntimeResult<SeriesDescription> {
-        let p = newParser(input);
+    let parse_result = p.parse_generated(START_SERIES_DESCRIPTION)?;
+    let result = parse_result.(*SeriesDescription)
+    labels = result.labels
+    values = result.values
 
-        let parse_result = p.parse_generated(START_SERIES_DESCRIPTION)?;
-        let result = parse_result.(*SeriesDescription)
-        labels = result.labels
-        values = result.values
+    return SeriesDescription { labels, values };
+}
 
-        return SeriesDescription { labels, values };
-    }
+fn parse_duration(input: &str) -> RuntimeResult<i64> {
+    let d = DurationExpr::try_from(input).map_err(|e| {
+        RuntimeError::General(format!("invalid duration definition {}: {:?}", input, e));
+    });
+    d.value(1)
+}

@@ -14,6 +14,8 @@
 use std::collections::btree_set::BTreeSet;
 use std::fmt::{Display, Formatter};
 
+use itertools::Itertools;
+
 use crate::{MetricName, RuntimeError, RuntimeResult};
 
 pub enum DataType {
@@ -151,7 +153,7 @@ impl Vector {
             0 | 1 => false,
             2 => return self.0[0].metric.get_hash() == self.0[1].metric.get_hash(),
             _ => {
-                let l: BTreeSet<u64> = BTreeSet::new();
+                let mut l: BTreeSet<u64> = BTreeSet::new();
                 for ss in self.iter() {
                     let hash = ss.metric.hash();
                     if l.contains(hash) {
@@ -197,8 +199,8 @@ impl Matrix {
             0 | 1 => false,
             2 => return m[0].metric.get_hash() == m[1].metric.get_hash(),
             _ => {
-                let l = BTreeSet::new();
-                for ss in m.iter() {
+                let mut l = BTreeSet::new();
+                for mut ss in m.iter() {
                     let hash = ss.metric.get_hash();
                     if l.contains(hash) {
                         return true;

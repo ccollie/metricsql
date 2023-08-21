@@ -78,7 +78,8 @@ impl EvalCmd {
                 if self.fail {
                     continue
                 }
-                let msg = format!("error evaluating query {} (line {}): {:?}", iq.expr, cmd.line, res.err);
+                let msg = format!("error evaluating query {} (line {}): {:?}",
+                                  iq.expr, self.line, res.err);
                 return Err(RuntimeError::from(msg))
             }
 
@@ -137,7 +138,7 @@ impl EvalCmd {
                 self.compare_result(vec)
             }
             if err != nil {
-                return format!("error in {cmd} {} (line {}) range mode: {}", iq.expr, cmd.line, err)
+                return format!("error in {cmd} {} (line {}) range mode: {}", iq.expr, self.line, err)
             }
         }
     }
@@ -153,7 +154,7 @@ impl EvalCmd {
                 for (pos, v) in vector.iter().enumerate() {
                     let fp = self.metric.hash();
                     if !v.metric_name.contains_key(fp) {
-                        return fmt.Errorf("unexpected metric {} in result", v.metric);
+                        return format!("unexpected metric {} in result", v.metric);
                     }
                     let exp = self.expected.get(fp).unwrap(); // todo: expect()
                     if self.ordered && exp.pos != pos + 1 {

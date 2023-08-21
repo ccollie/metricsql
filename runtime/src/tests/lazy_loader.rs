@@ -5,7 +5,7 @@ use crate::tests::load_cmd::LoadCmd;
 use crate::tests::test::get_lines;
 use crate::tests::test_storage::TestStorage;
 use crate::tests::types::CancelFunc;
-use crate::{RuntimeError, RuntimeResult};
+use crate::{Context, RuntimeError, RuntimeResult, Timestamp};
 
 /// LazyLoader lazily loads samples into storage.
 /// This is specifically implemented for unit testing of rules.
@@ -46,7 +46,7 @@ impl LazyLoader {
         };
 
         ll.parse(input, 0)?;
-        ll.clear();
+        ll.clear()?;
 
         Ok(ll)
     }
@@ -83,7 +83,7 @@ impl LazyLoader {
         if let Some(cancel_func) = self.cancel_ctx {
             (cancel_func)();
         }
-        self.storage = TestStorage::new(ll);
+        self.storage = TestStorage::new(self);
 
         let opts = EngineOpts {
             max_samples: 10000,
@@ -106,7 +106,7 @@ impl LazyLoader {
             for (i, s) in samples.iter() {
                 if s.t > ts {
                     // Removing the already added samples.
-                    self.load_cmd.defs[h] = &samples[i..];
+                    self.load_cmd.defs[h] = s;
                     break;
                 }
                 app.append(0, m, s.t, s.v)?;
@@ -130,7 +130,7 @@ impl LazyLoader {
     }
 
     // with_samples_till loads the samples till given timestamp and executes the given function.
-    fn with_samples_till(&mut self, ts: timestamp) -> RuntimeResult<()> {
+    fn with_samples_till(&mut self, ts: Timestamp) -> RuntimeResult<()> {
         let ts_milli = ts.Sub(time.Unix(0, 0).UTC()) / time.Millisecond;
         self.append_till(ts_milli)
     }

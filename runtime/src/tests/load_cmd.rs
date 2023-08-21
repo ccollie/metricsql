@@ -15,7 +15,7 @@ use crate::{MetricName, RuntimeResult};
 /// load_cmd is a command that loads sequences of sample values for specific
 /// metrics into the storage.
 pub struct LoadCmd {
-    gap: Duration,
+    pub(crate) gap: Duration,
     pub(crate) metrics: BTreeMap<u64, MetricName>,
     pub(crate) defs: BTreeMap<u64, Point>,
 }
