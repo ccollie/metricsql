@@ -271,7 +271,7 @@ impl Test {
 }
 
 
-fn raise(line: usize, err: String) -> RuntimeResult<()> {
+fn raise(line: usize, err: &str) -> RuntimeResult<()> {
     return ParseErr {
         line_offset: line,
         err,
