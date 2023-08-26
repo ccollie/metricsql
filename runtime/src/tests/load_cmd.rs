@@ -30,7 +30,7 @@ impl LoadCmd {
     }
 
     pub(crate) fn exec(&mut self, t: &mut Test) -> RuntimeResult<()> {
-        match self.append(t.storage) {
+        match self.append(&mut t.storage) {
             Err(e) => {
                 app.rollback();
                 return Err(e);

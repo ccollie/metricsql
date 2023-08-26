@@ -34,6 +34,12 @@ use crate::tests::load_cmd::LoadCmd;
 use crate::tests::test_storage::TestStorage;
 use crate::tests::types::{CancelFunc, SequenceValue};
 
+pub struct TestParseError {
+    pub line_offset: usize,
+    pub err: String,
+    pub span: Span,
+}
+
 fn sample_regex() -> &'static Regex {
     static SAMPLE_RE: OnceCell<Regex> = OnceCell::new();
     SAMPLE_RE.get_or_init(|| {
@@ -100,7 +106,7 @@ impl TestCommand {
 /// against a test storage.
 pub(crate) struct Test {
     cmds: Vec<TestCommand>,
-    storage: TestStorage,
+    pub(crate) storage: TestStorage,
     query_engine: Engine,
     context: Context,
     cancel_ctx: Option<CancelFunc>,
@@ -124,7 +130,7 @@ impl Test {
 
     pub fn from_file(filename: &str) -> RuntimeResult<Test> {
         let content = fs::read(filename)?;
-        return Self::new(content);
+        return Self::new(content.as_str());
     }
 
     /// parse the given command sequence and appends it to the test.
@@ -146,10 +152,10 @@ impl Test {
                 }
                 _ => {
                     if cmd_str.starts_with("eval") {
-                        let (i, cmd) = self.parse_eval(lines, i, 0)?;
+                        let (i, cmd) = self.parse_eval(&lines, i)?;
                         cmd
                     } else {
-                        return raise(i, "invalid command {}", l);
+                        return Err(raise(i, format!("invalid command {cmd}").as_str()));
                     }
                 }
             };
@@ -196,7 +202,7 @@ impl Test {
         Ok(())
     }
 
-    fn parse_eval(&mut self, lines: &[&str], i: usize) -> RuntimeResult<(usize, EvalCmd)> {
+    fn parse_eval(&mut self, lines: &Vec<&String>, i: usize) -> RuntimeResult<(usize, EvalCmd)> {
         let line = &lines[i];
 
         let (mod_, at, expr) = if let Some(captures) = eval_instant_regex().captures(&line) {
@@ -205,7 +211,9 @@ impl Test {
             let expr = captures.get(3).unwrap().as_str();
             (mod_, at, expr)
         } else {
-            return raise(i, "invalid evaluation command. (eval[_fail|_ordered] instant [at <offset:duration>] <query>");
+            return Err(
+                raise(i, "invalid evaluation command. (eval[_fail|_ordered] instant [at <offset:duration>] <query>")
+            );
         };
 
         match metricsql::parser::parse(expr) {
@@ -218,7 +226,7 @@ impl Test {
                     let pos_offset = line.index(expr)?;
                     perr.span.start += pos_offset;
                     perr.span.end += pos_offset;
-                    perr.query = line
+                    perr.query = line.to_string()
                 }
                 return Err(err);
             }
@@ -262,7 +270,7 @@ impl Test {
 
             // Currently, we are not expecting any matrices.
             if vals.len() > 1 {
-                raise(i, "expecting multiple values in instant evaluation not allowed");
+                return Err(raise(i, "expecting multiple values in instant evaluation not allowed"));
             }
             cmd.expect(j, metric, vals)
         }
@@ -271,8 +279,8 @@ impl Test {
 }
 
 
-fn raise(line: usize, err: &str) -> RuntimeResult<()> {
-    return ParseErr {
+fn raise(line: usize, err: &str) -> RuntimeError {
+    return RuntimeError::ParseErr {
         line_offset: line,
         err,
     };
@@ -283,7 +291,7 @@ pub(super) fn parse_load(lines: &[String], i: usize) -> RuntimeResult<(usize, Lo
     let gap = if let Some(captures) = load_regex().captures(&line) {
         captures.get(1).unwrap().as_str()
     } else {
-        return raise(i, "invalid load command. (load <step:duration>)");
+        return Err(raise(i, "invalid load command. (load <step:duration>)"));
     };
 
     let gap = parse_duration(gap)
@@ -291,7 +299,7 @@ pub(super) fn parse_load(lines: &[String], i: usize) -> RuntimeResult<(usize, Lo
             RuntimeError::General(format!("invalid step definition {}: {:?}", gap, err));
         })?;
 
-    let mut cmd = LoadCmd::new(Duration::from_millis(gap));
+    let mut cmd = LoadCmd::new(Duration::from_millis(gap as u64));
     let mut i = i;
     while i + 1 < lines.len() {
         i += 1;
@@ -339,8 +347,8 @@ pub(crate) fn at_modifier_test_cases(expr_str: String, eval_time: Timestamp) -> 
     // Setting the @ timestamp for all selectors to be eval_time.
     // If there is a subquery, then the selectors inside it don't get the @ timestamp.
     // If any selector already has the @ timestamp set, then it is untouched.
-    parser.inspect(expr, |node: Node, path: &[Node]| -> RuntimeResult<()> {
-        let mut subqTs = subqueryTimes(path);
+    parser.inspect(expr, |node: &mut Expr, path: &[Node]| -> RuntimeResult<()> {
+        let mut subq_ts = subquery_times(path);
         match node {
             Expr::MetricExpression(me) => {
                 if n.timestamp == nil {
@@ -406,4 +414,34 @@ fn parse_duration(input: &str) -> RuntimeResult<i64> {
         RuntimeError::General(format!("invalid duration definition {}: {:?}", input, e));
     });
     d.value(1)
+}
+
+// subquery_times returns the sum of offsets and ranges of all subqueries in the path.
+// If the @ modifier is used, then the offset and range is w.r.t. that timestamp
+// (i.e. the sum is reset when we have @ modifier).
+// The returned *int64 is the closest timestamp that was seen. nil for no @ modifier.
+fn subquery_times(path: &[&Expr]) -> (Duration, Duration, i64) {
+    let mut subq_offset = Duration::from_secs(0);
+    let mut subq_range = Duration::from_secs(0);
+    let mut ts = i64::MAX;
+
+    for node in path.iter() {
+        if matches!(node, Expr::Rollup(n)) {
+            subq_offset += n.OriginalOffset;
+            subq_range += n.Range;
+            if n.Timestamp != nil {
+                // The @ modifier on subquery invalidates all the offset and
+                // range till now. Hence resetting it here.
+                subq_offset = n.OriginalOffset;
+                subq_range = n.Range;
+                ts = *n.Timestamp
+            }
+        }
+    }
+    var
+    tsp * int64
+    if ts != math.MaxInt64 {
+        tsp = &ts
+    }
+    return subq_offset, subq_range, tsp
 }

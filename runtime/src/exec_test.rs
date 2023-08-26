@@ -1,9 +1,10 @@
 #[cfg(test)]
 mod tests {
-    use crate::functions::transform::get_timezone_offset;
-    use crate::{exec, test_results_equal, Context, Deadline, EvalConfig, MetricName, QueryResult};
     use chrono::Duration;
     use chrono_tz::Tz;
+
+    use crate::functions::transform::get_timezone_offset;
+    use crate::{exec, test_results_equal, Context, Deadline, EvalConfig, MetricName, QueryResult};
 
     const NAN: f64 = f64::NAN;
     const INF: f64 = f64::INFINITY;
@@ -29,7 +30,6 @@ mod tests {
             timestamps,
             rows_processed: 0,
             worker_id: 0,
-            last_reset_time: 0,
         }
     }
 
@@ -3696,7 +3696,6 @@ mod tests {
             timestamps: Vec::from(TIMESTAMPS_EXPECTED),
             rows_processed: 0,
             worker_id: 0,
-            last_reset_time: 0,
         };
         test_query(q, vec![r]);
     }

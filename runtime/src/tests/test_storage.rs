@@ -1,7 +1,10 @@
+use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
-use metricsql::prelude::LabelFilter;
+use regex::Regex;
+
+use metricsql::prelude::{LabelFilter, LabelFilterOp};
 
 use crate::tests::helpers::{hash_labels, Appender, Labels};
 use crate::tests::value::Point;
@@ -23,15 +26,31 @@ pub struct TestStorage {
     pending_result: Vec<Sample>,
 }
 
+struct StorageInner {
+    labels_hash: BTreeMap<u64, Rc<MetricName>>,
+    sample_values: BTreeMap<u64, Vec<Point>>,
+    need_sort: BTreeSet<u64>,
+    pending_result: Vec<Sample>,
+}
+
 impl Appender for TestStorage {
     fn append(&mut self, labels: &Labels, t: i64, v: f64) -> RuntimeResult<()> {
         let h = hash_labels(labels);
-        let labels = self.labels_hash.entry(h).or_insert_with(|| Rc::new(l));
-        self.pending_result.push(Sample {
-            metric: labels.clone(),
-            timestamp: t,
-            value: v,
-        });
+        match self.labels_hash.entry(h) {
+            Entry::Vacant(e) => {
+                let mut metric = MetricName::default();
+                for (k, v) in labels.iter() {
+                    metric.set_tag(k, v);
+                }
+                let mn = Rc::new(metric);
+                e.insert(Rc::clone(&mn));
+                self.sample_values.insert(h, vec![Point { t, v }]);
+            }
+            Entry::Occupied(mut e) => {
+                let values = self.sample_values.entry(h).or_default();
+                values.push(Point { t, v });
+            }
+        }
         Ok(())
     }
 
@@ -131,22 +150,28 @@ impl TestStorage {
 }
 
 impl MetricDataProvider for TestStorage {
-    fn search(&self, sq: &SearchQuery, _deadline: &Deadline) -> RuntimeResult<QueryResults> {
+    fn search(&mut self, sq: &SearchQuery, _deadline: &Deadline) -> RuntimeResult<QueryResults> {
+        let temp = self.search(sq.start, sq.end, &sq.filters);
         todo!()
     }
 }
 
 fn matches_filter(mn: &MetricName, filter: &LabelFilter) -> bool {
-    for (k, v) in filter.iter() {
-        if let Some(v2) = mn.get(k) {
-            if v2 != v {
-                return false;
+    if let Some(v) = mn.get_tag_value(filter.label.as_str()) {
+        return match filter.op {
+            LabelFilterOp::Equal => v == filter.value.as_str(),
+            LabelFilterOp::NotEqual => v != filter.value.as_str(),
+            LabelFilterOp::RegexEqual => {
+                let re = Regex::new(filter.value.as_str()).unwrap();
+                re.is_match(v)
             }
-        } else {
-            return false;
-        }
+            LabelFilterOp::RegexNotEqual => {
+                let re = Regex::new(filter.value.as_str()).unwrap();
+                !re.is_match(v)
+            }
+        };
     }
-    todo!()
+    false
 }
 
 fn find_first_index<'a>(range_values: &[Point], ts: i64) -> Option<usize> {

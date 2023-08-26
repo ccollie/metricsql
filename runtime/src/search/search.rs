@@ -1,14 +1,17 @@
-use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::search::Deadline;
-use crate::types::{MetricName, Timeseries, Timestamp, TimestampTrait};
-use crate::Context;
-use metricsql::common::LabelFilter;
-use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use std::fmt;
 use std::fmt::Display;
 use std::ops::Range;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
+
+use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
+
+use metricsql::common::LabelFilter;
+
+use crate::runtime_error::{RuntimeError, RuntimeResult};
+use crate::search::Deadline;
+use crate::types::{MetricName, Timeseries, Timestamp, TimestampTrait};
+use crate::Context;
 
 pub type TimeRange = Range<Timestamp>;
 
@@ -109,8 +112,6 @@ pub struct QueryResult {
     pub(crate) rows_processed: usize,
     /// Internal only
     pub(crate) worker_id: u64,
-
-    pub(crate) last_reset_time: Timestamp,
 }
 
 impl QueryResult {
@@ -121,7 +122,6 @@ impl QueryResult {
             timestamps: vec![],
             rows_processed: 0,
             worker_id: 0,
-            last_reset_time: 0,
         }
     }
 
@@ -132,7 +132,6 @@ impl QueryResult {
             timestamps: Vec::with_capacity(cap),
             rows_processed: 0,
             worker_id: 0,
-            last_reset_time: 0,
         }
     }
 

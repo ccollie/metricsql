@@ -118,7 +118,6 @@ pub(crate) fn exec_internal(
     }
 }
 
-
 /// executes q for the given config.
 pub fn exec(
     context: &Context,
@@ -209,7 +208,6 @@ pub(crate) fn timeseries_to_result(
             timestamps: timestamps.clone(),      // todo: declare field as Rc<Vec<i64>>
             rows_processed: 0,
             worker_id: 0,
-            last_reset_time: 0,
         };
 
         result.push(res);

@@ -1,7 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fmt::Display;
-use std::ops::Add;
+use std::ops::{Add, Sub};
+use std::time::Duration;
 
 use crate::{MetricName, RuntimeError, RuntimeResult, Sample, Timestamp};
 use crate::functions::types::AnyValue;
@@ -70,7 +71,7 @@ impl EvalCmd {
 
         for iq in queries.iter() {
             let q = self.query_engine.new_instant_query(self.storage,
-                                                        iq.expr,
+                                                        &iq.expr,
                                                         iq.eval_time)?;
 
             let res = q.exec(self.context);
@@ -93,12 +94,13 @@ impl EvalCmd {
                 return Err(RuntimeError::from(msg))
             }
 
+            let minute = Duration::from_secs(60);
             // Check query returns same result in range mode,
             // by checking against the middle step.
-            let q = self.queryEngine.new_range_query(self.storage, iq.expr,
-                                                          iq.eval_time.add(-time.Minute),
-                                                          iq.eval_time.add(time.Minute),
-                                                     time.Minute);
+            let q = self.queryEngine.new_range_query(self.storage, &iq.expr,
+                                                     iq.eval_time.sub(minute),
+                                                     iq.eval_time.add(minute),
+                                                     minute);
 
             let range_res = q.exec(t.context);
 
@@ -170,7 +172,7 @@ impl EvalCmd {
                 }
                 for (fp, exp_vals) in self.expected.iter() {
                     if !seen.contains(fp) {
-                        println!("vector result", val.len(), ev.expr);
+                        println!("vector result {} {}", val.len(), ev.expr);
                         for ss in val.iter() {
                             fmt.println("    ", ss.metric, ss.point);
                         }

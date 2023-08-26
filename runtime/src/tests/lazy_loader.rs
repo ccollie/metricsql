@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use crate::tests::consts::space_regex;
 use crate::tests::load_cmd::LoadCmd;
-use crate::tests::test::get_lines;
+use crate::tests::test::{get_lines, parse_load};
 use crate::tests::test_storage::TestStorage;
 use crate::tests::types::CancelFunc;
 use crate::{Context, RuntimeError, RuntimeResult, Timestamp};
@@ -87,11 +87,11 @@ impl LazyLoader {
 
         let opts = EngineOpts {
             max_samples: 10000,
-            timeout: 100 * time.Second,
+            timeout: Duration::seconds(100),
             NoStepSubqueryIntervalFn: Duration::from_millis(self.SubqueryInterval),
         };
 
-        self.queryEngine =
+        self.query_engine =
             NewEngine(opts)(self.context, self.cancelCtx) = context.WithCancel(context.Background())
     }
 
@@ -133,12 +133,5 @@ impl LazyLoader {
     fn with_samples_till(&mut self, ts: Timestamp) -> RuntimeResult<()> {
         let ts_milli = ts.Sub(time.Unix(0, 0).UTC()) / time.Millisecond;
         self.append_till(ts_milli)
-    }
-
-    /// Queryable allows querying the LazyLoader's data.
-    /// Note: only the samples till the max timestamp used
-    /// in `with_samples_till` can be queried.
-    pub fn queryable(&self) -> &Queryable {
-        &self.storage
     }
 }
