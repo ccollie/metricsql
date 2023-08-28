@@ -11,6 +11,9 @@ use crate::functions::transform::TransformFuncArg;
 use crate::signature::Signature;
 use crate::{MetricName, QueryValue, RuntimeError, RuntimeResult, Timeseries};
 
+static ELLIPSIS: &str = "...";
+static LE: &str = "le";
+
 pub(crate) fn buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut limit = get_int_arg(&tfa.args, 0)?;
 
@@ -22,7 +25,7 @@ pub(crate) fn buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
         limit = 3
     }
     let series = get_series_arg(&tfa.args, 1, tfa.ec)?;
-    let mut tss = vmrange_buckets_to_le(series);
+    let tss = vmrange_buckets_to_le(series);
     let tss_len = tss.len();
 
     if tss_len == 0 {
@@ -44,7 +47,7 @@ pub(crate) fn buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
     let empty_str = "".to_string();
 
     for ts in tss.into_iter() {
-        let le_str = ts.metric_name.tag_value("le").unwrap_or(&empty_str);
+        let le_str = ts.metric_name.tag_value(LE).unwrap_or(&empty_str);
 
         // Skip time series without `le` tag.
         if le_str.is_empty() {
@@ -53,7 +56,7 @@ pub(crate) fn buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
 
         if let Ok(le) = le_str.parse::<f64>() {
             mn.copy_from(&ts.metric_name);
-            mn.remove_tag("le");
+            mn.remove_tag(LE);
 
             let key = ts.metric_name.signature();
 
@@ -129,8 +132,6 @@ pub(crate) fn prometheus_buckets(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
     Ok(rvs)
 }
 
-static ELLIPSIS: &str = "...";
-
 /// Group timeseries by MetricGroup+tags excluding `vmrange` tag.
 struct Bucket {
     start_str: String,
@@ -161,16 +162,15 @@ impl Default for Bucket {
 pub(crate) fn vmrange_buckets_to_le(tss: Vec<Timeseries>) -> Vec<Timeseries> {
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(tss.len());
 
-    let mut buckets: HashMap<String, Vec<Bucket>> = HashMap::new();
+    let mut buckets: HashMap<Signature, Vec<Bucket>> = HashMap::new();
+
+    let empty_str = "".to_string();
 
     for ts in tss.into_iter() {
-        let vm_range = match ts.metric_name.tag_value("vmrange") {
-            Some(value) => value,
-            None => "",
-        };
+        let vm_range = ts.metric_name.tag_value("vmrange").unwrap_or(&empty_str);
 
         if vm_range.is_empty() {
-            if let Some(le) = ts.metric_name.tag_value("le") {
+            if let Some(le) = ts.metric_name.tag_value(LE) {
                 if !le.is_empty() {
                     // Keep Prometheus-compatible buckets.
                     rvs.push(ts);
@@ -197,10 +197,10 @@ pub(crate) fn vmrange_buckets_to_le(tss: Vec<Timeseries>) -> Vec<Timeseries> {
         };
 
         let mut _ts = ts;
-        _ts.metric_name.remove_tag("le");
+        _ts.metric_name.remove_tag(LE);
         _ts.metric_name.remove_tag("vmrange");
 
-        let key = _ts.metric_name.to_string();
+        let key = _ts.metric_name.signature();
         // series.push(_ts);
 
         buckets.entry(key).or_default().push(Bucket {
@@ -216,7 +216,7 @@ pub(crate) fn vmrange_buckets_to_le(tss: Vec<Timeseries>) -> Vec<Timeseries> {
     let copy_ts = |src: &Timeseries, le_str: &str| -> Timeseries {
         let mut ts: Timeseries = src.clone();
         ts.values.resize(ts.values.len(), 0.0);
-        ts.metric_name.set_tag("le", le_str);
+        ts.metric_name.set_tag(LE, le_str);
         ts
     };
 
@@ -263,7 +263,7 @@ pub(crate) fn vmrange_buckets_to_le(tss: Vec<Timeseries>) -> Vec<Timeseries> {
             }
 
             // Convert the current time series to a time series with le=xs.end
-            xs.ts.metric_name.set_tag("le", &xs.end_str);
+            xs.ts.metric_name.set_tag(LE, &xs.end_str);
 
             let end_str = xs.end_str.clone();
             match uniq_ts.get(&end_str) {
@@ -290,7 +290,7 @@ pub(crate) fn vmrange_buckets_to_le(tss: Vec<Timeseries>) -> Vec<Timeseries> {
                 });
                 uniq_ts.insert(xs.start_str.clone(), xss_new.len() - 1);
             }
-            xs.ts.metric_name.set_tag("le", &xs.end_str);
+            xs.ts.metric_name.set_tag(LE, &xs.end_str);
 
             xs_prev = xs
         }
@@ -398,7 +398,7 @@ pub(crate) fn histogram_share(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<T
     for (_, mut xss) in m.into_iter() {
         xss.sort_by(|a, b| a.le.total_cmp(&b.le));
 
-        merge_same_le(&mut xss);
+        xss = merge_same_le(&mut xss);
 
         let mut ts_lower: Timeseries;
         let mut ts_upper: Timeseries;
@@ -598,7 +598,7 @@ pub(crate) fn histogram_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
     };
 
     // Group metrics by all tags excluding "le"
-    let m = group_le_timeseries(&mut tss);
+    let mut m = group_le_timeseries(&mut tss);
 
     // Calculate quantile for each group in m
     let last_non_inf = |_i: usize, xss: &[LeTimeseries]| -> f64 {
@@ -620,7 +620,7 @@ pub(crate) fn histogram_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
         }
         fix_broken_buckets(i, xss);
         let mut v_last: f64 = 0.0;
-        if !xss.is_empty() {
+        if xss.len() > 0 {
             v_last = xss[xss.len() - 1].ts.values[i]
         }
         if v_last == 0.0 {
@@ -662,9 +662,10 @@ pub(crate) fn histogram_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
     };
 
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(m.len());
-    for mut xss in m.into_values() {
+    for (_, mut xss) in m.iter_mut() {
         xss.sort_by(|a, b| a.le.total_cmp(&b.le));
-        merge_same_le(&mut xss);
+
+        let mut xss = merge_same_le(&mut xss);
 
         let mut ts_lower: Timeseries;
         let mut ts_upper: Timeseries;
@@ -680,17 +681,12 @@ pub(crate) fn histogram_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
             ts_upper = Timeseries::default();
         }
 
-        for (i, (ts_lower, ts_upper)) in ts_lower
-            .values
-            .iter_mut()
-            .zip(ts_upper.values.iter_mut())
-            .enumerate()
-        {
+        for i in 0..xss[0].ts.values.len() {
             let (v, lower, upper) = quantile(i, &phis, &mut xss);
             xss[0].ts.values[i] = v;
             if !bounds_label.is_empty() {
-                *ts_lower = lower;
-                *ts_upper = upper;
+                ts_lower.values[i] = lower;
+                ts_upper.values[i] = upper;
             }
         }
 
@@ -716,11 +712,11 @@ pub(super) struct LeTimeseries {
     pub ts: Timeseries,
 }
 
-fn group_le_timeseries(tss: &mut [Timeseries]) -> HashMap<String, Vec<LeTimeseries>> {
-    let mut m: HashMap<String, Vec<LeTimeseries>> = HashMap::new();
+fn group_le_timeseries(tss: &mut [Timeseries]) -> HashMap<Signature, Vec<LeTimeseries>> {
+    let mut m: HashMap<Signature, Vec<LeTimeseries>> = HashMap::new();
 
     for ts in tss.iter_mut() {
-        if let Some(tag_value) = ts.metric_name.tag_value("le") {
+        if let Some(tag_value) = ts.metric_name.tag_value(LE) {
             if tag_value.is_empty() {
                 continue;
             }
@@ -728,7 +724,7 @@ fn group_le_timeseries(tss: &mut [Timeseries]) -> HashMap<String, Vec<LeTimeseri
             if let Ok(le) = tag_value.parse::<f64>() {
                 ts.metric_name.reset_metric_group();
                 ts.metric_name.remove_tag("le");
-                let key = ts.metric_name.to_string();
+                let key = ts.metric_name.signature();
 
                 m.entry(key).or_default().push(LeTimeseries {
                     le,
@@ -769,7 +765,7 @@ pub(super) fn fix_broken_buckets(i: usize, xss: &mut Vec<LeTimeseries>) {
 
     let mut v_next = xss[xss.len() - 1].ts.values[i];
 
-    let mut j = xss.len() - 1;
+    let mut j = xss.len() - 2;
     loop {
         let v = xss[j].ts.values[i];
         if v.is_nan() || v > v_next {
