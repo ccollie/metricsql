@@ -151,7 +151,7 @@ impl Vector {
     fn contains_same_label_set(&self) -> bool {
         match self.len() {
             0 | 1 => false,
-            2 => return self.0[0].metric.get_hash() == self.0[1].metric.get_hash(),
+            2 => return self.0[0].metric.signature() == self.0[1].metric.signature(),
             _ => {
                 let mut l: BTreeSet<u64> = BTreeSet::new();
                 for ss in self.iter() {
@@ -197,11 +197,11 @@ impl Matrix {
         let m = &self.0;
         match m.len() {
             0 | 1 => false,
-            2 => return m[0].metric.get_hash() == m[1].metric.get_hash(),
+            2 => return m[0].metric.signature() == m[1].metric.signature(),
             _ => {
                 let mut l = BTreeSet::new();
                 for mut ss in m.iter() {
-                    let hash = ss.metric.get_hash();
+                    let hash = ss.metric.signature();
                     if l.contains(hash) {
                         return true;
                     }

@@ -65,7 +65,7 @@ impl LazyLoader {
             }
             let cmd = parts.get(2).unwrap_or("".to_string()).to_lowercase();
             if cmd == "load" {
-                self.load_cmd = parse_load(lines, i)?;
+                self.load_cmd = parse_load(&lines, i)?;
                 Ok(())
             }
             return raise(i, format!("invalid command {cmd}"));

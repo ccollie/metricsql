@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use crate::{MetricName, RuntimeError, RuntimeResult, Sample, Timestamp};
 use crate::functions::types::AnyValue;
-use crate::tests::helpers::{hash_labels, Labels};
+use crate::tests::helpers::Labels;
 use crate::tests::test::{at_modifier_test_cases, AtModifierTestCase, Test};
 use crate::tests::types::SequenceValue;
 use crate::tests::utils::almost_equal;
@@ -56,7 +56,7 @@ impl EvalCmd {
             self.expected.set(0, Entry { pos, vals: vals.into_vec() });
             return
         }
-        let h = hash_labels(&m);
+        let h = m.signature();
         self.metrics.set(h, m);
         self.expected.set(h, Entry { pos, vals: vals.into_vec() });
     }

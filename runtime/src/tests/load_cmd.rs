@@ -5,7 +5,7 @@ use std::fmt::Display;
 use std::rc::Rc;
 use std::time::Duration;
 
-use crate::tests::helpers::{hash_labels, Appender, Labels};
+use crate::tests::helpers::{Appender, Labels};
 use crate::tests::test::{test_start_time, Test};
 use crate::tests::test_storage::{Point, TestStorage};
 use crate::tests::types::SequenceValue;
@@ -32,11 +32,11 @@ impl LoadCmd {
     pub(crate) fn exec(&mut self, t: &mut Test) -> RuntimeResult<()> {
         match self.append(&mut t.storage) {
             Err(e) => {
-                app.rollback();
+                t.storage.rollback();
                 return Err(e);
             }
             Ok(_) => {
-                app.commit();
+                t.storage.commit();
                 Ok(())
             }
         }
@@ -44,7 +44,7 @@ impl LoadCmd {
 
     /// set a sequence of sample values for the given metric.
     pub fn set(&mut self, m: Labels, vals: &[SequenceValue]) {
-        let h = hash_labels(&m);
+        let h = m.signature();
         let mut samples: Vec<Point> = Vec::with_capacity(vals.len());
         let mut ts = test_start_time();
         for v in vals.iter() {
