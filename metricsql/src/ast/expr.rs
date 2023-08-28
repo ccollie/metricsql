@@ -1,6 +1,5 @@
 use std::cmp::Ordering;
 use std::collections::btree_set::BTreeSet;
-use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::ops::{Deref, Neg, Range};
@@ -861,7 +860,7 @@ impl BinaryExpr {
         if let Some(modifier) = &mut self.modifier {
             modifier.keep_metric_names = true;
         } else {
-            let  modifier = BinModifier {
+            let modifier = BinModifier {
                 keep_metric_names: true,
                 ..Default::default()
             };
@@ -1638,18 +1637,6 @@ impl ops::BitXor for Expr {
     fn bitxor(self, rhs: Self) -> Self {
         binary_expr(self, Operator::Pow, rhs)
     }
-}
-
-fn intersection(labels_a: &Vec<String>, labels_b: &Vec<String>) -> Vec<String> {
-    if labels_a.is_empty() || labels_b.is_empty() {
-        return vec![];
-    }
-    let unique_a: HashSet<String> = labels_a.clone().into_iter().collect();
-    let unique_b: HashSet<String> = labels_b.clone().into_iter().collect();
-    unique_a
-        .intersection(&unique_b)
-        .cloned()
-        .collect::<Vec<_>>()
 }
 
 fn are_floats_equal(left: f64, right: f64) -> bool {
