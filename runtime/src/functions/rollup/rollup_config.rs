@@ -1,6 +1,6 @@
-use std::cell::RefCell;
-use std::rc::Rc;
 use std::sync::Arc;
+
+use rayon::iter::IntoParallelRefIterator;
 
 use metricsql::ast::Expr;
 use metricsql::functions::{can_adjust_window, RollupFunction, TransformFunction};
@@ -16,8 +16,9 @@ use crate::functions::rollup::rollup_fns::{
 use crate::functions::rollup::{
     get_rollup_func_by_name, RollupFuncArg, RollupHandler, TimeseriesMap,
 };
+use crate::rayon::iter::ParallelIterator;
 use crate::types::get_timeseries;
-use crate::{RuntimeError, RuntimeResult, Timestamp};
+use crate::{MetricName, RuntimeError, RuntimeResult, Timeseries, Timestamp};
 
 /// The maximum interval without previous rows.
 pub const MAX_SILENCE_INTERVAL: i64 = 5 * 60 * 1000;
@@ -263,11 +264,51 @@ impl RollupConfig {
         self.do_internal(dst_values, None, values, timestamps)
     }
 
+    pub(crate) fn process_rollup(
+        &self,
+        func: RollupFunction,
+        metric: &MetricName,
+        keep_metric_names: bool,
+        values: &[f64],
+        timestamps: &[i64],
+        shared_timestamps: &Arc<Vec<i64>>,
+    ) -> RuntimeResult<(u64, Vec<Timeseries>)> {
+        if TimeseriesMap::is_valid_function(func) {
+            let tsm = Arc::new(TimeseriesMap::new(
+                keep_metric_names,
+                shared_timestamps,
+                metric,
+            ));
+            let scanned = self.do_timeseries_map(tsm.clone(), &values, &timestamps)?;
+            let len = tsm.series_len();
+            if len == 0 {
+                return Ok((0u64, vec![]));
+            }
+            let mut series = Vec::with_capacity(len);
+            tsm.append_timeseries_to(&mut series);
+            return Ok((scanned, series));
+        }
+
+        let mut ts_dst: Timeseries = Timeseries::default();
+        ts_dst.metric_name.copy_from(metric);
+        if !self.tag_value.is_empty() {
+            ts_dst.metric_name.set_tag("rollup", &self.tag_value)
+        }
+        if !keep_metric_names {
+            ts_dst.metric_name.reset_metric_group();
+        }
+        let samples_scanned = self.exec(&mut ts_dst.values, values, timestamps)?;
+        ts_dst.timestamps = Arc::clone(shared_timestamps);
+        let tss = vec![ts_dst];
+
+        Ok((samples_scanned, tss))
+    }
+
     /// calculates rollup for the given timestamps and values and puts them to tsm.
     /// returns the number of samples scanned
     pub(crate) fn do_timeseries_map(
         &self,
-        tsm: &Rc<RefCell<TimeseriesMap>>,
+        tsm: Arc<TimeseriesMap>,
         values: &[f64],
         timestamps: &[Timestamp],
     ) -> RuntimeResult<u64> {
@@ -278,7 +319,7 @@ impl RollupConfig {
     fn do_internal(
         &self,
         dst_values: &mut Vec<f64>,
-        tsm: Option<&Rc<RefCell<TimeseriesMap>>>,
+        tsm: Option<Arc<TimeseriesMap>>,
         values: &[f64],
         timestamps: &[Timestamp],
     ) -> RuntimeResult<u64> {
@@ -321,11 +362,6 @@ impl RollupConfig {
             }
         }
 
-        let mut rfa = RollupFuncArg::default();
-        rfa.idx = 0;
-        rfa.window = window;
-        rfa.tsm = tsm.map(Rc::clone);
-
         let mut i = 0;
         let mut j = 0;
         let mut ni = 0;
@@ -333,6 +369,10 @@ impl RollupConfig {
 
         let mut samples_scanned = values.len() as u64;
         let samples_scanned_per_call = self.samples_scanned_per_call as u64;
+
+        let mut idx: usize = 0;
+        // todo(perf): pooled vec or tinyvec
+        let mut func_args: Vec<RollupFuncArg> = Vec::with_capacity(16);
 
         for t_end in self.timestamps.iter() {
             let t_start = *t_end - window;
@@ -345,6 +385,9 @@ impl RollupConfig {
             nj = seek_first_timestamp_idx_after(&timestamps[j..], *t_end, nj);
             j += nj;
 
+            let mut rfa = RollupFuncArg::default();
+
+            rfa.window = window;
             rfa.prev_value = f64::NAN;
             rfa.prev_timestamp = t_start - max_prev_interval;
             if i > 0 && i < timestamps.len() {
@@ -355,10 +398,8 @@ impl RollupConfig {
                 }
             }
 
-            rfa.values.clear();
-            rfa.timestamps.clear();
-            rfa.values.extend_from_slice(&values[i..j]);
-            rfa.timestamps.extend_from_slice(&timestamps[i..j]);
+            rfa.values = &values[i..j];
+            rfa.timestamps = &timestamps[i..j];
 
             rfa.real_prev_value = if i > 0 { values[i - 1] } else { f64::NAN };
             rfa.real_next_value = if j < values.len() {
@@ -368,8 +409,14 @@ impl RollupConfig {
             };
 
             rfa.curr_timestamp = *t_end;
-            let value = (self.handler).eval(&mut rfa);
-            rfa.idx += 1;
+            rfa.idx = idx;
+            rfa.tsm = if let Some(ref tsm) = tsm {
+                Some(Arc::clone(&tsm))
+            } else {
+                None
+            };
+
+            idx += 1;
 
             if samples_scanned_per_call > 0 {
                 samples_scanned += samples_scanned_per_call
@@ -377,7 +424,24 @@ impl RollupConfig {
                 samples_scanned += rfa.values.len() as u64;
             }
 
-            dst_values.push(value);
+            func_args.push(rfa);
+        }
+
+        match func_args.len() {
+            0 => {}
+            1 => {
+                let rfa = &func_args[0];
+                let value = (self.handler).eval(rfa);
+                dst_values.push(value);
+            }
+            _ => {
+                let mut values = func_args
+                    .par_iter()
+                    .map(|rfa| (self.handler).eval(rfa))
+                    .collect::<Vec<_>>();
+
+                dst_values.append(&mut values);
+            }
         }
 
         Ok(samples_scanned)

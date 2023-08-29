@@ -5,7 +5,7 @@ pub(super) fn new_rollup_integrate(_args: &Vec<QueryValue>) -> RuntimeResult<Rol
     Ok(RollupHandler::wrap(rollup_integrate))
 }
 
-pub(super) fn rollup_integrate(rfa: &mut RollupFuncArg) -> f64 {
+pub(super) fn rollup_integrate(rfa: &RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
     let mut values = &rfa.values[0..];

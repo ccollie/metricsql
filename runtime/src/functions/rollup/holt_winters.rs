@@ -10,7 +10,7 @@ pub(super) fn new_rollup_holt_winters(args: &Vec<QueryValue>) -> RuntimeResult<R
 
     let handler = RollupHandlerVecArg::new(
         tiny_vec!(sf, tf),
-        |rfa: &mut RollupFuncArg, vals: &TinyVec<[f64; 4]>| -> f64 {
+        |rfa: &RollupFuncArg, vals: &TinyVec<[f64; 4]>| -> f64 {
             let sf = vals[0];
             let tf = vals[1];
             holt_winters_internal(rfa, sf, tf)
@@ -19,7 +19,7 @@ pub(super) fn new_rollup_holt_winters(args: &Vec<QueryValue>) -> RuntimeResult<R
     Ok(RollupHandler::VecArg(handler))
 }
 
-fn holt_winters_internal(rfa: &mut RollupFuncArg, sf: f64, tf: f64) -> f64 {
+fn holt_winters_internal(rfa: &RollupFuncArg, sf: f64, tf: f64) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
     if rfa.values.is_empty() {

@@ -1,5 +1,3 @@
-use std::cell::RefCell;
-use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use tracing::{field, trace_span, Span};
@@ -21,13 +19,12 @@ use crate::execution::utils::{adjust_eval_range, drop_stale_nans, duration_value
 use crate::execution::{get_timestamps, EvalConfig};
 use crate::functions::aggregate::IncrementalAggrFuncContext;
 use crate::functions::rollup::{
-    eval_prefuncs, get_rollup_configs, RollupConfig, RollupHandler, TimeseriesMap,
-    MAX_SILENCE_INTERVAL,
+    eval_prefuncs, get_rollup_configs, RollupConfig, RollupHandler, MAX_SILENCE_INTERVAL,
 };
 use crate::functions::transform::get_absent_timeseries;
 use crate::provider::{join_matchers_vec, QueryResult, QueryResults, SearchQuery};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::{get_timeseries, MetricName, QueryValue};
+use crate::QueryValue;
 use crate::{Timeseries, Timestamp};
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -338,33 +335,19 @@ impl RollupNode {
                 pre_func(&mut rs.values, &rs.timestamps);
 
                 for rc in ctx.rcs.iter() {
-                    if let Some(tsm) = new_timeseries_map(
+                    let (samples_scanned, mut series) = rc.process_rollup(
                         ctx.func,
-                        ctx.keep_metric_names,
-                        &ctx.timestamps,
                         &rs.metric,
-                    ) {
-                        rc.do_timeseries_map(&tsm, &rs.values, &rs.timestamps)?;
-                        for ts in tsm.as_ref().borrow_mut().values_mut() {
-                            ctx.iafc.update_timeseries(ts, worker_id)?;
-                        }
-                        continue;
-                    }
-
-                    let mut ts = get_timeseries();
-                    let samples_scanned = do_rollup_for_timeseries(
                         ctx.keep_metric_names,
-                        rc,
-                        &mut ts,
-                        &rs.metric,
                         &rs.values,
                         &rs.timestamps,
                         &ctx.timestamps,
                     )?;
 
+                    for ts in series.iter_mut() {
+                        ctx.iafc.update_timeseries(ts, worker_id);
+                    }
                     ctx.samples_scanned_total.add(samples_scanned);
-                    // todo: return result rather than unwrap
-                    ctx.iafc.update_timeseries(&mut ts, worker_id)?;
                 }
                 Ok(())
             },
@@ -439,15 +422,17 @@ impl RollupNode {
                 }
                 pre_func(&mut rs.values, &rs.timestamps);
                 for rc in ctx.rcs.iter() {
-                    let samples_scanned = process_result(
-                        rs,
+                    let (samples_scanned, mut series) = rc.process_rollup(
                         ctx.func,
-                        rc,
-                        ctx.series.clone(),
-                        ctx.timestamps,
+                        &rs.metric,
                         ctx.keep_metric_names,
+                        &rs.values,
+                        &rs.timestamps,
+                        ctx.timestamps,
                     )?;
 
+                    let mut series_vec = ctx.series.lock().unwrap();
+                    series_vec.append(&mut series);
                     ctx.samples_scanned_total.add(samples_scanned);
                 }
                 Ok(())
@@ -517,51 +502,6 @@ impl RollupNode {
     }
 }
 
-#[inline]
-fn new_timeseries_map(
-    func: RollupFunction,
-    keep_metric_names: bool,
-    shared_timestamps: &Arc<Vec<Timestamp>>,
-    mn: &MetricName,
-) -> Option<Rc<RefCell<TimeseriesMap>>> {
-    if !TimeseriesMap::is_valid_function(func) {
-        return None;
-    }
-    let map = TimeseriesMap::new(keep_metric_names, shared_timestamps, mn);
-    Some(Rc::new(RefCell::new(map)))
-}
-
-fn process_result(
-    rs: &mut QueryResult,
-    func: RollupFunction,
-    rc: &RollupConfig,
-    series: Arc<Mutex<Vec<Timeseries>>>,
-    timestamps: &Arc<Vec<i64>>,
-    keep_metric_names: bool,
-) -> RuntimeResult<u64> {
-    return if let Some(tsm) = new_timeseries_map(func, keep_metric_names, timestamps, &rs.metric) {
-        rc.do_timeseries_map(&tsm, &rs.values, &rs.timestamps)?;
-        let mut tss = series.lock().unwrap();
-        tsm.as_ref().borrow_mut().append_timeseries_to(&mut tss);
-        Ok(0_u64)
-    } else {
-        let mut ts: Timeseries = Timeseries::default();
-        let samples_scanned = do_rollup_for_timeseries(
-            keep_metric_names,
-            rc,
-            &mut ts,
-            &rs.metric,
-            &rs.values,
-            &rs.timestamps,
-            timestamps,
-        )?;
-
-        let mut tss = series.lock().unwrap();
-        tss.push(ts);
-        Ok(samples_scanned)
-    };
-}
-
 /// aggregate_absent_over_time collapses tss to a single time series with 1 and nan values.
 ///
 /// Values for returned series are set to nan if at least a single tss series contains nan at that point.
@@ -585,28 +525,6 @@ fn aggregate_absent_over_time(
         }
     }
     Ok(rvs)
-}
-
-fn do_rollup_for_timeseries(
-    keep_metric_names: bool,
-    rc: &RollupConfig,
-    ts_dst: &mut Timeseries,
-    mn_src: &MetricName,
-    values_src: &[f64],
-    timestamps_src: &[i64],
-    shared_timestamps: &Arc<Vec<i64>>,
-) -> RuntimeResult<u64> {
-    ts_dst.metric_name.copy_from(mn_src);
-    if !rc.tag_value.is_empty() {
-        ts_dst.metric_name.set_tag("rollup", &rc.tag_value)
-    }
-    if !keep_metric_names {
-        ts_dst.metric_name.reset_metric_group();
-    }
-    let samples_scanned = rc.exec(&mut ts_dst.values, values_src, timestamps_src)?;
-    ts_dst.timestamps = Arc::clone(shared_timestamps);
-
-    Ok(samples_scanned)
 }
 
 fn mul_no_overflow(a: i64, b: i64) -> i64 {

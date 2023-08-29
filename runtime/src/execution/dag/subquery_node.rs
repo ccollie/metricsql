@@ -6,8 +6,7 @@ use metricsql::ast::{DurationExpr, Expr};
 use metricsql::prelude::RollupFunction;
 
 use crate::execution::dag::utils::{
-    adjust_series_by_offset, create_timeseries_map, do_timeseries_rollup, expand_single_value,
-    resolve_at_value, resolve_rollup_handler,
+    adjust_series_by_offset, expand_single_value, resolve_at_value, resolve_rollup_handler,
 };
 use crate::execution::dag::{DAGNode, ExecutableNode};
 use crate::execution::utils::{
@@ -136,38 +135,23 @@ impl SubqueryNode {
                   values: &mut [f64],
                   timestamps: &[i64]|
                   -> RuntimeResult<(Vec<Timeseries>, u64)> {
-                let mut res: Vec<Timeseries> = Vec::with_capacity(ts_sq.len());
+                let mut res = Vec::with_capacity(ts_sq.len());
 
                 eval_prefuncs(&pre_funcs, values, timestamps);
                 let mut scanned_total = 0_u64;
 
                 for rc in rcs.iter() {
-                    if let Some(tsm) = create_timeseries_map(
+                    let (samples_scanned, mut series) = rc.process_rollup(
                         self.func,
-                        self.keep_metric_names,
-                        &shared_timestamps,
                         &ts_sq.metric_name,
-                    ) {
-                        rc.do_timeseries_map(&tsm, values, timestamps)?;
-                        tsm.as_ref().borrow_mut().append_timeseries_to(&mut res);
-                        continue;
-                    }
-
-                    let mut ts: Timeseries = Default::default();
-
-                    let scanned_samples = do_timeseries_rollup(
                         self.keep_metric_names,
-                        rc,
-                        &mut ts,
-                        &ts_sq.metric_name,
                         values,
                         timestamps,
                         &shared_timestamps,
                     )?;
 
-                    scanned_total += scanned_samples;
-
-                    res.push(ts);
+                    scanned_total += samples_scanned;
+                    res.append(&mut series);
                 }
 
                 Ok((res, scanned_total))

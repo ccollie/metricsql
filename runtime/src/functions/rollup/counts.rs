@@ -7,8 +7,8 @@ macro_rules! make_count_fn {
         pub(super) fn $name(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandler> {
             let limit = get_limit(args, $func_name, $param_name)?;
             let handler =
-                RollupHandlerFloatArg::new(limit, |rfa: &mut RollupFuncArg, limit: &f64| -> f64 {
-                    count_filtered(&rfa.values, *limit, $predicate_fn)
+                RollupHandlerFloatArg::new(limit, |rfa: &RollupFuncArg, limit: &f64| -> f64 {
+                    count_filtered(rfa.values, *limit, $predicate_fn)
                 });
             Ok(RollupHandler::FloatArg(handler))
         }
@@ -33,7 +33,7 @@ where
     F: Fn(&Vec<QueryValue>) -> RuntimeResult<RollupHandler> + 'static,
 {
     let rf = base_factory(args)?;
-    let f = move |rfa: &mut RollupFuncArg| -> f64 {
+    let f = move |rfa: &RollupFuncArg| -> f64 {
         let n = rf.eval(rfa);
         n / rfa.values.len() as f64
     };
@@ -48,7 +48,7 @@ fn get_limit(args: &[QueryValue], func_name: &str, param_name: &str) -> RuntimeR
     })
 }
 
-fn count_filtered(values: &Vec<f64>, limit: f64, pred: fn(f64, f64) -> bool) -> f64 {
+fn count_filtered(values: &[f64], limit: f64, pred: fn(f64, f64) -> bool) -> f64 {
     if values.is_empty() {
         return f64::NAN;
     }

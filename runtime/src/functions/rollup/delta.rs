@@ -39,11 +39,12 @@ pub(crate) fn delta_values(values: &mut [f64]) {
     values[values.len() - 1] = prev_delta
 }
 
-pub(super) fn rollup_delta(rfa: &mut RollupFuncArg) -> f64 {
+pub(super) fn rollup_delta(rfa: &RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
     let mut values = &rfa.values[0..];
-    if rfa.prev_value.is_nan() {
+    let mut prev_value = rfa.prev_value;
+    if prev_value.is_nan() {
         if values.is_empty() {
             return f64::NAN;
         }
@@ -75,9 +76,9 @@ pub(super) fn rollup_delta(rfa: &mut RollupFuncArg) -> f64 {
         };
 
         if rfa.values[0].abs() < 10.0 * (d.abs() + 1.0) {
-            rfa.prev_value = 0.0;
+            prev_value = 0.0;
         } else {
-            rfa.prev_value = rfa.values[0];
+            prev_value = values[0];
             values = &values[1..]
         }
     }
@@ -85,10 +86,10 @@ pub(super) fn rollup_delta(rfa: &mut RollupFuncArg) -> f64 {
         // Assume that the value didn't change on the given interval.
         return 0.0;
     }
-    values[values.len() - 1] - rfa.prev_value
+    values[values.len() - 1] - prev_value
 }
 
-pub(super) fn rollup_delta_prometheus(rfa: &mut RollupFuncArg) -> f64 {
+pub(super) fn rollup_delta_prometheus(rfa: &RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
     let count = rfa.values.len();
@@ -100,7 +101,7 @@ pub(super) fn rollup_delta_prometheus(rfa: &mut RollupFuncArg) -> f64 {
     rfa.values[count - 1] - rfa.values[0]
 }
 
-pub(super) fn rollup_idelta(rfa: &mut RollupFuncArg) -> f64 {
+pub(super) fn rollup_idelta(rfa: &RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
     let values = &rfa.values;

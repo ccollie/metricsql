@@ -1,5 +1,3 @@
-use std::cell::RefCell;
-use std::rc::Rc;
 use std::sync::Arc;
 
 use tracing::{field, trace_span, Span};
@@ -10,12 +8,8 @@ use metricsql::functions::RollupFunction;
 use crate::execution::binary::{exec_binop, BinaryOpFuncArg};
 use crate::execution::utils::series_len;
 use crate::execution::{Context, EvalConfig};
-use crate::functions::rollup::{
-    get_rollup_function_handler, RollupConfig, RollupHandler, TimeseriesMap,
-};
-use crate::{
-    InstantVector, MetricName, QueryValue, RuntimeError, RuntimeResult, Timeseries, Timestamp,
-};
+use crate::functions::rollup::{get_rollup_function_handler, RollupHandler};
+use crate::{InstantVector, QueryValue, RuntimeError, RuntimeResult, Timeseries};
 
 pub(crate) fn resolve_value(index: usize, value: &mut QueryValue, computed: &mut [QueryValue]) {
     // Note: we return values in this particular way because of an optimization in the evaluator.
@@ -148,42 +142,6 @@ pub(crate) fn exec_vector_vector(
     }
 
     Ok(result)
-}
-
-pub(super) fn do_timeseries_rollup(
-    keep_metric_names: bool,
-    rc: &RollupConfig,
-    ts_dst: &mut Timeseries,
-    mn_src: &MetricName,
-    values_src: &[f64],
-    timestamps_src: &[i64],
-    shared_timestamps: &Arc<Vec<i64>>,
-) -> RuntimeResult<u64> {
-    ts_dst.metric_name.copy_from(mn_src);
-    if !rc.tag_value.is_empty() {
-        ts_dst.metric_name.set_tag("rollup", &rc.tag_value)
-    }
-    if !keep_metric_names {
-        ts_dst.metric_name.reset_metric_group();
-    }
-    let samples_scanned = rc.exec(&mut ts_dst.values, values_src, timestamps_src)?;
-    ts_dst.timestamps = Arc::clone(shared_timestamps);
-
-    Ok(samples_scanned)
-}
-
-#[inline]
-pub(super) fn create_timeseries_map(
-    func: RollupFunction,
-    keep_metric_names: bool,
-    shared_timestamps: &Arc<Vec<Timestamp>>,
-    mn: &MetricName,
-) -> Option<Rc<RefCell<TimeseriesMap>>> {
-    if !TimeseriesMap::is_valid_function(func) {
-        return None;
-    }
-    let map = TimeseriesMap::new(keep_metric_names, shared_timestamps, mn);
-    Some(Rc::new(RefCell::new(map)))
 }
 
 pub(super) fn expand_single_value(tss: &mut [Timeseries], ec: &EvalConfig) -> RuntimeResult<()> {

@@ -22,7 +22,7 @@ pub(super) fn new_rollup_quantiles(args: &Vec<QueryValue>) -> RuntimeResult<Roll
         phi_labels.push(format!("{}", v));
     }
 
-    let f = Box::new(move |rfa: &mut RollupFuncArg| -> f64 {
+    let f = Box::new(move |rfa: &RollupFuncArg| -> f64 {
         quantiles_impl(rfa, &phi_label, &phis, &phi_labels)
     });
 
@@ -32,7 +32,7 @@ pub(super) fn new_rollup_quantiles(args: &Vec<QueryValue>) -> RuntimeResult<Roll
 pub(super) fn new_rollup_quantile(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandler> {
     let phi = get_scalar_param_value(args, 0, "quantile_over_time", "phi")?;
 
-    let rf = Box::new(move |rfa: &mut RollupFuncArg| {
+    let rf = Box::new(move |rfa: &RollupFuncArg| {
         // There is no need in handling NaNs here, since they must be cleaned up
         // before calling rollup fns.
         quantile(phi, &rfa.values)
@@ -41,12 +41,7 @@ pub(super) fn new_rollup_quantile(args: &Vec<QueryValue>) -> RuntimeResult<Rollu
     Ok(RollupHandler::General(rf))
 }
 
-fn quantiles_impl(
-    rfa: &mut RollupFuncArg,
-    label: &str,
-    phis: &[f64],
-    phi_labels: &[String],
-) -> f64 {
+fn quantiles_impl(rfa: &RollupFuncArg, label: &str, phis: &[f64], phi_labels: &[String]) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
     if rfa.values.is_empty() {
@@ -60,12 +55,11 @@ fn quantiles_impl(
     let mut qs = get_pooled_vec_f64_filled(phis.len(), 0f64);
     quantiles(qs.deref_mut(), phis, &rfa.values);
     let idx = rfa.idx;
-    let tsm = rfa.tsm.as_ref().unwrap();
-    let mut wrapped = tsm.borrow_mut();
-    // todo: rayon
+    let map = rfa.get_tsm();
     for (phi_str, quantile) in phi_labels.iter().zip(qs.iter()) {
-        let ts = wrapped.get_or_create_timeseries(label, phi_str);
-        ts.values[idx] = *quantile;
+        map.with_timeseries(label, phi_str, |ts| {
+            ts.values[idx] = *quantile;
+        });
     }
 
     f64::NAN
