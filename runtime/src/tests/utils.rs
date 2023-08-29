@@ -15,7 +15,7 @@ pub fn test_results_equal(result: &[QueryResult], result_expected: &[QueryResult
 
     let mut i = 0;
     for (actual, expected) in result.iter().zip(result_expected) {
-        test_metric_names_equal(&actual.metric_name, &expected.metric_name, i);
+        test_metric_names_equal(&actual.metric, &expected.metric, i);
         test_rows_equal(
             &actual.values,
             &actual.timestamps,

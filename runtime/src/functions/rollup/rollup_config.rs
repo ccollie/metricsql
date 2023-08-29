@@ -6,7 +6,7 @@ use metricsql::ast::Expr;
 use metricsql::functions::{can_adjust_window, RollupFunction, TransformFunction};
 
 use crate::common::math::quantile;
-use crate::eval::validate_max_points_per_timeseries;
+use crate::execution::{get_timestamps, validate_max_points_per_timeseries};
 use crate::functions::rollup::candlestick::*;
 use crate::functions::rollup::delta::delta_values;
 use crate::functions::rollup::deriv::deriv_values;
@@ -17,7 +17,7 @@ use crate::functions::rollup::{
     get_rollup_func_by_name, RollupFuncArg, RollupHandler, TimeseriesMap,
 };
 use crate::types::get_timeseries;
-use crate::{get_timestamps, RuntimeError, RuntimeResult, Timestamp};
+use crate::{RuntimeError, RuntimeResult, Timestamp};
 
 /// The maximum interval without previous rows.
 pub const MAX_SILENCE_INTERVAL: i64 = 5 * 60 * 1000;
@@ -104,7 +104,7 @@ pub struct RollupFunctionHandlerMeta {
 
 // todo: use tinyvec for return values
 pub(crate) fn get_rollup_configs(
-    func: &RollupFunction,
+    func: RollupFunction,
     rf: &RollupHandler,
     expr: &Expr,
     start: Timestamp,
@@ -422,7 +422,7 @@ impl RollupConfig {
 /// than is passed to the rollup func.
 ///
 /// It is expected that the remaining rollupFuncs scan all the samples passed to them.
-const fn rollup_samples_scanned_per_call(rf: &RollupFunction) -> usize {
+const fn rollup_samples_scanned_per_call(rf: RollupFunction) -> usize {
     use RollupFunction::*;
 
     match rf {
@@ -546,7 +546,7 @@ fn get_max_prev_interval(scrape_interval: i64) -> i64 {
 // todo: use tinyvec for return values
 pub(crate) fn get_rollup_function_handler_meta(
     expr: &Expr,
-    func: &RollupFunction,
+    func: RollupFunction,
     rf: Option<&RollupHandler>,
 ) -> RuntimeResult<RollupFunctionHandlerMeta> {
     // todo: use tinyvec
@@ -646,7 +646,7 @@ pub(crate) fn get_rollup_function_handler_meta(
     }
 
     let may_adjust_window = can_adjust_window(func);
-    let is_default_rollup = *func == RollupFunction::DefaultRollup;
+    let is_default_rollup = func == RollupFunction::DefaultRollup;
     let samples_scanned_per_call = rollup_samples_scanned_per_call(func);
 
     Ok(RollupFunctionHandlerMeta {

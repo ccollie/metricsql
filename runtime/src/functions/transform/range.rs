@@ -5,7 +5,7 @@ use lib::get_pooled_vec_f64;
 use crate::common::math::{
     linear_regression, mad, mean, quantile, quantile_sorted, stddev, stdvar,
 };
-use crate::eval::eval_number;
+use crate::execution::eval_number;
 use crate::functions::arg_parse::{get_float_arg, get_series_arg};
 use crate::functions::transform::running::{running_avg, running_max, running_min, running_sum};
 use crate::functions::transform::utils::{expect_transform_args_num, ru};

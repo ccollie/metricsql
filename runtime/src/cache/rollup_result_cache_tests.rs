@@ -1,12 +1,14 @@
 #[cfg(test)]
 mod tests {
-    use metricsql::ast::{AggregationExpr, Expr, FunctionExpr, MetricExpr};
-    use metricsql::common::{LabelFilter, LabelFilterOp};
     use std::sync::Arc;
 
-    use crate::cache::rollup_result_cache::{merge_timeseries, RollupResultCache};
-    use crate::{test_timeseries_equal, EvalConfig, MetricName, Timeseries};
+    use metricsql::ast::{AggregationExpr, Expr, FunctionExpr, MetricExpr};
+    use metricsql::common::{LabelFilter, LabelFilterOp};
     use metricsql::functions::AggregateFunction;
+
+    use crate::cache::rollup_result_cache::{merge_timeseries, RollupResultCache};
+    use crate::execution::EvalConfig;
+    use crate::{test_timeseries_equal, MetricName, Timeseries};
 
     const NAN: f64 = f64::NAN;
 

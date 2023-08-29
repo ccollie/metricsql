@@ -14,16 +14,17 @@ use lib::{
     get_pooled_buffer, marshal_fixed_int, marshal_var_int, AtomicCounter, RelaxedU64Counter,
 };
 use metricsql::ast::Expr;
-use metricsql::common::LabelFilter;
+use metricsql::prelude::Matchers;
 
 use crate::cache::default_result_cache_storage::DefaultResultCacheStorage;
 use crate::cache::serialization::{compress_series, deserialize_series_between, estimate_size};
 use crate::cache::traits::RollupResultCacheStorage;
+use crate::execution::EvalConfig;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::types::assert_identical_timestamps;
 use crate::types::{Timestamp, TimestampTrait};
 use crate::utils::{memory_limit, read_i64, read_u64, read_usize, MemoryLimiter};
-use crate::{EvalConfig, Timeseries};
+use crate::Timeseries;
 
 /// The maximum duration since the current time for response data, which is always queried from the
 /// original raw data, without using the response cache. Increase this value if you see gaps in responses
@@ -455,7 +456,7 @@ fn marshal_rollup_result_cache_key(
     expr: &Expr,
     window: i64,
     step: i64,
-    etfs: &[Vec<LabelFilter>],
+    etfs: &[Matchers],
 ) -> u64 {
     hasher.reset();
 
@@ -467,7 +468,7 @@ fn marshal_rollup_result_cache_key(
     hasher.write(format!("{}", expr).as_bytes());
 
     for etf in etfs.iter() {
-        for f in etf {
+        for f in etf.iter() {
             hasher.write(f.label.as_bytes());
             hasher.write(f.op.as_str().as_bytes());
             hasher.write(f.value.as_bytes());

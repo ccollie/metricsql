@@ -10,8 +10,7 @@ use metricsql::common::AggregateModifier;
 use metricsql::functions::AggregateFunction;
 
 use crate::common::math::{mode_no_nans, quantile, quantiles};
-use crate::eval::eval_number;
-use crate::exec::remove_empty_series;
+use crate::execution::{eval_number, remove_empty_series, EvalConfig};
 use crate::functions::arg_parse::{
     get_float_arg, get_int_arg, get_scalar_arg_as_vec, get_series_arg, get_string_arg,
 };
@@ -21,7 +20,7 @@ use crate::functions::utils::float_to_int_bounded;
 use crate::histogram::{get_pooled_histogram, Histogram};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::signature::Signature;
-use crate::{EvalConfig, QueryValue, Timeseries};
+use crate::{QueryValue, Timeseries};
 
 const MAX_SERIES_PER_AGGR_FUNC: usize = 100000;
 

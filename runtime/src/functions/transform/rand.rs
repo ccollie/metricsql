@@ -3,7 +3,7 @@ use rand::Rng;
 use rand::{distributions::Distribution, thread_rng, SeedableRng};
 use rand_distr::{Exp1, StandardNormal};
 
-use crate::eval::eval_number;
+use crate::execution::eval_number;
 use crate::functions::transform::TransformFuncArg;
 use crate::{RuntimeError, RuntimeResult, Timeseries};
 

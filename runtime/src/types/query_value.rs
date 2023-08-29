@@ -9,10 +9,10 @@ use serde::{Deserialize, Serialize, Serializer};
 use metricsql::ast::DurationExpr;
 use metricsql::common::{Value, ValueType};
 
-use crate::eval::eval_number;
+use crate::execution::{eval_number, EvalConfig};
 use crate::functions::types::get_single_timeseries;
 use crate::utils::format_number;
-use crate::{EvalConfig, RuntimeError, RuntimeResult, Timeseries};
+use crate::{RuntimeError, RuntimeResult, Timeseries};
 
 pub type Labels = Vec<Label>;
 

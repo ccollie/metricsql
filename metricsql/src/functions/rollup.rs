@@ -316,7 +316,7 @@ impl RollupFunction {
 ///
 /// This is needed for returning the expected non-empty graphs when zooming in the graph in Grafana,
 /// which is built with `func_name(metric)` query.
-pub const fn can_adjust_window(func: &RollupFunction) -> bool {
+pub const fn can_adjust_window(func: RollupFunction) -> bool {
     use RollupFunction::*;
     matches!(
         func,

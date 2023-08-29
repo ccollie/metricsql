@@ -3,7 +3,7 @@ pub(crate) use histogram::vmrange_buckets_to_le;
 use metricsql::functions::TransformFunction;
 pub(crate) use utils::{extract_labels, get_timezone_offset};
 
-use crate::eval::EvalConfig;
+use crate::execution::EvalConfig;
 use crate::functions::arg_parse::get_series_arg;
 pub(crate) use crate::functions::transform::absent::handle_absent;
 use crate::functions::transform::absent::transform_absent;
