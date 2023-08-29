@@ -304,6 +304,10 @@ impl fmt::Display for LabelFilter {
 pub struct Matchers(Vec<LabelFilter>);
 
 impl Matchers {
+    pub fn new(filters: Vec<LabelFilter>) -> Self {
+        Matchers(filters)
+    }
+
     pub fn len(&self) -> usize {
         self.0.len()
     }

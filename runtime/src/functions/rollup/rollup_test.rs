@@ -21,8 +21,8 @@ mod tests {
         RollupHandler, RollupHandlerFactory,
     };
     use crate::{
-        compare_floats, compare_values, test_rows_equal, EvalConfig, QueryValue, RuntimeError,
-        RuntimeResult, Timeseries,
+        compare_floats, compare_values, test_rows_equal, QueryValue, RuntimeError, RuntimeResult,
+        Timeseries,
     };
 
     // https://github.com/VictoriaMetrics/VictoriaMetrics/blob/master/app/vmselect/promql/rollup_test.go
@@ -257,7 +257,6 @@ mod tests {
 
     fn test_rollup_func(func_name: &str, args: Vec<QueryValue>, expected: f64) {
         let func = RollupFunction::from_str(func_name).unwrap();
-        let ec: EvalConfig = Default::default();
 
         let rf = get_rollup_function_handler(func, &args).unwrap();
         let mut rfa = RollupFuncArg::default();

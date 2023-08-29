@@ -1,9 +1,9 @@
 use std::collections::HashSet;
 
-use crate::eval::eval_number;
+use crate::execution::{eval_number, EvalConfig};
 use crate::functions::transform::TransformFuncArg;
 use crate::signature::Signature;
-use crate::{EvalConfig, QueryValue, RuntimeError, RuntimeResult, Timeseries};
+use crate::{QueryValue, RuntimeError, RuntimeResult, Timeseries};
 
 pub(crate) fn union(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     // we don't use args after this

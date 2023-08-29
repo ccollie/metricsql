@@ -18,7 +18,7 @@ pub struct Signature(u64);
 
 /// implement hash which returns the value of the inner u64
 impl Hash for Signature {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         self.0.hash(state);
     }
 }

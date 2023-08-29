@@ -83,8 +83,8 @@ impl TimeseriesMap {
         self.hist.visit_non_zero_buckets(f)
     }
 
-    pub fn is_valid_function(func: &RollupFunction) -> bool {
+    pub fn is_valid_function(func: RollupFunction) -> bool {
         use RollupFunction::*;
-        matches!(*func, HistogramOverTime | QuantilesOverTime)
+        matches!(func, HistogramOverTime | QuantilesOverTime)
     }
 }

@@ -5,14 +5,15 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
+use serde::{Deserialize, Serialize};
 
-use metricsql::common::LabelFilter;
+use metricsql::common::{LabelFilter, Matchers};
 
+use crate::execution::Context;
 use crate::functions::remove_nan_values_in_place;
 use crate::provider::Deadline;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::types::{MetricName, Timeseries, Timestamp, TimestampTrait};
-use crate::Context;
 
 pub type TimeRange = Range<Timestamp>;
 
@@ -25,7 +26,7 @@ pub struct NullMetricDataProvider {}
 
 impl MetricDataProvider for NullMetricDataProvider {
     fn search(&self, _sq: &SearchQuery, _deadline: &Deadline) -> RuntimeResult<QueryResults> {
-        let qr = QueryResults::new();
+        let qr = QueryResults::default();
         Ok(qr)
     }
 }
@@ -35,14 +36,15 @@ impl MetricDataProvider for NullMetricDataProvider {
 pub type QueryableFunc = fn(ctx: &Context, sq: &SearchQuery) -> RuntimeResult<QueryResults>;
 
 /// SearchQuery is used for sending provider queries to external data sources.
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct SearchQuery {
     /// The time range for searching time series
-    pub min_timestamp: Timestamp,
-    pub max_timestamp: Timestamp,
+    /// TODO: use TimestampRange
+    pub start: Timestamp,
+    pub end: Timestamp,
 
     /// Tag filters for the provider query
-    pub tag_filter_list: Vec<Vec<LabelFilter>>,
+    pub matchers: Vec<Matchers>,
 
     /// The maximum number of time series the provider query can return.
     pub max_metrics: usize,
@@ -53,7 +55,7 @@ impl SearchQuery {
     pub fn new(
         start: Timestamp,
         end: Timestamp,
-        tag_filter_list: Vec<Vec<LabelFilter>>,
+        tag_filter_list: Vec<Matchers>,
         max_metrics: usize,
     ) -> Self {
         let mut max = max_metrics;
@@ -61,9 +63,9 @@ impl SearchQuery {
             max = 2e9 as usize
         }
         SearchQuery {
-            min_timestamp: start,
-            max_timestamp: end,
-            tag_filter_list,
+            start,
+            end,
+            matchers: tag_filter_list,
             max_metrics: max,
         }
     }
@@ -71,12 +73,12 @@ impl SearchQuery {
 
 impl Display for SearchQuery {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut a: Vec<String> = Vec::with_capacity(self.tag_filter_list.len());
-        for tfs in &self.tag_filter_list {
+        let mut a: Vec<String> = Vec::with_capacity(self.matchers.len());
+        for tfs in &self.matchers {
             a.push(filters_to_string(tfs))
         }
-        let start = self.min_timestamp.to_string_millis();
-        let end = self.max_timestamp.to_string_millis();
+        let start = self.start.to_string_millis();
+        let end = self.end.to_string_millis();
         write!(
             f,
             "filters={}, timeRange=[{}..{}], max={}",
@@ -106,7 +108,7 @@ fn filters_to_string(tfs: &[LabelFilter]) -> String {
 #[derive(Default, Debug, Clone, PartialEq)]
 pub struct QueryResult {
     /// The name of the metric.
-    pub metric_name: MetricName,
+    pub metric: MetricName,
     /// Values are sorted by Timestamps.
     pub values: Vec<f64>,
     pub timestamps: Vec<i64>,
@@ -118,7 +120,7 @@ pub struct QueryResult {
 impl QueryResult {
     pub fn new() -> Self {
         QueryResult {
-            metric_name: MetricName::default(),
+            metric: MetricName::default(),
             values: vec![],
             timestamps: vec![],
             rows_processed: 0,
@@ -128,7 +130,7 @@ impl QueryResult {
 
     pub fn with_capacity(cap: usize) -> Self {
         QueryResult {
-            metric_name: MetricName::default(),
+            metric: MetricName::default(),
             values: Vec::with_capacity(cap),
             timestamps: Vec::with_capacity(cap),
             rows_processed: 0,
@@ -138,14 +140,14 @@ impl QueryResult {
 
     pub fn into_timeseries(mut self) -> Timeseries {
         Timeseries {
-            metric_name: std::mem::take(&mut self.metric_name),
+            metric_name: std::mem::take(&mut self.metric),
             values: std::mem::take(&mut self.values),
             timestamps: Arc::new(std::mem::take(&mut self.timestamps)),
         }
     }
 
     pub fn reset(&mut self) {
-        self.metric_name.reset();
+        self.metric.reset();
         self.values.clear();
         self.timestamps.clear();
     }
@@ -162,8 +164,6 @@ impl QueryResult {
 /// Results holds results returned from ProcessSearchQuery.
 #[derive(Debug)]
 pub struct QueryResults {
-    pub tr: TimeRange,
-    pub deadline: Deadline,
     pub series: Vec<QueryResult>,
     signal: Arc<AtomicU32>,
 }
@@ -171,8 +171,6 @@ pub struct QueryResults {
 impl Default for QueryResults {
     fn default() -> Self {
         Self {
-            tr: TimeRange::default(),
-            deadline: Deadline::default(),
             series: vec![],
             signal: Arc::new(AtomicU32::new(0_u32)),
         }
@@ -183,8 +181,6 @@ impl Clone for QueryResults {
     fn clone(&self) -> Self {
         let signal_value = self.signal.load(Ordering::Relaxed);
         QueryResults {
-            tr: self.tr.clone(),
-            deadline: self.deadline,
             series: self.series.clone(),
             signal: Arc::new(AtomicU32::new(signal_value)),
         }
@@ -192,8 +188,11 @@ impl Clone for QueryResults {
 }
 
 impl QueryResults {
-    pub(crate) fn new() -> Self {
-        QueryResults::default()
+    pub(crate) fn new(series: Vec<QueryResult>) -> Self {
+        QueryResults {
+            series,
+            signal: Arc::new(AtomicU32::new(0_u32)),
+        }
     }
 
     /// Len returns the number of results in rss.
@@ -205,16 +204,8 @@ impl QueryResults {
         self.series.is_empty()
     }
 
-    fn deadline_exceeded(&self) -> bool {
-        self.deadline.exceeded()
-    }
-
     pub fn should_stop(&mut self) -> bool {
         if self.signal.fetch_add(0, Ordering::Relaxed) != 0 {
-            return true;
-        }
-        if self.deadline_exceeded() {
-            self.signal.store(2, Ordering::SeqCst);
             return true;
         }
         false
@@ -239,7 +230,6 @@ impl QueryResults {
         }
 
         let must_stop = AtomicBool::new(false);
-        let deadline = &self.deadline;
         let sharable_ctx = Arc::new(ctx);
 
         self.series
@@ -248,11 +238,6 @@ impl QueryResults {
             .try_for_each(|rs| {
                 if must_stop.load(Ordering::Relaxed) {
                     return Err(RuntimeError::TaskCancelledError("Search".to_string()));
-                }
-
-                if deadline.exceeded() {
-                    must_stop.store(true, Ordering::Relaxed);
-                    return Err(RuntimeError::deadline_exceeded("todo!!"));
                 }
 
                 let worker_id = rs.worker_id;

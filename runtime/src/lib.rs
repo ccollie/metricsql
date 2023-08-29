@@ -24,31 +24,20 @@ extern crate topologic;
 #[cfg(feature = "xxh64")]
 extern crate xxhash_rust;
 
-pub use active_queries::*;
 pub use cache::*;
-pub use context::*;
-pub use eval::{get_timestamps, EvalConfig};
-pub use exec::*;
-pub use parser_cache::*;
 pub use provider::*;
-pub use query::*;
 pub use query_stats::*;
 pub use runtime_error::*;
 #[cfg(test)]
 pub use tests::utils::*;
 pub use types::*;
 
-mod active_queries;
 mod cache;
-mod context;
-mod eval;
-mod exec;
+pub mod execution;
 mod functions;
 mod histogram;
 mod memory_pool;
-mod parser_cache;
 mod provider;
-mod query;
 mod query_stats;
 mod runtime_error;
 mod types;
@@ -56,6 +45,13 @@ mod utils;
 
 mod common;
 #[cfg(test)]
-mod exec_test;
-#[cfg(test)]
 mod tests;
+
+pub mod prelude {
+    pub use crate::cache::*;
+    pub use crate::execution::*;
+    pub use crate::provider::*;
+    pub use crate::query_stats::*;
+    pub use crate::runtime_error::*;
+    pub use crate::types::*;
+}

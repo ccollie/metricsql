@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use lib::isinf;
 
-use crate::eval::merge_non_overlapping_timeseries;
+use crate::execution::merge_non_overlapping_timeseries;
 use crate::functions::arg_parse::{
     get_float_arg, get_int_arg, get_scalar_arg_as_vec, get_series_arg,
 };
