@@ -699,20 +699,21 @@ pub(super) fn rollup_changes(rfa: &mut RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
     let mut n = 0;
-    let mut start = 0;
-    if rfa.prev_value.is_nan() {
+    let mut values = &rfa.values[0..];
+    let mut prev_value = rfa.prev_value;
+    if prev_value.is_nan() {
         if rfa.values.is_empty() {
             return NAN;
         }
-        rfa.prev_value = rfa.values[0];
-        start = 1;
+        prev_value = rfa.values[0];
+        values = &values[1..];
         n += 1;
     }
 
-    for v in rfa.values.iter().skip(start) {
-        if *v != rfa.prev_value {
+    for v in values.iter() {
+        if *v != prev_value {
             n += 1;
-            rfa.prev_value = *v;
+            prev_value = *v;
         }
     }
 
@@ -830,21 +831,22 @@ pub(super) fn rollup_descent_over_time(rfa: &mut RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
     let mut ofs = 0;
-    if rfa.prev_value.is_nan() {
+    let mut prev_value = rfa.prev_value;
+    if prev_value.is_nan() {
         if rfa.values.is_empty() {
             return NAN;
         }
-        rfa.prev_value = rfa.values[0];
+        prev_value = rfa.values[0];
         ofs = 1;
     }
 
     let mut s: f64 = 0.0;
     for v in &rfa.values[ofs..] {
-        let d = rfa.prev_value - *v;
+        let d = prev_value - *v;
         if d > 0.0 {
             s += d;
         }
-        rfa.prev_value = *v;
+        prev_value = *v;
     }
 
     s

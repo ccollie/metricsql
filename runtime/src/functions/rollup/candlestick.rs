@@ -18,7 +18,7 @@ fn get_candlestick_values(rfa: &mut RollupFuncArg) -> &[f64] {
     &rfa.values[0..i]
 }
 
-fn get_first_value_for_candlestick(rfa: &mut RollupFuncArg) -> f64 {
+fn get_first_value_for_candlestick(rfa: &RollupFuncArg) -> f64 {
     if rfa.prev_timestamp + rfa.window >= rfa.curr_timestamp {
         return rfa.prev_value;
     }

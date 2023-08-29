@@ -62,6 +62,7 @@ fn quantiles_impl(
     let idx = rfa.idx;
     let tsm = rfa.tsm.as_ref().unwrap();
     let mut wrapped = tsm.borrow_mut();
+    // todo: rayon
     for (phi_str, quantile) in phi_labels.iter().zip(qs.iter()) {
         let ts = wrapped.get_or_create_timeseries(label, phi_str);
         ts.values[idx] = *quantile;
