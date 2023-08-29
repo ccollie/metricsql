@@ -44,15 +44,15 @@ mod tests {
     #[test]
     fn test_rollup_ideriv_duplicate_timestamps() {
         let mut rfa = RollupFuncArg::default();
-        rfa.values = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-        rfa.timestamps = vec![100, 100, 200, 300, 300];
+        rfa.values = &[1.0, 2.0, 3.0, 4.0, 5.0];
+        rfa.timestamps = &[100, 100, 200, 300, 300];
 
         let n = rollup_ideriv(&mut rfa);
         assert_eq!(n, 20_f64, "unexpected value; got {n}; want 20");
 
         let mut rfa = RollupFuncArg::default();
-        rfa.values = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-        rfa.timestamps = vec![100, 100, 300, 300, 300];
+        rfa.values = &[1.0, 2.0, 3.0, 4.0, 5.0];
+        rfa.timestamps = &[100, 100, 300, 300, 300];
         let n = rollup_ideriv(&mut rfa);
         assert_eq!(n, 15_f64, "unexpected value; got {n}; want 15");
 
@@ -63,8 +63,8 @@ mod tests {
 
         let mut rfa = RollupFuncArg::default();
         rfa.prev_value = NAN;
-        rfa.values = vec![15.0];
-        rfa.timestamps = vec![100];
+        rfa.values = &[15.0];
+        rfa.timestamps = &[100];
 
         let n = rollup_ideriv(&mut rfa);
         assert!(n.is_nan(), "unexpected value; got {}; want {}", n, NAN);
@@ -72,8 +72,8 @@ mod tests {
         let mut rfa = RollupFuncArg::default();
         rfa.prev_timestamp = 90;
         rfa.prev_value = 10_f64;
-        rfa.values = vec![15_f64];
-        rfa.timestamps = vec![100];
+        rfa.values = &[15_f64];
+        rfa.timestamps = &[100];
 
         let n = rollup_ideriv(&mut rfa);
         assert_eq!(n, 500_f64, "unexpected value; got {n}; want 500");
@@ -81,8 +81,8 @@ mod tests {
         let mut rfs = RollupFuncArg::default();
         rfs.prev_timestamp = 100;
         rfs.prev_value = 10_f64;
-        rfs.values = vec![15_f64];
-        rfs.timestamps = vec![100];
+        rfs.values = &[15_f64];
+        rfs.timestamps = &[100];
 
         let n = rollup_ideriv(&mut rfs);
         assert!(
@@ -93,8 +93,8 @@ mod tests {
         let mut rfs = RollupFuncArg::default();
         rfs.prev_timestamp = 100;
         rfs.prev_value = 10_f64;
-        rfs.values = vec![15_f64, 20_f64];
-        rfs.timestamps = vec![100, 100];
+        rfs.values = &[15_f64, 20_f64];
+        rfs.timestamps = &[100, 100];
 
         let n = rollup_ideriv(&mut rfs);
         assert!(
@@ -260,14 +260,18 @@ mod tests {
 
         let rf = get_rollup_function_handler(func, &args).unwrap();
         let mut rfa = RollupFuncArg::default();
+        let mut values = Vec::from(TEST_VALUES);
+        if func.should_remove_counter_resets() {
+            let mut slice = values.as_mut_slice();
+            remove_counter_resets(&mut slice);
+            rfa.values = slice;
+        } else {
+            rfa.values = &values;
+        }
         rfa.prev_value = NAN;
         rfa.prev_timestamp = 0;
-        rfa.values.extend_from_slice(&TEST_VALUES);
-        rfa.timestamps.extend_from_slice(&TEST_TIMESTAMPS);
+        rfa.timestamps = &TEST_TIMESTAMPS;
         rfa.window = rfa.timestamps[rfa.timestamps.len() - 1] - &rfa.timestamps[0];
-        if func.should_remove_counter_resets() {
-            remove_counter_resets(&mut rfa.values)
-        }
         let args_as_string = args
             .iter()
             .map(|v| v.to_string())
@@ -1269,7 +1273,7 @@ mod tests {
                  result_expected: f64| {
             let mut rfa = RollupFuncArg::default();
             rfa.prev_value = prev_value;
-            rfa.values = Vec::from(values);
+            rfa.values = values;
             rfa.real_prev_value = real_prev_value;
             rfa.real_next_value = real_next_value;
             let result = rollup_delta(&mut rfa);

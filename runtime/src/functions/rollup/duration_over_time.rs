@@ -7,14 +7,12 @@ pub(super) fn new_rollup_duration_over_time(
 ) -> RuntimeResult<RollupHandler> {
     let max_interval = get_scalar_param_value(args, 1, "duration_over_time", "max_interval")?;
 
-    let handler = RollupHandlerFloatArg::new(
-        max_interval,
-        |rfa: &mut RollupFuncArg, interval: &f64| -> f64 {
+    let handler =
+        RollupHandlerFloatArg::new(max_interval, |rfa: &RollupFuncArg, interval: &f64| -> f64 {
             // There is no need in handling NaNs here, since they must be cleaned up
             // before calling rollup fns.
             duration_over_time(&rfa.timestamps, *interval)
-        },
-    );
+        });
 
     Ok(RollupHandler::FloatArg(handler))
 }

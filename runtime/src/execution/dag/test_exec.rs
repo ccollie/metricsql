@@ -8,8 +8,6 @@ mod tests {
     use crate::{test_query_values_equal, Deadline, MetricName, QueryValue, Timeseries};
 
     const NAN: f64 = f64::NAN;
-    const INF: f64 = f64::INFINITY;
-
     const START: i64 = 1000000_i64;
     const END: i64 = 2000000_i64;
     const STEP: i64 = 200000_i64;

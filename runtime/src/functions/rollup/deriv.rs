@@ -58,14 +58,14 @@ pub(super) fn deriv_values(values: &mut [f64], timestamps: &[Timestamp]) {
     values[values.len() - 1] = prev_deriv
 }
 
-pub(super) fn rollup_deriv_slow(rfa: &mut RollupFuncArg) -> f64 {
+pub(super) fn rollup_deriv_slow(rfa: &RollupFuncArg) -> f64 {
     // Use linear regression like Prometheus does.
     // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/73
     let (_, k) = linear_regression(&rfa.values, &rfa.timestamps, rfa.curr_timestamp);
     k
 }
 
-pub(super) fn rollup_deriv_fast(rfa: &mut RollupFuncArg) -> f64 {
+pub(super) fn rollup_deriv_fast(rfa: &RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
     let values = &rfa.values;
@@ -102,7 +102,7 @@ pub(super) fn rollup_deriv_fast(rfa: &mut RollupFuncArg) -> f64 {
     dv / dt
 }
 
-pub(super) fn rollup_ideriv(rfa: &mut RollupFuncArg) -> f64 {
+pub(super) fn rollup_ideriv(rfa: &RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
     let values = &rfa.values;

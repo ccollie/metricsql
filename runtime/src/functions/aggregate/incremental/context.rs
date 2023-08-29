@@ -110,13 +110,13 @@ impl<'a> IncrementalAggrFuncContext<'a> {
         })
     }
 
-    pub fn update_timeseries(&self, ts_orig: &mut Timeseries, worker_id: u64) -> RuntimeResult<()> {
+    pub fn update_timeseries(&self, ts_orig: &mut Timeseries, worker_id: u64) {
         let mut im = self.context_map.write().unwrap();
         let m = im.entry(worker_id).or_default();
 
         if self.limit > 0 && m.len() >= self.limit {
             // Skip this time series, since the limit on the number of output time series has been already reached.
-            return Ok(());
+            return;
         }
 
         // avoid temporary value dropped while borrowed
@@ -156,8 +156,6 @@ impl<'a> IncrementalAggrFuncContext<'a> {
                 self.handler.update(iac, &ts.values);
             }
         };
-
-        Ok(())
     }
 
     pub fn finalize(&self) -> Vec<Timeseries> {

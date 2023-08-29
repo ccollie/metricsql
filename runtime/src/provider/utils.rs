@@ -6,28 +6,6 @@ use metricsql::parser::parse;
 
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 
-/// join_tag_filter_list adds etfs to every src filter and returns the result.
-pub(crate) fn join_tag_filter_list<'a>(
-    src: &'a Vec<Vec<LabelFilter>>,
-    etfs: &'a Vec<Vec<LabelFilter>>,
-) -> Cow<'a, Vec<Vec<LabelFilter>>> {
-    if src.is_empty() {
-        return Cow::Borrowed::<'a>(etfs);
-    }
-    if etfs.is_empty() {
-        return Cow::Borrowed::<'a>(src);
-    }
-    let mut dst: Vec<Vec<LabelFilter>> = Vec::with_capacity(src.len());
-    for tf in src.iter() {
-        for etf in etfs.iter() {
-            let mut tfs: Vec<LabelFilter> = tf.clone();
-            tfs.append(&mut etf.clone());
-            dst.push(tfs);
-        }
-    }
-    Cow::Owned::<'a>(dst)
-}
-
 pub(crate) fn join_matchers_vec<'a>(
     src: &'a Vec<Matchers>,
     etfs: &'a Vec<Matchers>,

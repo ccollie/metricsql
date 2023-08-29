@@ -3,7 +3,7 @@ use crate::functions::rollup::RollupFuncArg;
 /// get_candlestick_values returns a subset of rfa.values suitable for rollup_candlestick
 ///
 /// See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/309 for details.
-fn get_candlestick_values(rfa: &mut RollupFuncArg) -> &[f64] {
+fn get_candlestick_values<'a>(rfa: &'a RollupFuncArg<'a>) -> &'a [f64] {
     let curr_timestamp = &rfa.curr_timestamp;
     let timestamps = &rfa.timestamps[0..];
     let mut i = timestamps.len() - 1;
@@ -25,7 +25,7 @@ fn get_first_value_for_candlestick(rfa: &RollupFuncArg) -> f64 {
     f64::NAN
 }
 
-pub(super) fn rollup_open(rfa: &mut RollupFuncArg) -> f64 {
+pub(super) fn rollup_open(rfa: &RollupFuncArg) -> f64 {
     let v = get_first_value_for_candlestick(rfa);
     if !v.is_nan() {
         return v;
@@ -37,7 +37,7 @@ pub(super) fn rollup_open(rfa: &mut RollupFuncArg) -> f64 {
     values[0]
 }
 
-pub(super) fn rollup_close(rfa: &mut RollupFuncArg) -> f64 {
+pub(super) fn rollup_close(rfa: &RollupFuncArg) -> f64 {
     let values = get_candlestick_values(rfa);
     if values.is_empty() {
         return get_first_value_for_candlestick(rfa);
@@ -45,7 +45,7 @@ pub(super) fn rollup_close(rfa: &mut RollupFuncArg) -> f64 {
     values[values.len()]
 }
 
-pub(super) fn rollup_high(rfa: &mut RollupFuncArg) -> f64 {
+pub(super) fn rollup_high(rfa: &RollupFuncArg) -> f64 {
     let mut max = get_first_value_for_candlestick(rfa);
     let values = get_candlestick_values(rfa);
     let mut start = 0;
@@ -66,7 +66,7 @@ pub(super) fn rollup_high(rfa: &mut RollupFuncArg) -> f64 {
     max
 }
 
-pub(super) fn rollup_low(rfa: &mut RollupFuncArg) -> f64 {
+pub(super) fn rollup_low(rfa: &RollupFuncArg) -> f64 {
     let mut min = get_first_value_for_candlestick(rfa);
     let values = get_candlestick_values(rfa);
     let mut start = 0;

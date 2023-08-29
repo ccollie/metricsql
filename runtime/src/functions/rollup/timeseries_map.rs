@@ -1,20 +1,24 @@
-use std::collections::hash_map::ValuesMut;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use metricsql::functions::RollupFunction;
 
-use crate::histogram::{Histogram, NonZeroBuckets};
+use crate::histogram::Histogram;
 use crate::types::{MetricName, Timeseries};
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub(crate) struct TimeseriesMap {
+    inner: RwLock<MapInner>,
+}
+
+#[derive(Clone, Debug)]
+struct MapInner {
     origin: Timeseries,
     hist: Histogram,
     pub series: HashMap<String, Timeseries>,
 }
 
-impl TimeseriesMap {
+impl MapInner {
     pub fn new(
         keep_metric_names: bool,
         shared_timestamps: &Arc<Vec<i64>>,
@@ -31,22 +35,18 @@ impl TimeseriesMap {
         origin.values = vec![f64::NAN; ts_len];
         let m: HashMap<String, Timeseries> = HashMap::new();
 
-        TimeseriesMap {
+        MapInner {
             origin,
             hist: Histogram::new(),
             series: m,
         }
     }
 
-    pub fn update(&mut self, value: f64) {
+    fn update(&mut self, value: f64) {
         self.hist.update(value);
     }
 
-    pub fn get_or_create_timeseries(
-        &mut self,
-        label_name: &str,
-        label_value: &str,
-    ) -> &mut Timeseries {
+    fn get_or_create_timeseries(&mut self, label_name: &str, label_value: &str) -> &mut Timeseries {
         let value = label_value.to_string();
         let timestamps = &self.origin.timestamps;
         self.series.entry(value).or_insert_with_key(move |value| {
@@ -57,30 +57,75 @@ impl TimeseriesMap {
         })
     }
 
+    fn reset(&mut self) {
+        self.hist.reset();
+    }
+}
+
+impl TimeseriesMap {
+    pub fn new(
+        keep_metric_names: bool,
+        shared_timestamps: &Arc<Vec<i64>>,
+        mn_src: &MetricName,
+    ) -> Self {
+        let inner = MapInner::new(keep_metric_names, shared_timestamps, mn_src);
+        TimeseriesMap {
+            inner: RwLock::new(inner),
+        }
+    }
+
+    pub fn update(&mut self, value: f64) {
+        let mut inner = self.inner.write().unwrap();
+        inner.update(value);
+    }
+
+    pub fn update_from_vec(&self, values: &[f64]) {
+        let mut inner = self.inner.write().unwrap();
+        for value in values {
+            inner.update(*value);
+        }
+    }
+
+    pub fn with_timeseries(
+        &self,
+        label_name: &str,
+        label_value: &str,
+        f: impl Fn(&mut Timeseries),
+    ) {
+        let mut inner = self.inner.write().unwrap();
+        let mut ts = inner.get_or_create_timeseries(label_name, label_value);
+        f(&mut ts)
+    }
+
     /// Copy all timeseries to dst. The map should not be used after this call
-    pub fn append_timeseries_to(&mut self, dst: &mut Vec<Timeseries>) {
-        for (_, mut ts) in self.series.drain() {
+    pub fn append_timeseries_to(&self, dst: &mut Vec<Timeseries>) {
+        let mut inner = self.inner.write().unwrap();
+        for (_, mut ts) in inner.series.drain() {
             dst.push(std::mem::take(&mut ts))
         }
     }
 
-    pub fn reset(&mut self) {
-        self.hist.reset();
+    pub fn reset(&self) {
+        let mut inner = self.inner.write().unwrap();
+        inner.reset();
     }
 
-    pub fn values_mut(&mut self) -> ValuesMut<'_, String, Timeseries> {
-        self.series.values_mut()
+    pub fn series_len(&self) -> usize {
+        let inner = self.inner.read().unwrap();
+        inner.series.len()
     }
 
-    pub fn non_zero_buckets(&mut self) -> NonZeroBuckets {
-        self.hist.non_zero_buckets()
+    pub fn visit_values_mut(&self, f: impl FnMut(&mut Timeseries)) {
+        let mut inner = self.inner.write().unwrap();
+        inner.series.values_mut().for_each(f)
     }
 
     pub fn visit_non_zero_buckets<'a, F>(&self, f: F)
     where
         F: Fn(&'a str, u64),
     {
-        self.hist.visit_non_zero_buckets(f)
+        let inner = self.inner.read().unwrap();
+        inner.hist.visit_non_zero_buckets(f)
     }
 
     pub fn is_valid_function(func: RollupFunction) -> bool {

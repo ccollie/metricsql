@@ -1,6 +1,5 @@
-use std::cell::RefCell;
 use std::fmt::Debug;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use clone_dyn::clone_dyn;
 use tinyvec::TinyVec;
@@ -10,7 +9,7 @@ use crate::types::Timestamp;
 use crate::{QueryValue, RuntimeResult};
 
 #[derive(Default, Clone, Debug)]
-pub struct RollupFuncArg {
+pub struct RollupFuncArg<'a> {
     /// The value preceding values if it fits staleness interval.
     pub(super) prev_value: f64,
 
@@ -18,10 +17,10 @@ pub struct RollupFuncArg {
     pub(super) prev_timestamp: Timestamp,
 
     /// Values that fit window ending at curr_timestamp.
-    pub(crate) values: Vec<f64>,
+    pub(crate) values: &'a [f64],
 
     /// Timestamps for values.
-    pub(crate) timestamps: Vec<i64>,
+    pub(crate) timestamps: &'a [i64],
 
     /// Real value preceding values without restrictions on staleness interval.
     pub(super) real_prev_value: f64,
@@ -38,39 +37,36 @@ pub struct RollupFuncArg {
     /// Time window for rollup calculations.
     pub(super) window: i64,
 
-    pub(super) tsm: Option<Rc<RefCell<TimeseriesMap>>>,
+    pub(super) tsm: Option<Arc<TimeseriesMap>>,
 }
 
-impl RollupFuncArg {
-    pub fn reset(mut self) {
-        self.prev_value = 0.0;
-        self.prev_timestamp = 0;
-        self.values = vec![];
-        self.timestamps = vec![];
-        self.curr_timestamp = 0;
-        self.idx = 0;
-        self.window = 0;
-        if let Some(tsm) = self.tsm {
-            tsm.borrow_mut().reset()
+static EMPTY_TIMESTAMPS: &[f64] = &[];
+
+impl<'a> RollupFuncArg<'a> {
+    pub(crate) fn get_tsm(&self) -> Arc<TimeseriesMap> {
+        if let Some(tsm) = &self.tsm {
+            tsm.clone()
+        } else {
+            panic!("BUG: tsm is None")
         }
     }
 }
 
-pub(crate) type RollupFunc = fn(rfa: &mut RollupFuncArg) -> f64;
+pub(crate) type RollupFunc = fn(rfa: &RollupFuncArg) -> f64;
 
 #[clone_dyn]
 /// RollupFunc must return rollup value for the given rfa.
 ///
 /// prev_value may be NAN, values and timestamps may be empty.
-pub trait RollupFn: Fn(&mut RollupFuncArg) -> f64 + Send + Sync {}
+pub trait RollupFn: Fn(&RollupFuncArg) -> f64 + Send + Sync {}
 
 /// implement `Rollup` on any type that implements `Fn(&RollupFuncArg) -> f64`.
-impl<T> RollupFn for T where T: Fn(&mut RollupFuncArg) -> f64 + Send + Sync {}
+impl<T> RollupFn for T where T: Fn(&RollupFuncArg) -> f64 + Send + Sync {}
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct GenericRollupHandler<T, F>
 where
-    F: Fn(&mut RollupFuncArg, &T) -> f64 + Send + Sync,
+    F: Fn(&RollupFuncArg, &T) -> f64 + Send + Sync,
     T: Clone + Debug,
 {
     pub(crate) state: T,
@@ -79,23 +75,22 @@ where
 
 impl<T, F> GenericRollupHandler<T, F>
 where
-    F: Fn(&mut RollupFuncArg, &T) -> f64 + Send + Sync,
+    F: Fn(&RollupFuncArg, &T) -> f64 + Send + Sync,
     T: Clone + Debug,
 {
     pub fn new(state: T, func: F) -> Self {
         Self { state, func }
     }
 
-    pub(crate) fn eval(&self, arg: &mut RollupFuncArg) -> f64 {
+    pub(crate) fn eval(&self, arg: &RollupFuncArg) -> f64 {
         (self.func)(arg, &self.state)
     }
 }
 
-pub(crate) type RollupHandlerFloatArg =
-    GenericRollupHandler<f64, fn(&mut RollupFuncArg, &f64) -> f64>;
+pub(crate) type RollupHandlerFloatArg = GenericRollupHandler<f64, fn(&RollupFuncArg, &f64) -> f64>;
 
 pub(crate) type RollupHandlerVecArg =
-    GenericRollupHandler<TinyVec<[f64; 4]>, fn(&mut RollupFuncArg, &TinyVec<[f64; 4]>) -> f64>;
+    GenericRollupHandler<TinyVec<[f64; 4]>, fn(&RollupFuncArg, &TinyVec<[f64; 4]>) -> f64>;
 
 #[derive(Clone, Debug)]
 pub(crate) enum RollupHandler {
@@ -120,7 +115,7 @@ impl RollupHandler {
         RollupHandler::Fake(name)
     }
 
-    pub(crate) fn eval(&self, arg: &mut RollupFuncArg) -> f64 {
+    pub(crate) fn eval(&self, arg: &RollupFuncArg) -> f64 {
         match self {
             RollupHandler::Wrapped(wrapped) => wrapped(arg),
             RollupHandler::Fake(name) => {
