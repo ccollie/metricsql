@@ -121,7 +121,7 @@ fn binary_op_func_impl(bf: BinopFunc, bfa: &mut BinaryOpFuncArg) -> RuntimeResul
         )));
     }
 
-    let is_right = is_group_right(&bfa.modifier);
+    let is_right = is_group_right(bfa.modifier);
 
     // todo: use rayon for items over a given length
     for (left_ts, right_ts) in left.iter_mut().zip(right.iter_mut()) {
@@ -197,28 +197,24 @@ fn adjust_binary_op_tags(
         } else {
             Cow::Owned(Labels::default())
         }
-    } else {
-        if let Some(matching) = matching {
-            match matching {
-                VectorMatchModifier::On(labels) => {
-                    is_on = true;
-                    Cow::Borrowed(labels)
-                }
-                VectorMatchModifier::Ignoring(labels) => {
-                    is_ignoring = true;
-                    Cow::Borrowed(labels)
-                }
+    } else if let Some(matching) = matching {
+        match matching {
+            VectorMatchModifier::On(labels) => {
+                is_on = true;
+                Cow::Borrowed(labels)
             }
-        } else {
-            Cow::Owned(Labels::default())
+            VectorMatchModifier::Ignoring(labels) => {
+                is_ignoring = true;
+                Cow::Borrowed(labels)
+            }
         }
+    } else {
+        Cow::Owned(Labels::default())
     };
 
-    if !keep_metric_names {
-        if bfa.op.is_comparison() && !return_bool {
-            // Do not reset MetricGroup for non-boolean `compare` binary ops like Prometheus does.
-            keep_metric_names = true;
-        }
+    if !keep_metric_names && bfa.op.is_comparison() && !return_bool {
+        // Do not reset MetricGroup for non-boolean `compare` binary ops like Prometheus does.
+        keep_metric_names = true;
     }
 
     for (k, tss_left) in m_left.iter_mut() {
@@ -375,8 +371,8 @@ fn group_join(
                             "duplicate time series on the {} side of `{} {} {}`: {} and {}",
                             single_timeseries_side,
                             bfa.op,
-                            group_modifier_to_string(&bfa.modifier),
-                            join_modifier_to_string(&bfa.modifier),
+                            group_modifier_to_string(bfa.modifier),
+                            join_modifier_to_string(bfa.modifier),
                             pair.right.metric_name,
                             ts_right.metric_name
                         );

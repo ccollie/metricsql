@@ -14,8 +14,9 @@
 
 //! Label matchers and Well-known label names used by Prometheus components.
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::fmt;
+use std::hash::Hash;
 
 use serde::{Deserialize, Serialize};
 
@@ -30,7 +31,7 @@ pub const INSTANCE_NAME: &str = "instance";
 
 pub type Label = String;
 
-#[derive(Debug, Clone, Default, Hash, Serialize, Deserialize, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Eq)]
 pub struct Labels(pub(crate) Vec<Label>);
 
 impl Labels {
@@ -141,6 +142,20 @@ impl PartialEq<Vec<String>> for Labels {
                 true
             }
         };
+    }
+}
+
+impl Hash for Labels {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        let len = self.0.len();
+        match len {
+            0 => (),
+            1 => self.0[0].hash(state),
+            _ => {
+                let sorted = BTreeSet::from_iter(self.0.iter());
+                sorted.hash(state);
+            }
+        }
     }
 }
 

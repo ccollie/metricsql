@@ -106,16 +106,14 @@ impl ExecutableNode for BinopNode {
                 )
             }
             (String(left), String(right)) => {
-                eval_string_string_binop(self.op, &left, &right, bool_modifier)
+                eval_string_string_binop(self.op, left, right, bool_modifier)
             }
-            _ => {
-                return Err(RuntimeError::NotImplemented(format!(
-                    "invalid binary operation: {} {} {}",
-                    self.left.data_type_name(),
-                    self.op,
-                    self.right.data_type_name()
-                )));
-            }
+            _ => Err(RuntimeError::NotImplemented(format!(
+                "invalid binary operation: {} {} {}",
+                self.left.data_type_name(),
+                self.op,
+                self.right.data_type_name()
+            ))),
         }
     }
 }

@@ -1,7 +1,7 @@
 use crate::functions::rollup::{RollupFuncArg, RollupHandler};
 use crate::{QueryValue, RuntimeResult};
 
-pub(super) fn new_rollup_integrate(_args: &Vec<QueryValue>) -> RuntimeResult<RollupHandler> {
+pub(super) fn new_rollup_integrate(_args: &[QueryValue]) -> RuntimeResult<RollupHandler> {
     Ok(RollupHandler::wrap(rollup_integrate))
 }
 

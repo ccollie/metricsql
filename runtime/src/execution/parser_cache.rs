@@ -50,6 +50,10 @@ impl ParseCache {
         self.lru.lock().unwrap().len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.lru.lock().unwrap().is_empty()
+    }
+
     pub fn misses(&self) -> u64 {
         self.misses.fetch_add(0, Ordering::Relaxed)
     }

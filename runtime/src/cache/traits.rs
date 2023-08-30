@@ -41,6 +41,10 @@ pub trait RollupResultCacheStorage {
     /// Return the current cache size (number of elements)
     fn len(&self) -> usize;
 
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Return the number of times a cached value was successfully retrieved
     fn hits(&self) -> Option<u64> {
         None

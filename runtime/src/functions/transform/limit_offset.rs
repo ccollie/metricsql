@@ -4,28 +4,21 @@ use crate::functions::transform::TransformFuncArg;
 use crate::{RuntimeError, RuntimeResult, Timeseries};
 
 pub(crate) fn limit_offset(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let limit: usize;
-    let offset: usize;
-
-    match tfa.args[0].get_int() {
+    let limit = match tfa.args[0].get_int() {
         Err(e) => {
             return Err(RuntimeError::ArgumentError(format!(
                 "cannot obtain limit arg: {e:?}"
             )));
         }
-        Ok(l) => {
-            limit = l as usize;
-        }
+        Ok(l) => l as usize,
     };
 
-    match get_int_arg(&tfa.args, 1) {
+    let offset = match get_int_arg(&tfa.args, 1) {
         Err(_) => {
             return Err(RuntimeError::from("cannot obtain offset arg"));
         }
-        Ok(v) => {
-            offset = v as usize;
-        }
-    }
+        Ok(v) => v as usize,
+    };
 
     let mut rvs = get_series_arg(&tfa.args, 2, tfa.ec)?;
 

@@ -29,7 +29,7 @@ pub fn should_keep_metric_names(be: &BinaryExpr) -> bool {
     }
     // Do not reset MetricGroup if it is explicitly requested via `a op b keep_metric_names`
     // See https://docs.victoriametrics.com/MetricsQL.html#keep_metric_names
-    return be.keep_metric_names();
+    be.keep_metric_names()
 }
 
 #[inline]
@@ -75,7 +75,7 @@ pub(crate) fn duration_value(dur: &Option<DurationExpr>, step: i64) -> i64 {
 }
 
 pub(crate) fn get_step(expr: &Option<DurationExpr>, step: i64) -> i64 {
-    let res = duration_value(&expr, step);
+    let res = duration_value(expr, step);
     if res == 0 {
         step
     } else {

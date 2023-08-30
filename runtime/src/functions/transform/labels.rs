@@ -95,7 +95,7 @@ fn transform_label_value_func(
     let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
     for ts in series.iter_mut() {
         for label in labels.iter() {
-            let dst_value = get_tag_value(&mut ts.metric_name, label);
+            let dst_value = get_tag_value(&ts.metric_name, label);
             let transformed = &*f(&dst_value);
 
             if transformed.is_empty() {

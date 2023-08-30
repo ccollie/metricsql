@@ -1,5 +1,5 @@
 use std::collections::btree_map::Entry;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::ops::Deref;
 use std::sync::{Arc, RwLock};
 
@@ -36,7 +36,6 @@ pub struct MemoryMetricProvider {
 struct Storage {
     labels_hash: BTreeMap<Signature, Arc<MetricName>>,
     sample_values: BTreeMap<Signature, Vec<Point>>,
-    need_sort: BTreeSet<Signature>,
     pending_values: BTreeMap<Signature, Vec<Sample>>,
 }
 
@@ -80,7 +79,7 @@ impl Storage {
 
     fn get_range(&self, metric_id: Signature, start: i64, end: i64) -> Option<QueryResult> {
         if let Some(values) = self.sample_values.get(&metric_id) {
-            if let Some(start) = find_first_index(&values, start) {
+            if let Some(start) = find_first_index(values, start) {
                 let points = &values[start..]
                     .iter()
                     .filter(|p| p.t <= end)
@@ -115,7 +114,6 @@ impl Storage {
     }
 
     fn clear(&mut self) {
-        self.need_sort.clear();
         self.labels_hash.clear();
         self.sample_values.clear();
     }
@@ -135,15 +133,6 @@ impl Storage {
     fn rollback(&mut self) {
         self.pending_values.clear();
     }
-
-    fn sort_if_needed(&mut self, id: Signature) {
-        if self.need_sort.contains(&id) {
-            self.need_sort.remove(&id);
-            if let Some(points) = self.sample_values.get_mut(&id) {
-                points.sort_by(|a, b| a.t.cmp(&b.t))
-            }
-        }
-    }
 }
 
 impl MemoryMetricProvider {
@@ -152,7 +141,6 @@ impl MemoryMetricProvider {
             inner: RwLock::new(Storage {
                 labels_hash: Default::default(),
                 sample_values: Default::default(),
-                need_sort: Default::default(),
                 pending_values: Default::default(),
             }),
         }
@@ -163,12 +151,12 @@ impl MemoryMetricProvider {
         inner.append(labels, t, v)
     }
 
-    fn commit(&mut self) -> RuntimeResult<()> {
+    pub fn commit(&mut self) -> RuntimeResult<()> {
         let mut inner = self.inner.write().unwrap();
         inner.commit()
     }
 
-    fn rollback(&mut self) {
+    pub fn rollback(&mut self) {
         let mut inner = self.inner.write().unwrap();
         inner.rollback();
     }
@@ -219,14 +207,14 @@ fn matches_filter(mn: &MetricName, filter: &LabelFilter) -> bool {
     false
 }
 
-fn find_first_index<'a>(range_values: &[Point], ts: i64) -> Option<usize> {
+fn find_first_index(range_values: &[Point], ts: i64) -> Option<usize> {
     // Find the index of the first item where `range.start <= key`.
-    return match range_values.binary_search_by_key(&ts, |point| point.t) {
+    match range_values.binary_search_by_key(&ts, |point| point.t) {
         Ok(index) => Some(index),
 
         // If the requested key is smaller than the smallest range in the slice,
         // we would be computing `0 - 1`, which would underflow an `usize`.
         // We use `checked_sub` to get `None` instead.
         Err(index) => index.checked_sub(1),
-    };
+    }
 }

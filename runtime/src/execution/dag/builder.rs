@@ -100,7 +100,7 @@ impl<'a> DAGBuilder<'a> {
     }
 
     fn create_node(&mut self, expr: &Expr) -> RuntimeResult<usize> {
-        let res = match expr {
+        match expr {
             Expr::Aggregation(ae) => self.create_aggregate_node(expr, ae),
             Expr::BinaryOperator(be) => self.create_binary_node(be),
             Expr::Duration(de) => Ok(self.push_node(DAGNode::from(de))),
@@ -124,9 +124,7 @@ impl<'a> DAGBuilder<'a> {
             Expr::WithSelector(_) => {
                 panic!("invalid node type (WithSelector) in expression")
             }
-        };
-
-        res
+        }
     }
 
     fn push_node(&mut self, node: DAGNode) -> usize {
@@ -145,16 +143,16 @@ impl<'a> DAGBuilder<'a> {
         if parens.len() == 1 {
             self.create_node(&parens.expressions[0])
         } else {
-            // todo: this ends up cloning parens twice - once here and once in create_function_node
+            // todo(perf):  fix this. It ends up cloning parens twice - once here and once in create_function_node
             let fe = FunctionExpr::new("union", parens.expressions.clone())
-                .expect("BUG: failed to create union function".into()); // this is  a bug and should crash
+                .unwrap_or_else(|_| panic!("BUG: failed to create union function")); // this is  a bug and should crash
 
             self.create_function_node(expr, &fe)
         }
     }
 
     fn create_function_node(&mut self, expr: &Expr, fe: &FunctionExpr) -> RuntimeResult<usize> {
-        return match fe.function {
+        match fe.function {
             BuiltinFunction::Transform(tf) => {
                 if tf == TransformFunction::Absent {
                     self.create_absent_node(fe)
@@ -162,9 +160,9 @@ impl<'a> DAGBuilder<'a> {
                     self.create_transform_node(fe, tf)
                 }
             }
-            BuiltinFunction::Rollup(rf) => self.create_rollup_function_node(expr, &fe, rf),
+            BuiltinFunction::Rollup(rf) => self.create_rollup_function_node(expr, fe, rf),
             _ => unreachable!("Invalid function type for node {}", fe.function.name()),
-        };
+        }
     }
 
     fn reserve_node(&mut self) -> usize {
@@ -231,7 +229,7 @@ impl<'a> DAGBuilder<'a> {
         })?;
 
         let get_function_handler =
-            |rf: RollupFunction, args: &Vec<QueryValue>| -> RuntimeResult<RollupHandler> {
+            |rf: RollupFunction, args: &[QueryValue]| -> RuntimeResult<RollupHandler> {
                 get_rollup_function_handler(rf, args).map_err(|e| {
                     RuntimeError::ArgumentError(format!(
                         "Invalid arguments for rollup function: {:?}",
@@ -580,11 +578,9 @@ impl<'a> DAGBuilder<'a> {
 
     fn sort_nodes(&mut self) -> Vec<Vec<usize>> {
         let deps = self.graph.get_forward_dependency_topological_layers();
-        let res: Vec<Vec<usize>> = deps
-            .iter()
-            .map(|layer| layer.iter().map(|idx| *idx).collect())
-            .collect();
-        res
+        deps.iter()
+            .map(|layer| layer.iter().copied().collect())
+            .collect()
     }
 
     fn add_dependency(&mut self, parent: usize, child: usize) {

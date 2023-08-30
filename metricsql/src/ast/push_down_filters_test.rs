@@ -639,7 +639,7 @@ mod tests {
 
     fn validate_optimized(q: &str, expected: &str) {
         let e = parse_selector(q);
-        let orig = e.to_string();
+        let _orig = e.to_string();
         let e_optimized = optimize(e.clone()).expect("unexpected error in optimize()");
         let e_expected = parse_selector(expected);
 

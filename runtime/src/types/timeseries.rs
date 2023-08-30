@@ -21,14 +21,6 @@ impl Timeseries {
         }
     }
 
-    pub fn clone(&self) -> Self {
-        Timeseries {
-            metric_name: self.metric_name.clone(),
-            values: self.values.clone(),
-            timestamps: Arc::clone(&self.timestamps),
-        }
-    }
-
     pub fn with_shared_timestamps(timestamps: &Arc<Vec<i64>>, values: &[f64]) -> Self {
         Timeseries {
             metric_name: MetricName::default(),

@@ -6,7 +6,7 @@ use metricsql::ast::Expr;
 use metricsql::functions::{can_adjust_window, RollupFunction, TransformFunction};
 
 use crate::common::math::quantile;
-use crate::execution::{get_timestamps, validate_max_points_per_timeseries};
+use crate::execution::validate_max_points_per_timeseries;
 use crate::functions::rollup::candlestick::*;
 use crate::functions::rollup::delta::delta_values;
 use crate::functions::rollup::deriv::deriv_values;
@@ -119,7 +119,7 @@ pub(crate) fn get_rollup_configs(
 ) -> RuntimeResult<(Vec<RollupConfig>, Vec<PreFunction>)> {
     // todo: use tinyvec
 
-    let meta = get_rollup_function_handler_meta(&expr, func, Some(rf))?;
+    let meta = get_rollup_function_handler_meta(expr, func, Some(rf))?;
     let rcs = get_rollup_configs_from_meta(
         &meta,
         start,
@@ -235,20 +235,6 @@ impl Default for RollupConfig {
 }
 
 impl RollupConfig {
-    // mostly for testing
-    pub(crate) fn get_timestamps(&mut self) -> RuntimeResult<Arc<Vec<i64>>> {
-        self.ensure_timestamps()?;
-        Ok(Arc::clone(&self.timestamps))
-    }
-
-    pub(crate) fn ensure_timestamps(&mut self) -> RuntimeResult<()> {
-        if self.timestamps.len() == 0 {
-            let ts = get_timestamps(self.start, self.end, self.step, self.max_points_per_series)?;
-            self.timestamps = Arc::new(ts);
-        }
-        Ok(())
-    }
-
     /// calculates rollup for the given timestamps and values, appends
     /// them to dst_values and returns results.
     ///
@@ -279,7 +265,7 @@ impl RollupConfig {
                 shared_timestamps,
                 metric,
             ));
-            let scanned = self.do_timeseries_map(tsm.clone(), &values, &timestamps)?;
+            let scanned = self.do_timeseries_map(tsm.clone(), values, timestamps)?;
             let len = tsm.series_len();
             if len == 0 {
                 return Ok((0u64, vec![]));
@@ -370,11 +356,10 @@ impl RollupConfig {
         let mut samples_scanned = values.len() as u64;
         let samples_scanned_per_call = self.samples_scanned_per_call as u64;
 
-        let mut idx: usize = 0;
         // todo(perf): pooled vec or tinyvec
         let mut func_args: Vec<RollupFuncArg> = Vec::with_capacity(16);
 
-        for t_end in self.timestamps.iter() {
+        for (idx, t_end) in self.timestamps.iter().enumerate() {
             let t_start = *t_end - window;
             ni = seek_first_timestamp_idx_after(&timestamps[i..], t_start, ni);
             i += ni;
@@ -410,13 +395,7 @@ impl RollupConfig {
 
             rfa.curr_timestamp = *t_end;
             rfa.idx = idx;
-            rfa.tsm = if let Some(ref tsm) = tsm {
-                Some(Arc::clone(&tsm))
-            } else {
-                None
-            };
-
-            idx += 1;
+            rfa.tsm = tsm.as_ref().map(Arc::clone);
 
             if samples_scanned_per_call > 0 {
                 samples_scanned += samples_scanned_per_call
@@ -630,7 +609,7 @@ pub(crate) fn get_rollup_function_handler_meta(
     let new_function_configs =
         |dst: &mut Vec<TagFunction>, tag: Option<&String>, valid: &[&str]| -> RuntimeResult<()> {
             if let Some(tag_value) = tag {
-                let func = get_tag_fn_from_str(&tag_value).ok_or_else(|| {
+                let func = get_tag_fn_from_str(tag_value).ok_or_else(|| {
                     RuntimeError::ArgumentError(format!(
                         "unexpected rollup tag value {tag_value}; wanted {}",
                         valid

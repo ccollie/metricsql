@@ -30,7 +30,7 @@ pub(crate) fn handle_absent(
     Ok(rvs)
 }
 
-fn set_labels_from_arg(rvs: &mut Vec<Timeseries>, arg: &Expr) {
+fn set_labels_from_arg(rvs: &mut [Timeseries], arg: &Expr) {
     if let Some(labels) = extract_labels(arg) {
         for label in labels {
             rvs[0].metric_name.set_tag(&label.name, &label.value);

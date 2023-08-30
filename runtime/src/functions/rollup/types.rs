@@ -40,8 +40,6 @@ pub struct RollupFuncArg<'a> {
     pub(super) tsm: Option<Arc<TimeseriesMap>>,
 }
 
-static EMPTY_TIMESTAMPS: &[f64] = &[];
-
 impl<'a> RollupFuncArg<'a> {
     pub(crate) fn get_tsm(&self) -> Arc<TimeseriesMap> {
         if let Some(tsm) = &self.tsm {
@@ -147,4 +145,4 @@ impl Default for RollupHandler {
     }
 }
 
-pub(crate) type RollupHandlerFactory = fn(&Vec<QueryValue>) -> RuntimeResult<RollupHandler>;
+pub(crate) type RollupHandlerFactory = fn(&[QueryValue]) -> RuntimeResult<RollupHandler>;

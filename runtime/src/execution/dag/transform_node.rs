@@ -55,11 +55,11 @@ impl ExecutableNode for TransformNode {
             keep_metric_names: self.keep_metric_names,
         };
 
-        exec_transform_fn(self.function, &mut tfa).and_then(|res| {
+        exec_transform_fn(self.function, &mut tfa).map(|res| {
             if is_tracing {
                 span.record("series", res.len());
             }
-            Ok(QueryValue::InstantVector(res))
+            QueryValue::InstantVector(res)
         })
     }
 }
@@ -81,7 +81,7 @@ impl Default for TransformNode {
 // original expression in order to get the set of labels to apply to the result vector.
 // Rather than pass around a param that's redundant in 99.9% of case we handle it here and
 // hopefully keep the code cleaner.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct AbsentTransformNode {
     pub keep_metric_names: bool,
     pub arg_index: usize,
@@ -130,16 +130,5 @@ impl ExecutableNode for AbsentTransformNode {
         span.record("series", series_len);
 
         Ok(QueryValue::InstantVector(res))
-    }
-}
-
-impl Default for AbsentTransformNode {
-    fn default() -> Self {
-        Self {
-            arg: QueryValue::default(),
-            keep_metric_names: false,
-            arg_index: 0,
-            labels: None,
-        }
     }
 }

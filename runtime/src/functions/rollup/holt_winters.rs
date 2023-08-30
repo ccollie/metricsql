@@ -4,7 +4,7 @@ use crate::functions::arg_parse::get_scalar_param_value;
 use crate::functions::rollup::{RollupFuncArg, RollupHandler, RollupHandlerVecArg};
 use crate::{QueryValue, RuntimeResult};
 
-pub(super) fn new_rollup_holt_winters(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandler> {
+pub(super) fn new_rollup_holt_winters(args: &[QueryValue]) -> RuntimeResult<RollupHandler> {
     let sf = get_scalar_param_value(args, 1, "holt_winters", "sf")?;
     let tf = get_scalar_param_value(args, 2, "holt_winters", "tf")?;
 

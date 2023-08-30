@@ -3,27 +3,27 @@ use crate::functions::rollup::{RollupFuncArg, RollupHandler};
 use crate::{QueryValue, RuntimeResult, Timestamp};
 
 #[inline]
-pub(super) fn new_rollup_rate(_: &Vec<QueryValue>) -> RuntimeResult<RollupHandler> {
+pub(super) fn new_rollup_rate(_: &[QueryValue]) -> RuntimeResult<RollupHandler> {
     Ok(RollupHandler::wrap(rollup_deriv_fast))
 }
 
 #[inline]
-pub(super) fn new_rollup_deriv(_: &Vec<QueryValue>) -> RuntimeResult<RollupHandler> {
+pub(super) fn new_rollup_deriv(_: &[QueryValue]) -> RuntimeResult<RollupHandler> {
     Ok(RollupHandler::wrap(rollup_deriv_slow))
 }
 
 #[inline]
-pub(super) fn new_rollup_deriv_fast(_: &Vec<QueryValue>) -> RuntimeResult<RollupHandler> {
+pub(super) fn new_rollup_deriv_fast(_: &[QueryValue]) -> RuntimeResult<RollupHandler> {
     Ok(RollupHandler::wrap(rollup_deriv_fast))
 }
 
 #[inline]
-pub(super) fn new_rollup_ideriv(_: &Vec<QueryValue>) -> RuntimeResult<RollupHandler> {
+pub(super) fn new_rollup_ideriv(_: &[QueryValue]) -> RuntimeResult<RollupHandler> {
     Ok(RollupHandler::wrap(rollup_ideriv))
 }
 
 #[inline]
-pub(super) fn new_rollup_irate(_: &Vec<QueryValue>) -> RuntimeResult<RollupHandler> {
+pub(super) fn new_rollup_irate(_: &[QueryValue]) -> RuntimeResult<RollupHandler> {
     Ok(RollupHandler::wrap(rollup_ideriv))
 }
 
@@ -61,7 +61,7 @@ pub(super) fn deriv_values(values: &mut [f64], timestamps: &[Timestamp]) {
 pub(super) fn rollup_deriv_slow(rfa: &RollupFuncArg) -> f64 {
     // Use linear regression like Prometheus does.
     // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/73
-    let (_, k) = linear_regression(&rfa.values, &rfa.timestamps, rfa.curr_timestamp);
+    let (_, k) = linear_regression(rfa.values, rfa.timestamps, rfa.curr_timestamp);
     k
 }
 

@@ -49,11 +49,11 @@ impl ExecutableNode for AggregateNode {
             limit: self.limit,
         };
 
-        exec_aggregate_fn(self.function, &mut afa).and_then(|res| {
+        exec_aggregate_fn(self.function, &mut afa).map(|res| {
             if ctx.trace_enabled() {
                 span.record("series", res.len());
             }
-            Ok(QueryValue::InstantVector(res))
+            QueryValue::InstantVector(res)
         })
     }
 }

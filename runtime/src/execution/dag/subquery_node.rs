@@ -53,7 +53,7 @@ impl ExecutableNode for SubqueryNode {
             expand_single_value(&mut val, &ec_new)?;
             val
         } else {
-            self.eval_without_at(ctx, &ec)?
+            self.eval_without_at(ctx, ec)?
         };
         Ok(QueryValue::from(val))
     }
@@ -175,7 +175,7 @@ impl SubqueryNode {
     ) -> RuntimeResult<Vec<Timeseries>> {
         // force refresh of timestamps
         let _ = ec.get_timestamps();
-        let val = self.expr_node.execute(ctx, &ec)?;
+        let val = self.expr_node.execute(ctx, ec)?;
         val.get_instant_vector(ec)
     }
 }

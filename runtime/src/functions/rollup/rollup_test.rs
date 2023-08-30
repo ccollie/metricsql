@@ -636,7 +636,7 @@ mod tests {
 
     fn test_rollup(rc: &mut RollupConfig, values_expected: &[f64], timestamps_expected: &[i64]) {
         rc.max_points_per_series = 10000;
-        rc.ensure_timestamps().unwrap();
+        // rc.ensure_timestamps().unwrap();
         let mut values: Vec<f64> = vec![];
         let samples_scanned = rc
             .exec(&mut values, &TEST_VALUES, &TEST_TIMESTAMPS)
@@ -1241,7 +1241,7 @@ mod tests {
         rc.step = SRC_VALUES_COUNT / 5;
         rc.window = SRC_VALUES_COUNT / 4;
         rc.max_points_per_series = 10000;
-        rc.ensure_timestamps().unwrap();
+        // rc.ensure_timestamps().unwrap();
         let mut src_values: Vec<f64> = Vec::with_capacity(SRC_VALUES_COUNT as usize);
         let mut src_timestamps: Vec<i64> = Vec::with_capacity(SRC_VALUES_COUNT as usize);
         for i in 0..SRC_VALUES_COUNT {

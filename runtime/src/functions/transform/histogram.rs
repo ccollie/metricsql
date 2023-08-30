@@ -79,7 +79,7 @@ pub(crate) fn buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
 
             // To properly remove items by index, we need to do it in reverse order.
             let series = le_group
-                .into_iter()
+                .iter_mut()
                 .map(|x| std::mem::take(&mut x.ts))
                 .collect::<Vec<_>>();
 
@@ -116,7 +116,7 @@ pub(crate) fn buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
         }
 
         let ts_iter = le_group
-            .into_iter()
+            .iter_mut()
             .map(|bucket| std::mem::take(&mut bucket.ts))
             .collect::<Vec<Timeseries>>();
 
@@ -620,7 +620,7 @@ pub(crate) fn histogram_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
         }
         fix_broken_buckets(i, xss);
         let mut v_last: f64 = 0.0;
-        if xss.len() > 0 {
+        if !xss.is_empty() {
             v_last = xss[xss.len() - 1].ts.values[i]
         }
         if v_last == 0.0 {
@@ -662,10 +662,10 @@ pub(crate) fn histogram_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
     };
 
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(m.len());
-    for (_, mut xss) in m.iter_mut() {
+    for (_, xss) in m.iter_mut() {
         xss.sort_by(|a, b| a.le.total_cmp(&b.le));
 
-        let mut xss = merge_same_le(&mut xss);
+        let mut xss = merge_same_le(xss);
 
         let mut ts_lower: Timeseries;
         let mut ts_upper: Timeseries;

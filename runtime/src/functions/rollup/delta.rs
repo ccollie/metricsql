@@ -3,19 +3,19 @@ use crate::{QueryValue, RuntimeResult};
 
 use super::RollupFuncArg;
 
-pub(super) fn new_rollup_delta(_: &Vec<QueryValue>) -> RuntimeResult<RollupHandler> {
+pub(super) fn new_rollup_delta(_: &[QueryValue]) -> RuntimeResult<RollupHandler> {
     Ok(RollupHandler::wrap(rollup_delta))
 }
 
-pub(super) fn new_rollup_increase(_: &Vec<QueryValue>) -> RuntimeResult<RollupHandler> {
+pub(super) fn new_rollup_increase(_: &[QueryValue]) -> RuntimeResult<RollupHandler> {
     Ok(RollupHandler::wrap(rollup_delta))
 }
 
-pub(super) fn new_rollup_idelta(_: &Vec<QueryValue>) -> RuntimeResult<RollupHandler> {
+pub(super) fn new_rollup_idelta(_: &[QueryValue]) -> RuntimeResult<RollupHandler> {
     Ok(RollupHandler::wrap(rollup_idelta))
 }
 
-pub(super) fn new_rollup_delta_prometheus(_: &Vec<QueryValue>) -> RuntimeResult<RollupHandler> {
+pub(super) fn new_rollup_delta_prometheus(_: &[QueryValue]) -> RuntimeResult<RollupHandler> {
     Ok(RollupHandler::wrap(rollup_delta_prometheus))
 }
 

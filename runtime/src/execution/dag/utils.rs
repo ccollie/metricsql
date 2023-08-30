@@ -111,7 +111,7 @@ pub(super) fn get_at_value(value: &QueryValue) -> RuntimeResult<i64> {
             let msg =
                 format!("cannot evaluate '{value}' as a timestamp in `@` modifier expression");
             // todo: different error type?
-            return Err(RuntimeError::from(msg));
+            Err(RuntimeError::from(msg))
         }
     }
 }

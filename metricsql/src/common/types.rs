@@ -364,7 +364,7 @@ pub enum GroupType {
     GroupRight,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub enum VectorMatchCardinality {
     OneToOne,
     /// on(labels)/ignoring(labels) GROUP_LEFT

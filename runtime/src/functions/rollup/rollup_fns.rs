@@ -108,7 +108,7 @@ pub(crate) fn get_rollup_func_by_name(name: &str) -> RuntimeResult<RollupFunctio
 macro_rules! make_factory {
     ( $name: ident, $rf: expr ) => {
         #[inline]
-        pub(super) fn $name(_: &Vec<QueryValue>) -> RuntimeResult<RollupHandler> {
+        pub(super) fn $name(_: &[QueryValue]) -> RuntimeResult<RollupHandler> {
             Ok(RollupHandler::wrap($rf))
         }
     };
@@ -117,7 +117,7 @@ macro_rules! make_factory {
 macro_rules! fake_wrapper {
     ( $funcName: ident, $name: expr ) => {
         #[inline]
-        fn $funcName(_: &Vec<QueryValue>) -> RuntimeResult<RollupHandler> {
+        fn $funcName(_: &[QueryValue]) -> RuntimeResult<RollupHandler> {
             Ok(RollupHandler::fake($name))
         }
     };
@@ -175,7 +175,7 @@ fake_wrapper!(new_rollup_scrape_interval_fake, "rollup_scrape_interval");
 
 pub(crate) fn get_rollup_function_handler(
     func: RollupFunction,
-    args: &Vec<QueryValue>,
+    args: &[QueryValue],
 ) -> RuntimeResult<RollupHandler> {
     let factory = get_rollup_function_factory(func);
     factory(args)
@@ -307,12 +307,12 @@ pub(super) fn remove_counter_resets(values: &mut [f64]) {
     }
 }
 
-fn new_rollup_predict_linear(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandler> {
+fn new_rollup_predict_linear(args: &[QueryValue]) -> RuntimeResult<RollupHandler> {
     let secs = get_scalar_param_value(args, 1, "predict_linear", "secs")?;
 
     let handler = RollupHandlerFloatArg::new(secs, |rfa: &RollupFuncArg, secs: &f64| {
         let secs = *secs;
-        let (v, k) = linear_regression(&rfa.values, &rfa.timestamps, rfa.curr_timestamp);
+        let (v, k) = linear_regression(rfa.values, rfa.timestamps, rfa.curr_timestamp);
         if v.is_nan() {
             return NAN;
         }
@@ -325,7 +325,7 @@ fn new_rollup_predict_linear(args: &Vec<QueryValue>) -> RuntimeResult<RollupHand
 pub(super) fn rollup_histogram(rfa: &RollupFuncArg) -> f64 {
     let map = rfa.get_tsm();
     map.reset();
-    map.update_from_vec(&rfa.values);
+    map.update(rfa.values);
 
     let idx = rfa.idx;
     map.visit_non_zero_buckets(|vm_range, count| {
@@ -376,7 +376,7 @@ pub(super) fn rollup_min(rfa: &RollupFuncArg) -> f64 {
 pub(crate) fn rollup_mad(rfa: &RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup funcs.
-    mad(&rfa.values)
+    mad(rfa.values)
 }
 
 pub(super) fn rollup_max(rfa: &RollupFuncArg) -> f64 {
@@ -404,7 +404,7 @@ pub(super) fn rollup_median(rfa: &RollupFuncArg) -> f64 {
         // with irregular data points.
         return NAN;
     }
-    quantile(0.5, &rfa.values)
+    quantile(0.5, rfa.values)
 }
 
 pub(super) fn rollup_tmin(rfa: &RollupFuncArg) -> f64 {
@@ -597,11 +597,11 @@ pub(super) fn rollup_stale_samples(rfa: &RollupFuncArg) -> f64 {
 }
 
 pub(super) fn rollup_stddev(rfa: &RollupFuncArg) -> f64 {
-    stddev(&rfa.values)
+    stddev(rfa.values)
 }
 
 pub(super) fn rollup_stdvar(rfa: &RollupFuncArg) -> f64 {
-    stdvar(&rfa.values)
+    stdvar(rfa.values)
 }
 
 pub(super) fn rollup_increase_pure(rfa: &RollupFuncArg) -> f64 {
@@ -909,7 +909,7 @@ pub(super) fn rollup_distinct(rfa: &RollupFuncArg) -> f64 {
     }
 
     let mut copy = get_pooled_vec_f64(rfa.values.len());
-    copy.extend_from_slice(&rfa.values);
+    copy.extend_from_slice(rfa.values);
     copy.sort_by(|a, b| a.total_cmp(b));
     copy.dedup();
 

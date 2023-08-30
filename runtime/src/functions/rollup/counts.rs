@@ -4,7 +4,7 @@ use crate::{QueryValue, RuntimeError, RuntimeResult};
 
 macro_rules! make_count_fn {
     ( $name: ident, $func_name: tt, $param_name: tt, $predicate_fn: expr ) => {
-        pub(super) fn $name(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandler> {
+        pub(super) fn $name(args: &[QueryValue]) -> RuntimeResult<RollupHandler> {
             let limit = get_limit(args, $func_name, $param_name)?;
             let handler =
                 RollupHandlerFloatArg::new(limit, |rfa: &RollupFuncArg, limit: &f64| -> f64 {
@@ -25,12 +25,9 @@ make_count_fn!(new_rollup_count_gt, "count_gt_over_time", "gt", greater);
 make_count_fn!(new_rollup_count_eq, "count_eq_over_time", "eq", equal);
 make_count_fn!(new_rollup_count_ne, "count_ne_over_time", "ne", not_equal);
 
-fn new_rollup_share_filter<F>(
-    args: &Vec<QueryValue>,
-    base_factory: F,
-) -> RuntimeResult<RollupHandler>
+fn new_rollup_share_filter<F>(args: &[QueryValue], base_factory: F) -> RuntimeResult<RollupHandler>
 where
-    F: Fn(&Vec<QueryValue>) -> RuntimeResult<RollupHandler> + 'static,
+    F: Fn(&[QueryValue]) -> RuntimeResult<RollupHandler> + 'static,
 {
     let rf = base_factory(args)?;
     let f = move |rfa: &RollupFuncArg| -> f64 {
@@ -71,17 +68,17 @@ fn not_equal(x: f64, y: f64) -> bool {
     x != y
 }
 
-pub(super) fn new_rollup_share_le(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandler> {
+pub(super) fn new_rollup_share_le(args: &[QueryValue]) -> RuntimeResult<RollupHandler> {
     // todo: map_err so we can get the function name
     new_rollup_share_filter(args, new_rollup_count_le)
 }
 
-pub(super) fn new_rollup_share_gt(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandler> {
+pub(super) fn new_rollup_share_gt(args: &[QueryValue]) -> RuntimeResult<RollupHandler> {
     // todo: map_err so we can get the function name
     new_rollup_share_filter(args, new_rollup_count_gt)
 }
 
-pub(super) fn new_rollup_share_eq(args: &Vec<QueryValue>) -> RuntimeResult<RollupHandler> {
+pub(super) fn new_rollup_share_eq(args: &[QueryValue]) -> RuntimeResult<RollupHandler> {
     // todo: map_err so we can get the function name
     new_rollup_share_filter(args, new_rollup_count_eq)
 }

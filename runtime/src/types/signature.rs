@@ -40,13 +40,6 @@ impl Signature {
         Self::with_name_and_labels(&labels.metric_group, iter)
     }
 
-    pub(crate) fn from_tag_iter<'a>(iter: impl Iterator<Item = &'a Tag>) -> Self {
-        let mut hasher = Xxh3::new();
-        Self::update_from_iter(&mut hasher, iter);
-        let sig = hasher.digest();
-        Signature(sig)
-    }
-
     fn update_from_iter<'a>(hasher: &mut Xxh3, iter: impl Iterator<Item = &'a Tag>) {
         for tag in iter {
             tag.update_hash(hasher);

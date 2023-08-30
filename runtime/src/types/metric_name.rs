@@ -29,7 +29,7 @@ const SEP: u8 = 0xff;
 const SET_SEARCH_MIN_THRESHOLD: usize = 8;
 
 /// Tag represents a (key, value) tag for metric.
-#[derive(Debug, Default, PartialEq, Eq, Clone, Hash, Ord, Serialize, Deserialize)]
+#[derive(Debug, Default, PartialEq, Eq, Clone, Hash, Serialize, Deserialize)]
 pub struct Tag {
     pub key: String,
     pub value: String,
@@ -414,7 +414,7 @@ impl MetricName {
 
     pub fn sort_tags(&mut self) {
         if self.tags.len() > 1 {
-            self.tags.sort();
+            self.tags.sort_by(|a, b| a.partial_cmp(b).unwrap());
         }
     }
 

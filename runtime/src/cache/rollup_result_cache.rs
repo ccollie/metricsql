@@ -688,8 +688,8 @@ impl RollupResultCacheMetaInfo {
     }
 }
 
-#[derive(Default, Clone, Eq, Hash, Serialize, Deserialize)]
-pub(self) struct RollupResultCacheMetaInfoEntry {
+#[derive(Default, Clone, PartialEq, Hash, Serialize, Deserialize)]
+struct RollupResultCacheMetaInfoEntry {
     start: i64,
     end: i64,
     key: RollupResultCacheKey,
@@ -724,12 +724,6 @@ impl RollupResultCacheMetaInfoEntry {
         (res.key, src) = RollupResultCacheKey::unmarshal(src)?;
 
         Ok((res, src))
-    }
-}
-
-impl PartialEq for RollupResultCacheMetaInfoEntry {
-    fn eq(&self, other: &Self) -> bool {
-        self.start == other.start && self.end == other.end && self.key == other.key
     }
 }
 

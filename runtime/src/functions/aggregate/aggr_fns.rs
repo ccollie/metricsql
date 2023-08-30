@@ -992,9 +992,9 @@ fn aggr_func_quantiles(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> 
     let afe = |tss: &mut Vec<Timeseries>, _modifier: &Option<AggregateModifier>| {
         // todo: tinyvec ?
         let mut tss_dst: Vec<Timeseries> = Vec::with_capacity(phi_count);
-        for j in 0..phi_count {
+        for phi in phis.iter() {
             let mut ts = tss[0].clone();
-            ts.metric_name.set_tag(&dst_label, &format!("{}", phis[j]));
+            ts.metric_name.set_tag(&dst_label, &format!("{}", phi));
             tss_dst.push(ts);
         }
 
@@ -1043,12 +1043,12 @@ fn new_aggr_quantile_func(phis: &[f64]) -> impl AggrFnExt + '_ {
         let count = tss[0].values.len();
         let mut values = get_pooled_vec_f64(count);
 
-        for n in 0..count {
+        for (n, phi) in phis.iter().enumerate() {
             for ts in tss.iter() {
                 values.push(ts.values[n]);
             }
 
-            tss[0].values[n] = quantile(phis[n], &values);
+            tss[0].values[n] = quantile(*phi, &values);
             values.clear();
         }
 

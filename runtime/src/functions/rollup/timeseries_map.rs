@@ -74,12 +74,7 @@ impl TimeseriesMap {
         }
     }
 
-    pub fn update(&mut self, value: f64) {
-        let mut inner = self.inner.write().unwrap();
-        inner.update(value);
-    }
-
-    pub fn update_from_vec(&self, values: &[f64]) {
+    pub fn update(&self, values: &[f64]) {
         let mut inner = self.inner.write().unwrap();
         for value in values {
             inner.update(*value);
@@ -93,8 +88,8 @@ impl TimeseriesMap {
         f: impl Fn(&mut Timeseries),
     ) {
         let mut inner = self.inner.write().unwrap();
-        let mut ts = inner.get_or_create_timeseries(label_name, label_value);
-        f(&mut ts)
+        let ts = inner.get_or_create_timeseries(label_name, label_value);
+        f(ts)
     }
 
     /// Copy all timeseries to dst. The map should not be used after this call
@@ -113,11 +108,6 @@ impl TimeseriesMap {
     pub fn series_len(&self) -> usize {
         let inner = self.inner.read().unwrap();
         inner.series.len()
-    }
-
-    pub fn visit_values_mut(&self, f: impl FnMut(&mut Timeseries)) {
-        let mut inner = self.inner.write().unwrap();
-        inner.series.values_mut().for_each(f)
     }
 
     pub fn visit_non_zero_buckets<'a, F>(&self, f: F)

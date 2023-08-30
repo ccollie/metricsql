@@ -92,10 +92,6 @@ impl RangeValue {
             //time_window: None,
         }
     }
-
-    pub(crate) fn add_sample(&mut self, sample: Sample) {
-        self.samples.push(sample);
-    }
 }
 
 #[derive(Debug, PartialEq)]

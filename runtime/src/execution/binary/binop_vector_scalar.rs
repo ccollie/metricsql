@@ -14,7 +14,7 @@ pub(crate) fn eval_vector_scalar_binop(
     op: Operator,
     scalar: f64,
     bool_modifier: bool,
-    keep_metric_names: bool,
+    _keep_metric_names: bool,
     is_tracing: bool,
 ) -> RuntimeResult<QueryValue> {
     use QueryValue::*;
