@@ -18,6 +18,7 @@ use std::sync::{Arc, RwLock};
 use async_trait::async_trait;
 use snafu::{ensure, OptionExt};
 use tracing::error;
+
 use crate::error::{EngineExistSnafu, EngineNotFoundSnafu, Result};
 use crate::table::engine::{TableEngineProcedureRef, TableEngineRef};
 use crate::table::error::EngineNotFoundSnafu;
@@ -118,7 +119,7 @@ impl TableEngineManager for MemoryTableEngineManager {
         if let Err(err) =
             futures::future::try_join_all(engines.iter().map(|engine| engine.close())).await
         {
-            error!("Failed to close engine: {}", err);
+            error!("Failed to close engine: {:?}", err);
         }
 
         Ok(())
@@ -138,6 +139,7 @@ mod tests {
     use std::assert_matches::assert_matches;
     use std::collections::HashMap;
     use std::sync::Arc;
+
     use datafusion::logical_expr::UserDefinedLogicalNode;
 
     use crate::engine::TableEngine;

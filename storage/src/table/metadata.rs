@@ -18,16 +18,16 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use datafusion::arrow::datatypes::{Schema, SchemaRef};
 use datafusion::logical_expr::TableProviderFilterPushDown;
+use derive_builder::Builder;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use snafu::ResultExt;
 
 use common_catalog::consts::{DEFAULT_CATALOG_NAME, DEFAULT_SCHEMA_NAME};
-use datafusion_expr::TableProviderFilterPushDown;
 pub use datatypes::error::{Error as ConvertError, Result as ConvertResult};
 use datatypes::schema::{ColumnSchema, RawSchema, Schema, SchemaBuilder, SchemaRef};
-use derive_builder::Builder;
-use crate::table::requests::{TableOptions};
+
+use crate::table::requests::TableOptions;
 
 pub type TableId = u32;
 pub type TableVersion = u64;
@@ -138,7 +138,6 @@ impl TableMetaBuilder {
         }
     }
 }
-
 
 impl TableMeta {
     pub fn row_key_column_names(&self) -> impl Iterator<Item = &String> {
@@ -346,6 +345,7 @@ mod tests {
     use common_error::status_code::StatusCode;
     use datatypes::data_type::ConcreteDataType;
     use datatypes::schema::{ColumnSchema, Schema, SchemaBuilder};
+
     use super::*;
 
     fn new_test_schema() -> Schema {
@@ -440,7 +440,6 @@ mod tests {
             new_meta.schema.timestamp_column()
         );
     }
-    
 
     #[test]
     fn test_alloc_new_column() {

@@ -24,7 +24,6 @@ use datatypes::schema::SchemaRef;
 use store_api::storage::ScanRequest;
 
 use crate::error::{Result, UnsupportedSnafu};
-use crate::metadata::{FilterPushDownType, TableId, TableInfoRef, TableType};
 use crate::table::metadata::{FilterPushDownType, TableId, TableInfoRef, TableType};
 
 /// Table abstraction.
@@ -44,7 +43,6 @@ pub trait Table: Send + Sync {
     fn table_type(&self) -> TableType {
         TableType::Base
     }
-
     async fn scan_to_stream(&self, request: ScanRequest) -> Result<SendableRecordBatchStream>;
 
     /// Tests whether the table provider can make use of any or all filter expressions

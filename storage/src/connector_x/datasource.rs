@@ -1,3 +1,7 @@
+use std::collections::{HashMap, HashSet};
+use std::hash::Hasher;
+use std::sync::Arc;
+
 // Copyright 2023 Greptime Team
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -11,37 +15,29 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-use std::collections::{HashMap, HashSet};
-use std::hash::Hasher;
-use std::sync::Arc;
-
+use chrono::Duration;
 use datafusion::arrow::array::{Array, ArrayRef};
 use datafusion::arrow::datatypes::Fields;
-use datafusion::catalog::catalog::CatalogProvider;
 use datafusion::optimizer::utils::conjunction;
-use datafusion::prelude::JoinType;
 use datafusion::{
-    arrow::{
-        array::{Float64Array, Int64Array, StringArray},
-        datatypes::Schema,
-    },
+    arrow::array::{Float64Array, Int64Array, StringArray},
     common::{OwnedTableReference, ScalarValue, TableReference},
     datasource::{DefaultTableSource, TableProvider},
     error::{DataFusionError, Result},
     logical_expr::{
         BinaryExpr, Expr as DfExpr, Extension, LogicalPlan, LogicalPlanBuilder, Operator,
     },
-    prelude::{col, lit, Column, SessionContext},
+    prelude::{col, Column},
 };
 use futures::future::try_join_all;
-use metricsql::common::{LabelFilter, LabelFilterOp, MatchOp};
-use metricsql::prelude::MetricExpr;
-use runtime::{Label, RangeValue, Sample};
 use snafu::{ensure, OptionExt, ResultExt};
 
+use metricsql::common::{LabelFilter, LabelFilterOp, MatchOp};
+use metricsql::prelude::{Matchers, MetricExpr};
+use runtime::{Label, RangeValue, Sample};
+
 use crate::error::{
-    CatalogSnafu, ColumnNotFoundSnafu, DataFusionPlanningSnafu, TableNameNotFoundSnafu,
-    TimeIndexNotFoundSnafu, UnknownTableSnafu, ValueNotFoundSnafu,
+    CatalogSnafu, ColumnNotFoundSnafu, DataFusionPlanningSnafu, TableNotFoundSnafu,
 };
 use crate::sql::extension_plan::{SeriesDivide, SeriesNormalize};
 use crate::TableContext;
@@ -67,8 +63,8 @@ struct PromPlannerContext {
     table_names: Vec<String>,
     field_columns: Vec<String>,
     tag_columns: Vec<String>,
-    name_matchers: Vec<Matcher>,
-    field_column_matcher: Option<Vec<Matcher>>,
+    name_matchers: Vec<Matchers>,
+    field_column_matcher: Option<Vec<Matchers>>,
     /// The range in millisecond of range selector. None if there is no range selector.
     range: Option<Millisecond>,
     skip_nan: bool,
@@ -285,7 +281,7 @@ impl SqlDataSource {
     /// Returns a new [Matchers] that doesn't contains metric name matcher.
     fn preprocess_label_matchers(&mut self, label_matchers: &Matchers) -> Result<Matchers> {
         let mut matchers = HashSet::new();
-        for matcher in &label_matchers.matchers {
+        for matcher in &label_matchers.matchers.iter() {
             if matcher.name == METRIC_NAME {
                 if matches!(matcher.op, MatchOp::Equal) {
                     self.ctx.table_name = Some(matcher.value.clone());
