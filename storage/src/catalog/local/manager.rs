@@ -39,13 +39,11 @@ use table::table::numbers::{NumbersTable, NUMBERS_TABLE_NAME};
 use table::table::TableIdProvider;
 use table::TableRef;
 
-use crate::catalog::consts::{MIN_USER_TABLE_ID, MITO_ENGINE, SYSTEM_CATALOG_NAME,
-};
+use crate::catalog::consts::{MIN_USER_TABLE_ID, MITO_ENGINE, SYSTEM_CATALOG_NAME};
 use crate::catalog::local::MemoryCatalogManager;
 use crate::catalog::manager::{
-    handle_system_table_request, CatalogManager, CatalogManagerRef, DeregisterSchemaRequest,
-    DeregisterTableRequest, RegisterSchemaRequest, RegisterSystemTableRequest,
-    RegisterTableRequest, RenameTableRequest,
+    handle_system_table_request, CatalogManager, DeregisterSchemaRequest, DeregisterTableRequest,
+    RegisterSchemaRequest, RegisterTableRequest, RenameTableRequest,
 };
 use crate::catalog::system::{
     decode_system_catalog, Entry, SystemCatalogTable, TableEntry, ENTRY_TYPE_INDEX, KEY_INDEX,
@@ -59,11 +57,6 @@ use crate::error::{
     TableNotFoundSnafu, UnimplementedSnafu,
 };
 use crate::local::memory::MemoryCatalogManager;
-use crate::{
-    CatalogManager, CatalogManagerRef, DeregisterSchemaRequest,
-    DeregisterTableRequest, RegisterSchemaRequest, RegisterSystemTableRequest,
-    RegisterTableRequest, RenameTableRequest,
-};
 
 /// A `CatalogManager` consists of a system catalog and a bunch of user catalogs.
 pub struct LocalCatalogManager {

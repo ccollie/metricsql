@@ -20,5 +20,6 @@ q_compress = { workspace = true }
 rand = { workspace = true }
 rand_distr = { workspace = true }
 regex-syntax = { workspace = true }
+serde = { workspace = true }
 tinyvec = { workspace = true }
 xxhash-rust = { workspace = true }

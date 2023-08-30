@@ -2,18 +2,13 @@ use datafusion::arrow::temporal_conversions::{
     date32_to_datetime, timestamp_ms_to_datetime, timestamp_ns_to_datetime,
     timestamp_s_to_datetime, timestamp_us_to_datetime,
 };
+use datafusion::common::tree_node::{TreeNode, TreeNodeVisitor, VisitRecursion};
 use datafusion::common::{Column, DataFusionError};
 use datafusion::error::Result;
+use datafusion::logical_expr::{Expr, Operator};
+use datafusion::physical_plan::expressions::BinaryExpr;
 use datafusion::scalar::ScalarValue;
 use itertools::Itertools;
-
-use arrow::temporal_conversions::{
-    date32_to_datetime, timestamp_ms_to_datetime, timestamp_ns_to_datetime,
-    timestamp_s_to_datetime, timestamp_us_to_datetime,
-};
-use datafusion_common::tree_node::{TreeNode, TreeNodeVisitor, VisitRecursion};
-use datafusion_expr::expr::InList;
-use datafusion_expr::{BinaryExpr, Expr, Operator};
 
 pub struct FilterPushdownVisitor<T: FilterPushdownConverter> {
     pub source: T,
@@ -114,13 +109,13 @@ pub trait FilterPushdownConverter {
         Some(op.to_string())
     }
 
-    fn create_date_filter(&self, start: i64, end: i64) -> Result<DfExpr> {
+    fn create_date_filter(&self, start: i64, end: i64) -> Result<Expr> {
         self.create_time_index_column_expr()?
-            .gt_eq(DfExpr::Literal(ScalarValue::TimestampMillisecond(
+            .gt_eq(Expr::Literal(ScalarValue::TimestampMillisecond(
                 Some(start),
                 None,
             )))
-            .and(self.create_time_index_column_expr()?.lt_eq(DfExpr::Literal(
+            .and(self.create_time_index_column_expr()?.lt_eq(Expr::Literal(
                 ScalarValue::TimestampMillisecond(Some(end), None),
             )))
     }
@@ -297,7 +292,7 @@ mod tests {
 
     use rstest::rstest;
 
-    use crate::filter_pushdown::{
+    use crate::table::filter_pushdown::{
         filter_expr_to_sql, MySQLFilterPushdown, PostgresFilterPushdown, SQLiteFilterPushdown,
     };
 

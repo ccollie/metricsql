@@ -6,6 +6,7 @@ extern crate lockfree_object_pool;
 extern crate lz4_flex;
 extern crate q_compress;
 extern crate rand;
+extern crate serde;
 #[cfg(feature = "xxh64")]
 extern crate xxhash_rust;
 
@@ -38,5 +39,6 @@ mod pool;
 mod range;
 mod time;
 
+mod readable_size;
 #[cfg(test)]
 pub(crate) mod tests;
