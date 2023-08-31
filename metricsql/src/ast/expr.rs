@@ -129,8 +129,8 @@ impl DurationExpr {
         Self::Millis(millis)
     }
 
-    pub fn new_step(step: f64) -> Self {
-        Self::StepValue(step)
+    pub fn new_step(value: f64) -> Self {
+        Self::StepValue(value)
     }
 
     pub fn requires_step(&self) -> bool {

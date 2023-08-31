@@ -1,8 +1,8 @@
 pub use dag_node::*;
-use metricsql::prelude::{adjust_comparison_ops, Expr};
+use metricsql::prelude::Expr;
 
 use crate::execution::dag::builder::DAGBuilder;
-use crate::{RuntimeError, RuntimeResult};
+use crate::RuntimeResult;
 
 mod aggregate_node;
 mod binop_node;
@@ -23,8 +23,5 @@ mod vector_scalar_binop_node;
 mod vector_vector_binary_node;
 
 pub fn compile_expression(expr: &Expr) -> RuntimeResult<DAGNode> {
-    let mut optimized = metricsql::prelude::optimize(expr.clone())
-        .map_err(|e| RuntimeError::OptimizerError(format!("{:?}", e)))?;
-    adjust_comparison_ops(&mut optimized);
-    DAGBuilder::compile(&optimized)
+    DAGBuilder::compile(expr.clone())
 }

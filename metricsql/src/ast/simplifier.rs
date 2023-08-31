@@ -209,8 +209,10 @@ impl ConstEvaluator {
             Expr::Parens(_) => true,
             // only handle immutable scalar functions
             Expr::Function(_) => true,
-            Expr::Number(_) | Expr::StringLiteral(_) | Expr::BinaryOperator(_) => true,
-            Expr::Duration(de) => !de.requires_step(),
+            Expr::Number(_)
+            | Expr::Duration(_)
+            | Expr::StringLiteral(_)
+            | Expr::BinaryOperator(_) => true,
             Expr::StringExpr(se) => !se.is_expanded(),
             Expr::With(_) => false,
             Expr::WithSelector(_) => false,
@@ -262,6 +264,20 @@ impl ConstEvaluator {
                 let n = scalar_binary_operation(ln.value(1) as f64, secs, op, is_bool)? as i64;
                 let dur = DurationExpr::new(n);
                 return Ok(Expr::Duration(dur));
+            }
+            // handle something like 2.5i * 2. Note that we don't handle + and - because meaning would be
+            // ambiguous (e.g. 2.5i + 2 could be 2.5i + 2.0 or 2.5 + 2.0 secs)
+            (Expr::Duration(ln), Expr::Number(NumberLiteral { value }), op)
+                if ln.requires_step() && (op == Operator::Mul || op == Operator::Div) =>
+            {
+                match ln {
+                    DurationExpr::StepValue(step_value) => {
+                        let n = scalar_binary_operation(*step_value, *value, op, is_bool)?;
+                        let dur = DurationExpr::new_step(n);
+                        return Ok(Expr::Duration(dur));
+                    }
+                    _ => {}
+                }
             }
             (Expr::Number(ln), Expr::Number(rn), op) => {
                 let n = scalar_binary_operation(ln.value, rn.value, op, is_bool)?;
@@ -676,7 +692,7 @@ mod tests {
     // ------------------------------
     // --- ConstEvaluator tests -----
     // ------------------------------
-    fn test_evaluate(input_expr: Expr, expected_expr: Expr) {
+    fn test_const_simplify(input_expr: Expr, expected_expr: Expr) {
         let mut const_evaluator = ConstEvaluator::new();
         let evaluated_expr = input_expr
             .clone()
@@ -692,26 +708,26 @@ mod tests {
     #[test]
     fn test_const_evaluator() {
         // true --> true
-        test_evaluate(number(1.0), number(1.0));
+        test_const_simplify(number(1.0), number(1.0));
         // true or true --> true
-        test_evaluate(number(1.0).or(number(1.0)), number(1.0));
+        test_const_simplify(number(1.0).or(number(1.0)), number(1.0));
         // true or false --> true
-        test_evaluate(number(1.0).or(number(0.0)), number(1.0));
+        test_const_simplify(number(1.0).or(number(0.0)), number(1.0));
 
         // "foo" == "foo" --> true
-        test_evaluate(lit("foo").eq(lit("foo")), number(1.0));
+        test_const_simplify(lit("foo").eq(lit("foo")), number(1.0));
         // "foo" != "foo" --> false
-        test_evaluate(lit("foo").not_eq(lit("foo")), number(0.0));
+        test_const_simplify(lit("foo").not_eq(lit("foo")), number(0.0));
 
         // c = 1 --> c = 1
-        test_evaluate(selector("c").eq(number(1.0)), selector("c").eq(number(1.0)));
+        test_const_simplify(selector("c").eq(number(1.0)), selector("c").eq(number(1.0)));
         // c = 1 + 2 --> c + 3
-        test_evaluate(
+        test_const_simplify(
             selector("c").eq(number(1.0) + number(2.0)),
             selector("c").eq(number(3.0)),
         );
         // (foo != foo) OR (c = 1) --> false OR (c = 1)
-        test_evaluate(
+        test_const_simplify(
             (lit("foo").not_eq(lit("foo"))).or(selector("c").eq(number(1.0))),
             number(0.0).or(selector("c").eq(number(1.0))),
         );
@@ -720,34 +736,34 @@ mod tests {
     #[test]
     fn test_const_evaluator_strings() {
         // "foo" + "bar" --> "foobar"
-        test_evaluate(lit("foo") + lit("bar"), lit("foobar"));
+        test_const_simplify(lit("foo") + lit("bar"), lit("foobar"));
 
         // "foo" == "foo" --> true
-        test_evaluate(lit("foo").eq(lit("foo")), number(1.0));
+        test_const_simplify(lit("foo").eq(lit("foo")), number(1.0));
 
         // "foo" != "foo" --> false
-        test_evaluate(lit("foo").not_eq(lit("foo")), number(0.0));
+        test_const_simplify(lit("foo").not_eq(lit("foo")), number(0.0));
 
         // "foo" != "bar" --> false
-        test_evaluate(lit("foo").not_eq(lit("bar")), number(1.0));
+        test_const_simplify(lit("foo").not_eq(lit("bar")), number(1.0));
 
         // "foo" > "bar" --> true
-        test_evaluate(lit("foo").gt(lit("bar")), number(1.0));
+        test_const_simplify(lit("foo").gt(lit("bar")), number(1.0));
 
         // "foo" < "bar" --> false
-        test_evaluate(lit("foo").lt(lit("bar")), number(0.0));
+        test_const_simplify(lit("foo").lt(lit("bar")), number(0.0));
 
         // "foo" >= "foo" --> true
-        test_evaluate(lit("foo").gt_eq(lit("foo")), number(1.0));
+        test_const_simplify(lit("foo").gt_eq(lit("foo")), number(1.0));
 
         // "foo_99" >= "foo" --> true
-        test_evaluate(lit("foo_99").gt_eq(lit("foo")), number(1.0));
+        test_const_simplify(lit("foo_99").gt_eq(lit("foo")), number(1.0));
 
         // "foo" <= "foo1" --> true
-        test_evaluate(lit("foo").lt_eq(lit("foo1")), number(1.0));
+        test_const_simplify(lit("foo").lt_eq(lit("foo1")), number(1.0));
 
         // "foo" <= "foo" --> true
-        test_evaluate(lit("foo").lt_eq(lit("foo")), number(1.0));
+        test_const_simplify(lit("foo").lt_eq(lit("foo")), number(1.0));
     }
 
     #[test]
@@ -759,18 +775,18 @@ mod tests {
         let rand = Expr::call("rand", vec![]).expect("invalid function call");
         let expr = rand.clone() + (number(1.0) + number(2.0));
         let expected = rand + number(3.0);
-        test_evaluate(expr, expected);
+        test_const_simplify(expr, expected);
 
         // parenthesization matters: can't rewrite
         // (rand() + 1) + 2 --> (rand() + 1) + 2)
         let rand = Expr::call("rand", vec![]).expect("invalid function call");
         let expr = (rand + number(1.0)) + number(2.0);
-        test_evaluate(expr.clone(), expr);
+        test_const_simplify(expr.clone(), expr);
     }
 
     fn test_math_fn(name: &str, arg: f64, expected: f64) {
         let expr = Expr::call(name, vec![number(arg)]).expect("invalid function call");
-        test_evaluate(expr, number(expected));
+        test_const_simplify(expr, number(expected));
     }
 
     #[test]
@@ -850,7 +866,7 @@ mod tests {
     fn test_date_part_fn(name: &str, epoch_secs: f64, part: DateTimePart) {
         let expr = Expr::call(name, vec![number(epoch_secs)]).expect("invalid function call");
         let value = extract_datetime_part(epoch_secs, part);
-        test_evaluate(expr, number(value));
+        test_const_simplify(expr, number(value));
     }
 
     #[test]
@@ -868,6 +884,73 @@ mod tests {
 
         test_date_part_fn("year", epoch, DateTimePart::Year);
     }
+
+    fn duration_millis(ms: i64) -> Expr {
+        Expr::Duration(DurationExpr::new(ms))
+    }
+
+    fn duration_step(value: f64) -> Expr {
+        Expr::Duration(DurationExpr::new_step(value))
+    }
+
+    #[test]
+    fn test_const_evaluator_durations() {
+        // handle durations with steps
+        let left = duration_step(1.0);
+        let right = duration_step(2.5);
+        let expr = binary_expr(left, Operator::Add, right);
+        let expected = duration_step(3.5);
+        test_const_simplify(expr, expected);
+
+        let left = duration_step(1.0);
+        let right = duration_step(2.5);
+        let expr = binary_expr(left, Operator::Sub, right);
+        let expected = duration_step(-1.5);
+        test_const_simplify(expr, expected);
+
+        // 2.5i * 2
+        let left = duration_step(2.5);
+        let right = number(2.0);
+        let expr = binary_expr(left, Operator::Mul, right);
+        let expected = duration_step(5.0);
+        test_const_simplify(expr, expected);
+
+        // 5i / 2
+        let left = duration_step(5.0);
+        let right = number(2.0);
+        let expr = binary_expr(left, Operator::Div, right);
+        let expected = duration_step(2.5);
+        test_const_simplify(expr, expected);
+
+        // duration(millis) + duration(millis)
+        let left = duration_millis(1000);
+        let right = duration_millis(2500);
+        let expr = binary_expr(left, Operator::Add, right);
+        let expected = duration_millis(3500);
+        test_const_simplify(expr, expected);
+
+        // duration(millis) - duration(millis)
+        let left = duration_millis(1000);
+        let right = duration_millis(2500);
+        let expr = binary_expr(left, Operator::Sub, right);
+        let expected = duration_millis(-1500);
+        test_const_simplify(expr, expected);
+
+        // duration(millis) + number
+        let left = duration_millis(1000);
+        let right = number(2.0);
+        let expr = binary_expr(left, Operator::Add, right);
+        let expected = duration_millis(3000);
+        test_const_simplify(expr, expected);
+
+        // duration(millis) - number
+        let left = duration_millis(1000);
+        let right = number(2.0);
+        let expr = binary_expr(left, Operator::Sub, right);
+        let expected = duration_millis(-1000);
+        test_const_simplify(expr, expected);
+    }
+
     // ------------------------------
     // --- Simplifier tests -----
     // ------------------------------
@@ -1265,4 +1348,6 @@ mod tests {
         let expected = selector("c1").not_eq(selector("foo"));
         assert_expr_eq(&expected, &actual);
     }
+
+    // TODO: BinaryExpr
 }

@@ -93,10 +93,11 @@ impl ParseCache {
     fn parse_internal(q: &str) -> ParseCacheValue {
         match parser::parse(q) {
             Ok(expr) => {
+                let has_subquery = expr.contains_subquery();
+                let sort_results = should_sort_results(&expr);
+
                 let node = compile_expression(&expr);
                 if let Ok(eval_node) = node {
-                    let has_subquery = expr.contains_subquery();
-                    let sort_results = should_sort_results(&expr);
                     ParseCacheValue {
                         expr: Some(expr),
                         eval_node: Some(eval_node),

@@ -5,15 +5,13 @@ use std::ops::Deref;
 use topologic::AcyclicDependencyGraph;
 
 use metricsql::ast::{
-    AggregationExpr, BinaryExpr, DurationExpr, Expr, FunctionExpr, MetricExpr, NumberLiteral,
-    ParensExpr, RollupExpr,
+    AggregationExpr, BinaryExpr, DurationExpr, Expr, FunctionExpr, MetricExpr, ParensExpr,
+    RollupExpr,
 };
 use metricsql::functions::{BuiltinFunction, RollupFunction, TransformFunction};
-use metricsql::prelude::Operator;
+use metricsql::prelude::{adjust_comparison_ops, Operator};
 
-use crate::execution::binary::{
-    can_push_down_common_filters, eval_string_string_binop, scalar_binary_operation,
-};
+use crate::execution::binary::can_push_down_common_filters;
 use crate::execution::dag::aggregate_node::AggregateNode;
 use crate::execution::dag::binop_node::BinopNode;
 use crate::execution::dag::dag_evaluator::{DAGEvaluator, Dependency};
@@ -34,23 +32,32 @@ use crate::functions::rollup::{
 };
 use crate::{QueryValue, RuntimeError, RuntimeResult};
 
-pub struct DAGBuilder<'a> {
-    expr: &'a Expr,
+pub struct DAGBuilder {
     node_map: HashMap<usize, DAGNode>,
     graph: AcyclicDependencyGraph<usize>,
 }
 
-impl<'a> DAGBuilder<'a> {
-    pub fn new(parent: &'a Expr) -> Self {
+impl DAGBuilder {
+    fn new() -> Self {
         DAGBuilder {
-            expr: parent,
             graph: AcyclicDependencyGraph::new(),
             node_map: HashMap::with_capacity(16),
         }
     }
 
-    pub(crate) fn build(mut self) -> RuntimeResult<Vec<Vec<Dependency>>> {
-        self.create_node(self.expr)?;
+    fn reset(&mut self) {
+        self.graph = AcyclicDependencyGraph::new();
+        self.node_map.clear();
+    }
+
+    pub(crate) fn build(&mut self, expr: Expr) -> RuntimeResult<Vec<Vec<Dependency>>> {
+        self.reset();
+
+        let mut optimized = metricsql::prelude::optimize(expr)
+            .map_err(|e| RuntimeError::OptimizerError(format!("{:?}", e)))?;
+        adjust_comparison_ops(&mut optimized);
+
+        self.create_node(&optimized)?;
         let count = self.node_map.len();
         if count == 1 {
             let root = 0;
@@ -78,19 +85,16 @@ impl<'a> DAGBuilder<'a> {
         let roots = binding.iter().collect::<Vec<_>>();
         let root_count = roots.len();
         if root_count != 1 {
-            let msg = format!(
-                "Invalid expression. Expected 1 root node, found {root_count}\n{}",
-                self.expr
-            );
+            let msg = format!("Invalid expression. Expected 1 root node, found {root_count}",);
             return Err(RuntimeError::Internal(msg));
         }
 
         Ok(node_dag)
     }
 
-    pub(crate) fn compile(expr: &Expr) -> RuntimeResult<DAGNode> {
-        let builder = DAGBuilder::new(expr);
-        let mut dag = builder.build()?;
+    pub(crate) fn compile(expr: Expr) -> RuntimeResult<DAGNode> {
+        let mut builder = DAGBuilder::new();
+        let mut dag = builder.build(expr)?;
         if dag.len() == 1 && dag[0].len() == 1 {
             let node = std::mem::take(&mut dag[0][0].node);
             return Ok(node);
@@ -328,7 +332,7 @@ impl<'a> DAGBuilder<'a> {
                 node.func_handler = func_handler;
                 node.at_index = at_index;
 
-                let expr_dag = DAGBuilder::compile(&re.expr)?;
+                let expr_dag = DAGBuilder::compile(re.expr.as_ref().clone())?;
                 node.expr_node = Box::new(expr_dag);
 
                 self.node_map.insert(parent_idx, DAGNode::Subquery(node));
@@ -400,7 +404,6 @@ impl<'a> DAGBuilder<'a> {
         let keep_metric_names = should_keep_metric_names(be);
         let is_left_vector = is_vector_expr(&be.left);
         let is_right_vector = is_vector_expr(&be.right);
-        let op = be.op;
 
         // ops with constant operands have already been handled by the optimizer
         let res = match (&be.left.as_ref(), &be.right.as_ref()) {
@@ -474,47 +477,6 @@ impl<'a> DAGBuilder<'a> {
                     };
                     DAGNode::VectorVectorPushDownOp(node)
                 }
-            }
-            (Expr::Number(left), Expr::Number(right)) => {
-                // should have been handled in the optimizer, but no harm
-                let value = scalar_binary_operation(be.op, left.value, right.value, bool_modifier)?;
-                DAGNode::from(value)
-            }
-            (Expr::Duration(ln), Expr::Duration(rn))
-                if op == Operator::Add || op == Operator::Sub =>
-            {
-                match (ln, rn) {
-                    (DurationExpr::Millis(left_val), DurationExpr::Millis(right_val)) => {
-                        let n = scalar_binary_operation(
-                            op,
-                            *left_val as f64,
-                            *right_val as f64,
-                            false,
-                        )? as i64;
-                        let dur = DurationExpr::new(n);
-                        DAGNode::from(dur)
-                    }
-                    (DurationExpr::StepValue(left_val), DurationExpr::StepValue(right_val)) => {
-                        let n = scalar_binary_operation(op, *left_val, *right_val, bool_modifier)?;
-                        let dur = DurationExpr::new_step(n);
-                        DAGNode::from(dur)
-                    }
-                    _ => self.create_binop_node_default(be, idx)?,
-                }
-            }
-            // add/subtract number as secs to duration
-            (Expr::Duration(ln), Expr::Number(NumberLiteral { value }))
-                if !ln.requires_step() && (op == Operator::Add || op == Operator::Sub) =>
-            {
-                let secs = *value * 1e3_f64;
-                let n = scalar_binary_operation(op, ln.value(1) as f64, secs, false)? as i64;
-                let dur = DurationExpr::new(n);
-                DAGNode::from(dur)
-            }
-            (Expr::StringLiteral(left), Expr::StringLiteral(right)) => {
-                // should have been handled in the optimizer, but no harm
-                let value = eval_string_string_binop(be.op, left, right, bool_modifier)?;
-                DAGNode::Value(value)
             }
             _ => self.create_binop_node_default(be, idx)?,
         };
@@ -760,7 +722,7 @@ mod tests {
     #[test]
     fn test_create_node_from_number() {
         let expr = Expr::from(std::f64::consts::PI);
-        let node = DAGBuilder::compile(&expr).unwrap();
+        let node = DAGBuilder::compile(expr).unwrap();
 
         assert_eq!(node, DAGNode::from(std::f64::consts::PI));
     }
@@ -768,7 +730,7 @@ mod tests {
     #[test]
     fn test_create_node_from_string() {
         let expr = Expr::from("test");
-        let node = DAGBuilder::compile(&expr).unwrap();
+        let node = DAGBuilder::compile(expr).unwrap();
 
         assert!(matches!(node, DAGNode::Value(QueryValue::String(_))));
         assert_eq!(node, DAGNode::from("test"));
@@ -778,7 +740,7 @@ mod tests {
     fn test_create_node_from_duration() {
         // a duration with a fixed millisecond value is created to a number
         let millis_expr = Expr::Duration(DurationExpr::Millis(1000));
-        let millis_node = DAGBuilder::compile(&millis_expr).unwrap();
+        let millis_node = DAGBuilder::compile(millis_expr).unwrap();
 
         assert!(matches!(millis_node, DAGNode::Value(_)));
         if let DAGNode::Value(QueryValue::Scalar(n)) = millis_node {
@@ -789,7 +751,7 @@ mod tests {
 
         // a duration with a step value millisecond value is created to a DurationNode
         let step_expr = Expr::Duration(DurationExpr::StepValue(1000f64));
-        let step_node = DAGBuilder::compile(&step_expr).unwrap();
+        let step_node = DAGBuilder::compile(step_expr).unwrap();
         assert!(matches!(step_node, DAGNode::Duration(_)));
         if let DAGNode::Duration(DurationNode(n)) = step_node {
             assert_eq!(n, DurationExpr::StepValue(1000f64));
@@ -805,7 +767,7 @@ mod tests {
             expressions: vec![Expr::from(2.5)],
         });
 
-        let single_node = DAGBuilder::compile(&single_node).unwrap();
+        let single_node = DAGBuilder::compile(single_node).unwrap();
         assert_eq!(single_node, DAGNode::from(2.5));
 
         // create a Union function node for len() > 1
@@ -813,7 +775,7 @@ mod tests {
             expressions: vec![Expr::from(2.5), Expr::from("foo"), Expr::from("bar")],
         });
 
-        let node = DAGBuilder::compile(&expr).unwrap();
+        let node = DAGBuilder::compile(expr).unwrap();
         assert!(matches!(node, DAGNode::Dynamic(_)));
         match node {
             DAGNode::Dynamic(t) => {
@@ -836,9 +798,10 @@ mod tests {
             LabelFilter::equal("baz", "qux").unwrap(),
         ];
         let expr = Expr::MetricExpression(MetricExpr::with_filters(filters.clone()));
-        let node = DAGBuilder::compile(&expr).unwrap();
+        let expr_clone = expr.clone();
+        let node = DAGBuilder::compile(expr).unwrap();
         if let DAGNode::Rollup(r) = node {
-            assert_eq!(r.expr, expr);
+            assert_eq!(r.expr, expr_clone);
             assert_eq!(r.metric_expr, MetricExpr::with_filters(filters.clone()));
             if let Expr::MetricExpression(MetricExpr { label_filters, .. }) = &r.expr {
                 assert_eq!(&filters, label_filters);
@@ -859,7 +822,7 @@ mod tests {
             modifier: None,
         });
 
-        let node = DAGBuilder::compile(&expr).unwrap();
+        let node = DAGBuilder::compile(expr).unwrap();
         if let DAGNode::Value(b) = node {
             assert_eq!(b, QueryValue::from(6.0));
         } else {
@@ -876,7 +839,7 @@ mod tests {
             modifier: None,
         });
 
-        let node = DAGBuilder::compile(&expr).unwrap();
+        let node = DAGBuilder::compile(expr).unwrap();
         if let DAGNode::Value(b) = node {
             assert_eq!(b, QueryValue::from("foobar"));
         } else {
@@ -889,7 +852,7 @@ mod tests {
         let func = FunctionExpr::new("sgn", vec![Expr::from(-2.5)]).unwrap();
         let expr = Expr::Function(func.clone());
 
-        let mut node = DAGBuilder::compile(&expr).unwrap();
+        let mut node = DAGBuilder::compile(expr).unwrap();
         if !matches!(node, DAGNode::Dynamic(_)) {
             panic!("Expected DAGNode::Dynamic(_)");
         }
