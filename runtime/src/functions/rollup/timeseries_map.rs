@@ -3,7 +3,7 @@ use std::sync::{Arc, RwLock};
 
 use metricsql::functions::RollupFunction;
 
-use crate::histogram::Histogram;
+use crate::histogram::{Histogram, NonZeroBucket};
 use crate::types::{MetricName, Timeseries};
 
 #[derive(Debug)]
@@ -110,12 +110,44 @@ impl TimeseriesMap {
         inner.series.len()
     }
 
-    pub fn visit_non_zero_buckets<'a, F>(&self, f: F)
+    pub fn visit_non_zero_buckets<'a, F, C>(&self, context: &mut C, f: F)
     where
-        F: Fn(&'a str, u64),
+        F: Fn(&'a str, u64, &mut C),
     {
         let inner = self.inner.read().unwrap();
-        inner.hist.visit_non_zero_buckets(f)
+        inner.hist.visit_non_zero_buckets(context, f)
+    }
+
+    pub(crate) fn process_rollup(&self, values: &[f64], rollup_idx: usize) {
+        let mut inner = self.inner.write().unwrap();
+        inner.reset();
+        for value in values {
+            inner.update(*value);
+        }
+        let buckets = inner
+            .hist
+            .non_zero_buckets()
+            .map(|NonZeroBucket { vm_range, count }| (vm_range.to_string(), count))
+            .collect::<Vec<_>>();
+
+        for (vm_range, count) in buckets {
+            let ts = inner.get_or_create_timeseries("vmrange", &vm_range);
+            ts.values[rollup_idx] = count as f64;
+        }
+    }
+
+    pub(crate) fn set_timeseries_values(
+        &self,
+        label_name: &str,
+        label_values: &[String],
+        values: &[f64],
+        rollup_idx: usize,
+    ) {
+        let mut inner = self.inner.write().unwrap();
+        for (label_value, value) in label_values.iter().zip(values.iter()) {
+            let ts = inner.get_or_create_timeseries(label_name, &label_value);
+            ts.values[rollup_idx] = *value;
+        }
     }
 
     pub fn is_valid_function(func: RollupFunction) -> bool {

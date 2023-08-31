@@ -163,12 +163,12 @@ impl Histogram {
     /// isn't included in the bucket, while the upper bound is included.
     /// This is required to be compatible with Prometheus-style histogram buckets
     /// with `le` (less or equal) labels.
-    pub fn visit_non_zero_buckets<'a, F>(&self, f: F)
+    pub fn visit_non_zero_buckets<'a, F, C>(&self, context: &mut C, f: F)
     where
-        F: Fn(&'a str, u64),
+        F: Fn(&'a str, u64, &mut C),
     {
         if self.lower > 0 {
-            f(LOWER_BUCKET_RANGE, self.lower)
+            f(LOWER_BUCKET_RANGE, self.lower, context)
         }
 
         let ranges = get_bucket_ranges();
@@ -178,13 +178,13 @@ impl Histogram {
                 if *count > 0u64 {
                     let bucket_idx = decimal_bucket_idx * BUCKETS_PER_DECIMAL + offset;
                     let vmrange = &ranges[bucket_idx];
-                    f(vmrange, *count)
+                    f(vmrange, *count, context)
                 }
             }
         }
 
         if self.upper > 0 {
-            f(UPPER_BUCKET_RANGE, self.upper)
+            f(UPPER_BUCKET_RANGE, self.upper, context)
         }
     }
 }

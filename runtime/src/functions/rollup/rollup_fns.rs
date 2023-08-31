@@ -324,16 +324,7 @@ fn new_rollup_predict_linear(args: &[QueryValue]) -> RuntimeResult<RollupHandler
 
 pub(super) fn rollup_histogram(rfa: &RollupFuncArg) -> f64 {
     let map = rfa.get_tsm();
-    map.reset();
-    map.update(rfa.values);
-
-    let idx = rfa.idx;
-    map.visit_non_zero_buckets(|vm_range, count| {
-        map.with_timeseries("vmrange", vm_range, |ts| {
-            ts.values[idx] = count as f64;
-        });
-    });
-
+    map.process_rollup(rfa.values, rfa.idx);
     NAN
 }
 

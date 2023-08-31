@@ -54,13 +54,8 @@ fn quantiles_impl(rfa: &RollupFuncArg, label: &str, phis: &[f64], phi_labels: &[
     // tinyvec ?
     let mut qs = get_pooled_vec_f64_filled(phis.len(), 0f64);
     quantiles(qs.deref_mut(), phis, rfa.values);
-    let idx = rfa.idx;
     let map = rfa.get_tsm();
-    for (phi_str, quantile) in phi_labels.iter().zip(qs.iter()) {
-        map.with_timeseries(label, phi_str, |ts| {
-            ts.values[idx] = *quantile;
-        });
-    }
+    map.set_timeseries_values(label, phi_labels, &qs, rfa.idx);
 
     f64::NAN
 }
