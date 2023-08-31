@@ -176,12 +176,13 @@ impl<'a> DAGBuilder<'a> {
     ) -> RuntimeResult<usize> {
         // insert a dummy. we will replace it later
         let idx = self.reserve_node();
+        let keep_metric_names = fe.keep_metric_names || tf.keep_metric_name();
 
         let (args, arg_indexes, args_const) = self.handle_args(&fe.args, idx, None)?;
         let transform_node = TransformNode {
             function: tf,
             args,
-            keep_metric_names: fe.keep_metric_names,
+            keep_metric_names,
             arg_indexes,
             args_const,
         };

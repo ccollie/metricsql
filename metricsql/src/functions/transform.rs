@@ -382,8 +382,8 @@ impl TransformFunction {
         matches!(
             self,
             Ceil | Clamp
-                | ClampMin
                 | ClampMax
+                | ClampMin
                 | Floor
                 | Interpolate
                 | KeepLastValue
@@ -391,14 +391,19 @@ impl TransformFunction {
                 | RangeAvg
                 | RangeFirst
                 | RangeLast
+                | RangeLinearRegression
                 | RangeMax
                 | RangeMedian
                 | RangeMin
                 | RangeNormalize
                 | RangeQuantile
+                | RangeStdDev
+                | RangeStdVar
                 | Round
                 | Ru
                 | RunningAvg
+                | RunningMax
+                | RunningMin
                 | SmoothExponential
         )
     }
