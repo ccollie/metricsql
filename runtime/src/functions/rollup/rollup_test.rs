@@ -2,8 +2,6 @@
 mod tests {
     use std::str::FromStr;
 
-    use rs_unit::rs_unit;
-
     use metricsql::functions::RollupFunction;
 
     use crate::common::math::linear_regression;
@@ -12,9 +10,9 @@ mod tests {
     use crate::functions::rollup::integrate::rollup_integrate;
     use crate::functions::rollup::rollup_fns::{
         remove_counter_resets, rollup_avg, rollup_changes, rollup_changes_prometheus, rollup_count,
-        rollup_default, rollup_distinct, rollup_lag, rollup_lifetime, rollup_max, rollup_min,
-        rollup_mode_over_time, rollup_rate_over_sum, rollup_resets, rollup_scrape_interval,
-        rollup_stddev, rollup_sum, rollup_zscore_over_time,
+        rollup_default, rollup_distinct, rollup_first, rollup_lag, rollup_last, rollup_lifetime,
+        rollup_max, rollup_min, rollup_mode_over_time, rollup_rate_over_sum, rollup_resets,
+        rollup_scrape_interval, rollup_stddev, rollup_sum, rollup_zscore_over_time,
     };
     use crate::functions::rollup::{
         get_rollup_function_factory, get_rollup_function_handler, RollupConfig, RollupFuncArg,
@@ -653,180 +651,180 @@ mod tests {
         )
     }
 
-    rs_unit! {
-        describe "rollup no window no points" {
-            test "beforeStart" {
-                let mut rc = RollupConfig::default();
-                rc.handler = RollupHandler::Wrapped(rollup_first);
-                rc.start = 0;
-                rc.end = 4;
-                rc.step = 1;
-                rc.window = 0;
-                test_rollup(&mut rc, &[NAN, NAN, NAN, NAN, NAN], &[0, 1, 2, 3, 4]);
-            }
+    #[test]
+    fn test_rollup_no_window_no_points_before_start() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandler::Wrapped(rollup_first);
+        rc.start = 0;
+        rc.end = 4;
+        rc.step = 1;
+        rc.window = 0;
+        test_rollup(&mut rc, &[NAN, NAN, NAN, NAN, NAN], &[0, 1, 2, 3, 4]);
+    }
 
-            test "afterEnd" {
-                let mut rc = RollupConfig::default();
-                rc.handler = RollupHandler::Wrapped(rollup_delta);
-                rc.start = 120;
-                rc.end = 148;
-                rc.step = 4;
-                rc.window = 0;
-                test_rollup(
-                    &mut rc,
-                    &[2_f64, 0.0, 0.0, 0.0, NAN, NAN, NAN, NAN],
-                    &[120, 124, 128, 132, 136, 140, 144, 148],
-                )
-            }
-        }
+    #[test]
+    fn test_rollup_no_window_no_points_after_end() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandler::Wrapped(rollup_delta);
+        rc.start = 120;
+        rc.end = 148;
+        rc.step = 4;
+        rc.window = 0;
+        test_rollup(
+            &mut rc,
+            &[2_f64, 0.0, 0.0, 0.0, NAN, NAN, NAN, NAN],
+            &[120, 124, 128, 132, 136, 140, 144, 148],
+        )
+    }
 
-        describe "window no points" {
-            test "beforeStart" {
-                let mut rc = RollupConfig::default();
-                rc.handler = RollupHandler::Wrapped(rollup_first);
-                rc.start = 0;
-                rc.end = 4;
-                rc.step = 1;
-                rc.window = 3;
-                test_rollup(&mut rc, &[NAN, NAN, NAN, NAN, NAN], &[0, 1, 2, 3, 4]);
-            }
+    #[test]
+    fn test_window_no_points_before_start() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandler::Wrapped(rollup_first);
+        rc.start = 0;
+        rc.end = 4;
+        rc.step = 1;
+        rc.window = 3;
+        test_rollup(&mut rc, &[NAN, NAN, NAN, NAN, NAN], &[0, 1, 2, 3, 4]);
+    }
 
-            test "afterEnd" {
-                let mut rc = RollupConfig::default();
-                rc.handler = RollupHandler::Wrapped(rollup_first);
-                rc.start = 161;
-                rc.end = 191;
-                rc.step = 10;
-                rc.window = 3;
-                test_rollup(&mut rc, &[NAN, NAN, NAN, NAN], &[161, 171, 181, 191]);
-            }
-        }
+    #[test]
+    fn test_window_no_points_after_end() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandler::Wrapped(rollup_first);
+        rc.start = 161;
+        rc.end = 191;
+        rc.step = 10;
+        rc.window = 3;
+        test_rollup(&mut rc, &[NAN, NAN, NAN, NAN], &[161, 171, 181, 191]);
+    }
 
-        describe "no window partial points" {
-            test "beforeStart" {
-                let mut rc = RollupConfig::default();
-                rc.handler = RollupHandler::Wrapped(rollup_first);
-                rc.start = 0;
-                rc.end = 25;
-                rc.step = 5;
-                rc.window = 0;
-                test_rollup(
-                    &mut rc,
-                    &[NAN, 123.0, NAN, 34.0, NAN, 44.0],
-                    &[0, 5, 10, 15, 20, 25],
-                );
-            }
+    #[test]
+    fn test_no_window_partial_points_before_start() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandler::Wrapped(rollup_first);
+        rc.start = 0;
+        rc.end = 25;
+        rc.step = 5;
+        rc.window = 0;
+        test_rollup(
+            &mut rc,
+            &[NAN, 123.0, NAN, 34.0, NAN, 44.0],
+            &[0, 5, 10, 15, 20, 25],
+        );
+    }
 
-            test "afterEnd" {
-                let mut rc = RollupConfig::default();
-                rc.handler = RollupHandler::Wrapped(rollup_first);
-                rc.start = 100;
-                rc.end = 160;
-                rc.step = 20;
-                rc.window = 0;
-                rc.max_points_per_series = 10000;
-                test_rollup(&mut rc, &[44_f64, 32.0, 34.0, NAN], &[100, 120, 140, 160]);
-            }
+    #[test]
+    fn test_no_window_partial_points_after_end() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandler::Wrapped(rollup_first);
+        rc.start = 100;
+        rc.end = 160;
+        rc.step = 20;
+        rc.window = 0;
+        rc.max_points_per_series = 10000;
+        test_rollup(&mut rc, &[44_f64, 32.0, 34.0, NAN], &[100, 120, 140, 160]);
+    }
 
-            test "middle" {
-                let mut rc = RollupConfig::default();
-                rc.handler = RollupHandler::Wrapped(rollup_first);
-                rc.start = -50;
-                rc.end = 150;
-                rc.step = 50;
-                rc.window = 0;
-                test_rollup(
-                    &mut rc,
-                    &[NAN, NAN, 123.0, 34.0, 32.0],
-                    &[-50, 0, 50, 100, 150],
-                );
-            }
-        }
+    #[test]
+    fn test_no_window_partial_points_middle() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandler::Wrapped(rollup_first);
+        rc.start = -50;
+        rc.end = 150;
+        rc.step = 50;
+        rc.window = 0;
+        test_rollup(
+            &mut rc,
+            &[NAN, NAN, 123.0, 34.0, 32.0],
+            &[-50, 0, 50, 100, 150],
+        );
+    }
 
-        describe "window partial points" {
-            test "beforeStart" {
-                let mut rc = RollupConfig::default();
-                rc.handler = RollupHandler::Wrapped(rollup_last);
-                rc.start = 0;
-                rc.end = 20;
-                rc.step = 5;
-                rc.window = 8;
-                test_rollup(
-                    &mut rc,
-                    &[NAN, 123_f64, 123_f64, 34_f64, 34_f64],
-                    &[0, 5, 10, 15, 20],
-                );
-            }
+    #[test]
+    fn test_window_partial_points_before_start() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandler::Wrapped(rollup_last);
+        rc.start = 0;
+        rc.end = 20;
+        rc.step = 5;
+        rc.window = 8;
+        test_rollup(
+            &mut rc,
+            &[NAN, 123_f64, 123_f64, 34_f64, 34_f64],
+            &[0, 5, 10, 15, 20],
+        );
+    }
 
-            test "afterEnd" {
-                let mut rc = RollupConfig::default();
-                rc.handler = RollupHandler::Wrapped(rollup_last);
-                rc.start = 100;
-                rc.end = 160;
-                rc.step = 20;
-                rc.window = 18;
-                test_rollup(
-                    &mut rc,
-                    &[44_f64, 34_f64, 34_f64, NAN],
-                    &[100, 120, 140, 160],
-                );
-            }
+    #[test]
+    fn test_window_partial_points_after_end() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandler::Wrapped(rollup_last);
+        rc.start = 100;
+        rc.end = 160;
+        rc.step = 20;
+        rc.window = 18;
+        test_rollup(
+            &mut rc,
+            &[44_f64, 34_f64, 34_f64, NAN],
+            &[100, 120, 140, 160],
+        );
+    }
 
-            test "middle" {
-                let mut rc = RollupConfig::default();
-                rc.handler = RollupHandler::Wrapped(rollup_last);
-                rc.start = 0;
-                rc.end = 150;
-                rc.step = 50;
-                rc.window = 19;
-                test_rollup(&mut rc, &[NAN, 54_f64, 44_f64, NAN], &[0, 50, 100, 150]);
-            }
-        }
+    #[test]
+    fn test_window_partial_points_middle() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandler::Wrapped(rollup_last);
+        rc.start = 0;
+        rc.end = 150;
+        rc.step = 50;
+        rc.window = 19;
+        test_rollup(&mut rc, &[NAN, 54_f64, 44_f64, NAN], &[0, 50, 100, 150]);
+    }
 
-        describe "lookback delta" {
-            test "one" {
-                let mut rc = RollupConfig::default();
-                rc.handler = RollupHandler::Wrapped(rollup_first);
-                rc.start = 80;
-                rc.end = 140;
-                rc.step = 10;
-                rc.lookback_delta = 1;
-                test_rollup(
-                    &mut rc,
-                    &[99_f64, NAN, 44.0, NAN, 32.0, 34.0, NAN],
-                    &[80, 90, 100, 110, 120, 130, 140],
-                );
-            }
+    #[test]
+    fn test_lookback_delta_1() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandler::Wrapped(rollup_first);
+        rc.start = 80;
+        rc.end = 140;
+        rc.step = 10;
+        rc.lookback_delta = 1;
+        test_rollup(
+            &mut rc,
+            &[99_f64, NAN, 44.0, NAN, 32.0, 34.0, NAN],
+            &[80, 90, 100, 110, 120, 130, 140],
+        );
+    }
 
-            test "seven" {
-                let mut rc = RollupConfig::default();
-                rc.handler = RollupHandler::Wrapped(rollup_first);
-                rc.start = 80;
-                rc.end = 140;
-                rc.step = 10;
-                rc.lookback_delta = 7;
-                test_rollup(
-                    &mut rc,
-                    &[99_f64, NAN, 44.0, NAN, 32.0, 34.0, NAN],
-                    &[80, 90, 100, 110, 120, 130, 140],
-                );
-            }
+    #[test]
+    fn test_lookback_delta_7() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandler::Wrapped(rollup_first);
+        rc.start = 80;
+        rc.end = 140;
+        rc.step = 10;
+        rc.lookback_delta = 7;
+        test_rollup(
+            &mut rc,
+            &[99_f64, NAN, 44.0, NAN, 32.0, 34.0, NAN],
+            &[80, 90, 100, 110, 120, 130, 140],
+        );
+    }
 
-            test "zero" {
-                let mut rc = RollupConfig::default();
-                rc.handler = RollupHandler::Wrapped(rollup_first);
-                rc.start = 80;
-                rc.end = 140;
-                rc.step = 10;
-                rc.lookback_delta = 0;
-                test_rollup(
-                    &mut rc,
-                    &[99_f64, NAN, 44.0, NAN, 32.0, 34.0, NAN],
-                    &[80, 90, 100, 110, 120, 130, 140],
-                );
-            }
-        }
-
+    #[test]
+    fn test_lookback_delta_0() {
+        let mut rc = RollupConfig::default();
+        rc.handler = RollupHandler::Wrapped(rollup_first);
+        rc.start = 80;
+        rc.end = 140;
+        rc.step = 10;
+        rc.lookback_delta = 0;
+        test_rollup(
+            &mut rc,
+            &[99_f64, NAN, 44.0, NAN, 32.0, 34.0, NAN],
+            &[80, 90, 100, 110, 120, 130, 140],
+        );
     }
 
     #[test]
