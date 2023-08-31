@@ -365,7 +365,7 @@ where
 
 pub(crate) fn label_match(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let label_name = get_label(tfa, "", 1)?.to_string();
-    let label_re = get_label(tfa, "regexp", 1)?.to_string();
+    let label_re = get_label(tfa, "regexp", 2)?.to_string();
 
     process_anchored_regex(tfa, &label_re, move |tfa, r| {
         let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;

@@ -259,6 +259,7 @@ impl RollupConfig {
         timestamps: &[i64],
         shared_timestamps: &Arc<Vec<i64>>,
     ) -> RuntimeResult<(u64, Vec<Timeseries>)> {
+        let keep_metric_names = keep_metric_names || func.keep_metric_name();
         if TimeseriesMap::is_valid_function(func) {
             let tsm = Arc::new(TimeseriesMap::new(
                 keep_metric_names,
