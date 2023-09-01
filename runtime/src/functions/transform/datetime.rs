@@ -1,11 +1,11 @@
 use chrono::Utc;
-use chrono_tz::Tz;
 
 use lib::{datetime_part, timestamp_secs_to_utc_datetime, DateTimePart};
 
 use crate::execution::{eval_number, eval_time};
 use crate::functions::arg_parse::{get_series_arg, get_string_arg};
 use crate::functions::transform::{do_transform_values, get_timezone_offset, TransformFuncArg};
+use crate::functions::utils::parse_timezone;
 use crate::{MetricName, RuntimeError, RuntimeResult, Timeseries};
 
 pub(crate) fn hour(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
@@ -66,16 +66,6 @@ fn transform_datetime_impl(
     do_transform_values(&mut arg, tf, tfa.keep_metric_names)
 }
 
-fn parse_zone(tz_name: &str) -> RuntimeResult<Tz> {
-    match tz_name.parse() {
-        Ok(zone) => Ok(zone),
-        Err(e) => Err(RuntimeError::ArgumentError(format!(
-            "unable to parse tz: {:?}",
-            e
-        ))),
-    }
-}
-
 pub(crate) fn timezone_offset(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let tz_name = match get_string_arg(&tfa.args, 0) {
         Err(e) => {
@@ -87,7 +77,7 @@ pub(crate) fn timezone_offset(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<T
         Ok(s) => s,
     };
 
-    let zone = match parse_zone(&tz_name) {
+    let zone = match parse_timezone(&tz_name) {
         Err(e) => {
             return Err(RuntimeError::ArgumentError(format!(
                 "cannot load timezone {tz_name}: {:?}",

@@ -1,3 +1,9 @@
+use chrono_tz::Tz;
+
+use lib::get_local_tz;
+
+use crate::{RuntimeError, RuntimeResult};
+
 pub fn remove_nan_values_in_place(values: &mut Vec<f64>, timestamps: &mut Vec<i64>) {
     let len = values.len();
 
@@ -53,4 +59,24 @@ pub fn get_last_non_nan_index(values: &[f64]) -> usize {
 
 pub(crate) fn float_to_int_bounded(f: f64) -> i64 {
     (f as i64).clamp(i64::MIN, i64::MAX)
+}
+
+// todo: move to common lib
+pub(crate) fn parse_timezone(tz_name: &str) -> RuntimeResult<Tz> {
+    if tz_name.is_empty() || tz_name.to_ascii_lowercase() == "local" {
+        return if let Some(tz) = get_local_tz() {
+            Ok(tz)
+        } else {
+            Err(RuntimeError::ArgumentError(
+                "cannot get local timezone".to_string(),
+            ))
+        };
+    }
+    match tz_name.parse() {
+        Ok(zone) => Ok(zone),
+        Err(e) => Err(RuntimeError::ArgumentError(format!(
+            "unable to parse tz: {:?}",
+            e
+        ))),
+    }
 }

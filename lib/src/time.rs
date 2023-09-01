@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 /// the majority of the functionality in this file is Licensed to the Apache Software Foundation (ASF)
@@ -8,6 +9,8 @@ use chrono::{
     DateTime, Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Timelike, Utc,
     Weekday,
 };
+
+use chrono_tz::Tz;
 
 /// Number of seconds in a day
 pub const SECONDS_IN_DAY: i64 = 86_400;
@@ -274,6 +277,20 @@ pub fn datetime_part<Tz: TimeZone>(datetime: DateTime<Tz>, part: DateTimePart) -
             }
         }
     }
+}
+
+pub fn find_tz_from_env() -> Option<Tz> {
+    // Windows does not support "TZ" env variable, which is used in the `Local` timezone under Unix.
+    // However, we are used to set "TZ" env as the default timezone without actually providing a
+    // timezone argument (especially in tests), and it's very convenient to do so, we decide to make
+    // it work under Windows as well.
+    std::env::var("TZ")
+        .ok()
+        .and_then(|tz| Tz::from_str(&tz).ok())
+}
+
+pub fn get_local_tz() -> Option<Tz> {
+    find_tz_from_env().or_else(|| Tz::from_str("UTC").ok())
 }
 
 #[cfg(test)]

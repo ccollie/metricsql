@@ -3,10 +3,10 @@ mod tests {
     use std::sync::Arc;
 
     use chrono::Duration;
-    use chrono_tz::Tz;
 
     use crate::execution::exec;
     use crate::execution::{Context, EvalConfig};
+    use crate::functions::parse_timezone;
     use crate::functions::transform::get_timezone_offset;
     use crate::{test_results_equal, Deadline, MetricName, QueryResult, Tag};
 
@@ -107,6 +107,13 @@ mod tests {
         );
     }
 
+    //
+    #[test]
+    fn simple_random() {
+        let q = "rand(0)";
+        test_query(q, vec![]);
+    }
+
     #[test]
     fn bitmap_and() {
         assert_result_eq(
@@ -151,7 +158,7 @@ mod tests {
     #[test]
     fn test_timezone_offset_america_new_york() {
         let q = r#"timezone_offset("America/New_York")"#;
-        let tz: Tz = "America/New_York".parse().unwrap();
+        let tz = parse_timezone("America/New_York").unwrap();
         let offset = get_timezone_offset(&tz, TIMESTAMPS_EXPECTED[0]);
         assert_ne!(offset, None);
 
@@ -164,7 +171,7 @@ mod tests {
     #[test]
     fn timezone_offset_local() {
         let q = r#"timezone_offset("Local")"#;
-        let tz: Tz = "Local".parse().unwrap();
+        let tz = parse_timezone("Local").unwrap();
         let offset = get_timezone_offset(&tz, TIMESTAMPS_EXPECTED[0]).unwrap();
         let off = offset as f64;
         let r = make_result(&[off, off, off, off, off, off]);

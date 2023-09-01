@@ -355,7 +355,6 @@ fn aggr_func_histogram(tss: &mut Vec<Timeseries>) {
         for bucket in h.non_zero_buckets() {
             let ts = m.entry(bucket.vm_range.to_string()).or_insert_with(|| {
                 let mut ts = tss[0].clone();
-                ts.metric_name.remove_tag("vmrange");
                 ts.metric_name.set_tag("vmrange", bucket.vm_range);
 
                 // todo(perf): should be a more efficient way to do this

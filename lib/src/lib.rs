@@ -1,5 +1,6 @@
 extern crate byte_pool;
 extern crate byte_slice_cast;
+extern crate chrono_tz;
 extern crate core;
 extern crate integer_encoding;
 extern crate lockfree_object_pool;

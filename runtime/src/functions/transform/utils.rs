@@ -1,4 +1,4 @@
-use chrono::{TimeZone, Utc};
+use chrono::{Offset, TimeZone};
 use chrono_tz::Tz;
 
 use lib::timestamp_ms_to_datetime;
@@ -29,12 +29,15 @@ pub(super) fn expect_transform_args_num(
     )))
 }
 
-pub fn get_timezone_offset(zone: &Tz, timestamp_msecs: i64) -> Option<i64> {
+// Todo: test this, making sure to account for dst
+
+pub fn get_timezone_offset(zone: &impl TimeZone, timestamp_msecs: i64) -> Option<i64> {
     match timestamp_ms_to_datetime(timestamp_msecs) {
         None => None,
         Some(naive) => {
-            let in_tz = Utc.from_utc_datetime(&naive).with_timezone(zone);
-            Some(in_tz.naive_local().timestamp())
+            let offset = zone.offset_from_utc_datetime(&naive);
+            let fixed = offset.fix();
+            Some(fixed.local_minus_utc() as i64)
         }
     }
 }

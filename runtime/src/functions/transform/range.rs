@@ -245,10 +245,10 @@ pub(crate) fn range_normalize(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<T
 }
 
 pub(crate) fn range_trim_zscore(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let z = get_float_arg(&tfa.args, 1, Some(0_f64))?.abs();
+    let z = get_float_arg(&tfa.args, 0, None)?.abs();
 
     // Trim samples with z-score above z.
-    let mut rvs = get_series_arg(&tfa.args, 0, tfa.ec)?;
+    let mut rvs = get_series_arg(&tfa.args, 1, tfa.ec)?;
     for ts in rvs.iter_mut() {
         // todo: use rapid calculation methods for mean and stddev.
         let q_stddev = stddev(&ts.values);

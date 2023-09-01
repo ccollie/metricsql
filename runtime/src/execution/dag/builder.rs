@@ -5,8 +5,7 @@ use std::ops::Deref;
 use topologic::AcyclicDependencyGraph;
 
 use metricsql::ast::{
-    AggregationExpr, BinaryExpr, DurationExpr, Expr, FunctionExpr, MetricExpr, ParensExpr,
-    RollupExpr,
+    AggregationExpr, BinaryExpr, Expr, FunctionExpr, MetricExpr, ParensExpr, RollupExpr,
 };
 use metricsql::functions::{BuiltinFunction, RollupFunction, TransformFunction};
 use metricsql::prelude::{adjust_comparison_ops, Operator};
@@ -198,9 +197,6 @@ impl DAGBuilder {
     }
 
     fn create_absent_node(&mut self, fe: &FunctionExpr) -> RuntimeResult<usize> {
-        // insert a dummy. we will replace it later
-        let idx = self.reserve_node();
-
         // we should only have one arg here.
         // Todo: this should have been checked in the parser
         if fe.args.len() != 1 {
@@ -211,8 +207,22 @@ impl DAGBuilder {
         }
 
         let first = &fe.args[0];
-        let arg_idx = self.create_dependency(first, idx)?;
-        let node = AbsentTransformNode::new(first, arg_idx);
+        // check if arg is float or string. If so store it in the node and don't create a dependency
+        let param = match first {
+            Expr::Number(n) => Some(QueryValue::Scalar(n.value)),
+            Expr::StringLiteral(s) => Some(QueryValue::String(s.clone())),
+            _ => None,
+        };
+
+        // insert a dummy. we will replace it later
+        let idx = self.reserve_node();
+
+        let node = if let Some(arg) = param {
+            AbsentTransformNode::from_arg(first, arg)
+        } else {
+            let arg_idx = self.create_dependency(first, idx)?;
+            AbsentTransformNode::from_arg_index(first, arg_idx)
+        };
 
         self.node_map.insert(idx, DAGNode::Absent(node));
 

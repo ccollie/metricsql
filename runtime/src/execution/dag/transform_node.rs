@@ -3,6 +3,7 @@ use tracing::{field, trace_span, Span};
 
 use metricsql::prelude::{Expr, TransformFunction};
 
+use crate::execution::dag::utils::resolve_value;
 use crate::execution::{Context, EvalConfig};
 use crate::functions::transform::{
     exec_transform_fn, extract_labels, handle_absent, TransformFuncArg,
@@ -88,23 +89,36 @@ pub struct AbsentTransformNode {
     pub labels: Option<Labels>,
     #[serde(skip)]
     pub(crate) arg: QueryValue,
+    pub(crate) arg_const: bool,
 }
 
 impl AbsentTransformNode {
-    pub fn new(expr: &Expr, arg_index: usize) -> Self {
+    pub fn from_arg_index(expr: &Expr, arg_index: usize) -> Self {
         let labels = extract_labels(expr);
         Self {
             keep_metric_names: false,
             arg_index,
             labels,
             arg: QueryValue::default(),
+            arg_const: false,
+        }
+    }
+
+    pub fn from_arg(expr: &Expr, arg: QueryValue) -> Self {
+        let labels = extract_labels(expr);
+        Self {
+            keep_metric_names: false,
+            arg_index: 0,
+            labels,
+            arg,
+            arg_const: true,
         }
     }
 }
 
 impl ExecutableNode for AbsentTransformNode {
     fn set_dependencies(&mut self, dependencies: &mut [QueryValue]) -> RuntimeResult<()> {
-        self.arg = std::mem::take(&mut dependencies[self.arg_index]);
+        resolve_value(self.arg_index, &mut self.arg, dependencies);
         Ok(())
     }
 
