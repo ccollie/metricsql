@@ -1,7 +1,10 @@
 [package]
 name = "runtime"
-version = "0.1.0"
-edition = "2021"
+description = "A promql execution engine"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
 include = [
     "**/*.rs",
     "Cargo.toml",
@@ -43,6 +46,3 @@ tracing = { workspace = true }
 xxhash-rust = { version = "0.8.6", features = ["xxh3", "xxh64"] }
 lib={ path = "../lib" }
 metricsql={ path = "../metricsql" }
-
-[profile.release]
-lto = "fat"

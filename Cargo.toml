@@ -1,9 +1,21 @@
+[workspace.package]
+version = "0.1.0"
+authors = ["ccollie <collie.clayton@gmail.com>"]
+edition = "2021"
+license = "Apache-2.0"
+description = "A promql execution engine"
+homepage = "https://github.com/ccolle/metrix"
+repository = "https://github.com/ccolle/metrix"
+keywords = ["promql", "prometheus", "observability", "metrics"]
+readme = "README.md"
+
 [workspace]
 members = [
     "lib",
     "metricsql",
     "runtime"
 ]
+resolver = "2"
 
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -28,3 +40,6 @@ tracing = "0.1.37"
 phf = { version = "0.11.1", features = ["macros"] }
 thiserror = "1.0.40"
 xxhash-rust = { version = "0.8.6", features = ["xxh3", "xxh64"] }
+
+[profile.release]
+lto = "fat"
