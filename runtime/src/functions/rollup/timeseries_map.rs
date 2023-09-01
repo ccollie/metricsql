@@ -42,8 +42,10 @@ impl MapInner {
         }
     }
 
-    fn update(&mut self, value: f64) {
-        self.hist.update(value);
+    pub fn update(&mut self, values: &[f64]) {
+        for value in values {
+            self.hist.update(*value);
+        }
     }
 
     fn get_or_create_timeseries(&mut self, label_name: &str, label_value: &str) -> &mut Timeseries {
@@ -74,35 +76,12 @@ impl TimeseriesMap {
         }
     }
 
-    pub fn update(&self, values: &[f64]) {
-        let mut inner = self.inner.write().unwrap();
-        for value in values {
-            inner.update(*value);
-        }
-    }
-
-    pub fn with_timeseries(
-        &self,
-        label_name: &str,
-        label_value: &str,
-        f: impl Fn(&mut Timeseries),
-    ) {
-        let mut inner = self.inner.write().unwrap();
-        let ts = inner.get_or_create_timeseries(label_name, label_value);
-        f(ts)
-    }
-
     /// Copy all timeseries to dst. The map should not be used after this call
     pub fn append_timeseries_to(&self, dst: &mut Vec<Timeseries>) {
         let mut inner = self.inner.write().unwrap();
         for (_, mut ts) in inner.series.drain() {
             dst.push(std::mem::take(&mut ts))
         }
-    }
-
-    pub fn reset(&self) {
-        let mut inner = self.inner.write().unwrap();
-        inner.reset();
     }
 
     pub fn series_len(&self) -> usize {
@@ -121,9 +100,8 @@ impl TimeseriesMap {
     pub(crate) fn process_rollup(&self, values: &[f64], rollup_idx: usize) {
         let mut inner = self.inner.write().unwrap();
         inner.reset();
-        for value in values {
-            inner.update(*value);
-        }
+        inner.update(values);
+
         let buckets = inner
             .hist
             .non_zero_buckets()

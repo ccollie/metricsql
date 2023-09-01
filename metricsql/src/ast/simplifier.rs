@@ -28,7 +28,7 @@ use crate::ast::utils::{expr_contains, is_null, is_one, is_op_with, is_zero};
 use crate::ast::{can_pushdown_filters, optimize_label_filters_inplace, NumberLiteral};
 use crate::binaryop::{scalar_binary_operation, string_compare};
 use crate::common::{Operator, RewriteRecursion, TreeNode, TreeNodeRewriter};
-use crate::functions::{TransformFunction, Volatility};
+use crate::functions::TransformFunction;
 use crate::parser::{ParseError, ParseResult};
 use crate::prelude::BuiltinFunction;
 
@@ -183,16 +183,6 @@ impl ConstEvaluator {
     pub fn new() -> Self {
         Self {
             can_evaluate: vec![],
-        }
-    }
-
-    /// Can a function of the specified volatility be evaluated?
-    fn volatility_ok(volatility: Volatility) -> bool {
-        match volatility {
-            Volatility::Immutable => true,
-            // Values for functions such as now() are taken from ExecutionProps
-            Volatility::Stable => true,
-            Volatility::Volatile => false,
         }
     }
 

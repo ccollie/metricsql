@@ -1,10 +1,11 @@
-use crate::{get_pooled_buffer, IntMap};
 use std::collections::HashSet;
 use std::mem::size_of;
-
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::RwLock;
+
 use xxhash_rust::xxh3::xxh3_64;
+
+use crate::{get_pooled_buffer, IntMap};
 
 const U64_SIZE: usize = 8;
 
@@ -41,8 +42,6 @@ const MAX_SUB_VALUE_LEN: usize = CHUNK_SIZE - 16 - 4 - 1;
 /// - 4 bytes are for encoding key.len()+sub_key.len()
 /// - 1 byte is implementation detail of FastCache
 const MAX_KEY_LEN: usize = CHUNK_SIZE - 16 - 4 - 1;
-
-const BIG_CACHE_SIZE_MIN: usize = 32 * 1024 * 1024;
 const SMALL_CACHE_SIZE_MIN: usize = 4 * 1024 * 1024;
 
 /// Stats represents cache stats.
@@ -88,9 +87,9 @@ pub struct Stats {
     /// the number of calls to set_big with too big key.
     pub too_big_key_errors: u64,
 
-    /// invalid_metavalue_errors is the number of calls to get_big resulting
+    /// invalid_meta value_errors is the number of calls to get_big resulting
     /// to invalid meta value.
-    pub invalid_metavalue_errors: u64,
+    pub invalid_meta_value_errors: u64,
 
     /// the number of calls to GetBig resulting to a chunk with invalid length.
     pub invalid_value_len_errors: u64,
@@ -114,7 +113,7 @@ impl Stats {
         self.get_big_calls = 0;
         self.set_big_calls = 0;
         self.too_big_key_errors = 0;
-        self.invalid_metavalue_errors = 0;
+        self.invalid_meta_value_errors = 0;
         self.invalid_value_hash_errors = 0;
         self.invalid_value_len_errors = 0;
     }
@@ -134,7 +133,7 @@ pub struct BigStats {
 
     /// invalid_metavalue_errors is the number of calls to GetBig resulting
     /// to invalid metavalue.
-    pub invalid_metavalue_errors: AtomicU64,
+    pub invalid_meta_value_errors: AtomicU64,
 
     /// invalid_value_len_errors is the number of calls to GetBig resulting
     /// to a chunk with invalid length.
@@ -150,7 +149,7 @@ impl BigStats {
         Self {
             invalid_value_hash_errors: AtomicU64::new(0),
             invalid_value_len_errors: AtomicU64::new(0),
-            invalid_metavalue_errors: AtomicU64::new(0),
+            invalid_meta_value_errors: AtomicU64::new(0),
             get_big_calls: AtomicU64::new(0),
             set_big_calls: AtomicU64::new(0),
             too_big_key_errors: AtomicU64::new(0),
@@ -161,7 +160,7 @@ impl BigStats {
         self.invalid_value_hash_errors.store(0, Ordering::SeqCst);
         self.invalid_value_len_errors.store(0, Ordering::Relaxed);
         self.get_big_calls.store(0, Ordering::Relaxed);
-        self.invalid_metavalue_errors.store(0, Ordering::Relaxed);
+        self.invalid_meta_value_errors.store(0, Ordering::Relaxed);
         self.too_big_key_errors.store(0, Ordering::Relaxed);
         self.set_big_calls.store(0, Ordering::Relaxed);
     }
@@ -292,7 +291,7 @@ impl FastCache {
 
         let mut key_buf = get_pooled_buffer(32);
 
-        // Read and parse metavalue
+        // Read and parse meta value
         if !self.get(k, &mut key_buf) {
             // Nothing found.
             return false;
@@ -300,7 +299,7 @@ impl FastCache {
 
         if key_buf.len() != METADATA_SIZE {
             self.big_stats
-                .invalid_metavalue_errors
+                .invalid_meta_value_errors
                 .fetch_add(1, Ordering::Relaxed);
             return false;
         }
@@ -369,9 +368,9 @@ impl FastCache {
             .big_stats
             .too_big_key_errors
             .fetch_add(0, Ordering::Relaxed);
-        s.invalid_metavalue_errors += self
+        s.invalid_meta_value_errors += self
             .big_stats
-            .invalid_metavalue_errors
+            .invalid_meta_value_errors
             .fetch_add(0, Ordering::Relaxed);
         s.invalid_value_len_errors += self
             .big_stats
@@ -704,10 +703,14 @@ impl Bucket {
 
 #[cfg(test)]
 mod tests {
-    use crate::fast_cache::fast_cache::{BIG_CACHE_SIZE_MIN, BUCKETS_COUNT, CHUNK_SIZE};
-    use crate::{FastCache, Stats};
-    use byte_slice_cast::AsByteSlice;
     use std::collections::HashMap;
+
+    use byte_slice_cast::AsByteSlice;
+
+    use crate::fast_cache::fast_cache::{BUCKETS_COUNT, CHUNK_SIZE};
+    use crate::{FastCache, Stats};
+
+    const BIG_CACHE_SIZE_MIN: usize = 32 * 1024 * 1024;
 
     #[test]
     fn test_cache_small() {

@@ -70,16 +70,6 @@ impl MemoryConsumer {
         }
     }
 
-    /// Set whether this allocation can be spilled to disk
-    pub fn with_can_spill(self, can_spill: bool) -> Self {
-        Self { can_spill, ..self }
-    }
-
-    /// Returns true if this allocation can spill to disk
-    pub fn can_spill(&self) -> bool {
-        self.can_spill
-    }
-
     /// Returns the name associated with this allocation
     pub fn name(&self) -> &str {
         &self.name

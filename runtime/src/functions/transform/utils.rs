@@ -1,5 +1,4 @@
 use chrono::{Offset, TimeZone};
-use chrono_tz::Tz;
 
 use lib::timestamp_ms_to_datetime;
 use metricsql::ast::Expr;
