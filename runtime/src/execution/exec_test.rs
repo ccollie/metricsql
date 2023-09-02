@@ -54,7 +54,9 @@ mod tests {
 
     fn assert_result_eq(q: &str, values: &[f64]) {
         if values.is_empty() {
-            test_query(q, vec![]);
+            let all_nan = vec![NAN, NAN, NAN, NAN, NAN, NAN];
+            let expected = make_result(&all_nan);
+            test_query(q, vec![expected]);
         } else {
             let r = make_result(values);
             test_query(q, vec![r]);
@@ -109,8 +111,8 @@ mod tests {
 
     //
     #[test]
-    fn simple_random() {
-        let q = "rand(0)";
+    fn simple_rand_normal() {
+        let q = "rand_normal()";
         test_query(q, vec![]);
     }
 
@@ -470,10 +472,10 @@ mod tests {
             &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
         );
 
+        assert_result_eq("absent(time() > 1500)", &[1.0, 1.0, 1.0, NAN, NAN, NAN]);
+
         let q = r#"absent(label_set(scalar(1 or label_set(2, "xx", "foo")), "yy", "foo"))"#;
         assert_result_eq(q, &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
-
-        assert_result_eq("absent(time() > 1500)", &[1.0, 1.0, 1.0, NAN, NAN, NAN]);
     }
 
     #[test]
@@ -601,7 +603,7 @@ mod tests {
         assert_result_eq("round(rand()/2)", &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
         assert_result_eq(
             "round(rand(0), 0.01)",
-            &[0.95, 0.24, 0.66, 0.05, 0.37, 0.28],
+            &[0.73, 0.77, 0.03, 0.58, 0.26, 0.77],
         );
     }
 
@@ -613,7 +615,7 @@ mod tests {
         );
         assert_result_eq(
             "round(rand_normal(0), 0.01)",
-            &[-0.28, 0.57, -1.69, 0.2, 1.92, 0.9],
+            &[0.71, 0.86, -2.44, 0.16, -1.28, 1.29],
         );
     }
 
@@ -621,13 +623,10 @@ mod tests {
     fn rand_exponential() {
         let q = "clamp_max(clamp_min(0, rand_exponential()), 0)";
         assert_result_eq(q, &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
-    }
 
-    #[test]
-    fn rand_exponential_0() {
         assert_result_eq(
             "round(rand_exponential(0), 0.01)",
-            &[4.67, 0.16, 3.05, 0.06, 1.86, 0.78],
+            &[1.23, 1.34, 0.11, 0.45, 1.15, 2.73],
         );
     }
 
@@ -2777,6 +2776,12 @@ mod tests {
             "avg without (xx, yy) (123)",
             &[123.0, 123.0, 123.0, 123.0, 123.0, 123.0],
         );
+    }
+
+    #[test]
+    fn histogram_const() {
+        let q = "histogram(123)";
+        assert_result_eq(q, &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
     }
 
     #[test]

@@ -17,7 +17,7 @@ use crate::functions::arg_parse::{
 use crate::functions::skip_trailing_nans;
 use crate::functions::transform::vmrange_buckets_to_le;
 use crate::functions::utils::float_to_int_bounded;
-use crate::histogram::{get_pooled_histogram, Histogram};
+use crate::histogram::{get_pooled_histogram, Histogram, NonZeroBucket};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::signature::Signature;
 use crate::{QueryValue, Timeseries};
@@ -345,25 +345,29 @@ fn aggr_func_geomean(tss: &mut Vec<Timeseries>) {
 fn aggr_func_histogram(tss: &mut Vec<Timeseries>) {
     let mut h: LinearReusable<Histogram> = get_pooled_histogram();
     let mut m: HashMap<String, Timeseries> = HashMap::new();
-    for i in 0..tss[0].values.len() {
+    let value_count = tss[0].values.len();
+
+    for i in 0..value_count {
         h.reset();
         for ts in tss.iter() {
             let v = ts.values[i];
             h.update(v)
         }
 
-        for bucket in h.non_zero_buckets() {
-            let ts = m.entry(bucket.vm_range.to_string()).or_insert_with(|| {
-                let mut ts = tss[0].clone();
-                ts.metric_name.set_tag("vmrange", bucket.vm_range);
-
-                // todo(perf): should be a more efficient way to do this
-                for k in 0..ts.values.len() {
-                    ts.values[k] = 0.0;
+        for NonZeroBucket { count, vm_range } in h.non_zero_buckets() {
+            match m.entry(vm_range.to_string()) {
+                Entry::Vacant(entry) => {
+                    let mut ts = tss[0].clone();
+                    ts.metric_name.set_tag("vmrange", vm_range);
+                    ts.values.fill(0.0);
+                    ts.values[i] = count as f64;
+                    entry.insert(ts);
                 }
-                ts
-            });
-            ts.values[i] = bucket.count as f64;
+                Entry::Occupied(mut entry) => {
+                    let ts = entry.get_mut();
+                    ts.values[i] = count as f64;
+                }
+            }
         }
     }
 

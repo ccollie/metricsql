@@ -1,39 +1,30 @@
 use metricsql::parser::parse_number;
 
 use crate::execution::eval_number;
+use crate::functions::transform::utils::expect_transform_args_num;
 use crate::functions::transform::TransformFuncArg;
-use crate::{QueryValue, RuntimeError, RuntimeResult, Timeseries};
+use crate::{QueryValue, RuntimeResult, Timeseries};
 
 pub(crate) fn scalar(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let arg = get_arg(tfa, 0)?;
+    expect_transform_args_num(tfa, 1)?;
+    let mut arg = tfa.args.remove(0);
     match arg {
         // Verify whether the arg is a string.
         // Then try converting the string to number.
         QueryValue::String(s) => {
-            let n = parse_number(s).map_or_else(|_| f64::NAN, |n| n);
+            let n = parse_number(&s).map_or_else(|_| f64::NAN, |n| n);
             eval_number(tfa.ec, n)
         }
-        QueryValue::Scalar(f) => eval_number(tfa.ec, *f),
-        _ => {
-            // The arg isn't a string. Extract scalar from it.
-            if tfa.args.len() != 1 {
+        QueryValue::Scalar(f) => eval_number(tfa.ec, f),
+        QueryValue::InstantVector(ref mut iv) => {
+            if iv.len() != 1 {
                 eval_number(tfa.ec, f64::NAN)
             } else {
-                let mut arg = arg.get_instant_vector(tfa.ec)?.remove(0);
+                let arg = iv.get_mut(0).unwrap();
                 arg.metric_name.reset();
-                Ok(vec![arg])
+                Ok(std::mem::take(iv))
             }
         }
+        _ => eval_number(tfa.ec, f64::NAN),
     }
-}
-
-fn get_arg<'a>(tfa: &'a TransformFuncArg, index: usize) -> RuntimeResult<&'a QueryValue> {
-    if index >= tfa.args.len() {
-        return Err(RuntimeError::ArgumentError(format!(
-            "expected at least {} args; got {}",
-            index + 1,
-            tfa.args.len()
-        )));
-    }
-    Ok(&tfa.args[index])
 }
