@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -133,13 +134,16 @@ pub(crate) fn prometheus_buckets(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
     Ok(rvs)
 }
 
+type SharedTimeseries = Rc<RefCell<Timeseries>>;
+
 /// Group timeseries by MetricGroup+tags excluding `vmrange` tag.
+#[derive(Clone, Default)]
 struct Bucket {
     start_str: String,
     end_str: String,
     start: f64,
     end: f64,
-    ts: Rc<Timeseries>,
+    ts: SharedTimeseries,
 }
 
 impl Bucket {
@@ -149,30 +153,56 @@ impl Bucket {
             end_str: "".to_string(),
             start: 0.0,
             end: 0.0,
-            ts: Rc::new(ts),
+            ts: Rc::new(RefCell::new(ts)),
         }
     }
-}
 
-impl Bucket {
     fn is_set(&self) -> bool {
         !self.start_str.is_empty()
             || !self.end_str.is_empty() && self.start != 0.0 && self.end != 0.0
     }
-}
 
-impl Default for Bucket {
-    fn default() -> Self {
-        Self::new(Timeseries::default())
+    fn is_zero_ts(&self) -> bool {
+        let ts = self.ts.borrow();
+        ts.values.iter().all(|x| *x <= 0.0)
+    }
+
+    // Convert `vmrange` label in each group of time series to `le` label.
+    fn copy_ts(&self, le_str: &str) -> SharedTimeseries {
+        let src = self.ts.borrow();
+        let mut ts: Timeseries = src.clone();
+        ts.values.fill(0.0);
+        ts.metric_name.set_tag(LE, le_str);
+        Rc::new(RefCell::new(ts))
+    }
+
+    fn set_le(&mut self, end_str: &str) {
+        let mut ts = self.ts.borrow_mut();
+        ts.metric_name.set_tag(LE, end_str);
+    }
+
+    pub fn pop_timeseries(&mut self) -> Option<Timeseries> {
+        match self.ts.try_borrow_mut() {
+            Ok(refcell) => {
+                // you can do refcell.into_inner here
+                Some(refcell.to_owned())
+            }
+            Err(_) => {
+                // another Rc still exists so you cannot take ownership of the value
+                debug_assert!(false, "Cannot borrow mutably");
+                None
+            }
+        }
     }
 }
 
 pub(crate) fn vmrange_buckets_to_le(tss: Vec<Timeseries>) -> Vec<Timeseries> {
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(tss.len());
 
-    let mut buckets: HashMap<Signature, Vec<Bucket>> = HashMap::new();
+    let mut buckets: HashMap<Signature, Vec<Bucket>> = HashMap::with_capacity(tss.len());
 
     let empty_str = "".to_string();
+    let values_count = tss[0].values.len();
 
     for ts in tss.into_iter() {
         let vm_range = ts.metric_name.tag_value("vmrange").unwrap_or(&empty_str);
@@ -214,29 +244,20 @@ pub(crate) fn vmrange_buckets_to_le(tss: Vec<Timeseries>) -> Vec<Timeseries> {
 
         let key = _ts.metric_name.signature();
         // series.push(_ts);
+        let shared_ts = Rc::new(RefCell::new(_ts));
 
         buckets.entry(key).or_default().push(Bucket {
             start_str: start_string,
             end_str: end_string,
             start,
             end,
-            ts: Rc::new(_ts), // does this copy ???
+            ts: shared_ts,
         });
     }
 
-    // Convert `vmrange` label in each group of time series to `le` label.
-    let copy_ts = |src: &Timeseries, le_str: &str| -> Timeseries {
-        let mut ts: Timeseries = src.clone();
-        ts.values.fill(0.0);
-        ts.metric_name.set_tag(LE, le_str);
-        ts
-    };
-
-    let is_zero_ts = |ts: &Timeseries| -> bool { ts.values.iter().all(|x| *x <= 0.0) };
-
     let default_bucket: Bucket = Default::default();
 
-    let mut uniq_ts: HashMap<String, Rc<Timeseries>> = HashMap::with_capacity(8);
+    let mut uniq_ts: HashMap<String, SharedTimeseries> = HashMap::with_capacity(8);
 
     for xss in buckets.values_mut() {
         xss.sort_by(|a, b| a.end.total_cmp(&b.end));
@@ -246,7 +267,7 @@ pub(crate) fn vmrange_buckets_to_le(tss: Vec<Timeseries>) -> Vec<Timeseries> {
         uniq_ts.clear();
 
         for xs in xss.iter_mut() {
-            if is_zero_ts(&xs.ts) {
+            if xs.is_zero_ts() {
                 // Skip time series with zeros. They are substituted by xss_new below.
                 // Skip buckets with zero values - they will be merged into a single bucket
                 // when the next non-zero bucket appears.
@@ -262,44 +283,45 @@ pub(crate) fn vmrange_buckets_to_le(tss: Vec<Timeseries>) -> Vec<Timeseries> {
                 // or the previous bucket is skipped because it was zero.
                 // Fill it with a time series with le=xs.start.
                 if !uniq_ts.contains_key(&xs.start_str) {
-                    let copy = copy_ts(&xs.ts, &xs.start_str);
-                    uniq_ts.insert(xs.start_str.to_string(), Rc::clone(&xs.ts));
+                    let copy = xs.copy_ts(&xs.start_str);
+
+                    uniq_ts.insert(xs.start_str.to_string(), xs.ts.clone());
                     xss_new.push(Bucket {
                         start_str: "".to_string(),
                         start: 0.0,
                         end_str: xs.start_str.clone(),
                         end: xs.start,
-                        ts: copy.into(),
+                        ts: copy,
                     });
                 }
             }
 
+            // ugly, but otherwise we get a borrow error if we do xs.set_le(&xs.end_str);
+            let end_str = xs.end_str.clone();
             // Convert the current time series to a time series with le=xs.end
-            xs.ts.metric_name.set_tag(LE, &xs.end_str);
+            xs.set_le(&end_str);
 
-            match uniq_ts.get_mut(&xs.end_str) {
-                Some(mut prev_ts) => {
-                    // the end of the current bucket is not unique, need to merge it with the existing bucket.
-                    merge_non_overlapping_timeseries(&mut prev_ts, &xs.ts);
-                }
-                None => {
-                    uniq_ts.insert(xs.end_str.clone(), xs.ts.clone()); // ??? is this right ?
-                    xss_new.push(std::mem::take(xs));
-                }
+            if let Some(shared_ts) = uniq_ts.get(&end_str) {
+                let old_ts: &mut Timeseries = &mut shared_ts.borrow_mut();
+                let ts = xs.ts.borrow();
+                merge_non_overlapping_timeseries(old_ts, &ts);
+            } else {
+                uniq_ts.insert(end_str, xs.ts.clone());
+                xss_new.push(xs.clone());
             }
 
             xs_prev = xs;
         }
 
-        if xs_prev.is_set() && !isinf(xs_prev.end, 1) && !is_zero_ts(&xs_prev.ts) {
-            let ts = copy_ts(&xs_prev.ts, "+Inf");
+        if xs_prev.is_set() && !isinf(xs_prev.end, 1) && !xs_prev.is_zero_ts() {
+            let ts = xs_prev.copy_ts("+Inf");
 
             xss_new.push(Bucket {
                 start_str: "".to_string(),
                 end_str: "+Inf".to_string(),
                 start: 0.0,
                 end: f64::INFINITY,
-                ts: ts.into(),
+                ts,
             })
         }
 
@@ -308,19 +330,22 @@ pub(crate) fn vmrange_buckets_to_le(tss: Vec<Timeseries>) -> Vec<Timeseries> {
             continue;
         }
 
-        for i in 0..xss[0].ts.values.len() {
+        for i in 0..values_count {
             let mut count: f64 = 0.0;
             for xs in xss.iter_mut() {
-                let v = xs.ts.values[i];
+                let mut ts = xs.ts.borrow_mut();
+                let v = ts.values[i];
                 if v > 0.0 {
                     count += v
                 }
-                xs.ts.values[i] = count
+                ts.values[i] = count
             }
         }
 
         for xs in xss.into_iter() {
-            rvs.push(std::mem::take(&mut xs.ts))
+            if let Some(ts) = xs.pop_timeseries() {
+                rvs.push(ts);
+            }
         }
     }
 

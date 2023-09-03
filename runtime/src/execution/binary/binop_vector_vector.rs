@@ -256,7 +256,7 @@ fn adjust_binary_op_tags(
                 let labels = group_tags.as_ref().as_ref();
                 if is_on {
                     ts_left.metric_name.remove_tags_on(labels);
-                } else if is_ignoring {
+                } else {
                     ts_left.metric_name.remove_tags_ignoring(labels);
                 }
 
