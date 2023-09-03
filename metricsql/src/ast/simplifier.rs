@@ -644,6 +644,7 @@ mod tests {
 
     use crate::ast::binary_expr;
     use crate::ast::utils::{expr_equals, lit, number, selector};
+    use crate::functions::Volatility;
     use crate::parser::parse;
     use crate::prelude::TransformFunction;
 

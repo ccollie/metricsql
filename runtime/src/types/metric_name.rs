@@ -9,7 +9,7 @@ use enquote::enquote;
 use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::Xxh3;
 
-use metricsql::common::{AggregateModifier, GroupModifier, GroupModifierOp, VectorMatchModifier};
+use metricsql::common::{AggregateModifier, VectorMatchModifier};
 
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::signature::Signature;
@@ -237,17 +237,6 @@ impl MetricName {
     /// remove_tags_ignoring removes all the tags included in ignoring_tags.
     pub fn remove_tags_ignoring(&mut self, ignoring_tags: &[String]) {
         self.remove_tags(ignoring_tags);
-    }
-
-    pub fn update_tags_by_group_modifier(&mut self, modifier: &GroupModifier) {
-        match modifier.op {
-            GroupModifierOp::On => {
-                self.remove_tags_on(&modifier.labels);
-            }
-            GroupModifierOp::Ignoring => {
-                self.remove_tags(&modifier.labels);
-            }
-        }
     }
 
     /// removes all the tags included in labels.

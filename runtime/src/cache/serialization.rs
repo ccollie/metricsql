@@ -48,14 +48,14 @@ pub(crate) fn compress_series(series: &[Timeseries], buf: &mut Vec<u8>) -> Runti
         .collect();
 
     // timestamp metadata
-    write_metatadata(&mut t_compressor, buf, q_timestamps, &chunk_spec)?;
+    write_metadata(&mut t_compressor, buf, q_timestamps, &chunk_spec)?;
 
     // write out series count
     write_usize(buf, series_count);
 
     // write out value chunk metadata
     for (compressor, series) in value_compressors.iter_mut().zip(series.iter()) {
-        write_metatadata(compressor, buf, &series.values, &chunk_spec)?;
+        write_metadata(compressor, buf, &series.values, &chunk_spec)?;
     }
 
     // write out series labels
@@ -238,7 +238,7 @@ pub(super) fn estimate_size(tss: &[Timeseries]) -> usize {
     labels_size + value_size + timestamp_size
 }
 
-fn write_metatadata<T: NumberLike>(
+fn write_metadata<T: NumberLike>(
     compressor: &mut Compressor<T>,
     dest: &mut Vec<u8>,
     values: &[T],
