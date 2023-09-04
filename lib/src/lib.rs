@@ -13,7 +13,7 @@ extern crate xxhash_rust;
 pub use atomic_counter::*;
 pub use bits::*;
 pub use decimal::*;
-pub use dedup::{deduplicate_samples, deduplicate_samples_during_merge};
+pub use dedup::deduplicate_samples;
 pub use duration::*;
 pub use encoding::*;
 pub use fast_cache::*;

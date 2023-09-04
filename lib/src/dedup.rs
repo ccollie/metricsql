@@ -14,6 +14,7 @@ pub fn deduplicate_samples(
     let mut j: usize = 0;
     let mut count = 0;
 
+    // todo: eliminate bounds checks
     for i in 1..src_timestamps.len() {
         let ts = src_timestamps[i];
         if ts <= ts_next {
@@ -32,44 +33,6 @@ pub fn deduplicate_samples(
         }
     }
 
-    src_timestamps[count - 1] = src_timestamps[src_timestamps.len() - 1];
-    src_values[count - 1] = src_values[src_values.len() - 1];
-    src_timestamps.truncate(count);
-    src_values.truncate(count);
-}
-
-pub fn deduplicate_samples_during_merge(
-    src_timestamps: &mut Vec<i64>,
-    src_values: &mut Vec<i64>,
-    dedup_interval: i64,
-) {
-    if !needs_dedup(src_timestamps, dedup_interval) {
-        // Fast path - nothing to deduplicate
-        return;
-    }
-    let mut ts_next = src_timestamps[0] + dedup_interval - 1;
-    ts_next = ts_next - (ts_next % dedup_interval);
-
-    let mut j: usize = 1;
-    let mut count: usize = 0;
-
-    for i in 1..src_timestamps.len() {
-        let ts = src_timestamps[i];
-        if ts <= ts_next {
-            continue;
-        }
-
-        src_timestamps[j] = ts;
-        src_values[j] = src_values[i];
-        j += 1;
-        count += 1;
-
-        ts_next += dedup_interval;
-        if ts_next < ts {
-            ts_next = ts + dedup_interval - 1;
-            ts_next -= ts_next % dedup_interval
-        }
-    }
     src_timestamps[count - 1] = src_timestamps[src_timestamps.len() - 1];
     src_values[count - 1] = src_values[src_values.len() - 1];
     src_timestamps.truncate(count);
