@@ -22,7 +22,7 @@ use crate::ast::{
     WithExpr,
 };
 use crate::common::Operator;
-use crate::prelude::MetricExpr;
+use crate::prelude::{BinModifier, MetricExpr};
 
 /// Create a selector expression based on a qualified or unqualified column name
 ///
@@ -170,7 +170,21 @@ fn binary_exprs_equal(be1: &BinaryExpr, be2: &BinaryExpr) -> bool {
     be1.op == be2.op
         && expr_equals(&be1.left, &be2.left)
         && expr_equals(&be1.right, &be2.right)
-        && be1.modifier == be2.modifier
+        && bin_modifiers_equal(&be1.modifier, &be2.modifier)
+}
+
+fn bin_modifiers_equal(bm1: &Option<BinModifier>, bm2: &Option<BinModifier>) -> bool {
+    match (bm1, bm2) {
+        (Some(bm1), Some(bm2)) => bm1 == bm2,
+        (None, None) => true,
+        _ => {
+            // None, Some
+            let default_value = BinModifier::default();
+            let left = bm1.as_ref().unwrap_or(&default_value);
+            let right = bm2.as_ref().unwrap_or(&default_value);
+            left == right
+        }
+    }
 }
 
 fn function_exprs_equal(fe1: &FunctionExpr, fe2: &FunctionExpr) -> bool {
