@@ -28,7 +28,7 @@ fn invalid_number(lex: &mut Lexer<Token>) -> ParseResult<()> {
 #[logos(subpattern binary = r"-?0[bB][0-1][_0-1]*")]
 #[logos(subpattern float = r"-?(?:([0-9]*[.])?[0-9]+)(?:[eE][+-]?\d+)?")]
 #[logos(subpattern duration = r"-?(?:([0-9]*[.])?[0-9]+)(ms|s|m|h|d|w|y|i)")]
-#[logos(skip r"[ \t\n\f]+")]
+#[logos(skip r"[ \t\n\f\r]+")]
 #[logos(skip r"#[^\r\n]*(\r\n|\n)?")] // single line comment
 pub enum Token {
     #[token("and", ignore(ascii_case))]
@@ -520,11 +520,23 @@ mod tests {
         test_success(s, &expected);
     }
 
+    fn expect_error_containing(s: &str, needle: &str) {
+        let mut lex = Token::lexer(s);
+        let actual = lex.next().unwrap();
+        assert_eq!(actual.is_err(), true);
+        let msg = format!("{}", actual.unwrap_err());
+        assert!(msg.contains(needle));
+    }
+
     #[test]
     fn test_invalid_number() {
-        test_tokens!("1.+", [ErrorInvalidNumber]);
-        test_tokens!("1e!", [ErrorInvalidNumber]);
-        test_tokens!("1e+!", [ErrorInvalidNumber]);
+        fn check(s: &str) {
+            expect_error_containing(s, "Invalid number");
+        }
+
+        check("1.+");
+        check("1e!");
+        check("1e+!");
     }
 
     #[test_case("\"hi\"", StringLiteral; "double_1")]
@@ -539,8 +551,12 @@ mod tests {
 
     #[test]
     fn string_unterminated() {
-        test_tokens!("\"hi", [ErrorStringUnterminated]);
-        test_tokens!("\'hi", [ErrorStringUnterminated]);
+        fn check(s: &str) {
+            expect_error_containing(s, "unterminated string literal");
+        }
+
+        check("\"hi");
+        check("\'hi");
     }
 
     #[test_case("by", By)]
