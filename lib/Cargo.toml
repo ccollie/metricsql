@@ -25,3 +25,6 @@ rand_distr = { workspace = true }
 regex-syntax = { workspace = true }
 tinyvec = { workspace = true }
 xxhash-rust = { workspace = true }
+
+[dev-dependencies]
+test-case.workspace = true

@@ -35,11 +35,13 @@ rs_unit = "0.0.2"
 scopeguard = "1.1.0"
 serde = { version = "1.0.164", features = ["derive"] }
 serde_with = "3.0.0"
+test-case = "3.1.0"
 tinyvec = { version = "1.6.0", features = ["alloc"] }
 tracing = "0.1.37"
 phf = { version = "0.11.1", features = ["macros"] }
 thiserror = "1.0.40"
 xxhash-rust = { version = "0.8.6", features = ["xxh3", "xxh64"] }
+
 
 [profile.release]
 lto = "fat"

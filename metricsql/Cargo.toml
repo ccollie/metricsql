@@ -24,7 +24,7 @@ xxhash-rust = { version = "0.8.6", features = ["xxh3", "xxh64"] }
 lib = { path = "../lib" }
 
 [dev-dependencies]
-test-case = "3.1.0"
+test-case.workspace = true
 
 [lib]
 name="metricsql"

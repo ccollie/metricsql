@@ -256,7 +256,7 @@ impl FastCache {
             return;
         }
         let value_len = v.len();
-        let value_hash = xxh3_64(k);
+        let value_hash = xxh3_64(v);
 
         let mut meta_buf: [u8; METADATA_SIZE] = [0; METADATA_SIZE];
 
@@ -284,8 +284,6 @@ impl FastCache {
     ///
     /// Returns only values stored via set_big(). It doesn't work
     /// with values stored via other methods.
-    ///
-    /// k contents may be modified after returning from get_big.
     pub fn get_big(&mut self, k: &[u8], dst: &mut Vec<u8>) -> bool {
         self.big_stats.get_big_calls.fetch_add(1, Ordering::Relaxed);
 
@@ -705,7 +703,7 @@ impl Bucket {
 mod tests {
     use std::collections::HashMap;
 
-    use byte_slice_cast::AsByteSlice;
+    use test_case::test_case;
 
     use crate::fast_cache::fast_cache::{BUCKETS_COUNT, CHUNK_SIZE};
     use crate::{FastCache, Stats};
@@ -1041,28 +1039,27 @@ mod tests {
 
     const VALUES_COUNT: usize = 10;
 
-    macro_rules! test_value_size {
-        ($name: ident, $value_size: expr) => {
-            #[test]
-            fn $name() {
-                let mut c = FastCache::new(256 * 1024 * 1024);
-                for seed in 0..3 {
-                    test_set_get_big(&mut c, $value_size, VALUES_COUNT, seed)
-                }
-            }
-        };
+    #[test_case(1)]
+    #[test_case(100)]
+    #[test_case(65535)]
+    #[test_case(65536)]
+    #[test_case(65537)]
+    #[test_case(131071)]
+    #[test_case(131072)]
+    #[test_case(131073)]
+    #[test_case(524288)]
+    fn test_values_get_set_big(value_size: usize) {
+        let mut c = FastCache::new(256 * 1024 * 1024);
+        for seed in 0..3 {
+            test_set_get_big(&mut c, value_size, VALUES_COUNT, seed)
+        }
     }
 
-    test_value_size!(test_values_1, 1);
-    test_value_size!(test_values_100, 100);
-    test_value_size!(test_values_65535, 1 << (16 - 1));
-    test_value_size!(test_values_65536, 1 << 16);
-    test_value_size!(test_values_65537, 1 << (16 + 1));
-
-    test_value_size!(test_values_131071, 1 << (17 - 1));
-    test_value_size!(test_values_131072, 1 << 17);
-    test_value_size!(test_values_131073, 1 << (17 + 1));
-    test_value_size!(test_values_524288, 1 << 19);
+    #[test]
+    fn test_values_one() {
+        let mut c = FastCache::new(256 * 1024 * 1024);
+        test_set_get_big(&mut c, 131072, 1, 0)
+    }
 
     fn test_set_get_big(c: &mut FastCache, value_size: usize, values_count: usize, seed: u8) {
         let mut m: HashMap<String, Vec<u8>> = HashMap::new();
@@ -1081,8 +1078,8 @@ mod tests {
             buf.clear();
             let found = c.get_big(&key1, &mut buf);
             assert!(found && buf == value,
-                    "seed={}; unexpected value obtained for key={}; got value.len()={}; want value.len()={}",
-                    seed, String::from_utf8_lossy(&key1), buf.len(), value.len())
+                    "found={found} seed={seed}; unexpected value obtained for key={}; got value.len()={}; want value.len()={}",
+                    String::from_utf8_lossy(&key1), buf.len(), value.len())
         }
 
         let mut s = Stats::default();
@@ -1103,17 +1100,20 @@ mod tests {
         // Verify that values still exist
         for (key, value) in m.iter() {
             buf.clear();
-            c.get_big(key.as_bytes(), &mut buf);
-            assert!(c.get_big(key.as_byte_slice(), &mut buf) && buf == *value,
-                    "seed={}; unexpected value obtained for key={}; got value.len()={}; want value.len()={}",
-                    seed, key, buf.len(), value.len())
+
+            let found = c.get_big(key.as_bytes(), &mut buf);
+
+            assert!(found && buf == *value,
+                    "found = {found} seed={seed}; unexpected value obtained for key={}; got value.len()={}; want value.len()={}",
+                    key, buf.len(), value.len())
         }
     }
 
     fn create_value(size: usize, seed: u8) -> Vec<u8> {
         let mut buf: Vec<u8> = Vec::with_capacity(size);
         for i in 0..size {
-            buf.push((i as u8) + seed)
+            let m = ((i + seed as usize) % 256) as u8;
+            buf.push(m)
         }
         buf
     }
