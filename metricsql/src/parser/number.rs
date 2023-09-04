@@ -28,6 +28,9 @@ fn parse_basic(str: &str) -> ParseResult<f64> {
 /// Note. This should only called on strings produced by the lexer. To be more
 /// specific, this assumes strings are ascii
 pub fn parse_positive_number(str: &str) -> ParseResult<f64> {
+    if str.is_empty() {
+        return Err(InvalidNumber(str.to_string()));
+    }
     let ch = str.chars().next().unwrap();
     match ch {
         'i' | 'I' => {
