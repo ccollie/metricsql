@@ -11,9 +11,9 @@ readme = "README.md"
 
 [workspace]
 members = [
-    "lib",
-    "metricsql",
-    "runtime"
+    "metricsql_common",
+    "metricsql_parser",
+    "metricsql_engine"
 ]
 resolver = "2"
 

@@ -1,6 +1,6 @@
-# metrix
+# metricsql
 
-`metrix` implements a [MetricsQL](https://github.com/VictoriaMetrics/VictoriaMetrics/wiki/MetricsQL)
+`metricsql` implements a [MetricsQL](https://github.com/VictoriaMetrics/VictoriaMetrics/wiki/MetricsQL)
 and [PromQL](https://medium.com/@valyala/promql-tutorial-for-beginners-9ab455142085) execution engine in Rust.
 Define your datasource as a trait and execute timeseries queries against your data.
 
