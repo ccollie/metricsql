@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::any::Any;
+use datafusion::arrow::datatypes;
 
 use datafusion::arrow::error::ArrowError;
 use datafusion::error::DataFusionError;

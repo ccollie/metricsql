@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod consts;
-mod error;
-pub mod local;
-pub mod manager;
-pub mod system;
-mod table_source_provider;
-pub mod utils;
+pub type BinaryArray = arrow::array::LargeBinaryArray;
+pub type MutableBinaryArray = arrow::array::LargeBinaryBuilder;
+pub type StringArray = arrow::array::StringArray;
+pub type MutableStringArray = arrow::array::StringBuilder;

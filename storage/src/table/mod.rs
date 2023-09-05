@@ -1,6 +1,8 @@
 pub mod adapter;
-mod engine;
-mod error;
-mod metadata;
-mod requests;
+pub mod engine;
+pub mod error;
+pub mod metadata;
+pub mod requests;
 mod table;
+
+pub use table::*;

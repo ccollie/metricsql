@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod consts;
-mod error;
-pub mod local;
-pub mod manager;
-pub mod system;
-mod table_source_provider;
-pub mod utils;
+pub use crate::data_type::{ConcreteDataType, DataType, DataTypeRef};
+pub use crate::macros::*;
+pub use crate::scalars::{Scalar, ScalarRef, ScalarVector, ScalarVectorBuilder};
+pub use crate::type_id::LogicalTypeId;
+pub use crate::types::{LogicalPrimitiveType, WrapperType};
+pub use crate::value::{Value, ValueRef};
+pub use crate::vectors::{MutableVector, Validity, Vector, VectorRef};

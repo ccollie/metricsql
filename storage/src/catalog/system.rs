@@ -22,22 +22,19 @@ use serde::{Deserialize, Serialize};
 use snafu::{ensure, OptionExt, ResultExt};
 use tracing::debug;
 
-use common_catalog::consts::{
-    DEFAULT_CATALOG_NAME, DEFAULT_SCHEMA_NAME, INFORMATION_SCHEMA_NAME, MITO_ENGINE,
-    SYSTEM_CATALOG_NAME, SYSTEM_CATALOG_TABLE_ID, SYSTEM_CATALOG_TABLE_NAME,
-};
+
 use common_recordbatch::SendableRecordBatchStream;
 use common_time::util;
 use datatypes::prelude::{ConcreteDataType, ScalarVector, VectorRef};
 use datatypes::schema::{ColumnSchema, RawSchema, SchemaRef};
 use datatypes::vectors::{BinaryVector, TimestampMillisecondVector, UInt8Vector};
 use lib::current_time_millis;
-use table::engine::{EngineContext, TableEngineRef};
-use table::metadata::{TableId, TableInfoRef};
+use crate::table::engine::{EngineContext, TableEngineRef};
+use crate::table::metadata::{TableId, TableInfoRef};
 use table::requests::{
     CreateTableRequest, DeleteRequest, InsertRequest, OpenTableRequest, TableOptions,
 };
-use table::{Result as TableResult, Table, TableRef};
+use crate::table::{Result as TableResult, Table, TableRef};
 
 use crate::catalog::consts::{
     DEFAULT_CATALOG_NAME, DEFAULT_SCHEMA_NAME, INFORMATION_SCHEMA_NAME, MITO_ENGINE,

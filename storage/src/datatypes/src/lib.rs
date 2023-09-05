@@ -12,10 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod consts;
-mod error;
-pub mod local;
-pub mod manager;
-pub mod system;
-mod table_source_provider;
-pub mod utils;
+#![feature(let_chains)]
+
+pub mod arrow_array;
+pub mod data_type;
+pub mod error;
+pub mod interval;
+pub mod macros;
+pub mod prelude;
+pub mod scalars;
+pub mod schema;
+pub mod serialize;
+pub mod time;
+pub mod timestamp;
+pub mod type_id;
+pub mod types;
+pub mod value;
+pub mod vectors;
+
+pub use arrow;
+pub use error::{Error, Result};

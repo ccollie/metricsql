@@ -121,6 +121,7 @@ mod tests {
     use session::context::QueryContext;
 
     use crate::catalog::local::MemoryCatalogManager;
+    use crate::table::engine::TableReference;
 
     use super::*;
 

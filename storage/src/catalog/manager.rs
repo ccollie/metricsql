@@ -22,10 +22,10 @@ use std::sync::Arc;
 use snafu::ResultExt;
 use tracing::info;
 
-use table::engine::{EngineContext, TableEngineRef};
-use table::metadata::TableId;
-use table::requests::CreateTableRequest;
-use table::TableRef;
+use crate::table::engine::{EngineContext, TableEngineRef};
+use crate::table::metadata::TableId;
+use crate::table::requests::CreateTableRequest;
+use crate::table::TableRef;
 
 use crate::error::{CreateTableSnafu, Result};
 
