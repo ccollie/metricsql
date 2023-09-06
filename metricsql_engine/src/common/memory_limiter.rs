@@ -52,7 +52,7 @@ impl MemoryLimiter {
 
 #[cfg(test)]
 mod tests {
-    use crate::utils::MemoryLimiter;
+    use crate::common::memory_limiter::MemoryLimiter;
 
     #[test]
     fn test_memory_limiter() {
