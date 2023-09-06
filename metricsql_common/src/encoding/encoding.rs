@@ -1,20 +1,12 @@
 use std::fmt;
-use std::iter::repeat;
-use std::ops::Deref;
-
-use crate::{fastnum, get_pooled_buffer};
-use crate::encoding::compress::{compress_lz4, decompress_lz4};
 use crate::encoding::int::{marshal_var_int, unmarshal_var_int};
-use crate::encoding::nearest_delta::{marshal_int64_nearest_delta, unmarshal_int64_nearest_delta};
-use crate::encoding::nearest_delta2::{
-    marshal_int64_nearest_delta2, unmarshal_int64_nearest_delta2,
-};
 use crate::error::{Error, Result};
 
-/// MIN_COMPRESSIBLE_BLOCK_SIZE is the minimum block size in bytes for trying compression.
-///
-/// There is no sense in compressing smaller blocks.
-const MIN_COMPRESSIBLE_BLOCK_SIZE: usize = 128;
+#[derive(Debug, Clone, PartialOrd, PartialEq, Copy)]
+pub struct ConstValue {
+    value: f64,
+    count: usize,
+}
 
 /// MarshalType is the type used for the marshaling.
 #[derive(Debug, Clone, PartialOrd, PartialEq, Copy)]
@@ -34,12 +26,6 @@ pub enum MarshalType {
     /// NearestDelta2 is used instead of Lz4DNearestDelta2
     /// if compression doesn't help.
     NearestDelta2 = 4,
-
-    /// Lz4DNearestDelta is used for marshaling gauge timeseries.
-    Lz4NearestDelta = 5,
-
-    /// Counter timeseries compressed with lz4.
-    Lz4NearestDelta2 = 6,
 }
 
 impl fmt::Display for MarshalType {
@@ -50,8 +36,6 @@ impl fmt::Display for MarshalType {
             DeltaConst => write!(f, "DeltaConst")?,
             NearestDelta => write!(f, "NearestDelta")?,
             NearestDelta2 => write!(f, "NearestDelta2")?,
-            Lz4NearestDelta => write!(f, "Lz4NearestDelta")?,
-            Lz4NearestDelta2 => write!(f, "Lz4NearestDelta2")?,
         }
         Ok(())
     }
@@ -66,21 +50,9 @@ impl TryFrom<u8> for MarshalType {
             x if x == MarshalType::DeltaConst as u8 => Ok(MarshalType::DeltaConst),
             x if x == MarshalType::NearestDelta as u8 => Ok(MarshalType::NearestDelta),
             x if x == MarshalType::NearestDelta2 as u8 => Ok(MarshalType::NearestDelta2),
-            x if x == MarshalType::Lz4NearestDelta as u8 => Ok(MarshalType::Lz4NearestDelta),
-            x if x == MarshalType::Lz4NearestDelta2 as u8 => Ok(MarshalType::Lz4NearestDelta2),
             _ => Err(Error::from("Invalid marshal type value: {v}")),
         }
     }
-}
-
-/// check_precision_bits makes sure precision_bits is in the range [1..64].
-pub(crate) fn check_precision_bits(precision_bits: u8) -> std::result::Result<(), Error> {
-    if !(1..=64).contains(&precision_bits) {
-        return Err(Error::from(format!(
-            "precision_bits must be in the range [1...64]; got {precision_bits}"
-        )));
-    }
-    Ok(())
 }
 
 /// marshal_timestamps marshals timestamps, appends the marshaled result
@@ -93,9 +65,8 @@ pub(crate) fn check_precision_bits(precision_bits: u8) -> std::result::Result<()
 pub fn marshal_timestamps(
     dst: &mut Vec<u8>,
     timestamps: &[i64],
-    precision_bits: u8,
 ) -> Result<(MarshalType, i64)> {
-    marshal_int64_array(dst, timestamps, precision_bits)
+    marshal_int64_array(dst, timestamps)
 }
 
 /// unmarshal_timestamps unmarshals timestamps from src, appends them to dst
@@ -129,36 +100,14 @@ pub fn unmarshal_timestamps(
 pub fn marshal_values(
     dst: &mut Vec<u8>,
     values: &[i64],
-    precision_bits: u8,
 ) -> Result<(MarshalType, i64)> {
-    marshal_int64_array(dst, values, precision_bits)
+    marshal_int64_array(dst, values)
 }
 
-/// unmarshal_values unmarshals values from src, appends them to dst and returns
-/// the resulting dst.
-///
-/// first_value must be the value returned from marshal_values.
-pub fn unmarshal_values(
-    dst: &mut Vec<i64>,
-    src: &[u8],
-    mt: MarshalType,
-    first_value: i64,
-    items_count: usize,
-) -> Result<()> {
-    match unmarshal_int64_array(dst, src, mt, first_value, items_count) {
-        Err(err) => Err(Error::from(format!(
-            "cannot unmarshal {items_count} values from src.len()={} bytes: {}",
-            src.len(),
-            err
-        ))),
-        _ => Ok(()),
-    }
-}
 
 pub fn marshal_int64_array(
     dst: &mut Vec<u8>,
     a: &[i64],
-    precision_bits: u8,
 ) -> Result<(MarshalType, i64)> {
     use MarshalType::*;
 
@@ -176,44 +125,15 @@ pub fn marshal_int64_array(
         return Ok((DeltaConst, first_value));
     }
 
-    let bb = get_pooled_buffer(2048);
-    let first_value: i64;
-    let mut mt: MarshalType;
-
-    if is_gauge(a) {
+    let first_value: i64 = 0;
+    let mt = if is_gauge(a) {
         // Gauge values are better compressed with delta encoding.
-        mt = Lz4NearestDelta;
-        let mut pb = precision_bits;
-        if pb < 6 {
-            // Increase precision bits for gauges, since they suffer more
-            // from low precision bits comparing to counters.
-            pb += 2;
-        }
-        first_value = marshal_int64_nearest_delta(dst, a, pb)?;
+        // pcodec
+        NearestDelta
     } else {
         // Non-gauge values, i.e. counters are better compressed with delta2 encoding.
-        mt = Lz4NearestDelta2;
-        first_value = marshal_int64_nearest_delta2(dst, a, precision_bits)?;
-    }
-
-    let orig_len: usize = dst.len();
-
-    // Try compressing the result.
-    if bb.len() >= MIN_COMPRESSIBLE_BLOCK_SIZE {
-        // quantile compress ???
-        let mut compressed = compress_lz4(bb.deref());
-        dst.append(&mut compressed);
-    }
-    if bb.len() < MIN_COMPRESSIBLE_BLOCK_SIZE
-        || (dst.len() - orig_len) > (0.9 * bb.len() as f64) as usize
-    {
-        // Ineffective compression. Store plain data.
-        mt = match mt {
-            Lz4NearestDelta2 => NearestDelta2,
-            Lz4NearestDelta => NearestDelta,
-            _ => return Err(Error::from(format!("BUG: unexpected mt={mt}"))),
-        };
-        dst.extend(bb.as_slice());
+        // pcodec
+        NearestDelta2
     };
 
     Ok((mt, first_value))
@@ -234,52 +154,11 @@ pub fn unmarshal_int64_array(
     //let mut src = src;
 
     match mt {
-        Lz4NearestDelta => match decompress_lz4(src) {
-            Err(err) => Err(Error::from(format!("cannot decompress lz4 data: {}", err))),
-            Ok(uncompressed) => {
-                match unmarshal_int64_nearest_delta(dst, &uncompressed, first_value, items_count) {
-                    Err(err) => {
-                        let msg = format!(
-                            "cannot unmarshal nearest delta data after decompression: {}",
-                            err
-                        );
-                        Err(Error::from(msg))
-                    }
-                    Ok(_) => Ok(()),
-                }
-            }
+        NearestDelta => {
+            todo!()
         },
-        Lz4NearestDelta2 => match decompress_lz4(src) {
-            Err(err) => Err(Error::from(format!(
-                "cannot decompress lz4 data: {:?}",
-                err
-            ))),
-            Ok(uncompressed) => {
-                match unmarshal_int64_nearest_delta2(dst, &uncompressed, first_value, items_count) {
-                    Err(err) => {
-                        let msg = format!(
-                            "cannot unmarshal nearest delta2 data after decompression: {}",
-                            err
-                        );
-                        Err(Error::from(msg))
-                    }
-                    Ok(_) => Ok(()),
-                }
-            }
-        },
-        NearestDelta => match unmarshal_int64_nearest_delta(dst, src, first_value, items_count) {
-            Err(e) => Err(Error::from(format!(
-                "cannot unmarshal nearest delta data: {}",
-                e
-            ))),
-            Ok(_) => Ok(()),
-        },
-        NearestDelta2 => match unmarshal_int64_nearest_delta2(dst, src, first_value, items_count) {
-            Err(e) => Err(Error::from(format!(
-                "cannot unmarshal nearest delta2 data: {}",
-                e
-            ))),
-            Ok(_) => Ok(()),
+        NearestDelta2 => {
+            todo!()
         },
         Const => {
             if !src.is_empty() {
@@ -288,16 +167,8 @@ pub fn unmarshal_int64_array(
                     src.len()
                 )));
             }
-            if first_value == 0 {
-                fastnum::append_int64_zeros(dst, items_count);
-                return Ok(());
-            }
-            if first_value == 1 {
-                fastnum::append_int64_ones(dst, items_count);
-                return Ok(());
-            }
-            dst.reserve(items_count);
-            dst.extend(repeat(first_value).take(items_count));
+            let count = dst.len();
+            dst.resize(count + items_count, first_value);
             Ok(())
         }
         DeltaConst => {
@@ -377,16 +248,7 @@ pub(crate) fn is_const(a: &[i64]) -> bool {
     if a.is_empty() {
         return false;
     }
-    if fastnum::is_int64_zeros(a) {
-        // Fast path for array containing only zeros.
-        return true;
-    }
-    if fastnum::is_int64_ones(a) {
-        // Fast path for array containing only ones.
-        return true;
-    }
-    let v1 = a[0];
-    a.iter().all(|x| *x == v1)
+    is_const_buf(a)
 }
 
 /// is_delta_const returns true if a contains counter with constant delta.
@@ -401,6 +263,26 @@ pub fn is_delta_const(a: &[i64]) -> bool {
             return false;
         }
         prev = *next;
+    }
+    true
+}
+
+pub fn is_const_buf<T: Copy + PartialEq>(data: &[T]) -> bool {
+    if data.is_empty() {
+        return true;
+    }
+    let comparator = [data[0]; 512];
+    let mut cursor = data;
+    while !cursor.is_empty() {
+        let mut n = comparator.len();
+        if n > cursor.len() {
+            n = cursor.len()
+        }
+        let x = &cursor[0..n];
+        if x != &comparator[0..x.len()] {
+            return false;
+        }
+        cursor = &cursor[n..];
     }
     true
 }

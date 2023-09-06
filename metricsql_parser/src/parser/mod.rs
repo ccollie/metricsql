@@ -25,7 +25,7 @@ pub mod parse_error;
 pub mod parser;
 pub mod symbol_provider;
 pub mod tokens;
-pub mod utils;
+mod utils;
 
 // tests
 #[cfg(test)]

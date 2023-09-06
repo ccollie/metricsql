@@ -5,7 +5,7 @@ pub use operator::*;
 pub use string_expr::*;
 pub use tree_node::*;
 pub use types::*;
-pub(crate) use utils::*;
+pub(crate) use utils::{join_vector, write_comma_separated, write_number};
 pub use value::*;
 
 mod label_filter;

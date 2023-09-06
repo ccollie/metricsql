@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use metricsql_common::isinf;
+use metricsql_common::is_inf;
 
 use crate::execution::merge_non_overlapping_timeseries;
 use crate::functions::arg_parse::{
@@ -313,7 +313,7 @@ pub(crate) fn vmrange_buckets_to_le(tss: Vec<Timeseries>) -> Vec<Timeseries> {
             xs_prev = xs;
         }
 
-        if xs_prev.is_set() && !isinf(xs_prev.end, 1) && !xs_prev.is_zero_ts() {
+        if xs_prev.is_set() && !is_inf(xs_prev.end, 1) && !xs_prev.is_zero_ts() {
             let ts = xs_prev.copy_ts("+Inf");
 
             xss_new.push(Bucket {
@@ -379,7 +379,7 @@ pub(crate) fn histogram_share(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<T
         if le_req < 0.0 {
             return (0.0, 0.0, 0.0);
         }
-        if isinf(le_req, 1) {
+        if is_inf(le_req, 1) {
             return (1.0, 1.0, 1.0);
         }
         let mut v_prev: f64 = 0.0;
@@ -396,7 +396,7 @@ pub(crate) fn histogram_share(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<T
             // precondition: le_prev <= le_req < le
             let v_last = xss[xss.len() - 1].ts.values[i];
             let lower = v_prev / v_last;
-            if isinf(le, 1) {
+            if is_inf(le, 1) {
                 return (lower, lower, 1.0);
             }
             if le_prev == le_req {
@@ -505,7 +505,7 @@ fn avg_for_le_timeseries(i: usize, xss: &[LeTimeseries]) -> f64 {
     let mut sum: f64 = 0.0;
     let mut weight_total: f64 = 0.0;
     for xs in xss {
-        if isinf(xs.le, 0) {
+        if is_inf(xs.le, 0) {
             continue;
         }
         let le = xs.le;
@@ -530,7 +530,7 @@ fn stdvar_for_le_timeseries(i: usize, xss: &[LeTimeseries]) -> f64 {
     let mut sum2: f64 = 0.0;
     let mut weight_total: f64 = 0.0;
     for xs in xss {
-        if isinf(xs.le, 0) {
+        if is_inf(xs.le, 0) {
             continue;
         }
         let le = xs.le;
@@ -621,7 +621,7 @@ pub(crate) fn histogram_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
         let mut cur = xss;
         while !cur.is_empty() {
             let xs_last = &cur[cur.len() - 1];
-            if !isinf(xs_last.le, 0) {
+            if !is_inf(xs_last.le, 0) {
                 return xs_last.le;
             }
             cur = &cur[0..cur.len() - 1]
@@ -664,7 +664,7 @@ pub(crate) fn histogram_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
                 le_prev = le;
                 continue;
             }
-            if isinf(le, 0) {
+            if is_inf(le, 0) {
                 break;
             }
             if v == v_prev {
