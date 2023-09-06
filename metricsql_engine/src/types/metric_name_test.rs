@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::utils::write_string;
+    use crate::common::encoding::write_string;
     use crate::MetricName;
 
     #[test]
