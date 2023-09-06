@@ -22,7 +22,7 @@ use core::{
 ///
 /// ```
 /// use metricsql_common::IntMap;
-/// use nohash_hasher::IntMap;
+/// use crate::no_hash::IntMap;
 ///
 /// let mut m: IntMap<u32, bool> = IntMap::default();
 ///

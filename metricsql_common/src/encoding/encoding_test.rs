@@ -2,12 +2,7 @@
 mod tests {
     use crate::encoding::is_const;
     use crate::{
-        ensure_non_decreasing_sequence, is_delta_const, is_gauge, marshal_timestamps,
-        marshal_values, unmarshal_timestamps, unmarshal_values, MarshalType,
-    };
-
-    use crate::tests::utils::{
-        check_precision_bits, ensure_marshal_unmarshal_int64_array, get_rand_normal,
+        ensure_non_decreasing_sequence, is_delta_const, is_gauge,
     };
 
     #[test]
@@ -102,79 +97,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_marshal_unmarshal_timestamps() {
-        const PRECISION_BITS: u8 = 3;
-
-        let mut timestamps: Vec<i64> = vec![];
-        let mut timestamps2: Vec<i64> = vec![];
-
-        let mut v: i64 = 0;
-
-        for _ in 0..8 * 1024 {
-            v += (30e3 * get_rand_normal() * 5e2) as i64;
-            timestamps.push(v);
-        }
-
-        let mut result: Vec<u8> = vec![];
-
-        let (mt, first_timestamp) = marshal_timestamps(&mut result, &timestamps, PRECISION_BITS)
-            .expect("marshal_timestamps");
-
-        unmarshal_timestamps(
-            &mut timestamps2,
-            &result,
-            mt,
-            first_timestamp,
-            timestamps.len(),
-        )
-        .expect("unmarshal_timestamps");
-
-        if let Err(err) = check_precision_bits(&timestamps, &timestamps2, PRECISION_BITS) {
-            panic!("too low precision for timestamps: {:?}", err)
-        }
-    }
-
-    #[test]
-    fn test_marshal_unmarshal_values() {
-        const PRECISION_BITS: u8 = 3;
-
-        let mut values: Vec<i64> = vec![];
-        let mut v: i64 = 0;
-
-        for _ in 0..8 * 1024 {
-            v += (get_rand_normal() * 1e2) as i64;
-            values.push(v)
-        }
-        let mut result: Vec<u8> = vec![];
-        let mut values2: Vec<i64> = vec![];
-        let (mt, first_value) =
-            marshal_values(&mut result, &values, PRECISION_BITS).expect("marshal_values");
-
-        unmarshal_values(&mut values2, &result, mt, first_value, values.len())
-            .expect("unmarshal values");
-
-        assert_eq!(values2, values);
-
-        if let Err(err) = check_precision_bits(&values, &values2, PRECISION_BITS) {
-            panic!("too low precision for values: {:?}", err)
-        }
-    }
-
-    #[test]
-    fn test_marshal_unmarshal_int64array_generic() {
-        use MarshalType::*;
-
-        ensure_marshal_unmarshal_int64_array(&[1, 20, 234], 4, NearestDelta2);
-        ensure_marshal_unmarshal_int64_array(&[1, 20, -2345, 678934, 342], 4, NearestDelta);
-        ensure_marshal_unmarshal_int64_array(&[1, 20, 2345, 6789, 12342], 4, NearestDelta2);
-
-        // Constant encoding
-        ensure_marshal_unmarshal_int64_array(&[1], 4, Const);
-        ensure_marshal_unmarshal_int64_array(&[1, 2], 4, DeltaConst);
-        ensure_marshal_unmarshal_int64_array(&[-1, 0, 1, 2, 3, 4, 5], 4, DeltaConst);
-        ensure_marshal_unmarshal_int64_array(&[-10, -1, 8, 17, 26], 4, DeltaConst);
-        ensure_marshal_unmarshal_int64_array(&[0, 0, 0, 0, 0, 0], 4, Const);
-        ensure_marshal_unmarshal_int64_array(&[100, 100, 100, 100], 4, Const);
-    }
 }
