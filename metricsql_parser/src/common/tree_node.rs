@@ -22,8 +22,6 @@ use std::sync::Arc;
 
 use crate::parser::ParseResult;
 
-pub type Result<T> = ParseResult<T>;
-
 /// Defines a visitable and rewriteable a tree node. This trait is
 /// implemented for plans ([`ExecutionPlan`] and [`LogicalPlan`]) as
 /// well as expression trees ([`PhysicalExpr`], [`Expr`]) in
@@ -39,9 +37,9 @@ pub trait TreeNode: Sized {
     ///
     /// The `op` closure can be used to collect some info from the
     /// tree node or do some checking for the tree node.
-    fn apply<F>(&self, op: &mut F) -> Result<VisitRecursion>
+    fn apply<F>(&self, op: &mut F) -> ParseResult<VisitRecursion>
     where
-        F: FnMut(&Self) -> Result<VisitRecursion>,
+        F: FnMut(&Self) -> ParseResult<VisitRecursion>,
     {
         match op(self)? {
             VisitRecursion::Continue => {}
@@ -82,7 +80,7 @@ pub trait TreeNode: Sized {
     ///
     /// If using the default [`TreeNodeVisitor::post_visit`] that does
     /// nothing, [`Self::apply`] should be preferred.
-    fn visit<V: TreeNodeVisitor<N = Self>>(&self, visitor: &mut V) -> Result<VisitRecursion> {
+    fn visit<V: TreeNodeVisitor<N = Self>>(&self, visitor: &mut V) -> ParseResult<VisitRecursion> {
         match visitor.pre_visit(self)? {
             VisitRecursion::Continue => {}
             // If the recursion should skip, do not apply to its children. And let the recursion continue
@@ -105,9 +103,9 @@ pub trait TreeNode: Sized {
     /// Convenience utils for writing optimizers rule: recursively apply the given `op` to the node tree.
     /// When `op` does not apply to a given node, it is left unchanged.
     /// The default tree traversal direction is transform_up(Postorder Traversal).
-    fn transform<F>(self, op: &F) -> Result<Self>
+    fn transform<F>(self, op: &F) -> ParseResult<Self>
     where
-        F: Fn(Self) -> Result<Transformed<Self>>,
+        F: Fn(Self) -> ParseResult<Transformed<Self>>,
     {
         self.transform_up(op)
     }
@@ -115,9 +113,9 @@ pub trait TreeNode: Sized {
     /// Convenience utils for writing optimizers rule: recursively apply the given 'op' to the node and all of its
     /// children(Preorder Traversal).
     /// When the `op` does not apply to a given node, it is left unchanged.
-    fn transform_down<F>(self, op: &F) -> Result<Self>
+    fn transform_down<F>(self, op: &F) -> ParseResult<Self>
     where
-        F: Fn(Self) -> Result<Transformed<Self>>,
+        F: Fn(Self) -> ParseResult<Transformed<Self>>,
     {
         let after_op = op(self)?.into();
         after_op.map_children(|node| node.transform_down(op))
@@ -126,9 +124,9 @@ pub trait TreeNode: Sized {
     /// Convenience utils for writing optimizers rule: recursively apply the given 'op' first to all of its
     /// children and then itself(Postorder Traversal).
     /// When the `op` does not apply to a given node, it is left unchanged.
-    fn transform_up<F>(self, op: &F) -> Result<Self>
+    fn transform_up<F>(self, op: &F) -> ParseResult<Self>
     where
-        F: Fn(Self) -> Result<Transformed<Self>>,
+        F: Fn(Self) -> ParseResult<Transformed<Self>>,
     {
         let after_op_children = self.map_children(|node| node.transform_up(op))?;
 
@@ -164,7 +162,7 @@ pub trait TreeNode: Sized {
     ///
     /// If using the default [`TreeNodeRewriter::pre_visit`] which
     /// returns `true`, [`Self::transform`] should be preferred.
-    fn rewrite<R: TreeNodeRewriter<N = Self>>(self, rewriter: &mut R) -> Result<Self> {
+    fn rewrite<R: TreeNodeRewriter<N = Self>>(self, rewriter: &mut R) -> ParseResult<Self> {
         let need_mutate = match rewriter.pre_visit(&self)? {
             RewriteRecursion::Mutate => return rewriter.mutate(self),
             RewriteRecursion::Stop => return Ok(self),
@@ -183,14 +181,14 @@ pub trait TreeNode: Sized {
     }
 
     /// Apply the closure `F` to the node's children
-    fn apply_children<F>(&self, op: &mut F) -> Result<VisitRecursion>
+    fn apply_children<F>(&self, op: &mut F) -> ParseResult<VisitRecursion>
     where
-        F: FnMut(&Self) -> Result<VisitRecursion>;
+        F: FnMut(&Self) -> ParseResult<VisitRecursion>;
 
     /// Apply transform `F` to the node's children, the transform `F` might have a direction(Preorder or Postorder)
-    fn map_children<F>(self, transform: F) -> Result<Self>
+    fn map_children<F>(self, transform: F) -> ParseResult<Self>
     where
-        F: FnMut(Self) -> Result<Self>;
+        F: FnMut(Self) -> ParseResult<Self>;
 }
 
 /// Implements the [visitor
@@ -223,11 +221,11 @@ pub trait TreeNodeVisitor: Sized {
     type N: TreeNode;
 
     /// Invoked before any children of `node` are visited.
-    fn pre_visit(&mut self, node: &Self::N) -> Result<VisitRecursion>;
+    fn pre_visit(&mut self, node: &Self::N) -> ParseResult<VisitRecursion>;
 
     /// Invoked after all children of `node` are visited. Default
     /// implementation does nothing.
-    fn post_visit(&mut self, _node: &Self::N) -> Result<VisitRecursion> {
+    fn post_visit(&mut self, _node: &Self::N) -> ParseResult<VisitRecursion> {
         Ok(VisitRecursion::Continue)
     }
 }
@@ -241,13 +239,13 @@ pub trait TreeNodeRewriter: Sized {
 
     /// Invoked before (Preorder) any children of `node` are rewritten /
     /// visited. Default implementation returns `Ok(Recursion::Continue)`
-    fn pre_visit(&mut self, _node: &Self::N) -> Result<RewriteRecursion> {
+    fn pre_visit(&mut self, _node: &Self::N) -> ParseResult<RewriteRecursion> {
         Ok(RewriteRecursion::Continue)
     }
 
     /// Invoked after (Postorder) all children of `node` have been mutated and
     /// returns a potentially modified node.
-    fn mutate(&mut self, node: Self::N) -> Result<Self::N>;
+    fn mutate(&mut self, node: Self::N) -> ParseResult<Self::N>;
 }
 
 /// Controls how the [`TreeNode`] recursion should proceed for [`TreeNode::rewrite`].
@@ -310,15 +308,15 @@ pub trait DynTreeNode {
         &self,
         arc_self: Arc<Self>,
         new_children: Vec<Arc<Self>>,
-    ) -> Result<Arc<Self>>;
+    ) -> ParseResult<Arc<Self>>;
 }
 
 /// Blanket implementation for Arc for any type that implements
-/// [`DynTreeNode`] (such as [`Arc<dyn PhysicalExpr>`])
+/// [`DynTreeNode`]
 impl<T: DynTreeNode + ?Sized> TreeNode for Arc<T> {
-    fn apply_children<F>(&self, op: &mut F) -> Result<VisitRecursion>
+    fn apply_children<F>(&self, op: &mut F) -> ParseResult<VisitRecursion>
     where
-        F: FnMut(&Self) -> Result<VisitRecursion>,
+        F: FnMut(&Self) -> ParseResult<VisitRecursion>,
     {
         for child in self.arc_children() {
             match op(&child)? {
@@ -331,13 +329,13 @@ impl<T: DynTreeNode + ?Sized> TreeNode for Arc<T> {
         Ok(VisitRecursion::Continue)
     }
 
-    fn map_children<F>(self, transform: F) -> Result<Self>
+    fn map_children<F>(self, transform: F) -> ParseResult<Self>
     where
-        F: FnMut(Self) -> Result<Self>,
+        F: FnMut(Self) -> ParseResult<Self>,
     {
         let children = self.arc_children();
         if !children.is_empty() {
-            let new_children: Result<Vec<_>> = children.into_iter().map(transform).collect();
+            let new_children: ParseResult<Vec<_>> = children.into_iter().map(transform).collect();
             let arc_self = Arc::clone(&self);
             self.with_new_arc_children(arc_self, new_children?)
         } else {
