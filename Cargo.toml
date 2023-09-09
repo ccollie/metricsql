@@ -40,7 +40,7 @@ tinyvec = { version = "1.6.0", features = ["alloc"] }
 tracing = "0.1.37"
 phf = { version = "0.11.1", features = ["macros"] }
 thiserror = "1.0.40"
-xxhash-rust = { version = "0.8.6", features = ["xxh3", "xxh64"] }
+xxhash-rust = { version = "0.8.6", features = ["xxh3"] }
 
 
 [profile.release]
