@@ -28,7 +28,7 @@ pub struct QueryParams {
     pub end: Timestamp,
     pub step: Duration,
     pub deadline: Deadline,
-    pub round_digits: usize,
+    pub round_digits: u8,
     pub required_tag_filters: Vec<Matchers>,
 }
 
@@ -89,7 +89,7 @@ pub struct QueryBuilder {
     step: Option<Duration>,
     timeout: Option<Duration>,
     etfs: Vec<Matchers>,
-    round_digits: usize,
+    round_digits: u8,
     no_cache: bool,
     trace_enabled: bool,
 }
@@ -146,7 +146,7 @@ impl QueryBuilder {
         self
     }
 
-    pub fn round_digits(&mut self, digits: usize) -> &mut Self {
+    pub fn round_digits(&mut self, digits: u8) -> &mut Self {
         self.round_digits = digits;
         self
     }
@@ -388,7 +388,7 @@ fn query_range_handler(
     ec.deadline = params.deadline;
     ec.set_caching(params.may_cache);
     ec.enforced_tag_filters = params.required_tag_filters.clone(); // todo: how to avoid this clone ??
-    ec.round_digits = params.round_digits as i16;
+    ec.round_digits = params.round_digits;
     ec.lookback_delta = lookback_delta;
     ec.update_from_context(ctx);
 

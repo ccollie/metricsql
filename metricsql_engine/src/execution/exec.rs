@@ -151,7 +151,7 @@ pub fn exec(
 
     let mut result = timeseries_to_result(&mut rv, parsed.sort_results)?;
 
-    let n = ec.round_digits as u8;
+    let n = ec.round_digits;
     if n < 100 {
         for r in result.iter_mut() {
             for v in r.values.iter_mut() {

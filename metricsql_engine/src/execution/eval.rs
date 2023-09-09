@@ -97,7 +97,7 @@ pub struct EvalConfig {
     pub lookback_delta: i64,
 
     /// How many decimal digits after the point to leave in response.
-    pub round_digits: i16,
+    pub round_digits: u8,
 
     /// enforced_tag_filters may contain additional label filters to use in the query.
     pub enforced_tag_filters: Vec<Matchers>,
