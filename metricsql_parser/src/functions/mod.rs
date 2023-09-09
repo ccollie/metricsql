@@ -70,6 +70,10 @@ impl BuiltinFunction {
         Err(ParseError::InvalidFunction(format!("built-in::{name}")))
     }
 
+    pub fn is_supported(name: &str) -> bool {
+        Self::new(name).is_ok()
+    }
+
     pub fn name(&self) -> &'static str {
         use BuiltinFunction::*;
         match self {
@@ -220,5 +224,16 @@ impl TryFrom<&str> for BuiltinFunction {
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         Self::new(value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_is_supported() {
+        assert!(super::BuiltinFunction::is_supported("geomean"));
+        assert!(super::BuiltinFunction::is_supported("Predict_Linear"));
+        assert!(super::BuiltinFunction::is_supported("minute"));
+        assert!(!super::BuiltinFunction::is_supported("foo"));
     }
 }
