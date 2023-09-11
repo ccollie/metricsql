@@ -106,7 +106,6 @@ impl Storage {
                     values,
                     timestamps,
                     rows_processed: 0,
-                    worker_id: 0,
                 };
             }
         }

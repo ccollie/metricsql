@@ -33,7 +33,6 @@ mod tests {
             values: vals,
             timestamps,
             rows_processed: 0,
-            worker_id: 0,
         }
     }
 
@@ -3831,7 +3830,6 @@ mod tests {
             values: vec![1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0],
             timestamps: Vec::from(TIMESTAMPS_EXPECTED),
             rows_processed: 0,
-            worker_id: 0,
         };
         test_query(q, vec![r]);
     }

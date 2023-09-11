@@ -191,7 +191,6 @@ pub(crate) fn timeseries_to_result(
                 values: ts.values.clone(),      // perf) .into vs clone/take
                 timestamps: ts.timestamps.as_ref().clone(), // todo(perf): declare field as Rc<Vec<i64>>
                 rows_processed: 0,
-                worker_id: 0,
             };
 
             result.push(res);

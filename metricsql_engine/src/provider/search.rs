@@ -4,7 +4,7 @@ use std::ops::Range;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 
-use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
+use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 
 use metricsql_parser::common::{LabelFilter, Matchers};
@@ -113,8 +113,6 @@ pub struct QueryResult {
     pub values: Vec<f64>,
     pub timestamps: Vec<i64>,
     pub(crate) rows_processed: usize,
-    /// Internal only
-    pub(crate) worker_id: u64,
 }
 
 impl QueryResult {
@@ -124,7 +122,6 @@ impl QueryResult {
             values: vec![],
             timestamps: vec![],
             rows_processed: 0,
-            worker_id: 0,
         }
     }
 
@@ -134,7 +131,6 @@ impl QueryResult {
             values: Vec::with_capacity(cap),
             timestamps: Vec::with_capacity(cap),
             rows_processed: 0,
-            worker_id: 0,
         }
     }
 
@@ -225,23 +221,19 @@ impl QueryResults {
     where
         F: Fn(Arc<&mut C>, &mut QueryResult, u64) -> RuntimeResult<()> + Send + Sync,
     {
-        for (id, ts) in self.series.iter_mut().enumerate() {
-            ts.worker_id = id as u64;
-        }
-
         let must_stop = AtomicBool::new(false);
         let sharable_ctx = Arc::new(ctx);
 
         self.series
             .par_iter_mut()
-            .filter(|rs| !rs.timestamps.is_empty())
-            .try_for_each(|rs| {
+            .enumerate()
+            .filter(|(id, rs)| !rs.timestamps.is_empty())
+            .try_for_each(|(id, rs)| {
                 if must_stop.load(Ordering::Relaxed) {
                     return Err(RuntimeError::TaskCancelledError("Search".to_string()));
                 }
 
-                let worker_id = rs.worker_id;
-                f(Arc::clone(&sharable_ctx), rs, worker_id)
+                f(Arc::clone(&sharable_ctx), rs, id as u64)
             })
     }
 
