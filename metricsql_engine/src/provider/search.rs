@@ -184,7 +184,7 @@ impl Clone for QueryResults {
 }
 
 impl QueryResults {
-    pub(crate) fn new(series: Vec<QueryResult>) -> Self {
+    pub fn new(series: Vec<QueryResult>) -> Self {
         QueryResults {
             series,
             signal: Arc::new(AtomicU32::new(0_u32)),
