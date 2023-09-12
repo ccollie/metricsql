@@ -116,11 +116,11 @@ pub struct QueryResult {
 }
 
 impl QueryResult {
-    pub fn new() -> Self {
+    pub fn new(metric: MetricName, timestamps: Vec<i64>, values: Vec<f64>) -> Self {
         QueryResult {
-            metric: MetricName::default(),
-            values: vec![],
-            timestamps: vec![],
+            metric,
+            values,
+            timestamps,
             rows_processed: 0,
         }
     }
