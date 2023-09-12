@@ -6,11 +6,13 @@ use chrono::Utc;
 use crate::execution::EvalConfig;
 use crate::types::{Timestamp, TimestampTrait};
 
+#[derive(Debug)]
 struct Inner {
     id: u64,
     data: HashMap<u64, ActiveQueryEntry>,
 }
 
+#[derive(Debug)]
 pub struct ActiveQueries {
     inner: RwLock<Inner>,
 }

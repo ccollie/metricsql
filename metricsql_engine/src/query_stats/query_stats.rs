@@ -9,13 +9,13 @@ use chrono::Duration;
 
 const QUERY_STATS_DEFAULT_CAPACITY: usize = 250;
 
-#[derive(Hash, Clone, Default, PartialEq, Eq)]
+#[derive(Hash, Clone, Debug, Default, PartialEq, Eq)]
 pub struct QueryStatKey {
     pub query: String,
     pub time_range_secs: i64,
 }
 
-#[derive(Hash, Clone)]
+#[derive(Hash, Clone, Debug)]
 pub struct QueryStatRecord {
     pub key: QueryStatKey,
     pub register_time: DateTime<Utc>,
@@ -61,7 +61,7 @@ impl Default for QueryStatByDuration {
     }
 }
 
-#[derive(Hash, Clone)]
+#[derive(Hash, Clone, Debug)]
 /// Configuration settings for QueryStatsTracker
 pub struct QueryStatsConfig {
     /// Zero value disables query stats tracking
@@ -86,12 +86,14 @@ impl Default for QueryStatsConfig {
     }
 }
 
+#[derive(Debug)]
 struct Inner {
     data: Vec<QueryStatRecord>, // use deque ???
     next_idx: usize,
 }
 
 /// QueryStatsTracker holds statistics for queries
+#[derive(Debug)]
 pub struct QueryStatsTracker {
     inner: RwLock<Inner>,
     config: QueryStatsConfig,
