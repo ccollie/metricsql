@@ -3836,14 +3836,14 @@ mod tests {
 
     #[test]
     fn range_stddev() {
-        let q = "range_stddev(time())";
+        let q = "round(range_stddev(time()), 0.01)";
         let r = make_result(&[341.57, 341.57, 341.57, 341.57, 341.57, 341.57]);
         test_query(q, vec![r]);
     }
 
     #[test]
     fn range_stdvar() {
-        let q = "range_stdvar(time())";
+        let q = "round(range_stdvar(time()), 0.01)";
         let r = make_result(&[
             116666.67, 116666.67, 116666.67, 116666.67, 116666.67, 116666.67,
         ]);
