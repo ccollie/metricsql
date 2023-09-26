@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use lru_time_cache::LruCache;
 
 use metricsql_parser::ast::Expr;
+use metricsql_parser::common::Operator;
 use metricsql_parser::parser;
 use metricsql_parser::parser::ParseError;
 
@@ -134,6 +135,11 @@ fn should_sort_results(e: &Expr) -> bool {
     match e {
         Expr::Function(fe) => !fe.function.may_sort_results(),
         Expr::Aggregation(ae) => !ae.function.may_sort_results(),
+        Expr::BinaryOperator(be) => {
+            // Do not sort results for `a or b` in the same way as Prometheus does.
+            // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/4763
+            be.op != Operator::Or
+        }
         _ => true,
     }
 }
