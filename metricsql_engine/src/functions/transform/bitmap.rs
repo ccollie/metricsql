@@ -22,6 +22,9 @@ pub(crate) fn transform_bitmap_impl(
 
     let tf = |values: &mut [f64]| {
         for v in values.iter_mut() {
+            if v.is_nan() {
+                continue;
+            }
             *v = bitmap_func(*v as u64, mask) as f64;
         }
     };

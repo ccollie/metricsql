@@ -4,11 +4,11 @@ mod tests {
 
     use chrono::Duration;
 
-    use crate::execution::exec;
+    use crate::{Deadline, MetricName, QueryResult, Tag, test_results_equal};
     use crate::execution::{Context, EvalConfig};
+    use crate::execution::exec;
     use crate::functions::parse_timezone;
     use crate::functions::transform::get_timezone_offset;
-    use crate::{test_results_equal, Deadline, MetricName, QueryResult, Tag};
 
     const NAN: f64 = f64::NAN;
     const INF: f64 = f64::INFINITY;
@@ -125,6 +125,8 @@ mod tests {
             "bitmap_and(time(), 0x11)",
             &[0.0, 16.0, 16.0, 0.0, 0.0, 16.0],
         );
+
+        assert_result_eq("bitmap_and(NaN, 1)", &[]);
     }
 
     #[test]
@@ -137,6 +139,8 @@ mod tests {
             "bitmap_or(time(), 0x11)",
             &[1017.0, 1201.0, 1401.0, 1617.0, 1817.0, 2001.0],
         );
+
+        assert_result_eq("bitmap_or(NaN, 1)", &[]);
     }
 
     #[test]
@@ -149,6 +153,8 @@ mod tests {
             "bitmap_xor(time(), 0x11)",
             &[1017.0, 1185.0, 1385.0, 1617.0, 1817.0, 1985.0],
         );
+
+        assert_result_eq("bitmap_xor(NaN, 1)", &[]);
     }
 
     #[test]
@@ -2118,6 +2124,7 @@ mod tests {
 
     #[test]
     fn stddev_over_time() {
+        f
         let q = "round(stddev_over_time(rand(0)[200s:5s]), 0.001)";
         assert_result_eq(q, &[0.286, 0.297, 0.303, 0.274, 0.318, 0.283]);
     }
