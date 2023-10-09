@@ -4,8 +4,8 @@ authors = ["ccollie <collie.clayton@gmail.com>"]
 edition = "2021"
 license = "Apache-2.0"
 description = "A promql execution engine"
-homepage = "https://github.com/ccolle/metrix"
-repository = "https://github.com/ccolle/metrix"
+homepage = "https://github.com/ccolle/metricsql"
+repository = "https://github.com/ccolle/metricsql"
 keywords = ["promql", "prometheus", "observability", "metrics"]
 readme = "README.md"
 
