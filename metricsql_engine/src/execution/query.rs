@@ -203,15 +203,13 @@ pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<Query
     let ct = Timestamp::now();
     let mut start = params.start;
     let mut end = params.end;
-    let lookback_delta = get_max_lookback(
-        context,
-        params.step.num_milliseconds(),
-        Some(TWO_DAYS_MSECS),
-    );
-    let mut step = if params.step.num_milliseconds() == 0 {
+    let step_millis = params.step.num_milliseconds();
+
+    let lookback_delta = get_max_lookback(context, step_millis, Some(TWO_DAYS_MSECS));
+    let mut step = if step_millis == 0 {
         lookback_delta
     } else {
-        params.step.num_milliseconds()
+        step_millis
     };
     if step <= 0 {
         step = DEFAULT_STEP
