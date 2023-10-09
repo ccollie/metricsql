@@ -33,13 +33,13 @@ pub(super) fn parse_func_expr(p: &mut Parser) -> ParseResult<Expr> {
     Ok(Expr::Function(fe))
 }
 
-// Note: MetricSQL is much looser than PromQL in terms of function argument types. In particular,
-// 1. MetricSQL allows scalar arguments to be passed to functions that expect vector arguments.
-// 2. For rollup function arguments without a lookbehind window, an implicit [1i] is added, which
-//    essentially converts vectors ino ranges
-// 3. non-rollup series selectors are wrapped in a default_rollup()
-// see https://docs.victoriametrics.com/MetricsQL.html
-// https://docs.victoriametrics.com/MetricsQL.html#implicit-query-conversions
+/// Note: MetricSQL is much looser than PromQL in terms of function argument types. In particular,
+/// 1. MetricSQL allows scalar arguments to be passed to functions that expect vector arguments.
+/// 2. For rollup function arguments without a lookbehind window, an implicit [1i] is added, which
+///    essentially converts vectors into ranges
+/// 3. non-rollup series selectors are wrapped in a default_rollup()
+/// see https://docs.victoriametrics.com/MetricsQL.html
+/// https://docs.victoriametrics.com/MetricsQL.html#implicit-query-conversions
 pub fn validate_function_args(func: &BuiltinFunction, args: &[Expr]) -> ParseResult<()> {
     let expect = |actual: ValueType, expected: ValueType, index: usize| -> ParseResult<()> {
         if actual != expected {

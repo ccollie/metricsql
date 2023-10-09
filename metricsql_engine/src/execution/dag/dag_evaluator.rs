@@ -91,6 +91,8 @@ impl DAGEvaluator {
     ///     or label_set(10, "foo", "qwerty", "__name__", "q2")
     ///     ) keep_metric_names)
     ///
+    ///  Here we have 10 constants (2, "foo", "bar", "__name__", "q1", 10, "foo", "qwerty", ...) which
+    ///  would otherwise be represented as 10 nodes in the DAG. By extracting these constants,
     ///  there is no need to pass constants to rayon, so there is less work to do. We need to ensure
     ///  however that these values are resolved by the individual nodes. `resolve_value` is used
     ///  this purpose

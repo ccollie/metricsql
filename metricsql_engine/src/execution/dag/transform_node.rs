@@ -77,11 +77,11 @@ impl Default for TransformNode {
     }
 }
 
-// Hack. This is a copy of TransformNode. This exists solely because
-// `absent` is the only transform function that requires access to the
-// original expression in order to get the set of labels to apply to the result vector.
-// Rather than pass around a param that's redundant in 99.9% of case we handle it here and
-// hopefully keep the code cleaner.
+/// Hack. This is a copy of TransformNode. This exists solely because
+/// `absent` is the only transform function that requires access to the
+/// original expression in order to get the set of labels to apply to the result vector.
+/// Rather than pass around a param that's redundant in 99.9% of case we handle it here and
+/// hopefully keep the code cleaner.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct AbsentTransformNode {
     pub keep_metric_names: bool,
