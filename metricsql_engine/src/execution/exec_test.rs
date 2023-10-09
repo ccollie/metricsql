@@ -4,11 +4,11 @@ mod tests {
 
     use chrono::Duration;
 
-    use crate::{Deadline, MetricName, QueryResult, Tag, test_results_equal};
-    use crate::execution::{Context, EvalConfig};
     use crate::execution::exec;
+    use crate::execution::{Context, EvalConfig};
     use crate::functions::parse_timezone;
     use crate::functions::transform::get_timezone_offset;
+    use crate::{test_results_equal, Deadline, MetricName, QueryResult, Tag};
 
     const NAN: f64 = f64::NAN;
     const INF: f64 = f64::INFINITY;
@@ -66,6 +66,41 @@ mod tests {
     fn simple_number() {
         let q = "123";
         assert_result_eq(q, &[123.0, 123.0, 123.0, 123.0, 123.0, 123.0]);
+    }
+
+    #[test]
+    fn duration_constant() {
+        let q = "1h23m5S";
+        assert_result_eq(q, &[4985.0, 4985.0, 4985.0, 4985.0, 4985.0, 4985.0]);
+    }
+
+    #[test]
+    fn num_with_suffix_1() {
+        let n = 123e6f64;
+        assert_result_eq("123M", &[n, n, n, n, n, n]);
+    }
+
+    #[test]
+    fn num_with_suffix_2() {
+        let n = 1.23e12;
+        assert_result_eq("1.23TB", &[n, n, n, n, n, n]);
+    }
+
+    #[test]
+    fn num_with_suffix_3() {
+        let n = 1.23 * (1 << 20) as f64;
+        assert_result_eq("1.23Mib", &[n, n, n, n, n, n]);
+    }
+
+    #[test]
+    fn num_with_suffix_4() {
+        let n = 1.23 * (1 << 20) as f64;
+        assert_result_eq("1.23mib", &[n, n, n, n, n, n]);
+    }
+
+    #[test]
+    fn num_with_suffix_5() {
+        // TODO: underscore parsing
     }
 
     #[test]
@@ -2124,7 +2159,6 @@ mod tests {
 
     #[test]
     fn stddev_over_time() {
-        f
         let q = "round(stddev_over_time(rand(0)[200s:5s]), 0.001)";
         assert_result_eq(q, &[0.286, 0.297, 0.303, 0.274, 0.318, 0.283]);
     }
