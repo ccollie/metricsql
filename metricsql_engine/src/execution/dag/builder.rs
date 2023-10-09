@@ -1,7 +1,7 @@
-use std::collections::HashMap;
 use std::default::Default;
 use std::ops::Deref;
 
+use ahash::AHashMap;
 use topologic::AcyclicDependencyGraph;
 
 use metricsql_parser::ast::{
@@ -32,7 +32,7 @@ use crate::functions::rollup::{
 use crate::{QueryValue, RuntimeError, RuntimeResult};
 
 pub struct DAGBuilder {
-    node_map: HashMap<usize, DAGNode>,
+    node_map: AHashMap<usize, DAGNode>,
     graph: AcyclicDependencyGraph<usize>,
 }
 
@@ -40,7 +40,7 @@ impl DAGBuilder {
     fn new() -> Self {
         DAGBuilder {
             graph: AcyclicDependencyGraph::new(),
-            node_map: HashMap::with_capacity(16),
+            node_map: AHashMap::with_capacity(16),
         }
     }
 
@@ -683,7 +683,7 @@ fn try_get_arg_rollup_func_with_metric_expr(
             match fe.function {
                 BuiltinFunction::Rollup(_) => {
                     return if let Some(arg) = fe.get_arg_for_optimization() {
-                        match arg.deref() {
+                        match arg {
                             Expr::MetricExpression(me) => create_func(me, expr, &fe.name, false),
                             Expr::Rollup(re) => {
                                 if let Expr::MetricExpression(me) = &*re.expr {

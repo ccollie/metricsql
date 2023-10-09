@@ -14,10 +14,11 @@
 
 //! Label matchers and Well-known label names used by Prometheus components.
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::BTreeSet;
 use std::fmt;
 use std::hash::Hash;
 
+use ahash::AHashSet;
 use serde::{Deserialize, Serialize};
 
 /// "__name__"
@@ -64,15 +65,15 @@ impl Labels {
     }
 
     pub fn is_joint(&self, ls: &Labels) -> bool {
-        let s1: HashSet<&String> = self.0.iter().collect();
-        let s2: HashSet<&String> = ls.0.iter().collect();
+        let s1: AHashSet<&String> = self.0.iter().collect();
+        let s2: AHashSet<&String> = ls.0.iter().collect();
 
         !s1.is_disjoint(&s2)
     }
 
     pub fn intersect(&self, ls: &Labels) -> Labels {
-        let s1: HashSet<&String> = self.0.iter().collect();
-        let s2: HashSet<&String> = ls.0.iter().collect();
+        let s1: AHashSet<&String> = self.0.iter().collect();
+        let s2: AHashSet<&String> = ls.0.iter().collect();
         let labels = s1.intersection(&s2).map(|s| s.to_string()).collect();
 
         Self(labels)
@@ -109,7 +110,7 @@ impl PartialEq<Labels> for Labels {
             0 => true,
             1 => self.0[0] == other.0[0],
             _ => {
-                let h1: HashSet<&String> = self.0.iter().collect();
+                let h1: AHashSet<&String> = self.0.iter().collect();
                 // compare unsorted
                 for label in &other.0 {
                     if !h1.contains(label) {
@@ -132,7 +133,7 @@ impl PartialEq<Vec<String>> for Labels {
             0 => true,
             1 => self.0[0] == other[0],
             _ => {
-                let h1: HashSet<&String> = self.0.iter().collect();
+                let h1: AHashSet<&String> = self.0.iter().collect();
                 // compare unsorted
                 for label in other {
                     if !h1.contains(label) {

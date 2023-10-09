@@ -2,16 +2,16 @@ use std::ops::Deref;
 
 use metricsql_common::get_pooled_vec_f64;
 
+use crate::{QueryValue, RuntimeResult, Timeseries};
 use crate::common::math::{
     linear_regression, mad, mean, quantile, quantile_sorted, stddev, stdvar,
 };
 use crate::execution::eval_number;
 use crate::functions::arg_parse::{get_float_arg, get_series_arg};
+use crate::functions::transform::{TransformFn, TransformFuncArg};
 use crate::functions::transform::running::{running_avg, running_max, running_min, running_sum};
 use crate::functions::transform::utils::{expect_transform_args_num, ru};
-use crate::functions::transform::{TransformFn, TransformFuncArg};
 use crate::functions::utils::{get_first_non_nan_index, get_last_non_nan_index};
-use crate::{QueryValue, RuntimeResult, Timeseries};
 
 pub(crate) fn range_avg(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     transform_range_impl(tfa, running_avg)

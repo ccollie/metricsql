@@ -1,9 +1,10 @@
-use std::collections::HashSet;
 use std::mem::size_of;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::RwLock;
 
 use xxhash_rust::xxh3::xxh3_64;
+
+use ahash::AHashSet;
 
 use crate::{get_pooled_buffer, IntMap};
 
@@ -485,7 +486,7 @@ impl BucketInner {
         let b_gen = self.gen & GEN_BIT_MASK;
         let b_idx = self.idx;
 
-        let mut to_remove: HashSet<u64> = HashSet::with_capacity(16);
+        let mut to_remove: AHashSet<u64> = AHashSet::with_capacity(16);
         for (k, v) in self.hash_idx_map.iter() {
             let gen = (*v >> BUCKET_SIZE_BITS) as u64;
             let idx = *v & ((1 << BUCKET_SIZE_BITS) - 1);

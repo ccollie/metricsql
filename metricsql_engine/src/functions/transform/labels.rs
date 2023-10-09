@@ -1,6 +1,6 @@
 use std::borrow::Cow;
-use std::collections::HashMap;
 
+use ahash::AHashMap;
 use regex::Regex;
 
 use metricsql_parser::parser::compile_regexp;
@@ -113,7 +113,7 @@ pub(crate) fn label_map(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeser
     let label = get_label(tfa, "", 1)?.to_string();
 
     let (src_values, dst_values) = get_string_pairs(tfa, 2)?;
-    let mut m: HashMap<&str, &str> = HashMap::with_capacity(src_values.len());
+    let mut m: AHashMap<&str, &str> = AHashMap::with_capacity(src_values.len());
     for (i, src_value) in src_values.iter().enumerate() {
         m.insert(src_value, &dst_values[i]);
     }
@@ -141,7 +141,7 @@ pub(crate) fn drop_common_labels(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
         series.append(&mut other);
     }
 
-    let mut counts_map: HashMap<String, HashMap<String, usize>> = HashMap::new();
+    let mut counts_map: AHashMap<String, AHashMap<String, usize>> = AHashMap::new();
 
     for ts in series.iter() {
         ts.metric_name.count_label_values(&mut counts_map);

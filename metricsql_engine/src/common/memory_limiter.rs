@@ -1,6 +1,7 @@
+use std::sync::Mutex;
+
 // todo: have config flag for wasm
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use std::sync::Mutex;
 
 #[derive(Default, Debug)]
 pub struct MemoryLimiter {

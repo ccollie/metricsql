@@ -452,6 +452,7 @@ mod tests {
     #[test_case("1")]
     #[test_case("73")]
     #[test_case("65535")]
+    #[test_case("1_000_334")]
     fn number_int(src: &str) {
         test_tokens!(src, [Number]);
     }

@@ -1,7 +1,7 @@
-use std::collections::HashSet;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 
+use ahash::AHashSet;
 use serde::{Deserialize, Serialize};
 
 use crate::common::write_comma_separated;
@@ -471,6 +471,6 @@ fn string_vecs_equal_unordered(a: &[String], b: &[String]) -> bool {
     if a.len() != b.len() {
         return false;
     }
-    let hash_a: HashSet<_> = a.iter().collect();
+    let hash_a: AHashSet<_> = a.iter().collect();
     b.iter().all(|x| hash_a.contains(x))
 }

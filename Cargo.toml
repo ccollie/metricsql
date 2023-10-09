@@ -20,6 +20,7 @@ resolver = "2"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [workspace.dependencies]
+ahash = { version = "0.8.3", features = ["std", "serde"] }
 chrono = { version = "0.4.26", features = ["serde"] }
 chrono-tz = "0.8.2"
 enquote = "1.1.0"

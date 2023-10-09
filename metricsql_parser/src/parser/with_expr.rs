@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use ahash::AHashSet;
 
 use crate::ast::{WithArgExpr, WithExpr};
 use crate::parser::tokens::Token;
@@ -62,7 +62,7 @@ fn parse_with_arg_expr(p: &mut Parser) -> ParseResult<WithArgExpr> {
         // Parse func args.
         // push_stack(p)
         // Make sure all the args have different names
-        let mut m: HashSet<String> = HashSet::with_capacity(6);
+        let mut m: AHashSet<String> = AHashSet::with_capacity(6);
 
         p.expect(&LeftParen)?;
         p.parse_comma_separated(&[RightParen], move |parser| {
@@ -115,7 +115,7 @@ pub(super) fn must_parse_with_arg_expr(s: &str) -> ParseResult<WithArgExpr> {
 }
 
 pub(super) fn check_duplicate_with_arg_names(was: &Vec<WithArgExpr>) -> ParseResult<()> {
-    let mut m: HashSet<String> = HashSet::with_capacity(was.len());
+    let mut m: AHashSet<String> = AHashSet::with_capacity(was.len());
 
     for wa in was {
         if m.contains(&wa.name) {

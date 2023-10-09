@@ -1,5 +1,6 @@
-use crate::runtime_error::{RuntimeError, RuntimeResult};
 use std::num::NonZeroUsize;
+
+use crate::runtime_error::{RuntimeError, RuntimeResult};
 
 pub fn num_cpus() -> RuntimeResult<NonZeroUsize> {
     match std::thread::available_parallelism() {

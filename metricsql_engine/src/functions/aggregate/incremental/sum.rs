@@ -1,5 +1,6 @@
-use super::context::{IncrementalAggrContext, IncrementalAggrHandler};
 use itertools::izip;
+
+use super::context::{IncrementalAggrContext, IncrementalAggrHandler};
 
 pub struct IncrementalAggrSum {}
 

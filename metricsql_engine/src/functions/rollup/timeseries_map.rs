@@ -1,5 +1,6 @@
-use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+
+use ahash::AHashMap;
 
 use metricsql_parser::functions::RollupFunction;
 
@@ -15,7 +16,7 @@ pub(crate) struct TimeseriesMap {
 struct MapInner {
     origin: Timeseries,
     hist: Histogram,
-    pub series: HashMap<String, Timeseries>,
+    pub series: AHashMap<String, Timeseries>,
 }
 
 impl MapInner {
@@ -33,7 +34,7 @@ impl MapInner {
         }
         origin.timestamps = Arc::clone(shared_timestamps);
         origin.values = vec![f64::NAN; ts_len];
-        let m: HashMap<String, Timeseries> = HashMap::new();
+        let m: AHashMap<String, Timeseries> = AHashMap::new();
 
         MapInner {
             origin,

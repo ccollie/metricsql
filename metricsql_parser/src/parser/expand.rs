@@ -1,7 +1,7 @@
-use std::collections::{HashMap, HashSet};
 use std::hash::Hasher;
 use std::ops::Deref;
 
+use ahash::{AHashMap, AHashSet};
 use xxhash_rust::xxh3::Xxh3;
 
 use crate::ast::{
@@ -159,7 +159,7 @@ fn remove_dupes(filters: &mut Vec<LabelFilter>) {
     }
 
     let mut hasher = Xxh3::new();
-    let mut hash_map: HashMap<u64, bool> = HashMap::with_capacity(filters.len());
+    let mut hash_map: AHashMap<u64, bool> = AHashMap::with_capacity(filters.len());
 
     for i in (0..filters.len()).rev() {
         let hash = get_hash(&mut hasher, &filters[i]);
@@ -529,7 +529,7 @@ fn expand_modifier_args(
     }
 
     // Remove duplicate args from dst_args
-    let m: HashSet<&String> = HashSet::from_iter(dst_args.iter());
+    let m: AHashSet<&String> = AHashSet::from_iter(dst_args.iter());
     Ok(m.iter().map(|x| x.to_string()).collect::<Vec<String>>())
 }
 

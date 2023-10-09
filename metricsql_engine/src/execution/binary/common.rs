@@ -1,5 +1,4 @@
-use std::collections::{BTreeSet, HashMap};
-
+use ahash::{AHashMap, AHashSet};
 use regex::escape;
 
 use metricsql_parser::common::Operator;
@@ -23,13 +22,12 @@ pub(crate) fn can_push_down_common_filters(be: &BinaryExpr) -> bool {
 }
 
 pub(crate) fn get_common_label_filters(tss: &[Timeseries]) -> Vec<LabelFilter> {
-    // todo(perf): use fnv or xxxhash
-    let mut kv_map: HashMap<String, BTreeSet<String>> = HashMap::new();
+    let mut kv_map: AHashMap<String, AHashSet<String>> = AHashMap::new();
     for ts in tss.iter() {
         for Tag { key: k, value: v } in ts.metric_name.tags.iter() {
             kv_map
                 .entry(k.to_string())
-                .or_insert_with(BTreeSet::new)
+                .or_insert_with(AHashSet::new)
                 .insert(v.to_string());
         }
     }

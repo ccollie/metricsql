@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use ahash::AHashSet;
 
 use crate::ast::{Expr, InterpolatedSelector, MetricExpr};
 use crate::common::{LabelFilterExpr, LabelFilterOp};
@@ -128,7 +128,7 @@ fn parse_label_filter(p: &mut Parser) -> ParseResult<LabelFilterExpr> {
 }
 
 fn dedupe_label_filters(lfs: &mut Vec<LabelFilterExpr>) {
-    let mut set: HashSet<String> = HashSet::with_capacity(lfs.len());
+    let mut set: AHashSet<String> = AHashSet::with_capacity(lfs.len());
     lfs.retain(|lf| {
         let key = lf.to_string();
         if set.contains(&key) {

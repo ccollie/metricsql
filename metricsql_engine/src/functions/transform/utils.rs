@@ -3,8 +3,8 @@ use chrono::{Offset, TimeZone};
 use metricsql_common::timestamp_ms_to_datetime;
 use metricsql_parser::ast::Expr;
 
-use crate::functions::transform::TransformFuncArg;
 use crate::{Label, Labels, RuntimeError, RuntimeResult, Timeseries};
+use crate::functions::transform::TransformFuncArg;
 
 /// copy_timeseries returns a copy of tss.
 pub(super) fn copy_timeseries(tss: &[Timeseries]) -> Vec<Timeseries> {

@@ -1,8 +1,8 @@
 use std::cmp::Ordering;
-use std::collections::HashMap;
 use std::ops::Sub;
 use std::sync::RwLock;
 
+use ahash::AHashMap;
 use chrono::prelude::DateTime;
 use chrono::prelude::Utc;
 use chrono::Duration;
@@ -163,7 +163,7 @@ impl QueryStatsTracker {
     pub fn get_top_by_count(&self, top_n: usize, max_lifetime: Duration) -> Vec<QueryStatByCount> {
         let current_time = Utc::now();
 
-        let mut m: HashMap<&QueryStatKey, u64> = HashMap::new();
+        let mut m: AHashMap<&QueryStatKey, u64> = AHashMap::new();
         let qst = self.inner.read().unwrap();
         qst.data.iter().for_each(|r: &QueryStatRecord| {
             if r.matches(current_time, max_lifetime) {
@@ -201,7 +201,7 @@ impl QueryStatsTracker {
             sum: Duration,
         }
 
-        let mut m: HashMap<&QueryStatKey, CountSum> = HashMap::new();
+        let mut m: AHashMap<&QueryStatKey, CountSum> = AHashMap::new();
 
         let inner = self.inner.read().unwrap();
 
@@ -248,7 +248,7 @@ impl QueryStatsTracker {
             sum: Duration,
         }
 
-        let mut m: HashMap<&QueryStatKey, CountDuration> = HashMap::new();
+        let mut m: AHashMap<&QueryStatKey, CountDuration> = AHashMap::new();
 
         let qst = self.inner.read().unwrap();
         qst.data.iter().for_each(|r: &QueryStatRecord| {

@@ -1,8 +1,8 @@
-use std::collections::HashMap;
 use std::hash::Hasher;
 use std::ops::DerefMut;
 use std::sync::{Arc, Mutex, OnceLock};
 
+use ahash::AHashMap;
 /// import commonly used items from the prelude:
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -507,7 +507,7 @@ pub fn merge_timeseries(
         return Ok(second);
     }
 
-    let mut map: HashMap<String, Timeseries> = HashMap::with_capacity(a.len());
+    let mut map: AHashMap<String, Timeseries> = AHashMap::with_capacity(a.len());
 
     for ts in a.into_iter() {
         let key = ts.metric_name.to_string();

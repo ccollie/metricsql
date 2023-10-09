@@ -1,6 +1,7 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::rc::Rc;
+
+use ahash::AHashMap;
 
 use metricsql_common::is_inf;
 
@@ -43,7 +44,7 @@ pub(crate) fn buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
         ts: Timeseries,
     }
 
-    let mut bucket_map: HashMap<Signature, Vec<Bucket>> = HashMap::new();
+    let mut bucket_map: AHashMap<Signature, Vec<Bucket>> = AHashMap::new();
 
     let mut mn: MetricName = MetricName::default();
     let empty_str = "".to_string();
@@ -199,7 +200,7 @@ impl Bucket {
 pub(crate) fn vmrange_buckets_to_le(tss: Vec<Timeseries>) -> Vec<Timeseries> {
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(tss.len());
 
-    let mut buckets: HashMap<Signature, Vec<Bucket>> = HashMap::with_capacity(tss.len());
+    let mut buckets: AHashMap<Signature, Vec<Bucket>> = AHashMap::with_capacity(tss.len());
 
     let empty_str = "".to_string();
     let values_count = tss[0].values.len();
@@ -257,7 +258,7 @@ pub(crate) fn vmrange_buckets_to_le(tss: Vec<Timeseries>) -> Vec<Timeseries> {
 
     let default_bucket: Bucket = Default::default();
 
-    let mut uniq_ts: HashMap<String, SharedTimeseries> = HashMap::with_capacity(8);
+    let mut uniq_ts: AHashMap<String, SharedTimeseries> = AHashMap::with_capacity(8);
 
     for xss in buckets.values_mut() {
         xss.sort_by(|a, b| a.end.total_cmp(&b.end));
@@ -728,8 +729,8 @@ pub(super) struct LeTimeseries {
     pub ts: Timeseries,
 }
 
-fn group_le_timeseries(tss: &mut [Timeseries]) -> HashMap<Signature, Vec<LeTimeseries>> {
-    let mut m: HashMap<Signature, Vec<LeTimeseries>> = HashMap::new();
+fn group_le_timeseries(tss: &mut [Timeseries]) -> AHashMap<Signature, Vec<LeTimeseries>> {
+    let mut m: AHashMap<Signature, Vec<LeTimeseries>> = AHashMap::new();
 
     for ts in tss.iter_mut() {
         if let Some(tag_value) = ts.metric_name.tag_value(LE) {

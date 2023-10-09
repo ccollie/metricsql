@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use ahash::AHashSet;
 
 use crate::execution::{eval_number, EvalConfig};
 use crate::functions::transform::TransformFuncArg;
@@ -21,9 +21,13 @@ pub(crate) fn handle_union(
 
     let len = args[0].len();
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(len);
-    let mut m: HashSet<Signature> = HashSet::with_capacity(len);
+    let mut m: AHashSet<Signature> = AHashSet::with_capacity(len);
 
-    fn process_vector(v: &mut [Timeseries], m: &mut HashSet<Signature>, rvs: &mut Vec<Timeseries>) {
+    fn process_vector(
+        v: &mut [Timeseries],
+        m: &mut AHashSet<Signature>,
+        rvs: &mut Vec<Timeseries>,
+    ) {
         for ts in v.iter_mut() {
             let key = ts.metric_name.signature();
             if m.insert(key) {

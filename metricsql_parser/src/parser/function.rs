@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 use crate::ast::{Expr, FunctionExpr};
 use crate::common::ValueType;
 use crate::functions::{BuiltinFunction, TypeSignature};
@@ -100,7 +98,7 @@ pub fn validate_function_args(func: &BuiltinFunction, args: &[Expr]) -> ParseRes
     for (expected_type, actual) in sig.types().zip(args.iter()) {
         validate_return_type(actual.return_type(), expected_type, 0)?;
 
-        match *actual.deref() {
+        match actual {
             // technically should not occur as a function parameter
             Expr::Duration(_) | Expr::Number(_) => {
                 if expected_type.is_scalar() {

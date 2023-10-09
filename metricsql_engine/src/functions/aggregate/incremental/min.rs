@@ -1,5 +1,6 @@
-use super::{IncrementalAggrContext, IncrementalAggrHandler};
 use itertools::izip;
+
+use super::{IncrementalAggrContext, IncrementalAggrHandler};
 
 pub struct IncrementalAggrMin {}
 

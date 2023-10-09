@@ -1,7 +1,8 @@
 use std::borrow::Cow;
-use std::collections::HashSet;
 use std::iter::FromIterator;
 use std::vec::Vec;
+
+use ahash::AHashSet;
 
 use crate::ast::{AggregationExpr, Expr, RollupExpr};
 use crate::common::{AggregateModifier, LabelFilter, Operator, VectorMatchModifier, NAME_LABEL};
@@ -294,8 +295,8 @@ pub fn push_down_binary_op_filters_in_place(e: &mut Expr, common_filters: &mut V
 }
 
 #[inline]
-fn get_label_filters_map(filters: &[LabelFilter]) -> HashSet<String> {
-    let set: HashSet<String> = HashSet::from_iter(filters.iter().map(|x| x.to_string()));
+fn get_label_filters_map(filters: &[LabelFilter]) -> AHashSet<String> {
+    let set: AHashSet<String> = AHashSet::from_iter(filters.iter().map(|x| x.to_string()));
     set
 }
 
@@ -328,7 +329,7 @@ fn union_label_filters(a: &mut Vec<LabelFilter>, b: &Vec<LabelFilter>) {
 
 fn filter_label_filters_on(lfs: &mut Vec<LabelFilter>, args: &[String]) {
     if !args.is_empty() {
-        let m: HashSet<&String> = HashSet::from_iter(args.iter());
+        let m: AHashSet<&String> = AHashSet::from_iter(args.iter());
         lfs.retain(|x| m.contains(&x.label))
     } else {
         lfs.clear()
@@ -337,7 +338,7 @@ fn filter_label_filters_on(lfs: &mut Vec<LabelFilter>, args: &[String]) {
 
 fn filter_label_filters_ignoring(lfs: &mut Vec<LabelFilter>, args: &[String]) {
     if !args.is_empty() {
-        let m: HashSet<&String> = HashSet::from_iter(args.iter());
+        let m: AHashSet<&String> = AHashSet::from_iter(args.iter());
         lfs.retain(|x| !m.contains(&x.label))
     }
 }

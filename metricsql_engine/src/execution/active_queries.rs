@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use std::sync::RwLock;
 
+use ahash::AHashMap;
 use chrono::Utc;
 
 use crate::execution::EvalConfig;
@@ -9,7 +9,7 @@ use crate::types::{Timestamp, TimestampTrait};
 #[derive(Debug)]
 struct Inner {
     id: u64,
-    data: HashMap<u64, ActiveQueryEntry>,
+    data: AHashMap<u64, ActiveQueryEntry>,
 }
 
 #[derive(Debug)]
@@ -33,7 +33,7 @@ impl ActiveQueries {
         let id = Utc::now().timestamp_nanos() as u64; // todo: uuid
         let inner = Inner {
             id,
-            data: HashMap::new(),
+            data: AHashMap::new(),
         };
         ActiveQueries {
             inner: RwLock::new(inner),

@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 use std::collections::hash_map::Entry;
-use std::collections::HashMap;
+
+use ahash::AHashMap;
 
 use metricsql_parser::binaryop::{
     get_scalar_binop_handler, get_scalar_comparison_handler, BinopFunc,
@@ -328,7 +329,7 @@ fn group_join(
         right: Timeseries,
     }
 
-    let mut map: HashMap<Signature, TsPair> = HashMap::with_capacity(tss_left.len());
+    let mut map: AHashMap<Signature, TsPair> = AHashMap::with_capacity(tss_left.len());
 
     for ts_left in tss_left.iter_mut() {
         if !keep_metric_names {

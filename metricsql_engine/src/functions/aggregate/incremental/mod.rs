@@ -1,3 +1,6 @@
+pub use context::*;
+pub use handler::*;
+
 mod any;
 mod avg;
 mod context;
@@ -9,6 +12,3 @@ mod max;
 mod min;
 mod sum;
 mod sum2;
-
-pub use context::*;
-pub use handler::*;

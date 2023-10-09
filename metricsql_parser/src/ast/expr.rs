@@ -594,7 +594,7 @@ impl AggregationExpr {
             Expr::Function(fe) => match fe.function {
                 BuiltinFunction::Rollup(_) => {
                     return if let Some(arg) = fe.get_arg_for_optimization() {
-                        match arg.deref() {
+                        match arg {
                             Expr::MetricExpression(me) => validate(me, false),
                             Expr::Rollup(re) => match &*re.expr {
                                 Expr::MetricExpression(me) => validate(me, re.for_subquery()),

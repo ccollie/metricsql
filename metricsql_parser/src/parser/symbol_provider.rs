@@ -1,5 +1,6 @@
-use std::collections::HashMap;
 use std::sync::Arc;
+
+use ahash::AHashMap;
 
 use crate::parser::with_expr::must_parse_with_arg_expr;
 use crate::parser::ParseResult;
@@ -13,15 +14,15 @@ pub trait SymbolProvider {
 }
 
 #[derive(Debug)]
-pub struct HashMapSymbolProvider(HashMap<String, WithArgExpr>);
+pub struct HashMapSymbolProvider(AHashMap<String, WithArgExpr>);
 
 impl HashMapSymbolProvider {
     pub fn new() -> Self {
-        HashMapSymbolProvider(HashMap::new())
+        HashMapSymbolProvider(AHashMap::new())
     }
 
     pub fn with_capacity(capacity: usize) -> Self {
-        HashMapSymbolProvider(HashMap::with_capacity(capacity))
+        HashMapSymbolProvider(AHashMap::with_capacity(capacity))
     }
 
     pub fn register(&mut self, key: &str, expr: WithArgExpr) -> Option<WithArgExpr> {

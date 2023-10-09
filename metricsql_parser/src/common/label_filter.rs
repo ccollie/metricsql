@@ -1,9 +1,9 @@
 use std::cmp::Ordering;
-use std::collections::HashSet;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 
+use ahash::AHashSet;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::Xxh3;
@@ -364,7 +364,7 @@ impl Deref for Matchers {
 }
 
 pub fn remove_duplicate_label_filters(filters: &mut Vec<LabelFilter>) {
-    let mut set: HashSet<String> = HashSet::with_capacity(filters.len());
+    let mut set: AHashSet<String> = AHashSet::with_capacity(filters.len());
     filters.retain(|filters| {
         let key = filters.to_string();
         if !set.contains(&key) {

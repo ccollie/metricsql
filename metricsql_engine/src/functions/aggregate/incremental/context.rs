@@ -1,6 +1,7 @@
 use std::collections::hash_map::Entry::{Occupied, Vacant};
-use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+
+use ahash::AHashMap;
 
 use metricsql_parser::ast::AggregationExpr;
 use metricsql_parser::functions::AggregateFunction;
@@ -83,7 +84,7 @@ pub trait IncrementalAggrHandler {
     fn keep_original(&self) -> bool;
 }
 
-type ContextHash = HashMap<u64, HashMap<Signature, IncrementalAggrContext>>;
+type ContextHash = AHashMap<u64, AHashMap<Signature, IncrementalAggrContext>>;
 
 pub struct IncrementalAggrFuncContext<'a> {
     ae: &'a AggregationExpr,
@@ -95,7 +96,7 @@ pub struct IncrementalAggrFuncContext<'a> {
 
 impl<'a> IncrementalAggrFuncContext<'a> {
     pub(crate) fn new(ae: &'a AggregationExpr) -> RuntimeResult<Self> {
-        let m: HashMap<u64, HashMap<Signature, IncrementalAggrContext>> = HashMap::new();
+        let m: AHashMap<u64, AHashMap<Signature, IncrementalAggrContext>> = AHashMap::new();
         let handler = IncrementalAggregationHandler::try_from(ae.function).map_err(|e| {
             RuntimeError::General(format!(
                 "cannot create incremental aggregation handler: {}",
@@ -159,7 +160,7 @@ impl<'a> IncrementalAggrFuncContext<'a> {
     }
 
     pub fn finalize(&self) -> Vec<Timeseries> {
-        let mut m_global: HashMap<&Signature, IncrementalAggrContext> = HashMap::new();
+        let mut m_global: AHashMap<&Signature, IncrementalAggrContext> = AHashMap::new();
         let mut hash = self.context_map.write().unwrap();
         for (_, m) in hash.iter_mut() {
             for (k, iac) in m.iter_mut() {

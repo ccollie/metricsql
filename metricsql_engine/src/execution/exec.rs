@@ -1,7 +1,7 @@
-use std::collections::HashSet;
 use std::sync::Arc;
 use std::vec;
 
+use ahash::AHashSet;
 use chrono::Utc;
 use tracing::{field, info, trace_span, Span};
 
@@ -178,7 +178,7 @@ pub(crate) fn timeseries_to_result(
     }
 
     let mut result: Vec<QueryResult> = Vec::with_capacity(tss.len());
-    let mut m: HashSet<Signature> = HashSet::with_capacity(tss.len());
+    let mut m: AHashSet<Signature> = AHashSet::with_capacity(tss.len());
 
     for ts in tss.iter_mut() {
         ts.metric_name.sort_tags();

@@ -1,10 +1,10 @@
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Display;
 use std::hash::{Hash, Hasher};
-use std::ops::Deref;
 
+use ahash::{AHashMap, AHashSet};
 use enquote::enquote;
 use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::Xxh3;
@@ -227,7 +227,7 @@ impl MetricName {
             return;
         }
         if on_tags.len() >= SET_SEARCH_MIN_THRESHOLD {
-            let set: HashSet<_> = HashSet::from_iter(on_tags);
+            let set: AHashSet<_> = AHashSet::from_iter(on_tags);
             self.tags.retain(|tag| set.contains(&tag.key));
         } else {
             self.tags.retain(|tag| on_tags.contains(&tag.key));
@@ -249,7 +249,7 @@ impl MetricName {
         }
 
         if labels.len() >= SET_SEARCH_MIN_THRESHOLD {
-            let set: HashSet<_> = HashSet::from_iter(labels);
+            let set: AHashSet<_> = AHashSet::from_iter(labels);
             self.tags.retain(|tag| !set.contains(&tag.key));
         } else {
             self.tags.retain(|tag| !labels.contains(&tag.key));
@@ -265,7 +265,7 @@ impl MetricName {
             return;
         }
         if tags.len() >= SET_SEARCH_MIN_THRESHOLD {
-            let set: HashSet<_> = HashSet::from_iter(tags);
+            let set: AHashSet<_> = AHashSet::from_iter(tags);
             self.tags.retain(|tag| set.contains(&tag.key));
         } else {
             self.tags.retain(|tag| tags.contains(&tag.key));
@@ -366,7 +366,7 @@ impl MetricName {
     }
 
     pub fn remove_group_tags(&mut self, modifier: &Option<AggregateModifier>) {
-        if let Some(m) = modifier.deref() {
+        if let Some(m) = modifier {
             match m {
                 AggregateModifier::By(labels) => {
                     // we're grouping by `labels, so keep only those
@@ -384,11 +384,11 @@ impl MetricName {
         };
     }
 
-    pub(crate) fn count_label_values(&self, hm: &mut HashMap<String, HashMap<String, usize>>) {
+    pub(crate) fn count_label_values(&self, hm: &mut AHashMap<String, AHashMap<String, usize>>) {
         // duplication, I know
         let label_counts = hm
             .entry(METRIC_NAME_LABEL.to_string())
-            .or_insert_with(HashMap::new);
+            .or_insert_with(AHashMap::new);
         *label_counts
             .entry(self.metric_group.to_string())
             .or_insert(0) += 1;
@@ -441,11 +441,11 @@ impl MetricName {
 }
 
 fn count_label_value(
-    hm: &mut HashMap<String, HashMap<String, usize>>,
+    hm: &mut AHashMap<String, AHashMap<String, usize>>,
     label: &String,
     value: &String,
 ) {
-    let label_counts = hm.entry(label.to_string()).or_insert_with(HashMap::new);
+    let label_counts = hm.entry(label.to_string()).or_insert_with(AHashMap::new);
     *label_counts.entry(value.to_string()).or_insert(0) += 1;
 }
 

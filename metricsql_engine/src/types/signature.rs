@@ -1,6 +1,7 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 
+use ahash::AHashMap;
 use rayon::prelude::*;
 use xxhash_rust::xxh3::Xxh3;
 
@@ -11,7 +12,7 @@ use crate::{MetricName, Tag, Timeseries};
 /// The minimum threshold of timeseries tags to process in parallel when computing signatures.
 pub(crate) const SIGNATURE_PARALLELIZATION_THRESHOLD: usize = 2;
 
-pub type TimeseriesHashMap = HashMap<Signature, Vec<Timeseries>>;
+pub type TimeseriesHashMap = AHashMap<Signature, Vec<Timeseries>>;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Copy, Ord, PartialOrd)]
 pub struct Signature(u64);
@@ -65,7 +66,7 @@ pub fn group_series_by_match_modifier(
     series: &mut Vec<Timeseries>,
     modifier: &Option<VectorMatchModifier>,
 ) -> TimeseriesHashMap {
-    let mut m: TimeseriesHashMap = HashMap::with_capacity(series.len());
+    let mut m: TimeseriesHashMap = AHashMap::with_capacity(series.len());
 
     if series.len() >= SIGNATURE_PARALLELIZATION_THRESHOLD {
         let sigs: Vec<Signature> = series
@@ -92,8 +93,8 @@ pub fn group_series_by_match_modifier(
 pub fn group_series_indexes_by_match_modifier(
     series: &Vec<Timeseries>,
     modifier: &Option<VectorMatchModifier>,
-) -> HashMap<Signature, Vec<usize>> {
-    let mut m: HashMap<Signature, Vec<usize>> = HashMap::with_capacity(series.len());
+) -> AHashMap<Signature, Vec<usize>> {
+    let mut m: AHashMap<Signature, Vec<usize>> = AHashMap::with_capacity(series.len());
 
     if series.len() >= SIGNATURE_PARALLELIZATION_THRESHOLD {
         let sigs: Vec<(Signature, usize)> = series
@@ -128,12 +129,12 @@ pub fn get_signatures_set_by_match_modifier(
             .map_with(modifier, |modifier, timeseries| {
                 timeseries.metric_name.signature_by_match_modifier(modifier)
             })
-            .collect()
+            .collect::<HashSet<_>>()
     } else {
         series
             .iter()
             .map(|timeseries| timeseries.metric_name.signature_by_match_modifier(modifier))
-            .collect()
+            .collect::<HashSet<_>>()
     };
     res
 }

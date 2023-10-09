@@ -1,8 +1,9 @@
 use std::borrow::BorrowMut;
 use std::collections::hash_map::Entry;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::ops::{Deref, DerefMut};
 
+use ahash::AHashMap;
 use lockfree_object_pool::LinearReusable;
 
 use metricsql_common::{get_pooled_vec_f64, get_pooled_vec_f64_filled};
@@ -194,7 +195,7 @@ fn aggr_prepare_series(
     modifier: &Option<AggregateModifier>,
     max_series: usize,
     keep_original: bool,
-) -> HashMap<Signature, Vec<Timeseries>> {
+) -> AHashMap<Signature, Vec<Timeseries>> {
     // Remove empty time series, e.g. series with all NaN samples,
     // since such series are ignored by aggregate functions.
     remove_empty_series(arg_orig);
@@ -202,7 +203,7 @@ fn aggr_prepare_series(
     let capacity = arg_orig.len();
 
     // Perform grouping.
-    let mut m = HashMap::with_capacity(capacity);
+    let mut m = AHashMap::with_capacity(capacity);
     for mut ts in arg_orig.drain(0..) {
         let (series, k) = if keep_original {
             let mut mn = ts.metric_name.clone();
@@ -344,7 +345,7 @@ fn aggr_func_geomean(tss: &mut Vec<Timeseries>) {
 
 fn aggr_func_histogram(tss: &mut Vec<Timeseries>) {
     let mut h: LinearReusable<Histogram> = get_pooled_histogram();
-    let mut m: HashMap<String, Timeseries> = HashMap::new();
+    let mut m: AHashMap<String, Timeseries> = AHashMap::new();
     let value_count = tss[0].values.len();
 
     for i in 0..value_count {

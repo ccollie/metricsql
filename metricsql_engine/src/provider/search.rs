@@ -227,7 +227,7 @@ impl QueryResults {
         self.series
             .par_iter_mut()
             .enumerate()
-            .filter(|(id, rs)| !rs.timestamps.is_empty())
+            .filter(|(_, rs)| !rs.timestamps.is_empty())
             .try_for_each(|(id, rs)| {
                 if must_stop.load(Ordering::Relaxed) {
                     return Err(RuntimeError::TaskCancelledError("Search".to_string()));

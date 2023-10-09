@@ -1,6 +1,6 @@
+use crate::{RuntimeError, RuntimeResult, Timeseries};
 use crate::functions::arg_parse::get_scalar_arg_as_vec;
 use crate::functions::transform::{transform_series, TransformFuncArg};
-use crate::{RuntimeError, RuntimeResult, Timeseries};
 
 pub(crate) fn round(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let args_len = tfa.args.len();
