@@ -16,6 +16,7 @@ pub trait TimestampTrait {
     fn round_up_to_secs(&self) -> Self;
     fn to_string_millis(&self) -> String;
     fn to_rfc3339(&self) -> String;
+    fn truncate(&self, duration: Duration) -> Self;
 }
 
 impl TimestampTrait for Timestamp {
@@ -73,5 +74,14 @@ impl TimestampTrait for Timestamp {
         let naive_date_time = NaiveDateTime::from_timestamp_millis(*self).unwrap();
         let date_time = DateTime::<Utc>::from_utc(naive_date_time, Utc);
         date_time.to_rfc3339()
+    }
+
+    fn truncate(&self, duration: Duration) -> Self {
+        if duration.is_zero() {
+            return *self;
+        }
+        let mut t = *self;
+        t -= t % (duration.as_millis() as i64);
+        return t;
     }
 }
