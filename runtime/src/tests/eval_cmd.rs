@@ -173,7 +173,7 @@ impl EvalCmd {
                 for (fp, exp_vals) in self.expected.iter() {
                     if !seen.contains(fp) {
                         println!("vector result {} {}", val.len(), ev.expr);
-                        for ss in val.iter() {
+                        for ss in exp_vals.iter() {
                             fmt.println("    ", ss.metric, ss.point);
                         }
                         let metric = self.metrics.get(fp);

@@ -4,8 +4,7 @@ use crate::tests::consts::space_regex;
 use crate::tests::load_cmd::LoadCmd;
 use crate::tests::test::{get_lines, parse_load};
 use crate::tests::test_storage::TestStorage;
-use crate::tests::types::CancelFunc;
-use crate::{Context, RuntimeError, RuntimeResult, Timestamp};
+use crate::{Context, RuntimeError, RuntimeResult, Timestamp, TimestampTrait};
 
 /// LazyLoader lazily loads samples into storage.
 /// This is specifically implemented for unit testing of rules.
@@ -15,7 +14,6 @@ pub(crate) struct LazyLoader {
     subquery_interval: Duration,
     query_engine: Engine,
     context: Context,
-    cancel_ctx: CancelFunc,
     opts: LazyLoaderOpts,
 }
 
@@ -41,7 +39,6 @@ impl LazyLoader {
             subquery_interval: Default::default(),
             query_engine: (),
             context: (),
-            cancel_ctx: (),
             opts,
         };
 
@@ -61,7 +58,7 @@ impl LazyLoader {
             }
             let parts = space_regex().split(line).collect();
             if parts.len() < 2 {
-                return raise(i, format!("invalid command {}", l));
+                return raise(i, format!("invalid command {line}"));
             }
             let cmd = parts.get(2).unwrap_or("".to_string()).to_lowercase();
             if cmd == "load" {
@@ -120,7 +117,6 @@ impl LazyLoader {
 
     // Close closes resources associated with the LazyLoader.
     pub fn close(&mut self) -> RuntimeResult<()> {
-        self.cancelCtx();
         self.storage.close().map_err(|e| {
             RuntimeError::from(format!(
                 "Unexpected error while closing test storage: {}",
@@ -131,7 +127,7 @@ impl LazyLoader {
 
     // with_samples_till loads the samples till given timestamp and executes the given function.
     fn with_samples_till(&mut self, ts: Timestamp) -> RuntimeResult<()> {
-        let ts_milli = ts.Sub(time.Unix(0, 0).UTC()) / time.Millisecond;
+        let ts_milli = ts - Timestamp::now();
         self.append_till(ts_milli)
     }
 }
