@@ -12,7 +12,7 @@ use crate::execution::dag::ExecutableNode;
 use crate::execution::{eval_number, EvalConfig};
 use crate::{QueryValue, RuntimeError, RuntimeResult};
 
-/// A node that represents a binary operation between two metricsql_engine QueryValue nodes.
+/// A node that represents a binary operation between two QueryValue nodes.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct BinopNode {
     pub op: Operator,

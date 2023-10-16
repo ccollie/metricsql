@@ -146,9 +146,9 @@ impl DAGBuilder {
         if parens.len() == 1 {
             self.create_node(&parens.expressions[0])
         } else {
-            // todo(perf):  fix this. It ends up cloning parens twice - once here and once in create_function_node
+            // todo(perf): fix this. It ends up cloning parens twice - once here and once in create_function_node
             let fe = FunctionExpr::new("union", parens.expressions.clone())
-                .unwrap_or_else(|_| panic!("BUG: failed to create union function")); // this is  a bug and should crash
+                .unwrap_or_else(|_| panic!("BUG: failed to create union function")); // this is a bug and should crash
 
             self.create_function_node(expr, &fe)
         }

@@ -84,8 +84,8 @@ impl DAGEvaluator {
         Ok(res)
     }
 
-    /// Optimizes the DAG by extracting constant nodes and copying them to
-    /// our output scratch space. For example, with an expression like the following:
+    /// Optimizes the DAG by extracting constant nodes and copying them to our output scratch space.
+    /// For example, consider the following:
     ///
     ///   sort_desc(2 * (label_set(time(), "foo", "bar", "__name__", "q1")
     ///     or label_set(10, "foo", "qwerty", "__name__", "q2")
@@ -95,7 +95,7 @@ impl DAGEvaluator {
     ///  would otherwise be represented as 10 nodes in the DAG. By extracting these constants,
     ///  there is no need to pass constants to rayon, so there is less work to do. We need to ensure
     ///  however that these values are resolved by the individual nodes. `resolve_value` is used
-    ///  this purpose
+    ///  for this purpose
     pub(crate) fn optimize(&mut self) {
         let mut result_dag = Vec::with_capacity(self.dag.len());
 
