@@ -18,7 +18,7 @@ regex = { workspace = true }
 serde = { workspace = true }
 scopeguard = { workspace = true }
 strum = "0.25.0"
-strum_macros = "0.25.1"
+strum_macros = "0.25.3"
 thiserror = { workspace = true }
 tinyvec = { workspace = true }
 xxhash-rust = { workspace = true }

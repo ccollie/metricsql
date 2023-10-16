@@ -15,9 +15,9 @@ path="src/lib.rs"
 ahash = { workspace = true }
 chrono = { workspace = true }
 chrono-tz = { workspace = true }
-byte-pool = "0.2.3"
-lockfree-object-pool = "0.1.3"
-byte-slice-cast = "1.2.1"
+byte-pool = "0.2.4"
+lockfree-object-pool = "0.1.4"
+byte-slice-cast = "1.2.2"
 integer-encoding = "4.0.0"
 rand = { workspace = true }
 rand_distr = { workspace = true }

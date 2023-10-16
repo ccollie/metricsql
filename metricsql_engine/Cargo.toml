@@ -17,7 +17,7 @@ rs_unit = { workspace = true }
 [dependencies]
 ahash = { workspace = true }
 async-recursion = "1.0"
-async-trait = "0.1.51"
+async-trait = "0.1.74"
 phf = { workspace = true }
 enquote = { workspace = true }
 byte-slice-cast = "1.2.2"
@@ -31,7 +31,7 @@ itertools = { workspace = true }
 lockfree-object-pool = "0.1.4"
 lru_time_cache = "0.11.11"
 num-traits = { workspace = true }
-prometheus-parse = "0.2.3"
+prometheus-parse = "0.2.4"
 q_compress = { workspace = true }
 rand = { workspace = true }
 rand_distr = { workspace = true }
