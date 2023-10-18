@@ -260,13 +260,10 @@ impl ConstEvaluator {
             (Expr::Duration(ln), Expr::Number(NumberLiteral { value }), op)
                 if ln.requires_step() && (op == Operator::Mul || op == Operator::Div) =>
             {
-                match ln {
-                    DurationExpr::StepValue(step_value) => {
-                        let n = scalar_binary_operation(*step_value, *value, op, is_bool)?;
-                        let dur = DurationExpr::new_step(n);
-                        return Ok(Expr::Duration(dur));
-                    }
-                    _ => {}
+                if let DurationExpr::StepValue(step_value) = ln {
+                    let n = scalar_binary_operation(*step_value, *value, op, is_bool)?;
+                    let dur = DurationExpr::new_step(n);
+                    return Ok(Expr::Duration(dur));
                 }
             }
             (Expr::Number(ln), Expr::Number(rn), op) => {

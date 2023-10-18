@@ -13,7 +13,7 @@ mod tests {
             arg,
             option_to_string(&ae.modifier)
         );
-        match arg.deref() {
+        match arg {
             Expr::Function(fe) => show_func_expr(fe),
             _ => panic!("expected rollup as func expr. Got {}", arg),
         }
@@ -22,7 +22,7 @@ mod tests {
     fn show_func_expr(fe: &FunctionExpr) {
         let arg = fe.args.get(0).expect("fe.args[0] should not be None");
         println!("func: name={}, arg={}\n", fe.function, arg);
-        match arg.deref() {
+        match arg {
             Expr::Rollup(re) => show_rollup(re),
             _ => {
                 panic!("expected rollup as func.args[0]. Got {}", arg);
