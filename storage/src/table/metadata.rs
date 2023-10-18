@@ -23,11 +23,12 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use snafu::ResultExt;
 
-use crate::catalog::consts::{DEFAULT_CATALOG_NAME, DEFAULT_SCHEMA_NAME};
 pub use datatypes::error::{Error as ConvertError, Result as ConvertResult};
-use datatypes::schema::{ColumnSchema, RawSchema, Schema, SchemaBuilder, SchemaRef};
 
+use crate::catalog::consts::{DEFAULT_CATALOG_NAME, DEFAULT_SCHEMA_NAME};
 use crate::table::requests::TableOptions;
+
+// use datatypes::schema::{ColumnSchema, RawSchema, Schema, SchemaBuilder, SchemaRef};
 
 pub type TableId = u32;
 pub type TableVersion = u64;
