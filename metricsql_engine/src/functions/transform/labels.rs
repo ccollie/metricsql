@@ -340,7 +340,7 @@ pub(crate) fn label_value(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Times
         }
     }
 
-    // do not remove timeseries with only NaN values, so `default` could be applied to them:
+    // do not remove series with only NaN values, so `default` could be applied to them:
     // label_value(q, "label") default 123
     Ok(std::mem::take(&mut series))
 }
@@ -397,6 +397,50 @@ pub(crate) fn label_mismatch(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Ti
 
         Ok(std::mem::take(&mut series))
     })
+}
+
+pub(crate) fn labels_equal(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    if tfa.args.len() < 3 {
+        return Err(RuntimeError::ArgumentError(format!(
+            "unexpected number of args; got {}; want at least 3",
+            tfa.args.len()
+        )));
+    }
+    let tss = get_series_arg(&tfa.args, 0, tfa.ec)?;
+    let mut label_names = Vec::with_capacity(tss.len());
+    for i in 1..tss.len() {
+        let label_name = get_string_arg(&tfa.args, i)?;
+        label_names.push(label_name);
+    }
+    let mut rvs = Vec::with_capacity(tss.len());
+    for mut ts in tss {
+        if has_identical_label_values(&mut ts.metric_name, &label_names) {
+            rvs.push(ts)
+        }
+    }
+
+    Ok(rvs)
+}
+
+fn has_identical_label_values(mn: &mut MetricName, label_names: &Vec<Cow<String>>) -> bool {
+    if label_names.len() < 2 {
+        return true;
+    }
+    // have to clone bc of the BC
+    let label_value = mn.get_value_mut(&label_names[0]).cloned();
+    for labelName in label_names[1..].iter() {
+        let b = mn.get_value_mut(labelName);
+        match (&label_value, b) {
+            (None, None) => {}
+            (Some(left), Some(right)) => {
+                if left != right {
+                    return false;
+                }
+            }
+            _ => return false,
+        }
+    }
+    return true;
 }
 
 pub(crate) fn label_graphite_group(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {

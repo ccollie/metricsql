@@ -522,6 +522,21 @@ mod tests {
     }
 
     #[test]
+    fn test_label_manipulation_functions() {
+        // Label manipulation functions which are in reality do not change labels for the input series
+        validate_optimized(
+            r#"labels_equal(foo{x="y"}, "a", "b") + label_match(bar{q="w"}, "foo", "bar")"#,
+            r#"labels_equal(foo{q="w",x="y"}, "a", "b") + label_match(bar{q="w",x="y"}, "foo", "bar")"#,
+        );
+
+        // Label manipulation functions which change labels for the input series, shouldn't be optimized.
+        validate_optimized(
+            r#"label_set(foo{x="y"}, "a", "b") + bar{q="w"}"#,
+            r#"label_set(foo{x="y"}, "a", "b") + bar{q="w"}"#,
+        );
+    }
+
+    #[test]
     fn test_optimize_multi_level_transform_funcs() {
         // multilevel transform funcs
         validate_optimized(r#"round(sqrt(foo)) + bar"#, r#"round(sqrt(foo)) + bar"#);
@@ -591,7 +606,6 @@ mod tests {
 
     #[test]
     fn test_optimize_subqueries() {
-        // subqueries
         validate_optimized(
             r#"rate(avg_over_time(foo[5m:])) + bar{baz="a"}"#,
             r#"rate(avg_over_time(foo{baz="a"}[5m:])) + bar{baz="a"}"#,

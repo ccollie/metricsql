@@ -14,6 +14,7 @@ use crate::functions::transform::clamp::{clamp, clamp_max, clamp_min};
 use crate::functions::transform::datetime::{
     day_of_month, day_of_week, days_in_month, hour, minute, month, now, time, timezone_offset, year,
 };
+use crate::functions::transform::drop_empty_series::transform_drop_empty_series;
 use crate::functions::transform::end::transform_end;
 use crate::functions::transform::histogram::{
     buckets_limit, histogram_avg, histogram_quantile, histogram_quantiles, histogram_share,
@@ -25,7 +26,7 @@ use crate::functions::transform::keep_next_value::keep_next_value;
 use crate::functions::transform::labels::{
     alias, drop_common_labels, label_copy, label_del, label_graphite_group, label_join, label_keep,
     label_lowercase, label_map, label_match, label_mismatch, label_move, label_replace, label_set,
-    label_transform, label_uppercase, label_value,
+    label_transform, label_uppercase, label_value, labels_equal,
 };
 use crate::functions::transform::limit_offset::limit_offset;
 use crate::functions::transform::math::{
@@ -58,6 +59,7 @@ mod absent;
 mod bitmap;
 mod clamp;
 mod datetime;
+mod drop_empty_series;
 mod end;
 mod histogram;
 mod interpolate;
@@ -137,6 +139,7 @@ fn get_transform_func(f: TransformFunction) -> TransformFuncHandler {
         DaysInMonth => days_in_month,
         Deg => deg,
         DropCommonLabels => drop_common_labels,
+        DropEmptySeries => transform_drop_empty_series,
         End => transform_end,
         Exp => exp,
         Floor => floor,
@@ -161,6 +164,7 @@ fn get_transform_func(f: TransformFunction) -> TransformFuncHandler {
         LabelMismatch => label_mismatch,
         LabelMove => label_move,
         LabelReplace => label_replace,
+        LabelsEqual => labels_equal,
         LabelSet => label_set,
         LabelTransform => label_transform,
         LabelUppercase => label_uppercase,

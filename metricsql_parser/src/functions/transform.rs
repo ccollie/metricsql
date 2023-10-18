@@ -39,6 +39,7 @@ pub enum TransformFunction {
     DaysInMonth,
     Deg,
     DropCommonLabels,
+    DropEmptySeries,
     End,
     Exp,
     Floor,
@@ -67,6 +68,7 @@ pub enum TransformFunction {
     LabelTransform,
     LabelUppercase,
     LabelValue,
+    LabelsEqual,
     LimitOffset,
     Ln,
     Log2,
@@ -159,6 +161,7 @@ static REVERSE_MAP: phf::Map<&'static str, TransformFunction> = phf_map! {
 "days_in_month"=> TransformFunction::DaysInMonth,
 "deg"=> TransformFunction::Deg,
 "drop_common_labels"=> TransformFunction::DropCommonLabels,
+"drop_empty_series" => TransformFunction::DropEmptySeries,
 "end" => TransformFunction::End,
 "exp" => TransformFunction::Exp,
 "floor" => TransformFunction::Floor,
@@ -187,6 +190,7 @@ static REVERSE_MAP: phf::Map<&'static str, TransformFunction> = phf_map! {
 "label_transform" => TransformFunction::LabelTransform,
 "label_uppercase" => TransformFunction::LabelUppercase,
 "label_value" => TransformFunction::LabelValue,
+"labels_equal" => TransformFunction::LabelsEqual,
 "limit_offset" => TransformFunction::LimitOffset,
 "ln" => TransformFunction::Ln,
 "log2" => TransformFunction::Log2,
@@ -287,6 +291,7 @@ impl TransformFunction {
             DaysInMonth => "days_in_month",
             Deg => "deg",
             DropCommonLabels => "drop_common_labels",
+            DropEmptySeries => "drop_empty_series",
             End => "end",
             Exp => "exp",
             Floor => "floor",
@@ -315,6 +320,7 @@ impl TransformFunction {
             LabelTransform => "label_transform",
             LabelUppercase => "label_uppercase",
             LabelValue => "label_value",
+            LabelsEqual => "labels_equal",
             LimitOffset => "limit_offset",
             Ln => "ln",
             Log2 => "log2",
@@ -426,6 +432,7 @@ impl TransformFunction {
             self,
             Alias
                 | DropCommonLabels
+                | DropEmptySeries
                 | LabelCopy
                 | LabelDel
                 | LabelGraphiteGroup
@@ -433,14 +440,11 @@ impl TransformFunction {
                 | LabelKeep
                 | LabelLowercase
                 | LabelMap
-                | LabelMatch
-                | LabelMismatch
                 | LabelMove
                 | LabelReplace
                 | LabelSet
                 | LabelTransform
                 | LabelUppercase
-                | LabelValue
         )
     }
 

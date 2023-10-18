@@ -1169,6 +1169,54 @@ mod tests {
     }
 
     #[test]
+    fn labels_equal() {
+        let q = r#"sort(labels_equal((
+      label_set(10, "instance", "qwe", "host", "rty"),
+      label_set(20, "instance", "qwe", "host", "qwe"),
+      label_set(30, "aaa", "bbb", "instance", "foo", "host", "foo"),
+    ), "instance", "host"))"#;
+        let mut r1 = make_result(&[20.0, 20.0, 20.0, 20.0, 20.0, 20.0]);
+        r1.metric.set_tag("host", "qwe");
+        r1.metric.set_tag("instance", "qwe");
+
+        let mut r2 = make_result(&[30.0, 30.0, 30.0, 30.0, 30.0, 30.0]);
+        r2.metric.set_tag("aaa", "bbb");
+        r2.metric.set_tag("host", "foo");
+        r2.metric.set_tag("instance", "foo");
+        test_query(q, vec![r1, r2]);
+    }
+
+    #[test]
+    fn drop_empty_series() {
+        let q = r#"sort(drop_empty_series(
+                            (
+                            alias(time(), "foo"),
+                            alias(500 + time(), "bar"),
+                            ) > 2000
+                            ) default 123)"#;
+
+        let mut r = make_result(&[123.0, 123.0, 123.0, 2100.0, 2300.0, 2500.0]);
+        r.metric.set_metric_group("bar");
+        test_query(q, vec![r])
+    }
+
+    #[test]
+    fn no_drop_empty_series() {
+        let q = r#"sort((
+                        (
+                        alias(time(), "foo"),
+                        alias(500 + time(), "bar"),
+                        ) > 2000
+                    ) default 123)"#;
+
+        let mut r1 = make_result(&[123.0, 123.0, 123.0, 123.0, 123.0, 123.0]);
+        r1.metric.set_metric_group("foo");
+        let mut r2 = make_result(&[123.0, 123.0, 123.0, 2100.0, 2300.0, 2500.0]);
+        r2.metric.set_metric_group("bar");
+        test_query(q, vec![r1, r2])
+    }
+
+    #[test]
     fn drop_common_labels_single_series() {
         let q =
             r#"drop_common_labels(label_set(time(), "foo", "bar", "__name__", "xxx", "q", "we"))"#;
