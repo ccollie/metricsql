@@ -1,10 +1,12 @@
+use std::cmp::Ordering;
+
 use chrono::{Offset, TimeZone};
 
 use metricsql_common::timestamp_ms_to_datetime;
 use metricsql_parser::ast::Expr;
 
-use crate::{Label, Labels, RuntimeError, RuntimeResult, Timeseries};
 use crate::functions::transform::TransformFuncArg;
+use crate::{Label, Labels, RuntimeError, RuntimeResult, Timeseries};
 
 /// copy_timeseries returns a copy of tss.
 pub(super) fn copy_timeseries(tss: &[Timeseries]) -> Vec<Timeseries> {
@@ -71,4 +73,12 @@ pub fn extract_labels(expr: &Expr) -> Option<Labels> {
         return Some(labels);
     }
     None
+}
+
+pub(super) fn is_inf(x: f64, sign: i8) -> bool {
+    match sign.cmp(&0_i8) {
+        Ordering::Greater => x == f64::INFINITY,
+        Ordering::Less => x == f64::NEG_INFINITY,
+        Ordering::Equal => x.is_infinite(),
+    }
 }

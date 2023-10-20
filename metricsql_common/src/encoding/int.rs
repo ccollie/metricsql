@@ -31,26 +31,6 @@ pub fn unmarshal_usize(src: &[u8]) -> Result<(usize, &[u8])> {
     unmarshal_fixed_int::<usize>(src)
 }
 
-/// marshal_u64 appends marshaled v to dst and returns the result.
-pub fn marshal_u64(dst: &mut Vec<u8>, u: u64) {
-    marshal_fixed_int::<u64>(dst, u);
-}
-
-/// unmarshal_u64 returns unmarshalled u64 from src.
-pub fn unmarshal_u64(src: &[u8]) -> Result<(u64, &[u8])> {
-    unmarshal_fixed_int::<u64>(src)
-}
-
-/// marshal_i64 appends marshaled v to dst and returns the result.
-pub fn marshal_i64(dst: &mut Vec<u8>, u: i64) {
-    marshal_fixed_int::<i64>(dst, u);
-}
-
-/// unmarshal_u64 returns unmarshalled u64 from src.
-pub fn unmarshal_i64(src: &[u8]) -> Result<(i64, &[u8])> {
-    unmarshal_fixed_int::<i64>(src)
-}
-
 /// appends marshaled v to dst and returns the result.
 pub fn marshal_var_int<T: VarInt>(dst: &mut Vec<u8>, v: T) {
     let buf: [u8; 10] = [0; 10];
