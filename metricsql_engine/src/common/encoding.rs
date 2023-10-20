@@ -1,6 +1,7 @@
+use integer_encoding::VarInt;
+
 use metricsql_common::{
-    marshal_var_usize, unmarshal_string_fast, unmarshal_var_i64, unmarshal_var_u64,
-    unmarshal_var_usize,
+    marshal_var_usize, unmarshal_var_i64, unmarshal_var_u64, unmarshal_var_usize,
 };
 
 use crate::{RuntimeError, RuntimeResult};
@@ -31,7 +32,24 @@ pub(crate) fn write_string(buf: &mut Vec<u8>, s: &str) {
 }
 
 pub(crate) fn read_string<'a>(slice: &'a [u8], what: &str) -> RuntimeResult<(&'a [u8], String)> {
-    unmarshal_string_fast(slice).map_err(|e| map_unmarshal_err(e, what))
+    if let Some((len, n)) = u64::decode_var(slice) {
+        let len = len as usize;
+        let tail = &slice[n..];
+        if tail.len() < len {
+            return Err(RuntimeError::SerializationError(format!(
+                "unexpected end of data when reading {what}: len={len}, tail.len()={}",
+                tail.len()
+            )));
+        }
+        let s = String::from_utf8_lossy(&tail[..len]).to_string();
+        let tail = &tail[len..];
+        Ok((tail, s))
+    } else {
+        Err(RuntimeError::SerializationError(format!(
+            "cannot decode varint from {}",
+            what
+        )))
+    }
 }
 
 pub(crate) fn read_u64<'a>(slice: &'a [u8], what: &str) -> RuntimeResult<(&'a [u8], u64)> {

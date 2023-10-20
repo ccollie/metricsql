@@ -12,47 +12,13 @@ pub fn marshal_fixed_int<T: FixedInt>(dst: &mut Vec<u8>, v: T) {
 /// unmarshal_fixed_int returns unmarshalled int64 from src.
 pub fn unmarshal_fixed_int<T: FixedInt>(src: &[u8]) -> Result<(T, &[u8])> {
     match T::decode_fixed(src) {
-        None => {
-            Err(Error::new(format!(
-                "At least {} bytes required decoding int. Got {}",
-                T::ENCODED_SIZE,
-                src.len()
-            )))
-        }
-        Some(v) => {
-            Ok((v, &src[T::ENCODED_SIZE..]))
-        }
+        None => Err(Error::new(format!(
+            "At least {} bytes required decoding int. Got {}",
+            T::ENCODED_SIZE,
+            src.len()
+        ))),
+        Some(v) => Ok((v, &src[T::ENCODED_SIZE..])),
     }
-}
-
-/// marshal_i16 appends marshaled v to dst and returns the result.
-pub fn marshal_i16(dst: &mut Vec<u8>, u: i16) {
-    marshal_fixed_int(dst, u);
-}
-
-/// unmarshal_i16 returns unmarshalled int16 from src.
-pub fn unmarshal_i16(src: &[u8]) -> Result<(i16, &[u8])> {
-    unmarshal_fixed_int::<i16>(src)
-}
-
-/// marshals a u16 to dst.
-pub fn marshal_u16(dst: &mut Vec<u8>, v: u16) {
-    marshal_fixed_int::<u16>(dst, v)
-}
-
-/// unmarshal_uint16 returns unmarshalled: u16 from src.
-pub fn unmarshal_u16(src: &[u8]) -> Result<(u16, &[u8])> {
-    unmarshal_fixed_int::<u16>(src)
-}
-
-/// marshals a u32 to dst.
-pub fn marshal_u32(dst: &mut Vec<u8>, v: u32) {
-    marshal_fixed_int::<u32>(dst, v)
-}
-
-/// unmarshal_u32 returns unmarshalled: u32 from src.
-pub fn unmarshal_u32(src: &[u8]) -> Result<(u32, &[u8])> {
-    unmarshal_fixed_int::<u32>(src)
 }
 
 /// marshals a usize to dst.
@@ -87,8 +53,8 @@ pub fn unmarshal_i64(src: &[u8]) -> Result<(i64, &[u8])> {
 
 /// appends marshaled v to dst and returns the result.
 pub fn marshal_var_int<T: VarInt>(dst: &mut Vec<u8>, v: T) {
-    let mut buf: [u8; 10] = [0; 10];
-    let size = v.encode_var(&mut buf);
+    let buf: [u8; 10] = [0; 10];
+    let size = v.encode_var(dst);
     dst.extend_from_slice(&buf[0..size]);
 }
 
@@ -125,50 +91,6 @@ pub fn unmarshal_var_u64(src: &[u8]) -> Result<(u64, &[u8])> {
 
 /// appends marshaled v to dst and returns the result.
 #[inline]
-pub fn marshal_var_u32(dst: &mut Vec<u8>, v: u32) {
-    marshal_var_int(dst, v)
-}
-
-/// returns unmarshalled u32 from src and returns the remaining tail from src.
-pub fn unmarshal_var_u32(src: &[u8]) -> Result<(u32, &[u8])> {
-    unmarshal_var_int::<u32>(src)
-}
-
-/// appends marshaled v to dst and returns the result.
-#[inline]
-pub fn marshal_var_i32(dst: &mut Vec<u8>, v: i32) {
-    marshal_var_int(dst, v)
-}
-
-/// returns unmarshalled i32 from src and returns the remaining tail from src.
-pub fn unmarshal_var_i32(src: &[u8]) -> Result<(i32, &[u8])> {
-    unmarshal_var_int::<i32>(src)
-}
-
-/// appends marshaled v to dst and returns the result.
-#[inline]
-pub fn marshal_var_u16(dst: &mut Vec<u8>, v: u16) {
-    marshal_var_int(dst, v)
-}
-
-/// returns unmarshalled u16 from src and returns the remaining tail from src.
-pub fn unmarshal_var_u16(src: &[u8]) -> Result<(u16, &[u8])> {
-    unmarshal_var_int::<u16>(src)
-}
-
-/// appends marshaled v to dst and returns the result.
-#[inline]
-pub fn marshal_var_i16(dst: &mut Vec<u8>, v: i16) {
-    marshal_var_int(dst, v)
-}
-
-/// returns unmarshalled i16 from src and returns the remaining tail from src.
-pub fn unmarshal_var_i16(src: &[u8]) -> Result<(i16, &[u8])> {
-    unmarshal_var_int::<i16>(src)
-}
-
-/// appends marshaled v to dst and returns the result.
-#[inline]
 pub fn marshal_var_usize(dst: &mut Vec<u8>, v: usize) {
     marshal_var_int(dst, v)
 }
@@ -176,55 +98,6 @@ pub fn marshal_var_usize(dst: &mut Vec<u8>, v: usize) {
 /// returns unmarshalled u16 from src and returns the remaining tail from src.
 pub fn unmarshal_var_usize(src: &[u8]) -> Result<(usize, &[u8])> {
     unmarshal_var_int::<usize>(src)
-}
-
-const TEMP_BUF_LEN: usize = 512;
-
-/// appends marshaled us to dst.
-pub fn marshal_var_int_array<T: VarInt>(dst: &mut Vec<u8>, us: &[T]) {
-    let mut buf: [u8; TEMP_BUF_LEN] = [0; TEMP_BUF_LEN];
-
-    let mut ofs: usize = 0;
-
-    for u in us {
-        if ofs + 10 >= TEMP_BUF_LEN {
-            dst.reserve(ofs);
-            dst.extend_from_slice(&buf[0..ofs]);
-            ofs = 0;
-        }
-        ofs += u.encode_var(&mut buf[ofs..]);
-    }
-
-    if ofs > 0 {
-        dst.extend_from_slice(&buf[0..ofs])
-    }
-}
-
-/// unmarshals count values from src to dst
-/// and returns the remaining tail from src.
-pub fn unmarshal_var_int_vec<'a, T: VarInt>(dst: &mut Vec<T>, count: usize, src: &'a [u8]) -> Result<&'a [u8]> {
-    let mut ofs: usize = 0;
-    let mut i = count;
-
-    while ofs < src.len() && i > 0 {
-        let cursor = &src[ofs..];
-        match T::decode_var(cursor) {
-            Some((x, size)) => {
-                ofs += size;
-                dst.push(x);
-            }
-            None => {
-                let msg = format!("unexpected end of encoded varint at byte {}", ofs);
-                return Err(Error::new(msg));
-            }
-        }
-        i -= 1;
-    }
-    if i > 0 && count < usize::MAX {
-        let msg = format!("unexpected {} items; got {}", dst.len(), dst.len() - i);
-        return Err(Error::new(msg));
-    }
-    Ok(&src[ofs..])
 }
 
 /// marshal_bytes appends marshaled b to dst and returns the result.

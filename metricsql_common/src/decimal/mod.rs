@@ -5,7 +5,6 @@ use rand_distr::num_traits::Pow;
 /// See https://www.robustperception.io/staleness-and-promql
 /// StaleNaN is a special NaN value, which is used as Prometheus staleness mark.
 pub const STALE_NAN_BITS: u64 = 0x7ff0000000000002;
-
 pub(crate) const V_MAX: i64 = 1 << (63 - 3);
 pub(crate) const V_MIN: i64 = (-1 << 63) + 1;
 
