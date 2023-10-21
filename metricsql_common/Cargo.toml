@@ -17,8 +17,6 @@ chrono = { workspace = true }
 chrono-tz = { workspace = true }
 byte-pool = "0.2.4"
 lockfree-object-pool = "0.1.4"
-byte-slice-cast = "1.2.2"
-integer-encoding = "4.0.0"
 rand = { workspace = true }
 rand_distr = { workspace = true }
 regex-syntax = { workspace = true }
