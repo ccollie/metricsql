@@ -1,7 +1,7 @@
-use num_traits::Pow;
 use std::cmp::Ordering;
 use std::ops::DerefMut;
 
+use num_traits::Pow;
 use tinyvec::TinyVec;
 
 use metricsql_common::get_pooled_vec_f64;
