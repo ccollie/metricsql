@@ -1,9 +1,9 @@
 use std::{error, fmt, io};
 
 pub mod encoders;
+pub mod marshal;
 mod reader;
 pub mod utils;
-pub mod marshal;
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
 pub enum BlockType {

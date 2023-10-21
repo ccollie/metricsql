@@ -1,10 +1,44 @@
 use std::error::Error;
 
 use q_compress::data_types::NumberLike;
-use q_compress::{auto_compress, auto_decompress};
+use q_compress::{auto_compress, auto_decompress, Compressor};
+
+// mirror CompressorConfig here so downstream users don't need to import q_compress
+#[derive(Clone, Debug)]
+pub struct CompressorConfig {
+    pub compression_level: usize,
+    pub delta_encoding_order: usize,
+    pub use_gcds: bool,
+}
+
+impl Default for CompressorConfig {
+    fn default() -> Self {
+        Self {
+            compression_level: q_compress::DEFAULT_COMPRESSION_LEVEL,
+            delta_encoding_order: 0,
+            use_gcds: true,
+        }
+    }
+}
 
 pub fn encode<T: NumberLike>(src: &[T], dst: &mut Vec<u8>) -> Result<(), Box<dyn Error>> {
     let compressed = auto_compress(src, q_compress::DEFAULT_COMPRESSION_LEVEL);
+    dst.extend_from_slice(&compressed);
+    Ok(())
+}
+
+pub fn encode_with_options<T: NumberLike>(
+    src: &[T],
+    dst: &mut Vec<u8>,
+    options: CompressorConfig,
+) -> Result<(), Box<dyn Error>> {
+    let mut config = q_compress::CompressorConfig::default();
+    config.compression_level = options.compression_level;
+    config.delta_encoding_order = options.delta_encoding_order;
+    config.use_gcds = options.use_gcds;
+
+    let mut compressor = Compressor::<T>::from_config(config);
+    let compressed = compressor.simple_compress(src);
     dst.extend_from_slice(&compressed);
     Ok(())
 }
