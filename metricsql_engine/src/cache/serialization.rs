@@ -7,11 +7,8 @@ use q_compress::errors::QCompressError;
 use q_compress::wrapped::{ChunkSpec, Compressor, Decompressor};
 use q_compress::CompressorConfig;
 
-use metricsql_common::error::Error;
-use metricsql_common::{marshal_var_i64, unmarshal_var_i64};
-
-use crate::common::encoding::{read_usize, write_usize};
-use crate::{MetricName, RuntimeError, RuntimeResult, Timeseries};
+use crate::common::encoding::{marshal_var_i64, read_usize, write_usize};
+use crate::{MetricName, RuntimeError, RuntimeResult, Timeseries, Timestamp};
 
 fn get_value_compressor(values: &[f64]) -> Compressor<f64> {
     Compressor::<f64>::from_config(q_compress::auto_compressor_config(
@@ -24,6 +21,15 @@ pub(crate) fn compress_series(series: &[Timeseries], buf: &mut Vec<u8>) -> Runti
     const DATA_PAGE_SIZE: usize = 3000;
 
     let series_count = series.len();
+
+    // write out series count
+    write_usize(buf, series_count);
+
+    if series_count == 0 {
+        return Ok(());
+    }
+
+    // Invariant: the length of all
     let q_timestamps = &series[0].timestamps;
     let mut count = q_timestamps.len();
 
@@ -49,9 +55,6 @@ pub(crate) fn compress_series(series: &[Timeseries], buf: &mut Vec<u8>) -> Runti
 
     // timestamp metadata
     write_metadata(&mut t_compressor, buf, q_timestamps, &chunk_spec)?;
-
-    // write out series count
-    write_usize(buf, series_count);
 
     // write out value chunk metadata
     for (compressor, series) in value_compressors.iter_mut().zip(series.iter()) {
@@ -84,6 +87,10 @@ pub(crate) fn compress_series(series: &[Timeseries], buf: &mut Vec<u8>) -> Runti
         let t_max = q_timestamps[idx - 1];
         write_timestamp(buf, t_min);
         write_timestamp(buf, t_max);
+
+        if *page_size == 0 {
+            continue;
+        }
 
         // for ease of seeking by date range, we write out the full compressed data page size (timestamps and data)
         t_compressor.data_page().map_err(map_err)?;
@@ -123,18 +130,15 @@ pub(crate) fn deserialize_series_between(
     t0: i64,
     t1: i64,
 ) -> RuntimeResult<Vec<Timeseries>> {
-    let mut t_decompressor = Decompressor::<i64>::default();
-
-    #[allow(unused_assignments)]
-    let mut size: usize = 0;
+    // read series count
+    let (compressed, series_count) = read_usize(compressed, "series count")?;
+    if series_count == 0 {
+        return Ok(vec![]);
+    }
 
     // read timestamp metadata
+    let mut t_decompressor = Decompressor::<i64>::default();
     let mut compressed = read_metadata(&mut t_decompressor, compressed)?;
-
-    // read series count
-    (compressed, size) = read_usize(compressed, "series count")?;
-
-    let series_count = size;
 
     let mut v_decompressors: Vec<_> = (0..series_count)
         .map(|_| Decompressor::<f64>::default())
@@ -154,16 +158,18 @@ pub(crate) fn deserialize_series_between(
 
     // todo: init capacity
     let mut timestamps = Vec::new();
-    let tmp_ts = Arc::new(Vec::new());
 
     let mut res: Vec<Timeseries> = labels
         .into_iter()
-        .map(|lbl| Timeseries {
-            metric_name: lbl,
-            timestamps: tmp_ts.clone(),
-            values: Vec::new(),
+        .map(|metric_name| Timeseries {
+            metric_name,
+            timestamps: Arc::new(vec![]),
+            values: vec![],
         })
         .collect();
+
+    #[allow(unused_assignments)]
+    let mut size: usize = 0;
 
     while !compressed.is_empty() {
         (compressed, size) = read_usize(compressed, "data length")?;
@@ -189,28 +195,34 @@ pub(crate) fn deserialize_series_between(
             compressed = &compressed[data_size..];
         } else {
             // we need to filter and append this data
-            (compressed, size) = read_usize(compressed, "timestamp data size")?;
-            t_decompressor.write_all(&compressed[..size]).unwrap();
-            let page_t = t_decompressor.data_page(n, size).map_err(map_err)?;
+            let (page_t, remaining) = read_timestamp_page(&mut t_decompressor, compressed, n)?;
+            compressed = remaining;
 
-            compressed = &compressed[size..];
+            if page_t.is_empty() {
+                continue;
+            }
+
+            let first = page_t[0];
+            if first > t1 {
+                break;
+            }
+
+            let (ts_start_index, ts_end_index) = get_timestamp_index_bounds(&page_t, t0, t1);
+            timestamps.extend_from_slice(&page_t[ts_start_index..=ts_end_index]);
 
             for (v_decompressor, series) in v_decompressors.iter_mut().zip(res.iter_mut()) {
-                (compressed, size) = read_usize(compressed, "value data size")?;
-                v_decompressor.write_all(&compressed[..size]).unwrap();
-                let page_v = v_decompressor.data_page(n, size).map_err(map_err)?;
+                let (page_v, remaining) = read_values_page(v_decompressor, compressed, n)?;
 
-                compressed = &compressed[size..];
+                compressed = remaining;
 
-                // todo: this can probably be faster
-                let filtered = page_t
-                    .iter()
-                    .zip(page_v)
-                    .filter(|(t, _)| (t0..t1).contains(t))
-                    .collect::<Vec<_>>();
+                series
+                    .values
+                    .extend_from_slice(&page_v[ts_start_index..=ts_end_index]);
+            }
 
-                timestamps.extend(filtered.iter().map(|(t, _)| *t));
-                series.values.extend(filtered.into_iter().map(|(_, v)| v));
+            let end = page_t[page_t.len() - 1];
+            if end > t1 {
+                break;
             }
         }
     }
@@ -221,6 +233,25 @@ pub(crate) fn deserialize_series_between(
     }
 
     Ok(res)
+}
+
+pub(crate) fn get_timestamp_index_bounds(
+    timestamps: &[i64],
+    start_ts: Timestamp,
+    end_ts: Timestamp,
+) -> (usize, usize) {
+    let stamps = &timestamps[0..];
+    let start_idx = match stamps.binary_search(&start_ts) {
+        Ok(idx) => idx,
+        Err(idx) => idx,
+    };
+
+    let end_idx = match stamps.binary_search(&end_ts) {
+        Ok(idx) => idx,
+        Err(idx) => idx - 1,
+    };
+
+    (start_idx, end_idx)
 }
 
 pub(super) fn estimate_size(tss: &[Timeseries]) -> usize {
@@ -258,7 +289,7 @@ fn read_metadata<'a, T: NumberLike>(
     decompressor: &mut Decompressor<T>,
     compressed: &'a [u8],
 ) -> RuntimeResult<&'a [u8]> {
-    let (mut tail, size) = read_usize(compressed, "metatdata length")?;
+    let (mut tail, size) = read_usize(compressed, "metadata length")?;
     decompressor.write_all(&tail[..size]).unwrap();
     decompressor.header().map_err(map_err)?;
     decompressor.chunk_metadata().map_err(map_err)?;
@@ -266,19 +297,49 @@ fn read_metadata<'a, T: NumberLike>(
     Ok(tail)
 }
 
+fn read_timestamp_page<'a>(
+    decompressor: &mut Decompressor<i64>,
+    compressed: &'a [u8],
+    page: usize,
+) -> RuntimeResult<(Vec<i64>, &'a [u8])> {
+    let (mut compressed, size) = read_usize(compressed, "timestamp data size")?;
+    decompressor.write_all(&compressed[..size]).map_err(|e| {
+        let msg = format!("error reading timestamp data: {:?}", e);
+        RuntimeError::SerializationError(msg)
+    })?;
+    let page = decompressor.data_page(page, size).map_err(map_err)?;
+
+    compressed = &compressed[size..];
+    Ok((page, compressed))
+}
+
+fn read_values_page<'a>(
+    decompressor: &mut Decompressor<f64>,
+    compressed: &'a [u8],
+    page: usize,
+) -> RuntimeResult<(Vec<f64>, &'a [u8])> {
+    let (mut compressed, size) = read_usize(compressed, "value data size")?;
+    decompressor.write_all(&compressed[..size]).map_err(|e| {
+        let msg = format!("error reading value data: {:?}", e);
+        RuntimeError::SerializationError(msg)
+    })?;
+    let page = decompressor.data_page(page, size).map_err(map_err)?;
+
+    compressed = &compressed[size..];
+    Ok((page, compressed))
+}
+
 fn map_err(e: QCompressError) -> RuntimeError {
     RuntimeError::SerializationError(e.to_string())
 }
 
-fn map_unmarshal_err(e: Error, what: &str) -> RuntimeError {
+fn map_unmarshal_err(e: RuntimeError, what: &str) -> RuntimeError {
     let msg = format!("error reading {what}: {:?}", e);
     RuntimeError::SerializationError(msg)
 }
 
 fn read_timestamp(compressed: &[u8]) -> RuntimeResult<(&[u8], i64)> {
-    let (val, tail) =
-        unmarshal_var_i64(compressed).map_err(|e| map_unmarshal_err(e, "timestamp"))?;
-    Ok((tail, val))
+    crate::common::encoding::read_i64(compressed, "timestamp")
 }
 
 fn write_timestamp(dest: &mut Vec<u8>, ts: i64) {

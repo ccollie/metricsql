@@ -10,16 +10,14 @@ use tracing::span::EnteredSpan;
 use tracing::{field, info, span_enabled, trace_span, Level, Span};
 use xxhash_rust::xxh3::Xxh3;
 
-use metricsql_common::{
-    get_pooled_buffer, marshal_fixed_int, marshal_var_int, AtomicCounter, RelaxedU64Counter,
-};
+use metricsql_common::{get_pooled_buffer, AtomicCounter, RelaxedU64Counter};
 use metricsql_parser::ast::Expr;
 use metricsql_parser::prelude::Matchers;
 
 use crate::cache::default_result_cache_storage::DefaultResultCacheStorage;
 use crate::cache::serialization::{compress_series, deserialize_series_between, estimate_size};
 use crate::cache::traits::RollupResultCacheStorage;
-use crate::common::encoding::{read_i64, read_u64, read_usize};
+use crate::common::encoding::{marshal_var_int, marshal_var_usize, read_i64, read_u64, read_usize};
 use crate::common::memory::memory_limit;
 use crate::common::memory_limiter::MemoryLimiter;
 use crate::execution::EvalConfig;
@@ -590,7 +588,7 @@ impl RollupResultCacheMetaInfo {
     }
 
     fn marshal(&self, dst: &mut Vec<u8>) {
-        marshal_fixed_int::<usize>(dst, self.entries.len());
+        marshal_var_usize(dst, self.entries.len());
         for entry in &self.entries {
             entry.marshal(dst);
         }

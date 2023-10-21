@@ -1,6 +1,6 @@
 use integer_encoding::{FixedInt, VarInt};
 
-use crate::error::{Error, Result};
+use crate::{EncodingError, EncodingResult};
 
 /// marshal_fixed_int appends marshaled v to dst and returns the result.
 pub fn marshal_fixed_int<T: FixedInt>(dst: &mut Vec<u8>, v: T) {
@@ -10,9 +10,9 @@ pub fn marshal_fixed_int<T: FixedInt>(dst: &mut Vec<u8>, v: T) {
 }
 
 /// unmarshal_fixed_int returns unmarshalled int64 from src.
-pub fn unmarshal_fixed_int<T: FixedInt>(src: &[u8]) -> Result<(T, &[u8])> {
+pub fn unmarshal_fixed_int<T: FixedInt>(src: &[u8]) -> EncodingResult<(T, &[u8])> {
     match T::decode_fixed(src) {
-        None => Err(Error::new(format!(
+        None => Err(EncodingError::new(format!(
             "At least {} bytes required decoding int. Got {}",
             T::ENCODED_SIZE,
             src.len()
@@ -27,22 +27,22 @@ pub fn marshal_usize(dst: &mut Vec<u8>, v: usize) {
 }
 
 /// unmarshal_usize returns unmarshalled usize from src.
-pub fn unmarshal_usize(src: &[u8]) -> Result<(usize, &[u8])> {
+pub fn unmarshal_usize(src: &[u8]) -> EncodingResult<(usize, &[u8])> {
     unmarshal_fixed_int::<usize>(src)
 }
 
 /// appends marshaled v to dst and returns the result.
 pub fn marshal_var_int<T: VarInt>(dst: &mut Vec<u8>, v: T) {
-    let buf: [u8; 10] = [0; 10];
-    let size = v.encode_var(dst);
-    dst.extend_from_slice(&buf[0..size]);
+    let len = dst.len();
+    dst.resize(len + v.required_space(), 0);
+    let _ = v.encode_var(&mut dst[len..]);
 }
 
 /// unmarshal_var returns unmarshalled int from src.
-pub fn unmarshal_var_int<T: VarInt>(src: &[u8]) -> Result<(T, &[u8])> {
+pub fn unmarshal_var_int<T: VarInt>(src: &[u8]) -> EncodingResult<(T, &[u8])> {
     match T::decode_var(src) {
         Some((v, ofs)) => Ok((v, &src[ofs..])),
-        _ => Err(Error::new("Error decoding var int")),
+        _ => Err(EncodingError::new("Error decoding var int".to_string())),
     }
 }
 
@@ -54,7 +54,7 @@ pub fn marshal_var_i64(dst: &mut Vec<u8>, v: i64) {
 
 /// unmarshal_var_i64 returns unmarshalled int64 from src and returns
 /// the remaining tail from src.
-pub fn unmarshal_var_i64(src: &[u8]) -> Result<(i64, &[u8])> {
+pub fn unmarshal_var_i64(src: &[u8]) -> EncodingResult<(i64, &[u8])> {
     unmarshal_var_int::<i64>(src)
 }
 
@@ -65,7 +65,7 @@ pub fn marshal_var_u64(dst: &mut Vec<u8>, v: u64) {
 }
 
 /// returns unmarshalled u64 from src and returns the remaining tail from src.
-pub fn unmarshal_var_u64(src: &[u8]) -> Result<(u64, &[u8])> {
+pub fn unmarshal_var_u64(src: &[u8]) -> EncodingResult<(u64, &[u8])> {
     unmarshal_var_int::<u64>(src)
 }
 
@@ -76,14 +76,15 @@ pub fn marshal_var_usize(dst: &mut Vec<u8>, v: usize) {
 }
 
 /// returns unmarshalled u16 from src and returns the remaining tail from src.
-pub fn unmarshal_var_usize(src: &[u8]) -> Result<(usize, &[u8])> {
+pub fn unmarshal_var_usize(src: &[u8]) -> EncodingResult<(usize, &[u8])> {
     unmarshal_var_int::<usize>(src)
 }
 
 /// marshal_bytes appends marshaled b to dst and returns the result.
-pub fn marshal_bytes(dst: &mut Vec<u8>, b: &[u8]) {
-    let len = b.len();
-    marshal_var_int(dst, len);
+pub fn marshal_bytes(b: &[u8], dst: &mut Vec<u8>) {
+    let len = b.len() as u64;
+    dst.reserve(b.len() + 10);
+    len.encode_var(dst);
     if len > 0 {
         dst.extend_from_slice(b);
     }
@@ -91,20 +92,22 @@ pub fn marshal_bytes(dst: &mut Vec<u8>, b: &[u8]) {
 
 /// unmarshal_bytes returns unmarshalled bytes from src.
 /// returns (bytes, remaining tail from src).
-pub fn unmarshal_bytes(src: &[u8]) -> Result<(&[u8], &[u8])> {
-    match unmarshal_var_int::<usize>(src) {
-        Ok((n, tail)) => {
-            if src.len() < n {
-                return Err(Error::from(format!(
-                    "src is too short for reading string with size {}; src.len()={}",
-                    n,
-                    src.len()
-                )));
-            }
-            let str_bytes = &tail[..n];
-            let tail = &tail[n..];
-            Ok((str_bytes, tail))
-        }
-        Err(err) => Err(Error::new(format!("cannot unmarshal string size: {}", err))),
+pub fn unmarshal_bytes(src: &[u8]) -> EncodingResult<(&[u8], &[u8])> {
+    let (len, n) = u64::decode_var(&src[0..]).ok_or_else(|| EncodingError {
+        description: "unable to decode timestamp".into(),
+    })?;
+    let byte_len = src.len() as usize;
+    let tail = &src[n..];
+
+    if tail.len() < byte_len {
+        let description = format!(
+            "src is too short for reading string with size {n}; src.len()={}",
+            src.len()
+        );
+        return Err(EncodingError { description });
     }
+    let len = len as usize;
+    let str_bytes = &tail[..len];
+    let tail = &tail[len..];
+    Ok((str_bytes, tail))
 }

@@ -10,11 +10,11 @@ use enquote::enquote;
 use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::Xxh3;
 
-use metricsql_common::{fmt_duration_ms, hash_f64};
+use metricsql_common::fmt_duration_ms;
 
 use crate::ast::expr_equals;
 use crate::common::{
-    write_comma_separated, write_number, AggregateModifier, BinModifier, LabelFilter,
+    hash_f64, write_comma_separated, write_number, AggregateModifier, BinModifier, LabelFilter,
     LabelFilterOp, Operator, StringExpr, Value, ValueType, VectorMatchCardinality, NAME_LABEL,
 };
 use crate::functions::{AggregateFunction, BuiltinFunction, TransformFunction};

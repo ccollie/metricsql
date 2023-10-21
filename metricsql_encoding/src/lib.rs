@@ -3,6 +3,7 @@ use std::{error, fmt, io};
 pub mod encoders;
 mod reader;
 pub mod utils;
+pub mod marshal;
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
 pub enum BlockType {
@@ -60,6 +61,12 @@ const MAX_BLOCK_VALUES: usize = 1000;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EncodingError {
     pub description: String,
+}
+
+impl EncodingError {
+    pub fn new(description: String) -> Self {
+        Self { description }
+    }
 }
 
 impl fmt::Display for EncodingError {
