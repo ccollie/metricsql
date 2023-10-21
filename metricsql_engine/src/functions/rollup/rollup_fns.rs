@@ -1,9 +1,11 @@
 use std::str::FromStr;
 
-use metricsql_common::{get_pooled_vec_f64, is_stale_nan};
+use metricsql_common::get_pooled_vec_f64;
 use metricsql_parser::functions::RollupFunction;
 
-use crate::common::math::{linear_regression, mad, mode_no_nans, quantile, stddev, stdvar};
+use crate::common::math::{
+    is_stale_nan, linear_regression, mad, mode_no_nans, quantile, stddev, stdvar,
+};
 use crate::functions::arg_parse::get_scalar_param_value;
 use crate::functions::rollup::delta::{
     new_rollup_delta, new_rollup_delta_prometheus, new_rollup_idelta, new_rollup_increase,

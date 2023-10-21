@@ -12,6 +12,7 @@ readme = "README.md"
 [workspace]
 members = [
     "metricsql_common",
+    "metricsql_encoding",
     "metricsql_parser",
     "metricsql_engine"
 ]

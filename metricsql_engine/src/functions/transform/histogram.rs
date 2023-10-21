@@ -3,13 +3,11 @@ use std::rc::Rc;
 
 use ahash::AHashMap;
 
-use metricsql_common::is_inf;
-
 use crate::execution::merge_non_overlapping_timeseries;
 use crate::functions::arg_parse::{
     get_float_arg, get_int_arg, get_scalar_arg_as_vec, get_series_arg,
 };
-use crate::functions::transform::utils::copy_timeseries;
+use crate::functions::transform::utils::{copy_timeseries, is_inf};
 use crate::functions::transform::TransformFuncArg;
 use crate::signature::Signature;
 use crate::{MetricName, QueryValue, RuntimeError, RuntimeResult, Timeseries};

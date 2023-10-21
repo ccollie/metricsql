@@ -22,7 +22,6 @@ use core::{
 ///
 /// ```
 /// use metricsql_common::IntMap;
-/// use crate::no_hash::IntMap;
 ///
 /// let mut m: IntMap<u32, bool> = IntMap::default();
 ///
@@ -42,7 +41,6 @@ pub type IntMap<K, V> = std::collections::HashMap<K, V, BuildNoHashHasher<K>>;
 ///
 /// ```
 /// use metricsql_common::IntSet;
-/// use nohash_hasher::IntSet;
 ///
 /// let mut m = IntSet::default();
 ///
@@ -61,7 +59,7 @@ pub type IntSet<T> = std::collections::HashSet<T, BuildNoHashHasher<T>>;
 /// See also [`IntMap`] and [`IntSet`] for some easier usage examples.
 ///
 /// ```
-/// use nohash_hasher::BuildNoHashHasher;
+/// use metricsql_common::NoHashHasher::BuildNoHashHasher;
 /// use std::collections::HashMap;
 /// use metricsql_common::BuildNoHashHasher;
 ///
@@ -94,7 +92,6 @@ pub type BuildNoHashHasher<T> = BuildHasherDefault<NoHashHasher<T>>;
 /// usage examples. See [`IsEnabled`] for use with custom types.
 ///
 /// ```
-/// use nohash_hasher::NoHashHasher;
 /// use std::{collections::HashMap, hash::BuildHasherDefault};
 /// use metricsql_common::NoHashHasher;
 ///
