@@ -7,15 +7,12 @@ extern crate rand;
 extern crate xxhash_rust;
 
 pub use atomic_counter::*;
-pub use decimal::*;
 pub use duration::*;
 pub use fast_cache::*;
 pub use no_hash::{BuildNoHashHasher, IntMap, IntSet, NoHashHasher};
 pub use pool::*;
 pub use time::*;
-
 mod atomic_counter;
-mod decimal;
 mod duration;
 mod fast_cache;
 mod no_hash;

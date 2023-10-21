@@ -1,11 +1,10 @@
 use std::sync::Arc;
 use std::vec;
 
+use crate::common::math::round_to_decimal_digits;
 use ahash::AHashSet;
 use chrono::Utc;
 use tracing::{field, info, trace_span, Span};
-
-use metricsql_common::round_to_decimal_digits;
 
 use crate::execution::context::Context;
 use crate::execution::parser_cache::{ParseCacheResult, ParseCacheValue};

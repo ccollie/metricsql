@@ -2,10 +2,11 @@ use std::borrow::Cow;
 
 use rayon::iter::IntoParallelRefIterator;
 
-use metricsql_common::{get_pooled_vec_f64, get_pooled_vec_i64, is_stale_nan};
+use metricsql_common::{get_pooled_vec_f64, get_pooled_vec_i64};
 use metricsql_parser::ast::{BinaryExpr, DurationExpr};
 use metricsql_parser::functions::RollupFunction;
 
+use crate::common::math::is_stale_nan;
 use crate::execution::EvalConfig;
 use crate::rayon::iter::ParallelIterator;
 use crate::{QueryValue, RuntimeResult, Timeseries};
