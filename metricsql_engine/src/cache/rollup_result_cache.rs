@@ -1,5 +1,4 @@
 use std::hash::Hasher;
-use std::ops::DerefMut;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use ahash::AHashMap;
@@ -10,7 +9,7 @@ use tracing::span::EnteredSpan;
 use tracing::{field, info, span_enabled, trace_span, Level, Span};
 use xxhash_rust::xxh3::Xxh3;
 
-use metricsql_common::{get_pooled_buffer, AtomicCounter, RelaxedU64Counter};
+use metricsql_common::prelude::{get_pooled_buffer, AtomicCounter, RelaxedU64Counter};
 use metricsql_parser::ast::Expr;
 use metricsql_parser::prelude::Matchers;
 
@@ -396,7 +395,7 @@ impl RollupResultCache {
         let mut meta_info_key = get_pooled_buffer(32);
         let mut meta_info_buf = get_pooled_buffer(32);
 
-        key.marshal(meta_info_key.deref_mut());
+        key.marshal(&mut meta_info_key);
 
         inner.cache.set_big(&meta_info_key, result_buf.as_slice());
 
@@ -428,7 +427,7 @@ impl RollupResultCache {
         let mut meta_info_buf = get_pooled_buffer(512);
         let found = inner.cache.get(&hash.to_ne_bytes(), &mut meta_info_buf);
         if found && meta_info_buf.len() > 0 {
-            match RollupResultCacheMetaInfo::from_buf(meta_info_buf.deref_mut()) {
+            match RollupResultCacheMetaInfo::from_buf(&mut meta_info_buf) {
                 Err(_) => {
                     let msg = "BUG: cannot unmarshal RollupResultCacheMetaInfo; it looks like it was improperly saved";
                     Err(RuntimeError::SerializationError(msg.to_string()))

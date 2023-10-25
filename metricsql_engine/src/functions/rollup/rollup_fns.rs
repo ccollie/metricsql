@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use metricsql_common::get_pooled_vec_f64;
+use metricsql_common::pool::get_pooled_vec_f64;
 use metricsql_parser::functions::RollupFunction;
 
 use crate::common::math::{

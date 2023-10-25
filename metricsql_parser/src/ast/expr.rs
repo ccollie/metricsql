@@ -10,7 +10,7 @@ use enquote::enquote;
 use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::Xxh3;
 
-use metricsql_common::fmt_duration_ms;
+use metricsql_common::duration::fmt_duration_ms;
 
 use crate::ast::expr_equals;
 use crate::common::{

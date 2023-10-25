@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use tracing::{field, trace_span, Span};
 
-use metricsql_common::{AtomicCounter, RelaxedU64Counter};
+use metricsql_common::atomic_counter::{AtomicCounter, RelaxedU64Counter};
 use metricsql_parser::ast::*;
 use metricsql_parser::common::Matchers;
 use metricsql_parser::functions::RollupFunction;

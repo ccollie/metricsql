@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 
 use chrono::{Offset, TimeZone};
 
-use metricsql_common::timestamp_ms_to_datetime;
+use metricsql_common::time::timestamp_ms_to_datetime;
 use metricsql_parser::ast::Expr;
 
 use crate::functions::transform::TransformFuncArg;

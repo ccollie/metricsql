@@ -22,7 +22,7 @@ use std::ops::Deref;
 
 use num_traits::float::FloatConst;
 
-use metricsql_common::{datetime_part, timestamp_secs_to_utc_datetime, DateTimePart};
+use metricsql_common::prelude::{datetime_part, timestamp_secs_to_utc_datetime, DateTimePart};
 
 use crate::ast::utils::{expr_contains, is_null, is_one, is_op_with, is_zero};
 use crate::ast::{can_pushdown_filters, optimize_label_filters_inplace, NumberLiteral};

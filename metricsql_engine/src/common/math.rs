@@ -4,7 +4,7 @@ use std::ops::DerefMut;
 use num_traits::Pow;
 use tinyvec::TinyVec;
 
-use metricsql_common::get_pooled_vec_f64;
+use metricsql_common::pool::get_pooled_vec_f64;
 
 /// STALE_NAN_BITS is bit representation of Prometheus staleness mark (aka stale NaN).
 /// This mark is put by Prometheus at the end of time series for improving staleness detection.

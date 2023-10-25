@@ -4,9 +4,9 @@ use std::sync::RwLock;
 
 use xxhash_rust::xxh3::xxh3_64;
 
+use crate::no_hash::IntMap;
+use crate::pool::get_pooled_buffer;
 use ahash::AHashSet;
-
-use crate::{get_pooled_buffer, IntMap};
 
 const U64_SIZE: usize = 8;
 

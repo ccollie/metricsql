@@ -1,6 +1,6 @@
 use std::ops::DerefMut;
 
-use metricsql_common::get_pooled_vec_f64_filled;
+use metricsql_common::pool::get_pooled_vec_f64_filled;
 
 use crate::common::math::{quantile, quantiles};
 use crate::functions::arg_parse::{get_scalar_param_value, get_string_param_value};

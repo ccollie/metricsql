@@ -1,12 +1,13 @@
 use std::borrow::BorrowMut;
 use std::collections::hash_map::Entry;
 use std::collections::BTreeMap;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
+use std::ops::DerefMut;
 
 use ahash::AHashMap;
 use lockfree_object_pool::LinearReusable;
 
-use metricsql_common::{get_pooled_vec_f64, get_pooled_vec_f64_filled};
+use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_f64_filled};
 use metricsql_parser::common::AggregateModifier;
 use metricsql_parser::functions::AggregateFunction;
 
