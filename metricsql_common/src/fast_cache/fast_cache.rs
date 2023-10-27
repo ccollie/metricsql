@@ -2,11 +2,11 @@ use std::mem::size_of;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::RwLock;
 
+use ahash::AHashSet;
 use xxhash_rust::xxh3::xxh3_64;
 
 use crate::no_hash::IntMap;
 use crate::pool::get_pooled_buffer;
-use ahash::AHashSet;
 
 const U64_SIZE: usize = 8;
 
@@ -704,8 +704,7 @@ mod tests {
 
     use test_case::test_case;
 
-    use crate::fast_cache::fast_cache::{BUCKETS_COUNT, CHUNK_SIZE};
-    use crate::{FastCache, Stats};
+    use crate::fast_cache::fast_cache::{FastCache, Stats, BUCKETS_COUNT, CHUNK_SIZE};
 
     const BIG_CACHE_SIZE_MIN: usize = 32 * 1024 * 1024;
 

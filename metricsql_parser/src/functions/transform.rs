@@ -255,11 +255,14 @@ impl FromStr for TransformFunction {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let lower = s.to_lowercase();
-        match REVERSE_MAP.get(lower.as_str()) {
-            Some(op) => Ok(*op),
-            None => Err(ParseError::InvalidFunction(s.to_string())),
-        }
+        REVERSE_MAP
+            .get(s)
+            .or_else(|| {
+                let lower = s.to_lowercase();
+                REVERSE_MAP.get(lower.as_str())
+            })
+            .ok_or_else(|| ParseError::InvalidFunction(s.to_string()))
+            .and_then(|x| Ok(*x))
     }
 }
 

@@ -1,4 +1,5 @@
 use std::fmt;
+use std::str::FromStr;
 
 use phf::phf_map;
 use serde::{Deserialize, Serialize};
@@ -177,14 +178,30 @@ impl Operator {
     }
 }
 
+impl FromStr for Operator {
+    type Err = ParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Operator::try_from(s)
+    }
+}
+
 impl TryFrom<&str> for Operator {
     type Error = ParseError;
 
     fn try_from(op: &str) -> Result<Self, Self::Error> {
-        match BINARY_OPS_MAP.get(op.to_lowercase().as_str()) {
-            Some(op) => Ok(*op),
-            None => Err(ParseError::General(format!("Unknown binary op {}", op))),
+        if let Some(ch) = op.chars().next() {
+            // slight optimization - don't lowercase if not needed (save allocation)
+            let value = if !ch.is_alphabetic() {
+                BINARY_OPS_MAP.get(op)
+            } else {
+                BINARY_OPS_MAP.get(op.to_lowercase().as_str())
+            };
+            if let Some(operator) = value {
+                return Ok(*operator);
+            }
         }
+        return Err(ParseError::General(format!("Unknown binary op {}", op)));
     }
 }
 
@@ -228,7 +245,14 @@ impl fmt::Display for Operator {
 }
 
 pub fn is_binary_op(op: &str) -> bool {
-    BINARY_OPS_MAP.contains_key(op.to_lowercase().as_str())
+    if let Some(ch) = op.chars().next() {
+        return if !ch.is_alphabetic() {
+            BINARY_OPS_MAP.contains_key(op)
+        } else {
+            BINARY_OPS_MAP.contains_key(op.to_lowercase().as_str())
+        };
+    }
+    false
 }
 
 #[cfg(test)]

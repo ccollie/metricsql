@@ -994,10 +994,15 @@ impl BinaryExpr {
 }
 
 fn is_reserved_binary_op_ident(s: &str) -> bool {
-    matches!(
-        s.to_ascii_lowercase().as_str(),
-        "group_left" | "group_right" | "on" | "ignoring" | "without" | "bool"
-    )
+    match s {
+        s if s.eq_ignore_ascii_case("group_left") => true,
+        s if s.eq_ignore_ascii_case("group_right") => true,
+        s if s.eq_ignore_ascii_case("on") => true,
+        s if s.eq_ignore_ascii_case("ignoring") => true,
+        s if s.eq_ignore_ascii_case("without") => true,
+        s if s.eq_ignore_ascii_case("bool") => true,
+        _ => false,
+    }
 }
 
 fn need_binary_op_arg_parens(arg: &Expr) -> bool {

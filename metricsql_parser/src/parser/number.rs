@@ -125,6 +125,7 @@ pub fn get_number_suffix(s: &str) -> Option<&'static SuffixValue> {
     }
     let last_ch = s.chars().last().unwrap();
     if last_ch.is_alphabetic() {
+        // todo: avoid converrsion here
         let lower = s.to_ascii_lowercase();
         SUFFIXES.iter().find(|x| lower.ends_with(x.0))
     } else {

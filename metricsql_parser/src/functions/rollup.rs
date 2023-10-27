@@ -418,17 +418,19 @@ impl FromStr for RollupFunction {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let lower = s.to_lowercase();
-        match FUNCTION_MAP.get(lower.as_str()) {
-            Some(op) => Ok(*op),
-            None => Err(ParseError::InvalidFunction(format!("rollup::{}", s))),
-        }
+        FUNCTION_MAP
+            .get(s)
+            .or_else(|| {
+                let lower = s.to_lowercase();
+                FUNCTION_MAP.get(lower.as_str())
+            })
+            .ok_or_else(|| ParseError::InvalidFunction(s.to_string()))
+            .and_then(|x| Ok(*x))
     }
 }
 
 pub fn is_rollup_func(func: &str) -> bool {
-    let lower = func.to_lowercase();
-    FUNCTION_MAP.contains_key(&lower)
+    RollupFunction::from_str(func).is_ok()
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Hash, EnumIter, Serialize, Deserialize)]
@@ -452,14 +454,12 @@ impl FromStr for RollupTag {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let lower = s.to_lowercase();
-        match lower.as_str() {
-            "min" => Ok(RollupTag::Min),
-            "max" => Ok(RollupTag::Max),
-            "avg" => Ok(RollupTag::Avg),
+        match s {
+            s if s.eq_ignore_ascii_case("min") => Ok(RollupTag::Min),
+            s if s.eq_ignore_ascii_case("max") => Ok(RollupTag::Max),
+            s if s.eq_ignore_ascii_case("avg") => Ok(RollupTag::Avg),
             _ => Err(ParseError::InvalidFunction(format!(
-                "invalid rollup tag::{}",
-                s
+                "invalid rollup tag::{s}",
             ))),
         }
     }

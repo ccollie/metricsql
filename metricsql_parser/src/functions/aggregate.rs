@@ -188,21 +188,21 @@ static FUNCTION_MAP: phf::Map<&'static str, AggregateFunction> = phf_map! {
 };
 
 pub fn is_aggr_func(func: &str) -> bool {
-    FUNCTION_MAP.contains_key(&func.to_lowercase())
+    AggregateFunction::from_str(func).is_ok()
 }
 
 impl FromStr for AggregateFunction {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let lower = s.to_lowercase();
-        match FUNCTION_MAP.get(lower.as_str()) {
-            Some(op) => Ok(*op),
-            None => Err(ParseError::InvalidAggregateFunction(format!(
-                "Invalid aggregation function: {}",
-                s
-            ))),
-        }
+        FUNCTION_MAP
+            .get(s)
+            .or_else(|| {
+                let lower = s.to_lowercase();
+                FUNCTION_MAP.get(lower.as_str())
+            })
+            .ok_or_else(|| ParseError::InvalidFunction(s.to_string()))
+            .and_then(|x| Ok(*x))
     }
 }
 
