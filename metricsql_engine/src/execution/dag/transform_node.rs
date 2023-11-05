@@ -1,24 +1,20 @@
-use serde::{Deserialize, Serialize};
+use metricsql_parser::prelude::{Expr, TransformFunction};
 use tracing::{field, trace_span, Span};
 
-use metricsql_parser::prelude::{Expr, TransformFunction};
-
-use crate::execution::dag::utils::resolve_value;
+use crate::execution::dag::utils::resolve_node_args;
 use crate::execution::{Context, EvalConfig};
 use crate::functions::transform::{
     exec_transform_fn, extract_labels, handle_absent, TransformFuncArg,
 };
 use crate::{Labels, QueryValue, RuntimeResult};
 
-use super::utils::resolve_args;
-use super::ExecutableNode;
+use super::{ExecutableNode, NodeArg};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TransformNode {
     pub function: TransformFunction,
     pub keep_metric_names: bool,
-    pub arg_indexes: Vec<usize>,
-    #[serde(skip)]
+    pub node_args: Vec<NodeArg>,
     pub(crate) args: Vec<QueryValue>,
     /// Whether all arguments are constant and fully resolved. Note that if this is true,
     /// this node will be either be executed standalone or as the first level of a DAG evaluator.
@@ -27,8 +23,8 @@ pub struct TransformNode {
 }
 
 impl ExecutableNode for TransformNode {
-    fn set_dependencies(&mut self, dependencies: &mut [QueryValue]) -> RuntimeResult<()> {
-        resolve_args(&self.arg_indexes, &mut self.args, dependencies);
+    fn pre_execute(&mut self, dependencies: &mut [QueryValue]) -> RuntimeResult<()> {
+        resolve_node_args(&self.node_args, &mut self.args, dependencies);
         Ok(())
     }
 
@@ -71,8 +67,8 @@ impl Default for TransformNode {
             function: TransformFunction::Absent, // todo:
             args: vec![],
             keep_metric_names: false,
-            arg_indexes: vec![],
             args_const: false,
+            node_args: vec![],
         }
     }
 }
@@ -82,12 +78,11 @@ impl Default for TransformNode {
 /// original expression in order to get the set of labels to apply to the result vector.
 /// Rather than pass around a param that's redundant in 99.9% of case we handle it here and
 /// hopefully keep the code cleaner.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct AbsentTransformNode {
     pub keep_metric_names: bool,
-    pub arg_index: usize,
     pub labels: Option<Labels>,
-    #[serde(skip)]
+    pub node_arg: NodeArg,
     pub(crate) arg: QueryValue,
     pub(crate) arg_const: bool,
 }
@@ -97,28 +92,36 @@ impl AbsentTransformNode {
         let labels = extract_labels(expr);
         Self {
             keep_metric_names: false,
-            arg_index,
             labels,
+            node_arg: NodeArg::Index(arg_index),
             arg: QueryValue::default(),
             arg_const: false,
         }
     }
 
-    pub fn from_arg(expr: &Expr, arg: QueryValue) -> Self {
+    pub fn from_arg(expr: &Expr, node_arg: NodeArg) -> Self {
         let labels = extract_labels(expr);
+        let (arg, arg_const) = if node_arg.is_const() {
+            let mut arg = QueryValue::default();
+            node_arg.resolve(&mut arg, &mut []);
+            (arg, true)
+        } else {
+            (QueryValue::default(), false)
+        };
+
         Self {
             keep_metric_names: false,
-            arg_index: 0,
             labels,
+            node_arg,
             arg,
-            arg_const: true,
+            arg_const,
         }
     }
 }
 
 impl ExecutableNode for AbsentTransformNode {
-    fn set_dependencies(&mut self, dependencies: &mut [QueryValue]) -> RuntimeResult<()> {
-        resolve_value(self.arg_index, &mut self.arg, dependencies);
+    fn pre_execute(&mut self, dependencies: &mut [QueryValue]) -> RuntimeResult<()> {
+        self.node_arg.resolve(&mut self.arg, dependencies);
         Ok(())
     }
 

@@ -1,6 +1,5 @@
-use serde::{Deserialize, Serialize};
-
 use metricsql_parser::ast::MetricExpr;
+use serde::{Deserialize, Serialize};
 
 use crate::execution::{Context, EvalConfig};
 use crate::{QueryValue, RuntimeResult};
@@ -13,7 +12,7 @@ pub struct SelectorNode {
 }
 
 impl ExecutableNode for SelectorNode {
-    fn set_dependencies(&mut self, _dependencies: &mut [QueryValue]) -> RuntimeResult<()> {
+    fn pre_execute(&mut self, _dependencies: &mut [QueryValue]) -> RuntimeResult<()> {
         Ok(())
     }
 

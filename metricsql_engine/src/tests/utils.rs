@@ -1,5 +1,4 @@
 use itertools::izip;
-
 use metricsql_parser::prelude::Value;
 
 use crate::{MetricName, QueryResult, QueryValue, RuntimeResult, Timeseries};
@@ -188,7 +187,7 @@ pub fn compare_values(actual: &[f64], expected: &[f64]) -> RuntimeResult<()> {
     for (i, (got, wanted)) in actual.iter().zip(expected.iter()).enumerate() {
         assert!(
             compare_floats(*wanted, *got),
-            "unexpected value comparing slice; expected {v2}, got {v1} at index {i}",
+            "unexpected value comparing slice; expected {v2}, got {v1} at index {i}\nactual={actual:?}\nexpected={expected:?}",
             v1 = *got,
             v2 = *wanted
         );

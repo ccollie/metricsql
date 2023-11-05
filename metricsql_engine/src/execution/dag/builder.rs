@@ -1,14 +1,12 @@
-use std::default::Default;
-use std::ops::Deref;
-
 use ahash::AHashMap;
-use topologic::AcyclicDependencyGraph;
-
 use metricsql_parser::ast::{
     AggregationExpr, BinaryExpr, Expr, FunctionExpr, MetricExpr, ParensExpr, RollupExpr,
 };
 use metricsql_parser::functions::{BuiltinFunction, RollupFunction, TransformFunction};
 use metricsql_parser::prelude::{adjust_comparison_ops, Operator};
+use std::default::Default;
+use std::ops::Deref;
+use topologic::AcyclicDependencyGraph;
 
 use crate::execution::binary::can_push_down_common_filters;
 use crate::execution::dag::aggregate_node::AggregateNode;
@@ -23,6 +21,7 @@ use crate::execution::dag::vector_scalar_binop_node::VectorScalarBinaryNode;
 use crate::execution::dag::vector_vector_binary_node::{
     VectorVectorBinaryNode, VectorVectorPushDownNode,
 };
+use crate::execution::dag::NodeArg;
 use crate::execution::utils::should_keep_metric_names;
 use crate::execution::DAGNode;
 use crate::functions::aggregate::IncrementalAggregationHandler;
@@ -49,7 +48,7 @@ impl DAGBuilder {
         self.node_map.clear();
     }
 
-    pub(crate) fn build(&mut self, expr: Expr) -> RuntimeResult<Vec<Vec<Dependency>>> {
+    fn build(&mut self, expr: Expr) -> RuntimeResult<(Vec<Vec<Dependency>>, usize)> {
         self.reset();
 
         let mut optimized = metricsql_parser::prelude::optimize(expr)
@@ -61,10 +60,11 @@ impl DAGBuilder {
         if count == 1 {
             let root = 0;
             let node = self.node_map.remove(&root).unwrap();
-            return Ok(vec![vec![Dependency {
+            let dag = vec![vec![Dependency {
                 node,
                 result_index: root,
-            }]]);
+            }]];
+            return Ok((dag, 1));
         }
         let dag = self.sort_nodes();
         let mut node_dag: Vec<Vec<Dependency>> = Vec::with_capacity(dag.len());
@@ -88,17 +88,17 @@ impl DAGBuilder {
             return Err(RuntimeError::Internal(msg));
         }
 
-        Ok(node_dag)
+        Ok((node_dag, max_index))
     }
 
     pub(crate) fn compile(expr: Expr) -> RuntimeResult<DAGNode> {
         let mut builder = DAGBuilder::new();
-        let mut dag = builder.build(expr)?;
+        let (mut dag, node_count) = builder.build(expr)?;
         if dag.len() == 1 && dag[0].len() == 1 {
             let node = std::mem::take(&mut dag[0][0].node);
             return Ok(node);
         }
-        let dynamic = DynamicNode(DAGEvaluator::new(dag));
+        let dynamic = DynamicNode(DAGEvaluator::new(dag, node_count));
         Ok(DAGNode::Dynamic(dynamic))
     }
 
@@ -142,6 +142,18 @@ impl DAGBuilder {
         Ok(idx)
     }
 
+    fn create_node_arg(&mut self, expr: &Expr, parent_idx: usize) -> RuntimeResult<NodeArg> {
+        match expr {
+            Expr::Number(value) => Ok(NodeArg::Value(QueryValue::from(value.value))),
+            Expr::StringLiteral(value) => Ok(NodeArg::Value(QueryValue::from(value.as_ref()))),
+            _ => {
+                let idx = self.create_node(expr)?;
+                self.add_dependency(parent_idx, idx);
+                Ok(NodeArg::Index(idx))
+            }
+        }
+    }
+
     fn create_parens_node(&mut self, expr: &Expr, parens: &ParensExpr) -> RuntimeResult<usize> {
         if parens.len() == 1 {
             self.create_node(&parens.expressions[0])
@@ -181,12 +193,13 @@ impl DAGBuilder {
         let idx = self.reserve_node();
         let keep_metric_names = fe.keep_metric_names || tf.keep_metric_name();
 
-        let (args, arg_indexes, args_const) = self.handle_args(&fe.args, idx, None)?;
+        let (node_args, args, args_const) = self.process_args(&fe.args, idx, None)?;
+
         let transform_node = TransformNode {
             function: tf,
+            node_args,
             args,
             keep_metric_names,
-            arg_indexes,
             args_const,
         };
 
@@ -207,22 +220,12 @@ impl DAGBuilder {
         }
 
         let first = &fe.args[0];
-        // check if arg is float or string. If so store it in the node and don't create a dependency
-        let param = match first {
-            Expr::Number(n) => Some(QueryValue::Scalar(n.value)),
-            Expr::StringLiteral(s) => Some(QueryValue::String(s.clone())),
-            _ => None,
-        };
-
         // insert a dummy. we will replace it later
         let idx = self.reserve_node();
 
-        let node = if let Some(arg) = param {
-            AbsentTransformNode::from_arg(first, arg)
-        } else {
-            let arg_idx = self.create_dependency(first, idx)?;
-            AbsentTransformNode::from_arg_index(first, arg_idx)
-        };
+        let node_arg = self.create_node_arg(first, idx)?;
+
+        let node = AbsentTransformNode::from_arg(first, node_arg);
 
         self.node_map.insert(idx, DAGNode::Absent(node));
 
@@ -253,11 +256,9 @@ impl DAGBuilder {
                 })
             };
 
-        let mut is_default_handler = false;
         let func_handler = if rollup_func_requires_config(&rf) {
-            // Func is parameterized, so will be determined at metricsql_engine in dependency setter.
+            // Func is parameterized, so will be determined in pre-execute call on the node.
             // for now, set the default handler
-            is_default_handler = true;
             RollupHandler::default()
         } else {
             // if a function is not parameterized, we can get the handler now. In fact it's necessary
@@ -268,25 +269,26 @@ impl DAGBuilder {
 
         let parent_idx = self.create_rollup_node(expr, &re, rf, func_handler)?;
 
-        let (args, arg_indexes, _all_const) =
-            self.handle_args(&fe.args, parent_idx, fe.arg_idx_for_optimization)?;
+        let (fn_args, const_values, args_const) =
+            self.process_args(&fe.args, parent_idx, fe.arg_idx_for_optimization)?;
 
-        if !arg_indexes.is_empty() || !args.is_empty() {
+        if !fn_args.is_empty() {
             if let Some(expr) = self.node_map.get_mut(&parent_idx) {
-                let handler: Option<RollupHandler> = if !args.is_empty() && is_default_handler {
-                    Some(get_function_handler(rf, &args)?)
+                let handler = if args_const && !fn_args.is_empty() {
+                    Some(get_function_handler(rf, &const_values)?)
                 } else {
                     None
                 };
+
                 match expr {
                     DAGNode::Rollup(ref mut node) => {
-                        node.arg_indexes = arg_indexes;
+                        node.args = fn_args;
                         if let Some(func_handler) = handler {
                             node.func_handler = func_handler;
                         }
                     }
                     DAGNode::Subquery(ref mut node) => {
-                        node.arg_indexes = arg_indexes;
+                        node.args = fn_args;
                         if let Some(func_handler) = handler {
                             node.func_handler = func_handler;
                         }
@@ -308,8 +310,25 @@ impl DAGBuilder {
     ) -> RuntimeResult<usize> {
         let parent_idx = self.reserve_node();
 
-        let at_index = if let Some(at) = &re.at {
-            Some(self.create_dependency(at, parent_idx)?)
+        let mut at_value: Option<i64> = None;
+
+        let at_arg = if let Some(at) = &re.at {
+            match at.as_ref() {
+                Expr::Number(n) => {
+                    at_value = Some((n.value * 1000_f64) as i64);
+                    Some(NodeArg::Value(QueryValue::from(n.value)))
+                }
+                Expr::Duration(d) if !d.requires_step() => {
+                    let val = d.value(1);
+                    let d_sec = val as f64 / 1000_f64;
+                    at_value = Some(val);
+                    Some(NodeArg::Value(QueryValue::from(d_sec)))
+                }
+                _ => {
+                    let idx = self.create_dependency(at, parent_idx)?;
+                    Some(NodeArg::Index(idx))
+                }
+            }
         } else {
             None
         };
@@ -325,7 +344,8 @@ impl DAGBuilder {
                 rn.metric_expr = me.clone();
                 rn.expr = re.expr.as_ref().clone(); // should this be expr.clone()
                 rn.func_handler = func_handler;
-                rn.at_index = at_index;
+                rn.at_node = at_arg;
+                rn.at = at_value;
 
                 self.node_map.insert(parent_idx, DAGNode::Rollup(rn));
 
@@ -340,7 +360,8 @@ impl DAGBuilder {
                 node.func = rf;
                 node.expr = expr.clone();
                 node.func_handler = func_handler;
-                node.at_index = at_index;
+                node.at_arg = at_arg;
+                node.at = at_value;
 
                 let expr_dag = DAGBuilder::compile(re.expr.as_ref().clone())?;
                 node.expr_node = Box::new(expr_dag);
@@ -391,15 +412,14 @@ impl DAGBuilder {
 
         // add dummy node, we will replace it later
         let idx = self.reserve_node();
-
-        let (args, arg_indexes, args_const) = self.handle_args(&ae.args, idx, None)?;
+        let (node_args, args, args_const) = self.process_args(&ae.args, idx, None)?;
 
         let node = AggregateNode {
             function: ae.function,
+            node_args,
             args,
             modifier: ae.modifier.clone(),
             limit: ae.limit,
-            arg_indexes,
             args_const,
         };
 
@@ -415,7 +435,7 @@ impl DAGBuilder {
         let is_left_vector = is_vector_expr(&be.left);
         let is_right_vector = is_vector_expr(&be.right);
 
-        // ops with constant operands have already been handled by the optimizer
+        // ops with 2 constant operands have already been handled by the optimizer
         let res = match (&be.left.as_ref(), &be.right.as_ref()) {
             (expr_left, Expr::Number(v)) if is_left_vector => {
                 let left_idx = self.create_dependency(expr_left, idx)?;
@@ -507,46 +527,34 @@ impl DAGBuilder {
         Ok(DAGNode::BinOp(node))
     }
 
-    fn handle_args(
+    fn process_args(
         &mut self,
         args: &[Expr],
         parent_idx: usize,
         arg_idx_for_optimization: Option<usize>,
-    ) -> RuntimeResult<(Vec<QueryValue>, Vec<usize>, bool)> {
+    ) -> RuntimeResult<(Vec<NodeArg>, Vec<QueryValue>, bool)> {
         let ignore_idx = arg_idx_for_optimization.unwrap_or(1000);
-        if are_all_args_constant(args, arg_idx_for_optimization) {
-            let mut params = Vec::with_capacity(args.len());
-            // all args are constant, so we can evaluate the function now
-            // copy values to params
-            for (i, arg) in args.iter().enumerate() {
-                if i == ignore_idx {
-                    continue;
-                }
-                let value = match arg {
-                    Expr::Number(n) => QueryValue::Scalar(n.value),
-                    Expr::StringLiteral(s) => QueryValue::String(s.clone()),
-                    _ => {
-                        // this should never happen
-                        unreachable!("Invalid arg type")
-                    }
-                };
-                params.push(value);
-            }
-            return Ok((params, vec![], true));
-        }
-
-        let mut arg_indexes = Vec::with_capacity(args.len());
+        let mut all_const = true;
+        let mut result = Vec::with_capacity(args.len());
         for (i, arg) in args.iter().enumerate() {
             if i == ignore_idx {
-                //
-                arg_indexes.push(self.reserve_node());
                 continue;
             }
-            let idx = self.create_dependency(arg, parent_idx)?;
-            arg_indexes.push(idx);
+            all_const = all_const && is_expr_const(arg);
+            let v = self.create_node_arg(arg, parent_idx)?;
+            result.push(v);
         }
 
-        Ok((vec![], arg_indexes, false))
+        let mut const_values = vec![];
+        if all_const {
+            for arg in result.iter() {
+                let mut value = QueryValue::default();
+                arg.resolve(&mut value, &mut []);
+                const_values.push(value);
+            }
+        }
+
+        Ok((result, const_values, all_const))
     }
 
     fn sort_nodes(&mut self) -> Vec<Vec<usize>> {
@@ -571,20 +579,9 @@ fn is_vector_expr(node: &Expr) -> bool {
     )
 }
 
-fn are_all_args_constant(args: &[Expr], arg_idx_for_optimization: Option<usize>) -> bool {
-    if let Some(idx) = arg_idx_for_optimization {
-        for (i, arg) in args.iter().enumerate() {
-            if i == idx {
-                continue;
-            }
-            if !matches!(arg, Expr::Number(_) | Expr::StringLiteral(_)) {
-                return false;
-            }
-        }
-        return true;
-    }
-    args.iter()
-        .all(|x| matches!(x, Expr::Number(_) | Expr::StringLiteral(_)))
+#[inline]
+fn is_expr_const(expr: &Expr) -> bool {
+    matches!(expr, Expr::Number(_) | Expr::StringLiteral(_))
 }
 
 // todo: COW

@@ -1,11 +1,9 @@
-use std::sync::{Arc, Mutex};
-
-use tracing::{field, trace_span, Span};
-
 use metricsql_common::atomic_counter::{AtomicCounter, RelaxedU64Counter};
 use metricsql_parser::ast::*;
 use metricsql_parser::common::Matchers;
 use metricsql_parser::functions::RollupFunction;
+use std::sync::{Arc, Mutex};
+use tracing::{field, trace_span, Span};
 
 use crate::cache::rollup_result_cache::merge_timeseries;
 use crate::execution::context::Context;
@@ -13,7 +11,7 @@ use crate::execution::dag::aggregate_node::get_timeseries_limit;
 use crate::execution::dag::utils::{
     adjust_series_by_offset, expand_single_value, resolve_at_value, resolve_rollup_handler,
 };
-use crate::execution::dag::ExecutableNode;
+use crate::execution::dag::{ExecutableNode, NodeArg};
 use crate::execution::eval_number;
 use crate::execution::utils::{adjust_eval_range, drop_stale_nans, duration_value};
 use crate::execution::{get_timestamps, EvalConfig};
@@ -34,8 +32,7 @@ pub struct RollupNode {
     pub(crate) func: RollupFunction,
     pub(crate) func_handler: RollupHandler,
     pub(crate) keep_metric_names: bool,
-    is_tracing: bool,
-    pub(crate) metric_expr: MetricExpr,
+    pub metric_expr: MetricExpr,
     /// window contains optional window value from square brackets. Equivalent to `range` in
     /// prometheus terminology
     ///
@@ -53,16 +50,17 @@ pub struct RollupNode {
     /// For example, `foobar[1h:3m]` will have step value `3m`.
     pub step: Option<DurationExpr>,
 
-    at: Option<i64>,
-    pub(crate) at_index: Option<usize>,
-    pub(crate) arg_indexes: Vec<usize>,
+    pub(super) at: Option<i64>,
+    pub at_node: Option<NodeArg>,
+    pub(super) args: Vec<NodeArg>,
     pub(crate) is_incr_aggregate: bool,
+    is_tracing: bool,
 }
 
 impl ExecutableNode for RollupNode {
-    fn set_dependencies(&mut self, dependencies: &mut [QueryValue]) -> RuntimeResult<()> {
-        self.at = resolve_at_value(self.at_index, dependencies)?;
-        self.func_handler = resolve_rollup_handler(self.func, &self.arg_indexes, dependencies)?;
+    fn pre_execute(&mut self, dependencies: &mut [QueryValue]) -> RuntimeResult<()> {
+        self.at = resolve_at_value(&self.at_node, dependencies)?;
+        self.func_handler = resolve_rollup_handler(self.func, &self.args, dependencies)?;
         Ok(())
     }
 
@@ -117,8 +115,8 @@ impl RollupNode {
             step: None,
             offset: None,
             at: None,
-            at_index: None,
-            arg_indexes: vec![],
+            at_node: None,
+            args: vec![],
         }
     }
 

@@ -1,11 +1,11 @@
-use std::sync::Arc;
-
-use tracing::{field, trace_span, Span};
-
 use metricsql_parser::common::{BinModifier, Operator};
 use metricsql_parser::functions::RollupFunction;
+use std::sync::Arc;
+use tinyvec::TinyVec;
+use tracing::{field, trace_span, Span};
 
 use crate::execution::binary::{exec_binop, BinaryOpFuncArg};
+use crate::execution::dag::NodeArg;
 use crate::execution::utils::series_len;
 use crate::execution::{Context, EvalConfig};
 use crate::functions::rollup::{get_rollup_function_handler, RollupHandler};
@@ -19,7 +19,7 @@ pub(crate) fn resolve_value(index: usize, value: &mut QueryValue, computed: &mut
     //          or label_set(10, "foo", "qwerty", "__name__", "q2")
     //      ) keep_metric_names)
     //
-    //  Note that we have many constant dependencies (args) here. Rather than create a node for
+    //  Notice that we have many constant dependencies (args) here. Rather than create a node for
     //  the each constant, we just store it directly in the computed array.
     //  We won't ever have non primitive (string/scalar) constants, so we can just swap the value
     //  of InstantVector/RangeVectors, but we need to preserve the value of constants.
@@ -33,16 +33,16 @@ pub(crate) fn resolve_value(index: usize, value: &mut QueryValue, computed: &mut
     }
 }
 
-pub(crate) fn resolve_args(
-    indices: &[usize],
+pub(crate) fn resolve_node_args(
+    node_args: &[NodeArg],
     args: &mut Vec<QueryValue>,
     computed: &mut [QueryValue],
 ) {
-    if args.len() != indices.len() {
-        args.resize(indices.len(), QueryValue::default());
+    if args.len() != node_args.len() {
+        args.resize(node_args.len(), QueryValue::default());
     }
-    for (index, arg) in indices.iter().zip(args.iter_mut()) {
-        resolve_value(*index, arg, computed);
+    for (node_arg, arg) in node_args.iter().zip(args.iter_mut()) {
+        node_arg.resolve(arg, computed);
     }
 }
 
@@ -65,55 +65,43 @@ pub(crate) fn resolve_vector(
 
 pub(super) fn resolve_rollup_handler(
     func: RollupFunction,
-    arg_indexes: &[usize],
+    arg_nodes: &[NodeArg],
     dependencies: &mut [QueryValue],
 ) -> RuntimeResult<RollupHandler> {
-    if arg_indexes.is_empty() {
+    if arg_nodes.is_empty() {
         let empty = vec![];
         return get_rollup_function_handler(func, &empty);
     }
-    let mut args = Vec::with_capacity(arg_indexes.len());
-    resolve_args(arg_indexes, &mut args, dependencies);
+    let mut args: TinyVec<[QueryValue; 3]> = TinyVec::with_capacity(arg_nodes.len());
+    for arg in arg_nodes {
+        let mut value = QueryValue::default();
+        arg.resolve(&mut value, dependencies);
+        args.push(value);
+    }
     get_rollup_function_handler(func, &args)
 }
 
 pub(super) fn resolve_at_value(
-    arg_index: Option<usize>,
+    arg: &Option<NodeArg>,
     computed: &mut [QueryValue],
 ) -> RuntimeResult<Option<i64>> {
-    if let Some(index) = arg_index {
-        let value = get_at_value(&computed[index])?;
-        return Ok(Some(value));
+    if let Some(arg_value) = arg {
+        let mut value = QueryValue::default();
+        arg_value.resolve(&mut value, computed);
+        Ok(Some(get_at_value(&value)?))
+    } else {
+        Ok(None)
     }
-    Ok(None)
 }
 
 pub(super) fn get_at_value(value: &QueryValue) -> RuntimeResult<i64> {
-    match value {
-        QueryValue::Scalar(v) => Ok((v * 1000_f64) as i64),
-        QueryValue::InstantVector(v) => {
-            if v.len() != 1 {
-                let msg = format!(
-                    "`@` modifier must return a single series; it returns {} series instead",
-                    v.len()
-                );
-                return Err(RuntimeError::from(msg));
-            }
-            let ts = &v[0];
-            if ts.values.is_empty() {
-                let msg = "`@` modifier expression returned an empty value";
-                // todo: different error type?
-                return Err(RuntimeError::from(msg));
-            }
-            Ok((ts.values[0] * 1000_f64) as i64)
-        }
-        _ => {
-            let msg =
-                format!("cannot evaluate '{value}' as a timestamp in `@` modifier expression");
-            // todo: different error type?
-            Err(RuntimeError::from(msg))
-        }
-    }
+    let v = value.get_scalar().map_err(|_| {
+        RuntimeError::TypeCastError(format!(
+            "cannot evaluate '{value}' as a timestamp in `@` modifier expression"
+        ))
+    })?;
+
+    Ok((v * 1000_f64) as i64)
 }
 
 pub(crate) fn exec_vector_vector(

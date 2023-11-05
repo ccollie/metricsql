@@ -1,7 +1,6 @@
+use metricsql_parser::prelude::Matchers;
 use std::sync::Arc;
 use std::sync::RwLock;
-
-use metricsql_parser::prelude::Matchers;
 
 use crate::execution::context::Context;
 use crate::provider::Deadline;
@@ -182,7 +181,6 @@ impl EvalConfig {
     pub fn no_cache(&mut self) {
         self._may_cache = false
     }
-
     pub fn set_caching(&mut self, may_cache: bool) {
         self._may_cache = may_cache;
     }

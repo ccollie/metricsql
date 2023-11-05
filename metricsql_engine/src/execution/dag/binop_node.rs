@@ -1,6 +1,5 @@
-use serde::{Deserialize, Serialize};
-
 use metricsql_parser::common::{BinModifier, Operator};
+use serde::{Deserialize, Serialize};
 
 use crate::execution::binary::{
     eval_scalar_vector_binop, eval_string_string_binop, eval_vector_scalar_binop,
@@ -43,7 +42,7 @@ impl BinopNode {
 }
 
 impl ExecutableNode for BinopNode {
-    fn set_dependencies(&mut self, dependencies: &mut [QueryValue]) -> RuntimeResult<()> {
+    fn pre_execute(&mut self, dependencies: &mut [QueryValue]) -> RuntimeResult<()> {
         resolve_value(self.left_idx, &mut self.left, dependencies);
         resolve_value(self.right_idx, &mut self.right, dependencies);
         Ok(())

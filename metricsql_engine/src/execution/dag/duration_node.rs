@@ -1,6 +1,5 @@
-use serde::{Deserialize, Serialize};
-
 use metricsql_parser::ast::DurationExpr;
+use serde::{Deserialize, Serialize};
 
 use crate::execution::{Context, EvalConfig};
 use crate::{QueryValue, RuntimeResult};

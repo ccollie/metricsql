@@ -1,8 +1,7 @@
-use std::fmt::{Display, Formatter};
-use std::str::FromStr;
-
 use phf::phf_map;
 use serde::{Deserialize, Serialize};
+use std::fmt::{Display, Formatter};
+use std::str::FromStr;
 use strum_macros::EnumIter;
 
 use crate::common::ValueType;
@@ -49,6 +48,7 @@ pub enum RollupFunction {
     IncreasePure,
     IncreasesOverTime,
     Integrate,
+    IQROverTime,
     IRate, // + rollupFuncsRemoveCounterResets
     Lag,
     LastOverTime,
@@ -58,6 +58,7 @@ pub enum RollupFunction {
     MedianOverTime,
     MinOverTime,
     ModeOverTime,
+    OutlierIQROverTime,
     PredictLinear,
     PresentOverTime,
     QuantileOverTime,
@@ -140,6 +141,7 @@ impl RollupFunction {
             IncreasePure => "increase_pure",
             IncreasesOverTime => "increases_over_time",
             Integrate => "integrate",
+            IQROverTime => "iqr_over_time",
             IRate => "irate",
             Lag => "lag",
             LastOverTime => "last_over_time",
@@ -149,6 +151,7 @@ impl RollupFunction {
             MedianOverTime => "median_over_time",
             MinOverTime => "min_over_time",
             ModeOverTime => "mode_over_time",
+            OutlierIQROverTime => "outlier_iqr_over_time",
             PredictLinear => "predict_linear",
             PresentOverTime => "present_over_time",
             QuantileOverTime => "quantile_over_time",
@@ -233,6 +236,7 @@ impl RollupFunction {
                 | MaxOverTime
                 | MinOverTime
                 | ModeOverTime
+                | IQROverTime
                 | PredictLinear
                 | QuantileOverTime
                 | QuantilesOverTime
@@ -380,6 +384,7 @@ static FUNCTION_MAP: phf::Map<&'static str, RollupFunction> = phf_map! {
     "median_over_time" => RollupFunction::MedianOverTime,
     "min_over_time" => RollupFunction::MinOverTime,
     "mode_over_time" => RollupFunction::ModeOverTime,
+    "outlier_iqr_over_time" => RollupFunction::OutlierIQROverTime,
     "predict_linear" => RollupFunction::PredictLinear,
     "present_over_time" => RollupFunction::PresentOverTime,
     "quantile_over_time" => RollupFunction::QuantileOverTime,

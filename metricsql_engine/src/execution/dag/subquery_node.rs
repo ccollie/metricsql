@@ -1,14 +1,13 @@
-use std::sync::Arc;
-
-use tracing::{field, trace_span, Span};
-
 use metricsql_parser::ast::{DurationExpr, Expr};
 use metricsql_parser::prelude::RollupFunction;
+use std::sync::Arc;
+use tracing::{field, trace_span, Span};
 
 use crate::execution::dag::utils::{
-    adjust_series_by_offset, expand_single_value, resolve_at_value, resolve_rollup_handler,
+    adjust_series_by_offset, expand_single_value, get_at_value, resolve_at_value,
+    resolve_rollup_handler,
 };
-use crate::execution::dag::{DAGNode, ExecutableNode};
+use crate::execution::dag::{DAGNode, ExecutableNode, NodeArg};
 use crate::execution::utils::{
     adjust_eval_range, duration_value, get_step, process_timeseries_in_parallel,
 };
@@ -18,9 +17,9 @@ use crate::execution::{
 use crate::functions::rollup::{
     eval_prefuncs, get_rollup_configs, RollupHandler, MAX_SILENCE_INTERVAL,
 };
-use crate::{QueryValue, RuntimeResult, Timeseries};
+use crate::{QueryValue, RuntimeResult, Timeseries, Timestamp};
 
-// Node for non-selector sub-queries.
+/// Node for non-selector sub-queries.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct SubqueryNode {
     pub func: RollupFunction,
@@ -31,26 +30,50 @@ pub struct SubqueryNode {
     pub step: Option<DurationExpr>,
     pub offset: Option<DurationExpr>,
     pub window: Option<DurationExpr>,
-    at: Option<i64>,
-    pub at_index: Option<usize>,
-    pub arg_indexes: Vec<usize>,
+    pub(super) at: Option<i64>,
+    pub at_arg: Option<NodeArg>,
+    pub args: Vec<NodeArg>,
+    pre_exec_called: bool,
+}
+
+impl SubqueryNode {
+    fn get_at_timestamp(&self) -> RuntimeResult<Option<Timestamp>> {
+        // value was set in pre-execute
+        if self.at.is_some() {
+            return Ok(self.at);
+        }
+        // possibly const value set during build, and pre-execute not called
+        if let Some(at_arg) = &self.at_arg {
+            return match at_arg {
+                NodeArg::Value(v) => {
+                    let value = get_at_value(v)?;
+                    Ok(Some(value))
+                }
+                _ => {
+                    unreachable!("@ timestamp should be a const value or resolved in pre-execute")
+                }
+            };
+        }
+        Ok(None)
+    }
 }
 
 impl ExecutableNode for SubqueryNode {
-    fn set_dependencies(&mut self, dependencies: &mut [QueryValue]) -> RuntimeResult<()> {
-        self.at = resolve_at_value(self.at_index, dependencies)?;
-        self.func_handler = resolve_rollup_handler(self.func, &self.arg_indexes, dependencies)?;
+    fn pre_execute(&mut self, dependencies: &mut [QueryValue]) -> RuntimeResult<()> {
+        self.at = resolve_at_value(&self.at_arg, dependencies)?;
+        self.func_handler = resolve_rollup_handler(self.func, &self.args, dependencies)?;
         Ok(())
     }
 
     fn execute(&mut self, ctx: &Context, ec: &EvalConfig) -> RuntimeResult<QueryValue> {
-        let val = if let Some(at_timestamp) = self.at {
+        let val = if let Some(at_timestamp) = self.get_at_timestamp()? {
             let mut ec_new = ec.copy_no_timestamps();
             ec_new.start = at_timestamp;
             ec_new.end = at_timestamp;
 
+            // todo: simply return the scalar. The value would be expanded later in the evaluator
             let mut val = self.eval_without_at(ctx, &ec_new)?;
-            expand_single_value(&mut val, &ec_new)?;
+            expand_single_value(&mut val, &ec)?;
             val
         } else {
             self.eval_without_at(ctx, ec)?

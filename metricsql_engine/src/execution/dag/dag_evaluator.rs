@@ -25,22 +25,27 @@ pub struct DAGEvaluator {
     /// The first vec contains the nodes that have no dependencies.
     /// Each subsequent vec contains the nodes that depend on the nodes in the previous layer.
     /// The last vec contains nodes that depend on all other nodes.
-    pub(crate) dag: Vec<Vec<Dependency>>,
+    pub(super) dag: Vec<Vec<Dependency>>,
 
     /// collects the results of the execution of dependencies (1 per dependency). The results are
     /// fed to the nodes that depend on them in a pre-execute phase.
-    pub(crate) computed: Vec<QueryValue>,
-    pub node_count: usize,
+    pub(super) computed: Vec<QueryValue>,
 }
 
 impl DAGEvaluator {
-    pub(crate) fn new(nodes: Vec<Vec<Dependency>>) -> DAGEvaluator {
-        let mut evaluator = DAGEvaluator {
+    pub(crate) fn new(nodes: Vec<Vec<Dependency>>, node_count: usize) -> DAGEvaluator {
+        // todo: tiny vec
+        // allocate scratch space for the results of the dependencies. We initialize the entire
+        // vector with default values, and then we overwrite the values as we execute the
+        // dependencies.
+        let mut computed = Vec::with_capacity(node_count + 1);
+        computed.resize_with(node_count + 1, Default::default);
+
+        let evaluator = DAGEvaluator {
             dag: nodes,
-            computed: vec![],
-            node_count: 0,
+            computed,
         };
-        evaluator.optimize();
+        // evaluator.optimize();
         evaluator
     }
 
@@ -49,7 +54,7 @@ impl DAGEvaluator {
             // update dependencies
             if i > 0 {
                 for dep in dependencies.iter_mut() {
-                    dep.node.set_dependencies(&mut self.computed)?;
+                    dep.node.pre_execute(&mut self.computed)?;
                 }
             }
 
@@ -140,14 +145,12 @@ impl DAGEvaluator {
         let mut computed = Vec::with_capacity(computed_len);
         computed.resize_with(computed_len, Default::default);
 
-        self.node_count = 0;
-
         for dependencies in self.dag.iter_mut() {
             let mut layer = Vec::with_capacity(dependencies.len());
             for dep in dependencies.iter_mut() {
                 push_node(dep, &mut layer, &mut computed);
             }
-            self.node_count += layer.len();
+
             if !layer.is_empty() {
                 layer.shrink_to_fit();
                 result_dag.push(layer);

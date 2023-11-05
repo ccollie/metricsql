@@ -22,7 +22,7 @@ phf = { workspace = true }
 enquote = { workspace = true }
 byte-slice-cast = "1.2.2"
 byte-pool = "0.2.4"
-clone_dyn = "0.1.0"
+clone_dyn = "0.4.0"
 chrono = { workspace = true }
 chrono-tz = { workspace = true }
 effective-limits = "0.5.5"
@@ -41,7 +41,7 @@ serde = { workspace = true }
 thiserror = { workspace = true }
 tinyvec = { workspace = true }
 topologic = "1.0.0"
-tokio = { version = "1.12.0" }
+tokio = { version = "1.33.0" }
 scopeguard = { workspace = true }
 tracing = { workspace = true }
 xxhash-rust = { workspace = true }

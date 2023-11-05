@@ -1,32 +1,29 @@
-use serde::{Deserialize, Serialize};
-use tracing::{field, trace_span, Span};
-
 use metricsql_parser::prelude::AggregateModifier;
 use metricsql_parser::prelude::{AggregateFunction, AggregationExpr};
+use tracing::{field, trace_span, Span};
 
 use crate::common::cpu::num_cpus;
 use crate::execution::context::Context;
-use crate::execution::dag::utils::resolve_args;
-use crate::execution::dag::ExecutableNode;
+use crate::execution::dag::utils::resolve_node_args;
+use crate::execution::dag::{ExecutableNode, NodeArg};
 use crate::execution::EvalConfig;
 use crate::functions::aggregate::{exec_aggregate_fn, AggrFuncArg};
 use crate::{QueryValue, RuntimeResult};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AggregateNode {
     pub function: AggregateFunction,
     pub modifier: Option<AggregateModifier>,
     pub limit: usize,
-    pub(crate) arg_indexes: Vec<usize>,
-    #[serde(skip)]
+    pub(crate) node_args: Vec<NodeArg>,
     pub(crate) args: Vec<QueryValue>,
     /// Whether all arguments are constant and fully resolved.
     pub(crate) args_const: bool,
 }
 
 impl ExecutableNode for AggregateNode {
-    fn set_dependencies(&mut self, dependencies: &mut [QueryValue]) -> RuntimeResult<()> {
-        resolve_args(&self.arg_indexes, &mut self.args, dependencies);
+    fn pre_execute(&mut self, dependencies: &mut [QueryValue]) -> RuntimeResult<()> {
+        resolve_node_args(&self.node_args, &mut self.args, dependencies);
         Ok(())
     }
     fn execute(&mut self, ctx: &Context, ec: &EvalConfig) -> RuntimeResult<QueryValue> {
@@ -64,7 +61,7 @@ impl Default for AggregateNode {
             function: AggregateFunction::Sum,
             modifier: None,
             limit: 0,
-            arg_indexes: vec![],
+            node_args: vec![],
             args: vec![],
             args_const: false,
         }

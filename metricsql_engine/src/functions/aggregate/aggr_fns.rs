@@ -1,17 +1,15 @@
+use ahash::AHashMap;
+use lockfree_object_pool::LinearReusable;
+use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_f64_filled};
+use metricsql_parser::common::AggregateModifier;
+use metricsql_parser::functions::AggregateFunction;
 use std::borrow::BorrowMut;
 use std::collections::hash_map::Entry;
 use std::collections::BTreeMap;
 use std::ops::Deref;
 use std::ops::DerefMut;
 
-use ahash::AHashMap;
-use lockfree_object_pool::LinearReusable;
-
-use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_f64_filled};
-use metricsql_parser::common::AggregateModifier;
-use metricsql_parser::functions::AggregateFunction;
-
-use crate::common::math::{mode_no_nans, quantile, quantiles};
+use crate::common::math::{mode_no_nans, quantile, quantiles, IQR_PHIS};
 use crate::execution::{eval_number, remove_empty_series, EvalConfig};
 use crate::functions::arg_parse::{
     get_float_arg, get_int_arg, get_scalar_arg_as_vec, get_series_arg, get_string_arg,
@@ -121,6 +119,7 @@ pub(crate) fn exec_aggregate_fn(
         Max => aggregate_max(afa),
         Outliersk => aggr_func_outliersk(afa),
         OutliersMAD => aggr_func_outliers_mad(afa),
+        OutliersIQR => aggr_func_outliers_iqr(afa),
         Quantile => aggr_func_quantile(afa),
         Quantiles => aggr_func_quantiles(afa),
         StdDev => aggregate_stddev(afa),
@@ -615,13 +614,13 @@ fn aggr_func_zscore(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
 
             // Calculate z-score for tss points at position i.
             // See https://en.wikipedia.org/wiki/Standard_score
-            let stddev = (q / count as f64).sqrt();
+            let std_dev = (q / count as f64).sqrt();
             for ts in tss.iter_mut() {
                 let v = ts.values[i];
                 if v.is_nan() {
                     continue;
                 }
-                ts.values[i] = (v - avg) / stddev
+                ts.values[i] = (v - avg) / std_dev
             }
         }
 
@@ -1060,6 +1059,55 @@ fn new_aggr_quantile_func(phis: &[f64]) -> impl AggrFnExt + '_ {
         tss.truncate(1);
         std::mem::take(tss)
     }
+}
+
+fn aggr_func_outliers_iqr(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    let afe = move |tss: &mut Vec<Timeseries>, _: &Option<AggregateModifier>| -> Vec<Timeseries> {
+        // Calculate lower and upper bounds for interquartile range per each point across tss
+        // according to Outliers section at https://en.wikipedia.org/wiki/Interquartile_range
+        let (lower, upper) = get_per_point_iqr_bounds(tss);
+        // Leave only time series with outliers above upper bound or below lower bound
+        let mut tss_dst = Vec::with_capacity(tss.len());
+        for ts in tss.drain(0..) {
+            for ((v, u), l) in ts.values.iter().zip(upper.iter()).zip(lower.iter()) {
+                if v > u || v < l {
+                    tss_dst.push(ts);
+                    break;
+                }
+            }
+        }
+        return tss_dst;
+    };
+
+    let mut series = get_series_arg(&afa.args, 0, afa.ec)?;
+    aggr_func_ext(afe, &mut series, afa.modifier, afa.limit, true)
+}
+
+fn get_per_point_iqr_bounds(tss: &[Timeseries]) -> (Vec<f64>, Vec<f64>) {
+    if tss.is_empty() {
+        return (vec![], vec![]);
+    }
+    let points_len = tss[0].values.len();
+    let mut values = get_pooled_vec_f64(tss.len());
+    // todo(perf) - use pool
+    let mut lower = Vec::with_capacity(points_len);
+    let mut upper = Vec::with_capacity(points_len);
+
+    for i in 0..points_len {
+        values.clear();
+        for ts in tss.iter() {
+            let v = ts.values[i];
+            if !v.is_nan() {
+                values.push(v)
+            }
+        }
+        let mut qs = [0.0, 0.0];
+        quantiles(&mut qs, &IQR_PHIS, &values);
+        let iqr = 1.5 * (qs[1] - qs[0]);
+        lower.push(qs[0] - iqr);
+        upper.push(qs[1] + iqr);
+    }
+    return (lower, upper);
 }
 
 fn aggr_func_mad(tss: &mut Vec<Timeseries>) {

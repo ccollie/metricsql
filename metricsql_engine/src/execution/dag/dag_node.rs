@@ -1,9 +1,10 @@
-use std::default::Default;
-
 use metricsql_parser::ast::DurationExpr;
+use std::default::Default;
+use std::str::FromStr;
 
 use crate::execution::dag::subquery_node::SubqueryNode;
 use crate::execution::dag::transform_node::AbsentTransformNode;
+use crate::execution::dag::utils::resolve_value;
 use crate::execution::dag::vector_vector_binary_node::VectorVectorPushDownNode;
 use crate::execution::{Context, EvalConfig};
 use crate::{QueryValue, RuntimeResult};
@@ -21,12 +22,79 @@ use super::vector_vector_binary_node::VectorVectorBinaryNode;
 
 pub trait ExecutableNode {
     // separated as a method so we don't have to clone() args or run afoul of the borrow
-    // checker with the dependencies
-    fn set_dependencies(&mut self, _dependencies: &mut [QueryValue]) -> RuntimeResult<()> {
+    // checker with the dependencies. It also has the benefit of not requiring locking during the
+    // evaluation process
+    fn pre_execute(&mut self, _dependencies: &mut [QueryValue]) -> RuntimeResult<()> {
         Ok(())
     }
-
     fn execute(&mut self, ctx: &Context, ec: &EvalConfig) -> RuntimeResult<QueryValue>;
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum NodeArg {
+    Index(usize),
+    Value(QueryValue),
+}
+
+impl NodeArg {
+    pub fn resolve(&self, value: &mut QueryValue, dependencies: &mut [QueryValue]) {
+        match self {
+            NodeArg::Index(i) => {
+                resolve_value(*i, value, dependencies);
+            }
+            NodeArg::Value(v) => {
+                match v {
+                    QueryValue::InstantVector(_) | QueryValue::RangeVector(_) => {
+                        *value = v.clone() // ?? i dont think we'll get here
+                    }
+                    QueryValue::Scalar(v) => *value = QueryValue::Scalar(*v),
+                    QueryValue::String(s) => *value = QueryValue::from(s.as_str()),
+                }
+            }
+        }
+    }
+
+    pub fn is_const(&self) -> bool {
+        matches!(self, NodeArg::Value(_))
+    }
+}
+
+impl Default for NodeArg {
+    fn default() -> Self {
+        NodeArg::Value(QueryValue::Scalar(f64::NAN))
+    }
+}
+
+impl From<usize> for NodeArg {
+    fn from(i: usize) -> Self {
+        NodeArg::Index(i)
+    }
+}
+
+impl From<QueryValue> for NodeArg {
+    fn from(qv: QueryValue) -> Self {
+        NodeArg::Value(qv)
+    }
+}
+
+impl From<f64> for NodeArg {
+    fn from(f: f64) -> Self {
+        NodeArg::Value(QueryValue::Scalar(f))
+    }
+}
+
+impl From<i64> for NodeArg {
+    fn from(i: i64) -> Self {
+        NodeArg::Value(QueryValue::Scalar(i as f64))
+    }
+}
+
+impl FromStr for NodeArg {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(NodeArg::Value(QueryValue::String(s.to_string())))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -58,22 +126,22 @@ impl DAGNode {
 }
 
 impl ExecutableNode for DAGNode {
-    fn set_dependencies(&mut self, dependencies: &mut [QueryValue]) -> RuntimeResult<()> {
+    fn pre_execute(&mut self, dependencies: &mut [QueryValue]) -> RuntimeResult<()> {
         match self {
             DAGNode::Value(_) => Ok(()),
-            DAGNode::Absent(node) => node.set_dependencies(dependencies),
-            DAGNode::Aggregate(node) => node.set_dependencies(dependencies),
-            DAGNode::Transform(node) => node.set_dependencies(dependencies),
-            DAGNode::Rollup(node) => node.set_dependencies(dependencies),
-            DAGNode::Duration(node) => node.set_dependencies(dependencies),
-            DAGNode::Selector(node) => node.set_dependencies(dependencies),
-            DAGNode::ScalarVectorOp(node) => node.set_dependencies(dependencies),
-            DAGNode::Subquery(sub) => sub.set_dependencies(dependencies),
-            DAGNode::VectorVectorOp(node) => node.set_dependencies(dependencies),
-            DAGNode::VectorScalarOp(node) => node.set_dependencies(dependencies),
-            DAGNode::BinOp(node) => node.set_dependencies(dependencies),
-            DAGNode::Dynamic(node) => node.set_dependencies(dependencies),
-            DAGNode::VectorVectorPushDownOp(node) => node.set_dependencies(dependencies),
+            DAGNode::Absent(node) => node.pre_execute(dependencies),
+            DAGNode::Aggregate(node) => node.pre_execute(dependencies),
+            DAGNode::Transform(node) => node.pre_execute(dependencies),
+            DAGNode::Rollup(node) => node.pre_execute(dependencies),
+            DAGNode::Duration(node) => node.pre_execute(dependencies),
+            DAGNode::Selector(node) => node.pre_execute(dependencies),
+            DAGNode::ScalarVectorOp(node) => node.pre_execute(dependencies),
+            DAGNode::Subquery(sub) => sub.pre_execute(dependencies),
+            DAGNode::VectorVectorOp(node) => node.pre_execute(dependencies),
+            DAGNode::VectorScalarOp(node) => node.pre_execute(dependencies),
+            DAGNode::BinOp(node) => node.pre_execute(dependencies),
+            DAGNode::Dynamic(node) => node.pre_execute(dependencies),
+            DAGNode::VectorVectorPushDownOp(node) => node.pre_execute(dependencies),
         }
     }
     fn execute(&mut self, ctx: &Context, ec: &EvalConfig) -> RuntimeResult<QueryValue> {
@@ -130,13 +198,7 @@ impl From<i64> for DAGNode {
 
 impl From<DurationExpr> for DAGNode {
     fn from(de: DurationExpr) -> Self {
-        if !de.requires_step() {
-            let val = de.value(1);
-            let d_sec = val as f64 / 1000_f64;
-            DAGNode::from(d_sec)
-        } else {
-            DAGNode::Duration(DurationNode(de))
-        }
+        (&de).into()
     }
 }
 

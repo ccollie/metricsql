@@ -1,13 +1,11 @@
+use metricsql_parser::ast::DurationExpr;
+use metricsql_parser::common::{Value, ValueType};
+use serde::ser::{SerializeSeq, SerializeStruct};
+use serde::{Deserialize, Serialize, Serializer};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
-
-use serde::ser::{SerializeSeq, SerializeStruct};
-use serde::{Deserialize, Serialize, Serializer};
-
-use metricsql_parser::ast::DurationExpr;
-use metricsql_parser::common::{Value, ValueType};
 
 use crate::common::format::format_number;
 use crate::execution::{eval_number, EvalConfig};
@@ -106,11 +104,9 @@ impl QueryValue {
     pub fn nan() -> Self {
         QueryValue::Scalar(f64::NAN)
     }
-
     pub fn is_numeric(&self) -> bool {
         matches!(self, QueryValue::Scalar(_))
     }
-
     pub fn data_type(&self) -> ValueType {
         match &self {
             QueryValue::RangeVector(_) => ValueType::RangeVector,
@@ -119,7 +115,6 @@ impl QueryValue {
             QueryValue::InstantVector(_) => ValueType::InstantVector,
         }
     }
-
     pub fn from_duration(dur: &DurationExpr, step: i64) -> Self {
         let d = dur.value(step);
         let d_sec = d as f64 / 1000_f64;
@@ -147,8 +142,8 @@ impl QueryValue {
             QueryValue::Scalar(val) => Ok(*val),
             QueryValue::InstantVector(series) => {
                 let ts = get_single_timeseries(series)?;
-                if ts.values.len() != 1 {
-                    let msg = format!("expected a vector of size 1; got {}", ts.values.len());
+                if ts.values.is_empty() {
+                    let msg = "value::get_scalar - empty vector".to_string();
                     return Err(RuntimeError::ArgumentError(msg));
                 }
                 Ok(ts.values[0])

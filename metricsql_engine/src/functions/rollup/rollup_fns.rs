@@ -1,32 +1,30 @@
-use std::str::FromStr;
-
 use metricsql_common::pool::get_pooled_vec_f64;
 use metricsql_parser::functions::RollupFunction;
+use std::str::FromStr;
 
 use crate::common::math::{
     is_stale_nan, linear_regression, mad, mode_no_nans, quantile, stddev, stdvar,
 };
 use crate::functions::arg_parse::get_scalar_param_value;
-use crate::functions::rollup::delta::{
-    new_rollup_delta, new_rollup_delta_prometheus, new_rollup_idelta, new_rollup_increase,
-    rollup_delta, rollup_idelta,
-};
-use crate::functions::rollup::deriv::{
-    new_rollup_deriv, new_rollup_deriv_fast, new_rollup_ideriv, new_rollup_irate, new_rollup_rate,
-    rollup_deriv_fast, rollup_deriv_slow, rollup_ideriv,
-};
-use crate::functions::rollup::duration_over_time::new_rollup_duration_over_time;
-use crate::functions::rollup::hoeffding_bound::{
-    new_rollup_hoeffding_bound_lower, new_rollup_hoeffding_bound_upper,
-};
-use crate::functions::rollup::integrate::{new_rollup_integrate, rollup_integrate};
 use crate::functions::rollup::types::RollupHandlerFactory;
 use crate::functions::rollup::{
     counts::{
         new_rollup_count_eq, new_rollup_count_gt, new_rollup_count_le, new_rollup_count_ne,
         new_rollup_share_eq, new_rollup_share_gt, new_rollup_share_le,
     },
+    delta::{
+        new_rollup_delta, new_rollup_delta_prometheus, new_rollup_idelta, new_rollup_increase,
+        rollup_delta, rollup_idelta,
+    },
+    deriv::{
+        new_rollup_deriv, new_rollup_deriv_fast, new_rollup_ideriv, new_rollup_irate,
+        new_rollup_rate, rollup_deriv_fast, rollup_deriv_slow, rollup_ideriv,
+    },
+    duration_over_time::new_rollup_duration_over_time,
+    hoeffding_bound::{new_rollup_hoeffding_bound_lower, new_rollup_hoeffding_bound_upper},
     holt_winters::new_rollup_holt_winters,
+    integrate::{new_rollup_integrate, rollup_integrate},
+    outlier_iqr::rollup_outlier_iqr,
     quantiles::{new_rollup_quantile, new_rollup_quantiles},
     RollupHandlerFloatArg,
 };
@@ -70,6 +68,7 @@ pub(super) fn get_rollup_fn(f: &RollupFunction) -> RuntimeResult<RollupFunc> {
         MinOverTime => rollup_min,
         MedianOverTime => rollup_median,
         ModeOverTime => rollup_mode_over_time,
+        IQROverTime => rollup_outlier_iqr,
         PresentOverTime => rollup_present,
         RangeOverTime => rollup_range,
         Rate => rollup_deriv_fast,
@@ -152,6 +151,7 @@ make_factory!(new_rollup_max_over_time, rollup_max);
 make_factory!(new_rollup_min_over_time, rollup_min);
 make_factory!(new_rollup_median_over_time, rollup_median);
 make_factory!(new_rollup_mode_over_time, rollup_mode_over_time);
+make_factory!(new_rollup_outlier_iqr_over_time, rollup_outlier_iqr);
 make_factory!(new_rollup_present_over_time, rollup_present);
 make_factory!(new_rollup_range_over_time, rollup_range);
 make_factory!(new_rollup_rate_over_sum, rollup_rate_over_sum);
@@ -220,6 +220,7 @@ pub(crate) fn get_rollup_function_factory(func: RollupFunction) -> RollupHandler
         IncreasesOverTime => new_rollup_increases_over_time,
         Integrate => new_rollup_integrate,
         IRate => new_rollup_irate,
+        IQROverTime => new_rollup_outlier_iqr_over_time,
         Lag => new_rollup_lag,
         LastOverTime => new_rollup_last_over_time,
         Lifetime => new_rollup_lifetime,
@@ -228,6 +229,7 @@ pub(crate) fn get_rollup_function_factory(func: RollupFunction) -> RollupHandler
         MedianOverTime => new_rollup_median_over_time,
         MinOverTime => new_rollup_min_over_time,
         ModeOverTime => new_rollup_mode_over_time,
+        OutlierIQROverTime => new_rollup_outlier_iqr_over_time,
         PredictLinear => new_rollup_predict_linear,
         PresentOverTime => new_rollup_present_over_time,
         QuantileOverTime => new_rollup_quantile,
@@ -269,18 +271,19 @@ pub(crate) fn rollup_func_requires_config(f: &RollupFunction) -> bool {
     matches!(
         f,
         PredictLinear
-            | DurationOverTime
-            | HoltWinters
-            | ShareLeOverTime
-            | ShareGtOverTime
             | CountLeOverTime
             | CountGtOverTime
             | CountEqOverTime
             | CountNeOverTime
+            | DurationOverTime
             | HoeffdingBoundLower
             | HoeffdingBoundUpper
+            | HoltWinters
             | QuantilesOverTime
             | QuantileOverTime
+            | ShareEqOverTime
+            | ShareGtOverTime
+            | ShareLeOverTime
     )
 }
 

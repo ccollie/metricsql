@@ -1,10 +1,9 @@
 //! Types for reading and writing TSM files produced by InfluxDB >= 2.x
 
+use integer_encoding::VarInt;
 use std::collections::BTreeMap;
 use std::io::{Read, Seek, SeekFrom};
 use std::u64;
-
-use integer_encoding::VarInt;
 
 use super::*;
 
@@ -460,12 +459,11 @@ where
 
 #[cfg(test)]
 mod tests {
+    use flate2::read::GzDecoder;
     use std::fs::File;
     use std::io::BufReader;
     use std::io::Cursor;
     use std::io::Read;
-
-    use flate2::read::GzDecoder;
 
     use super::*;
 
@@ -480,7 +478,7 @@ mod tests {
         let mut block_reader = TsmBlockReader::new(BufReader::new(r));
 
         let block_defs = vec![
-            super::Block {
+            Block {
                 min_time: 1590585530000000000,
                 max_time: 1590590600000000000,
                 offset: 5339,
@@ -488,7 +486,7 @@ mod tests {
                 typ: BlockType::Float,
                 reader_idx: 0,
             },
-            super::Block {
+            Block {
                 min_time: 1590585520000000000,
                 max_time: 1590590600000000000,
                 offset: 190770,

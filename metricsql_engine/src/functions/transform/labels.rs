@@ -1,9 +1,7 @@
-use std::borrow::Cow;
-
 use ahash::AHashMap;
-use regex::Regex;
-
 use metricsql_parser::parser::compile_regexp;
+use regex::Regex;
+use std::borrow::Cow;
 
 use crate::functions::arg_parse::{get_series_arg, get_string_arg};
 use crate::functions::transform::TransformFuncArg;
@@ -428,8 +426,8 @@ fn has_identical_label_values(mn: &mut MetricName, label_names: &Vec<Cow<String>
     }
     // have to clone bc of the BC
     let label_value = mn.get_value_mut(&label_names[0]).cloned();
-    for labelName in label_names[1..].iter() {
-        let b = mn.get_value_mut(labelName);
+    for label_name in label_names[1..].iter() {
+        let b = mn.get_value_mut(label_name);
         match (&label_value, b) {
             (None, None) => {}
             (Some(left), Some(right)) => {

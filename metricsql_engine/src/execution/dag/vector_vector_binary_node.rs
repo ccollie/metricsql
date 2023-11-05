@@ -1,10 +1,9 @@
-use serde::{Deserialize, Serialize};
-
 use metricsql_parser::ast::{
     push_down_binary_op_filters_in_place, trim_filters_by_match_modifier, Expr,
 };
 use metricsql_parser::common::Operator;
 use metricsql_parser::prelude::BinModifier;
+use serde::{Deserialize, Serialize};
 
 use crate::execution::binary::get_common_label_filters;
 use crate::execution::{compile_expression, Context, EvalConfig};
@@ -43,7 +42,7 @@ impl VectorVectorBinaryNode {
 }
 
 impl ExecutableNode for VectorVectorBinaryNode {
-    fn set_dependencies(&mut self, dependencies: &mut [QueryValue]) -> RuntimeResult<()> {
+    fn pre_execute(&mut self, dependencies: &mut [QueryValue]) -> RuntimeResult<()> {
         self.left = resolve_vector(self.left_idx, dependencies)?;
         self.right = resolve_vector(self.right_idx, dependencies)?;
         Ok(())
@@ -69,7 +68,7 @@ pub struct VectorVectorPushDownNode {
 }
 
 impl ExecutableNode for VectorVectorPushDownNode {
-    fn set_dependencies(&mut self, dependencies: &mut [QueryValue]) -> RuntimeResult<()> {
+    fn pre_execute(&mut self, dependencies: &mut [QueryValue]) -> RuntimeResult<()> {
         self.left = resolve_vector(self.left_idx, dependencies)?;
         Ok(())
     }

@@ -1,13 +1,13 @@
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
     use metricsql_parser::functions::RollupFunction;
+    use std::str::FromStr;
 
     use crate::common::math::linear_regression;
     use crate::functions::rollup::delta::*;
     use crate::functions::rollup::deriv::*;
     use crate::functions::rollup::integrate::rollup_integrate;
+    use crate::functions::rollup::outlier_iqr::rollup_outlier_iqr;
     use crate::functions::rollup::rollup_fns::{
         remove_counter_resets, rollup_avg, rollup_changes, rollup_changes_prometheus, rollup_count,
         rollup_default, rollup_distinct, rollup_first, rollup_lag, rollup_last, rollup_lifetime,
@@ -37,6 +37,38 @@ mod tests {
             Ok(func) => Ok(get_rollup_function_factory(func)),
             Err(_) => Err(RuntimeError::UnknownFunction(String::from(name))),
         }
+    }
+
+    #[test]
+    fn test_rollup_outlier_iqr() {
+        fn f(values: &[f64], expected: f64) {
+            let mut rfa = RollupFuncArg::default();
+            rfa.values = values;
+            rfa.timestamps = &[];
+
+            let result = rollup_outlier_iqr(&mut rfa);
+            if result.is_nan() {
+                assert!(
+                    expected.is_nan(),
+                    "unexpected value; got {result}; want {}",
+                    expected
+                )
+            } else {
+                if expected.is_nan() {
+                    panic!("unexpected value; got {result}; want {expected}")
+                }
+                assert_eq!(
+                    result, expected,
+                    "unexpected value; got {result}; want {expected}",
+                )
+            }
+        }
+
+        f(&[1.0, 2.0, 3.0, 4.0, 5.0], NAN);
+        f(&[1.0, 2.0, 3.0, 4.0, 7.0], NAN);
+        f(&[1.0, 2.0, 3.0, 4.0, 8.0], 8.0);
+        f(&[1.0, 2.0, 3.0, 4.0, -2.0], NAN);
+        f(&[1.0, 2.0, 3.0, 4.0, -3.0], -3.0)
     }
 
     #[test]
@@ -556,6 +588,7 @@ mod tests {
         f("increase", 398_f64);
         f("increase_prometheus", 275_f64);
         f("irate", 0_f64);
+        f("outlier_iqr_over_time", NAN);
         f("rate", 2200_f64);
         f("resets", 5_f64);
         f("range_over_time", 111_f64);

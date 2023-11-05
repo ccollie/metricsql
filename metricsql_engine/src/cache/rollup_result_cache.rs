@@ -1,17 +1,15 @@
-use std::hash::Hasher;
-use std::sync::{Arc, Mutex, OnceLock};
-
 use ahash::AHashMap;
-/// import commonly used items from the prelude:
-use rand::prelude::*;
-use serde::{Deserialize, Serialize};
-use tracing::span::EnteredSpan;
-use tracing::{field, info, span_enabled, trace_span, Level, Span};
-use xxhash_rust::xxh3::Xxh3;
-
 use metricsql_common::prelude::{get_pooled_buffer, AtomicCounter, RelaxedU64Counter};
 use metricsql_parser::ast::Expr;
 use metricsql_parser::prelude::Matchers;
+/// import commonly used items from the prelude:
+use rand::prelude::*;
+use serde::{Deserialize, Serialize};
+use std::hash::Hasher;
+use std::sync::{Arc, Mutex, OnceLock};
+use tracing::span::EnteredSpan;
+use tracing::{field, info, span_enabled, trace_span, Level, Span};
+use xxhash_rust::xxh3::Xxh3;
 
 use crate::cache::default_result_cache_storage::DefaultResultCacheStorage;
 use crate::cache::serialization::{compress_series, deserialize_series_between, estimate_size};
@@ -162,7 +160,7 @@ impl RollupResultCache {
 
         let res = self.get_cache_metadata(&mut inner, ec, expr, window)?;
         if res.is_none() {
-            info!("not found in the cache");
+            info!("not matching metadata found in the cache");
             return Ok((None, ec.start));
         }
         let (mut mi, hash) = res.unwrap();

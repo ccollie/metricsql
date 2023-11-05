@@ -1,6 +1,5 @@
-use crate::{RuntimeError, RuntimeResult, Timeseries};
-use crate::functions::arg_parse::get_scalar_arg_as_vec;
 use crate::functions::transform::{transform_series, TransformFuncArg};
+use crate::{QueryValue, RuntimeError, RuntimeResult, Timeseries};
 
 pub(crate) fn round(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let args_len = tfa.args.len();
@@ -12,18 +11,38 @@ pub(crate) fn round(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>
         )));
     }
 
-    let nearest = if args_len == 1 {
-        let len = tfa.ec.data_points();
-        vec![1_f64; len]
-    } else {
-        get_scalar_arg_as_vec(&tfa.args, 1, tfa.ec)?
-    };
+    if args_len == 1 {
+        return transform_series(tfa, |values: &mut [f64]| {
+            prometheus_round(values, &[1.0]);
+        });
+    }
 
-    let tf = move |values: &mut [f64]| {
-        prometheus_round(values, &nearest);
-    };
-
-    transform_series(tfa, tf)
+    if let Some(nearest_arg) = tfa.args.get(1) {
+        match nearest_arg {
+            QueryValue::Scalar(val) => {
+                let v = *val;
+                return transform_series(tfa, |values: &mut [f64]| {
+                    prometheus_round(values, &[v]);
+                });
+            }
+            QueryValue::InstantVector(s) => {
+                if s.len() != 1 {
+                    let msg = format!(
+                        "arg #2 must contain a single timeseries; got {} timeseries",
+                        s.len()
+                    );
+                    return Err(RuntimeError::ArgumentError(msg));
+                }
+                let vals = s[0].values.clone();
+                return transform_series(tfa, move |values: &mut [f64]| {
+                    prometheus_round(values, &vals);
+                });
+            }
+            _ => {}
+        }
+    }
+    let err_msg = "Scalar expected as second argument to round function";
+    return Err(RuntimeError::ArgumentError(err_msg.to_string()));
 }
 
 fn prometheus_round(vals: &mut [f64], nearest: &[f64]) {

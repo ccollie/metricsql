@@ -1,10 +1,9 @@
 //! AggregateFunction module contains enum for available aggregation AggregateFunctions.
 
-use std::fmt::{Display, Formatter};
-use std::str::FromStr;
-
 use phf::phf_map;
 use serde::{Deserialize, Serialize};
+use std::fmt::{Display, Formatter};
+use std::str::FromStr;
 use strum_macros::EnumIter;
 
 use crate::common::ValueType;
@@ -39,31 +38,31 @@ pub enum AggregateFunction {
     Quantile,
     Quantiles,
     Group,
-
     // PromQL extension funcs
-    Median,
-    MAD,
-    Limitk,
-    Distinct,
-    Sum2,
-    GeoMean,
-    Histogram,
-    TopkMin,
-    TopkMax,
-    TopkAvg,
-    TopkLast,
-    TopkMedian,
+    /// any(q) by (group_labels) returns a single series per group_labels out of time series returned by q.
+    /// See also group.
+    Any,
     BottomkMin,
     BottomkMax,
     BottomkAvg,
     BottomkLast,
     BottomkMedian,
-    /// any(q) by (group_labels) returns a single series per group_labels out of time series returned by q.
-    /// See also group.
-    Any,
+    Distinct,
+    GeoMean,
+    Histogram,
+    Limitk,
+    Median,
+    MAD,
+    Mode,
+    OutliersIQR,
     Outliersk,
     OutliersMAD,
-    Mode,
+    Sum2,
+    TopkMin,
+    TopkMax,
+    TopkAvg,
+    TopkLast,
+    TopkMedian,
     Share,
     ZScore,
 }
@@ -127,6 +126,7 @@ impl AggregateFunction {
             BottomkLast => "bottomk_last",
             BottomkMedian => "bottomk_median",
             Any => "any",
+            OutliersIQR => "outliers_iqr",
             Outliersk => "outliersk",
             OutliersMAD => "outliers_mad",
             Mode => "mode",
@@ -147,43 +147,44 @@ impl Display for AggregateFunction {
 }
 
 static FUNCTION_MAP: phf::Map<&'static str, AggregateFunction> = phf_map! {
+    "avg" =>           AggregateFunction::Avg,
+    "bottomk" =>       AggregateFunction::Bottomk,
+    "bottomk_last" =>  AggregateFunction::BottomkLast,
+    "count" =>         AggregateFunction::Count,
+    "count_values" =>  AggregateFunction::CountValues,
+    "group" =>         AggregateFunction::Group,
     "sum" =>           AggregateFunction::Sum,
     "min" =>           AggregateFunction::Min,
     "max" =>           AggregateFunction::Max,
-    "avg" =>           AggregateFunction::Avg,
-    "stddev" =>        AggregateFunction::StdDev,
-    "stdvar" =>        AggregateFunction::StdVar,
-    "count" =>         AggregateFunction::Count,
-    "count_values" =>  AggregateFunction::CountValues,
-    "bottomk" =>       AggregateFunction::Bottomk,
-    "bottomk_last" =>  AggregateFunction::BottomkLast,
-    "topk" =>          AggregateFunction::Topk,
     "quantile" =>      AggregateFunction::Quantile,
     "quantiles" =>     AggregateFunction::Quantiles,
-    "group" =>         AggregateFunction::Group,
+    "stddev" =>        AggregateFunction::StdDev,
+    "stdvar" =>        AggregateFunction::StdVar,
+    "topk" =>          AggregateFunction::Topk,
 
     // PromQL extension funcs
-    "median" =>          AggregateFunction::Median,
-    "mad" =>             AggregateFunction::MAD,
-    "limitk" =>          AggregateFunction::Limitk,
+    "any" =>             AggregateFunction::Any,
+    "bottomk_min" =>     AggregateFunction::BottomkMin,
+    "bottomk_max" =>     AggregateFunction::BottomkMax,
+    "bottomk_avg" =>     AggregateFunction::BottomkAvg,
+    "bottomk_median" =>  AggregateFunction::BottomkMedian,
     "distinct" =>        AggregateFunction::Distinct,
-    "sum2" =>            AggregateFunction::Sum2,
     "geomean" =>         AggregateFunction::GeoMean,
     "histogram" =>       AggregateFunction::Histogram,
+    "limitk" =>          AggregateFunction::Limitk,
+    "mad" =>             AggregateFunction::MAD,
+    "median" =>          AggregateFunction::Median,
+    "mode" =>            AggregateFunction::Mode,
+    "outliers_iqr" =>    AggregateFunction::OutliersIQR,
+    "outliersk" =>       AggregateFunction::Outliersk,
+    "outliers_mad" =>    AggregateFunction::OutliersMAD,
+    "share" =>           AggregateFunction::Share,
+    "sum2" =>            AggregateFunction::Sum2,
     "topk_min" =>        AggregateFunction::TopkMin,
     "topk_max" =>        AggregateFunction::TopkMax,
     "topk_avg" =>        AggregateFunction::TopkAvg,
     "topk_last" =>       AggregateFunction::TopkLast,
     "topk_median" =>     AggregateFunction::TopkMedian,
-    "bottomk_min" =>     AggregateFunction::BottomkMin,
-    "bottomk_max" =>     AggregateFunction::BottomkMax,
-    "bottomk_avg" =>     AggregateFunction::BottomkAvg,
-    "bottomk_median" =>  AggregateFunction::BottomkMedian,
-    "any" =>             AggregateFunction::Any,
-    "outliersk" =>       AggregateFunction::Outliersk,
-    "outliers_mad" =>    AggregateFunction::OutliersMAD,
-    "mode" =>            AggregateFunction::Mode,
-    "share" =>           AggregateFunction::Share,
     "zscore" =>          AggregateFunction::ZScore,
 };
 

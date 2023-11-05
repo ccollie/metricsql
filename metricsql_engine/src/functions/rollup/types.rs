@@ -1,7 +1,6 @@
+use clone_dyn::clone_dyn;
 use std::fmt::Debug;
 use std::sync::Arc;
-
-use clone_dyn::clone_dyn;
 use tinyvec::TinyVec;
 
 use crate::functions::rollup::TimeseriesMap;
@@ -67,8 +66,8 @@ where
     F: Fn(&RollupFuncArg, &T) -> f64 + Send + Sync,
     T: Clone + Debug,
 {
-    pub(crate) state: T,
-    pub(crate) func: F,
+    pub state: T,
+    pub func: F,
 }
 
 impl<T, F> GenericRollupHandler<T, F>

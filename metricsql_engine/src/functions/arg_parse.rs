@@ -1,8 +1,8 @@
 use std::borrow::Cow;
 
-use crate::{QueryValue, RuntimeError, RuntimeResult, Timeseries};
 use crate::execution::EvalConfig;
 use crate::functions::utils::float_to_int_bounded;
+use crate::{QueryValue, RuntimeError, RuntimeResult, Timeseries};
 
 pub(crate) fn get_string_arg(args: &[QueryValue], arg_num: usize) -> RuntimeResult<Cow<String>> {
     if arg_num > args.len() - 1 {
@@ -56,7 +56,6 @@ pub(crate) fn get_scalar_arg_as_vec(
     arg_num: usize,
     ec: &EvalConfig,
 ) -> RuntimeResult<Vec<f64>> {
-    // todo: check bounds
     let arg = args.get(arg_num);
     if arg.is_none() {
         let msg = format!("missing scalar arg # {}", arg_num + 1);

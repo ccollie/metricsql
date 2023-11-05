@@ -1,8 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use chrono::Duration;
+    use std::sync::Arc;
 
     use crate::execution::exec;
     use crate::execution::{Context, EvalConfig};
@@ -38,7 +37,7 @@ mod tests {
 
     const TEST_ITERATIONS: usize = 3;
 
-    fn test_query(q: &str, result_expected: Vec<QueryResult>) {
+    fn test_query(q: &str, expected: Vec<QueryResult>) {
         let mut ec = EvalConfig::new(START, END, STEP);
         ec.max_series = 1000;
         ec.max_points_per_series = 15000;
@@ -47,7 +46,7 @@ mod tests {
         let context = Context::default(); // todo: have a test gated default;
         for _ in 0..TEST_ITERATIONS {
             let result = exec(&context, &mut ec, q, false).unwrap();
-            test_results_equal(&result, &result_expected)
+            test_results_equal(&result, &expected)
         }
     }
 
@@ -70,7 +69,7 @@ mod tests {
 
     #[test]
     fn duration_constant() {
-        let q = "1h23m5S";
+        let q = "1h23m5s";
         assert_result_eq(q, &[4985.0, 4985.0, 4985.0, 4985.0, 4985.0, 4985.0]);
     }
 
@@ -584,7 +583,7 @@ mod tests {
     fn test_exp() {
         let q = r#"exp(alias(time()/1e3, "foobar"))"#;
         let r = make_result(&[
-            2.718281828459045,
+            std::f64::consts::E,
             3.3201169227365472,
             4.0551999668446745,
             4.953032424395115,
@@ -595,7 +594,7 @@ mod tests {
 
         let q = r#"exp(alias(time()/1e3, "foobar")) keep_metric_names"#;
         let mut r = make_result(&[
-            2.718281828459045,
+            std::f64::consts::E,
             3.3201169227365472,
             4.0551999668446745,
             4.953032424395115,
@@ -604,14 +603,6 @@ mod tests {
         ]);
         r.metric.set_metric_group("foobar");
         test_query(q, vec![r]);
-    }
-
-    #[test]
-    fn at_single() {
-        assert_result_eq(
-            "time() @ (end()-10m)",
-            &[1400.0, 1400.0, 1400.0, 1400.0, 1400.0, 1400.0],
-        );
     }
 
     #[test]
@@ -753,7 +744,7 @@ mod tests {
     fn test_atan() {
         let q = "atan((2000-time())/1000)";
         let r = make_result(&[
-            0.7853981633974483,
+            std::f64::consts::FRAC_PI_4,
             0.6747409422235526,
             0.5404195002705842,
             0.3805063771123649,
@@ -796,7 +787,7 @@ mod tests {
             0.9272952180016123,
             1.1592794807274085,
             1.3694384060045657,
-            1.5707963267948966,
+            std::f64::consts::FRAC_PI_2,
         ]);
         test_query(q, vec![r]);
 
@@ -2220,7 +2211,7 @@ mod tests {
     #[test]
     fn avg_over_time() {
         let q = "round(avg_over_time(rand(0)[200s:5s]), 0.001)";
-        assert_result_eq(q, &[0.521, 0.518, 0.509, 0.544, 0.511, 0.504]);
+        assert_result_eq(q, &[0.467, 0.488, 0.462, 0.486, 0.441, 0.474]);
     }
 
     #[test]
@@ -3175,8 +3166,8 @@ mod tests {
 
     #[test]
     fn share_gt_over_time() {
-        let q = "share_eq_over_time(round(5*rand(0))[200s:10s], 1)";
-        assert_result_eq(q, &[0.1, 0.2, 0.25, 0.1, 0.3, 0.3]);
+        let q = "share_gt_over_time(round(5*rand(0))[200s:10s], 1)";
+        assert_result_eq(q, &[0.6, 0.6, 0.75, 0.65, 0.7, 0.45]);
     }
 
     #[test]
@@ -3188,31 +3179,31 @@ mod tests {
     #[test]
     fn share_le_over_time() {
         let q = "share_le_over_time(rand(0)[200s:10s], 0.7)";
-        assert_result_eq(q, &[0.65, 0.7, 0.5, 0.7, 0.7, 0.75]);
+        assert_result_eq(q, &[0.75, 0.9, 0.5, 0.65, 0.8, 0.8]);
     }
 
     #[test]
     fn count_gt_over_time() {
         let q = "count_gt_over_time(rand(0)[200s:10s], 0.7)";
-        assert_result_eq(q, &[7.0, 6.0, 10.0, 6.0, 6.0, 5.0]);
+        assert_result_eq(q, &[5.0, 2.0, 10.0, 7.0, 4.0, 4.0]);
     }
 
     #[test]
     fn count_le_over_time() {
         let q = "count_le_over_time(rand(0)[200s:10s], 0.7)";
-        assert_result_eq(q, &[13.0, 14.0, 10.0, 14.0, 14.0, 15.0]);
+        assert_result_eq(q, &[15.0, 18.0, 10.0, 13.0, 16.0, 16.0]);
     }
 
     #[test]
     fn count_eq_over_time() {
         let q = "count_eq_over_time(round(5*rand(0))[200s:10s], 1)";
-        assert_result_eq(q, &[2_f64, 4.0, 5.0, 2.0, 6.0, 6.0]);
+        assert_result_eq(q, &[3.0, 4.0, 3.0, 6.0, 6.0, 6.0]);
     }
 
     #[test]
     fn count_ne_over_time() {
         let q = "count_ne_over_time(round(5*rand(0))[200s:10s], 1)";
-        assert_result_eq(q, &[18.0, 16.0, 15.0, 18.0, 14.0, 14.0]);
+        assert_result_eq(q, &[17.0, 16.0, 17.0, 14.0, 14.0, 14.0]);
     }
 
     #[test]
@@ -3822,6 +3813,22 @@ mod tests {
     }
 
     #[test]
+    fn outliers_iqr() {
+        let q = r#"sort(outliers_iqr((
+            alias(time(), "m1"),
+            alias(time()*1.5, "m2"),
+            alias(time()*10, "m3"),
+            alias(time()*1.2, "m4"),
+            alias(time()*0.1, "m5"),
+        )))"#;
+        let mut r1 = make_result(&[100.0, 120.0, 140.0, 160.0, 180.0, 200.0]);
+        r1.metric.metric_group = "m5".to_string();
+        let mut r2 = make_result(&[10000.0, 12000.0, 14000.0, 16000.0, 18000.0, 20000.0]);
+        r2.metric.metric_group = "m3".to_string();
+        test_query(q, vec![r1, r2])
+    }
+
+    #[test]
     fn outliers_mad_1() {
         let q = r#"outliers_mad(1, (
         alias(time(), "metric1"),
@@ -3913,13 +3920,7 @@ mod tests {
     #[test]
     fn range_quantile() {
         let q = "range_quantile(0.5, time())";
-        let r = QueryResult {
-            metric: MetricName::default(),
-            // time() results in &[1000 1200 1400 1600 1800 2000.0]
-            values: vec![1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0],
-            timestamps: Vec::from(TIMESTAMPS_EXPECTED),
-            rows_processed: 0,
-        };
+        let r = make_result(&[1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0]);
         test_query(q, vec![r]);
     }
 

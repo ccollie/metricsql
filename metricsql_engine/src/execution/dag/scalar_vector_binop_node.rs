@@ -1,6 +1,5 @@
-use serde::{Deserialize, Serialize};
-
 use metricsql_parser::common::Operator;
+use serde::{Deserialize, Serialize};
 
 use crate::execution::binary::eval_scalar_vector_binop;
 use crate::execution::{Context, EvalConfig};
@@ -21,7 +20,7 @@ pub struct ScalarVectorBinaryNode {
 }
 
 impl ExecutableNode for ScalarVectorBinaryNode {
-    fn set_dependencies(&mut self, dependencies: &mut [QueryValue]) -> RuntimeResult<()> {
+    fn pre_execute(&mut self, dependencies: &mut [QueryValue]) -> RuntimeResult<()> {
         self.right = resolve_vector(self.right_idx, dependencies)?;
         Ok(())
     }
