@@ -1,9 +1,10 @@
 //! AggregateFunction module contains enum for available aggregation AggregateFunctions.
 
-use phf::phf_map;
-use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
+
+use phf::phf_map;
+use serde::{Deserialize, Serialize};
 use strum_macros::EnumIter;
 
 use crate::common::ValueType;
@@ -199,7 +200,7 @@ impl FromStr for AggregateFunction {
         FUNCTION_MAP
             .get(s)
             .or_else(|| {
-                let lower = s.to_lowercase();
+                let lower = s.to_ascii_lowercase();
                 FUNCTION_MAP.get(lower.as_str())
             })
             .ok_or_else(|| ParseError::InvalidFunction(s.to_string()))

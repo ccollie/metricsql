@@ -195,7 +195,10 @@ impl TryFrom<&str> for Operator {
             let value = if !ch.is_alphabetic() {
                 BINARY_OPS_MAP.get(op)
             } else {
-                BINARY_OPS_MAP.get(op.to_lowercase().as_str())
+                BINARY_OPS_MAP.get(op).or_else(|| {
+                    let lower = op.to_ascii_lowercase();
+                    BINARY_OPS_MAP.get(&lower)
+                })
             };
             if let Some(operator) = value {
                 return Ok(*operator);

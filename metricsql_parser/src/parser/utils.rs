@@ -126,9 +126,75 @@ fn handle_unquote(token: &str, quote: char) -> ParseResult<String> {
     }
 }
 
+/// Convert between Go and Rust regexes.
+///
+/// Go and Rust handle the repeat pattern differently
+/// in Go the following is valid: `aaa{bbb}ccc`
+/// in Rust {bbb} is seen as an invalid repeat and must be escaped \{bbb}
+/// This escapes the opening { if its not followed by valid repeat pattern (e.g. 4,6).
+pub fn convert_regex(re: &str) -> String {
+    // (true, string) if its a valid repeat pattern (e.g. 1,2 or 2,)
+    fn is_repeat(chars: &mut std::str::Chars<'_>) -> (bool, String) {
+        let mut buf = String::new();
+        let mut comma = false;
+        for c in chars.by_ref() {
+            buf.push(c);
+
+            if c == ',' {
+                // two commas or {, are both invalid
+                if comma || buf == "," {
+                    return (false, buf);
+                } else {
+                    comma = true;
+                }
+            } else if c.is_ascii_digit() {
+                continue;
+            } else if c == '}' {
+                return if buf == "}" {
+                    (false, buf)
+                } else {
+                    (true, buf)
+                };
+            } else {
+                return (false, buf);
+            }
+        }
+        (false, buf)
+    }
+
+    let mut result = String::new();
+    let mut chars = re.chars();
+
+    while let Some(c) = chars.next() {
+        if c != '{' {
+            result.push(c);
+        }
+
+        // if escaping, just push the next char as well
+        if c == '\\' {
+            if let Some(c) = chars.next() {
+                result.push(c);
+            }
+        } else if c == '{' {
+            match is_repeat(&mut chars) {
+                (true, s) => {
+                    result.push('{');
+                    result.push_str(&s);
+                }
+                (false, s) => {
+                    result.push_str(r"\{");
+                    result.push_str(&s);
+                }
+            }
+        }
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use crate::parser::unescape_ident;
+    use crate::parser::utils::convert_regex;
 
     #[test]
     fn test_unescape_ident() {
@@ -151,5 +217,23 @@ mod tests {
         f(r"\x21", "!");
         f(r"\xeDfoo\x2Fbar\-\xqw\x", r"\xedfoo\x2fbar-xqwx");
         f(r"\п\р\и\в\е\т123", "привет123")
+    }
+
+    #[test]
+    fn test_convert_regex() {
+        assert_eq!(convert_regex("abc{}"), r#"abc\{}"#);
+        assert_eq!(convert_regex("abc{def}"), r#"abc\{def}"#);
+        assert_eq!(convert_regex("abc{def"), r#"abc\{def"#);
+        assert_eq!(convert_regex("abc{1}"), "abc{1}");
+        assert_eq!(convert_regex("abc{1,}"), "abc{1,}");
+        assert_eq!(convert_regex("abc{1,2}"), "abc{1,2}");
+        assert_eq!(convert_regex("abc{,2}"), r#"abc\{,2}"#);
+        assert_eq!(convert_regex("abc{{1,2}}"), r#"abc\{{1,2}}"#);
+        assert_eq!(convert_regex(r#"abc\{abc"#), r#"abc\{abc"#);
+        assert_eq!(convert_regex("abc{1a}"), r#"abc\{1a}"#);
+        assert_eq!(convert_regex("abc{1,a}"), r#"abc\{1,a}"#);
+        assert_eq!(convert_regex("abc{1,2a}"), r#"abc\{1,2a}"#);
+        assert_eq!(convert_regex("abc{1,2,3}"), r#"abc\{1,2,3}"#);
+        assert_eq!(convert_regex("abc{1,,2}"), r#"abc\{1,,2}"#);
     }
 }

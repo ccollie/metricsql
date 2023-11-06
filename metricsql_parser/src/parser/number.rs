@@ -34,22 +34,12 @@ pub fn parse_positive_number(str: &str) -> ParseResult<f64> {
     let ch = str.chars().next().unwrap();
     match ch {
         'i' | 'I' => {
-            // perf: avoid allocation by exhaustive check of casing permutations instead of
-            // first converting case
-            if matches!(
-                str,
-                "inf" | "Inf" | "iNf" | "inF" | "INf" | "InF" | "iNF" | "INF"
-            ) {
+            if str.eq_ignore_ascii_case("inf") {
                 return Ok(f64::INFINITY);
             }
         }
         'n' | 'N' => {
-            // perf: avoid allocation by exhaustive check of casing permutations instead of
-            // first converting case
-            if matches!(
-                str,
-                "nan" | "Nan" | "nAn" | "naN" | "NAn" | "NaN" | "nAN" | "NAN"
-            ) {
+            if str.eq_ignore_ascii_case("nan") {
                 return Ok(f64::NAN);
             }
         }
@@ -69,7 +59,7 @@ pub fn parse_positive_number(str: &str) -> ParseResult<f64> {
                         // try and match Go style octal
                         return from_str_radix(rest, 8);
                     }
-                    // punt to std metricsql_common num parsing
+                    // punt to std num parsing
                     parse_basic(str)
                 }
             };
@@ -125,7 +115,7 @@ pub fn get_number_suffix(s: &str) -> Option<&'static SuffixValue> {
     }
     let last_ch = s.chars().last().unwrap();
     if last_ch.is_alphabetic() {
-        // todo: avoid converrsion here
+        // todo: avoid conversion here
         let lower = s.to_ascii_lowercase();
         SUFFIXES.iter().find(|x| lower.ends_with(x.0))
     } else {

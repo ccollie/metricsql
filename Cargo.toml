@@ -23,8 +23,9 @@ resolver = "2"
 [workspace.dependencies]
 ahash = { version = "0.8", features = ["std", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
-chrono-tz = "0.8.2"
+chrono-tz = "0.8"
 enquote = "1.1.0"
+integer-encoding = "4.0.0"
 itertools = "0.11.0"
 num-traits = "0.2.17"
 q_compress = "0.11.7"

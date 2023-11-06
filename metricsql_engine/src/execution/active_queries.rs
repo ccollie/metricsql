@@ -30,7 +30,7 @@ pub struct ActiveQueryEntry {
 
 impl ActiveQueries {
     pub(crate) fn new() -> Self {
-        let id = Utc::now().timestamp_nanos() as u64; // todo: uuid
+        let id = Utc::now().timestamp_nanos_opt().unwrap() as u64; // todo: uuid
         let inner = Inner {
             id,
             data: AHashMap::new(),

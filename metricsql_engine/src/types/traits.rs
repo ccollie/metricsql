@@ -71,8 +71,18 @@ impl TimestampTrait for Timestamp {
     }
 
     fn to_rfc3339(&self) -> String {
-        let naive_date_time = NaiveDateTime::from_timestamp_millis(*self).unwrap();
-        let date_time = DateTime::<Utc>::from_utc(naive_date_time, Utc);
+        if self < &0_i64 {
+            // todo: raise error
+            return "".to_string();
+        }
+        let epoch = *self as u64;
+        // Convert epoch to SystemTime
+        let time = UNIX_EPOCH + Duration::from_secs(epoch);
+
+        // Convert SystemTime to DateTime<Utc>
+        let date_time: DateTime<Utc> = DateTime::from(time);
+
+        // Convert DateTime<Utc> to RFC3339 string
         date_time.to_rfc3339()
     }
 

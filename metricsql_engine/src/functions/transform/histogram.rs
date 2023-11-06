@@ -99,6 +99,7 @@ pub(crate) fn buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
                 prev_value = value
             }
         }
+
         while le_group.len() > limit as usize {
             // Preserve the first and the last bucket for better accuracy for min and max values
             let mut xx_min_idx = 1;

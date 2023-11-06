@@ -1,7 +1,9 @@
-use ahash::AHashMap;
-use metricsql_parser::parser::compile_regexp;
-use regex::Regex;
 use std::borrow::Cow;
+
+use ahash::AHashMap;
+use regex::Regex;
+
+use metricsql_parser::parser::compile_regexp;
 
 use crate::functions::arg_parse::{get_series_arg, get_string_arg};
 use crate::functions::transform::TransformFuncArg;
@@ -107,6 +109,8 @@ fn transform_label_value_func(
     Ok(series)
 }
 
+const EMPTY_STRING: String = String::new();
+
 pub(crate) fn label_map(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let label = get_label(tfa, "", 1)?.to_string();
 
@@ -118,14 +122,17 @@ pub(crate) fn label_map(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeser
 
     let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
     for ts in series.iter_mut() {
-        let mut dst_value = get_tag_value(&ts.metric_name, &label);
-        if let Some(value) = m.get(dst_value.as_str()) {
-            dst_value.push_str(value);
+        let mut should_delete = false;
+        if let Some(dst_value) = get_tag_value_mut(&mut ts.metric_name, &label) {
+            if let Some(value) = m.get(dst_value.as_str()) {
+                *dst_value = value.to_string();
+            }
+            if dst_value.is_empty() {
+                should_delete = true;
+            }
         }
-        if dst_value.is_empty() {
+        if should_delete {
             ts.metric_name.remove_tag(&label);
-        } else {
-            ts.metric_name.set_tag(&label, &dst_value);
         }
     }
 
@@ -273,7 +280,7 @@ pub(crate) fn label_replace(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
     })
 }
 
-const EMPTY_STRING: &str = "";
+const EMPTY_STR: &str = "";
 
 fn handle_label_replace(
     tss: &mut Vec<Timeseries>,
@@ -289,7 +296,7 @@ fn handle_label_replace(
         let haystack = if let Some(v) = src_value {
             v
         } else {
-            EMPTY_STRING
+            EMPTY_STR
         };
 
         if !r.is_match(haystack) {
@@ -509,16 +516,20 @@ fn get_string_pairs(
     let result_len = arg_len / 2;
     let mut ks: Vec<String> = Vec::with_capacity(result_len);
     let mut vs: Vec<String> = Vec::with_capacity(result_len);
-    let mut i = start;
+    let mut i = 0;
     while i < arg_len {
-        let k = get_string_arg(&tfa.args, i)?;
+        let k = get_string_arg(args, i)?;
         ks.push(k.to_string());
-        let v = get_string_arg(&tfa.args, i + 1)?;
+        let v = get_string_arg(args, i + 1)?;
         vs.push(v.to_string());
         i += 2;
     }
 
     Ok((ks, vs))
+}
+
+fn get_tag_value_mut<'a>(mn: &'a mut MetricName, dst_label: &str) -> Option<&'a mut String> {
+    mn.get_value_mut(dst_label)
 }
 
 fn get_tag_value(mn: &MetricName, dst_label: &str) -> String {

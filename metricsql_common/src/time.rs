@@ -9,7 +9,6 @@ use chrono::{
     DateTime, Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Timelike, Utc,
     Weekday,
 };
-
 use chrono_tz::Tz;
 
 /// Number of seconds in a day
@@ -190,11 +189,12 @@ pub fn is_leap_year(y: u32) -> bool {
 }
 
 pub fn days_in_month<Tz: TimeZone>(t: DateTime<Tz>) -> u8 {
-    let m = t.month();
-    if m == 2 && is_leap_year(t.year() as u32) {
+    let m = t.month() as usize;
+    let y = t.year() as u32;
+    if m == 2 && is_leap_year(y) {
         return 29_u8;
     }
-    DAYS_IN_MONTH[m as usize]
+    DAYS_IN_MONTH[m - 1]
 }
 
 pub fn int_day_of_week<Tz: TimeZone>(t: DateTime<Tz>) -> u8 {
@@ -297,10 +297,10 @@ pub fn get_local_tz() -> Option<Tz> {
 mod tests {
     use chrono::NaiveDateTime;
 
-    use crate::time::split_second;
-    use crate::{
+    use crate::prelude::{
         timestamp_ms_to_datetime, timestamp_ns_to_datetime, timestamp_us_to_datetime, NANOSECONDS,
     };
+    use crate::time::split_second;
 
     #[test]
     fn negative_input_timestamp_ns_to_datetime() {

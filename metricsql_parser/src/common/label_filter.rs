@@ -9,7 +9,9 @@ use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::Xxh3;
 
 use crate::common::join_vector;
-use crate::parser::{compile_regexp, escape_ident, is_empty_regex, quote, ParseError};
+use crate::parser::{
+    compile_regexp, convert_regex, escape_ident, is_empty_regex, quote, ParseError,
+};
 
 pub const NAME_LABEL: &str = "__name__";
 
@@ -146,16 +148,20 @@ impl LabelFilter {
         V: Into<LabelValue>,
     {
         let label = label.into();
-        let value = value.into();
 
         assert!(!label.is_empty());
-
-        if match_op == LabelFilterOp::RegexEqual || match_op == LabelFilterOp::RegexNotEqual {
-            let re_anchored = format!("^(?:{})$", value);
-            if compile_regexp(&re_anchored).is_err() {
-                return Err(ParseError::InvalidRegex(value));
+        let value = match match_op {
+            LabelFilterOp::RegexEqual | LabelFilterOp::RegexNotEqual => {
+                let label_value = value.into();
+                let converted = convert_regex(&label_value);
+                let re_anchored = format!("^(?:{})$", converted);
+                if compile_regexp(&re_anchored).is_err() {
+                    return Err(ParseError::InvalidRegex(label_value));
+                }
+                converted
             }
-        }
+            _ => value.into(),
+        };
 
         Ok(Self {
             label,

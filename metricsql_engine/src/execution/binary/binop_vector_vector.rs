@@ -187,7 +187,7 @@ fn adjust_binary_op_tags(
         };
 
     let mut is_on = false;
-    let mut is_ignoring = false;
+    // let mut is_ignoring = false;
 
     // Add __name__ to groupTags if metric name must be preserved.
     let group_tags = if keep_metric_names {
@@ -206,10 +206,7 @@ fn adjust_binary_op_tags(
                 is_on = true;
                 Cow::Borrowed(labels)
             }
-            VectorMatchModifier::Ignoring(labels) => {
-                is_ignoring = true;
-                Cow::Borrowed(labels)
-            }
+            VectorMatchModifier::Ignoring(labels) => Cow::Borrowed(labels),
         }
     } else {
         Cow::Owned(Labels::default())

@@ -1,12 +1,14 @@
+use std::default::Default;
+use std::ops::Deref;
+
 use ahash::AHashMap;
+use topologic::AcyclicDependencyGraph;
+
 use metricsql_parser::ast::{
     AggregationExpr, BinaryExpr, Expr, FunctionExpr, MetricExpr, ParensExpr, RollupExpr,
 };
 use metricsql_parser::functions::{BuiltinFunction, RollupFunction, TransformFunction};
 use metricsql_parser::prelude::{adjust_comparison_ops, Operator};
-use std::default::Default;
-use std::ops::Deref;
-use topologic::AcyclicDependencyGraph;
 
 use crate::execution::binary::can_push_down_common_filters;
 use crate::execution::dag::aggregate_node::AggregateNode;
@@ -484,7 +486,6 @@ impl DAGBuilder {
                     // if we can push down, we need to evaluate the left operand first
                     // and then use the result to evaluate the right operand
                     // Note: both sides at this point are aggregations
-
                     let (left_idx, right_expr) = if be.op == Operator::And || be.op == Operator::If
                     {
                         // Fetch right-side series at first, since it usually contains

@@ -192,7 +192,6 @@ struct CommonParams {
     deadline: Deadline,
     start: Timestamp,
     end: Timestamp,
-    current_timestamp: Timestamp,
     filters: Vec<Matchers>,
 }
 
@@ -225,7 +224,6 @@ pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<Query
 
         if let Some(filters) = rollup.filters {
             // metric expression without subquery
-
             start -= offset;
             end = start;
             start = end - window;
@@ -244,7 +242,6 @@ pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<Query
                 deadline: params.deadline,
                 start,
                 end,
-                current_timestamp: ct,
                 filters: tfs_list.to_vec(),
             };
 

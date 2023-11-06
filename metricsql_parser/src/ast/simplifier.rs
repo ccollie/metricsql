@@ -1033,12 +1033,6 @@ mod tests {
             let actual = simplify(expr);
             assert_expr_eq(&zero, &actual);
         }
-        // A * 0 --> 0 if A is not nullable
-        {
-            let expr = selector("foo") * number(0.0);
-            let actual = simplify(expr);
-            assert_expr_eq(&zero, &actual);
-        }
         // A * 0 --> 0
         {
             let expr = selector("foo") * number(0.0);

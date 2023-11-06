@@ -1,15 +1,12 @@
 use crate::common::Operator;
 use crate::parser::{ParseError, ParseResult};
 
-// see https://github.com/VictoriaMetrics/metricsql/blob/master/binary_op.go
-
 pub type BinopFunc = fn(left: f64, right: f64) -> f64;
 
 /// eq returns true of left == right.
 #[inline]
 fn op_eq(left: f64, right: f64) -> bool {
     // Special handling for nan == nan.
-    // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/150 .
     if left.is_nan() {
         return right.is_nan();
     }
@@ -19,7 +16,6 @@ fn op_eq(left: f64, right: f64) -> bool {
 /// neq returns true of left != right.
 fn op_neq(left: f64, right: f64) -> bool {
     // Special handling for comparison with nan.
-    // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/150 .
     if left.is_nan() {
         return !right.is_nan();
     }
