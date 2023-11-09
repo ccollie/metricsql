@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::collections::hash_map::Entry;
 
 use ahash::AHashMap;
+use tinyvec::TinyVec;
 
 use metricsql_parser::binaryop::{
     get_scalar_binop_handler, get_scalar_comparison_handler, BinopFunc,
@@ -165,7 +166,7 @@ fn adjust_binary_op_tags(
     InstantVector, // right
 )> {
     // `vector op vector` or `a op {on|ignoring} {group_left|group_right} b`
-    let (mut m_left, mut m_right) = create_timeseries_map_by_tag_set(bfa);
+    let (mut m_left, mut m_right) = create_series_map_by_tag_set(bfa);
 
     // i think if we wanted we could reuse bfa.left and bfa.right here
     let mut rvs_left: Vec<Timeseries> = Vec::with_capacity(4);
@@ -425,7 +426,7 @@ pub fn merge_non_overlapping_timeseries(dst: &mut Timeseries, src: &Timeseries) 
 }
 
 fn binary_op_if(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let (mut m_left, m_right) = create_timeseries_map_by_tag_set(bfa);
+    let (mut m_left, m_right) = create_series_map_by_tag_set(bfa);
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(m_left.len());
 
     for (k, tss_left) in m_left.iter_mut() {
@@ -448,7 +449,7 @@ fn binary_op_and(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
         return Ok(vec![]); // Short-circuit: AND with nothing is nothing.
     }
 
-    let (mut left_sigs, right_sigs) = create_timeseries_map_by_tag_set(bfa);
+    let (mut left_sigs, right_sigs) = create_series_map_by_tag_set(bfa);
 
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(left_sigs.len());
 
@@ -468,7 +469,7 @@ fn binary_op_default(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>
         return Ok(std::mem::take(&mut bfa.right)); // Short-circuit: default with nothing is nothing.
     }
 
-    let (mut m_left, m_right) = create_timeseries_map_by_tag_set(bfa);
+    let (mut m_left, m_right) = create_series_map_by_tag_set(bfa);
 
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(m_left.len());
     for (k, tss_left) in m_left.iter_mut() {
@@ -496,35 +497,30 @@ fn binary_op_or(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
         return Ok(std::mem::take(&mut bfa.left));
     }
 
-    let none_matching: Option<VectorMatchModifier> = None;
+    let (mut m_left, m_right) = create_series_map_by_tag_set(bfa);
 
-    let matching = if let Some(modifier) = &bfa.modifier {
-        &modifier.matching
-    } else {
-        &none_matching
-    };
+    let mut rvs: Vec<Timeseries> = Vec::with_capacity(m_left.len() + m_right.len());
 
-    let left_sigs = group_series_indexes_by_match_modifier(&bfa.left, matching);
-
-    let mut right = Vec::with_capacity(bfa.right.len());
-    let right_items = std::mem::take(&mut bfa.right);
-
-    for right_ts in right_items.into_iter() {
-        let sig = right_ts.metric_name.signature_by_match_modifier(matching);
-        if let Some(left_indexes) = left_sigs.get(&sig) {
-            for left_idx in left_indexes {
-                let left_ts = &mut bfa.left[*left_idx];
-                fill_left_empty_with_right_values(left_ts, &right_ts);
-            }
+    for (sig, ref mut tss_right) in m_right.into_iter() {
+        if let Some(tss_left) = m_left.get_mut(&sig) {
+            fill_left_nans_with_right_values(tss_left, &tss_right);
         } else {
             // add right if it is not in left
-            right.push(right_ts);
+            rvs.append(tss_right);
         };
     }
 
-    bfa.left.append(&mut right);
+    // todo(perf): there is alot of copying and moving here, can we avoid it?
+    let left = m_left.into_values().flatten().collect::<Vec<Timeseries>>();
+    if rvs.is_empty() {
+        return Ok(left);
+    }
+    let left_len = left.len();
 
-    Ok(std::mem::take(&mut bfa.left))
+    rvs.reserve(left_len);
+    rvs.splice(0..1, left.into_iter());
+
+    Ok(rvs)
 }
 
 /// vector1 unless vector2 results in a vector consisting of the elements of vector1
@@ -539,7 +535,7 @@ fn binary_op_unless(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>>
         return Ok(std::mem::take(&mut bfa.left));
     }
 
-    let (m_left, m_right) = create_timeseries_map_by_tag_set(bfa);
+    let (m_left, m_right) = create_series_map_by_tag_set(bfa);
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(m_left.len());
 
     for (k, mut tss_left) in m_left.into_iter() {
@@ -555,7 +551,7 @@ fn binary_op_unless(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>>
 
 /// q1 ifnot q2 removes values from q1 for existing values from q2.
 fn binary_op_if_not(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let (m_left, m_right) = create_timeseries_map_by_tag_set(bfa);
+    let (m_left, m_right) = create_series_map_by_tag_set(bfa);
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(m_left.len());
 
     for (k, mut tss_left) in m_left.into_iter() {
@@ -581,7 +577,7 @@ fn fill_left_empty_with_right_values(left_ts: &mut Timeseries, right_ts: &Timese
 #[inline]
 /// Fill gaps in tss_left with values from tss_right as Prometheus does.
 /// See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/552
-fn fill_left_nans_with_right_values(tss_left: &mut [Timeseries], tss_right: &[Timeseries]) {
+fn fill_left_nans_with_right_values(tss_left: &mut Vec<Timeseries>, tss_right: &[Timeseries]) {
     for ts_left in tss_left.iter_mut() {
         for (i, left_value) in ts_left.values.iter_mut().enumerate() {
             if !left_value.is_nan() {
@@ -632,18 +628,27 @@ fn add_left_nans_if_no_right_nans(tss_left: &mut Vec<Timeseries>, tss_right: &Ve
     remove_empty_series(tss_left);
 }
 
-fn create_timeseries_map_by_tag_set(
+fn create_series_map_by_tag_set(
     bfa: &mut BinaryOpFuncArg,
 ) -> (TimeseriesHashMap, TimeseriesHashMap) {
-    let none_matching: Option<VectorMatchModifier> = None;
     let matching = if let Some(modifier) = &bfa.modifier {
         &modifier.matching
     } else {
-        &none_matching
+        &NONE_MATCHING
     };
     let m_left = group_series_by_match_modifier(&mut bfa.left, matching);
     let m_right = group_series_by_match_modifier(&mut bfa.right, matching);
     (m_left, m_right)
+}
+
+const NONE_MATCHING: Option<VectorMatchModifier> = None;
+
+fn get_match_modifier<'a>(bfa: &'a BinaryOpFuncArg) -> &'a Option<VectorMatchModifier> {
+    if let Some(modifier) = &bfa.modifier {
+        &modifier.matching
+    } else {
+        &NONE_MATCHING
+    }
 }
 
 pub(in crate::execution) fn is_scalar(arg: &[Timeseries]) -> bool {

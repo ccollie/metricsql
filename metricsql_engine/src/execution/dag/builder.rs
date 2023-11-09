@@ -576,7 +576,7 @@ impl DAGBuilder {
 fn is_vector_expr(node: &Expr) -> bool {
     matches!(
         node,
-        Expr::MetricExpression(_) | Expr::Rollup(_) | Expr::Aggregation(_) // what about functions returning vectors?
+        Expr::MetricExpression(_) | Expr::Rollup(_) | Expr::Aggregation(_) | Expr::Function(_) // what about functions returning vectors?
     )
 }
 

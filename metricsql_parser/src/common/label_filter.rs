@@ -272,18 +272,7 @@ impl LabelFilter {
 
 impl PartialOrd for LabelFilter {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        // Make sure the first label filter is __name__ (if any)
-        if self.is_metric_name_filter() && !other.is_metric_name_filter() {
-            return Some(Ordering::Less);
-        }
-        let mut order = self.label.cmp(&other.label);
-        if order == Ordering::Equal {
-            order = self.value.cmp(&other.value);
-            if order == Ordering::Equal {
-                order = self.op.to_string().cmp(&other.op.to_string());
-            }
-        }
-        Some(order)
+        Some(self.cmp(other))
     }
 }
 

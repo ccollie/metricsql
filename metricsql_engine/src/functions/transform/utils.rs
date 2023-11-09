@@ -44,7 +44,7 @@ pub fn get_timezone_offset(zone: &impl TimeZone, timestamp_msecs: i64) -> Option
 }
 
 #[inline]
-/// This exist solely for readability
+/// This exists solely for readability
 pub(super) fn clamp_min(val: f64, limit: f64) -> f64 {
     val.min(limit)
 }

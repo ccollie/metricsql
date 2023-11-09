@@ -204,7 +204,7 @@ impl FromStr for AggregateFunction {
                 FUNCTION_MAP.get(lower.as_str())
             })
             .ok_or_else(|| ParseError::InvalidFunction(s.to_string()))
-            .and_then(|x| Ok(*x))
+            .map(|x| *x)
     }
 }
 

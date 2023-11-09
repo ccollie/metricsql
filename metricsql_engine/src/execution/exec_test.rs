@@ -11,6 +11,7 @@ mod tests {
 
     const NAN: f64 = f64::NAN;
     const INF: f64 = f64::INFINITY;
+    const NEG_INF: f64 = f64::NEG_INFINITY;
 
     const START: i64 = 1000000_i64;
     const END: i64 = 2000000_i64;
@@ -51,14 +52,8 @@ mod tests {
     }
 
     fn assert_result_eq(q: &str, values: &[f64]) {
-        if values.is_empty() {
-            let all_nan = vec![NAN, NAN, NAN, NAN, NAN, NAN];
-            let expected = make_result(&all_nan);
-            test_query(q, vec![expected]);
-        } else {
-            let r = make_result(values);
-            test_query(q, vec![r]);
-        }
+        let r = make_result(values);
+        test_query(q, vec![r]);
     }
 
     #[test]
@@ -160,7 +155,7 @@ mod tests {
             &[0.0, 16.0, 16.0, 0.0, 0.0, 16.0],
         );
 
-        assert_result_eq("bitmap_and(NaN, 1)", &[]);
+        test_query("bitmap_and(NaN, 1)", vec![]);
     }
 
     #[test]
@@ -174,7 +169,7 @@ mod tests {
             &[1017.0, 1201.0, 1401.0, 1617.0, 1817.0, 2001.0],
         );
 
-        assert_result_eq("bitmap_or(NaN, 1)", &[]);
+        test_query("bitmap_or(NaN, 1)", vec![]);
     }
 
     #[test]
@@ -188,7 +183,7 @@ mod tests {
             &[1017.0, 1185.0, 1385.0, 1617.0, 1817.0, 1985.0],
         );
 
-        assert_result_eq("bitmap_xor(NaN, 1)", &[]);
+        test_query("bitmap_xor(NaN, 1)", vec![]);
     }
 
     #[test]
@@ -406,6 +401,14 @@ mod tests {
     fn minute() {
         assert_result_eq("minute()", &[16.0, 20.0, 23.0, 26.0, 30.0, 33.0]);
         assert_result_eq("minute(30*60+time())", &[46.0, 50.0, 53.0, 56.0, 0.0, 3.0]);
+    }
+
+    #[test]
+    fn single_test() {
+        assert_result_eq(
+            "time() <= 1200 or time() > 1600",
+            &[16.0, 20.0, NAN, NAN, 30.0, 33.0],
+        );
     }
 
     #[test]
@@ -1662,7 +1665,7 @@ mod tests {
 
     #[test]
     fn vector_eq_scalar() {
-        assert_result_eq("vector(1) == time()", &[]);
+        test_query("vector(1) == time()", vec![]);
     }
 
     #[test]
@@ -2199,7 +2202,7 @@ mod tests {
     #[test]
     fn stddev_over_time() {
         let q = "round(stddev_over_time(rand(0)[200s:5s]), 0.001)";
-        assert_result_eq(q, &[0.286, 0.297, 0.303, 0.274, 0.318, 0.283]);
+        assert_result_eq(q, &[0.291, 0.287, 0.28, 0.318, 0.244, 0.272]);
     }
 
     #[test]
@@ -3210,7 +3213,7 @@ mod tests {
     fn increases_over_time() {
         assert_result_eq(
             "increases_over_time(rand(0)[200s:10s])",
-            &[11.0, 9.0, 9.0, 12.0, 9.0, 8.0],
+            &[9.0, 14.0, 12.0, 11.0, 9.0, 11.0],
         );
     }
 
@@ -3218,7 +3221,7 @@ mod tests {
     fn decreases_over_time() {
         assert_result_eq(
             "decreases_over_time(rand(0)[200s:10s])",
-            &[9.0, 11.0, 11.0, 8.0, 11.0, 12.0],
+            &[11.0, 6.0, 8.0, 9.0, 11.0, 9.0],
         );
     }
 
@@ -3711,9 +3714,10 @@ mod tests {
 
     #[test]
     fn test_quantile() {
+        let expected = [NEG_INF; 6];
         let q =
             r#"quantile(-2, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"))"#;
-        assert_result_eq(q, &[INF, INF, INF, INF, INF, INF]);
+        assert_result_eq(q, &expected);
 
         let q =
             r#"quantile(0.2, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"))"#;
@@ -4016,7 +4020,7 @@ mod tests {
     #[test]
     fn zscore_over_time_rand() {
         let q = "round(zscore_over_time(rand(0)[100s:10s]), 0.01)";
-        assert_result_eq(q, &[-1.17, -0.08, 0.98, 0.67, 1.61, 1.55]);
+        assert_result_eq(q, &[-1.12, 0.5, 1.05, 1.88, -1.16, 0.79]);
     }
 
     #[test]
@@ -4403,7 +4407,8 @@ mod tests {
     #[test]
     fn rollup_rate_avg() {
         let q = r#"rollup_rate((2000-time())[600s], "avg")"#;
-        let r = make_result(&[5_f64, 4.0, 3.0, 2.0, 1.0, 0.0]);
+        let mut r = make_result(&[5_f64, 4.0, 3.0, 2.0, 1.0, 0.0]);
+        r.metric.set_tag("rollup", "avg");
         test_query(q, vec![r]);
     }
 
@@ -4422,7 +4427,8 @@ mod tests {
     #[test]
     fn rollup_deriv_max() {
         let q = r#"sort(rollup_deriv(time()[100s:50s], "max"))"#;
-        let r = make_result(&[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
+        let mut r = make_result(&[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
+        r.metric.set_tag("rollup", "max");
         test_query(q, vec![r]);
     }
 

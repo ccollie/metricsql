@@ -204,7 +204,7 @@ impl TryFrom<&str> for Operator {
                 return Ok(*operator);
             }
         }
-        return Err(ParseError::General(format!("Unknown binary op {}", op)));
+        Err(ParseError::General(format!("Unknown binary op {}", op)))
     }
 }
 

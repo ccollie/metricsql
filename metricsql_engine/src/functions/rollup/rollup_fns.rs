@@ -125,8 +125,6 @@ macro_rules! fake_wrapper {
 }
 
 // pass through to existing functions
-
-///////////
 make_factory!(new_rollup_absent_over_time, rollup_absent);
 make_factory!(new_rollup_aggr_over_time, rollup_fake);
 make_factory!(new_rollup_ascent_over_time, rollup_ascent_over_time);

@@ -445,7 +445,7 @@ fn has_identical_label_values(mn: &mut MetricName, label_names: &Vec<Cow<String>
             _ => return false,
         }
     }
-    return true;
+    true
 }
 
 pub(crate) fn label_graphite_group(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {

@@ -27,7 +27,7 @@ pub(crate) fn get_common_label_filters(tss: &[Timeseries]) -> Vec<LabelFilter> {
         for Tag { key: k, value: v } in ts.metric_name.tags.iter() {
             kv_map
                 .entry(k.to_string())
-                .or_insert_with(AHashSet::new)
+                .or_default()
                 .insert(v.to_string());
         }
     }

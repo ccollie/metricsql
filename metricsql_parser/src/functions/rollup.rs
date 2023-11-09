@@ -422,7 +422,6 @@ static FUNCTION_MAP: phf::Map<&'static str, RollupFunction> = phf_map! {
 
 impl FromStr for RollupFunction {
     type Err = ParseError;
-
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         FUNCTION_MAP
             .get(s)
@@ -431,7 +430,7 @@ impl FromStr for RollupFunction {
                 FUNCTION_MAP.get(lower.as_str())
             })
             .ok_or_else(|| ParseError::InvalidFunction(s.to_string()))
-            .and_then(|x| Ok(*x))
+            .map(|x| *x)
     }
 }
 

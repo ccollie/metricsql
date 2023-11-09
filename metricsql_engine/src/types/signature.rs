@@ -100,8 +100,8 @@ pub fn group_series_indexes_by_match_modifier(
         let sigs: Vec<(Signature, usize)> = series
             .par_iter()
             .enumerate()
-            .map_with(modifier, |modifier, (index, timeseries)| {
-                let sig = timeseries.metric_name.signature_by_match_modifier(modifier);
+            .map_with(modifier, |modifier, (index, ts)| {
+                let sig = ts.metric_name.signature_by_match_modifier(modifier);
                 (sig, index)
             })
             .collect();
@@ -126,14 +126,14 @@ pub fn get_signatures_set_by_match_modifier(
     let res: HashSet<Signature> = if series.len() >= SIGNATURE_PARALLELIZATION_THRESHOLD {
         series
             .par_iter()
-            .map_with(modifier, |modifier, timeseries| {
-                timeseries.metric_name.signature_by_match_modifier(modifier)
+            .map_with(modifier, |modifier, ts| {
+                ts.metric_name.signature_by_match_modifier(modifier)
             })
             .collect::<HashSet<_>>()
     } else {
         series
             .iter()
-            .map(|timeseries| timeseries.metric_name.signature_by_match_modifier(modifier))
+            .map(|ts| ts.metric_name.signature_by_match_modifier(modifier))
             .collect::<HashSet<_>>()
     };
     res

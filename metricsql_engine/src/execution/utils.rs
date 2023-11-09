@@ -85,33 +85,36 @@ pub(crate) fn get_step(expr: &Option<DurationExpr>, step: i64) -> i64 {
 }
 
 /// Executes `f` for each `Timeseries` in `tss` in parallel.
-pub(super) fn process_timeseries_in_parallel<F>(
+pub(super) fn process_series_in_parallel<F>(
     tss: &Vec<Timeseries>,
     f: F,
 ) -> RuntimeResult<(Vec<Timeseries>, u64)>
 where
     F: Fn(&Timeseries, &mut [f64], &[i64]) -> RuntimeResult<(Vec<Timeseries>, u64)> + Send + Sync,
 {
-    let res: RuntimeResult<Vec<(Vec<Timeseries>, u64)>> = tss
-        .par_iter()
-        .map(|ts| {
-            let len = ts.values.len();
-            // todo: should we have an upper limit here to avoid OOM? Or explicitly size down
-            // afterward if needed?
-            let mut values = get_pooled_vec_f64(len);
-            let mut timestamps = get_pooled_vec_i64(len);
+    let handler = |ts: &Timeseries| -> RuntimeResult<(Vec<Timeseries>, u64)> {
+        let len = ts.values.len();
+        // todo: should we have an upper limit here to avoid OOM? Or explicitly size down
+        // afterward if needed?
+        let mut values = get_pooled_vec_f64(len);
+        let mut timestamps = get_pooled_vec_i64(len);
 
-            // todo(perf): have param for if values have NaNs
-            remove_nan_values(&mut values, &mut timestamps, &ts.values, &ts.timestamps);
+        // todo(perf): have param for if values have NaNs
+        remove_nan_values(&mut values, &mut timestamps, &ts.values, &ts.timestamps);
 
-            f(ts, &mut values, &mut timestamps)
-        })
-        .collect();
+        f(ts, &mut values, &mut timestamps)
+    };
+
+    let res = if tss.len() > 1 {
+        let res: RuntimeResult<Vec<(Vec<Timeseries>, u64)>> = tss.par_iter().map(handler).collect();
+        res?
+    } else {
+        vec![handler(&tss[0])?]
+    };
 
     let mut series: Vec<Timeseries> = Vec::with_capacity(tss.len());
-    let tss = res?;
     let mut sample_total = 0_u64;
-    for (timeseries, sample_count) in tss.into_iter() {
+    for (timeseries, sample_count) in res.into_iter() {
         sample_total += sample_count;
         series.extend::<Vec<Timeseries>>(timeseries)
     }

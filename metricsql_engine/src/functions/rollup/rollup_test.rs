@@ -635,7 +635,7 @@ mod tests {
             let _rf = (nrf)(&args);
             assert!(
                 _rf.is_err(),
-                "expecting err; got a rollup function for {}({})",
+                "expecting err for {}({})",
                 func_name,
                 args.iter()
                     .map(|v| v.to_string())
@@ -692,6 +692,7 @@ mod tests {
         rc.end = 4;
         rc.step = 1;
         rc.window = 0;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(&mut rc, &[NAN, NAN, NAN, NAN, NAN], &[0, 1, 2, 3, 4]);
     }
 
@@ -703,6 +704,7 @@ mod tests {
         rc.end = 148;
         rc.step = 4;
         rc.window = 0;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(
             &mut rc,
             &[2_f64, 0.0, 0.0, 0.0, NAN, NAN, NAN, NAN],
@@ -718,6 +720,7 @@ mod tests {
         rc.end = 4;
         rc.step = 1;
         rc.window = 3;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(&mut rc, &[NAN, NAN, NAN, NAN, NAN], &[0, 1, 2, 3, 4]);
     }
 
@@ -729,6 +732,7 @@ mod tests {
         rc.end = 191;
         rc.step = 10;
         rc.window = 3;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(&mut rc, &[NAN, NAN, NAN, NAN], &[161, 171, 181, 191]);
     }
 
@@ -740,6 +744,7 @@ mod tests {
         rc.end = 25;
         rc.step = 5;
         rc.window = 0;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(
             &mut rc,
             &[NAN, 123.0, NAN, 34.0, NAN, 44.0],
@@ -756,6 +761,7 @@ mod tests {
         rc.step = 20;
         rc.window = 0;
         rc.max_points_per_series = 10000;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(&mut rc, &[44_f64, 32.0, 34.0, NAN], &[100, 120, 140, 160]);
     }
 
@@ -767,6 +773,7 @@ mod tests {
         rc.end = 150;
         rc.step = 50;
         rc.window = 0;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(
             &mut rc,
             &[NAN, NAN, 123.0, 34.0, 32.0],
@@ -782,6 +789,7 @@ mod tests {
         rc.end = 20;
         rc.step = 5;
         rc.window = 8;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(
             &mut rc,
             &[NAN, 123_f64, 123_f64, 34_f64, 34_f64],
@@ -797,6 +805,7 @@ mod tests {
         rc.end = 160;
         rc.step = 20;
         rc.window = 18;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(
             &mut rc,
             &[44_f64, 34_f64, 34_f64, NAN],
@@ -812,6 +821,7 @@ mod tests {
         rc.end = 150;
         rc.step = 50;
         rc.window = 19;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(&mut rc, &[NAN, 54_f64, 44_f64, NAN], &[0, 50, 100, 150]);
     }
 
@@ -823,6 +833,7 @@ mod tests {
         rc.end = 140;
         rc.step = 10;
         rc.lookback_delta = 1;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(
             &mut rc,
             &[99_f64, NAN, 44.0, NAN, 32.0, 34.0, NAN],
@@ -838,6 +849,7 @@ mod tests {
         rc.end = 140;
         rc.step = 10;
         rc.lookback_delta = 7;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(
             &mut rc,
             &[99_f64, NAN, 44.0, NAN, 32.0, 34.0, NAN],
@@ -853,6 +865,7 @@ mod tests {
         rc.end = 140;
         rc.step = 10;
         rc.lookback_delta = 0;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(
             &mut rc,
             &[99_f64, NAN, 44.0, NAN, 32.0, 34.0, NAN],
@@ -868,6 +881,7 @@ mod tests {
         rc.end = 160;
         rc.step = 40;
         rc.window = 0;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(&mut rc, &[NAN, 4.0, 4.0, 3.0, 1.0], &[0, 40, 80, 120, 160]);
     }
 
@@ -879,6 +893,7 @@ mod tests {
         rc.end = 160;
         rc.step = 40;
         rc.window = 0;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(
             &mut rc,
             &[NAN, 21.0, 12.0, 32.0, 34.0],
@@ -894,6 +909,7 @@ mod tests {
         rc.end = 160;
         rc.step = 40;
         rc.window = 0;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(
             &mut rc,
             &[NAN, 123.0, 99.0, 44.0, 34.0],
@@ -910,6 +926,7 @@ mod tests {
         rc.step = 40;
         rc.window = 0;
         rc.max_points_per_series = 10000;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(
             &mut rc,
             &[NAN, 222.0, 199.0, 110.0, 34.0],
@@ -925,6 +942,7 @@ mod tests {
         rc.end = 160;
         rc.step = 40;
         rc.window = 0;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(
             &mut rc,
             &[NAN, 21.0, -9.0, 22.0, 0.0],
@@ -940,6 +958,7 @@ mod tests {
         rc.end = 160;
         rc.step = 40;
         rc.window = 0;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(
             &mut rc,
             &[NAN, -102.0, -42.0, -10.0, NAN],
@@ -955,6 +974,7 @@ mod tests {
         rc.end = 130;
         rc.step = 40;
         rc.window = 0;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(&mut rc, &[123_f64, 33.0, -87.0, 0.0], &[10, 50, 90, 130]);
     }
 
@@ -966,6 +986,7 @@ mod tests {
         rc.end = 160;
         rc.step = 40;
         rc.window = 0;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(
             &mut rc,
             &[NAN, 0.004, 0.0, 0.0, 0.03],
@@ -981,6 +1002,7 @@ mod tests {
         rc.end = 160;
         rc.step = 40;
         rc.window = 0;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(
             &mut rc,
             &[NAN, 0.031, 0.044, 0.04, 0.01],
@@ -996,6 +1018,7 @@ mod tests {
         rc.end = 160;
         rc.step = 40;
         rc.window = 200;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(
             &mut rc,
             &[NAN, 0.031, 0.075, 0.115, 0.125],
@@ -1011,6 +1034,7 @@ mod tests {
         rc.end = 160;
         rc.step = 40;
         rc.window = 0;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(
             &mut rc,
             &[NAN, 0.010333333333333333, 0.011, 0.013333333333333334, 0.01],
@@ -1026,6 +1050,7 @@ mod tests {
         rc.end = 160;
         rc.step = 40;
         rc.window = 80;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(
             &mut rc,
             &[
@@ -1047,6 +1072,7 @@ mod tests {
         rc.end = 160;
         rc.step = 40;
         rc.window = 0;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(&mut rc, &[NAN, 4.0, 4.0, 3.0, 0.0], &[0, 40, 80, 120, 160]);
     }
 
@@ -1058,6 +1084,7 @@ mod tests {
         rc.end = 160;
         rc.step = 40;
         rc.window = 0;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(&mut rc, &[NAN, 3.0, 3.0, 2.0, 0.0], &[0, 40, 80, 120, 160]);
     }
 
@@ -1069,6 +1096,7 @@ mod tests {
         rc.end = 45;
         rc.step = 9;
         rc.window = 9;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(
             &mut rc,
             &[NAN, 1.0, 1.0, 1.0, 1.0, 0.0],
@@ -1084,6 +1112,7 @@ mod tests {
         rc.end = 160;
         rc.step = 40;
         rc.window = 0;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(&mut rc, &[NAN, 2.0, 2.0, 1.0, 0.0], &[0, 40, 80, 120, 160]);
     }
 
@@ -1095,6 +1124,7 @@ mod tests {
         rc.end = 160;
         rc.step = 40;
         rc.window = 0;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(
             &mut rc,
             &[NAN, 55.5, 49.75, 36.666666666666664, 34.0],
@@ -1110,6 +1140,7 @@ mod tests {
         rc.end = 160;
         rc.step = 40;
         rc.window = 0;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(
             &mut rc,
             &[
@@ -1131,6 +1162,7 @@ mod tests {
         rc.end = 20;
         rc.step = 4;
         rc.window = 0;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(
             &mut rc,
             &[NAN, NAN, NAN, 0.0, -8900.0, 0.0],
@@ -1146,6 +1178,7 @@ mod tests {
         rc.end = 160;
         rc.step = 40;
         rc.window = 0;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(
             &mut rc,
             &[NAN, -1916.6666666666665, -43500.0, 400.0, 0.0],
@@ -1162,6 +1195,7 @@ mod tests {
         rc.step = 40;
         rc.window = 0;
         rc.max_points_per_series = 10000;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(
             &mut rc,
             &[
@@ -1183,6 +1217,7 @@ mod tests {
         rc.end = 160;
         rc.step = 40;
         rc.window = 0;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(
             &mut rc,
             &[NAN, 2.148, 1.593, 1.156, 1.36],
@@ -1198,6 +1233,7 @@ mod tests {
         rc.end = 160;
         rc.step = 40;
         rc.window = 0;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(&mut rc, &[NAN, 4.0, 4.0, 3.0, 1.0], &[0, 40, 80, 120, 160]);
     }
 
@@ -1209,6 +1245,7 @@ mod tests {
         rc.end = 160;
         rc.step = 40;
         rc.window = 80;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(&mut rc, &[NAN, 4.0, 7.0, 6.0, 3.0], &[0, 40, 80, 120, 160]);
     }
 
@@ -1220,6 +1257,7 @@ mod tests {
         rc.end = 160;
         rc.step = 40;
         rc.window = 80;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(
             &mut rc,
             &[NAN, 21.0, 34.0, 34.0, 34.0],
@@ -1235,6 +1273,7 @@ mod tests {
         rc.end = 160;
         rc.step = 40;
         rc.window = 80;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(
             &mut rc,
             &[NAN, 2775.0, 5262.5, 3862.5, 1800.0],
@@ -1250,6 +1289,7 @@ mod tests {
         rc.end = 160;
         rc.step = 40;
         rc.window = 80;
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
         test_rollup(
             &mut rc,
             &[

@@ -35,6 +35,12 @@ fn transform_sort_impl(
     tfa: &mut TransformFuncArg,
     is_desc: bool,
 ) -> RuntimeResult<Vec<Timeseries>> {
+    let comparator = if is_desc {
+        |a: &f64, b: &f64| b.total_cmp(a)
+    } else {
+        |a: &f64, b: &f64| a.total_cmp(b)
+    };
+
     let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
     series.sort_by(move |first, second| {
         let a = &first.values;
@@ -60,11 +66,10 @@ fn transform_sort_impl(
                     Ordering::Greater
                 };
             } else {
-                return if is_desc {
-                    y.total_cmp(x)
-                } else {
-                    x.total_cmp(y)
-                };
+                let cmp = (comparator)(x, y);
+                if cmp != Ordering::Equal {
+                    return cmp;
+                }
             }
         }
         Ordering::Equal
@@ -82,6 +87,12 @@ fn sort_by_label_impl(tfa: &mut TransformFuncArg, is_desc: bool) -> RuntimeResul
         labels.push(label);
     }
 
+    let comparator = if is_desc {
+        |a: &String, b: &String| b.cmp(a)
+    } else {
+        |a: &String, b: &String| a.cmp(b)
+    };
+
     series.sort_by(|first, second| {
         for label in labels.iter() {
             let a = first.metric_name.tag_value(label);
@@ -89,12 +100,9 @@ fn sort_by_label_impl(tfa: &mut TransformFuncArg, is_desc: bool) -> RuntimeResul
             match (a, b) {
                 (None, None) => continue,
                 (Some(a1), Some(b1)) => {
-                    if a1 == b1 {
-                        continue;
-                    } else if is_desc {
-                        return b1.cmp(a1);
-                    } else {
-                        return a1.cmp(b1);
+                    let cmp = (comparator)(a1, b1);
+                    if cmp != Ordering::Equal {
+                        return cmp;
                     }
                 }
                 (Some(_), None) => {
@@ -135,6 +143,12 @@ fn label_alpha_numeric_sort_impl(
         labels.push(label);
     }
 
+    let comparator = if is_desc {
+        |a: &String, b: &String| compare_str_alphanumeric(b, a)
+    } else {
+        |a: &String, b: &String| compare_str_alphanumeric(a, b)
+    };
+
     let mut res = get_series_arg(&tfa.args, 0, tfa.ec)?;
     res.sort_by(|first, second| {
         for label in &labels {
@@ -144,11 +158,10 @@ fn label_alpha_numeric_sort_impl(
             ) {
                 (None, None) => continue,
                 (Some(a), Some(b)) => {
-                    return if is_desc {
-                        compare_str_alphanumeric(b, a)
-                    } else {
-                        compare_str_alphanumeric(a, b)
-                    };
+                    let cmp = (comparator)(a, b);
+                    if cmp != Ordering::Equal {
+                        return cmp;
+                    }
                 }
                 (None, Some(_)) => {
                     return if is_desc {

@@ -96,7 +96,7 @@ pub fn unmarshal_bytes(src: &[u8]) -> EncodingResult<(&[u8], &[u8])> {
     let (len, n) = u64::decode_var(&src[0..]).ok_or_else(|| EncodingError {
         description: "unable to decode timestamp".into(),
     })?;
-    let byte_len = src.len() as usize;
+    let byte_len = src.len();
     let tail = &src[n..];
 
     if tail.len() < byte_len {

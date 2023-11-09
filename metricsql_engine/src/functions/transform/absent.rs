@@ -1,9 +1,9 @@
 use metricsql_parser::ast::Expr;
 
-use crate::{InstantVector, RuntimeResult, Timeseries};
 use crate::execution::{eval_number, EvalConfig};
 use crate::functions::arg_parse::get_series_arg;
 use crate::functions::transform::{extract_labels, TransformFuncArg};
+use crate::{InstantVector, RuntimeResult, Timeseries};
 
 pub(crate) fn transform_absent(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let series = get_series_arg(&tfa.args, 0, tfa.ec)?;
@@ -27,6 +27,7 @@ pub(crate) fn handle_absent(
             rvs[0].values[i] = f64::NAN
         }
     }
+
     Ok(rvs)
 }
 

@@ -6,7 +6,7 @@ use metricsql_parser::ast::Expr;
 use metricsql_parser::functions::{can_adjust_window, RollupFunction, TransformFunction};
 
 use crate::common::math::quantile;
-use crate::execution::validate_max_points_per_timeseries;
+use crate::execution::{get_timestamps, validate_max_points_per_timeseries};
 use crate::functions::rollup::candlestick::*;
 use crate::functions::rollup::delta::delta_values;
 use crate::functions::rollup::deriv::deriv_values;
@@ -235,6 +235,15 @@ impl Default for RollupConfig {
 }
 
 impl RollupConfig {
+    pub(crate) fn ensure_timestamps(&mut self) -> RuntimeResult<()> {
+        if self.timestamps.is_empty() {
+            let timestamps =
+                get_timestamps(self.start, self.end, self.step, self.max_points_per_series)?;
+            self.timestamps = Arc::new(timestamps);
+        }
+        Ok(())
+    }
+
     /// calculates rollup for the given timestamps and values, appends
     /// them to dst_values and returns results.
     ///

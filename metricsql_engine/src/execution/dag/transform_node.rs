@@ -2,11 +2,11 @@ use metricsql_parser::prelude::{Expr, TransformFunction};
 use tracing::{field, trace_span, Span};
 
 use crate::execution::dag::utils::resolve_node_args;
-use crate::execution::{Context, EvalConfig};
+use crate::execution::{eval_number, Context, EvalConfig};
 use crate::functions::transform::{
     exec_transform_fn, extract_labels, handle_absent, TransformFuncArg,
 };
-use crate::{Labels, QueryValue, RuntimeResult};
+use crate::{Labels, QueryValue, RuntimeResult, Timeseries};
 
 use super::{ExecutableNode, NodeArg};
 
@@ -116,6 +116,21 @@ impl AbsentTransformNode {
             arg,
             arg_const,
         }
+    }
+
+    fn set_labels_from_arg(rvs: &mut [Timeseries], arg: &Expr) {
+        if let Some(labels) = extract_labels(arg) {
+            for label in labels {
+                rvs[0].metric_name.set_tag(&label.name, &label.value);
+            }
+        }
+    }
+
+    fn get_absent_timeseries(ec: &EvalConfig, arg: &Expr) -> RuntimeResult<Vec<Timeseries>> {
+        // Copy tags from arg
+        let mut rvs = eval_number(ec, 1.0)?;
+        Self::set_labels_from_arg(&mut rvs, arg);
+        Ok(rvs)
     }
 }
 

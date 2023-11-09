@@ -9,7 +9,7 @@ use crate::execution::dag::utils::{
 };
 use crate::execution::dag::{DAGNode, ExecutableNode, NodeArg};
 use crate::execution::utils::{
-    adjust_eval_range, duration_value, get_step, process_timeseries_in_parallel,
+    adjust_eval_range, duration_value, get_step, process_series_in_parallel,
 };
 use crate::execution::{
     align_start_end, get_timestamps, validate_max_points_per_timeseries, Context, EvalConfig,
@@ -152,7 +152,7 @@ impl SubqueryNode {
             &shared_timestamps,
         )?;
 
-        let (mut res, samples_scanned_total) = process_timeseries_in_parallel(
+        let (mut res, samples_scanned_total) = process_series_in_parallel(
             &tss_sq,
             move |ts_sq: &Timeseries,
                   values: &mut [f64],

@@ -135,6 +135,11 @@ pub fn exec(
     }
 
     let mut rv = rv.into_instant_vector(ec)?;
+    remove_empty_series(&mut rv);
+    if rv.is_empty() {
+        return Ok(vec![]);
+    }
+
     if is_first_point_only {
         if rv[0].timestamps.len() > 0 {
             let timestamps = Arc::new(vec![rv[0].timestamps[0]]);
