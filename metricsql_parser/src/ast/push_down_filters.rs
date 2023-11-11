@@ -76,7 +76,7 @@ pub fn get_common_label_filters(e: &Expr) -> Vec<LabelFilter> {
     use Expr::*;
 
     match e {
-        MetricExpression(m) => get_label_filters_without_metric_name(&m.label_filters),
+        MetricExpression(m) => get_common_label_filters_without_metric_name(&m.label_filters),
         Rollup(r) => get_common_label_filters(&r.expr),
         Function(fe) => {
             if let Some(arg) = fe.get_arg_for_optimization() {
@@ -204,6 +204,21 @@ pub fn trim_filters_by_match_modifier(
             }
         },
     }
+}
+
+fn get_common_label_filters_without_metric_name(lfs: &Vec<LabelFilter>) -> Vec<LabelFilter> {
+    if lfs.is_empty() {
+        return vec![];
+    }
+    let lfs_a = get_label_filters_without_metric_name(lfs);
+    // for lfs in &lfss[1..].iter() {
+    //     if lfs_a.is_empty() {
+    //         return vec![];
+    //     }
+    //     let lfs_b = get_label_filters_without_metric_name(lfs);
+    //     lfs_a = intersect_label_filters(lfs_a, lfs_b)
+    // }
+    return lfs_a;
 }
 
 // todo: use lifetimes instead of cloning

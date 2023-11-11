@@ -53,6 +53,12 @@ mod tests {
             }
         };
 
+        f(
+            r#"round(rate(x[5m] offset -1h)) + 123 / {a="b"}"#,
+            r#"{x="y"}"#,
+            r#"round(rate(x{x="y"}[5m] offset -1h)) + (123 / {a="b", x="y"})"#,
+        );
+
         f("foo", "{}", "foo");
         f("foo", r#"{a="b"}"#, r#"foo{a="b"}"#);
         f(
@@ -543,6 +549,14 @@ mod tests {
         validate_optimized(
             r#"round(sqrt(foo{a="b"})) + bar{x="y"}"#,
             r#"round(sqrt(foo{a="b", x="y"})) + bar{a="b", x="y"}"#,
+        );
+    }
+
+    #[test]
+    fn test1() {
+        validate_optimized(
+            r#"absent_over_time(foo{x="y"}[5m]) + bar{a="b"}"#,
+            r#"absent_over_time(foo{x="y"}[5m]) + bar{a="b"}"#,
         );
     }
 

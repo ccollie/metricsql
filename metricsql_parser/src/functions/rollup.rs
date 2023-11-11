@@ -85,12 +85,8 @@ pub enum RollupFunction {
     SumOverTime,
     Sum2OverTime,
     TFirstOverTime,
-    // `timestamp` function must return timestamp for the last datapoint on the current window
-    // in order to properly handle offset and timestamps unaligned to the current step.
-    // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/415 for details.
     Timestamp,
     TimestampWithName,
-    // + rollupFuncsKeepMetricName
     TLastChangeOverTime,
     TLastOverTime,
     TMaxOverTime,
@@ -489,6 +485,7 @@ pub const fn get_rollup_arg_idx_for_optimization(
     // This must be kept in sync with GetRollupArgIdx()
     use RollupFunction::*;
     match func {
+        AbsentOverTime => None,
         QuantileOverTime | AggrOverTime | HoeffdingBoundLower | HoeffdingBoundUpper => Some(1),
         QuantilesOverTime => Some(arg_count - 1),
         _ => Some(0),
@@ -515,7 +512,6 @@ pub fn is_rollup_aggregation_over_time(func: RollupFunction) -> bool {
         | Increase
         | IncreasePure
         | IncreasePrometheus
-        | IncreasesOverTime
         | IRate
         | PredictLinear
         | Rate
