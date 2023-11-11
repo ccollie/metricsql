@@ -12,12 +12,13 @@ use xxhash_rust::xxh3::Xxh3;
 
 use metricsql_common::duration::fmt_duration_ms;
 
-use crate::ast::expr_equals;
+use crate::ast::{expr_equals, indent, Operator, Prettier, StringExpr, MAX_CHARACTERS_PER_LINE};
 use crate::common::{
     hash_f64, write_comma_separated, write_number, AggregateModifier, BinModifier, LabelFilter,
     LabelFilterOp, Operator, StringExpr, Value, ValueType, VectorMatchCardinality, NAME_LABEL,
 };
 use crate::functions::{AggregateFunction, BuiltinFunction, TransformFunction};
+use crate::label::{LabelFilter, NAME_LABEL};
 use crate::parser::{escape_ident, ParseError, ParseResult};
 use crate::prelude::{
     get_aggregate_arg_idx_for_optimization, BuiltinFunctionType, InterpolatedSelector,
@@ -95,6 +96,12 @@ impl ExpressionNode for NumberLiteral {
 impl Display for NumberLiteral {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write_number(f, self.value)
+    }
+}
+
+impl Prettier for NumberLiteral {
+    fn needs_split(&self, _max: usize) -> bool {
+        false
     }
 }
 
@@ -624,6 +631,22 @@ impl AggregationExpr {
             _ => true,
         }
     }
+
+    fn get_op_string(&self) -> String {
+        let mut s = self.op.to_string();
+
+        if let Some(modifier) = &self.modifier {
+            match modifier {
+                AggregateModifier::By(ls) if !ls.is_empty() => write!(s, " {modifier} ").unwrap(),
+                AggregateModifier::Without(_) => write!(s, " {modifier} ").unwrap(),
+                _ => (),
+            }
+        }
+        if self.limit > 0 {
+            write!(s, " limit {}", self.limit)?;
+        }
+        s
+    }
 }
 
 impl Display for AggregationExpr {
@@ -640,6 +663,18 @@ impl Display for AggregationExpr {
             write!(f, " limit {}", self.limit)?;
         }
         Ok(())
+    }
+}
+
+impl Prettier for AggregationExpr {
+    fn format(&self, level: usize, max: usize) -> String {
+        let mut s = format!("{}{}(\n", indent(level), self.get_op_string());
+        if let Some(param) = &self.param {
+            writeln!(s, "{},", param.pretty(level + 1, max)).unwrap();
+        }
+        writeln!(s, "{}", self.expr.pretty(level + 1, max)).unwrap();
+        write!(s, "{})", indent(level)).unwrap();
+        s
     }
 }
 
@@ -1052,6 +1087,23 @@ impl Display for UnaryExpr {
     }
 }
 
+impl Prettier for BinaryExpr {
+    fn format(&self, level: usize, max: usize) -> String {
+        format!(
+            "{}\n{}{}{}\n{}",
+            self.left.pretty(level + 1, max),
+            indent(level),
+            self.get_op_matching_string(),
+            if self.keep_metric_names() {
+                "\n keep_metric_names"
+            } else {
+                ""
+            },
+            self.right.pretty(level + 1, max)
+        )
+    }
+}
+
 // TODO: ParensExpr => GroupExpr
 /// Expression(s) explicitly grouped in parens
 #[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1127,6 +1179,17 @@ impl Display for ParensExpr {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write_comma_separated(&mut self.expressions.iter(), f, true)?;
         Ok(())
+    }
+}
+
+impl Prettier for ParensExpr {
+    fn format(&self, level: usize, max: usize) -> String {
+        format!(
+            "{}(\n{}\n{})",
+            indent(level),
+            self.expr.pretty(level + 1, max),
+            indent(level)
+        )
     }
 }
 
@@ -1541,6 +1604,10 @@ impl Expr {
         }
     }
 
+    pub fn prettify(&self) -> String {
+        self.pretty(0, MAX_CHARACTERS_PER_LINE)
+    }
+
     pub fn keep_metric_names(&self) -> bool {
         match self {
             Expr::UnaryOperator(ue) => ue.expr.keep_metric_names(),
@@ -1577,6 +1644,24 @@ impl Display for Expr {
             Expr::WithSelector(ws) => write!(f, "{}", ws)?,
         }
         Ok(())
+    }
+}
+
+impl Prettier for Expr {
+    fn pretty(&self, level: usize, max: usize) -> String {
+        match self {
+            Expr::Aggregate(ex) => ex.pretty(level, max),
+            Expr::Unary(ex) => ex.pretty(level, max),
+            Expr::Binary(ex) => ex.pretty(level, max),
+            Expr::Paren(ex) => ex.pretty(level, max),
+            Expr::Subquery(ex) => ex.pretty(level, max),
+            Expr::NumberLiteral(ex) => ex.pretty(level, max),
+            Expr::StringLiteral(ex) => ex.pretty(level, max),
+            Expr::VectorSelector(ex) => ex.pretty(level, max),
+            Expr::MatrixSelector(ex) => ex.pretty(level, max),
+            Expr::Call(ex) => ex.pretty(level, max),
+            Expr::Extension(ext) => format!("{ext:?}"),
+        }
     }
 }
 
