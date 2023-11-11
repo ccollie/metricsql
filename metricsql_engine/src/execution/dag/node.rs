@@ -1,6 +1,7 @@
-use metricsql_parser::ast::DurationExpr;
 use std::default::Default;
 use std::str::FromStr;
+
+use metricsql_parser::ast::DurationExpr;
 
 use crate::execution::dag::subquery_node::SubqueryNode;
 use crate::execution::dag::transform_node::AbsentTransformNode;

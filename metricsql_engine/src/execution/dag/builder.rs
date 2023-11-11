@@ -13,8 +13,8 @@ use metricsql_parser::prelude::{adjust_comparison_ops, Operator};
 use crate::execution::binary::can_push_down_common_filters;
 use crate::execution::dag::aggregate_node::AggregateNode;
 use crate::execution::dag::binop_node::BinopNode;
-use crate::execution::dag::dag_evaluator::{DAGEvaluator, Dependency};
 use crate::execution::dag::dynamic_node::DynamicNode;
+use crate::execution::dag::evaluator::{DAGEvaluator, Dependency};
 use crate::execution::dag::rollup_node::RollupNode;
 use crate::execution::dag::scalar_vector_binop_node::ScalarVectorBinaryNode;
 use crate::execution::dag::subquery_node::SubqueryNode;
@@ -415,6 +415,10 @@ impl DAGBuilder {
         // add dummy node, we will replace it later
         let idx = self.reserve_node();
         let (node_args, args, args_const) = self.process_args(&ae.args, idx, None)?;
+
+        // todo: handle cases here
+        // https://docs.victoriametrics.com/MetricsQL.html#implicit-query-conversions
+        // specifically if we have selector expressions, they should be wrapped in default_rollup
 
         let node = AggregateNode {
             function: ae.function,

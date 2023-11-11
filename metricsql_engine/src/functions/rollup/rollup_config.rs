@@ -23,7 +23,7 @@ use crate::{MetricName, RuntimeError, RuntimeResult, Timeseries, Timestamp};
 /// The maximum interval without previous rows.
 pub const MAX_SILENCE_INTERVAL: i64 = 5 * 60 * 1000;
 
-// Pre-allocated handlers for closure to save allocations at metricsql_engine
+// Pre-allocated handlers for closure to save allocations at runtime
 macro_rules! wrap_rollup_fn {
     ( $name: ident, $rf: expr ) => {
         pub(crate) const $name: RollupHandler = RollupHandler::Wrapped($rf);
@@ -99,6 +99,7 @@ pub struct RollupFunctionHandlerMeta {
     may_adjust_window: bool,
     samples_scanned_per_call: usize,
     is_default_rollup: bool,
+    // todo: TinyVec
     pre_funcs: Vec<PreFunction>,
     functions: Vec<TagFunction>,
 }
@@ -423,6 +424,17 @@ impl RollupConfig {
                 let value = (self.handler).eval(rfa);
                 dst_values.push(value);
             }
+            2 => {
+                let mut iter = func_args.iter();
+                let first = iter.next().unwrap();
+                let second = iter.next().unwrap();
+                let (first_val, second_val) = rayon::join(
+                    || (self.handler).eval(first),
+                    || (self.handler).eval(second),
+                );
+                dst_values.push(first_val);
+                dst_values.push(second_val);
+            }
             _ => {
                 let mut values = func_args
                     .par_iter()
@@ -544,7 +556,7 @@ fn seek_first_timestamp_idx_after(
         }
         return start_idx + timestamps.len();
     }
-    // Slow path: too big timestamps.len(), so use binary provider.
+    // Slow path: too big timestamps.len(), so use binary search.
     let requested = seek_timestamp + 1;
     match timestamps.binary_search(&requested) {
         Ok(pos) => start_idx + pos,
@@ -673,7 +685,7 @@ pub(crate) fn get_rollup_function_handler_meta(
             append_stats_function(&mut funcs, expr)?;
         }
         RollupFunction::AggrOverTime => {
-            let fns = get_rollup_aggr_funcs(expr)?;
+            let fns = get_rollup_aggr_functions(expr)?;
             for rf in fns {
                 if rf.should_remove_counter_resets() {
                     // There is no need to save the previous pre_func, since it is either empty or the same.
@@ -743,7 +755,7 @@ fn get_rollup_tag(expr: &Expr) -> RuntimeResult<Option<&String>> {
 }
 
 // todo: use in optimize so its cached in the ast
-fn get_rollup_aggr_funcs(expr: &Expr) -> RuntimeResult<Vec<RollupFunction>> {
+fn get_rollup_aggr_functions(expr: &Expr) -> RuntimeResult<Vec<RollupFunction>> {
     fn get_func_by_name(name: &str) -> RuntimeResult<RollupFunction> {
         if let Ok(func) = get_rollup_func_by_name(name) {
             if !func.is_aggregate_function() {

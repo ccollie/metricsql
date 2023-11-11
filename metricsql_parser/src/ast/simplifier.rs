@@ -605,7 +605,7 @@ impl TreeNodeRewriter for Simplifier {
                     // A % 0 --> NaN
                     Mod if is_zero(&right) => Expr::from(f64::NAN),
                     // A % A --> 0
-                    Mod if left == right => Expr::from(0.0), // what is nan % nan?
+                    Mod if left == right => Expr::from(0.0),
                     // no additional rewrites possible
                     _ => Expr::BinaryOperator(BinaryExpr {
                         left,

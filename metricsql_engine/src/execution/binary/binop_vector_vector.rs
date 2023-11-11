@@ -2,7 +2,6 @@ use std::borrow::Cow;
 use std::collections::hash_map::Entry;
 
 use ahash::AHashMap;
-use tinyvec::TinyVec;
 
 use metricsql_parser::binaryop::{
     get_scalar_binop_handler, get_scalar_comparison_handler, BinopFunc,
@@ -12,9 +11,7 @@ use metricsql_parser::prelude::BinModifier;
 
 use crate::execution::utils::remove_empty_series;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::signature::{
-    group_series_by_match_modifier, group_series_indexes_by_match_modifier, TimeseriesHashMap,
-};
+use crate::signature::{group_series_by_match_modifier, TimeseriesHashMap};
 use crate::types::signature::Signature;
 use crate::types::Timeseries;
 use crate::{InstantVector, METRIC_NAME_LABEL};

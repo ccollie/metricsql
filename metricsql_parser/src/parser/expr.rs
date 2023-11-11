@@ -9,7 +9,7 @@ use crate::functions::AggregateFunction;
 use crate::parser::function::parse_func_expr;
 use crate::parser::parse_error::unexpected;
 use crate::parser::tokens::Token;
-use crate::parser::{extract_string_value, parse_number, unescape_ident, ParseResult, Parser};
+use crate::parser::{extract_string_value, parse_number, ParseResult, Parser};
 
 use super::aggregation::parse_aggr_func_expr;
 use super::rollup::parse_rollup_expr;
@@ -280,14 +280,6 @@ pub(super) fn parse_string_expr(p: &mut Parser) -> ParseResult<StringExpr> {
     let str = p.parse_string_expression()?;
     // todo: make sure
     Ok(str)
-}
-
-pub(super) fn handle_escape_ident(ident: &str) -> String {
-    if ident.contains('\\') {
-        unescape_ident(ident)
-    } else {
-        ident.to_string()
-    }
 }
 
 /// parses expressions starting with `identifier` token.

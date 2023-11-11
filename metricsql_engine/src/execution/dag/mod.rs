@@ -1,5 +1,5 @@
-pub use dag_node::*;
 use metricsql_parser::prelude::Expr;
+pub use node::*;
 
 use crate::execution::dag::builder::DAGBuilder;
 use crate::RuntimeResult;
@@ -7,10 +7,10 @@ use crate::RuntimeResult;
 mod aggregate_node;
 mod binop_node;
 pub(super) mod builder;
-mod dag_evaluator;
-mod dag_node;
 mod duration_node;
 mod dynamic_node;
+mod evaluator;
+mod node;
 mod rollup_node;
 mod scalar_vector_binop_node;
 mod selector_node;

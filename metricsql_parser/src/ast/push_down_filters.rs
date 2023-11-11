@@ -261,28 +261,22 @@ pub fn push_down_binary_op_filters_in_place(e: &mut Expr, common_filters: &mut V
         }
         Function(fe) => {
             if let Some(idx) = fe.arg_idx_for_optimization {
-                let val = &fe.args[idx];
-                // todo: check first if we can push down filters to the function
-                // and only then do the actual pushdown (avoid a clone)
-                let mut expr = val.clone();
-                push_down_binary_op_filters_in_place(&mut expr, common_filters);
-                fe.args[idx] = expr;
+                if let Some(val) = fe.args.get_mut(idx) {
+                    push_down_binary_op_filters_in_place(val, common_filters);
+                }
             }
         }
         BinaryOperator(bo) => {
             if let Some(modifier) = &bo.modifier {
                 trim_filters_by_match_modifier(common_filters, &modifier.matching);
             }
-            if !common_filters.is_empty() {
-                push_down_binary_op_filters_in_place(&mut bo.left, common_filters);
-                push_down_binary_op_filters_in_place(&mut bo.right, common_filters);
-            }
+            push_down_binary_op_filters_in_place(&mut bo.left, common_filters);
+            push_down_binary_op_filters_in_place(&mut bo.right, common_filters);
         }
         Aggregation(aggr) => {
             trim_filters_by_aggr_modifier(common_filters, aggr);
-            if !common_filters.is_empty() {
-                if let Some(arg_idx) = aggr.arg_idx_for_optimization {
-                    let expr = aggr.args.get_mut(arg_idx).unwrap();
+            if let Some(arg_idx) = aggr.arg_idx_for_optimization {
+                if let Some(expr) = aggr.args.get_mut(arg_idx) {
                     push_down_binary_op_filters_in_place(expr, common_filters);
                 }
             }

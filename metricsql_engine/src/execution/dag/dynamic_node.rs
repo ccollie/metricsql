@@ -1,4 +1,4 @@
-use crate::execution::dag::dag_evaluator::DAGEvaluator;
+use crate::execution::dag::evaluator::DAGEvaluator;
 use crate::execution::{Context, EvalConfig};
 use crate::{QueryValue, RuntimeResult};
 

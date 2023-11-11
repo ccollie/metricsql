@@ -5,7 +5,7 @@ pub use parse_error::*;
 pub use parser::*;
 pub use regexp_cache::{compile_regexp, is_empty_regex};
 pub use selector::parse_metric_expr;
-pub(crate) use utils::{convert_regex, escape_ident, extract_string_value, quote, unescape_ident};
+pub(crate) use utils::{escape_ident, extract_string_value, quote, unescape_ident};
 
 use crate::ast::{check_ast, Expr};
 use crate::parser::expr::parse_expression;

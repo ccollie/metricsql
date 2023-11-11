@@ -6,7 +6,7 @@ use logos::{Logos, Span};
 use crate::ast::{DurationExpr, Expr, ParensExpr, WithArgExpr};
 use crate::common::StringExpr;
 use crate::parser::expand::resolve_ident;
-use crate::parser::expr::{handle_escape_ident, parse_expression};
+use crate::parser::expr::parse_expression;
 use crate::parser::symbol_provider::{HashMapSymbolProvider, SymbolProviderRef};
 use crate::parser::tokens::Token;
 use crate::parser::{
@@ -169,12 +169,7 @@ impl<'a> Parser<'a> {
 
     pub(super) fn expect_identifier(&mut self) -> ParseResult<String> {
         let tok = self.expect_one_of(&[Token::Identifier])?;
-        let ident = if tok.text.contains('\\') {
-            unescape_ident(tok.text)
-        } else {
-            tok.text.to_string()
-        };
-        Ok(ident)
+        Ok(unescape_ident(tok.text)?.to_string())
     }
 
     pub(super) fn token_error(&self, expected: &[Token]) -> ParseError {
@@ -329,7 +324,7 @@ impl<'a> Parser<'a> {
                         let msg = "identifiers are not allowed in this context";
                         return Err(self.syntax_error(msg));
                     }
-                    let ident = handle_escape_ident(tok.text);
+                    let ident = unescape_ident(tok.text)?;
                     result.push_ident(&ident);
                     self.needs_expansion = true;
                 }

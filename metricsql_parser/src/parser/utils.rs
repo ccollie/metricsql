@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::num::ParseIntError;
 use std::str;
 
 use enquote::{enquote, unescape};
@@ -34,12 +35,59 @@ pub fn escape_ident(s: &str) -> String {
     dst.to_string()
 }
 
-pub fn unescape_ident(str: &str) -> String {
-    unescape(str, None).unwrap()
-}
+// pub fn unescape_ident(str: &str) -> String {
+//    unescape(str, None).unwrap()
+//}
 
 pub fn quote(str: &str) -> String {
     enquote('\"', str)
+}
+
+pub fn unescape_ident(s: &str) -> ParseResult<Cow<str>> {
+    let v = s.find('\\');
+    if v.is_none() {
+        return Ok(Cow::Borrowed(&s));
+    }
+    let mut unescaped = String::with_capacity(s.len() - 1);
+    let v = v.unwrap();
+    unescaped.insert_str(0, &s[..v]);
+    let s = &s[v..];
+    let mut chars = s.chars();
+
+    fn map_err(_: ParseIntError) -> ParseError {
+        ParseError::SyntaxError("invalid escape sequence".to_string())
+    }
+
+    loop {
+        match chars.next() {
+            None => break,
+            Some(c) => unescaped.push(match c {
+                '\\' => match chars.next() {
+                    None => return Err(ParseError::UnexpectedEOF),
+                    Some(c) => match c {
+                        _ if c == '\\' => c,
+                        // octal
+                        '0'..='9' => {
+                            let octal = c.to_string() + &take(&mut chars, 2);
+                            u8::from_str_radix(&octal, 8).map_err(map_err)? as char
+                        }
+                        // hex
+                        'x' => {
+                            let hex = take(&mut chars, 2);
+                            u8::from_str_radix(&hex, 16).map_err(map_err)? as char
+                        }
+                        // unicode
+                        'u' => decode_unicode(&take(&mut chars, 4))?,
+                        'U' => decode_unicode(&take(&mut chars, 8))?,
+                        _ => c,
+                    },
+                },
+                _ => c,
+            }),
+        }
+    }
+
+    Ok(Cow::Owned(unescaped))
 }
 
 /// extract_string_value interprets token as a single-quoted, double-quoted, or backquoted
@@ -126,80 +174,31 @@ fn handle_unquote(token: &str, quote: char) -> ParseResult<String> {
     }
 }
 
-/// Convert between Go and Rust regexes.
-///
-/// Go and Rust handle the repeat pattern differently
-/// in Go the following is valid: `aaa{bbb}ccc`
-/// in Rust {bbb} is seen as an invalid repeat and must be escaped \{bbb}
-/// This escapes the opening { if its not followed by valid repeat pattern (e.g. 4,6).
-pub fn convert_regex(re: &str) -> String {
-    // (true, string) if its a valid repeat pattern (e.g. 1,2 or 2,)
-    fn is_repeat(chars: &mut std::str::Chars<'_>) -> (bool, String) {
-        let mut buf = String::new();
-        let mut comma = false;
-        for c in chars.by_ref() {
-            buf.push(c);
-
-            if c == ',' {
-                // two commas or {, are both invalid
-                if comma || buf == "," {
-                    return (false, buf);
-                } else {
-                    comma = true;
-                }
-            } else if c.is_ascii_digit() {
-                continue;
-            } else if c == '}' {
-                return if buf == "}" {
-                    (false, buf)
-                } else {
-                    (true, buf)
-                };
-            } else {
-                return (false, buf);
-            }
-        }
-        (false, buf)
+#[inline]
+// Iterator#take cannot be used because it consumes the iterator
+fn take<I: Iterator<Item = char>>(iterator: &mut I, n: usize) -> String {
+    let mut s = String::with_capacity(n);
+    for _ in 0..n {
+        s.push(iterator.next().unwrap_or_default());
     }
+    s
+}
 
-    let mut result = String::new();
-    let mut chars = re.chars();
-
-    while let Some(c) = chars.next() {
-        if c != '{' {
-            result.push(c);
-        }
-
-        // if escaping, just push the next char as well
-        if c == '\\' {
-            if let Some(c) = chars.next() {
-                result.push(c);
-            }
-        } else if c == '{' {
-            match is_repeat(&mut chars) {
-                (true, s) => {
-                    result.push('{');
-                    result.push_str(&s);
-                }
-                (false, s) => {
-                    result.push_str(r"\{");
-                    result.push_str(&s);
-                }
-            }
-        }
+fn decode_unicode(code_point: &str) -> Result<char, ParseError> {
+    match u32::from_str_radix(code_point, 16) {
+        Err(_) => return Err(ParseError::General("unrecognized escape".to_string())),
+        Ok(n) => std::char::from_u32(n).ok_or(ParseError::General("invalid unicode".to_string())),
     }
-    result
 }
 
 #[cfg(test)]
 mod tests {
     use crate::parser::unescape_ident;
-    use crate::parser::utils::convert_regex;
 
     #[test]
     fn test_unescape_ident() {
         fn f(s: &str, expected: &str) {
-            let result = unescape_ident(s);
+            let result = unescape_ident(s).unwrap();
             assert_eq!(
                 result, expected,
                 "unexpected result for unescape_ident({}); got {}; want {}",
@@ -210,30 +209,12 @@ mod tests {
         f("", "");
         f("a", "a");
         f(r"\\", "\\");
-        f(r"\foo\-bar", "foo-bar");
-        f(r#"a\\\\b\"c\d"#, r#"a\\b"cd"#);
-        f(r"foo.bar:baz_123#", r"foo.bar:baz_123");
+        f(r#"\foo\-bar"#, "foo-bar");
+        f(r#"a\\\\bc\d"#, r#"a\\bcd"#);
+        f(r"foo.bar:baz_123", r"foo.bar:baz_123");
         f(r"foo\ bar", "foo bar");
         f(r"\x21", "!");
+        f(r"\п\р\и\в\е\т123", "привет123");
         f(r"\xeDfoo\x2Fbar\-\xqw\x", r"\xedfoo\x2fbar-xqwx");
-        f(r"\п\р\и\в\е\т123", "привет123")
-    }
-
-    #[test]
-    fn test_convert_regex() {
-        assert_eq!(convert_regex("abc{}"), r#"abc\{}"#);
-        assert_eq!(convert_regex("abc{def}"), r#"abc\{def}"#);
-        assert_eq!(convert_regex("abc{def"), r#"abc\{def"#);
-        assert_eq!(convert_regex("abc{1}"), "abc{1}");
-        assert_eq!(convert_regex("abc{1,}"), "abc{1,}");
-        assert_eq!(convert_regex("abc{1,2}"), "abc{1,2}");
-        assert_eq!(convert_regex("abc{,2}"), r#"abc\{,2}"#);
-        assert_eq!(convert_regex("abc{{1,2}}"), r#"abc\{{1,2}}"#);
-        assert_eq!(convert_regex(r#"abc\{abc"#), r#"abc\{abc"#);
-        assert_eq!(convert_regex("abc{1a}"), r#"abc\{1a}"#);
-        assert_eq!(convert_regex("abc{1,a}"), r#"abc\{1,a}"#);
-        assert_eq!(convert_regex("abc{1,2a}"), r#"abc\{1,2a}"#);
-        assert_eq!(convert_regex("abc{1,2,3}"), r#"abc\{1,2,3}"#);
-        assert_eq!(convert_regex("abc{1,,2}"), r#"abc\{1,,2}"#);
     }
 }

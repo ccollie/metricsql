@@ -15,30 +15,30 @@ use crate::parser::ParseError;
 /// Aggregation AggregateFunctions
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Hash, EnumIter, Serialize, Deserialize)]
 pub enum AggregateFunction {
-    /// calculate sum over dimensions
-    Sum,
-    /// calculate minimum over dimensions
-    Min,
-    /// calculate maximum over dimensions
-    Max,
     /// calculate the average over dimensions
     Avg,
-    /// calculate population standard deviation over dimensions
-    StdDev,
-    /// calculate population standard variance over dimensions
-    StdVar,
+    /// smallest k elements by sample value
+    Bottomk,
     /// count the number of elements in the vector
     Count,
     /// count the number of elements with the same value
     CountValues,
-    /// smallest k elements by sample value
-    Bottomk,
+    /// calculate maximum over dimensions
+    Max,
+    /// calculate minimum over dimensions
+    Min,
+    /// calculate population standard deviation over dimensions
+    StdDev,
+    /// calculate population standard variance over dimensions
+    StdVar,
     /// largest k elements by sample value
     Topk,
+    Group,
     /// calculate φ-quantile (0 ≤ φ ≤ 1) over dimensions
     Quantile,
     Quantiles,
-    Group,
+    /// calculate sum over dimensions
+    Sum,
     // PromQL extension funcs
     /// any(q) by (group_labels) returns a single series per group_labels out of time series returned by q.
     /// See also group.
@@ -52,8 +52,8 @@ pub enum AggregateFunction {
     GeoMean,
     Histogram,
     Limitk,
-    Median,
     MAD,
+    Median,
     Mode,
     OutliersIQR,
     Outliersk,
@@ -96,42 +96,42 @@ impl AggregateFunction {
         use AggregateFunction::*;
 
         match self {
-            Sum => "sum",
-            Min => "min",
-            Max => "max",
+            Any => "any",
             Avg => "avg",
-            StdDev => "stddev",
-            StdVar => "stdvar",
+            Bottomk => "bottomk",
+            BottomkAvg => "bottomk_avg",
+            BottomkLast => "bottomk_last",
+            BottomkMax => "bottomk_max",
+            BottomkMedian => "bottomk_median",
+            BottomkMin => "bottomk_min",
             Count => "count",
             CountValues => "count_values",
-            Bottomk => "bottomk",
-            Topk => "topk",
+            Distinct => "distinct",
+            GeoMean => "geomean",
+            Group => "group",
+            Histogram => "histogram",
+            Limitk => "limitk",
+            MAD => "mad",
+            Max => "max",
+            Median => "median",
+            Min => "min",
+            Mode => "mode",
+            OutliersIQR => "outliers_iqr",
+            Outliersk => "outliersk",
+            OutliersMAD => "outliers_mad",
             Quantile => "quantile",
             Quantiles => "quantiles",
-            Group => "group",
-            Median => "median",
-            MAD => "mad",
-            Limitk => "limitk",
-            Distinct => "distinct",
+            Share => "share",
+            StdDev => "stddev",
+            StdVar => "stdvar",
+            Sum => "sum",
             Sum2 => "sum2",
-            GeoMean => "geomean",
-            Histogram => "histogram",
+            Topk => "topk",
             TopkMin => "topk_min",
             TopkMax => "topk_max",
             TopkAvg => "topk_avg",
             TopkLast => "topk_last",
             TopkMedian => "topk_median",
-            BottomkMin => "bottomk_min",
-            BottomkMax => "bottomk_max",
-            BottomkAvg => "bottomk_avg",
-            BottomkLast => "bottomk_last",
-            BottomkMedian => "bottomk_median",
-            Any => "any",
-            OutliersIQR => "outliers_iqr",
-            Outliersk => "outliersk",
-            OutliersMAD => "outliers_mad",
-            Mode => "mode",
-            Share => "share",
             ZScore => "score",
         }
     }
@@ -154,13 +154,13 @@ static FUNCTION_MAP: phf::Map<&'static str, AggregateFunction> = phf_map! {
     "count" =>         AggregateFunction::Count,
     "count_values" =>  AggregateFunction::CountValues,
     "group" =>         AggregateFunction::Group,
-    "sum" =>           AggregateFunction::Sum,
-    "min" =>           AggregateFunction::Min,
     "max" =>           AggregateFunction::Max,
+    "min" =>           AggregateFunction::Min,
     "quantile" =>      AggregateFunction::Quantile,
     "quantiles" =>     AggregateFunction::Quantiles,
     "stddev" =>        AggregateFunction::StdDev,
     "stdvar" =>        AggregateFunction::StdVar,
+    "sum" =>           AggregateFunction::Sum,
     "topk" =>          AggregateFunction::Topk,
 
     // PromQL extension funcs
