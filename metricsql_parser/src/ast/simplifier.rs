@@ -29,7 +29,7 @@ use crate::ast::{can_pushdown_filters, optimize_label_filters_inplace, NumberLit
 use crate::binaryop::{scalar_binary_operation, string_compare};
 use crate::common::{Operator, RewriteRecursion, TreeNode, TreeNodeRewriter};
 use crate::functions::TransformFunction;
-use crate::parser::{ParseError, ParseResult};
+use crate::parser::{parse_number, ParseError, ParseResult};
 use crate::prelude::BuiltinFunction;
 
 use super::{BinaryExpr, DurationExpr, Expr, FunctionExpr, ParensExpr};
@@ -214,6 +214,7 @@ impl ConstEvaluator {
         match expr {
             Expr::BinaryOperator(be) => Self::handle_binary_expr(be),
             Expr::Function(fe) => Self::handle_function_expr(fe),
+            Expr::Parens(pe) => Ok(simplify_parens(pe)),
             _ => Ok(expr),
         }
     }
@@ -299,6 +300,21 @@ impl ConstEvaluator {
     fn handle_function_expr(fe: FunctionExpr) -> ParseResult<Expr> {
         let arg_count = fe.args.len();
         match fe.function {
+            BuiltinFunction::Transform(func)
+                if arg_count == 1 && func == TransformFunction::Scalar =>
+            {
+                if let Some(value) = handle_scalar_fn(&fe.args[0]) {
+                    return Ok(Expr::from(value));
+                }
+                Ok(Expr::Function(fe))
+            }
+            BuiltinFunction::Transform(func)
+                if arg_count == 1 && func == TransformFunction::Vector =>
+            {
+                let mut fe = fe;
+                let arg = fe.args.remove(0);
+                Ok(arg)
+            }
             BuiltinFunction::Transform(func) => {
                 use TransformFunction::*;
 
@@ -368,6 +384,19 @@ pub(super) fn extract_datetime_part(epoch_secs: f64, part: DateTimePart) -> f64 
         }
     }
     f64::NAN
+}
+
+fn handle_scalar_fn(arg: &Expr) -> Option<f64> {
+    match arg {
+        // Verify whether the arg is a string.
+        // Then try converting the string to number.
+        Expr::StringLiteral(s) => {
+            let n = parse_number(&s).map_or_else(|_| f64::NAN, |n| n);
+            Some(n)
+        }
+        Expr::Number(n) => Some(n.value),
+        _ => None,
+    }
 }
 
 /// Rewrites [`Expr`]s by pushing down operations that can be evaluated
@@ -939,6 +968,97 @@ mod tests {
         test_const_simplify(expr, expected);
     }
 
+    #[test]
+    fn test_scalar_vector() {
+        struct TestCase {
+            expr: &'static str,
+            expected: f64,
+        }
+
+        let tests = vec![
+            TestCase {
+                expr: "(9+scalar(vector(-10)))",
+                expected: -1.0,
+            },
+            TestCase {
+                expr: r#"(scalar("12.90"))"#,
+                expected: 12.90,
+            },
+            TestCase {
+                expr: "scalar(9+vector(4)) / 2",
+                expected: 6.5,
+            },
+            TestCase {
+                expr: r#"scalar(
+                scalar(
+                    scalar(
+                        vector( 20 - 4 ) * 0.5 - 2
+                    ) - vector( 2 )
+                ) + vector(2)
+            ) * 9"#,
+                expected: 54.0,
+            },
+            TestCase {
+                expr: "5 - scalar(
+                scalar(
+                    scalar(
+                        vector( 20 - 4 ) * vector(0.5) - vector(2)
+                    ) - vector( 2 )
+                ) + vector(2)
+            )",
+                expected: -1.0,
+            },
+            TestCase {
+                expr: "scalar(vector(1) + vector(2))",
+                expected: 3.0,
+            },
+            TestCase {
+                expr: "scalar(vector(1) + scalar(vector(1) + vector(2)))",
+                expected: 4.0,
+            },
+            TestCase {
+                expr: "scalar(vector(1) + scalar(vector(1) + scalar(vector(1) + vector(2))))",
+                expected: 5.0,
+            },
+            TestCase {
+                expr: "(scalar(9+vector(4)) * 4 - 9+scalar(vector(3)))",
+                expected: 46.0,
+            },
+            TestCase {
+                expr: "scalar(1 +vector(2 != bool 1))",
+                expected: 2.0,
+            },
+            TestCase {
+                expr: "scalar(1 +vector(1 != bool 1))",
+                expected: 1.0,
+            },
+            TestCase {
+                expr: "1 >= bool 1",
+                expected: 1.0,
+            },
+            TestCase {
+                expr: "1 >= bool 2",
+                expected: 0.0,
+            },
+        ];
+
+        for tt in tests {
+            let expr = parse(tt.expr).expect("parse failed");
+            let simple = simplify(expr);
+            match simple {
+                Expr::Number(n) => {
+                    let actual = n.value;
+                    assert_eq!(tt.expected, actual);
+                }
+                _ => panic!(
+                    "expected number literal, found {}\n{}",
+                    simple.variant_name(),
+                    tt.expr
+                ),
+            }
+        }
+    }
+
     // ------------------------------
     // --- Simplifier tests -----
     // ------------------------------
@@ -1328,6 +1448,14 @@ mod tests {
     fn simplify_expr_not_eq_skip_non_boolean_type() {
         let actual = simplify(selector("c1").not_eq(selector("foo")));
         let expected = selector("c1").not_eq(selector("foo"));
+        assert_expr_eq(&expected, &actual);
+    }
+
+    #[test]
+    fn test_simplify_parens() {
+        let expr = parse("((foo))").unwrap();
+        let expected = parse("foo").unwrap();
+        let actual = simplify(expr);
         assert_expr_eq(&expected, &actual);
     }
 
