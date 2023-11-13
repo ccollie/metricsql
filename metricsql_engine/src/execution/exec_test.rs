@@ -95,7 +95,8 @@ mod tests {
 
     #[test]
     fn num_with_suffix_5() {
-        // TODO: underscore parsing
+        let n = 1234e6;
+        assert_result_eq("1_234M", &[n, n, n, n, n, n]);
     }
 
     #[test]
