@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use crate::ast::{BinaryExpr, Expr};
+use crate::ast::{BinaryExpr, Expr, UnaryExpr};
 use crate::common::{
     BinModifier, Labels, Operator, StringExpr, ValueType, VectorMatchCardinality,
     VectorMatchModifier,
@@ -270,10 +270,8 @@ fn parse_unary_minus_expr(p: &mut Parser) -> ParseResult<Expr> {
         return Err(unexpected("", &rt.to_string(), &msg, Some(&span)));
     }
 
-    // Substitute `-expr` with `0 - expr`
-    let lhs = Expr::from(0.0);
-    let binop_expr = BinaryExpr::new(Operator::Sub, lhs, expr);
-    Ok(Expr::BinaryOperator(binop_expr))
+    let unary_expr = UnaryExpr::new(expr);
+    Ok(Expr::UnaryOperator(unary_expr))
 }
 
 pub(super) fn parse_string_expr(p: &mut Parser) -> ParseResult<StringExpr> {

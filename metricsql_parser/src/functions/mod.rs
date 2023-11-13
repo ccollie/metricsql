@@ -22,14 +22,14 @@ mod transform;
 /// to variadic functions like `aggr_over_time` and `quantiles_over_time`
 const MAX_ARG_COUNT: usize = 32;
 
-#[derive(Debug, Clone, Hash, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BuiltinFunction {
     Aggregate(AggregateFunction),
     Rollup(RollupFunction),
     Transform(TransformFunction),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BuiltinFunctionType {
     Aggregate,
     Rollup,

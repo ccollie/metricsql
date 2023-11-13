@@ -17,10 +17,7 @@
 
 //! Utility functions for expression simplification
 
-use crate::ast::{
-    AggregationExpr, BExpr, BinaryExpr, Expr, FunctionExpr, NumberLiteral, RollupExpr, WithArgExpr,
-    WithExpr,
-};
+use crate::ast::{AggregationExpr, BinaryExpr, Expr, FunctionExpr, NumberLiteral, ParensExpr};
 use crate::common::Operator;
 use crate::prelude::{BinModifier, MetricExpr};
 
@@ -122,40 +119,20 @@ pub fn disjunction(filters: impl IntoIterator<Item = Expr>) -> Option<Expr> {
 pub fn expr_equals(expr1: &Expr, expr2: &Expr) -> bool {
     use Expr::*;
 
+    fn compare_parens(parens: &ParensExpr, expr: &Expr) -> bool {
+        if let Some(other) = parens.innermost_expr() {
+            return expr == other;
+        }
+        false
+    }
+
     match (expr1, expr2) {
-        (Duration(d1), Duration(d2)) => d1 == d2,
-        (MetricExpression(me1), MetricExpression(me2)) => me1 == me2,
-        (StringLiteral(s1), StringLiteral(s2)) => s1 == s2,
-        (Number(n1), Number(n2)) => n1 == n2,
-        (BinaryOperator(be1), BinaryOperator(be2)) => binary_exprs_equal(be1, be2),
-        (Function(fe1), Function(fe2)) => function_exprs_equal(fe1, fe2),
         (Aggregation(ae1), Aggregation(ae2)) => aggregation_exprs_equal(ae1, ae2),
-        (Parens(pe1), Parens(pe2)) => expr_vec_equals(&pe1.expressions, &pe2.expressions),
-        (Rollup(re1), Rollup(re2)) => rollup_exprs_equal(re1, re2),
-        (With(we1), With(we2)) => with_exprs_equal(we1, we2),
-        (StringExpr(s1), StringExpr(s2)) => s1 == s2,
         // special case: (x) == x. I don't know if i like this
-        (Parens(p), e) => p.len() == 1 && expr_equals(&p.expressions[0], e),
-        (e, Parens(p)) => p.len() == 1 && expr_equals(e, &p.expressions[0]),
-        _ => false,
+        (Parens(p), e) => p.len() == 1 && compare_parens(p, e),
+        (e, Parens(p)) => p.len() == 1 && compare_parens(p, e),
+        (a, b) => a == b,
     }
-}
-
-fn optional_boxed_exprs_equal(e1: &Option<BExpr>, e2: &Option<BExpr>) -> bool {
-    match (e1, e2) {
-        (Some(e1), Some(e2)) => expr_equals(e1, e2),
-        (None, None) => true,
-        _ => false,
-    }
-}
-
-fn rollup_exprs_equal(re1: &RollupExpr, re2: &RollupExpr) -> bool {
-    re1.inherit_step == re2.inherit_step
-        && re1.window == re2.window
-        && re1.step == re2.step
-        && re1.offset == re2.offset
-        && expr_equals(&re1.expr, &re2.expr)
-        && optional_boxed_exprs_equal(&re1.at, &re2.at)
 }
 
 fn aggregation_exprs_equal(ae1: &AggregationExpr, ae2: &AggregationExpr) -> bool {
@@ -194,20 +171,6 @@ fn function_exprs_equal(fe1: &FunctionExpr, fe2: &FunctionExpr) -> bool {
         && fe1.is_scalar == fe2.is_scalar
         && fe1.return_type == fe2.return_type
         && expr_vec_equals(&fe1.args, &fe2.args)
-}
-
-fn with_exprs_equal(we1: &WithExpr, we2: &WithExpr) -> bool {
-    expr_equals(&we1.expr, &we2.expr)
-        && we1.was.len() == we2.was.len()
-        && we1
-            .was
-            .iter()
-            .zip(we2.was.iter())
-            .all(|(w1, w2)| with_arg_exprs_equal(w1, w2))
-}
-
-fn with_arg_exprs_equal(we1: &WithArgExpr, we2: &WithArgExpr) -> bool {
-    we1.name == we2.name && we1.args == we2.args && expr_equals(&we1.expr, &we2.expr)
 }
 
 fn expr_vec_equals(exprs1: &Vec<Expr>, exprs2: &Vec<Expr>) -> bool {

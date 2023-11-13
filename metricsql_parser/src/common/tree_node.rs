@@ -26,10 +26,6 @@ use crate::parser::ParseResult;
 /// implemented for plans ([`ExecutionPlan`] and [`LogicalPlan`]) as
 /// well as expression trees ([`PhysicalExpr`], [`Expr`]) in
 /// DataFusion
-///
-/// <!-- Since these are in the metric-common crate, can't use intra doc links) -->
-/// [`PhysicalExpr`]: https://docs.rs/datafusion/latest/datafusion/physical_plan/trait.PhysicalExpr.html
-/// [`LogicalPlan`]: https://docs.rs/datafusion-expr/latest/datafusion_expr/logical_plan/enum.LogicalPlan.html
 /// [`Expr`]: https://docs.rs/datafusion-expr/latest/datafusion_expr/expr/enum.Expr.html
 pub trait TreeNode: Sized {
     /// Use preorder to iterate the node on the tree so that we can

@@ -137,7 +137,7 @@ mod tests {
         same("METRIC");
         same("metric");
         same("m_e:tri44:_c123");
-        another("-metric", "0 - metric");
+        another("-metric", "-metric");
         same("metric offset 10h");
         same("metric[5m]");
         same("metric[5m:3s]");
@@ -236,7 +236,7 @@ mod tests {
         // parensExpr
         another(
             "(-foo + ((bar) / (baz))) + ((23))",
-            "((0 - foo) + (bar / baz)) + 23",
+            "(-foo + (bar / baz)) + 23",
         );
         another(
             "(FOO + ((Bar) / (baZ))) + ((23))",
@@ -314,12 +314,11 @@ mod tests {
         another("Inf + inf", "+Inf");
         another("1/0", "+Inf");
         another("0/0", "NaN");
-        another("-m", "0 - m");
+        another("-m", "-m");
         //	same("m + ignoring () n[5m]");
         //	another("M + IGNORING () N[5m]", "M + ignoring () N[5m]");
-        same("m + on (foo) n[5m]");
-        another("m + ON (Foo) n[5m]", "m + on (Foo) n[5m]");
-        //	same("m + ignoring (a, b) n[5m]");
+        same("m + on (foo) n");
+        same("m + ignoring (a, b) n");
         another("1 or 2", "1");
         another("1 and 2", "1");
         another("1 unless 2", "NaN");
@@ -411,11 +410,11 @@ mod tests {
         // funcExpr
         same("now()");
         another("avg(x,)", "avg(x)");
-        another("-now()-pi()", "(0 - now()) - 3.141592653589793");
+        another("-now()-pi()", "-now() - 3.141592653589793");
         same("now()");
         another("+pi()", "3.141592653589793");
         another("++now()", "now()");
-        another("--now()", "0 - (0 - now())");
+        another("--now()", "now()");
         same("avg(http_server_request)");
         same("floor(http_server_request)[4s:5m] offset 10m");
         same("ceil(http_server_request)[4i:5i] offset 10i");

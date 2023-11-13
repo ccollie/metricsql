@@ -42,6 +42,7 @@ pub fn walk_expr<V: ExprVisitor>(visitor: &mut V, expr: &Expr) -> Result<bool, V
     }
 
     let recurse = match expr {
+        Expr::UnaryOperator(u) => walk_expr(visitor, &u.expr)?,
         Expr::BinaryOperator(BinaryExpr { left, right, .. }) => {
             walk_expr(visitor, left)? || walk_expr(visitor, right)?
         }

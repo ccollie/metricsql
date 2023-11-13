@@ -10,6 +10,9 @@ pub fn adjust_comparison_ops(expr: &mut Expr) {
                 adjust_comparison_ops(arg);
             }
         }
+        Expr::UnaryOperator(ue) => {
+            adjust_comparison_ops(&mut ue.expr);
+        }
         Expr::BinaryOperator(be) => {
             adjust_comparison_ops(&mut be.left);
             adjust_comparison_ops(&mut be.right);

@@ -78,6 +78,12 @@ impl PartialEq<NumberLiteral> for NumberLiteral {
     }
 }
 
+impl PartialOrd<NumberLiteral> for NumberLiteral {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.value.partial_cmp(&other.value)
+    }
+}
+
 impl Eq for NumberLiteral {}
 
 impl ExpressionNode for NumberLiteral {
@@ -372,7 +378,7 @@ impl ExpressionNode for MetricExpr {
 }
 
 /// FuncExpr represents MetricsQL function such as `rate(...)`
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FunctionExpr {
     pub name: String,
 
@@ -473,7 +479,7 @@ impl Display for FunctionExpr {
 }
 
 /// AggregationExpr represents aggregate function such as `sum(...) by (...)`
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AggregationExpr {
     /// name is the aggregation function name.
     pub name: String,
@@ -637,7 +643,7 @@ impl Display for AggregationExpr {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 /// RollupExpr represents an MetricsQL expression which contains at least `offset` or `[...]` part.
 pub struct RollupExpr {
     /// The expression for the rollup. Usually it is MetricExpr, but may be arbitrary expr
@@ -788,7 +794,7 @@ impl Display for RollupExpr {
 }
 
 /// BinaryOpExpr represents a binary operation.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct BinaryExpr {
     /// left contains left arg for the `left op right` expression.
     pub left: BExpression,
@@ -813,11 +819,6 @@ impl BinaryExpr {
             right: Box::new(rhs),
             modifier: None,
         }
-    }
-
-    /// Unary minus. Substitute `-expr` with `0 - expr`
-    pub fn new_unary_minus(expr: Expr) -> Self {
-        BinaryExpr::new(Operator::Sub, Expr::from(0.0), expr)
     }
 
     pub fn is_matching_on(&self) -> bool {
@@ -1031,9 +1032,29 @@ impl Display for BinaryExpr {
     }
 }
 
+/// UnaryExpr will negate the expr
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UnaryExpr {
+    pub expr: Box<Expr>,
+}
+
+impl UnaryExpr {
+    pub fn new(expr: Expr) -> Self {
+        UnaryExpr {
+            expr: Box::new(expr),
+        }
+    }
+}
+
+impl Display for UnaryExpr {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "-{}", self.expr)
+    }
+}
+
 // TODO: ParensExpr => GroupExpr
 /// Expression(s) explicitly grouped in parens
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ParensExpr {
     pub expressions: Vec<Expr>,
 }
@@ -1077,6 +1098,18 @@ impl ParensExpr {
             arg_idx_for_optimization: arg_idx,
         }
     }
+
+    /// Return thee innermost expression wrapped by a `ParensExpr` if the `ParensExpr` contains
+    /// exactly one expression. For example : (((x + y))) would return a reef to `x + y`
+    pub fn innermost_expr(&self) -> Option<&Expr> {
+        if self.len() != 1 {
+            return None;
+        }
+        match &self.expressions[0] {
+            Expr::Parens(pe2) => pe2.innermost_expr(),
+            expr => Some(expr),
+        }
+    }
 }
 
 impl Value for ParensExpr {
@@ -1104,7 +1137,7 @@ impl ExpressionNode for ParensExpr {
 }
 
 /// WithExpr represents `with (...)` extension from MetricsQL.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WithExpr {
     pub was: Vec<WithArgExpr>,
     pub expr: BExpr,
@@ -1151,7 +1184,7 @@ impl ExpressionNode for WithExpr {
 }
 
 /// WithArgExpr represents a single entry from WITH expression.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct WithArgExpr {
     pub name: String,
     pub args: Vec<String>,
@@ -1215,7 +1248,7 @@ impl Display for WithArgExpr {
 /// A root expression node.
 ///
 /// These are all valid root expression ast.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Expr {
     /// A single scalar number.
     Number(NumberLiteral),
@@ -1233,6 +1266,9 @@ pub enum Expr {
 
     /// Aggregation represents aggregate functions such as `sum(...) by (...)`
     Aggregation(AggregationExpr),
+
+    /// A unary operator expression
+    UnaryOperator(UnaryExpr),
 
     /// A binary operator expression
     BinaryOperator(BinaryExpr),
@@ -1296,6 +1332,7 @@ impl Expr {
             } else {
                 Box::new(iter::empty())
             })),
+            Self::UnaryOperator(u) => u.expr.vectors(),
             Self::BinaryOperator(be) => Box::new(be.left.vectors().chain(be.right.vectors())),
             Self::Aggregation(ae) => Box::new(ae.args.iter().flat_map(|node| node.vectors())),
             Self::Function(fe) => Box::new(fe.args.iter().flat_map(|node| node.vectors())),
@@ -1358,6 +1395,7 @@ impl Expr {
             Expr::StringLiteral(_) | Expr::StringExpr(_) => ValueType::String,
             Expr::Function(fe) => fe.return_type(),
             Expr::Aggregation(ae) => ae.return_type(),
+            Expr::UnaryOperator(u) => u.expr.return_type(),
             Expr::BinaryOperator(be) => be.return_type(),
             Expr::Rollup(re) => re.return_type(),
             Expr::Parens(me) => me.return_type(),
@@ -1367,13 +1405,14 @@ impl Expr {
         }
     }
 
-    pub fn variant_name(&self) -> &str {
+    pub fn variant_name(&self) -> &'static str {
         match self {
             Expr::Number(_) => "Scalar",
             Expr::Duration(_) => "Scalar",
             Expr::StringLiteral(_) | Expr::StringExpr(_) => "String",
             Expr::Function(_) => "Function",
             Expr::Aggregation(_) => "Aggregation",
+            Expr::UnaryOperator(_) => "UnaryOperator",
             Expr::BinaryOperator(_) => "BinaryOperator",
             Expr::Rollup(_) => "Rollup",
             Expr::Parens(_) => "Parens",
@@ -1387,6 +1426,7 @@ impl Expr {
         // this code seems suspicious
         match self {
             Expr::Aggregation(a) => Expr::Aggregation(a),
+            Expr::UnaryOperator(u) => Expr::UnaryOperator(u),
             Expr::BinaryOperator(b) => Expr::BinaryOperator(b),
             Expr::Duration(d) => Expr::Duration(d),
             Expr::Function(f) => Expr::Function(f),
@@ -1500,12 +1540,30 @@ impl Expr {
             }
         }
     }
+
+    pub fn keep_metric_names(&self) -> bool {
+        match self {
+            Expr::UnaryOperator(ue) => ue.expr.keep_metric_names(),
+            Expr::BinaryOperator(be) => be.keep_metric_names(),
+            Expr::Rollup(re) => re.wraps_metric_expr(),
+            Expr::Function(fe) => fe.keep_metric_names,
+            Expr::Aggregation(ae) => ae.keep_metric_names,
+            Expr::Parens(pe) => {
+                if !pe.expressions.is_empty() {
+                    return pe.expressions[0].keep_metric_names();
+                }
+                false
+            }
+            _ => false,
+        }
+    }
 }
 
 impl Display for Expr {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
             Expr::Aggregation(a) => write!(f, "{}", a)?,
+            Expr::UnaryOperator(ue) => write!(f, "{}", ue)?,
             Expr::BinaryOperator(be) => write!(f, "{}", be)?,
             Expr::Duration(d) => write!(f, "{}", d)?,
             Expr::Function(func) => write!(f, "{}", func)?,
@@ -1526,6 +1584,7 @@ impl Value for Expr {
     fn value_type(&self) -> ValueType {
         match self {
             Expr::Aggregation(a) => a.return_type(),
+            Expr::UnaryOperator(ue) => ue.expr.return_type(),
             Expr::BinaryOperator(be) => be.return_type(),
             Expr::Duration(d) => d.return_type(),
             Expr::Function(func) => func.return_type(),

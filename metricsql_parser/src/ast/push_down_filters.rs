@@ -94,19 +94,20 @@ pub fn get_common_label_filters(e: &Expr) -> Vec<LabelFilter> {
                 vec![]
             }
         }
-        BinaryOperator(e) => {
-            let mut lfs_left = get_common_label_filters(&e.left);
-            let mut lfs_right = get_common_label_filters(&e.right);
+        UnaryOperator(unary) => get_common_label_filters(&unary.expr),
+        BinaryOperator(binary) => {
+            let mut lfs_left = get_common_label_filters(&binary.left);
+            let mut lfs_right = get_common_label_filters(&binary.right);
             let card = VectorMatchCardinality::OneToOne;
             let group_modifier: Option<VectorMatchModifier> = None;
 
-            let (group_modifier, join_modifier) = if let Some(modifier) = &e.modifier {
+            let (group_modifier, join_modifier) = if let Some(modifier) = &binary.modifier {
                 (&modifier.matching, &modifier.card)
             } else {
                 (&group_modifier, &card)
             };
 
-            match e.op {
+            match binary.op {
                 Operator::Or => {
                     // {fCommon, f1} or {fCommon, f2} -> {fCommon}
                     // {fCommon, f1} or on() {fCommon, f2} -> {}
@@ -258,7 +259,12 @@ pub fn can_pushdown_op_filters(expr: &Expr) -> bool {
     // these are the types handled below in pushdown_binary_op_filters_in_place
     matches!(
         expr,
-        MetricExpression(_) | Function(_) | Rollup(_) | BinaryOperator(_) | Aggregation(_)
+        MetricExpression(_)
+            | Function(_)
+            | Rollup(_)
+            | BinaryOperator(_)
+            | Aggregation(_)
+            | UnaryOperator(_)
     )
 }
 
@@ -280,6 +286,9 @@ pub fn push_down_binary_op_filters_in_place(e: &mut Expr, common_filters: &mut V
                     push_down_binary_op_filters_in_place(val, common_filters);
                 }
             }
+        }
+        UnaryOperator(unary) => {
+            push_down_binary_op_filters_in_place(&mut unary.expr, common_filters);
         }
         BinaryOperator(bo) => {
             if let Some(modifier) = &bo.modifier {

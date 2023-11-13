@@ -19,7 +19,7 @@
 
 use crate::ast::{
     AggregationExpr, BExpression, BinaryExpr, Expr, FunctionExpr, ParensExpr, RollupExpr,
-    WithArgExpr, WithExpr,
+    UnaryExpr, WithArgExpr, WithExpr,
 };
 use crate::common::{TreeNode, VisitRecursion};
 use crate::parser::ParseResult;
@@ -38,6 +38,7 @@ impl TreeNode for Expr {
             | Expr::MetricExpression(_)
             | Expr::WithSelector(_)
             | Expr::Duration(_) => vec![],
+            Expr::UnaryOperator(u) => vec![u.expr.as_ref().clone()],
             Expr::BinaryOperator(BinaryExpr { left, right, .. }) => {
                 vec![left.as_ref().clone(), right.as_ref().clone()]
             }
@@ -100,6 +101,9 @@ impl TreeNode for Expr {
                 keep_metric_names,
                 arg_idx_for_optimization,
                 can_incrementally_eval,
+            }),
+            Expr::UnaryOperator(u) => Expr::UnaryOperator(UnaryExpr {
+                expr: transform_boxed(u.expr, &mut transform)?,
             }),
             Expr::BinaryOperator(BinaryExpr {
                 left,

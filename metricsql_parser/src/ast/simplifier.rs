@@ -25,7 +25,7 @@ use num_traits::float::FloatConst;
 use metricsql_common::prelude::{datetime_part, timestamp_secs_to_utc_datetime, DateTimePart};
 
 use crate::ast::utils::{expr_contains, is_null, is_one, is_op_with, is_zero};
-use crate::ast::{can_pushdown_filters, optimize_label_filters_inplace, NumberLiteral};
+use crate::ast::{can_pushdown_filters, optimize_label_filters_inplace, NumberLiteral, UnaryExpr};
 use crate::binaryop::{scalar_binary_operation, string_compare};
 use crate::common::{Operator, RewriteRecursion, TreeNode, TreeNodeRewriter};
 use crate::functions::TransformFunction;
@@ -195,13 +195,14 @@ impl ConstEvaluator {
         // added they can be checked for their ability to be evaluated
         // at plan time
         match expr {
-            Expr::Aggregation(..) | Expr::MetricExpression(..) | Expr::Rollup(_) => false,
+            Expr::Aggregation(_) | Expr::MetricExpression(_) | Expr::Rollup(_) => false,
             Expr::Parens(_) => true,
             // only handle immutable scalar functions
             Expr::Function(_) => true,
             Expr::Number(_)
             | Expr::Duration(_)
             | Expr::StringLiteral(_)
+            | Expr::UnaryOperator(_)
             | Expr::BinaryOperator(_) => true,
             Expr::StringExpr(se) => !se.is_expanded(),
             Expr::With(_) => false,
@@ -212,11 +213,37 @@ impl ConstEvaluator {
     /// Internal helper to evaluate an Expr
     fn evaluate_to_scalar(&mut self, expr: Expr) -> ParseResult<Expr> {
         match expr {
+            Expr::UnaryOperator(ue) => Self::handle_unary_expr(ue),
             Expr::BinaryOperator(be) => Self::handle_binary_expr(be),
             Expr::Function(fe) => Self::handle_function_expr(fe),
             Expr::Parens(pe) => Ok(simplify_parens(pe)),
             _ => Ok(expr),
         }
+    }
+
+    fn handle_unary_expr(ue: UnaryExpr) -> ParseResult<Expr> {
+        let mut ue = ue;
+        match ue.expr.as_mut() {
+            Expr::Number(n) => {
+                return Ok(Expr::from(n.value * -1.0));
+            }
+            Expr::Duration(d) => match d {
+                DurationExpr::Millis(left_val) => {
+                    let dur = DurationExpr::new(*left_val * -1);
+                    return Ok(Expr::Duration(dur));
+                }
+                DurationExpr::StepValue(left_val) => {
+                    let n = *left_val * -1.0;
+                    let dur = DurationExpr::new_step(n);
+                    return Ok(Expr::Duration(dur));
+                }
+            },
+            Expr::UnaryOperator(ue2) => {
+                return Ok(std::mem::take(&mut ue2.expr));
+            }
+            _ => {}
+        }
+        Ok(Expr::UnaryOperator(ue))
     }
 
     fn handle_binary_expr(be: BinaryExpr) -> ParseResult<Expr> {
@@ -656,6 +683,12 @@ pub fn simplify_parens(pe: ParensExpr) -> Expr {
     while pe.expressions.len() == 1 {
         match pe.expressions.remove(0) {
             Expr::Parens(pe2) => pe = pe2,
+            Expr::BinaryOperator(be) => {
+                let expr = Expr::BinaryOperator(be);
+                let mut arg = Vec::with_capacity(1);
+                arg.push(expr);
+                return Expr::Parens(ParensExpr::new(arg));
+            }
             expr => {
                 return expr;
             }
@@ -677,11 +710,10 @@ mod tests {
     use super::*;
 
     fn assert_expr_eq(expected: &Expr, actual: &Expr) {
-        assert!(
-            expr_equals(expected, actual),
+        assert_eq!(
+            expected, actual,
             "expected: \n{}\n but got: \n{}",
-            expected,
-            actual
+            expected, actual
         );
     }
 

@@ -9,7 +9,7 @@ use crate::common::{LabelFilter, LabelFilterExpr, StringExpr, Value, ValueType, 
 use crate::parser::ParseResult;
 
 /// InterpolatedSelector represents a MetricsQL metric in the context of a WITH expression.
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Eq, Serialize, Deserialize)]
 pub struct InterpolatedSelector {
     /// a list of label filter expressions from WITH clause.
     /// This is transformed into label_filters during compilation.

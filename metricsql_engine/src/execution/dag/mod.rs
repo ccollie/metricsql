@@ -21,6 +21,7 @@ mod transform_node;
 mod utils;
 mod vector_scalar_binop_node;
 mod vector_vector_binary_node;
+
 pub fn compile_expression(expr: &Expr) -> RuntimeResult<DAGNode> {
     DAGBuilder::compile(expr.clone())
 }

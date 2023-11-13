@@ -4,7 +4,7 @@
 // Original Source: https://github.com/GreptimeTeam/promql-parser/blob/main/src/parser/ast.rs
 use crate::ast::{
     AggregationExpr, BExpression, BinaryExpr, Expr, FunctionExpr, InterpolatedSelector, MetricExpr,
-    NumberLiteral, ParensExpr, RollupExpr, WithExpr,
+    NumberLiteral, ParensExpr, RollupExpr, UnaryExpr, WithExpr,
 };
 use crate::common::{
     BinModifier, StringExpr, Value, ValueType, VectorMatchCardinality, NAME_LABEL,
@@ -16,6 +16,12 @@ use crate::functions::BuiltinFunction;
 pub fn check_ast(expr: Expr) -> Result<Expr, String> {
     use Expr::*;
     match expr {
+        UnaryOperator(ex) => {
+            let modified = check_ast(*ex.expr)?;
+            Ok(UnaryOperator(UnaryExpr {
+                expr: Box::new(modified),
+            }))
+        }
         BinaryOperator(ex) => check_ast_for_binary_expr(ex),
         Aggregation(ex) => check_ast_for_aggregate_expr(ex),
         Function(ex) => check_ast_for_call(ex),
