@@ -107,7 +107,6 @@ impl DAGBuilder {
     fn create_node(&mut self, expr: &Expr) -> RuntimeResult<usize> {
         match expr {
             Expr::Aggregation(ae) => self.create_aggregate_node(expr, ae),
-            Expr::UnaryOperator(ue) => self.create_unary_node(ue),
             Expr::BinaryOperator(be) => self.create_binary_node(be),
             Expr::Duration(de) => Ok(self.push_node(DAGNode::from(de))),
             Expr::MetricExpression(_) => self.create_selector_node(expr),
@@ -130,6 +129,7 @@ impl DAGBuilder {
             Expr::WithSelector(_) => {
                 panic!("invalid node type (WithSelector) in expression")
             }
+            Expr::UnaryOperator(ue) => self.create_unary_node(ue),
         }
     }
 
@@ -444,7 +444,7 @@ impl DAGBuilder {
                 DAGNode::Value(value.into())
             }
             _ => {
-                let right_idx = self.create_node(&unary.expr)?;
+                let right_idx = self.create_dependency(&unary.expr, idx)?;
                 let keep_metric_names = unary.expr.keep_metric_names();
                 // scalar_vector
                 let node = ScalarVectorBinaryNode {
@@ -522,8 +522,8 @@ impl DAGBuilder {
                     // Note: both sides at this point are aggregations
                     let (left_idx, right_expr) = if be.op == Operator::And || be.op == Operator::If
                     {
-                        // Fetch right-side series at first, since it usually contains
-                        // lower number of time series for `and` and `if` operator.
+                        // Fetch right-side series at first, since it usually contains a lower number
+                        // of time series for `and` and `if` operator.
                         // This should produce more specific label filters for the left side of the query.
                         // This, in turn, should reduce the time to select series for the left side of the query.
                         let right_idx = self.create_dependency(expr_right, idx)?;

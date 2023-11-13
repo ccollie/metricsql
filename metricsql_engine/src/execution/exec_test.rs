@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use chrono::Duration;
     use std::sync::Arc;
+
+    use chrono::Duration;
 
     use crate::execution::exec;
     use crate::execution::{Context, EvalConfig};
@@ -4224,9 +4225,9 @@ mod tests {
 
     #[test]
     fn deriv() {
+        assert_result_eq("deriv(-time())", &[-1.0, -1.0, -1.0, -1.0, -1.0, -1.0]);
         assert_result_eq("deriv(1000)", &[0_f64, 0.0, 0.0, 0.0, 0.0, 0.0]);
         assert_result_eq("deriv(2*time())", &[2.0, 2.0, 2.0, 2.0, 2.0, 2.0]);
-        assert_result_eq("deriv(-time())", &[-1.0, -1.0, -1.0, -1.0, -1.0, -1.0]);
     }
 
     #[test]
