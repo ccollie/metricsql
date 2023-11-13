@@ -77,15 +77,12 @@ impl LazyLoader {
                 "Unexpected error while closing test storage.",
             ));
         }
-        if let Some(cancel_func) = self.cancel_ctx {
-            (cancel_func)();
-        }
         self.storage = TestStorage::new(self);
 
         let opts = EngineOpts {
             max_samples: 10000,
             timeout: Duration::seconds(100),
-            NoStepSubqueryIntervalFn: Duration::from_millis(self.SubqueryInterval),
+            NoStepSubqueryIntervalFn: Duration::from_millis(self.subquery_interval),
         };
 
         self.query_engine =

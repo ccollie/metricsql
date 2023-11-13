@@ -4,7 +4,7 @@ use std::fmt::Display;
 use crate::tests::test::Test;
 use crate::RuntimeResult;
 
-/// clearCmd is a command that wipes the test's storage state.
+/// ClearCmd is a command that wipes the test's storage state.
 pub(crate) struct ClearCmd {}
 
 impl ClearCmd {

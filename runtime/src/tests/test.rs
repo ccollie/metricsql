@@ -20,11 +20,10 @@ use std::ops::Index;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use regex::Regex;
-
 use metricsql::ast::DurationExpr;
 use metricsql::parser::ParseErr;
 use metricsql::utils::parse_number;
+use regex::Regex;
 
 use crate::{Context, MetricName, RuntimeError, RuntimeResult, Timestamp};
 use crate::tests::clear_cmd::ClearCmd;
@@ -354,26 +353,17 @@ pub(crate) fn at_modifier_test_cases(expr_str: String, eval_time: Timestamp) -> 
                 if n.timestamp == nil {
                     n.timestamp = makeInt64Pointer(ts)
                 }
-
-                Expr::MatrixSelector(me) => {
-                    if vs = n.VectorSelector.(*parser.VectorSelector);
-                    vs.timestamp == 0
-                    {
-                        vs.timestamp = makeInt64Pointer(ts)
-                    }
-                }
-
-                Expr::RollupExpr(re) => {
-                    if n.timestamp == nil {
-                        n.timestamp = makeInt64Pointer(ts)
-                    }
+            }
+            Expr::RollupExpr(re) => {
+                if n.timestamp == nil {
+                    n.timestamp = makeInt64Pointer(ts)
                 }
             }
             Expr::Function(fe) => {
                 let ok = AtModifierUnsafeFunctions[n.func.name];
                 contains_non_step_invariant = contains_non_step_invariant || ok;
             }
-        })
+        }
 
         if contains_non_step_invariant {
             // Since there is a step invariant function, we cannot automatically
@@ -419,7 +409,7 @@ fn parse_duration(input: &str) -> RuntimeResult<i64> {
 // subquery_times returns the sum of offsets and ranges of all subqueries in the path.
 // If the @ modifier is used, then the offset and range is w.r.t. that timestamp
 // (i.e. the sum is reset when we have @ modifier).
-// The returned *int64 is the closest timestamp that was seen. nil for no @ modifier.
+// The returned i64 is the closest timestamp that was seen. nil for no @ modifier.
 fn subquery_times(path: &[&Expr]) -> (Duration, Duration, i64) {
     let mut subq_offset = Duration::from_secs(0);
     let mut subq_range = Duration::from_secs(0);
@@ -443,5 +433,5 @@ fn subquery_times(path: &[&Expr]) -> (Duration, Duration, i64) {
     if ts != math.MaxInt64 {
         tsp = &ts
     }
-    return subq_offset, subq_range, tsp
+    return (subq_offset, subq_range, tsp)
 }

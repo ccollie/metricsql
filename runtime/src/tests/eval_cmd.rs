@@ -70,9 +70,7 @@ impl EvalCmd {
         });
 
         for iq in queries.iter() {
-            let q = self.query_engine.new_instant_query(self.storage,
-                                                        &iq.expr,
-                                                        iq.eval_time)?;
+            let q = self.query_engine.new_instant_query(&iq.expr, iq.eval_time)?;
 
             let res = q.exec(self.context);
             if res.err.is_some() {
@@ -95,9 +93,8 @@ impl EvalCmd {
             }
 
             let minute = Duration::from_secs(60);
-            // Check query returns same result in range mode,
-            // by checking against the middle step.
-            let q = self.queryEngine.new_range_query(self.storage, &iq.expr,
+            // Check query returns same result in range mode, by checking against the middle step.
+            let q = self.queryEngine.new_range_query(&iq.expr,
                                                      iq.eval_time.sub(minute),
                                                      iq.eval_time.add(minute),
                                                      minute);
@@ -154,7 +151,7 @@ impl EvalCmd {
             AnyValue::InstantVector(vector) => {
                 let mut seen: BTreeSet<u64> = Default::default();
                 for (pos, v) in vector.iter().enumerate() {
-                    let fp = self.metric.hash();
+                    let fp = self.metrics.hash();
                     if !v.metric_name.contains_key(fp) {
                         return format!("unexpected metric {} in result", v.metric);
                     }

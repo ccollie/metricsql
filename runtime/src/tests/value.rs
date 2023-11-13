@@ -124,7 +124,7 @@ pub(crate) struct Sample {
 
 impl Display for Sample {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} => {}", self.metric, self.point)?;
+        write!(f, "{} => {:?}", self.metric, self.point)?;
         Ok(())
     }
 }
