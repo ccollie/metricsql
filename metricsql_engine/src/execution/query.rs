@@ -2,8 +2,7 @@ use std::borrow::Cow;
 
 use chrono::Duration;
 
-use metricsql_parser::ast::{DurationExpr, Expr};
-use metricsql_parser::common::{LabelFilter, Matchers};
+use metricsql_parser::prelude::{DurationExpr, Expr, LabelFilter, Matchers};
 
 use crate::execution::{
     adjust_start_end, exec, parse_promql_internal, validate_max_points_per_timeseries,

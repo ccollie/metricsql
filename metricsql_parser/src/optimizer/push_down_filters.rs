@@ -4,8 +4,9 @@ use std::vec::Vec;
 
 use ahash::AHashSet;
 
-use crate::ast::{AggregationExpr, Expr, RollupExpr};
-use crate::common::{AggregateModifier, LabelFilter, Operator, VectorMatchModifier, NAME_LABEL};
+use crate::ast::{AggregateModifier, AggregationExpr, Expr, RollupExpr, VectorMatchModifier};
+use crate::common::Operator;
+use crate::label::{LabelFilter, NAME_LABEL};
 use crate::prelude::VectorMatchCardinality;
 
 /// push_down_filters optimizes e in order to improve its performance.
@@ -211,7 +212,7 @@ fn get_common_label_filters_without_metric_name(lfs: &Vec<LabelFilter>) -> Vec<L
     if lfs.is_empty() {
         return vec![];
     }
-    let lfs_a = get_label_filters_without_metric_name(lfs);
+    // let lfs_a = get_label_filters_without_metric_name(lfs);
     // for lfs in &lfss[1..].iter() {
     //     if lfs_a.is_empty() {
     //         return vec![];
@@ -219,7 +220,7 @@ fn get_common_label_filters_without_metric_name(lfs: &Vec<LabelFilter>) -> Vec<L
     //     let lfs_b = get_label_filters_without_metric_name(lfs);
     //     lfs_a = intersect_label_filters(lfs_a, lfs_b)
     // }
-    return lfs_a;
+    get_label_filters_without_metric_name(lfs)
 }
 
 // todo: use lifetimes instead of cloning

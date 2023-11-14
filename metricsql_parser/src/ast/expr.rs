@@ -1,24 +1,24 @@
 use std::cmp::Ordering;
-use std::collections::btree_set::BTreeSet;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Display, Formatter, Write};
 use std::hash::{Hash, Hasher};
 use std::ops::{Deref, Neg, Range};
 use std::str::FromStr;
 use std::{fmt, iter, ops};
 
+use ahash::AHashSet;
 use enquote::enquote;
 use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::Xxh3;
 
 use metricsql_common::duration::fmt_duration_ms;
 
-use crate::ast::{expr_equals, indent, Operator, Prettier, StringExpr, MAX_CHARACTERS_PER_LINE};
-use crate::common::{
-    hash_f64, write_comma_separated, write_number, AggregateModifier, BinModifier, LabelFilter,
-    LabelFilterOp, Operator, StringExpr, Value, ValueType, VectorMatchCardinality, NAME_LABEL,
+use crate::ast::utils::string_vecs_equal_unordered;
+use crate::ast::{
+    expr_equals, indent, prettify_args, Prettier, StringExpr, MAX_CHARACTERS_PER_LINE,
 };
+use crate::common::{hash_f64, write_comma_separated, write_number, Operator, Value, ValueType};
 use crate::functions::{AggregateFunction, BuiltinFunction, TransformFunction};
-use crate::label::{LabelFilter, NAME_LABEL};
+use crate::label::{LabelFilter, LabelFilterOp, Labels, NAME_LABEL};
 use crate::parser::{escape_ident, ParseError, ParseResult};
 use crate::prelude::{
     get_aggregate_arg_idx_for_optimization, BuiltinFunctionType, InterpolatedSelector,
@@ -26,6 +26,464 @@ use crate::prelude::{
 };
 
 pub type BExpr = Box<Expr>;
+
+/// Matching Modifier, for VectorMatching of binary expr.
+/// Label lists provided to matching keywords will determine how vectors are combined.
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
+pub enum VectorMatchModifier {
+    On(Labels),
+    Ignoring(Labels),
+}
+
+impl Display for VectorMatchModifier {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        use VectorMatchModifier::*;
+        match self {
+            On(labels) => write!(f, "on({:?})", labels)?,
+            Ignoring(labels) => write!(f, "ignoring({:?})", labels)?,
+        }
+        Ok(())
+    }
+}
+
+impl VectorMatchModifier {
+    pub fn new(labels: Vec<String>, is_on: bool) -> Self {
+        let names = Labels::from_iter(labels);
+        if is_on {
+            VectorMatchModifier::On(names)
+        } else {
+            VectorMatchModifier::Ignoring(names)
+        }
+    }
+
+    pub fn labels(&self) -> &Labels {
+        match self {
+            VectorMatchModifier::On(l) => l,
+            VectorMatchModifier::Ignoring(l) => l,
+        }
+    }
+
+    pub fn is_on(&self) -> bool {
+        matches!(*self, VectorMatchModifier::On(_))
+    }
+}
+
+/// Binary Expr Modifier
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BinModifier {
+    /// The matching behavior for the operation if both operands are Vectors.
+    /// If they are not this field is None.
+    pub card: VectorMatchCardinality,
+
+    /// on/ignoring on labels.
+    /// like a + b, no match modifier is needed.
+    pub matching: Option<VectorMatchModifier>,
+
+    /// If keep_metric_names is set to true, then the operation should keep metric names.
+    pub keep_metric_names: bool,
+
+    /// If a comparison operator, return 0/1 rather than filtering.
+    /// For example, `foo > bool bar`.
+    pub return_bool: bool,
+}
+
+impl Default for BinModifier {
+    fn default() -> Self {
+        Self {
+            card: VectorMatchCardinality::OneToOne,
+            matching: None,
+            keep_metric_names: false,
+            return_bool: false,
+        }
+    }
+}
+
+impl BinModifier {
+    pub fn with_card(mut self, card: VectorMatchCardinality) -> Self {
+        self.card = card;
+        self
+    }
+
+    pub fn with_matching(mut self, matching: Option<VectorMatchModifier>) -> Self {
+        self.matching = matching;
+        if self.matching.is_none() {
+            self.card = VectorMatchCardinality::OneToOne;
+        }
+        self
+    }
+
+    pub fn with_return_bool(mut self, return_bool: bool) -> Self {
+        self.return_bool = return_bool;
+        self
+    }
+
+    pub fn with_keep_metric_names(mut self, keep_metric_names: bool) -> Self {
+        self.keep_metric_names = keep_metric_names;
+        self
+    }
+
+    pub fn is_labels_joint(&self) -> bool {
+        matches!((self.card.labels(), &self.matching),
+                 (Some(labels), Some(matching)) if !labels.is_joint(matching.labels()))
+    }
+
+    pub fn intersect_labels(&self) -> Option<Vec<String>> {
+        if let Some(labels) = self.card.labels() {
+            if let Some(matching) = &self.matching {
+                let res = labels.intersect(matching.labels());
+                return Some(res.0);
+            }
+        };
+        None
+    }
+
+    pub fn is_matching_on(&self) -> bool {
+        matches!(&self.matching, Some(matching) if matching.is_on())
+    }
+
+    pub fn is_matching_labels_not_empty(&self) -> bool {
+        matches!(&self.matching, Some(matching) if !matching.labels().is_empty())
+    }
+
+    pub fn is_default(&self) -> bool {
+        self.card == VectorMatchCardinality::OneToOne
+            && self.matching.is_none()
+            && !self.keep_metric_names
+            && !self.return_bool
+    }
+}
+
+impl Display for BinModifier {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        use VectorMatchCardinality::*;
+        if self.return_bool {
+            write!(f, "bool")?;
+        }
+        match &self.card {
+            ManyToOne(labels) => {
+                write!(f, " group_left")?;
+                write_comma_separated(labels.iter(), f, true)?;
+            }
+            OneToMany(labels) => {
+                write!(f, " group_right")?;
+                write_comma_separated(labels.iter(), f, true)?;
+            }
+            _ => {}
+        }
+        if let Some(matching) = &self.matching {
+            match matching {
+                VectorMatchModifier::On(labels) => {
+                    write!(f, " on")?;
+                    write_comma_separated(labels.iter(), f, true)?;
+                }
+                VectorMatchModifier::Ignoring(labels) => {
+                    write!(f, " ignoring")?;
+                    write_comma_separated(labels.iter(), f, true)?;
+                }
+            }
+        }
+        if self.keep_metric_names {
+            write!(f, " keep_metric_names")?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Eq, Serialize, Deserialize)]
+pub enum AggregateModifier {
+    // todo: use BtreeSet<String>, since the runtime expects these to be sorted
+    By(Vec<String>),
+    Without(Vec<String>),
+}
+
+impl AggregateModifier {
+    /// Creates a new AggregateModifier with the Left op
+    pub fn by() -> Self {
+        AggregateModifier::By(vec![])
+    }
+
+    /// Creates a new AggregateModifier with the Right op
+    pub fn without() -> Self {
+        AggregateModifier::Without(vec![])
+    }
+
+    /// Adds a label key to this AggregateModifier
+    pub fn arg<S: Into<String>>(&mut self, arg: S) {
+        match self {
+            AggregateModifier::By(ref mut args) => {
+                args.push(arg.into());
+                args.sort();
+            }
+            AggregateModifier::Without(ref mut args) => {
+                args.push(arg.into());
+                args.sort();
+            }
+        }
+    }
+
+    pub fn get_args(&self) -> &Vec<String> {
+        match self {
+            AggregateModifier::By(val) => val,
+            AggregateModifier::Without(val) => val,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.get_args().is_empty()
+    }
+}
+
+impl Display for AggregateModifier {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            AggregateModifier::By(vec) => {
+                write!(f, "by ")?;
+                write_comma_separated(vec.iter(), f, true)?;
+            }
+            AggregateModifier::Without(vec) => {
+                write!(f, "without ")?;
+                write_comma_separated(vec.iter(), f, true)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl PartialEq<Self> for AggregateModifier {
+    fn eq(&self, other: &AggregateModifier) -> bool {
+        match (self, other) {
+            (AggregateModifier::Without(left), AggregateModifier::Without(right)) => {
+                string_vecs_equal_unordered(left, right)
+            }
+            (AggregateModifier::By(left), AggregateModifier::By(right)) => {
+                string_vecs_equal_unordered(left, right)
+            }
+            _ => false,
+        }
+    }
+}
+
+// See https://prometheus.io/docs/prometheus/latest/querying/operators/#vector-matching
+#[derive(Debug, Clone, PartialEq, Eq, Copy, Hash, Serialize, Deserialize)]
+pub enum GroupModifierOp {
+    On,
+    Ignoring,
+}
+
+impl Display for GroupModifierOp {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        use GroupModifierOp::*;
+        match self {
+            On => write!(f, "on")?,
+            Ignoring => write!(f, "ignoring")?,
+        }
+        Ok(())
+    }
+}
+
+impl TryFrom<&str> for GroupModifierOp {
+    type Error = ParseError;
+
+    fn try_from(op: &str) -> Result<Self, Self::Error> {
+        use GroupModifierOp::*;
+
+        match op {
+            op if op.eq_ignore_ascii_case("on") => Ok(On),
+            op if op.eq_ignore_ascii_case("ignoring") => Ok(Ignoring),
+            _ => Err(ParseError::General(format!(
+                "Unknown group_modifier op: {op}",
+            ))),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+pub enum GroupType {
+    GroupLeft,
+    GroupRight,
+}
+
+#[derive(Debug, Clone, Eq, Hash, PartialEq, Serialize, Deserialize)]
+pub enum VectorMatchCardinality {
+    OneToOne,
+    /// on(labels)/ignoring(labels) GROUP_LEFT
+    ManyToOne(Labels),
+    /// on(labels)/ignoring(labels) GROUP_RIGHT
+    OneToMany(Labels),
+    /// logical/set binary operators
+    ManyToMany,
+}
+
+impl VectorMatchCardinality {
+    pub fn join_modifier(&self) -> Option<JoinModifierOp> {
+        match self {
+            VectorMatchCardinality::ManyToOne(_) => Some(JoinModifierOp::GroupLeft),
+            VectorMatchCardinality::OneToMany(_) => Some(JoinModifierOp::GroupRight),
+            _ => None,
+        }
+    }
+
+    pub fn group_left(labels: Labels) -> Self {
+        VectorMatchCardinality::ManyToOne(labels)
+    }
+
+    pub fn group_right(labels: Labels) -> Self {
+        VectorMatchCardinality::OneToMany(labels)
+    }
+
+    pub fn is_group_left(&self) -> bool {
+        matches!(self, VectorMatchCardinality::ManyToOne(_))
+    }
+
+    pub fn is_group_right(&self) -> bool {
+        matches!(self, VectorMatchCardinality::OneToMany(_))
+    }
+
+    pub fn is_grouping(&self) -> bool {
+        matches!(
+            self,
+            VectorMatchCardinality::ManyToOne(_) | VectorMatchCardinality::OneToMany(_)
+        )
+    }
+
+    pub fn labels(&self) -> Option<&Labels> {
+        match self {
+            VectorMatchCardinality::ManyToOne(labels) => Some(labels),
+            VectorMatchCardinality::OneToMany(labels) => Some(labels),
+            _ => None,
+        }
+    }
+
+    pub fn group_type(&self) -> Option<GroupType> {
+        match self {
+            VectorMatchCardinality::ManyToOne(_) => Some(GroupType::GroupLeft),
+            VectorMatchCardinality::OneToMany(_) => Some(GroupType::GroupRight),
+            _ => None,
+        }
+    }
+}
+
+impl Display for VectorMatchCardinality {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        use VectorMatchCardinality::*;
+        let str = match self {
+            OneToOne => "OneToOne".to_string(),
+            OneToMany(labels) => format!("group_right({:?})", labels),
+            ManyToOne(labels) => format!("group_left({:?})", labels),
+            ManyToMany => "ManyToMany".to_string(),
+        };
+        write!(f, "{}", str)?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Copy, Hash, Serialize, Deserialize)]
+pub enum JoinModifierOp {
+    GroupLeft,
+    GroupRight,
+}
+
+impl Display for JoinModifierOp {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        use JoinModifierOp::*;
+        match self {
+            GroupLeft => write!(f, "group_left")?,
+            GroupRight => write!(f, "group_right")?,
+        }
+        Ok(())
+    }
+}
+
+impl TryFrom<&str> for JoinModifierOp {
+    type Error = ParseError;
+
+    fn try_from(op: &str) -> Result<Self, Self::Error> {
+        use JoinModifierOp::*;
+
+        match op {
+            op if op.eq_ignore_ascii_case("group_left") => Ok(GroupLeft),
+            op if op.eq_ignore_ascii_case("group_right") => Ok(GroupRight),
+            _ => {
+                let msg = format!("Unknown join_modifier op: {}", op);
+                Err(ParseError::General(msg))
+            }
+        }
+    }
+}
+
+/// A JoinModifier clause's nested grouping clause
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize, Deserialize)]
+pub struct JoinModifier {
+    /// The GroupModifier group's operator type (left or right)
+    pub op: JoinModifierOp,
+
+    /// A list of labels to copy to the opposite side of the group operator, i.e.
+    /// group_left(foo) copies the label `foo` from the right hand side
+    pub labels: Vec<String>,
+
+    /// The cardinality of the two Vectors.
+    pub cardinality: VectorMatchCardinality,
+}
+
+impl JoinModifier {
+    pub fn new(op: JoinModifierOp, labels: Vec<String>) -> Self {
+        JoinModifier {
+            op,
+            labels,
+            cardinality: VectorMatchCardinality::OneToOne,
+        }
+    }
+
+    /// Creates a new JoinModifier with the Left op
+    pub fn left() -> Self {
+        JoinModifier::new(JoinModifierOp::GroupLeft, vec![])
+    }
+
+    /// Creates a new JoinModifier with the Right op
+    pub fn right() -> Self {
+        JoinModifier::new(JoinModifierOp::GroupRight, vec![])
+    }
+
+    /// Replaces this JoinModifier's operator
+    pub fn op(mut self, op: JoinModifierOp) -> Self {
+        self.op = op;
+        self
+    }
+
+    /// Adds a label key to this JoinModifier
+    pub fn label<S: Into<String>>(mut self, label: S) -> Self {
+        self.labels.push(label.into());
+        self
+    }
+
+    /// Replaces this JoinModifier's labels with the given set
+    pub fn set_labels(mut self, labels: &[&str]) -> Self {
+        self.labels = labels.iter().map(|l| (*l).to_string()).collect();
+        self
+    }
+
+    /// Clears this JoinModifier's set of labels
+    pub fn clear_labels(mut self) -> Self {
+        self.labels.clear();
+        self
+    }
+}
+
+impl Display for JoinModifier {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{} ", self.op)?;
+        write_comma_separated(self.labels.iter(), f, true)?;
+        Ok(())
+    }
+}
+
+impl PartialEq<JoinModifier> for &JoinModifier {
+    fn eq(&self, other: &JoinModifier) -> bool {
+        self.op == other.op
+            && string_vecs_equal_unordered(&self.labels, &other.labels)
+            && self.cardinality == other.cardinality
+    }
+}
 
 /// Expression Trait. Useful for cases where match is not ergonomic
 pub trait ExpressionNode {
@@ -128,6 +586,29 @@ impl Deref for NumberLiteral {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StringLiteral(pub String);
+
+impl Display for StringLiteral {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "\"{}\"", self.0)
+    }
+}
+
+impl Prettier for StringLiteral {
+    fn needs_split(&self, _max: usize) -> bool {
+        false
+    }
+}
+
+impl Deref for StringLiteral {
+    type Target = String;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 /// DurationExpr contains a duration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum DurationExpr {
@@ -202,6 +683,12 @@ impl PartialEq<DurationExpr> for DurationExpr {
 }
 
 impl Eq for DurationExpr {}
+
+impl Prettier for DurationExpr {
+    fn needs_split(&self, _max: usize) -> bool {
+        false
+    }
+}
 
 // todo: MetricExpr => Selector
 /// MetricExpr represents MetricsQL metric with optional filters, i.e. `foo{...}`.
@@ -357,7 +844,7 @@ impl PartialEq<MetricExpr> for MetricExpr {
         let mut hasher: Xxh3 = Xxh3::new();
 
         if !self.label_filters.is_empty() {
-            let mut set: BTreeSet<u64> = BTreeSet::new();
+            let mut set: AHashSet<u64> = AHashSet::new();
             for filter in &self.label_filters {
                 hasher.reset();
                 filter.update_hash(&mut hasher);
@@ -381,6 +868,12 @@ impl PartialEq<MetricExpr> for MetricExpr {
 impl ExpressionNode for MetricExpr {
     fn cast(self) -> Expr {
         Expr::MetricExpression(self)
+    }
+}
+
+impl Prettier for MetricExpr {
+    fn needs_split(&self, _max: usize) -> bool {
+        false
     }
 }
 
@@ -485,6 +978,22 @@ impl Display for FunctionExpr {
     }
 }
 
+impl Prettier for FunctionExpr {
+    fn format(&self, level: usize, max: usize) -> String {
+        let spaces = indent(level);
+        format!(
+            "{spaces}{}(\n{}\n{spaces}{})",
+            self.name,
+            prettify_args(&self.args, level + 1, max),
+            if self.keep_metric_names {
+                " keep_metric_names"
+            } else {
+                ""
+            }
+        )
+    }
+}
+
 /// AggregationExpr represents aggregate function such as `sum(...) by (...)`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AggregationExpr {
@@ -577,11 +1086,11 @@ impl AggregationExpr {
         }
     }
 
-    // Check if args[0] contains one of the following:
-    // - metricExpr
-    // - metricExpr[d]
-    // -: RollupFunc(metricExpr)
-    // -: RollupFunc(metricExpr[d])
+    /// Check if args[0] contains one of the following:
+    /// - metricExpr
+    /// - metricExpr[d]
+    /// - RollupFunc(metricExpr)
+    /// - RollupFunc(metricExpr[d])
     fn can_incrementally_eval(args: &Vec<Expr>) -> bool {
         if args.len() != 1 {
             return false;
@@ -633,7 +1142,7 @@ impl AggregationExpr {
     }
 
     fn get_op_string(&self) -> String {
-        let mut s = self.op.to_string();
+        let mut s = self.function.to_string();
 
         if let Some(modifier) = &self.modifier {
             match modifier {
@@ -641,9 +1150,6 @@ impl AggregationExpr {
                 AggregateModifier::Without(_) => write!(s, " {modifier} ").unwrap(),
                 _ => (),
             }
-        }
-        if self.limit > 0 {
-            write!(s, " limit {}", self.limit)?;
         }
         s
     }
@@ -668,12 +1174,19 @@ impl Display for AggregationExpr {
 
 impl Prettier for AggregationExpr {
     fn format(&self, level: usize, max: usize) -> String {
-        let mut s = format!("{}{}(\n", indent(level), self.get_op_string());
-        if let Some(param) = &self.param {
-            writeln!(s, "{},", param.pretty(level + 1, max)).unwrap();
+        let spaces = indent(level);
+        let mut s = format!("{spaces}{}(\n", self.get_op_string());
+        let args = prettify_args(&self.args, level + 1, max);
+        if !args.is_empty() {
+            writeln!(s, "{}", args).unwrap();
         }
-        writeln!(s, "{}", self.expr.pretty(level + 1, max)).unwrap();
-        write!(s, "{})", indent(level)).unwrap();
+        write!(s, "{spaces})").unwrap();
+        if self.limit > 0 {
+            write!(s, " limit {}", self.limit).unwrap();
+        }
+        if self.keep_metric_names {
+            write!(s, " keep_metric_names").unwrap();
+        }
         s
     }
 }
@@ -778,6 +1291,38 @@ impl RollupExpr {
     pub fn wraps_metric_expr(&self) -> bool {
         matches!(*self.expr, Expr::MetricExpression(_))
     }
+
+    fn get_time_suffix_string(&self) -> Result<String, fmt::Error> {
+        let mut s = String::with_capacity(12);
+        if self.window.is_some() || self.inherit_step || self.step.is_some() {
+            s.push('[');
+            if let Some(win) = &self.window {
+                write!(s, "{}", win)?;
+            }
+            if let Some(step) = &self.step {
+                s.push(':');
+                write!(s, "{}", step)?;
+            } else if self.inherit_step {
+                s.push(':');
+            }
+            s.push(']');
+        }
+        if let Some(offset) = &self.offset {
+            write!(s, "offset {}", offset)?;
+        }
+        if let Some(at) = &self.at {
+            let parens_needed = at.is_binary_op();
+            s.push_str(" @ ");
+            if parens_needed {
+                s.push('(');
+            }
+            write!(s, "{}", at)?;
+            if parens_needed {
+                s.push(')');
+            }
+        }
+        Ok(s)
+    }
 }
 
 impl Display for RollupExpr {
@@ -795,36 +1340,17 @@ impl Display for RollupExpr {
         if need_parens {
             write!(f, ")")?;
         }
+        let suffix = self.get_time_suffix_string().map_err(|_| fmt::Error)?;
 
-        if self.window.is_some() || self.inherit_step || self.step.is_some() {
-            write!(f, "[")?;
-            if let Some(win) = &self.window {
-                write!(f, "{}", win)?;
-            }
-            if let Some(step) = &self.step {
-                write!(f, ":")?;
-                write!(f, "{}", step)?;
-            } else if self.inherit_step {
-                write!(f, ":")?;
-            }
-            write!(f, "]")?;
-        }
-        if let Some(offset) = &self.offset {
-            write!(f, " offset ")?;
-            write!(f, "{}", offset)?;
-        }
-        if let Some(at) = &self.at {
-            let parens_needed = at.is_binary_op();
-            write!(f, " @ ")?;
-            if parens_needed {
-                write!(f, "(")?;
-            }
-            write!(f, "{}", at)?;
-            if parens_needed {
-                write!(f, ")")?;
-            }
-        }
+        write!(f, "{}", suffix)?;
         Ok(())
+    }
+}
+
+impl Prettier for RollupExpr {
+    fn pretty(&self, level: usize, max: usize) -> String {
+        let suffix = self.get_time_suffix_string().unwrap_or("".to_string());
+        format!("{}{}", self.expr.pretty(level, max), suffix)
     }
 }
 
@@ -1067,6 +1593,23 @@ impl Display for BinaryExpr {
     }
 }
 
+impl Prettier for BinaryExpr {
+    fn format(&self, level: usize, max: usize) -> String {
+        format!(
+            "{}\n{}{}{}\n{}",
+            self.left.pretty(level + 1, max),
+            indent(level),
+            self.get_op_matching_string(),
+            if self.keep_metric_names() {
+                "\n keep_metric_names"
+            } else {
+                ""
+            },
+            self.right.pretty(level + 1, max)
+        )
+    }
+}
+
 /// UnaryExpr will negate the expr
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UnaryExpr {
@@ -1087,19 +1630,12 @@ impl Display for UnaryExpr {
     }
 }
 
-impl Prettier for BinaryExpr {
-    fn format(&self, level: usize, max: usize) -> String {
+impl Prettier for UnaryExpr {
+    fn pretty(&self, level: usize, max: usize) -> String {
         format!(
-            "{}\n{}{}{}\n{}",
-            self.left.pretty(level + 1, max),
+            "{}-{}",
             indent(level),
-            self.get_op_matching_string(),
-            if self.keep_metric_names() {
-                "\n keep_metric_names"
-            } else {
-                ""
-            },
-            self.right.pretty(level + 1, max)
+            self.expr.pretty(level, max).trim_start()
         )
     }
 }
@@ -1184,12 +1720,18 @@ impl Display for ParensExpr {
 
 impl Prettier for ParensExpr {
     fn format(&self, level: usize, max: usize) -> String {
-        format!(
-            "{}(\n{}\n{})",
-            indent(level),
-            self.expr.pretty(level + 1, max),
-            indent(level)
-        )
+        let mut s = String::with_capacity(64);
+        let sub_indent = indent(level + 1);
+
+        for (i, expr) in self.expressions.iter().enumerate() {
+            if i > 0 {
+                s.push_str(",\n");
+            }
+            s.push_str(&sub_indent);
+            s.push_str(&expr.pretty(level + 1, max));
+        }
+
+        format!("{}(\n{s}\n{})", indent(level), indent(level))
     }
 }
 
@@ -1237,6 +1779,20 @@ impl Display for WithExpr {
         write!(f, ") ")?;
         write!(f, "{}", self.expr)?;
         Ok(())
+    }
+}
+
+impl Prettier for WithExpr {
+    fn format(&self, level: usize, max: usize) -> String {
+        let mut s = format!("{}WITH (\n", indent(level));
+        for (i, was) in self.was.iter().enumerate() {
+            if i > 0 {
+                s.push_str(",\n");
+            }
+            s.push_str(&was.pretty(level + 1, max));
+        }
+        s.push_str(&format!("\n{})", indent(level)));
+        s
     }
 }
 
@@ -1308,6 +1864,18 @@ impl Display for WithArgExpr {
     }
 }
 
+impl Prettier for WithArgExpr {
+    fn format(&self, level: usize, max: usize) -> String {
+        let mut s = format!("{}{} = ", indent(level), self.name);
+        if !self.args.is_empty() {
+            s.push_str(&self.args.join(", "));
+            s.push_str(" = ");
+        }
+        s.push_str(&self.expr.pretty(level, max));
+        s
+    }
+}
+
 /// A root expression node.
 ///
 /// These are all valid root expression ast.
@@ -1322,7 +1890,7 @@ pub enum Expr {
     ///
     /// Prometheus' docs claim strings aren't currently implemented, but they're
     /// valid as function arguments.
-    StringLiteral(String),
+    StringLiteral(StringLiteral),
 
     /// A function call
     Function(FunctionExpr),
@@ -1650,17 +2218,19 @@ impl Display for Expr {
 impl Prettier for Expr {
     fn pretty(&self, level: usize, max: usize) -> String {
         match self {
-            Expr::Aggregate(ex) => ex.pretty(level, max),
-            Expr::Unary(ex) => ex.pretty(level, max),
-            Expr::Binary(ex) => ex.pretty(level, max),
-            Expr::Paren(ex) => ex.pretty(level, max),
-            Expr::Subquery(ex) => ex.pretty(level, max),
-            Expr::NumberLiteral(ex) => ex.pretty(level, max),
+            Expr::Aggregation(ex) => ex.pretty(level, max),
+            Expr::UnaryOperator(ex) => ex.pretty(level, max),
+            Expr::BinaryOperator(ex) => ex.pretty(level, max),
+            Expr::Parens(ex) => ex.pretty(level, max),
+            Expr::Rollup(ex) => ex.pretty(level, max),
+            Expr::Number(ex) => ex.pretty(level, max),
             Expr::StringLiteral(ex) => ex.pretty(level, max),
-            Expr::VectorSelector(ex) => ex.pretty(level, max),
-            Expr::MatrixSelector(ex) => ex.pretty(level, max),
-            Expr::Call(ex) => ex.pretty(level, max),
-            Expr::Extension(ext) => format!("{ext:?}"),
+            Expr::MetricExpression(ex) => ex.pretty(level, max),
+            Expr::Function(ex) => ex.pretty(level, max),
+            Expr::Duration(d) => d.pretty(level, max),
+            Expr::StringExpr(se) => se.pretty(level, max),
+            Expr::With(we) => we.pretty(level, max),
+            Expr::WithSelector(ws) => ws.pretty(level, max),
         }
     }
 }
@@ -1706,13 +2276,13 @@ impl From<i64> for Expr {
 
 impl From<String> for Expr {
     fn from(s: String) -> Self {
-        Expr::StringLiteral(s)
+        Expr::StringLiteral(StringLiteral(s))
     }
 }
 
 impl From<&str> for Expr {
     fn from(s: &str) -> Self {
-        Expr::StringLiteral(s.to_string())
+        Expr::StringLiteral(StringLiteral(s.to_string()))
     }
 }
 
@@ -1785,6 +2355,19 @@ impl ops::BitXor for Expr {
 
     fn bitxor(self, rhs: Self) -> Self {
         binary_expr(self, Operator::Pow, rhs)
+    }
+}
+
+impl Neg for Expr {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        match self {
+            Expr::Number(nl) => Expr::Number(-nl),
+            _ => Expr::UnaryOperator(UnaryExpr {
+                expr: Box::new(self),
+            }),
+        }
     }
 }
 

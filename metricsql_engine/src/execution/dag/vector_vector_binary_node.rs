@@ -1,9 +1,9 @@
-use metricsql_parser::ast::{
-    push_down_binary_op_filters_in_place, trim_filters_by_match_modifier, Expr,
-};
-use metricsql_parser::common::Operator;
-use metricsql_parser::prelude::BinModifier;
 use serde::{Deserialize, Serialize};
+
+use metricsql_parser::optimizer::{
+    push_down_binary_op_filters_in_place, trim_filters_by_match_modifier,
+};
+use metricsql_parser::prelude::{BinModifier, Expr, Operator};
 
 use crate::execution::binary::get_common_label_filters;
 use crate::execution::{compile_expression, Context, EvalConfig};

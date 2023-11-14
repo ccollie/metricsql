@@ -4,7 +4,8 @@ use std::hash::Hasher;
 use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::Xxh3;
 
-use crate::common::{LabelFilter, LabelFilterOp, LabelName, StringExpr, NAME_LABEL};
+use crate::ast::StringExpr;
+use crate::label::{LabelFilter, LabelFilterOp, LabelName, NAME_LABEL};
 use crate::parser::{compile_regexp, escape_ident, is_empty_regex, ParseError, ParseResult};
 
 /// LabelFilterExpr represents `foo <op> ident + "bar"` expression, where <op> is `=`, `!=`, `=~` or `!~`.

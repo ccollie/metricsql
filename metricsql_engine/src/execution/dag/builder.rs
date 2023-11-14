@@ -119,7 +119,7 @@ impl DAGBuilder {
                 RollupFunction::DefaultRollup,
                 RollupHandler::Wrapped(rollup_default),
             ),
-            Expr::StringLiteral(s) => Ok(self.push_node(DAGNode::from(s.clone()))),
+            Expr::StringLiteral(s) => Ok(self.push_node(DAGNode::from(s.to_string()))),
             Expr::StringExpr(_) => {
                 panic!("invalid node type (SpringExpr) in expression")
             }
@@ -749,7 +749,7 @@ fn try_get_arg_rollup_func_with_metric_expr(
 #[cfg(test)]
 mod tests {
     use metricsql_parser::ast::MetricExpr;
-    use metricsql_parser::common::LabelFilter;
+    use metricsql_parser::label::LabelFilter;
     use metricsql_parser::prelude::{DurationExpr, Expr};
 
     use crate::execution::dag::duration_node::DurationNode;

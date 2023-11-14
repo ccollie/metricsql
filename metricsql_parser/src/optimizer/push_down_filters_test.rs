@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use crate::ast::push_down_filters::{get_common_label_filters, pushdown_binary_op_filters};
     use crate::ast::utils::expr_equals;
-    use crate::ast::{optimize, Expr, MetricExpr};
+    use crate::ast::{Expr, MetricExpr};
+    use crate::optimizer::{get_common_label_filters, optimize, pushdown_binary_op_filters};
     use crate::parser::parse;
 
     fn parse_selector(q: &str) -> Expr {

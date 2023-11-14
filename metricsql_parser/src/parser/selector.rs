@@ -1,7 +1,7 @@
 use ahash::AHashSet;
 
-use crate::ast::{Expr, InterpolatedSelector, MetricExpr};
-use crate::common::{LabelFilterExpr, LabelFilterOp};
+use crate::ast::{Expr, InterpolatedSelector, LabelFilterExpr, MetricExpr};
+use crate::label::LabelFilterOp;
 use crate::parser::expr::parse_string_expr;
 use crate::parser::parse_error::unexpected;
 use crate::parser::{ParseResult, Parser};

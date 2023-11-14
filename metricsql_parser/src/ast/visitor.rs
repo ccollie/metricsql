@@ -97,7 +97,7 @@ pub fn walk_expr<V: ExprVisitor>(visitor: &mut V, expr: &Expr) -> Result<bool, V
 #[cfg(test)]
 mod tests {
     use crate::ast::MetricExpr;
-    use crate::common::LabelFilterOp;
+    use crate::label::LabelFilterOp;
     use crate::parser;
 
     use super::*;

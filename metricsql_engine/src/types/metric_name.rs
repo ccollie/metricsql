@@ -9,7 +9,7 @@ use enquote::enquote;
 use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::Xxh3;
 
-use metricsql_parser::common::{AggregateModifier, VectorMatchModifier};
+use metricsql_parser::prelude::{AggregateModifier, VectorMatchModifier};
 
 use crate::common::encoding::{read_string, read_usize, write_string, write_usize};
 use crate::runtime_error::{RuntimeError, RuntimeResult};

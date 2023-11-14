@@ -46,7 +46,7 @@ pub fn quote(str: &str) -> String {
 pub fn unescape_ident(s: &str) -> ParseResult<Cow<str>> {
     let v = s.find('\\');
     if v.is_none() {
-        return Ok(Cow::Borrowed(&s));
+        return Ok(Cow::Borrowed(s));
     }
     let mut unescaped = String::with_capacity(s.len() - 1);
     let v = v.unwrap();
@@ -186,7 +186,7 @@ fn take<I: Iterator<Item = char>>(iterator: &mut I, n: usize) -> String {
 
 fn decode_unicode(code_point: &str) -> Result<char, ParseError> {
     match u32::from_str_radix(code_point, 16) {
-        Err(_) => return Err(ParseError::General("unrecognized escape".to_string())),
+        Err(_) => Err(ParseError::General("unrecognized escape".to_string())),
         Ok(n) => std::char::from_u32(n).ok_or(ParseError::General("invalid unicode".to_string())),
     }
 }

@@ -18,6 +18,8 @@ pub mod ast;
 pub mod binaryop;
 pub mod common;
 pub mod functions;
+pub mod label;
+pub mod optimizer;
 pub mod parser;
 
 pub mod prelude {
@@ -25,5 +27,7 @@ pub mod prelude {
     pub use crate::binaryop::*;
     pub use crate::common::*;
     pub use crate::functions::*;
+    pub use crate::label::*;
+    pub use crate::optimizer::*;
     pub use crate::parser::*;
 }

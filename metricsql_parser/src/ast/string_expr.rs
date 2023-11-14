@@ -6,6 +6,7 @@ use std::{fmt, ops};
 use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::Xxh3;
 
+use crate::ast::Prettier;
 use crate::common::ValueType;
 use crate::parser::ParseError;
 use crate::prelude::ParseResult;
@@ -257,6 +258,37 @@ impl Display for StringExpr {
             write!(f, "{}", segment)?;
         }
         Ok(())
+    }
+}
+
+impl Prettier for StringExpr {
+    fn format(&self, level: usize, _max: usize) -> String {
+        let mut s = String::with_capacity(32);
+        let spaces = " ".repeat(level * 2);
+        for (i, segment) in self.0.iter().enumerate() {
+            if i > 0 {
+                s.push_str(&spaces);
+                s.push_str(" + \n");
+            }
+            s.push_str(&format!("{spaces}{segment}\n"));
+        }
+        s
+    }
+
+    fn needs_split(&self, max: usize) -> bool {
+        if self.is_literal_only() {
+            return false;
+        }
+        let mut len = 0;
+        for s in self.iter() {
+            let segment_len = match s {
+                StringSegment::Literal(lit) => lit.len(),
+                StringSegment::Ident(id) => id.len(),
+            };
+            len += segment_len;
+        }
+        len += self.segment_count() * 3;
+        len > max
     }
 }
 

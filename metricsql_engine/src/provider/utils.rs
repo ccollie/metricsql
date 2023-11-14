@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use metricsql_parser::ast::Expr;
-use metricsql_parser::common::{LabelFilter, Matchers};
+use metricsql_parser::label::{LabelFilter, Matchers};
 use metricsql_parser::parser::parse;
 
 use crate::runtime_error::{RuntimeError, RuntimeResult};

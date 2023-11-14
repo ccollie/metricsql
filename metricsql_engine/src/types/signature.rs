@@ -5,7 +5,7 @@ use ahash::AHashMap;
 use rayon::prelude::*;
 use xxhash_rust::xxh3::Xxh3;
 
-use metricsql_parser::common::VectorMatchModifier;
+use metricsql_parser::prelude::VectorMatchModifier;
 
 use crate::{MetricName, Tag, Timeseries};
 

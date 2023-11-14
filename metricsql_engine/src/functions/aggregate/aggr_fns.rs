@@ -1,13 +1,15 @@
-use ahash::AHashMap;
-use lockfree_object_pool::LinearReusable;
-use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_f64_filled};
-use metricsql_parser::common::AggregateModifier;
-use metricsql_parser::functions::AggregateFunction;
 use std::borrow::BorrowMut;
 use std::collections::hash_map::Entry;
 use std::collections::BTreeMap;
 use std::ops::Deref;
 use std::ops::DerefMut;
+
+use ahash::AHashMap;
+use lockfree_object_pool::LinearReusable;
+
+use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_f64_filled};
+use metricsql_parser::ast::AggregateModifier;
+use metricsql_parser::functions::AggregateFunction;
 
 use crate::common::math::{mode_no_nans, quantile, quantiles, IQR_PHIS};
 use crate::execution::{eval_number, remove_empty_series, EvalConfig};

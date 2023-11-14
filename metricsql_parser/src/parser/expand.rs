@@ -5,13 +5,11 @@ use ahash::{AHashMap, AHashSet};
 use xxhash_rust::xxh3::Xxh3;
 
 use crate::ast::{
-    AggregationExpr, BinaryExpr, Expr, FunctionExpr, MetricExpr, ParensExpr, RollupExpr,
+    AggregateModifier, AggregationExpr, BinaryExpr, Expr, FunctionExpr, MetricExpr, ParensExpr,
+    RollupExpr, StringExpr, StringSegment, VectorMatchCardinality, VectorMatchModifier,
     WithArgExpr, WithExpr,
 };
-use crate::common::{
-    AggregateModifier, LabelFilter, Labels, StringExpr, StringSegment, VectorMatchCardinality,
-    VectorMatchModifier,
-};
+use crate::label::{LabelFilter, Labels};
 use crate::parser::symbol_provider::SymbolProviderRef;
 use crate::parser::{syntax_error, ParseError, ParseResult};
 use crate::prelude::InterpolatedSelector;
@@ -416,12 +414,12 @@ fn expand_string_expr(
         // Already expanded.
         return match se.get_literal()? {
             Some(s) => Ok(Expr::from(s.to_string())),
-            None => Ok(Expr::from("".to_string())),
+            None => Ok(Expr::from("")),
         };
     }
 
     if se.is_empty() {
-        return Ok(Expr::StringLiteral("".to_string()));
+        return Ok(Expr::from(""));
     }
 
     // todo: calculate size
@@ -444,7 +442,7 @@ fn expand_string_expr(
         }
     }
 
-    Ok(Expr::StringLiteral(b))
+    Ok(Expr::from(b))
 }
 
 pub(super) fn resolve_ident(

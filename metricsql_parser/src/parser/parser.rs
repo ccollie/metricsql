@@ -3,8 +3,7 @@ use std::sync::Arc;
 
 use logos::{Logos, Span};
 
-use crate::ast::{DurationExpr, Expr, ParensExpr, WithArgExpr};
-use crate::common::StringExpr;
+use crate::ast::{DurationExpr, Expr, ParensExpr, StringExpr, WithArgExpr};
 use crate::parser::expand::resolve_ident;
 use crate::parser::expr::parse_expression;
 use crate::parser::symbol_provider::{HashMapSymbolProvider, SymbolProviderRef};

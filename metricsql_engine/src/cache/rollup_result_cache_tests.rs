@@ -3,8 +3,8 @@ mod tests {
     use std::sync::Arc;
 
     use metricsql_parser::ast::{AggregationExpr, Expr, FunctionExpr, MetricExpr};
-    use metricsql_parser::common::{LabelFilter, LabelFilterOp};
     use metricsql_parser::functions::AggregateFunction;
+    use metricsql_parser::label::{LabelFilter, LabelFilterOp};
 
     use crate::cache::rollup_result_cache::{merge_timeseries, RollupResultCache};
     use crate::execution::EvalConfig;

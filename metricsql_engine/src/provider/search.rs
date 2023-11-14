@@ -7,7 +7,7 @@ use std::sync::Arc;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 
-use metricsql_parser::common::{LabelFilter, Matchers};
+use metricsql_parser::label::{LabelFilter, Matchers};
 
 use crate::execution::Context;
 use crate::functions::remove_nan_values_in_place;

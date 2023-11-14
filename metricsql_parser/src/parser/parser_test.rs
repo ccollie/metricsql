@@ -2,7 +2,8 @@
 mod tests {
     use strum::IntoEnumIterator;
 
-    use crate::ast::{expr_equals, optimize, Expr};
+    use crate::ast::{expr_equals, Expr};
+    use crate::optimizer::optimize;
     use crate::parser::parse;
     use crate::prelude::Operator;
 

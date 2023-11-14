@@ -109,8 +109,6 @@ fn transform_label_value_func(
     Ok(series)
 }
 
-const EMPTY_STRING: String = String::new();
-
 pub(crate) fn label_map(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let label = get_label(tfa, "", 1)?.to_string();
 

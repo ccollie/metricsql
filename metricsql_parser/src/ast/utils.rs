@@ -17,9 +17,11 @@
 
 //! Utility functions for expression simplification
 
-use crate::ast::{AggregationExpr, BinaryExpr, Expr, FunctionExpr, NumberLiteral, ParensExpr};
+use ahash::AHashSet;
+
+use crate::ast::{BinaryExpr, Expr, NumberLiteral, ParensExpr};
 use crate::common::Operator;
-use crate::prelude::{BinModifier, MetricExpr};
+use crate::prelude::MetricExpr;
 
 /// Create a selector expression based on a qualified or unqualified column name
 ///
@@ -33,7 +35,7 @@ pub fn selector(ident: impl Into<String>) -> Expr {
 }
 
 pub fn lit(str: &str) -> Expr {
-    Expr::StringLiteral(str.to_string())
+    Expr::from(str)
 }
 
 pub fn number(val: f64) -> Expr {
@@ -123,11 +125,13 @@ pub fn expr_equals(expr1: &Expr, expr2: &Expr) -> bool {
         if let Some(other) = parens.innermost_expr() {
             return expr == other;
         }
-        false
+        match expr {
+            Parens(p) => parens == p,
+            _ => false,
+        }
     }
 
     match (expr1, expr2) {
-        (Aggregation(ae1), Aggregation(ae2)) => aggregation_exprs_equal(ae1, ae2),
         // special case: (x) == x. I don't know if i like this
         (Parens(p), e) => p.len() == 1 && compare_parens(p, e),
         (e, Parens(p)) => p.len() == 1 && compare_parens(p, e),
@@ -135,52 +139,12 @@ pub fn expr_equals(expr1: &Expr, expr2: &Expr) -> bool {
     }
 }
 
-fn aggregation_exprs_equal(ae1: &AggregationExpr, ae2: &AggregationExpr) -> bool {
-    ae1.function == ae2.function
-        && ae1.limit == ae2.limit
-        && ae1.keep_metric_names == ae2.keep_metric_names
-        && ae1.arg_idx_for_optimization == ae2.arg_idx_for_optimization
-        && expr_vec_equals(&ae1.args, &ae2.args)
-}
-
-fn binary_exprs_equal(be1: &BinaryExpr, be2: &BinaryExpr) -> bool {
-    be1.op == be2.op
-        && expr_equals(&be1.left, &be2.left)
-        && expr_equals(&be1.right, &be2.right)
-        && bin_modifiers_equal(&be1.modifier, &be2.modifier)
-}
-
-fn bin_modifiers_equal(bm1: &Option<BinModifier>, bm2: &Option<BinModifier>) -> bool {
-    match (bm1, bm2) {
-        (Some(bm1), Some(bm2)) => bm1 == bm2,
-        (None, None) => true,
-        _ => {
-            // None, Some
-            let default_value = BinModifier::default();
-            let left = bm1.as_ref().unwrap_or(&default_value);
-            let right = bm2.as_ref().unwrap_or(&default_value);
-            left == right
-        }
-    }
-}
-
-fn function_exprs_equal(fe1: &FunctionExpr, fe2: &FunctionExpr) -> bool {
-    fe1.name == fe2.name
-        && fe1.keep_metric_names == fe2.keep_metric_names
-        && fe1.arg_idx_for_optimization == fe2.arg_idx_for_optimization
-        && fe1.is_scalar == fe2.is_scalar
-        && fe1.return_type == fe2.return_type
-        && expr_vec_equals(&fe1.args, &fe2.args)
-}
-
-fn expr_vec_equals(exprs1: &Vec<Expr>, exprs2: &Vec<Expr>) -> bool {
-    if exprs1.len() != exprs2.len() {
+pub(super) fn string_vecs_equal_unordered(a: &[String], b: &[String]) -> bool {
+    if a.len() != b.len() {
         return false;
     }
-    exprs1
-        .iter()
-        .zip(exprs2.iter())
-        .all(|(e1, e2)| expr_equals(e1, e2))
+    let hash_a: AHashSet<_> = a.iter().collect();
+    b.iter().all(|x| hash_a.contains(x))
 }
 
 #[cfg(test)]

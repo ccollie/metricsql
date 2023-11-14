@@ -3,11 +3,12 @@ use std::collections::hash_map::Entry;
 
 use ahash::AHashMap;
 
+use metricsql_parser::ast::{VectorMatchCardinality, VectorMatchModifier};
 use metricsql_parser::binaryop::{
     get_scalar_binop_handler, get_scalar_comparison_handler, BinopFunc,
 };
-use metricsql_parser::common::{Labels, Operator, VectorMatchCardinality, VectorMatchModifier};
-use metricsql_parser::prelude::BinModifier;
+use metricsql_parser::common::Operator;
+use metricsql_parser::prelude::{BinModifier, Labels};
 
 use crate::execution::utils::remove_empty_series;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
@@ -639,14 +640,6 @@ fn create_series_map_by_tag_set(
 }
 
 const NONE_MATCHING: Option<VectorMatchModifier> = None;
-
-fn get_match_modifier<'a>(bfa: &'a BinaryOpFuncArg) -> &'a Option<VectorMatchModifier> {
-    if let Some(modifier) = &bfa.modifier {
-        &modifier.matching
-    } else {
-        &NONE_MATCHING
-    }
-}
 
 pub(in crate::execution) fn is_scalar(arg: &[Timeseries]) -> bool {
     if arg.len() != 1 {

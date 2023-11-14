@@ -1,8 +1,10 @@
-use metricsql_parser::common::{BinModifier, Operator};
-use metricsql_parser::functions::RollupFunction;
 use std::sync::Arc;
+
 use tinyvec::TinyVec;
 use tracing::{field, trace_span, Span};
+
+use metricsql_parser::functions::RollupFunction;
+use metricsql_parser::prelude::{BinModifier, Operator};
 
 use crate::execution::binary::{exec_binop, BinaryOpFuncArg};
 use crate::execution::dag::NodeArg;

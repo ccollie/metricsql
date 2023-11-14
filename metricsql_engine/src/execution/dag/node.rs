@@ -1,7 +1,7 @@
 use std::default::Default;
 use std::str::FromStr;
 
-use metricsql_parser::ast::DurationExpr;
+use metricsql_parser::ast::{DurationExpr, StringLiteral};
 
 use crate::execution::dag::subquery_node::SubqueryNode;
 use crate::execution::dag::transform_node::AbsentTransformNode;
@@ -176,6 +176,12 @@ impl Default for DAGNode {
 impl From<String> for DAGNode {
     fn from(s: String) -> Self {
         DAGNode::Value(QueryValue::String(s))
+    }
+}
+
+impl From<StringLiteral> for DAGNode {
+    fn from(s: StringLiteral) -> Self {
+        DAGNode::Value(QueryValue::String(s.to_string()))
     }
 }
 

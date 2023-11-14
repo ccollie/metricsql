@@ -1,11 +1,13 @@
-use std::collections::BTreeSet;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 
+use ahash::AHashSet;
 use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::Xxh3;
 
-use crate::common::{LabelFilter, LabelFilterExpr, StringExpr, Value, ValueType, NAME_LABEL};
+use crate::ast::{LabelFilterExpr, Prettier, StringExpr};
+use crate::common::{Value, ValueType};
+use crate::label::{LabelFilter, NAME_LABEL};
 use crate::parser::ParseResult;
 
 /// InterpolatedSelector represents a MetricsQL metric in the context of a WITH expression.
@@ -123,6 +125,12 @@ impl Display for InterpolatedSelector {
     }
 }
 
+impl Prettier for InterpolatedSelector {
+    fn needs_split(&self, _max: usize) -> bool {
+        false
+    }
+}
+
 impl PartialEq<InterpolatedSelector> for InterpolatedSelector {
     fn eq(&self, other: &InterpolatedSelector) -> bool {
         if self.matchers.len() != other.matchers.len() {
@@ -131,7 +139,7 @@ impl PartialEq<InterpolatedSelector> for InterpolatedSelector {
         let mut hasher: Xxh3 = Xxh3::new();
 
         if !self.matchers.is_empty() {
-            let mut set: BTreeSet<u64> = BTreeSet::new();
+            let mut set: AHashSet<u64> = AHashSet::new();
             for filter in &self.matchers {
                 hasher.reset();
                 filter.update_hash(&mut hasher);

@@ -3,8 +3,8 @@ pub use check_ast::*;
 pub use expr::*;
 pub use expr_tree_node::*;
 pub use interpolated_selector::*;
-pub use push_down_filters::*;
-pub use simplifier::*;
+pub use label_filter_expr::*;
+pub use string_expr::*;
 pub(crate) use utils::*;
 
 mod adjust_comparison_ops;
@@ -12,10 +12,8 @@ mod check_ast;
 mod expr;
 mod expr_tree_node;
 mod interpolated_selector;
-mod push_down_filters;
-#[cfg(test)]
-mod push_down_filters_test;
-mod simplifier;
+mod label_filter_expr;
+mod string_expr;
 pub mod utils;
 mod visitor;
 
@@ -67,6 +65,17 @@ pub trait Prettier: std::fmt::Display {
 
 fn indent(n: usize) -> String {
     INDENT_STR.repeat(n)
+}
+
+pub(super) fn prettify_args(args: &[Expr], level: usize, max: usize) -> String {
+    if args.is_empty() {
+        return "".to_string();
+    }
+    let mut v = Vec::with_capacity(args.len());
+    for ex in args {
+        v.push(ex.pretty(level, max));
+    }
+    v.join(",\n")
 }
 
 #[cfg(test)]

@@ -3,13 +3,13 @@
 
 // Original Source: https://github.com/GreptimeTeam/promql-parser/blob/main/src/parser/ast.rs
 use crate::ast::{
-    AggregationExpr, BExpression, BinaryExpr, Expr, FunctionExpr, InterpolatedSelector, MetricExpr,
-    NumberLiteral, ParensExpr, RollupExpr, UnaryExpr, WithExpr,
+    AggregationExpr, BExpression, BinModifier, BinaryExpr, Expr, FunctionExpr,
+    InterpolatedSelector, MetricExpr, NumberLiteral, ParensExpr, RollupExpr, StringExpr, UnaryExpr,
+    VectorMatchCardinality, WithExpr,
 };
-use crate::common::{
-    BinModifier, StringExpr, Value, ValueType, VectorMatchCardinality, NAME_LABEL,
-};
+use crate::common::{Value, ValueType};
 use crate::functions::BuiltinFunction;
+use crate::label::NAME_LABEL;
 
 /// check_ast checks the validity of the provided AST. This includes type checking.
 /// Recursively check correct typing for child nodes and raise errors in case of bad typing.

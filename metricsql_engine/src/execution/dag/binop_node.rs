@@ -1,5 +1,6 @@
-use metricsql_parser::common::{BinModifier, Operator};
 use serde::{Deserialize, Serialize};
+
+use metricsql_parser::prelude::{BinModifier, Operator};
 
 use crate::execution::binary::{
     eval_scalar_vector_binop, eval_string_string_binop, eval_vector_scalar_binop,
