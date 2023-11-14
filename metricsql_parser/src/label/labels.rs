@@ -47,7 +47,7 @@ impl Labels {
         Self(labels)
     }
 
-    pub fn from_iter<I>(iter: I) -> Self
+    pub fn new_from_iter<I>(iter: I) -> Self
     where
         I: IntoIterator<Item = Label>,
     {

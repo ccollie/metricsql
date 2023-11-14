@@ -48,7 +48,7 @@ impl Display for VectorMatchModifier {
 
 impl VectorMatchModifier {
     pub fn new(labels: Vec<String>, is_on: bool) -> Self {
-        let names = Labels::from_iter(labels);
+        let names = Labels::new_from_iter(labels);
         if is_on {
             VectorMatchModifier::On(names)
         } else {

@@ -118,13 +118,13 @@ fn expand_binary_operator(
                 VectorMatchModifier::On(labels) => {
                     let new_labels = expand_modifier_args(symbols, was, labels.as_ref())?;
                     if labels != &new_labels {
-                        *labels = Labels::from_iter(new_labels);
+                        *labels = Labels::new_from_iter(new_labels);
                     }
                 }
                 VectorMatchModifier::Ignoring(labels) => {
                     let new_labels = expand_modifier_args(symbols, was, labels.as_ref())?;
                     if labels != &new_labels {
-                        *labels = Labels::from_iter(new_labels);
+                        *labels = Labels::new_from_iter(new_labels);
                     }
                 }
             }
@@ -133,12 +133,12 @@ fn expand_binary_operator(
                 VectorMatchCardinality::ManyToOne(labels) => {
                     let new_labels = expand_modifier_args(symbols, was, labels.as_ref())?;
                     modifier.card =
-                        VectorMatchCardinality::ManyToOne(Labels::from_iter(new_labels));
+                        VectorMatchCardinality::ManyToOne(Labels::new_from_iter(new_labels));
                 }
                 VectorMatchCardinality::OneToMany(labels) => {
                     let new_labels = expand_modifier_args(symbols, was, labels.as_ref())?;
                     modifier.card =
-                        VectorMatchCardinality::ManyToOne(Labels::from_iter(new_labels));
+                        VectorMatchCardinality::ManyToOne(Labels::new_from_iter(new_labels));
                 }
                 _ => {}
             }

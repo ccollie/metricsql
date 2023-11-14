@@ -92,15 +92,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // next
-    pub fn next(&mut self) -> Option<&TokenWithLocation<'a>> {
-        if self.is_eof() {
-            return None;
-        }
-        self.cursor += 1;
-        self.tokens.get(self.cursor)
-    }
-
     pub(super) fn next_token(&mut self) -> Option<&TokenWithLocation<'a>> {
         if self.is_eof() {
             return None;
