@@ -1,9 +1,10 @@
-use clone_dyn::clone_dyn;
 use std::fmt::Debug;
 use std::sync::Arc;
+
+use clone_dyn::clone_dyn;
 use tinyvec::TinyVec;
 
-use crate::functions::rollup::TimeseriesMap;
+use crate::functions::rollup::TimeSeriesMap;
 use crate::types::Timestamp;
 use crate::{QueryValue, RuntimeResult};
 
@@ -36,11 +37,11 @@ pub struct RollupFuncArg<'a> {
     /// Time window for rollup calculations.
     pub(super) window: i64,
 
-    pub(super) tsm: Option<Arc<TimeseriesMap>>,
+    pub(super) tsm: Option<Arc<TimeSeriesMap>>,
 }
 
 impl<'a> RollupFuncArg<'a> {
-    pub(crate) fn get_tsm(&self) -> Arc<TimeseriesMap> {
+    pub(crate) fn get_tsm(&self) -> Arc<TimeSeriesMap> {
         if let Some(tsm) = &self.tsm {
             tsm.clone()
         } else {

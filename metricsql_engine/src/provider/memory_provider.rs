@@ -101,12 +101,12 @@ impl Storage {
                     MetricName::default()
                 };
 
-                QueryResult {
+                return Some(QueryResult {
                     metric: metric_name,
                     values,
                     timestamps,
                     rows_processed: 0,
-                };
+                });
             }
         }
         None

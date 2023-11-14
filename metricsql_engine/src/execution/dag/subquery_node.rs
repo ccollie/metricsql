@@ -1,7 +1,9 @@
+use std::sync::Arc;
+
+use tracing::{field, trace_span, Span};
+
 use metricsql_parser::ast::{DurationExpr, Expr};
 use metricsql_parser::prelude::RollupFunction;
-use std::sync::Arc;
-use tracing::{field, trace_span, Span};
 
 use crate::execution::dag::utils::{
     adjust_series_by_offset, expand_single_value, get_at_value, resolve_at_value,
@@ -73,7 +75,7 @@ impl ExecutableNode for SubqueryNode {
 
             // todo: simply return the scalar. The value would be expanded later in the evaluator
             let mut val = self.eval_without_at(ctx, &ec_new)?;
-            expand_single_value(&mut val, &ec)?;
+            expand_single_value(&mut val, ec)?;
             val
         } else {
             self.eval_without_at(ctx, ec)?

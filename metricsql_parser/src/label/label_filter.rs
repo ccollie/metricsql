@@ -73,7 +73,9 @@ impl Hash for MatchOp {
     }
 }
 
-#[derive(Default, Debug, Clone, PartialEq, Eq, PartialOrd, Copy, Hash, Serialize, Deserialize)]
+#[derive(
+    Default, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Copy, Hash, Serialize, Deserialize,
+)]
 pub enum LabelFilterOp {
     #[default]
     Equal,
@@ -128,7 +130,7 @@ impl fmt::Display for LabelFilterOp {
 }
 
 /// LabelFilter represents MetricsQL label filter like `foo="bar"`.
-#[derive(Default, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct LabelFilter {
     pub op: LabelFilterOp,
 
@@ -268,19 +270,25 @@ impl LabelFilter {
     }
 }
 
+impl PartialEq<LabelFilter> for LabelFilter {
+    fn eq(&self, other: &Self) -> bool {
+        self.op.eq(&other.op) && self.label.eq(&other.label) && self.value.eq(&other.value)
+    }
+}
+
 impl PartialOrd for LabelFilter {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        let cmp = self.label.cmp(&other.label);
-        if cmp != Ordering::Equal {
-            return Some(cmp);
-        }
-        Some(self.value.cmp(&other.value))
+        Some(self.cmp(other))
     }
 }
 
 impl Ord for LabelFilter {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.partial_cmp(other).unwrap()
+        let cmp = self.label.cmp(&other.label);
+        if cmp != Ordering::Equal {
+            return cmp;
+        }
+        self.value.cmp(&other.value)
     }
 }
 
@@ -297,7 +305,7 @@ impl fmt::Display for LabelFilter {
     }
 }
 
-#[derive(Default, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Matchers(Vec<LabelFilter>);
 
 impl Matchers {

@@ -342,7 +342,7 @@ pub(crate) fn vmrange_buckets_to_le(tss: Vec<Timeseries>) -> Vec<Timeseries> {
             }
         }
 
-        for xs in xss.into_iter() {
+        for xs in xss.iter_mut() {
             if let Some(ts) = xs.pop_timeseries() {
                 rvs.push(ts);
             }

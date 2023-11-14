@@ -1,8 +1,7 @@
 use ahash::{AHashMap, AHashSet};
 use regex::escape;
 
-use metricsql_parser::common::Operator;
-use metricsql_parser::prelude::{BinaryExpr, Expr, LabelFilter};
+use metricsql_parser::prelude::{BinaryExpr, Expr, LabelFilter, Operator};
 
 use crate::{Tag, Timeseries};
 

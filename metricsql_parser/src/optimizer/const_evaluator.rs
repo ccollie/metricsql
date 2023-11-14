@@ -2,9 +2,11 @@ use num_traits::FloatConst;
 
 use metricsql_common::prelude::{datetime_part, timestamp_secs_to_utc_datetime, DateTimePart};
 
-use crate::ast::{BinaryExpr, DurationExpr, Expr, FunctionExpr, NumberLiteral, UnaryExpr};
+use crate::ast::{
+    BinaryExpr, DurationExpr, Expr, FunctionExpr, NumberLiteral, Operator, UnaryExpr,
+};
 use crate::binaryop::{scalar_binary_operation, string_compare};
-use crate::common::{Operator, RewriteRecursion, TreeNodeRewriter};
+use crate::common::{RewriteRecursion, TreeNodeRewriter};
 use crate::functions::{BuiltinFunction, TransformFunction};
 use crate::parser::{parse_number, ParseError, ParseResult};
 
@@ -95,7 +97,7 @@ impl ConstEvaluator {
             Expr::Parens(_) => true,
             // only handle immutable scalar functions
             Expr::Function(_) => true,
-            Expr::Number(_)
+            Expr::NumberLiteral(_)
             | Expr::Duration(_)
             | Expr::StringLiteral(_)
             | Expr::UnaryOperator(_)
@@ -119,7 +121,7 @@ impl ConstEvaluator {
     fn handle_unary_expr(ue: UnaryExpr) -> ParseResult<Expr> {
         let mut ue = ue;
         match ue.expr.as_mut() {
-            Expr::Number(n) => {
+            Expr::NumberLiteral(n) => {
                 return Ok(Expr::from(n.value * -1.0));
             }
             Expr::Duration(d) => {
@@ -172,7 +174,7 @@ impl ConstEvaluator {
                 }
             }
             // add/subtract number as secs to duration
-            (Expr::Duration(ln), Expr::Number(NumberLiteral { value }), op)
+            (Expr::Duration(ln), Expr::NumberLiteral(NumberLiteral { value }), op)
                 if !ln.requires_step() && (op == Operator::Add || op == Operator::Sub) =>
             {
                 let secs = *value * 1e3_f64;
@@ -182,7 +184,7 @@ impl ConstEvaluator {
             }
             // handle something like 2.5i * 2. Note that we don't handle + and - because meaning would be
             // ambiguous (e.g. 2.5i + 2 could be 2.5i + 2.0 or 2.5 + 2.0 secs)
-            (Expr::Duration(ln), Expr::Number(NumberLiteral { value }), op)
+            (Expr::Duration(ln), Expr::NumberLiteral(NumberLiteral { value }), op)
                 if ln.requires_step() && (op == Operator::Mul || op == Operator::Div) =>
             {
                 if let DurationExpr::StepValue(step_value) = ln {
@@ -191,7 +193,7 @@ impl ConstEvaluator {
                     return Ok(Expr::Duration(dur));
                 }
             }
-            (Expr::Number(ln), Expr::Number(rn), op) => {
+            (Expr::NumberLiteral(ln), Expr::NumberLiteral(rn), op) => {
                 let n = scalar_binary_operation(ln.value, rn.value, op, is_bool)?;
                 return Ok(Expr::from(n));
             }
@@ -214,7 +216,7 @@ impl ConstEvaluator {
 
     fn get_single_scalar_arg(fe: &FunctionExpr) -> Option<f64> {
         if fe.args.len() == 1 {
-            if let Expr::Number(val) = &fe.args[0] {
+            if let Expr::NumberLiteral(val) = &fe.args[0] {
                 return Some(val.value);
             }
         }
@@ -318,7 +320,7 @@ fn handle_scalar_fn(arg: &Expr) -> Option<f64> {
             let n = parse_number(s).map_or_else(|_| f64::NAN, |n| n);
             Some(n)
         }
-        Expr::Number(n) => Some(n.value),
+        Expr::NumberLiteral(n) => Some(n.value),
         _ => None,
     }
 }

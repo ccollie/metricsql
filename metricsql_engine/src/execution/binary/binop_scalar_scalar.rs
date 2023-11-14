@@ -1,4 +1,4 @@
-use metricsql_parser::common::Operator;
+use metricsql_parser::ast::Operator;
 
 use crate::{RuntimeError, RuntimeResult};
 

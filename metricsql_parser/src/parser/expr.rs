@@ -1,10 +1,10 @@
 use std::str::FromStr;
 
 use crate::ast::{
-    BinModifier, BinaryExpr, Expr, StringExpr, UnaryExpr, VectorMatchCardinality,
+    BinModifier, BinaryExpr, Expr, Operator, StringExpr, UnaryExpr, VectorMatchCardinality,
     VectorMatchModifier,
 };
-use crate::common::{Operator, ValueType};
+use crate::common::ValueType;
 use crate::functions::AggregateFunction;
 use crate::label::Labels;
 use crate::parser::function::parse_func_expr;

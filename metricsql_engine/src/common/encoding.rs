@@ -19,12 +19,6 @@ pub fn unmarshal_var_int<T: VarInt>(src: &[u8]) -> RuntimeResult<(T, &[u8])> {
     }
 }
 
-/// appends marshaled v to dst and returns the result.
-#[inline]
-pub fn marshal_var_u64(dst: &mut Vec<u8>, v: u64) {
-    marshal_var_int(dst, v)
-}
-
 /// returns unmarshalled u64 from src and returns the remaining tail from src.
 #[inline]
 pub fn unmarshal_var_u64(src: &[u8]) -> RuntimeResult<(u64, &[u8])> {

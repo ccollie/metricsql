@@ -30,7 +30,7 @@ pub fn check_ast(expr: Expr) -> Result<Expr, String> {
         Parens(ex) => check_ast_for_parens(ex),
         StringExpr(ex) => check_ast_for_string_expr(ex),
         With(ex) => check_ast_for_with(ex),
-        StringLiteral(_) | Number(_) | Duration(_) => Ok(expr),
+        StringLiteral(_) | NumberLiteral(_) | Duration(_) => Ok(expr),
         WithSelector(ws) => check_ast_for_interpolated_vector_selector(ws),
     }
 }
@@ -197,7 +197,7 @@ fn check_ast_for_rollup(mut ex: RollupExpr) -> Result<Expr, String> {
                 "subquery @ modifier must be a scalar or expression, got {at_type} instead",
             ));
         }
-        if let Expr::Number(NumberLiteral { value, .. }) = at.as_ref() {
+        if let Expr::NumberLiteral(NumberLiteral { value, .. }) = at.as_ref() {
             if value.is_infinite()
                 || value.is_nan()
                 || value >= &(i64::MAX as f64)

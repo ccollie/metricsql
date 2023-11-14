@@ -100,7 +100,7 @@ pub fn validate_function_args(func: &BuiltinFunction, args: &[Expr]) -> ParseRes
 
         match actual {
             // technically should not occur as a function parameter
-            Expr::Duration(_) | Expr::Number(_) => {
+            Expr::Duration(_) | Expr::NumberLiteral(_) => {
                 if expected_type.is_scalar() {
                     continue;
                 }

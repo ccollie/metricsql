@@ -1,4 +1,4 @@
-use crate::common::Operator;
+use crate::ast::Operator;
 use crate::parser::{ParseError, ParseResult};
 
 pub type BinopFunc = fn(left: f64, right: f64) -> f64;

@@ -57,7 +57,7 @@ pub fn should_expand(expr: &Expr) -> bool {
     use Expr::*;
 
     match expr {
-        StringLiteral(_) | Number(_) | Duration(_) => false,
+        StringLiteral(_) | NumberLiteral(_) | Duration(_) => false,
         BinaryOperator(be) => should_expand(&be.left) || should_expand(&be.right),
         MetricExpression(me) => me.is_only_metric_group(),
         StringExpr(se) => !se.is_expanded(),

@@ -104,7 +104,7 @@ impl DAGEvaluator {
                         buf = Some(Vec::with_capacity(self.max_list_len));
                     }
                     match buf.as_mut() {
-                        Some(mut buf) => {
+                        Some(buf) => {
                             dependencies
                                 .par_iter_mut()
                                 .map(|dependency| {
@@ -114,7 +114,7 @@ impl DAGEvaluator {
                                         value,
                                     }
                                 })
-                                .collect_into_vec(&mut buf);
+                                .collect_into_vec(buf);
 
                             // set values for subsequent nodes
                             for ExecResult { index, value } in buf.iter_mut() {

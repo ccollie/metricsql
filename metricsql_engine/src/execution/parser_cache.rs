@@ -3,8 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use lru_time_cache::LruCache;
 
-use metricsql_parser::ast::Expr;
-use metricsql_parser::common::Operator;
+use metricsql_parser::ast::{Expr, Operator};
 use metricsql_parser::parser;
 use metricsql_parser::parser::ParseError;
 

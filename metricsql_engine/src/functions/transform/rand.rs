@@ -31,15 +31,22 @@ fn create_rng(tfa: &mut TransformFuncArg) -> RuntimeResult<StdRng> {
     }
 }
 
+fn rand_fn_inner<F>(tfa: &mut TransformFuncArg, f: F) -> RuntimeResult<Vec<Timeseries>>
+where
+    F: Fn(&mut StdRng) -> f64,
+{
+    let mut rng: StdRng = create_rng(tfa)?;
+    let mut tss = eval_number(&tfa.ec, 0.0)?;
+    for value in tss[0].values.iter_mut() {
+        *value = f(&mut rng);
+    }
+    Ok(tss)
+}
+
 macro_rules! create_rand_func {
     ($name: ident, $f:expr) => {
         pub(crate) fn $name(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-            let mut rng: StdRng = create_rng(tfa)?;
-            let mut tss = eval_number(&tfa.ec, 0.0)?;
-            for value in tss[0].values.iter_mut() {
-                *value = $f(&mut rng);
-            }
-            Ok(tss)
+            rand_fn_inner(tfa, $f)
         }
     };
 }

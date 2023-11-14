@@ -260,7 +260,7 @@ pub fn is_binary_op(op: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::common::is_binary_op;
+    use crate::ast::is_binary_op;
 
     #[test]
     fn test_is_binary_op_success() {

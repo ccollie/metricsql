@@ -1,7 +1,6 @@
 use tracing::{field, trace_span, Span};
 
-use metricsql_parser::binaryop::get_scalar_binop_handler;
-use metricsql_parser::common::Operator;
+use metricsql_parser::prelude::{get_scalar_binop_handler, Operator};
 
 use crate::{InstantVector, QueryValue, RuntimeResult};
 

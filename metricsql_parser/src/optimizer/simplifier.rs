@@ -21,8 +21,8 @@
 use std::ops::Deref;
 
 use crate::ast::utils::{expr_contains, is_null, is_one, is_op_with, is_zero};
-use crate::ast::{BinaryExpr, Expr, ParensExpr};
-use crate::common::{Operator, RewriteRecursion, TreeNode, TreeNodeRewriter};
+use crate::ast::{BinaryExpr, Expr, Operator, ParensExpr};
+use crate::common::{RewriteRecursion, TreeNode, TreeNodeRewriter};
 use crate::optimizer::const_evaluator::ConstEvaluator;
 use crate::optimizer::push_down_filters::{can_pushdown_filters, optimize_label_filters_inplace};
 use crate::parser::{ParseError, ParseResult};

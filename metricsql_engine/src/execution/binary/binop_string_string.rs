@@ -1,5 +1,4 @@
-use metricsql_parser::binaryop::string_compare;
-use metricsql_parser::common::Operator;
+use metricsql_parser::prelude::{string_compare, Operator};
 
 use crate::{QueryValue, RuntimeError, RuntimeResult};
 

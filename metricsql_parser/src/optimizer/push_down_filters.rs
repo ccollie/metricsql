@@ -4,8 +4,9 @@ use std::vec::Vec;
 
 use ahash::AHashSet;
 
-use crate::ast::{AggregateModifier, AggregationExpr, Expr, RollupExpr, VectorMatchModifier};
-use crate::common::Operator;
+use crate::ast::{
+    AggregateModifier, AggregationExpr, Expr, Operator, RollupExpr, VectorMatchModifier,
+};
 use crate::label::{LabelFilter, NAME_LABEL};
 use crate::prelude::VectorMatchCardinality;
 

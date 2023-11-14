@@ -83,7 +83,7 @@ pub fn group_series_by_match_modifier(
         for ts in series.iter_mut() {
             ts.metric_name.sort_tags();
             let key = ts.metric_name.signature_by_match_modifier(modifier);
-            m.entry(key).or_insert(vec![]).push(std::mem::take(ts));
+            m.entry(key).or_default().push(std::mem::take(ts));
         }
     };
 

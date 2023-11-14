@@ -17,9 +17,9 @@ pub(crate) fn rollup_outlier_iqr(rfa: &RollupFuncArg) -> f64 {
     let iqr = 1.5 * (q75 - q25);
 
     let v = values.last().unwrap();
-    return if *v > q75 + iqr || *v < q25 - iqr {
+    if *v > q75 + iqr || *v < q25 - iqr {
         *v
     } else {
         f64::NAN
-    };
+    }
 }

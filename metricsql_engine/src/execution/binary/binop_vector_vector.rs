@@ -3,11 +3,10 @@ use std::collections::hash_map::Entry;
 
 use ahash::AHashMap;
 
-use metricsql_parser::ast::{VectorMatchCardinality, VectorMatchModifier};
+use metricsql_parser::ast::{Operator, VectorMatchCardinality, VectorMatchModifier};
 use metricsql_parser::binaryop::{
     get_scalar_binop_handler, get_scalar_comparison_handler, BinopFunc,
 };
-use metricsql_parser::common::Operator;
 use metricsql_parser::prelude::{BinModifier, Labels};
 
 use crate::execution::utils::remove_empty_series;
@@ -501,7 +500,7 @@ fn binary_op_or(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
 
     for (sig, ref mut tss_right) in m_right.into_iter() {
         if let Some(tss_left) = m_left.get_mut(&sig) {
-            fill_left_nans_with_right_values(tss_left, &tss_right);
+            fill_left_nans_with_right_values(tss_left, tss_right);
         } else {
             // add right if it is not in left
             rvs.append(tss_right);
@@ -516,7 +515,7 @@ fn binary_op_or(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let left_len = left.len();
 
     rvs.reserve(left_len);
-    rvs.splice(0..1, left.into_iter());
+    rvs.splice(0..1, left);
 
     Ok(rvs)
 }
@@ -575,7 +574,7 @@ fn fill_left_empty_with_right_values(left_ts: &mut Timeseries, right_ts: &Timese
 #[inline]
 /// Fill gaps in tss_left with values from tss_right as Prometheus does.
 /// See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/552
-fn fill_left_nans_with_right_values(tss_left: &mut Vec<Timeseries>, tss_right: &[Timeseries]) {
+fn fill_left_nans_with_right_values(tss_left: &mut [Timeseries], tss_right: &[Timeseries]) {
     for ts_left in tss_left.iter_mut() {
         for (i, left_value) in ts_left.values.iter_mut().enumerate() {
             if !left_value.is_nan() {

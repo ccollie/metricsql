@@ -111,7 +111,7 @@ impl DAGBuilder {
             Expr::Duration(de) => Ok(self.push_node(DAGNode::from(de))),
             Expr::MetricExpression(_) => self.create_selector_node(expr),
             Expr::Function(fe) => self.create_function_node(expr, fe),
-            Expr::Number(n) => Ok(self.push_node(DAGNode::from(n.value))),
+            Expr::NumberLiteral(n) => Ok(self.push_node(DAGNode::from(n.value))),
             Expr::Parens(parens) => self.create_parens_node(expr, parens),
             Expr::Rollup(re) => self.create_rollup_node(
                 expr,
@@ -147,7 +147,7 @@ impl DAGBuilder {
 
     fn create_node_arg(&mut self, expr: &Expr, parent_idx: usize) -> RuntimeResult<NodeArg> {
         match expr {
-            Expr::Number(value) => Ok(NodeArg::Value(QueryValue::from(value.value))),
+            Expr::NumberLiteral(value) => Ok(NodeArg::Value(QueryValue::from(value.value))),
             Expr::StringLiteral(value) => Ok(NodeArg::Value(QueryValue::from(value.as_ref()))),
             _ => {
                 let idx = self.create_node(expr)?;
@@ -317,7 +317,7 @@ impl DAGBuilder {
 
         let at_arg = if let Some(at) = &re.at {
             match at.as_ref() {
-                Expr::Number(n) => {
+                Expr::NumberLiteral(n) => {
                     at_value = Some((n.value * 1000_f64) as i64);
                     Some(NodeArg::Value(QueryValue::from(n.value)))
                 }
@@ -439,7 +439,7 @@ impl DAGBuilder {
         let idx = self.reserve_node();
 
         let res = match &unary.expr.as_ref() {
-            Expr::Number(v) => {
+            Expr::NumberLiteral(v) => {
                 let value = v.value * -1.0;
                 DAGNode::Value(value.into())
             }
@@ -473,7 +473,7 @@ impl DAGBuilder {
 
         // ops with 2 constant operands have already been handled by the optimizer
         let res = match (&be.left.as_ref(), &be.right.as_ref()) {
-            (expr_left, Expr::Number(v)) if is_left_vector => {
+            (expr_left, Expr::NumberLiteral(v)) if is_left_vector => {
                 let left_idx = self.create_dependency(expr_left, idx)?;
                 // vector_scalar
                 let node = VectorScalarBinaryNode {
@@ -486,7 +486,7 @@ impl DAGBuilder {
                 };
                 DAGNode::VectorScalarOp(node)
             }
-            (Expr::Number(v), expr_right) if is_right_vector => {
+            (Expr::NumberLiteral(v), expr_right) if is_right_vector => {
                 let right_idx = self.create_dependency(expr_right, idx)?;
                 // scalar_vector
                 let node = ScalarVectorBinaryNode {
@@ -616,7 +616,7 @@ fn is_vector_expr(node: &Expr) -> bool {
 
 #[inline]
 fn is_expr_const(expr: &Expr) -> bool {
-    matches!(expr, Expr::Number(_) | Expr::StringLiteral(_))
+    matches!(expr, Expr::NumberLiteral(_) | Expr::StringLiteral(_))
 }
 
 // todo: COW

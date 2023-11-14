@@ -19,14 +19,12 @@
 
 use ahash::AHashSet;
 
-use crate::ast::{BinaryExpr, Expr, NumberLiteral, ParensExpr};
-use crate::common::Operator;
-use crate::prelude::MetricExpr;
+use crate::ast::{BinaryExpr, Expr, MetricExpr, NumberLiteral, Operator, ParensExpr};
 
 /// Create a selector expression based on a qualified or unqualified column name
 ///
 /// example:
-/// ```
+/// ``` rust
 /// use crate::metricsql_parser::ast::utils::*;
 /// let c = selector("latency");
 /// ```
@@ -57,7 +55,7 @@ pub fn expr_contains(expr: &Expr, needle: &Expr, search_op: Operator) -> bool {
 
 pub fn is_number_value(s: &Expr, val: f64) -> bool {
     match s {
-        Expr::Number(NumberLiteral { value, .. }) => *value == val,
+        Expr::NumberLiteral(NumberLiteral { value, .. }) => *value == val,
         _ => false,
     }
 }
@@ -72,7 +70,7 @@ pub fn is_one(s: &Expr) -> bool {
 
 pub fn is_null(expr: &Expr) -> bool {
     match expr {
-        Expr::Number(NumberLiteral { value, .. }) => value.is_nan(),
+        Expr::NumberLiteral(NumberLiteral { value, .. }) => value.is_nan(),
         _ => false,
     }
 }
@@ -90,8 +88,8 @@ pub fn is_op_with(target_op: Operator, haystack: &Expr, needle: &Expr) -> bool {
 /// Returns None if the filters array is empty.
 ///
 /// # Example
-/// ```
-/// # use crate::metricsql_parser::ast::utils::{selector, number, conjunction};
+/// ``` rust
+/// use crate::metricsql_parser::ast::utils::{selector, number, conjunction};
 /// // a=1 AND b=2
 /// let expr = selector("a").eq(number(1.0)).and(selector("b").eq(number(2.0)));
 ///

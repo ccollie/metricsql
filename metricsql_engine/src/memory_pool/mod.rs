@@ -303,9 +303,7 @@ mod tests {
         let err = a1.try_grow(10).unwrap_err();
         assert_eq!(
             err.to_string(),
-            "Internal error: inner memory reservation not initialized. \
-             This was likely caused by a bug in DataFusion's code and we \
-             would welcome that you file an bug report in our issue tracker"
+            "Internal Error: inner memory reservation not initialized"
         );
 
         // multiple initializations

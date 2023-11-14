@@ -43,7 +43,7 @@ mod tests {
 
             let expr = parse_or_panic(s);
             match expr {
-                Expr::Number(ne) => {
+                Expr::NumberLiteral(ne) => {
                     let actual = ne.value;
                     let valid = if actual.is_nan() {
                         expected_val.is_nan()

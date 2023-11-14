@@ -92,6 +92,6 @@ impl TimestampTrait for Timestamp {
         }
         let mut t = *self;
         t -= t % (duration.as_millis() as i64);
-        return t;
+        t
     }
 }

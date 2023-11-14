@@ -386,9 +386,7 @@ impl MetricName {
 
     pub(crate) fn count_label_values(&self, hm: &mut AHashMap<String, AHashMap<String, usize>>) {
         // duplication, I know
-        let label_counts = hm
-            .entry(METRIC_NAME_LABEL.to_string())
-            .or_insert_with(AHashMap::new);
+        let label_counts = hm.entry(METRIC_NAME_LABEL.to_string()).or_default();
         *label_counts
             .entry(self.metric_group.to_string())
             .or_insert(0) += 1;
@@ -445,7 +443,7 @@ fn count_label_value(
     label: &String,
     value: &String,
 ) {
-    let label_counts = hm.entry(label.to_string()).or_insert_with(AHashMap::new);
+    let label_counts = hm.entry(label.to_string()).or_default();
     *label_counts.entry(value.to_string()).or_insert(0) += 1;
 }
 

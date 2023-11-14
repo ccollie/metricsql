@@ -14,9 +14,9 @@ use metricsql_common::duration::fmt_duration_ms;
 
 use crate::ast::utils::string_vecs_equal_unordered;
 use crate::ast::{
-    expr_equals, indent, prettify_args, Prettier, StringExpr, MAX_CHARACTERS_PER_LINE,
+    expr_equals, indent, prettify_args, Operator, Prettier, StringExpr, MAX_CHARACTERS_PER_LINE,
 };
-use crate::common::{hash_f64, write_comma_separated, write_number, Operator, Value, ValueType};
+use crate::common::{hash_f64, write_comma_separated, write_number, Value, ValueType};
 use crate::functions::{AggregateFunction, BuiltinFunction, TransformFunction};
 use crate::label::{LabelFilter, LabelFilterOp, Labels, NAME_LABEL};
 use crate::parser::{escape_ident, ParseError, ParseResult};
@@ -547,7 +547,7 @@ impl Eq for NumberLiteral {}
 
 impl ExpressionNode for NumberLiteral {
     fn cast(self) -> Expr {
-        Expr::Number(self.clone())
+        Expr::NumberLiteral(self.clone())
     }
 }
 
@@ -833,6 +833,21 @@ impl Display for MetricExpr {
             write!(f, "}}")?;
         }
         Ok(())
+    }
+}
+
+impl From<String> for MetricExpr {
+    fn from(name: String) -> Self {
+        MetricExpr::new(name)
+    }
+}
+
+impl Neg for MetricExpr {
+    type Output = UnaryExpr;
+
+    fn neg(self) -> Self::Output {
+        let ex = Expr::MetricExpression(self);
+        UnaryExpr { expr: Box::new(ex) }
     }
 }
 
@@ -1882,7 +1897,7 @@ impl Prettier for WithArgExpr {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Expr {
     /// A single scalar number.
-    Number(NumberLiteral),
+    NumberLiteral(NumberLiteral),
 
     Duration(DurationExpr),
 
@@ -1933,14 +1948,14 @@ pub type BExpression = Box<Expr>;
 impl Expr {
     pub fn is_scalar(expr: &Expr) -> bool {
         match expr {
-            Expr::Duration(_) | Expr::Number(_) => true,
+            Expr::Duration(_) | Expr::NumberLiteral(_) => true,
             Expr::Function(f) => f.is_scalar,
             _ => false,
         }
     }
 
     pub fn is_number(expr: &Expr) -> bool {
-        matches!(expr, Expr::Number(_))
+        matches!(expr, Expr::NumberLiteral(_))
     }
 
     pub fn is_string(expr: &Expr) -> bool {
@@ -1948,7 +1963,7 @@ impl Expr {
     }
 
     pub fn is_primitive(expr: &Expr) -> bool {
-        matches!(expr, Expr::Number(_) | Expr::StringLiteral(_))
+        matches!(expr, Expr::NumberLiteral(_) | Expr::StringLiteral(_))
     }
 
     pub fn is_duration(expr: &Expr) -> bool {
@@ -1968,7 +1983,7 @@ impl Expr {
             Self::Aggregation(ae) => Box::new(ae.args.iter().flat_map(|node| node.vectors())),
             Self::Function(fe) => Box::new(fe.args.iter().flat_map(|node| node.vectors())),
             Self::Parens(pe) => Box::new(pe.expressions.iter().flat_map(|node| node.vectors())),
-            Self::Number(_)
+            Self::NumberLiteral(_)
             | Self::Duration(_)
             | Self::StringLiteral(_)
             | Self::StringExpr(_)
@@ -2021,7 +2036,7 @@ impl Expr {
 
     pub fn return_type(&self) -> ValueType {
         match self {
-            Expr::Number(_) => ValueType::Scalar,
+            Expr::NumberLiteral(_) => ValueType::Scalar,
             Expr::Duration(dur) => dur.return_type(),
             Expr::StringLiteral(_) | Expr::StringExpr(_) => ValueType::String,
             Expr::Function(fe) => fe.return_type(),
@@ -2038,8 +2053,8 @@ impl Expr {
 
     pub fn variant_name(&self) -> &'static str {
         match self {
-            Expr::Number(_) => "Scalar",
-            Expr::Duration(_) => "Scalar",
+            Expr::NumberLiteral(_) => "Scalar",
+            Expr::Duration(_) => "Duration",
             Expr::StringLiteral(_) | Expr::StringExpr(_) => "String",
             Expr::Function(_) => "Function",
             Expr::Aggregation(_) => "Aggregation",
@@ -2049,7 +2064,7 @@ impl Expr {
             Expr::Parens(_) => "Parens",
             Expr::MetricExpression(_) => "VectorSelector",
             Expr::With(_) => "With",
-            Expr::WithSelector(_) => "VectorSelector",
+            Expr::WithSelector(_) => "WithSelector",
         }
     }
 
@@ -2061,7 +2076,7 @@ impl Expr {
             Expr::BinaryOperator(b) => Expr::BinaryOperator(b),
             Expr::Duration(d) => Expr::Duration(d),
             Expr::Function(f) => Expr::Function(f),
-            Expr::Number(n) => Expr::Number(n),
+            Expr::NumberLiteral(n) => Expr::NumberLiteral(n),
             Expr::MetricExpression(m) => Expr::MetricExpression(m),
             Expr::Parens(m) => Expr::Parens(m),
             Expr::Rollup(r) => Expr::Rollup(r),
@@ -2202,7 +2217,7 @@ impl Display for Expr {
             Expr::BinaryOperator(be) => write!(f, "{}", be)?,
             Expr::Duration(d) => write!(f, "{}", d)?,
             Expr::Function(func) => write!(f, "{}", func)?,
-            Expr::Number(n) => write!(f, "{}", n)?,
+            Expr::NumberLiteral(n) => write!(f, "{}", n)?,
             Expr::MetricExpression(me) => write!(f, "{}", me)?,
             Expr::Parens(p) => write!(f, "({})", p)?,
             Expr::Rollup(re) => write!(f, "{}", re)?,
@@ -2223,7 +2238,7 @@ impl Prettier for Expr {
             Expr::BinaryOperator(ex) => ex.pretty(level, max),
             Expr::Parens(ex) => ex.pretty(level, max),
             Expr::Rollup(ex) => ex.pretty(level, max),
-            Expr::Number(ex) => ex.pretty(level, max),
+            Expr::NumberLiteral(ex) => ex.pretty(level, max),
             Expr::StringLiteral(ex) => ex.pretty(level, max),
             Expr::MetricExpression(ex) => ex.pretty(level, max),
             Expr::Function(ex) => ex.pretty(level, max),
@@ -2243,7 +2258,7 @@ impl Value for Expr {
             Expr::BinaryOperator(be) => be.return_type(),
             Expr::Duration(d) => d.return_type(),
             Expr::Function(func) => func.return_type(),
-            Expr::Number(n) => n.return_type(),
+            Expr::NumberLiteral(n) => n.return_type(),
             Expr::MetricExpression(me) => me.value_type(),
             Expr::Parens(p) => p.return_type(),
             Expr::Rollup(re) => re.return_type(),
@@ -2264,7 +2279,7 @@ impl Default for Expr {
 
 impl From<f64> for Expr {
     fn from(v: f64) -> Self {
-        Expr::Number(NumberLiteral::new(v))
+        Expr::NumberLiteral(NumberLiteral::new(v))
     }
 }
 
@@ -2283,6 +2298,12 @@ impl From<String> for Expr {
 impl From<&str> for Expr {
     fn from(s: &str) -> Self {
         Expr::StringLiteral(StringLiteral(s.to_string()))
+    }
+}
+
+impl From<MetricExpr> for Expr {
+    fn from(vs: MetricExpr) -> Self {
+        Expr::MetricExpression(vs)
     }
 }
 
@@ -2363,7 +2384,7 @@ impl Neg for Expr {
 
     fn neg(self) -> Self::Output {
         match self {
-            Expr::Number(nl) => Expr::Number(-nl),
+            Expr::NumberLiteral(nl) => Expr::NumberLiteral(-nl),
             _ => Expr::UnaryOperator(UnaryExpr {
                 expr: Box::new(self),
             }),

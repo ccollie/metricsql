@@ -1,5 +1,6 @@
-use metricsql_parser::common::Operator;
 use serde::{Deserialize, Serialize};
+
+use metricsql_parser::ast::Operator;
 
 use crate::execution::binary::eval_vector_scalar_binop;
 use crate::execution::{Context, EvalConfig};

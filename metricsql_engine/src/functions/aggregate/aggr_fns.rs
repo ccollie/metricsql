@@ -1078,7 +1078,7 @@ fn aggr_func_outliers_iqr(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries
                 }
             }
         }
-        return tss_dst;
+        tss_dst
     };
 
     let mut series = get_series_arg(&afa.args, 0, afa.ec)?;
@@ -1109,7 +1109,7 @@ fn get_per_point_iqr_bounds(tss: &[Timeseries]) -> (Vec<f64>, Vec<f64>) {
         lower.push(qs[0] - iqr);
         upper.push(qs[1] + iqr);
     }
-    return (lower, upper);
+    (lower, upper)
 }
 
 fn aggr_func_mad(tss: &mut Vec<Timeseries>) {

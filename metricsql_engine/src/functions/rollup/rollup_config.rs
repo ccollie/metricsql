@@ -14,7 +14,7 @@ use crate::functions::rollup::rollup_fns::{
     get_rollup_fn, remove_counter_resets, rollup_avg, rollup_max, rollup_min,
 };
 use crate::functions::rollup::{
-    get_rollup_func_by_name, RollupFuncArg, RollupHandler, TimeseriesMap,
+    get_rollup_func_by_name, RollupFuncArg, RollupHandler, TimeSeriesMap,
 };
 use crate::rayon::iter::ParallelIterator;
 use crate::types::get_timeseries;
@@ -270,8 +270,8 @@ impl RollupConfig {
         shared_timestamps: &Arc<Vec<i64>>,
     ) -> RuntimeResult<(u64, Vec<Timeseries>)> {
         let keep_metric_names = keep_metric_names || func.keep_metric_name();
-        if TimeseriesMap::is_valid_function(func) {
-            let tsm = Arc::new(TimeseriesMap::new(
+        if TimeSeriesMap::is_valid_function(func) {
+            let tsm = Arc::new(TimeSeriesMap::new(
                 keep_metric_names,
                 shared_timestamps,
                 metric,
@@ -305,7 +305,7 @@ impl RollupConfig {
     /// returns the number of samples scanned
     pub(crate) fn do_timeseries_map(
         &self,
-        tsm: Arc<TimeseriesMap>,
+        tsm: Arc<TimeSeriesMap>,
         values: &[f64],
         timestamps: &[Timestamp],
     ) -> RuntimeResult<u64> {
@@ -316,7 +316,7 @@ impl RollupConfig {
     fn do_internal(
         &self,
         dst_values: &mut Vec<f64>,
-        tsm: Option<Arc<TimeseriesMap>>,
+        tsm: Option<Arc<TimeSeriesMap>>,
         values: &[f64],
         timestamps: &[Timestamp],
     ) -> RuntimeResult<u64> {

@@ -34,7 +34,7 @@ impl TreeNode for Expr {
         let children = match self {
             Expr::StringLiteral(_)
             | Expr::StringExpr(_)
-            | Expr::Number(_)
+            | Expr::NumberLiteral(_)
             | Expr::MetricExpression(_)
             | Expr::WithSelector(_)
             | Expr::Duration(_) => vec![],
@@ -134,7 +134,7 @@ impl TreeNode for Expr {
                 function,
                 return_type,
             }),
-            Expr::Number(_) => self.clone(),
+            Expr::NumberLiteral(_) => self.clone(),
             Expr::Rollup(RollupExpr {
                 expr,
                 window,

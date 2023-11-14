@@ -42,7 +42,7 @@ pub(crate) fn round(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>
         }
     }
     let err_msg = "Scalar expected as second argument to round function";
-    return Err(RuntimeError::ArgumentError(err_msg.to_string()));
+    Err(RuntimeError::ArgumentError(err_msg.to_string()))
 }
 
 fn prometheus_round(vals: &mut [f64], nearest: &[f64]) {

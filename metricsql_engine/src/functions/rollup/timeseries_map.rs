@@ -8,7 +8,7 @@ use crate::histogram::{Histogram, NonZeroBucket};
 use crate::types::{MetricName, Timeseries};
 
 #[derive(Debug)]
-pub(crate) struct TimeseriesMap {
+pub(crate) struct TimeSeriesMap {
     inner: RwLock<MapInner>,
 }
 
@@ -49,7 +49,7 @@ impl MapInner {
         }
     }
 
-    fn get_or_create_timeseries(&mut self, label_name: &str, label_value: &str) -> &mut Timeseries {
+    fn get_or_create_series(&mut self, label_name: &str, label_value: &str) -> &mut Timeseries {
         let value = label_value.to_string();
         let timestamps = &self.origin.timestamps;
         self.series.entry(value).or_insert_with_key(move |value| {
@@ -65,14 +65,14 @@ impl MapInner {
     }
 }
 
-impl TimeseriesMap {
+impl TimeSeriesMap {
     pub fn new(
         keep_metric_names: bool,
         shared_timestamps: &Arc<Vec<i64>>,
         mn_src: &MetricName,
     ) -> Self {
         let inner = MapInner::new(keep_metric_names, shared_timestamps, mn_src);
-        TimeseriesMap {
+        TimeSeriesMap {
             inner: RwLock::new(inner),
         }
     }
@@ -110,7 +110,7 @@ impl TimeseriesMap {
             .collect::<Vec<_>>();
 
         for (vm_range, count) in buckets {
-            let ts = inner.get_or_create_timeseries("vmrange", &vm_range);
+            let ts = inner.get_or_create_series("vmrange", &vm_range);
             ts.values[rollup_idx] = count as f64;
         }
     }
@@ -124,7 +124,7 @@ impl TimeseriesMap {
     ) {
         let mut inner = self.inner.write().unwrap();
         for (label_value, value) in label_values.iter().zip(values.iter()) {
-            let ts = inner.get_or_create_timeseries(label_name, &label_value);
+            let ts = inner.get_or_create_series(label_name, label_value);
             ts.values[rollup_idx] = *value;
         }
     }
