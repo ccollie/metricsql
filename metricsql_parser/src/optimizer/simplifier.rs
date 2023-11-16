@@ -227,10 +227,14 @@ impl TreeNodeRewriter for Simplifier {
                     //
 
                     // A + 0 --> A
-                    Add if is_zero(&right) => *left,
+                    // Valid only for NumberLiteral, since MetricExpression, Rollup, Aggregation,
+                    // etc. can return vectors contain NaN
+                    Add if is_zero(&right) && Expr::is_number(&left) => *left,
 
                     // 0 + A --> A
-                    Add if is_zero(&left) => *right,
+                    // Valid only for NumberLiteral, since MetricExpression, Rollup, Aggregation,
+                    // etc. can return vectors contain NaN
+                    Add if is_zero(&left) && Expr::is_number(&right) => *right,
 
                     // A + A --> 2 * A
                     // Our use case envisions that this expression involving metric selectors
@@ -278,27 +282,38 @@ impl TreeNodeRewriter for Simplifier {
                     // Rules for Mul
                     //
                     // A * 1 --> A
-                    Mul if is_one(&right) => *left,
+                    Mul if is_one(&right) && Expr::is_number(&left) => *left,
                     // 1 * A --> A
-                    Mul if is_one(&left) => *right,
+                    Mul if is_one(&left) && Expr::is_number(&right) => *right,
                     // A * NaN --> NaN
                     Mul if is_null(&right) => *right,
                     // NaN * A --> NaN
                     Mul if is_null(&left) => *left,
                     // A * 0 --> 0
-                    Mul if is_zero(&right) => *right,
+                    Mul if is_zero(&right) && Expr::is_number(&left) => *right,
                     // 0 * A --> 0
-                    Mul if is_zero(&left) => *left,
+                    Mul if is_zero(&left) && Expr::is_number(&right) => *left,
 
                     //
                     // Rules for Div
                     //
                     // A / 1 --> A
-                    Div if is_one(&right) => *left,
+                    // Valid only for NumberLiteral, since MetricExpression, Rollup, Aggregation,
+                    // may return vectors returning NaN
+                    Div if is_one(&right) && Expr::is_number(&left) => *left,
                     // NaN / A --> NaN
                     Div if is_null(&left) => *left,
                     // A / NaN --> NaN
                     Div if is_null(&right) => *right,
+                    // A / A --> NAN if A.is_nan() else 1.0. The NaN comparison can be valid for
+                    // NumberLiteral, but not for MetricExpression, Rollup, Aggregation, etc.
+                    Div if left == right => {
+                        if is_null(&right) {
+                            Expr::from(f64::NAN)
+                        } else {
+                            Expr::from(1.0)
+                        }
+                    }
                     // 0 / 0 -> NaN
                     Div if is_zero(&left) && is_zero(&right) => Expr::from(f64::NAN),
                     // A / 0 -> NaN
@@ -328,7 +343,7 @@ impl TreeNodeRewriter for Simplifier {
                         Expr::from(f64::NAN)
                     }
                     // 0 / A -> 0
-                    Div if is_zero(&left) => *left,
+                    Div if is_zero(&left) && Expr::is_number(&right) => *left,
 
                     //
                     // Rules for Mod
@@ -338,11 +353,17 @@ impl TreeNodeRewriter for Simplifier {
                     // NaN % A --> NaN
                     Mod if is_null(&left) => *left,
                     // A % 1 --> 0
-                    Mod if is_one(&right) => Expr::from(0.0),
+                    Mod if is_one(&right) && Expr::is_number(&left) => Expr::from(0.0),
                     // A % 0 --> NaN
                     Mod if is_zero(&right) => Expr::from(f64::NAN),
                     // A % A --> 0
-                    Mod if left == right => Expr::from(0.0),
+                    Mod if left == right && Expr::is_number(&left) => {
+                        if is_null(&right) {
+                            Expr::from(f64::NAN)
+                        } else {
+                            Expr::from(0.0)
+                        }
+                    }
                     // no additional rewrites possible
                     _ => Expr::BinaryOperator(BinaryExpr {
                         left,
@@ -357,19 +378,6 @@ impl TreeNodeRewriter for Simplifier {
 
         Ok(new_expr)
     }
-}
-
-pub fn simplify_parens(pe: ParensExpr) -> Expr {
-    let mut pe = pe;
-    while pe.expressions.len() == 1 {
-        match pe.expressions.remove(0) {
-            Expr::Parens(pe2) => pe = pe2,
-            expr => {
-                return expr;
-            }
-        }
-    }
-    Expr::Parens(pe)
 }
 
 fn unnest_parens(pe: &mut ParensExpr) {
@@ -498,21 +506,34 @@ mod tests {
     }
 
     #[test]
+    fn test_simplify_selector_div_selector_same() {
+        let expr = selector("c2") / selector("c2");
+        let expected = Expr::from(1.0);
+
+        let actual = simplify(expr);
+        assert_expr_eq(&expected, &actual);
+    }
+
+    #[test]
     fn test_simplify_mul_by_one() {
         let expr_a = selector("c2") * number(1.0);
+        let expected_a = expr_a.clone();
+
         let expr_b = number(1.0) * selector("c2");
-        let expected = selector("c2");
+        let expected_b = expr_b.clone();
 
         let a = simplify(expr_a);
         let b = simplify(expr_b);
-        assert_expr_eq(&expected, &a);
-        assert_expr_eq(&expected, &b);
+        assert_expr_eq(&expected_a, &a);
+        assert_expr_eq(&expected_b, &b);
 
-        let expr = selector("c2") * number(1.0);
+        let expr = number(45.0) * number(1.0);
         let actual = simplify(expr);
+        let expected = number(45.0);
         assert_expr_eq(&expected, &actual);
 
-        let expr = number(1.0) * selector("c2");
+        let expr = number(1.0) * number(89.0);
+        let expected = number(89.0);
         let actual = simplify(expr);
         assert_expr_eq(&expected, &actual);
     }
@@ -537,48 +558,76 @@ mod tests {
     #[test]
     fn test_simplify_add_zero() {
         let zero = number(0.0);
+        // 0 + A --> A, where A is numeric
+        {
+            let expr = number(0.0) + number(5.0);
+            let expected = number(5.0);
+            let actual = simplify(expr);
+            assert_expr_eq(&expected, &actual);
+        }
+
         // 0 + A --> A
+        // Only simplify when A is numeric
         {
             let expr = zero.clone() + selector("c2");
+            let expected = expr.clone();
             let actual = simplify(expr);
-            assert_expr_eq(&selector("c2"), &actual);
+            assert_expr_eq(&expected, &actual);
         }
         // A + 0 --> A if A
+        // Only simplify when A is numeric
         {
             let expr = selector("foo") + number(0.0);
+            let expected = expr.clone();
             let actual = simplify(expr);
-            assert_expr_eq(&selector("foo"), &actual);
+            assert_expr_eq(&expected, &actual);
         }
     }
 
     #[test]
     fn test_simplify_mul_by_zero() {
-        let zero = number(0.0);
         // 0 * A --> 0
         {
-            let expr = number(0.0) * selector("c2");
+            // should remain unchanged if A is not numeric
+            let mut expr = number(0.0) * selector("c2");
+            let mut expected = expr.clone();
             let actual = simplify(expr);
-            assert_expr_eq(&zero, &actual);
+            assert_expr_eq(&expected, &actual);
+
+            // should return 0.0 if it is numeric
+            expr = number(0.0) * number(12.5);
+            expected = number(0.0);
+
+            let actual = simplify(expr);
+            assert_expr_eq(&expected, &actual);
         }
+
         // A * 0 --> 0
         {
+            // should remain unchanged for non numeric A
             let expr = selector("foo") * number(0.0);
+            let expected = expr.clone();
             let actual = simplify(expr);
-            assert_expr_eq(&zero, &actual);
+            assert_expr_eq(&expected, &actual);
 
-            let expr = number(0.0) * selector("foo");
+            let expr = number(0.0) * number(65.4);
+            let expected = number(0.0);
+
             let actual = simplify(expr);
-            assert_expr_eq(&zero, &actual);
+            assert_expr_eq(&expected, &actual);
         }
     }
 
     #[test]
     fn test_simplify_div_by_one() {
+        // A / 1 = A
+        // should remain unchanged for non numeric A
         let expr = selector("c2") / number(1.0);
-        let expected = selector("c2");
+        let expected = expr.clone();
         let actual = simplify(expr);
         assert_expr_eq(&expected, &actual);
 
+        // return A for numeric A
         let expr = number(42.0) / number(1.0);
         let expected = number(42.0);
         let actual = simplify(expr);
@@ -597,6 +646,13 @@ mod tests {
         // NAN / A --> NAN
         {
             let expr = null.clone() * selector("c2");
+            let actual = simplify(expr);
+            assert_expr_eq(&null, &actual);
+        }
+
+        // NAN / NAN --> NAN
+        {
+            let expr = null.clone() / null.clone();
             let actual = simplify(expr);
             assert_expr_eq(&null, &actual);
         }
@@ -641,19 +697,14 @@ mod tests {
     #[test]
     fn test_simplify_mod_by_one() {
         let expr = selector("c2") % number(1.0);
-        let expected = number(0.0);
-        let actual = simplify(expr);
-        assert_expr_eq(&expected, &actual);
-    }
-
-    #[test]
-    fn test_simplify_mod_by_one_non_nan() {
-        let expr = selector("foo") % number(1.0);
-        let expected = number(0.0);
+        let expected = expr.clone();
         let actual = simplify(expr);
         assert_expr_eq(&expected, &actual);
 
-        let expr = selector("foo") % number(1.0);
+        // test with number
+        let expr = number(789.0) % number(1.0);
+        let expected = number(0.0);
+
         let actual = simplify(expr);
         assert_expr_eq(&expected, &actual);
     }
