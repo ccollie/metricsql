@@ -88,6 +88,9 @@ impl ExprSimplifier {
         let mut simplifier = Simplifier::new();
         let mut const_evaluator = ConstEvaluator::new();
 
+        let mut expr = expr;
+        remove_parens_expr(&mut expr);
+
         // TODO iterate until no changes are made during rewrite
         // (evaluating constants can enable new simplifications and
         // simplifications can enable new constant evaluation)
@@ -100,8 +103,6 @@ impl ExprSimplifier {
             .rewrite(&mut simplifier)?;
 
         // push down filters
-        remove_parens_expr(&mut result);
-
         optimize_label_filters_inplace(&mut result);
         Ok(result)
     }
@@ -214,7 +215,6 @@ impl TreeNodeRewriter for Simplifier {
         use Operator::{Add, And, Div, Mod, Mul, Or};
 
         let new_expr = match expr {
-            Expr::Parens(pe) => simplify_parens(pe),
             Expr::BinaryOperator(BinaryExpr {
                 left,
                 right,
@@ -416,14 +416,7 @@ pub fn remove_parens_expr(e: &mut Expr) {
             }
             if len == 1 {
                 *e = pe.expressions.remove(0);
-                match e {
-                    Expr::Parens(p) => {
-                        unnest_parens(p);
-                        *e = Expr::Parens(std::mem::take(p));
-                    }
-                    _ => {}
-                }
-                return;
+                remove_parens_expr(e);
             }
         }
         Expr::With(with) => {
@@ -871,6 +864,15 @@ mod tests {
         let expected = parse("foo").unwrap();
         let actual = simplify(expr);
         assert_expr_eq(&expected, &actual);
+    }
+
+    #[test]
+    fn test_remove_parens_expr() {
+        let empty_parens = Expr::Parens(ParensExpr::new(vec![]));
+        let mut actual = Expr::Parens(ParensExpr::new(vec![empty_parens.clone()]));
+
+        remove_parens_expr(&mut actual);
+        assert_expr_eq(&empty_parens, &actual);
     }
 
     // TODO: BinaryExpr
