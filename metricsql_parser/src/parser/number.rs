@@ -113,16 +113,11 @@ const SUFFIXES: [SuffixValue; 16] = [
 const SUFFIX_START_CHARS: [char; 8] = ['k', 'K', 'm', 'M', 'g', 'G', 't', 'T'];
 
 pub fn get_number_suffix(s: &str) -> Option<&'static SuffixValue> {
-    if s.is_empty() {
+    let suffix = s.trim_start_matches(|x| !SUFFIX_START_CHARS.contains(&x));
+    if suffix.is_empty() {
         return None;
     }
-
-    if let Some(offset) = s.find(|c| SUFFIX_START_CHARS.contains(&c)) {
-        let suffix = &s[offset..];
-        SUFFIXES.iter().find(|x| x.0.eq_ignore_ascii_case(suffix))
-    } else {
-        None
-    }
+    SUFFIXES.iter().find(|x| x.0.eq_ignore_ascii_case(suffix))
 }
 
 #[cfg(test)]
