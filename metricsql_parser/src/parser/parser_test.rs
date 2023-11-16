@@ -19,9 +19,10 @@ mod tests {
     }
 
     fn another(s: &str, expected: &str) {
-        let expr = parse(s).expect(format!("Error parsing expression {s}").as_str());
+        let expr = parse_or_panic(s);
         let optimized = optimize(expr).expect("Error optimizing expression");
         let expected_expr = parse_or_panic(expected);
+        println!("expected: {:?}", expected_expr);
         assert_eq_expr(&expected_expr, &optimized);
         // let res = optimized.to_string();
         // assert_eq!(&res, expected, "\nquery: {}", s)
@@ -233,12 +234,21 @@ mod tests {
     }
 
     #[test]
+    fn parens_single() {
+        another("FOO + Bar / (baZ)", "FOO + Bar / baZ + 23");
+        another("(FOO + Bar / (baZ))", "FOO + Bar / baZ + 23");
+        another("(FOO + ((Bar) / (baZ)))", "FOO + Bar / baZ + 23");
+        another("(FOO + ((Bar) / (baZ))) + ((23))", "FOO + Bar / baZ + 23");
+        another(
+            "((avg(bar,baz)), (1+(2)+(3,4)+()))",
+            "(avg(bar, baz), (3 + (3, 4)) + ())",
+        );
+    }
+
+    #[test]
     fn test_parse_parens_expr() {
         // parensExpr
-        another(
-            "(-foo + ((bar) / (baz))) + ((23))",
-            "(-foo + (bar / baz)) + 23",
-        );
+        another("(-foo + ((bar) / (baz))) + ((23))", "-foo + bar / baz + 23");
         another(
             "(FOO + ((Bar) / (baZ))) + ((23))",
             "(FOO + (Bar / baZ)) + 23",

@@ -168,6 +168,7 @@ fn balance_binary_op(be: BinaryExpr) -> Expr {
         let mut be = be;
         match be.left.as_mut() {
             Expr::BinaryOperator(bel) => {
+                // satisfy BC. Essentially b.left = bel.right
                 let mut be_left = std::mem::take(bel);
                 be.left = std::mem::take(&mut bel.right);
                 be_left.right = Box::new(balance_binary_op(be));

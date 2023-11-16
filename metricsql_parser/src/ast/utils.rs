@@ -130,6 +130,10 @@ pub fn expr_equals(expr1: &Expr, expr2: &Expr) -> bool {
     }
 
     match (expr1, expr2) {
+        (Parens(p1), Parens(p2)) => {
+            println!("p1: {:?}, p2: {:?}", p1, p2);
+            p1 == p2
+        }
         // special case: (x) == x. I don't know if i like this
         (Parens(p), e) => p.len() == 1 && compare_parens(p, e),
         (e, Parens(p)) => p.len() == 1 && compare_parens(p, e),

@@ -1323,7 +1323,7 @@ impl RollupExpr {
             s.push(']');
         }
         if let Some(offset) = &self.offset {
-            write!(s, "offset {}", offset)?;
+            write!(s, " offset {}", offset)?;
         }
         if let Some(at) = &self.at {
             let parens_needed = at.is_binary_op();
@@ -1547,19 +1547,13 @@ impl BinaryExpr {
     }
 
     fn fmt_no_keep_metric_name(&self, f: &mut Formatter) -> fmt::Result {
-        if self.need_left_parens() {
-            write!(f, "({})", self.left)?;
-        } else {
-            write!(f, "{}", self.left)?
-        }
-        write!(f, "{}", self.get_op_matching_string())?;
-        write!(f, " ")?;
-        if self.need_right_parens() {
-            write!(f, "({})", self.right)?;
-        } else {
-            write!(f, "{}", self.right)?
-        }
-        Ok(())
+        write!(
+            f,
+            "{} {} {}",
+            self.left,
+            self.get_op_matching_string(),
+            self.right
+        )
     }
 
     fn get_op_matching_string(&self) -> String {
@@ -1995,7 +1989,7 @@ impl Expr {
 
     /**
     Return an iterator of series names present in this node.
-    ```
+    ``` rust
     let query = r#"
         sum(1 - something_used{env="production"} / something_total) by (instance)
         and ignoring (instance)

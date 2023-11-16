@@ -55,7 +55,7 @@ impl ExprSimplifier {
     }
 
     /// Simplifies this [`Expr`]`s as much as possible, evaluating
-    /// constants and applying algebraic simplifications.
+    /// constants and applying simplifications.
     ///
     /// The types of the expression must match what operators expect,
     /// or else an error may occur trying to evaluate.
@@ -68,14 +68,14 @@ impl ExprSimplifier {
     ///
     /// `b > 2`
     ///
-    /// ```
+    /// ``` rust
     /// use crate::metricsql_parser::prelude::{selector, number, Expr, Simplifier};
     ///
     /// // Create the simplifier
     /// let simplifier = Simplifier::new();
     ///
     /// // b < 2
-    /// let b_lt_2 = selector("b").gt(number(2.0));
+    /// let b_lt_2 = selector("b").lt(number(2.0));
     ///
     /// // (b < 2) OR (b < 2)
     /// let expr = b_lt_2.clone().or(b_lt_2.clone());
@@ -100,6 +100,8 @@ impl ExprSimplifier {
             .rewrite(&mut simplifier)?;
 
         // push down filters
+        remove_parens_expr(&mut result);
+
         optimize_label_filters_inplace(&mut result);
         Ok(result)
     }
@@ -362,16 +364,76 @@ pub fn simplify_parens(pe: ParensExpr) -> Expr {
     while pe.expressions.len() == 1 {
         match pe.expressions.remove(0) {
             Expr::Parens(pe2) => pe = pe2,
-            Expr::BinaryOperator(be) => {
-                let arg = vec![Expr::BinaryOperator(be)];
-                return Expr::Parens(ParensExpr::new(arg));
-            }
             expr => {
                 return expr;
             }
         }
     }
     Expr::Parens(pe)
+}
+
+fn unnest_parens(pe: &mut ParensExpr) {
+    while pe.expressions.len() == 1 {
+        if let Some(Expr::Parens(pe2)) = pe.expressions.get_mut(0) {
+            *pe = pe2.clone(); // todo: take
+        } else {
+            break;
+        }
+    }
+}
+
+// remove_parens_expr removes parensExpr for (Expr) case.
+pub fn remove_parens_expr(e: &mut Expr) {
+    match e {
+        Expr::Rollup(re) => {
+            remove_parens_expr(&mut re.expr);
+            if let Some(ref mut at) = re.at {
+                remove_parens_expr(at.as_mut());
+            }
+        }
+        Expr::BinaryOperator(be) => {
+            remove_parens_expr(&mut be.left);
+            remove_parens_expr(&mut be.right);
+        }
+        Expr::UnaryOperator(ue) => {
+            remove_parens_expr(&mut ue.expr);
+        }
+        Expr::Aggregation(ae) => {
+            for arg in ae.args.iter_mut() {
+                remove_parens_expr(arg)
+            }
+        }
+        Expr::Function(fe) => {
+            for arg in fe.args.iter_mut() {
+                remove_parens_expr(arg)
+            }
+        }
+        Expr::Parens(pe) => {
+            unnest_parens(pe);
+            let len = pe.len();
+            for arg in pe.expressions.iter_mut() {
+                remove_parens_expr(arg)
+            }
+            if len == 1 {
+                *e = pe.expressions.remove(0);
+                match e {
+                    Expr::Parens(p) => {
+                        unnest_parens(p);
+                        *e = Expr::Parens(std::mem::take(p));
+                    }
+                    _ => {}
+                }
+                return;
+            }
+        }
+        Expr::With(with) => {
+            remove_parens_expr(&mut with.expr);
+            for was in with.was.iter_mut() {
+                remove_parens_expr(&mut was.expr)
+            }
+        }
+        _ => {}
+    }
 }
 
 #[cfg(test)]
