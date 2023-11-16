@@ -334,9 +334,7 @@ fn expand_function(
     let res = FunctionExpr {
         name: func.name,
         args,
-        arg_idx_for_optimization: func.arg_idx_for_optimization,
         keep_metric_names: func.keep_metric_names,
-        is_scalar: func.is_scalar,
         function: func.function,
         return_type: func.return_type,
     };

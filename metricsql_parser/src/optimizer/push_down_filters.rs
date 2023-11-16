@@ -81,7 +81,7 @@ pub fn get_common_label_filters(e: &Expr) -> Vec<LabelFilter> {
         MetricExpression(m) => get_common_label_filters_without_metric_name(&m.label_filters),
         Rollup(r) => get_common_label_filters(&r.expr),
         Function(fe) => {
-            if let Some(arg) = fe.get_arg_for_optimization() {
+            if let Some(arg) = fe.arg_for_optimization() {
                 get_common_label_filters(arg)
             } else {
                 vec![]
@@ -233,12 +233,13 @@ fn get_label_filters_without_metric_name(lfs: &[LabelFilter]) -> Vec<LabelFilter
         .collect::<Vec<_>>();
 }
 
-/// Pushes down the given common_filters to e if possible.
+/// Pushes down the given common_filters to `expr` if possible.
 ///
-/// e must be a part of binary operation - either left or right.
+/// `expr` must be a part of a binary operation - either left or right.
 ///
 /// For example, if e contains `foo + sum(bar)` and common_filters=`{x="y"}`,
 /// then the returned expression will contain `foo{x="y"} + sum(bar)`.
+///
 /// The `{x="y"}` cannot be pushed down to `sum(bar)`, since this
 /// may change binary operation results.
 pub fn pushdown_binary_op_filters<'a>(
@@ -283,7 +284,7 @@ pub fn push_down_binary_op_filters_in_place(e: &mut Expr, common_filters: &mut V
             me.label_filters.sort();
         }
         Function(fe) => {
-            if let Some(idx) = fe.arg_idx_for_optimization {
+            if let Some(idx) = fe.arg_idx_for_optimization() {
                 if let Some(val) = fe.args.get_mut(idx) {
                     push_down_binary_op_filters_in_place(val, common_filters);
                 }
@@ -301,7 +302,7 @@ pub fn push_down_binary_op_filters_in_place(e: &mut Expr, common_filters: &mut V
         }
         Aggregation(aggr) => {
             trim_filters_by_aggr_modifier(common_filters, aggr);
-            if let Some(arg_idx) = aggr.arg_idx_for_optimization {
+            if let Some(arg_idx) = aggr.arg_idx_for_optimization() {
                 if let Some(expr) = aggr.args.get_mut(arg_idx) {
                     push_down_binary_op_filters_in_place(expr, common_filters);
                 }

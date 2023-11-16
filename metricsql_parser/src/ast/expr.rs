@@ -591,7 +591,7 @@ pub struct StringLiteral(pub String);
 
 impl Display for StringLiteral {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "\"{}\"", self.0)
+        write!(f, "{}", self.0)
     }
 }
 
@@ -902,13 +902,8 @@ pub struct FunctionExpr {
     /// Args contains function args.
     pub args: Vec<Expr>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub arg_idx_for_optimization: Option<usize>,
-
     /// If keep_metric_names is set to true, then the function should keep metric names.
     pub keep_metric_names: bool,
-
-    pub is_scalar: bool,
 
     pub return_type: ValueType,
 }
@@ -918,15 +913,11 @@ impl FunctionExpr {
         let func_name = if name.is_empty() { "union" } else { name };
         let function = BuiltinFunction::new(func_name)?;
         let return_type = function.return_type(&args)?; // TODO
-        let is_scalar = function.is_scalar();
-        let arg_idx = function.get_arg_idx_for_optimization(args.len());
 
         Ok(Self {
             name: name.to_string(),
             args,
-            arg_idx_for_optimization: arg_idx,
             keep_metric_names: false,
-            is_scalar,
             function,
             return_type,
         })
@@ -940,8 +931,12 @@ impl FunctionExpr {
         self.function.get_type()
     }
 
-    pub fn get_arg_for_optimization(&self) -> Option<&Expr> {
-        match self.arg_idx_for_optimization {
+    pub fn arg_idx_for_optimization(&self) -> Option<usize> {
+        self.function.get_arg_idx_for_optimization(self.args.len())
+    }
+
+    pub fn arg_for_optimization(&self) -> Option<&Expr> {
+        match self.arg_idx_for_optimization() {
             None => None,
             Some(idx) => self.args.get(idx),
         }
@@ -1022,27 +1017,21 @@ pub struct AggregationExpr {
     pub args: Vec<Expr>,
 
     /// optional modifier such as `by (...)` or `without (...)`.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub modifier: Option<AggregateModifier>,
 
     /// optional limit for the number of output time series.
     /// This is an MetricsQL extension.
     ///
     /// Example: `sum(...) by (...) limit 10` would return maximum 10 time series.
+    #[serde(default, skip_serializing_if = "is_default")]
     pub limit: usize,
 
     pub keep_metric_names: bool,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub arg_idx_for_optimization: Option<usize>,
-
-    pub can_incrementally_eval: bool,
 }
 
 impl AggregationExpr {
     pub fn new(function: AggregateFunction, args: Vec<Expr>) -> AggregationExpr {
-        let arg_len = args.len();
-        let can_incrementally_eval = Self::can_incrementally_eval(&args);
         let mut ae = AggregationExpr {
             name: function.to_string(),
             args,
@@ -1050,8 +1039,6 @@ impl AggregationExpr {
             limit: 0,
             function,
             keep_metric_names: false,
-            arg_idx_for_optimization: get_aggregate_arg_idx_for_optimization(function, arg_len),
-            can_incrementally_eval,
         };
 
         ae.set_keep_metric_names();
@@ -1095,10 +1082,14 @@ impl AggregationExpr {
     }
 
     pub fn get_arg_for_optimization(&self) -> Option<&'_ Expr> {
-        match self.arg_idx_for_optimization {
+        match self.arg_idx_for_optimization() {
             None => None,
             Some(idx) => Some(&self.args[idx]),
         }
+    }
+
+    pub fn arg_idx_for_optimization(&self) -> Option<usize> {
+        get_aggregate_arg_idx_for_optimization(self.function, self.args.len())
     }
 
     /// Check if args[0] contains one of the following:
@@ -1106,8 +1097,8 @@ impl AggregationExpr {
     /// - metricExpr[d]
     /// - RollupFunc(metricExpr)
     /// - RollupFunc(metricExpr[d])
-    fn can_incrementally_eval(args: &Vec<Expr>) -> bool {
-        if args.len() != 1 {
+    pub fn can_incrementally_eval(&self) -> bool {
+        if self.args.len() != 1 {
             return false;
         }
 
@@ -1119,7 +1110,7 @@ impl AggregationExpr {
             true
         }
 
-        return match &args[0] {
+        return match &self.args[0] {
             Expr::MetricExpression(me) => validate(me, false),
             Expr::Rollup(re) => {
                 match re.expr.deref() {
@@ -1130,7 +1121,7 @@ impl AggregationExpr {
             }
             Expr::Function(fe) => match fe.function {
                 BuiltinFunction::Rollup(_) => {
-                    return if let Some(arg) = fe.get_arg_for_optimization() {
+                    return if let Some(arg) = fe.arg_for_optimization() {
                         match arg {
                             Expr::MetricExpression(me) => validate(me, false),
                             Expr::Rollup(re) => match &*re.expr {
@@ -1684,15 +1675,12 @@ impl ParensExpr {
         let name = "union";
         let func = BuiltinFunction::from_str(name).unwrap(); // if union is not defined, we have a fatal issue
 
-        let arg_idx = func.get_arg_idx_for_optimization(self.len());
         FunctionExpr {
             name: name.to_string(),
             args: self.expressions,
             keep_metric_names: false,
-            is_scalar: false,
             return_type: TransformFunction::Union.return_type(),
             function: func,
-            arg_idx_for_optimization: arg_idx,
         }
     }
 
@@ -1943,7 +1931,7 @@ impl Expr {
     pub fn is_scalar(expr: &Expr) -> bool {
         match expr {
             Expr::Duration(_) | Expr::NumberLiteral(_) => true,
-            Expr::Function(f) => f.is_scalar,
+            Expr::Function(f) => f.function.is_scalar(),
             _ => false,
         }
     }
@@ -2389,4 +2377,8 @@ impl Neg for Expr {
 fn are_floats_equal(left: f64, right: f64) -> bool {
     // Special handling for nan == nan.
     left == right || left.is_nan() && right.is_nan()
+}
+
+fn is_default<T: Default + PartialEq>(t: &T) -> bool {
+    t == &T::default()
 }

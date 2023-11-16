@@ -242,7 +242,9 @@ impl DAGBuilder {
         rf: RollupFunction,
     ) -> RuntimeResult<usize> {
         // todo: i dont think we can have a empty arg_idx_for_optimization
-        let rollup_arg_idx = fe.arg_idx_for_optimization.expect("rollup_arg_idx is None");
+        let rollup_arg_idx = fe
+            .arg_idx_for_optimization()
+            .expect("rollup_arg_idx is None");
 
         let arg = &fe.args[rollup_arg_idx];
         let re = get_rollup_expr_arg(arg).map_err(|e| {
@@ -273,7 +275,7 @@ impl DAGBuilder {
         let parent_idx = self.create_rollup_node(expr, &re, rf, func_handler)?;
 
         let (fn_args, const_values, args_const) =
-            self.process_args(&fe.args, parent_idx, fe.arg_idx_for_optimization)?;
+            self.process_args(&fe.args, parent_idx, fe.arg_idx_for_optimization())?;
 
         if !fn_args.is_empty() {
             if let Some(expr) = self.node_map.get_mut(&parent_idx) {
@@ -385,7 +387,7 @@ impl DAGBuilder {
 
     fn create_aggregate_node(&mut self, expr: &Expr, ae: &AggregationExpr) -> RuntimeResult<usize> {
         // todo: ensure that this is serialized otherwise the contained block will not be executed
-        if ae.can_incrementally_eval && IncrementalAggregationHandler::handles(ae.function) {
+        if ae.can_incrementally_eval() && IncrementalAggregationHandler::handles(ae.function) {
             if let Ok(Some(fe)) = try_get_arg_rollup_func_with_metric_expr(ae) {
                 // There is an optimized path for calculating `AggrFuncExpr` over: RollupFunc
                 // over MetricExpr.
@@ -660,7 +662,7 @@ fn get_rollup_expr_arg(arg: &Expr) -> RuntimeResult<RollupExpr> {
 fn try_get_arg_rollup_func_with_metric_expr(
     ae: &AggregationExpr,
 ) -> RuntimeResult<Option<FunctionExpr>> {
-    if !ae.can_incrementally_eval {
+    if !ae.can_incrementally_eval() {
         return Ok(None);
     }
 
@@ -714,7 +716,7 @@ fn try_get_arg_rollup_func_with_metric_expr(
         Expr::Function(fe) => {
             match fe.function {
                 BuiltinFunction::Rollup(_) => {
-                    return if let Some(arg) = fe.get_arg_for_optimization() {
+                    return if let Some(arg) = fe.arg_for_optimization() {
                         match arg {
                             Expr::MetricExpression(me) => create_func(me, expr, &fe.name, false),
                             Expr::Rollup(re) => {
