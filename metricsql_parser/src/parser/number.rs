@@ -109,15 +109,17 @@ const SUFFIXES: [SuffixValue; 16] = [
     ("t", 1000 * 1000 * 1000 * 1000),
 ];
 
+// Note: must match above
+const SUFFIX_START_CHARS: [char; 8] = ['k', 'K', 'm', 'M', 'g', 'G', 't', 'T'];
+
 pub fn get_number_suffix(s: &str) -> Option<&'static SuffixValue> {
     if s.is_empty() {
         return None;
     }
-    let last_ch = s.chars().last().unwrap();
-    if last_ch.is_alphabetic() {
-        // todo: avoid conversion here
-        let lower = s.to_ascii_lowercase();
-        SUFFIXES.iter().find(|x| lower.ends_with(x.0))
+
+    if let Some(offset) = s.find(|c| SUFFIX_START_CHARS.contains(&c)) {
+        let suffix = &s[offset..];
+        SUFFIXES.iter().find(|x| x.0.eq_ignore_ascii_case(suffix))
     } else {
         None
     }
@@ -125,7 +127,9 @@ pub fn get_number_suffix(s: &str) -> Option<&'static SuffixValue> {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::number::parse_positive_number;
+    use std::collections::HashSet;
+
+    use crate::parser::number::{parse_positive_number, SUFFIXES, SUFFIX_START_CHARS};
 
     fn expect_failure(s: &str) {
         match parse_positive_number(s) {
@@ -137,6 +141,19 @@ mod tests {
                 )
             }
         }
+    }
+
+    #[test]
+    fn test_char_suffixes_matches() {
+        let suffixes: HashSet<char> = SUFFIXES
+            .iter()
+            .map(|x| x.0.chars().next().unwrap())
+            .collect();
+
+        SUFFIX_START_CHARS.iter().for_each(|c| {
+            let lower = c.to_ascii_lowercase();
+            assert!(suffixes.contains(&lower), "missing suffix for {}", c);
+        });
     }
 
     #[test]
