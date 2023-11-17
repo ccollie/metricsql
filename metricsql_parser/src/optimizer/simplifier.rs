@@ -298,16 +298,14 @@ impl TreeNodeRewriter for Simplifier {
                     // Rules for Div
                     //
                     // A / 1 --> A
-                    // Valid only for NumberLiteral, since MetricExpression, Rollup, Aggregation,
-                    // may return vectors returning NaN
-                    Div if is_one(&right) && Expr::is_number(&left) => *left,
+                    Div if is_one(&right) => *left,
                     // NaN / A --> NaN
                     Div if is_null(&left) => *left,
                     // A / NaN --> NaN
                     Div if is_null(&right) => *right,
                     // A / A --> NAN if A.is_nan() else 1.0. The NaN comparison can be valid for
                     // NumberLiteral, but not for MetricExpression, Rollup, Aggregation, etc.
-                    Div if left == right => {
+                    Div if left == right && Expr::is_number(&left) => {
                         if is_null(&right) {
                             Expr::from(f64::NAN)
                         } else {

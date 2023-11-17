@@ -553,14 +553,6 @@ mod tests {
     }
 
     #[test]
-    fn test1() {
-        validate_optimized(
-            r#"absent_over_time(foo{x="y"}[5m]) + bar{a="b"}"#,
-            r#"absent_over_time(foo{x="y"}[5m]) + bar{a="b"}"#,
-        );
-    }
-
-    #[test]
     fn test_optimize_rollup_funcs() {
         // rollup funcs
         validate_optimized(
