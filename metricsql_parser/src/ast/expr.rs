@@ -1661,6 +1661,9 @@ impl ParensExpr {
     }
 
     pub fn return_type(&self) -> ValueType {
+        if let Some(inner) = self.innermost_expr() {
+            return inner.return_type();
+        }
         if self.len() == 1 {
             return self.expressions[0].return_type();
         }
@@ -1687,12 +1690,15 @@ impl ParensExpr {
     /// Return thee innermost expression wrapped by a `ParensExpr` if the `ParensExpr` contains
     /// exactly one expression. For example : (((x + y))) would return a reef to `x + y`
     pub fn innermost_expr(&self) -> Option<&Expr> {
-        if self.len() != 1 {
-            return None;
-        }
-        match &self.expressions[0] {
-            Expr::Parens(pe2) => pe2.innermost_expr(),
-            expr => Some(expr),
+        match self.len() {
+            0 => None,
+            1 => {
+                return match &self.expressions[0] {
+                    Expr::Parens(pe2) => pe2.innermost_expr(),
+                    expr => Some(expr),
+                }
+            }
+            _ => None,
         }
     }
 }

@@ -107,7 +107,18 @@ pub(super) fn parse_expression(p: &mut Parser) -> ParseResult<Expr> {
             modifier.keep_metric_names = true;
         }
 
-        left = balance(left, operator, right, &mut modifier)?;
+        let be = BinaryExpr {
+            left: Box::new(left),
+            right: Box::new(right),
+            op: operator,
+            modifier: if modifier.is_default() {
+                None
+            } else {
+                Some(std::mem::take(&mut modifier))
+            },
+        };
+
+        left = balance_binary_op(be);
     }
 
     Ok(left)
@@ -147,36 +158,29 @@ fn balance(lhs: Expr, op: Operator, rhs: Expr, modifier: &mut BinModifier) -> Pa
 }
 
 fn balance_binary_op(be: BinaryExpr) -> Expr {
-    let rp = be.op.precedence();
-
     // the duplicate match seems convoluted, but saves some cloning when we don't need to
     // balance
-    let lp = match &be.left.as_ref() {
-        Expr::BinaryOperator(bel) => Some(bel.op.precedence()),
-        _ => None,
-    };
+    match &be.left.as_ref() {
+        Expr::BinaryOperator(bel) => {
+            let lp = bel.op.precedence();
+            let rp = be.op.precedence();
 
-    if let Some(lp) = lp {
-        if rp < lp {
-            return Expr::BinaryOperator(be);
-        }
-
-        if rp == lp && !be.op.is_right_associative() {
-            return Expr::BinaryOperator(be);
-        }
-
-        let mut be = be;
-        match be.left.as_mut() {
-            Expr::BinaryOperator(bel) => {
-                // satisfy BC. Essentially b.left = bel.right
-                let mut be_left = std::mem::take(bel);
-                be.left = std::mem::take(&mut bel.right);
-                be_left.right = Box::new(balance_binary_op(be));
-                return Expr::BinaryOperator(be_left);
+            if rp < lp {
+                return Expr::BinaryOperator(be);
             }
-            _ => unreachable!("binary expr op changed type"),
+
+            if rp == lp && !be.op.is_right_associative() {
+                return Expr::BinaryOperator(be);
+            }
+
+            // satisfy BC. Essentially b.left = bel.right
+            let mut be_left = std::mem::take(bel);
+            be.left = std::mem::take(&mut bel.right);
+            be_left.right = Box::new(balance_binary_op(be));
+            return Expr::BinaryOperator(be_left);
         }
-    }
+        _ => {}
+    };
 
     Expr::BinaryOperator(be)
 }

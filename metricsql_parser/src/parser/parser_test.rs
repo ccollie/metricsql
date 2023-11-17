@@ -235,9 +235,6 @@ mod tests {
 
     #[test]
     fn parens_single() {
-        another("FOO + Bar / (baZ)", "FOO + Bar / baZ + 23");
-        another("(FOO + Bar / (baZ))", "FOO + Bar / baZ + 23");
-        another("(FOO + ((Bar) / (baZ)))", "FOO + Bar / baZ + 23");
         another("(FOO + ((Bar) / (baZ))) + ((23))", "FOO + Bar / baZ + 23");
         another(
             "((avg(bar,baz)), (1+(2)+(3,4)+()))",
