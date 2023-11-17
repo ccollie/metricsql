@@ -157,32 +157,24 @@ fn balance(lhs: Expr, op: Operator, rhs: Expr, modifier: &mut BinModifier) -> Pa
     Ok(Expr::BinaryOperator(expr))
 }
 
-fn balance_binary_op(be: BinaryExpr) -> Expr {
-    // the duplicate match seems convoluted, but saves some cloning when we don't need to
-    // balance
-    match &be.left.as_ref() {
-        Expr::BinaryOperator(bel) => {
-            let lp = bel.op.precedence();
+fn balance_binary_op(mut be: BinaryExpr) -> Expr {
+    return match be.left.as_ref() {
+        Expr::BinaryOperator(left) => {
             let rp = be.op.precedence();
-
+            let lp = left.op.precedence();
             if rp < lp {
                 return Expr::BinaryOperator(be);
             }
-
             if rp == lp && !be.op.is_right_associative() {
                 return Expr::BinaryOperator(be);
             }
-
-            // satisfy BC. Essentially b.left = bel.right
-            let mut be_left = std::mem::take(bel);
-            be.left = std::mem::take(&mut bel.right);
-            be_left.right = Box::new(balance_binary_op(be));
-            return Expr::BinaryOperator(be_left);
+            let mut bel = left.clone();
+            be.left = bel.right;
+            bel.right = Box::new(balance_binary_op(be));
+            Expr::BinaryOperator(bel)
         }
-        _ => {}
+        _ => Expr::BinaryOperator(be),
     };
-
-    Expr::BinaryOperator(be)
 }
 
 fn parse_vector_match_modifier(p: &mut Parser, modifier: &mut BinModifier) -> ParseResult<()> {
