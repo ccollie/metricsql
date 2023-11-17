@@ -21,10 +21,11 @@
 use std::ops::Deref;
 
 use crate::ast::utils::{expr_contains, is_null, is_one, is_op_with, is_zero};
-use crate::ast::{BinaryExpr, Expr, Operator, ParensExpr};
+use crate::ast::{BinaryExpr, Expr, Operator};
 use crate::common::{RewriteRecursion, TreeNode, TreeNodeRewriter};
 use crate::optimizer::const_evaluator::ConstEvaluator;
 use crate::optimizer::push_down_filters::{can_pushdown_filters, optimize_label_filters_inplace};
+use crate::optimizer::remove_parens_expr;
 use crate::parser::{ParseError, ParseResult};
 use crate::prelude::BuiltinFunction;
 
@@ -88,8 +89,7 @@ impl ExprSimplifier {
         let mut simplifier = Simplifier::new();
         let mut const_evaluator = ConstEvaluator::new();
 
-        let mut expr = expr;
-        remove_parens_expr(&mut expr);
+        let expr = remove_parens_expr(expr);
 
         // TODO iterate until no changes are made during rewrite
         // (evaluating constants can enable new simplifications and
@@ -377,63 +377,6 @@ impl TreeNodeRewriter for Simplifier {
         };
 
         Ok(new_expr)
-    }
-}
-
-fn unnest_parens(pe: &mut ParensExpr) {
-    while pe.expressions.len() == 1 {
-        if let Some(Expr::Parens(pe2)) = pe.expressions.get_mut(0) {
-            *pe = pe2.clone(); // todo: take
-        } else {
-            break;
-        }
-    }
-}
-
-// remove_parens_expr removes parensExpr for (Expr) case.
-pub fn remove_parens_expr(e: &mut Expr) {
-    match e {
-        Expr::Rollup(re) => {
-            remove_parens_expr(&mut re.expr);
-            if let Some(ref mut at) = re.at {
-                remove_parens_expr(at.as_mut());
-            }
-        }
-        Expr::BinaryOperator(be) => {
-            remove_parens_expr(&mut be.left);
-            remove_parens_expr(&mut be.right);
-        }
-        Expr::UnaryOperator(ue) => {
-            remove_parens_expr(&mut ue.expr);
-        }
-        Expr::Aggregation(ae) => {
-            for arg in ae.args.iter_mut() {
-                remove_parens_expr(arg)
-            }
-        }
-        Expr::Function(fe) => {
-            for arg in fe.args.iter_mut() {
-                remove_parens_expr(arg)
-            }
-        }
-        Expr::Parens(pe) => {
-            unnest_parens(pe);
-            let len = pe.len();
-            for arg in pe.expressions.iter_mut() {
-                remove_parens_expr(arg)
-            }
-            if len == 1 {
-                *e = pe.expressions.remove(0);
-                remove_parens_expr(e);
-            }
-        }
-        Expr::With(with) => {
-            remove_parens_expr(&mut with.expr);
-            for was in with.was.iter_mut() {
-                remove_parens_expr(&mut was.expr)
-            }
-        }
-        _ => {}
     }
 }
 
@@ -915,15 +858,6 @@ mod tests {
         let expected = parse("foo").unwrap();
         let actual = simplify(expr);
         assert_expr_eq(&expected, &actual);
-    }
-
-    #[test]
-    fn test_remove_parens_expr() {
-        let empty_parens = Expr::Parens(ParensExpr::new(vec![]));
-        let mut actual = Expr::Parens(ParensExpr::new(vec![empty_parens.clone()]));
-
-        remove_parens_expr(&mut actual);
-        assert_expr_eq(&empty_parens, &actual);
     }
 
     // TODO: BinaryExpr
