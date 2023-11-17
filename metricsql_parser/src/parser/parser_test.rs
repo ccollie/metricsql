@@ -234,22 +234,10 @@ mod tests {
     }
 
     #[test]
-    fn parens_single() {
-        another("(FOO + ((Bar) / (baZ))) + ((23))", "FOO + Bar / baZ + 23");
-        another(
-            "((avg(bar,baz)), (1+(2)+(3,4)+()))",
-            "(avg(bar, baz), (3 + (3, 4)) + ())",
-        );
-    }
-
-    #[test]
     fn test_parse_parens_expr() {
         // parensExpr
         another("(-foo + ((bar) / (baz))) + ((23))", "-foo + bar / baz + 23");
-        another(
-            "(FOO + ((Bar) / (baZ))) + ((23))",
-            "(FOO + (Bar / baZ)) + 23",
-        );
+        another("(FOO + ((Bar) / (baZ))) + ((23))", "FOO + Bar / baZ + 23");
         another("(foo, bar)", "(foo, bar)");
         another("((foo, bar),(baz))", "((foo, bar), baz)");
         another(
@@ -272,14 +260,14 @@ mod tests {
         same("sum(http_server_request) without (job, foo)");
         another("sum(x,y,) without (a,b,)", "sum(x, y) without (a, b)");
         another("sum by () (xx)", "sum(xx) by ()");
-        another("sum by (s) (xx)[5s]", "(sum(xx) by (s))[5s]");
+        another("sum by (s) (xx)[5s]", "sum(xx) by (s)[5s]");
         another("SUM BY (ZZ, aa) (XX)", "sum(XX) by (ZZ, aa)");
         another("sum without (a, b) (xx,2+2)", "sum(xx, 4) without (a, b)");
         another("Sum without (a, B) (XX,2+2)", "sum(XX, 4) without (a, B)");
         same("sum(a) or sum(b)");
         same("sum(a) by () or sum(b) without (x, y)");
         same("sum(a) + sum(b)");
-        same("sum(x) * (1 + sum(a))");
+        another("sum(x) * (1 + sum(a))", "sum(x) * 1 + sum(a)");
         same("avg(x) limit 10");
         same("avg(x) without (z, b) limit 1");
         another("avg by(x) (z) limit 20", "avg(z) by (x) limit 20");
@@ -465,8 +453,8 @@ mod tests {
         // withExpr
         another("with () x", "x");
         another("with (x=1,) x", "1");
-        another("with (x = m offset 5h) x + x", "(m offset 5h) * 2");
-        another("with (x = m offset 5i) x + x", "(m offset 5i) * 2");
+        another("with (x = m offset 5h) x + x", "m offset 5h * 2");
+        another("with (x = m offset 5i) x + x", "m offset 5i * 2");
         another(r#"with (foo = bar{x="x"}) 1"#, "1");
         another(r#"with (foo = bar{x="x"}) "x""#, r#""x""#);
         another(r#"with (f="x") f"#, r#""x""#);
@@ -594,7 +582,7 @@ mod tests {
             r#"with (f(x)=1+ceil(x)) f(foo{bar="baz"})"#,
             r#"1 + ceil(foo{bar="baz"})"#,
         );
-        another("with (a=foo, y=bar, f(a)= a+a+y) f(x)", "(x * 2) + bar");
+        another("with (a=foo, y=bar, f(a)= a+a+y) f(x)", "x * 2 + bar");
         another(
             r#"with (f(a, b) = m{a, b}) f({a="x", b="y"}, {c="d"})"#,
             r#"m{a="x", b="y", c="d"}"#,

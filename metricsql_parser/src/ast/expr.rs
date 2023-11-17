@@ -1705,10 +1705,9 @@ impl ParensExpr {
 
 impl Value for ParensExpr {
     fn value_type(&self) -> ValueType {
-        if self.len() == 1 {
-            return self.expressions[0].return_type();
+        if let Some(inner) = self.innermost_expr() {
+            return inner.return_type();
         }
-
         // Treat as a function with empty name, i.e. union()
         TransformFunction::Union.return_type()
     }
@@ -2207,7 +2206,7 @@ impl Display for Expr {
             Expr::Function(func) => write!(f, "{}", func)?,
             Expr::NumberLiteral(n) => write!(f, "{}", n)?,
             Expr::MetricExpression(me) => write!(f, "{}", me)?,
-            Expr::Parens(p) => write!(f, "({})", p)?,
+            Expr::Parens(p) => write!(f, "{}", p)?,
             Expr::Rollup(re) => write!(f, "{}", re)?,
             Expr::StringLiteral(s) => write!(f, "{}", enquote('"', s))?,
             Expr::StringExpr(s) => write!(f, "{}", s)?,
