@@ -33,11 +33,6 @@ mod tests {
     }
 
     #[test]
-    fn single_test() {
-        another("-1 ^ 0.5", "-1");
-    }
-
-    #[test]
     fn test_parse_number_expr() {
         fn another(s: &str, expected: &str) {
             let expected_val: f64 = expected.parse::<f64>().expect("parse f64");

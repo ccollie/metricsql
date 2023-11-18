@@ -107,6 +107,28 @@ pub(super) fn parse_expression(p: &mut Parser) -> ParseResult<Expr> {
             modifier.keep_metric_names = true;
         }
 
+        // HACK: in PromQL, the `^` (pow) operator is right-associative, which is handled properly
+        // below in the `balance_binary_op` function. However, this causes an ambiguity with
+        // unary expressions. In other words, `-x^3` up to this point is parsed as `(-x)^3` as opposed
+        // to `-(x^3)` which PromQL expects, so we need to handle this case here.
+        if operator.is_right_associative() {
+            left = match left {
+                Expr::UnaryOperator(uop) => Expr::BinaryOperator(BinaryExpr {
+                    left: Box::new(Expr::from(0.0)),
+                    right: uop.expr,
+                    op: Operator::Sub,
+                    modifier: None,
+                }),
+                Expr::NumberLiteral(num) if num.value < 0.0 => Expr::BinaryOperator(BinaryExpr {
+                    left: Box::new(Expr::from(0.0)),
+                    right: Box::new(Expr::from(num.value * -1.0)),
+                    op: Operator::Sub,
+                    modifier: None,
+                }),
+                _ => left,
+            }
+        }
+
         let be = BinaryExpr {
             left: Box::new(left),
             right: Box::new(right),
@@ -122,39 +144,6 @@ pub(super) fn parse_expression(p: &mut Parser) -> ParseResult<Expr> {
     }
 
     Ok(left)
-}
-
-// see https://github.com/influxdata/promql/blob/eb8f592be73d3164ad7a723b9f3d6a7f565ca780/parse.go#L425
-fn balance(lhs: Expr, op: Operator, rhs: Expr, modifier: &mut BinModifier) -> ParseResult<Expr> {
-    if let Expr::BinaryOperator(lhs_be) = &lhs {
-        let precedence = lhs_be.op.precedence() as i16 - op.precedence() as i16;
-        if (precedence < 0) || (precedence == 0 && op.is_right_associative()) {
-            let right = lhs_be.right.as_ref().clone();
-            let balanced = balance(right, op, rhs, modifier)?;
-
-            let expr = BinaryExpr {
-                left: Box::new(Expr::BinaryOperator(lhs_be.clone())),
-                right: Box::new(balanced),
-                op: lhs_be.op,
-                modifier: Some(std::mem::take(modifier)),
-            };
-            // if !modifier.is_default() {
-            //     expr.modifier = Some(std::mem::take(modifier));
-            // }
-            return Ok(Expr::BinaryOperator(expr));
-        }
-    }
-
-    // validate_scalar_op(&lhs, &rhs, op, return_bool)?;
-
-    let expr = BinaryExpr {
-        left: Box::new(lhs),
-        right: Box::new(rhs),
-        op,
-        modifier: Some(std::mem::take(modifier)),
-    };
-
-    Ok(Expr::BinaryOperator(expr))
 }
 
 fn balance_binary_op(mut be: BinaryExpr) -> Expr {
