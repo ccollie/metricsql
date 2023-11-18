@@ -6,6 +6,7 @@ use crate::common::TreeNodeRewriter;
 use crate::parser::ParseResult;
 
 #[allow(rustdoc::private_intra_doc_links)]
+#[derive(Debug, Clone, PartialEq)]
 /// Remove unnecessary parentheses from an `Expr`s
 pub struct ParensRemover {}
 
@@ -14,6 +15,12 @@ impl TreeNodeRewriter for ParensRemover {
 
     fn mutate(&mut self, node: Self::N) -> ParseResult<Self::N> {
         Ok(remove_parens_expr(node))
+    }
+}
+
+impl Default for ParensRemover {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -38,14 +45,12 @@ fn unnest_parens(pe: &mut ParensExpr) {
 }
 
 fn remove_parens_args(args: Vec<Expr>) -> Vec<Expr> {
-    args.into_iter()
-        .map(|arg| remove_parens_expr(arg))
-        .collect()
+    args.into_iter().map(remove_parens_expr).collect()
 }
 
 // remove_parens_expr removes parensExpr for (Expr) case.
 pub fn remove_parens_expr(e: Expr) -> Expr {
-    return match e {
+    match e {
         Expr::Rollup(re) => Expr::Rollup(RollupExpr {
             expr: Box::new(remove_parens_expr(*re.expr)),
             at: re.at.map(|at| Box::new(remove_parens_expr(*at))),
@@ -66,11 +71,7 @@ pub fn remove_parens_expr(e: Expr) -> Expr {
         Expr::Aggregation(ae) => Expr::Aggregation(AggregationExpr {
             name: ae.name,
             function: ae.function,
-            args: ae
-                .args
-                .into_iter()
-                .map(|arg| remove_parens_expr(arg))
-                .collect(),
+            args: ae.args.into_iter().map(remove_parens_expr).collect(),
             modifier: ae.modifier,
             limit: ae.limit,
             keep_metric_names: ae.keep_metric_names,
@@ -80,7 +81,6 @@ pub fn remove_parens_expr(e: Expr) -> Expr {
             args: remove_parens_args(fe.args),
             keep_metric_names: fe.keep_metric_names,
             function: fe.function,
-            return_type: fe.return_type,
         }),
         Expr::Parens(pe) => {
             let mut pe = pe;
@@ -106,7 +106,7 @@ pub fn remove_parens_expr(e: Expr) -> Expr {
                 .collect(),
         }),
         _ => e,
-    };
+    }
 }
 
 #[cfg(test)]

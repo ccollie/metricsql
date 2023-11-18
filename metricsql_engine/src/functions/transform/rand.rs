@@ -36,7 +36,7 @@ where
     F: Fn(&mut StdRng) -> f64,
 {
     let mut rng: StdRng = create_rng(tfa)?;
-    let mut tss = eval_number(&tfa.ec, 0.0)?;
+    let mut tss = eval_number(tfa.ec, 0.0)?;
     for value in tss[0].values.iter_mut() {
         *value = f(&mut rng);
     }

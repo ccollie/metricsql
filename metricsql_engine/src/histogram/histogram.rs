@@ -258,7 +258,35 @@ impl<'a> Iterator for NonZeroBuckets<'a> {
             break Some(NonZeroBucket { vm_range, count });
         };
 
-        result
+        loop {
+            let bucket = &buckets[self.index];
+            while self.offset < BUCKETS_PER_DECIMAL && bucket[self.offset] == 0 {
+                self.offset += 1;
+            }
+
+            if self.offset >= bucket.len() {
+                self.index += 1;
+                self.offset = 0;
+                if self.index >= buckets.len() {
+                    if self.histogram.upper > 0 {
+                        break Some(NonZeroBucket {
+                            vm_range: UPPER_BUCKET_RANGE,
+                            count: self.histogram.upper,
+                        });
+                    }
+                    break None;
+                }
+                continue;
+            }
+
+            let bucket_idx = self.index * BUCKETS_PER_DECIMAL + self.offset;
+            let ranges = get_bucket_ranges();
+            let vm_range = &ranges[bucket_idx];
+            let count = bucket[self.offset];
+            self.offset += 1;
+
+            break Some(NonZeroBucket { vm_range, count });
+        }
     }
 }
 

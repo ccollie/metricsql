@@ -501,7 +501,7 @@ impl<'a> Iterator for WithLabelsIterator<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         for tag in self.tag_iter.by_ref() {
-            while let Some(name) = self.names_iter.next() {
+            for name in self.names_iter.by_ref() {
                 match name.cmp(&tag.key) {
                     Ordering::Less => {
                         continue;
@@ -540,7 +540,7 @@ impl<'a> Iterator for WithoutLabelsIterator<'a> {
     type Item = &'a Tag;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(tag) = self.tag_iter.next() {
+        for tag in self.tag_iter.by_ref() {
             if let Some(name) = self.last_name {
                 if &tag.key > name {
                     return None;

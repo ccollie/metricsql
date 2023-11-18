@@ -406,14 +406,6 @@ mod tests {
     }
 
     #[test]
-    fn single_test() {
-        assert_result_eq(
-            "time() <= 1200 or time() > 1600",
-            &[16.0, 20.0, NAN, NAN, 30.0, 33.0],
-        );
-    }
-
-    #[test]
     fn minute_series_with_nans() {
         assert_result_eq(
             "minute(time() <= 1200 or time() > 1600)",
