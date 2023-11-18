@@ -336,7 +336,6 @@ fn expand_function(
         args,
         keep_metric_names: func.keep_metric_names,
         function: func.function,
-        return_type: func.return_type,
     };
     Ok(Expr::Function(res))
 }

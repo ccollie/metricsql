@@ -77,13 +77,16 @@ pub struct BinModifier {
 
     /// on/ignoring on labels.
     /// like a + b, no match modifier is needed.
+    #[serde(default, skip_serializing_if = "is_default")]
     pub matching: Option<VectorMatchModifier>,
 
     /// If keep_metric_names is set to true, then the operation should keep metric names.
+    #[serde(default, skip_serializing_if = "is_default")]
     pub keep_metric_names: bool,
 
     /// If a comparison operator, return 0/1 rather than filtering.
     /// For example, `foo > bool bar`.
+    #[serde(default, skip_serializing_if = "is_default")]
     pub return_bool: bool,
 }
 
@@ -903,28 +906,27 @@ pub struct FunctionExpr {
     pub args: Vec<Expr>,
 
     /// If keep_metric_names is set to true, then the function should keep metric names.
+    #[serde(default, skip_serializing_if = "is_default")]
     pub keep_metric_names: bool,
-
-    pub return_type: ValueType,
 }
 
 impl FunctionExpr {
     pub fn new(name: &str, args: Vec<Expr>) -> ParseResult<Self> {
         let func_name = if name.is_empty() { "union" } else { name };
         let function = BuiltinFunction::new(func_name)?;
-        let return_type = function.return_type(&args)?; // TODO
 
         Ok(Self {
             name: name.to_string(),
             args,
             keep_metric_names: false,
             function,
-            return_type,
         })
     }
 
     pub fn return_type(&self) -> ValueType {
-        self.return_type
+        self.function
+            .return_type(&self.args)
+            .unwrap_or(ValueType::Scalar)
     }
 
     pub fn function_type(&self) -> BuiltinFunctionType {
@@ -1027,6 +1029,7 @@ pub struct AggregationExpr {
     #[serde(default, skip_serializing_if = "is_default")]
     pub limit: usize,
 
+    #[serde(default, skip_serializing_if = "is_default")]
     pub keep_metric_names: bool,
 }
 
@@ -1225,6 +1228,7 @@ pub struct RollupExpr {
     pub offset: Option<DurationExpr>,
 
     /// if set to true, then `foo[1h:]` would print the same instead of `foo[1h]`.
+    #[serde(default, skip_serializing_if = "is_default")]
     pub inherit_step: bool,
 
     /// at contains an optional expression after `@` modifier.
@@ -1682,7 +1686,6 @@ impl ParensExpr {
             name: name.to_string(),
             args: self.expressions,
             keep_metric_names: false,
-            return_type: TransformFunction::Union.return_type(),
             function: func,
         }
     }
@@ -2186,8 +2189,8 @@ impl Expr {
             Expr::Function(fe) => fe.keep_metric_names,
             Expr::Aggregation(ae) => ae.keep_metric_names,
             Expr::Parens(pe) => {
-                if !pe.expressions.is_empty() {
-                    return pe.expressions[0].keep_metric_names();
+                if let Some(expr) = pe.innermost_expr() {
+                    return expr.keep_metric_names();
                 }
                 false
             }

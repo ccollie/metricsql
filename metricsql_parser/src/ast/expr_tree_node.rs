@@ -118,13 +118,11 @@ impl TreeNode for Expr {
                 args,
                 keep_metric_names,
                 function,
-                return_type,
             }) => Expr::Function(FunctionExpr {
                 name,
                 args: transform_vec(args, &mut transform)?,
                 keep_metric_names,
                 function,
-                return_type,
             }),
             Expr::NumberLiteral(_) => self.clone(),
             Expr::Rollup(RollupExpr {
