@@ -159,12 +159,32 @@ fn get_aggr_timeseries(tfa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> 
             "aggregate function requires at least one argument".to_string(),
         ));
     }
-    let mut tss = tfa.args[0].get_instant_vector(tfa.ec)?;
-    for arg in tfa.args.iter_mut().skip(1) {
-        let mut other = arg.get_instant_vector(tfa.ec)?;
-        tss.append(&mut other);
+
+    fn get_instant_vector(
+        value: &mut QueryValue,
+        ec: &EvalConfig,
+    ) -> RuntimeResult<Vec<Timeseries>> {
+        match value {
+            QueryValue::InstantVector(val) => Ok(std::mem::take(val)), // ????
+            QueryValue::Scalar(n) => eval_number(ec, *n),
+            _ => {
+                let msg = format!("cannot cast {} to an instant vector", value.data_type());
+                Err(RuntimeError::TypeCastError(msg))
+            }
+        }
     }
-    Ok(tss)
+
+    if tfa.args.len() == 1 {
+        get_instant_vector(&mut tfa.args[0], tfa.ec)
+    } else {
+        let mut first = tfa.args.swap_remove(0);
+        let mut dest = get_instant_vector(&mut first, tfa.ec)?;
+        for mut arg in tfa.args.drain(0..) {
+            let mut other = get_instant_vector(&mut arg, tfa.ec)?;
+            dest.append(&mut other);
+        }
+        Ok(dest)
+    }
 }
 
 trait AggrFnExt: FnMut(&mut Vec<Timeseries>, &Option<AggregateModifier>) -> Vec<Timeseries> {}
@@ -339,7 +359,8 @@ fn aggr_func_geomean(tss: &mut Vec<Timeseries>) {
             p = f64::NAN
         }
 
-        tss[0].values[i] = p.powf((1 / count) as f64);
+        let value = p.powf(1.0 / count as f64);
+        tss[0].values[i] = value;
     }
 
     tss.truncate(1);
