@@ -520,30 +520,21 @@ fn aggr_func_stdvar(tss: &mut Vec<Timeseries>) {
 }
 
 fn aggr_func_count(tss: &mut Vec<Timeseries>) {
-    for i in 0..tss[0].values.len() {
-        let mut count = 0;
-        for (j, ts) in tss.iter().enumerate() {
-            if ts.values[j].is_nan() {
-                continue;
-            }
-            count += 1;
-        }
-        let mut v: f64 = count as f64;
-        if count == 0 {
-            v = f64::NAN
-        }
-
-        tss[0].values[i] = v;
+    let value_count = tss[0].values.len();
+    for i in 0..value_count {
+        let count = tss.iter().filter(|ts| !ts.values[i].is_nan()).count();
+        tss[0].values[i] = if count == 0 { f64::NAN } else { count as f64 }
     }
 
     tss.truncate(1);
 }
 
 fn aggr_func_distinct(tss: &mut Vec<Timeseries>) {
+    let value_count = tss[0].values.len();
     let mut values: Vec<f64> = Vec::with_capacity(tss.len());
 
     // todo: split_mut()]
-    for i in 0..tss[0].values.len() {
+    for i in 0..value_count {
         for ts in tss.iter() {
             let v = ts.values[i];
             if v.is_nan() {
