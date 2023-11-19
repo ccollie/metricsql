@@ -14,7 +14,7 @@ pub struct VectorScalarBinaryNode {
     pub right: f64,
     pub op: Operator,
     pub bool_modifier: bool,
-    pub keep_metric_names: bool,
+    pub reset_metric_group: bool,
     pub left_idx: usize,
     #[serde(skip)]
     pub(crate) left: InstantVector,
@@ -32,7 +32,7 @@ impl ExecutableNode for VectorScalarBinaryNode {
             self.op,
             self.right,
             self.bool_modifier,
-            self.keep_metric_names,
+            self.reset_metric_group,
             ctx.trace_enabled(),
         )
     }

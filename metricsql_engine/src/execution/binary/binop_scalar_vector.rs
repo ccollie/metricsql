@@ -13,7 +13,7 @@ pub(crate) fn eval_scalar_vector_binop(
     op: Operator,
     vector: InstantVector,
     bool_modifier: bool,
-    keep_metric_names: bool,
+    reset_metric_group: bool,
     is_tracing: bool,
 ) -> RuntimeResult<QueryValue> {
     let _ = if is_tracing {
@@ -32,7 +32,7 @@ pub(crate) fn eval_scalar_vector_binop(
     let mut vector = vector;
 
     for ts in vector.iter_mut() {
-        if !keep_metric_names {
+        if reset_metric_group {
             ts.metric_name.reset_metric_group();
         }
 

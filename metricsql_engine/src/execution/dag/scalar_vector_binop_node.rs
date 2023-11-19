@@ -14,7 +14,7 @@ pub struct ScalarVectorBinaryNode {
     pub left: f64,
     pub op: Operator,
     pub bool_modifier: bool,
-    pub keep_metric_names: bool,
+    pub(crate) reset_metric_group: bool,
     pub right_idx: usize,
     #[serde(skip)]
     pub(crate) right: InstantVector,
@@ -32,7 +32,7 @@ impl ExecutableNode for ScalarVectorBinaryNode {
             self.op,
             std::mem::take(&mut self.right),
             self.bool_modifier,
-            self.keep_metric_names,
+            self.reset_metric_group,
             ctx.trace_enabled(),
         )
     }

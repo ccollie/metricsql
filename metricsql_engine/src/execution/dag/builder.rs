@@ -7,10 +7,11 @@ use topologic::AcyclicDependencyGraph;
 use metricsql_parser::ast::{
     AggregationExpr, BinaryExpr, Expr, FunctionExpr, MetricExpr, ParensExpr, RollupExpr, UnaryExpr,
 };
+use metricsql_parser::common::{Value, ValueType};
 use metricsql_parser::functions::{BuiltinFunction, RollupFunction, TransformFunction};
 use metricsql_parser::prelude::{adjust_comparison_ops, Operator};
 
-use crate::execution::binary::can_push_down_common_filters;
+use crate::execution::binary::{can_push_down_common_filters, should_reset_metric_group};
 use crate::execution::dag::aggregate_node::AggregateNode;
 use crate::execution::dag::binop_node::BinopNode;
 use crate::execution::dag::dynamic_node::DynamicNode;
@@ -24,7 +25,6 @@ use crate::execution::dag::vector_vector_binary_node::{
     VectorVectorBinaryNode, VectorVectorPushDownNode,
 };
 use crate::execution::dag::NodeArg;
-use crate::execution::utils::should_keep_metric_names;
 use crate::execution::DAGNode;
 use crate::functions::aggregate::IncrementalAggregationHandler;
 use crate::functions::rollup::{
@@ -455,7 +455,7 @@ impl DAGBuilder {
                     right: Default::default(),
                     op: Operator::Sub,
                     bool_modifier: false,
-                    keep_metric_names,
+                    reset_metric_group: !keep_metric_names,
                 };
                 DAGNode::ScalarVectorOp(node)
             }
@@ -469,9 +469,9 @@ impl DAGBuilder {
     fn create_binary_node(&mut self, be: &BinaryExpr) -> RuntimeResult<usize> {
         let idx = self.reserve_node();
         let bool_modifier = be.returns_bool();
-        let keep_metric_names = should_keep_metric_names(be);
         let is_left_vector = is_vector_expr(&be.left);
         let is_right_vector = is_vector_expr(&be.right);
+        let reset_metric_group = should_reset_metric_group(be);
 
         // ops with 2 constant operands have already been handled by the optimizer
         let res = match (&be.left.as_ref(), &be.right.as_ref()) {
@@ -484,7 +484,7 @@ impl DAGBuilder {
                     right: v.value,
                     op: be.op,
                     bool_modifier,
-                    keep_metric_names,
+                    reset_metric_group,
                 };
                 DAGNode::VectorScalarOp(node)
             }
@@ -497,7 +497,7 @@ impl DAGBuilder {
                     right: Default::default(),
                     op: be.op,
                     bool_modifier,
-                    keep_metric_names,
+                    reset_metric_group,
                 };
                 DAGNode::ScalarVectorOp(node)
             }
@@ -560,7 +560,8 @@ impl DAGBuilder {
     ) -> RuntimeResult<DAGNode> {
         let left_idx = self.create_dependency(&be.left, parent_idx)?;
         let right_idx = self.create_dependency(&be.right, parent_idx)?;
-        let node = BinopNode::new(left_idx, right_idx, be.op, be.modifier.clone());
+        let mut node = BinopNode::new(left_idx, right_idx, be.op, be.modifier.clone());
+        node.reset_metric_group = should_reset_metric_group(be);
         Ok(DAGNode::BinOp(node))
     }
 
@@ -611,8 +612,8 @@ impl DAGBuilder {
 
 fn is_vector_expr(node: &Expr) -> bool {
     matches!(
-        node,
-        Expr::MetricExpression(_) | Expr::Rollup(_) | Expr::Aggregation(_) | Expr::Function(_) // what about functions returning vectors?
+        node.value_type(),
+        ValueType::InstantVector | ValueType::RangeVector
     )
 }
 

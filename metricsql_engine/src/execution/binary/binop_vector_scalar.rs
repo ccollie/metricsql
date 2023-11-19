@@ -13,7 +13,7 @@ pub(crate) fn eval_vector_scalar_binop(
     op: Operator,
     scalar: f64,
     bool_modifier: bool,
-    _keep_metric_names: bool,
+    reset_metric_group: bool,
     is_tracing: bool,
 ) -> RuntimeResult<QueryValue> {
     use QueryValue::*;
@@ -35,7 +35,9 @@ pub(crate) fn eval_vector_scalar_binop(
 
     let handler = get_scalar_binop_handler(op, bool_modifier);
     for v in vector.iter_mut() {
-        // reset_metric_group_if_required(be, v);
+        if reset_metric_group {
+            v.metric_name.reset_metric_group();
+        }
 
         // special case `unless` operator. If the vector has labels, then By definition we have mismatched
         // labels, since rhs is a scalar. In that case, return the vector as is.

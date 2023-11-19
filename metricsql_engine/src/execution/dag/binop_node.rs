@@ -23,6 +23,7 @@ pub struct BinopNode {
     pub left: QueryValue,
     #[serde(skip)]
     pub right: QueryValue,
+    pub(crate) reset_metric_group: bool,
 }
 
 impl BinopNode {
@@ -53,12 +54,10 @@ impl ExecutableNode for BinopNode {
         use QueryValue::*;
 
         let is_tracing = ctx.trace_enabled();
-        let (bool_modifier, keep_metric_names) = if let Some(modifier) = &self.modifier {
-            let is_bool = modifier.return_bool;
-            // todo: check op
-            (is_bool, modifier.keep_metric_names)
+        let bool_modifier = if let Some(modifier) = &self.modifier {
+            modifier.return_bool
         } else {
-            (false, false)
+            false
         };
 
         match (&mut self.left, &mut self.right) {
@@ -86,7 +85,7 @@ impl ExecutableNode for BinopNode {
                     self.op,
                     *scalar,
                     bool_modifier,
-                    keep_metric_names,
+                    self.reset_metric_group,
                     is_tracing,
                 )
             }
@@ -101,7 +100,7 @@ impl ExecutableNode for BinopNode {
                     self.op,
                     std::mem::take(vector),
                     bool_modifier,
-                    keep_metric_names,
+                    self.reset_metric_group,
                     is_tracing,
                 )
             }

@@ -1633,7 +1633,7 @@ mod tests {
     }
 
     #[test]
-    fn arr_cmp_bool_scalar_drop_metric_group() {
+    fn a_cmp_bool_scalar_drop_metric_group() {
         let q = r#"sort_desc((
         label_set(time(), "__name__", "foo", "a", "x"),
         label_set(time()+200, "__name__", "bar", "a", "y"),
