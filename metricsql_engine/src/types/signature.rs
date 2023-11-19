@@ -10,7 +10,7 @@ use metricsql_parser::prelude::VectorMatchModifier;
 use crate::{MetricName, Tag, Timeseries};
 
 /// The minimum threshold of timeseries tags to process in parallel when computing signatures.
-pub(crate) const SIGNATURE_PARALLELIZATION_THRESHOLD: usize = 2;
+pub(crate) const SIGNATURE_PARALLELIZATION_THRESHOLD: usize = 4;
 
 pub type TimeseriesHashMap = AHashMap<Signature, Vec<Timeseries>>;
 
@@ -119,6 +119,7 @@ pub fn group_series_indexes_by_match_modifier(
     m
 }
 
+// todo(perf): return AHashset or use nohash_hasher
 pub fn get_signatures_set_by_match_modifier(
     series: &[Timeseries],
     modifier: &Option<VectorMatchModifier>,
