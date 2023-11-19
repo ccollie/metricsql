@@ -496,7 +496,7 @@ fn binary_op_or(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
 
     let (mut m_left, m_right) = create_series_map_by_tag_set(bfa);
 
-    let mut rvs: Vec<Timeseries> = Vec::with_capacity(m_left.len() + m_right.len());
+    let mut rvs: Vec<Timeseries> = Vec::with_capacity(m_right.len());
 
     for (sig, ref mut tss_right) in m_right.into_iter() {
         if let Some(tss_left) = m_left.get_mut(&sig) {
@@ -507,17 +507,15 @@ fn binary_op_or(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
         };
     }
 
-    // todo(perf): there is alot of copying and moving here, can we avoid it?
-    let left = m_left.into_values().flatten().collect::<Vec<Timeseries>>();
+    // todo(perf): there is a lot of copying and moving here, can we avoid it?
+    let mut left = m_left.into_values().flatten().collect::<Vec<Timeseries>>();
     if rvs.is_empty() {
         return Ok(left);
     }
-    let left_len = left.len();
 
-    rvs.reserve(left_len);
-    rvs.splice(0..1, left);
+    left.append(&mut rvs);
 
-    Ok(rvs)
+    Ok(left)
 }
 
 /// vector1 unless vector2 results in a vector consisting of the elements of vector1
