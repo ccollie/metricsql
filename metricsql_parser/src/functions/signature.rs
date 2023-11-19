@@ -112,7 +112,7 @@ impl TypeSignature {
     }
 }
 
-///The Signature of a function defines its supported input types as well as its volatility.
+/// The Signature of a function defines its supported input types as well as its volatility.
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub struct Signature {
     /// type_signature - The types that the function accepts. See [TypeSignature] for more information.

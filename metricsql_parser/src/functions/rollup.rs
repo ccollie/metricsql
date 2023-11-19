@@ -200,7 +200,10 @@ impl RollupFunction {
             HoltWinters => {
                 Signature::exact(vec![RangeVector, Scalar, Scalar], Volatility::Immutable)
             }
-            AggrOverTime | QuantilesOverTime => {
+            AggrOverTime => {
+                Signature::exact(vec![InstantVector, RangeVector], Volatility::Immutable)
+            }
+            QuantilesOverTime => {
                 let mut quantile_types: Vec<ValueType> = vec![RangeVector; MAX_ARG_COUNT];
                 quantile_types.insert(0, RangeVector);
                 Signature::variadic_min(quantile_types, 3, Volatility::Volatile)

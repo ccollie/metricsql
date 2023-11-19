@@ -4298,7 +4298,7 @@ mod tests {
     }
 
     #[test]
-    fn test_avg() {
+    fn test_avg_aggr_over_time() {
         let q = r#"avg(aggr_over_time(("min_over_time", "max_over_time"), time()[:10s]))"#;
         assert_result_eq(q, &[905.0, 1105.0, 1305.0, 1505.0, 1705.0, 1905.0]);
 
