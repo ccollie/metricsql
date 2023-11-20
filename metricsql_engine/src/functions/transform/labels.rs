@@ -51,10 +51,16 @@ pub(crate) fn label_set(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeser
 }
 
 pub(crate) fn alias(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let alias = get_string_arg(&tfa.args, 1)?.to_string();
+    let alias = get_string_arg(&tfa.args, 1)?;
     let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
 
-    handle_label_set(&mut series, &[METRIC_NAME_LABEL.to_string()], &[alias]);
+    for ts in series.iter_mut() {
+        if alias.is_empty() {
+            ts.metric_name.remove_tag(METRIC_NAME_LABEL);
+        } else {
+            ts.metric_name.set_tag(METRIC_NAME_LABEL, &alias)
+        }
+    }
 
     Ok(series)
 }
