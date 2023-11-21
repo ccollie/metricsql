@@ -136,6 +136,13 @@ impl BuiltinFunction {
         }
     }
 
+    pub fn is_rollup_function(&self, func: RollupFunction) -> bool {
+        match self {
+            BuiltinFunction::Rollup(rf) => rf == &func,
+            _ => false,
+        }
+    }
+
     pub fn may_sort_results(&self) -> bool {
         use BuiltinFunction::*;
         match self {

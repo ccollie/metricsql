@@ -242,9 +242,15 @@ impl DAGBuilder {
         rf: RollupFunction,
     ) -> RuntimeResult<usize> {
         // todo: i dont think we can have a empty arg_idx_for_optimization
-        let rollup_arg_idx = fe
-            .arg_idx_for_optimization()
-            .expect("rollup_arg_idx is None");
+        let rollup_arg_idx = if fe
+            .function
+            .is_rollup_function(RollupFunction::AbsentOverTime)
+        {
+            0
+        } else {
+            fe.arg_idx_for_optimization()
+                .expect("rollup_arg_idx is None")
+        };
 
         let arg = &fe.args[rollup_arg_idx];
         let re = get_rollup_expr_arg(arg).map_err(|e| {
@@ -275,7 +281,7 @@ impl DAGBuilder {
         let parent_idx = self.create_rollup_node(expr, &re, rf, func_handler)?;
 
         let (fn_args, const_values, args_const) =
-            self.process_args(&fe.args, parent_idx, fe.arg_idx_for_optimization())?;
+            self.process_args(&fe.args, parent_idx, Some(rollup_arg_idx))?;
 
         if !fn_args.is_empty() {
             if let Some(expr) = self.node_map.get_mut(&parent_idx) {
@@ -471,7 +477,8 @@ impl DAGBuilder {
         let bool_modifier = be.returns_bool();
         let is_left_vector = is_vector_expr(&be.left);
         let is_right_vector = is_vector_expr(&be.right);
-        let reset_metric_group = should_reset_metric_group(be);
+        // in the original code, the metric group is not reset for logical ops
+        let reset_metric_group = should_reset_metric_group(be) && !be.op.is_logical_op();
 
         // ops with 2 constant operands have already been handled by the optimizer
         let res = match (&be.left.as_ref(), &be.right.as_ref()) {
