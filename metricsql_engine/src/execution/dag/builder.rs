@@ -460,7 +460,7 @@ impl DAGBuilder {
                     right_idx,
                     right: Default::default(),
                     op: Operator::Sub,
-                    bool_modifier: false,
+                    modifier: None,
                     reset_metric_group: !keep_metric_names,
                 };
                 DAGNode::ScalarVectorOp(node)
@@ -474,7 +474,6 @@ impl DAGBuilder {
 
     fn create_binary_node(&mut self, be: &BinaryExpr) -> RuntimeResult<usize> {
         let idx = self.reserve_node();
-        let bool_modifier = be.returns_bool();
         let is_left_vector = is_vector_expr(&be.left);
         let is_right_vector = is_vector_expr(&be.right);
         // in the original code, the metric group is not reset for logical ops
@@ -485,27 +484,13 @@ impl DAGBuilder {
             (expr_left, Expr::NumberLiteral(v)) if is_left_vector => {
                 let left_idx = self.create_dependency(expr_left, idx)?;
                 // vector_scalar
-                let node = VectorScalarBinaryNode {
-                    left_idx,
-                    left: Default::default(),
-                    right: v.value,
-                    op: be.op,
-                    bool_modifier,
-                    reset_metric_group,
-                };
+                let node = VectorScalarBinaryNode::new(be, left_idx, v.value);
                 DAGNode::VectorScalarOp(node)
             }
             (Expr::NumberLiteral(v), expr_right) if is_right_vector => {
                 let right_idx = self.create_dependency(expr_right, idx)?;
                 // scalar_vector
-                let node = ScalarVectorBinaryNode {
-                    left: v.value,
-                    right_idx,
-                    right: Default::default(),
-                    op: be.op,
-                    bool_modifier,
-                    reset_metric_group,
-                };
+                let node = ScalarVectorBinaryNode::new(be, right_idx, v.value);
                 DAGNode::ScalarVectorOp(node)
             }
             // vector op vector needs special handling where both contain selectors

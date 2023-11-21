@@ -84,5 +84,10 @@ pub(crate) fn should_reset_metric_group(be: &BinaryExpr) -> bool {
         return false;
     }
 
+    // in the original code, the metric group is not reset for logical ops
+    if be.op.is_logical_op() {
+        return false;
+    }
+
     return true;
 }

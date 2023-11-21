@@ -120,21 +120,37 @@ pub(crate) fn label_map(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeser
 
     let (src_values, dst_values) = get_string_pairs(tfa, 2)?;
     let mut m: AHashMap<&str, &str> = AHashMap::with_capacity(src_values.len());
-    for (i, src_value) in src_values.iter().enumerate() {
-        m.insert(src_value, &dst_values[i]);
+    for (src_value, dst_value) in src_values.iter().zip(dst_values.iter()) {
+        m.insert(src_value, dst_value);
     }
 
+    let empty = "".to_string();
     let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
+
     for ts in series.iter_mut() {
         let mut should_delete = false;
-        if let Some(dst_value) = get_tag_value_mut(&mut ts.metric_name, &label) {
-            if let Some(value) = m.get(dst_value.as_str()) {
-                *dst_value = value.to_string();
+        let dst_value = get_tag_value_mut(&mut ts.metric_name, &label);
+        match dst_value {
+            Some(v) => {
+                if let Some(val) = m.get(v.as_str()) {
+                    if val.is_empty() {
+                        should_delete = true;
+                    } else {
+                        *v = val.to_string();
+                    }
+                }
+                if v.is_empty() {
+                    should_delete = true;
+                }
             }
-            if dst_value.is_empty() {
-                should_delete = true;
+            None => {
+                if let Some(val) = m.get(empty.as_str()) {
+                    if !val.is_empty() {
+                        ts.metric_name.set_tag(&label, val);
+                    }
+                }
             }
-        }
+        };
         if should_delete {
             ts.metric_name.remove_tag(&label);
         }

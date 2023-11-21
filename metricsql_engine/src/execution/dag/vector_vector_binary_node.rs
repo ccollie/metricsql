@@ -81,37 +81,37 @@ impl ExecutableNode for VectorVectorPushDownNode {
 }
 
 impl VectorVectorPushDownNode {
+    /// Execute binary operation in the following way:
+    ///
+    /// 1) execute the expr_first
+    /// 2) get common label filters for series returned at step 1
+    /// 3) push down the found common label filters to expr_second. This filters out unneeded series
+    ///    during expr_second execution instead of spending compute resources on extracting and
+    ///    processing these series before they are dropped later when matching time series according to
+    ///    https://prometheus.io/docs/prometheus/latest/querying/operators/#vector-matching
+    /// 4) execute the expr_second with possible additional filters found at step 3
+    ///
+    /// Typical use cases:
+    /// - Kubernetes-related: show pod creation time with the node name:
+    ///
+    ///     kube_pod_created{namespace="prod"} * on (uid) group_left(node) kube_pod_info
+    ///
+    ///   Without the optimization `kube_pod_info` would select and spend compute resources
+    ///   for more time series than needed. The selected time series would be dropped later
+    ///   when matching time series on the right and left sides of binary operand.
+    ///
+    /// - Generic alerting queries, which rely on `info` metrics.
+    ///   See https://grafana.com/blog/2021/08/04/how-to-use-promql-joins-for-more-effective-queries-of-prometheus-metrics-at-scale/
+    ///
+    /// - Queries, which get additional labels from `info` metrics.
+    ///   See https://www.robustperception.io/exposing-the-software-version-to-prometheus
+    ///
+    /// Invariant: self.lhs and self.rhs are both ValueType::InstantVector
     fn fetch_right(&mut self, ctx: &Context, ec: &EvalConfig) -> RuntimeResult<InstantVector> {
-        // Execute binary operation in the following way:
-        //
-        // 1) execute the expr_first
-        // 2) get common label filters for series returned at step 1
-        // 3) push down the found common label filters to expr_second. This filters out unneeded series
-        //    during expr_second execution instead of spending compute resources on extracting and
-        //    processing these series before they are dropped later when matching time series according to
-        //    https://prometheus.io/docs/prometheus/latest/querying/operators/#vector-matching
-        // 4) execute the expr_second with possible additional filters found at step 3
-        //
-        // Typical use cases:
-        // - Kubernetes-related: show pod creation time with the node name:
-        //
-        //     kube_pod_created{namespace="prod"} * on (uid) group_left(node) kube_pod_info
-        //
-        //   Without the optimization `kube_pod_info` would select and spend compute resources
-        //   for more time series than needed. The selected time series would be dropped later
-        //   when matching time series on the right and left sides of binary operand.
-        //
-        // - Generic alerting queries, which rely on `info` metrics.
-        //   See https://grafana.com/blog/2021/08/04/how-to-use-promql-joins-for-more-effective-queries-of-prometheus-metrics-at-scale/
-        //
-        // - Queries, which get additional labels from `info` metrics.
-        //   See https://www.robustperception.io/exposing-the-software-version-to-prometheus
-        //
-        // Invariant: self.lhs and self.rhs are both ValueType::InstantVector
-
         // if first.is_empty() && self.op == Or, the result will be empty,
         // since the "expr_first op expr_second" would return an empty result in any case.
         // https://github.com/VictoriaMetrics/VictoriaMetrics/issues/3349
+
         if self.left.is_empty() && self.op == Operator::Or {
             return Ok(Default::default());
         }
