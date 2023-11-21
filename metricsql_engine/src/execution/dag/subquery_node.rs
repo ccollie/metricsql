@@ -14,12 +14,13 @@ use crate::execution::utils::{
     adjust_eval_range, duration_value, get_step, process_series_in_parallel,
 };
 use crate::execution::{
-    align_start_end, get_timestamps, validate_max_points_per_timeseries, Context, EvalConfig,
+    align_start_end, eval_number, get_timestamps, validate_max_points_per_timeseries, Context,
+    EvalConfig,
 };
 use crate::functions::rollup::{
     eval_prefuncs, get_rollup_configs, RollupHandler, MAX_SILENCE_INTERVAL,
 };
-use crate::{QueryValue, RuntimeResult, Timeseries, Timestamp};
+use crate::{QueryValue, RuntimeError, RuntimeResult, Timeseries, Timestamp};
 
 /// Node for non-selector sub-queries.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -201,6 +202,13 @@ impl SubqueryNode {
         // force refresh of timestamps
         let _ = ec.get_timestamps();
         let val = self.expr_node.execute(ctx, ec)?;
-        val.get_instant_vector(ec)
+        match val {
+            QueryValue::InstantVector(v) => Ok(v),
+            QueryValue::Scalar(n) => Ok(eval_number(ec, n)?),
+            _ => {
+                let msg = format!("cannot cast {} to an instant vector", val.data_type());
+                Err(RuntimeError::TypeCastError(msg))
+            }
+        }
     }
 }
