@@ -59,7 +59,7 @@ pub(crate) fn buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
             mn.copy_from(&ts.metric_name);
             mn.remove_tag(LE);
 
-            let key = ts.metric_name.signature();
+            let key = mn.signature();
 
             bucket_map
                 .entry(key)
@@ -73,7 +73,7 @@ pub(crate) fn buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
 
     // Remove buckets with the smallest counters.
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(tss_len);
-    for (_, le_group) in bucket_map.iter_mut() {
+    for le_group in bucket_map.values_mut() {
         if le_group.len() <= limit as usize {
             // Fast path - the number of buckets doesn't exceed the given limit.
             // Keep all the buckets as is.
