@@ -134,6 +134,7 @@ impl RollupNode {
         adjust_series_by_offset(&mut rvs, offset);
         Ok(rvs)
     }
+
     fn eval_metric_expr(
         &self,
         ctx: &Context,
