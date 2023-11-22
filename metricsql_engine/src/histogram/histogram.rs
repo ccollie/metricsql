@@ -216,8 +216,6 @@ impl<'a> Iterator for NonZeroBuckets<'a> {
     type Item = NonZeroBucket<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let buckets = &self.histogram.decimal_buckets;
-
         if !self.lower_handled {
             self.lower_handled = true;
             if self.histogram.lower > 0 {
@@ -228,35 +226,17 @@ impl<'a> Iterator for NonZeroBuckets<'a> {
             }
         }
 
-        let result = loop {
-            let bucket = &buckets[self.index];
-            while self.offset < BUCKETS_PER_DECIMAL && bucket[self.offset] == 0 {
-                self.offset += 1;
+        let buckets = &self.histogram.decimal_buckets;
+
+        if self.index >= buckets.len() {
+            if self.histogram.upper > 0 {
+                return Some(NonZeroBucket {
+                    vm_range: UPPER_BUCKET_RANGE,
+                    count: self.histogram.upper,
+                });
             }
-
-            if self.offset >= bucket.len() {
-                self.index += 1;
-                self.offset = 0;
-                if self.index >= buckets.len() {
-                    if self.histogram.upper > 0 {
-                        break Some(NonZeroBucket {
-                            vm_range: UPPER_BUCKET_RANGE,
-                            count: self.histogram.upper,
-                        });
-                    }
-                    break None;
-                }
-                continue;
-            }
-
-            let bucket_idx = self.index * BUCKETS_PER_DECIMAL + self.offset;
-            let ranges = get_bucket_ranges();
-            let vm_range = &ranges[bucket_idx];
-            let count = bucket[self.offset];
-            self.offset += 1;
-
-            break Some(NonZeroBucket { vm_range, count });
-        };
+            return None;
+        }
 
         loop {
             let bucket = &buckets[self.index];
