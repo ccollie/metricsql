@@ -427,6 +427,14 @@ mod tests {
     }
 
     #[test]
+    fn day_of_year() {
+        assert_result_eq(
+            "day_of_year(time()*1e4)",
+            &[116.0, 139.0, 163.0, 186.0, 209.0, 232.0],
+        );
+    }
+
+    #[test]
     fn days_in_month() {
         assert_result_eq(
             "days_in_month(time()*2e4)",
@@ -704,7 +712,7 @@ mod tests {
     fn asin() {
         let q = "asin((2000-time())/1000)";
         let r = make_result(&[
-            1.5707963267948966,
+            std::f64::consts::FRAC_PI_2,
             0.9272952180016123,
             0.6435011087932843,
             0.41151684606748806,

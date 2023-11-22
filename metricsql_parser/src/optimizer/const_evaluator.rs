@@ -266,6 +266,7 @@ impl ConstEvaluator {
                     Cosh => arg.cosh(),
                     DayOfMonth => extract_datetime_part(arg, DateTimePart::DayOfMonth),
                     DayOfWeek => extract_datetime_part(arg, DateTimePart::DayOfWeek),
+                    DayOfYear => extract_datetime_part(arg, DateTimePart::DayOfYear),
                     DaysInMonth => extract_datetime_part(arg, DateTimePart::DaysInMonth),
                     Deg => arg.to_degrees(),
                     Exp => arg.exp(),
@@ -526,6 +527,7 @@ mod tests {
         test_date_part_fn("day_of_month", epoch, DateTimePart::DayOfMonth);
         test_date_part_fn("days_in_month", epoch, DateTimePart::DaysInMonth);
         test_date_part_fn("day_of_week", epoch, DateTimePart::DayOfWeek);
+        test_date_part_fn("day_of_year", epoch, DateTimePart::DayOfYear);
 
         test_date_part_fn("hour", epoch, DateTimePart::Hour);
         test_date_part_fn("minute", epoch, DateTimePart::Minute);

@@ -213,6 +213,7 @@ pub fn int_day_of_week<Tz: TimeZone>(t: DateTime<Tz>) -> u8 {
 pub enum DateTimePart {
     DayOfMonth,
     DayOfWeek,
+    DayOfYear,
     DaysInMonth,
     Hour,
     Minute,
@@ -230,6 +231,7 @@ impl DateTimePart {
         match self {
             DateTimePart::DayOfMonth => datetime.day(),
             DateTimePart::DayOfWeek => datetime.weekday().num_days_from_sunday(),
+            DateTimePart::DayOfYear => datetime.ordinal(),
             DateTimePart::DaysInMonth => {
                 let cur_month = datetime.month();
                 let cur_year = datetime.year();
@@ -262,6 +264,7 @@ pub fn datetime_part<Tz: TimeZone>(datetime: DateTime<Tz>, part: DateTimePart) -
     match part {
         DateTimePart::DayOfMonth => Some(datetime.day()),
         DateTimePart::DayOfWeek => Some(int_day_of_week(datetime) as u32),
+        DateTimePart::DayOfYear => Some(datetime.ordinal()),
         DateTimePart::DaysInMonth => Some(days_in_month(datetime) as u32),
         DateTimePart::Hour => Some(datetime.hour()),
         DateTimePart::Minute => Some(datetime.minute()),

@@ -12,7 +12,8 @@ use crate::functions::transform::bitmap::{
 };
 use crate::functions::transform::clamp::{clamp, clamp_max, clamp_min};
 use crate::functions::transform::datetime::{
-    day_of_month, day_of_week, days_in_month, hour, minute, month, now, time, timezone_offset, year,
+    day_of_month, day_of_week, day_of_year, days_in_month, hour, minute, month, now, time,
+    timezone_offset, year,
 };
 use crate::functions::transform::drop_empty_series::transform_drop_empty_series;
 use crate::functions::transform::end::transform_end;
@@ -136,6 +137,7 @@ fn get_transform_func(f: TransformFunction) -> TransformFuncHandler {
         Cosh => cosh,
         DayOfMonth => day_of_month,
         DayOfWeek => day_of_week,
+        DayOfYear => day_of_year,
         DaysInMonth => days_in_month,
         Deg => deg,
         DropCommonLabels => drop_common_labels,

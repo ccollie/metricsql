@@ -36,6 +36,7 @@ pub enum TransformFunction {
     Cosh,
     DayOfMonth,
     DayOfWeek,
+    DayOfYear,
     DaysInMonth,
     Deg,
     DropCommonLabels,
@@ -158,6 +159,7 @@ static REVERSE_MAP: phf::Map<&'static str, TransformFunction> = phf_map! {
 "cosh" => TransformFunction::Cosh,
 "day_of_month"=> TransformFunction::DayOfMonth,
 "day_of_week"=> TransformFunction::DayOfWeek,
+    "day_of_year"=> TransformFunction::DayOfYear,
 "days_in_month"=> TransformFunction::DaysInMonth,
 "deg"=> TransformFunction::Deg,
 "drop_common_labels"=> TransformFunction::DropCommonLabels,
@@ -291,6 +293,7 @@ impl TransformFunction {
             Cosh => "cosh",
             DayOfMonth => "day_of_month",
             DayOfWeek => "day_of_week",
+            DayOfYear => "day_of_year",
             DaysInMonth => "days_in_month",
             Deg => "deg",
             DropCommonLabels => "drop_common_labels",
@@ -613,7 +616,7 @@ impl TransformFunction {
             }
             Vector => Signature::exact(vec![ValueType::InstantVector], Volatility::Stable),
             // DateTime functions
-            DayOfMonth | DayOfWeek | DaysInMonth | Hour | Minute | Month | Year => {
+            DayOfMonth | DayOfWeek | DayOfYear | DaysInMonth | Hour | Minute | Month | Year => {
                 Signature::exact_with_min_args(
                     vec![ValueType::InstantVector],
                     0,

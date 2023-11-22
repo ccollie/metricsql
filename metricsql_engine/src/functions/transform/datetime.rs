@@ -15,9 +15,12 @@ pub(crate) fn hour(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>>
 pub(crate) fn day_of_month(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     transform_datetime_impl(tfa, DateTimePart::DayOfMonth)
 }
-
 pub(crate) fn day_of_week(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     transform_datetime_impl(tfa, DateTimePart::DayOfWeek)
+}
+
+pub(crate) fn day_of_year(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    transform_datetime_impl(tfa, DateTimePart::DayOfYear)
 }
 
 pub(crate) fn days_in_month(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
