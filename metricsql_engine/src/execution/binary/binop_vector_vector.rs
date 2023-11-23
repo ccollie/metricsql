@@ -11,7 +11,7 @@ use metricsql_parser::prelude::{BinModifier, Labels};
 
 use crate::execution::utils::remove_empty_series;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::signature::{group_series_by_match_modifier, TimeseriesHashMap};
+use crate::signature::TimeseriesHashMap;
 use crate::types::signature::Signature;
 use crate::types::Timeseries;
 use crate::{InstantVector, METRIC_NAME_LABEL};
@@ -187,7 +187,7 @@ fn adjust_binary_op_tags(
     let mut is_on = false;
     // let mut is_ignoring = false;
 
-    // Add __name__ to groupTags if metric name must be preserved.
+    // Add __name__ to group_tags if metric name must be preserved.
     let group_tags = if keep_metric_names {
         if let Some(VectorMatchModifier::On(labels)) = &matching {
             is_on = true;
@@ -631,8 +631,24 @@ fn create_series_map_by_tag_set(
     } else {
         &NONE_MATCHING
     };
-    let m_left = group_series_by_match_modifier(&mut bfa.left, matching);
-    let m_right = group_series_by_match_modifier(&mut bfa.right, matching);
+
+    fn get_tags_map(
+        arg: &mut Vec<Timeseries>,
+        modifier: &Option<VectorMatchModifier>,
+    ) -> TimeseriesHashMap {
+        let mut m = TimeseriesHashMap::with_capacity(arg.len());
+        // todo: rayon beyond a threshold
+        // todo: move to signature.rs
+        for ts in arg.into_iter() {
+            let key = ts.metric_name.tags_signature_by_match_modifier(modifier);
+            m.entry(key).or_default().push(std::mem::take(ts));
+        }
+        m
+    }
+
+    let m_left = get_tags_map(&mut bfa.left, matching);
+    let m_right = get_tags_map(&mut bfa.right, matching);
+
     (m_left, m_right)
 }
 

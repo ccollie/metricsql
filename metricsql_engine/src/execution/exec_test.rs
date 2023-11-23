@@ -47,8 +47,12 @@ mod tests {
         ec.deadline = Deadline::new(Duration::minutes(1)).unwrap();
         let context = Context::default(); // todo: have a test gated default;
         for _ in 0..TEST_ITERATIONS {
-            let result = exec(&context, &mut ec, q, false).unwrap();
-            test_results_equal(&result, &expected)
+            match exec(&context, &mut ec, q, false) {
+                Ok(result) => test_results_equal(&result, &expected),
+                Err(e) => {
+                    panic!("{}", e)
+                }
+            }
         }
     }
 

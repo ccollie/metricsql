@@ -47,7 +47,7 @@ impl Signature {
         }
     }
 
-    pub fn with_name_and_labels<'a>(name: &String, iter: impl Iterator<Item = &'a Tag>) -> Self {
+    pub fn with_name_and_labels<'a>(name: &str, iter: impl Iterator<Item = &'a Tag>) -> Self {
         let mut hasher = Xxh3::new();
         hasher.write(name.as_bytes());
         Self::update_from_iter(&mut hasher, iter);

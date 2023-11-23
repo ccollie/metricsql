@@ -6,11 +6,12 @@ use logos::{Logos, Span};
 use crate::ast::{DurationExpr, Expr, ParensExpr, StringExpr, WithArgExpr};
 use crate::parser::expand::resolve_ident;
 use crate::parser::expr::parse_expression;
+use crate::parser::parse_error::unexpected;
 use crate::parser::symbol_provider::{HashMapSymbolProvider, SymbolProviderRef};
 use crate::parser::tokens::Token;
 use crate::parser::{
     extract_string_value, invalid_token_error, parse_duration_value, parse_number, syntax_error,
-    ParseError, ParseResult,
+    ParseErr, ParseError, ParseResult,
 };
 use crate::prelude::unescape_ident;
 
@@ -63,7 +64,14 @@ impl<'a> Parser<'a> {
                         span: lexer.span(),
                     });
                 }
-                Err(e) => return Err(e),
+                Err(e) => {
+                    let span = lexer.span();
+                    let inner = ParseErr::new(
+                        format!("unexpected token \"{}\"", lexer.slice().trim()).as_str(),
+                        span,
+                    );
+                    return Err(ParseError::Unexpected(inner));
+                }
             }
         }
 

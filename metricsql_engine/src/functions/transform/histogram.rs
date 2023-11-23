@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use ahash::AHashMap;
+use metricsql_parser::parser::parse_number;
 
 use crate::execution::merge_non_overlapping_timeseries;
 use crate::functions::arg_parse::{
@@ -737,7 +738,7 @@ fn group_le_timeseries(tss: &mut [Timeseries]) -> AHashMap<Signature, Vec<LeTime
                 continue;
             }
 
-            if let Ok(le) = tag_value.parse::<f64>() {
+            if let Ok(le) = parse_number(tag_value) {
                 ts.metric_name.reset_metric_group();
                 ts.metric_name.remove_tag("le");
                 let key = ts.metric_name.signature();

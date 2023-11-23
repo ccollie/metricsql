@@ -226,7 +226,7 @@ impl MetricName {
             self.tags.clear();
             return;
         }
-        if on_tags.len() >= SET_SEARCH_MIN_THRESHOLD {
+        if on_tags.len() > SET_SEARCH_MIN_THRESHOLD {
             let set: AHashSet<_> = AHashSet::from_iter(on_tags);
             self.tags.retain(|tag| set.contains(&tag.key));
         } else {
@@ -248,7 +248,7 @@ impl MetricName {
             self.reset_metric_group();
         }
 
-        if labels.len() >= SET_SEARCH_MIN_THRESHOLD {
+        if labels.len() > SET_SEARCH_MIN_THRESHOLD {
             let set: AHashSet<_> = AHashSet::from_iter(labels);
             self.tags.retain(|tag| !set.contains(&tag.key));
         } else {
@@ -343,7 +343,7 @@ impl MetricName {
         self.marshal_tags_fast(dst);
     }
 
-    /// unmarshal unmarshals mn from src.
+    /// unmarshals mn from src.
     /// Todo(perf) this is not necessarily as performant as can be, even for
     /// simple serialization
     pub fn unmarshal(src: &[u8]) -> RuntimeResult<(&[u8], MetricName)> {
@@ -414,17 +414,36 @@ impl MetricName {
     }
 
     /// `names` have to be sorted in ascending order.
+    pub fn tags_signature_with_labels(&self, names: &[String]) -> Signature {
+        let empty: &str = "";
+        Signature::with_name_and_labels(empty, self.with_labels_iter(names))
+    }
+
+    /// `names` have to be sorted in ascending order.
     pub fn signature_with_labels(&self, names: &[String]) -> Signature {
         Signature::with_name_and_labels(&self.metric_group, self.with_labels_iter(names))
     }
 
+    /// `names` have to be sorted in ascending order.
     pub fn signature_without_labels(&self, names: &[String]) -> Signature {
         if names.is_empty() {
             return self.signature();
         }
-        Signature::with_name_and_labels(&self.metric_group, self.without_labels_iter(names))
+        let includes_metric_group = names.iter().any(|x| *x == METRIC_NAME_LABEL);
+        let group_name = if includes_metric_group {
+            &self.metric_group
+        } else {
+            ""
+        };
+        Signature::with_name_and_labels(group_name, self.without_labels_iter(names))
     }
 
+    /// `names` have to be sorted in ascending order.
+    pub fn tags_signature_without_labels(&self, names: &[String]) -> Signature {
+        Signature::with_name_and_labels("", self.without_labels_iter(names))
+    }
+
+    /// Calculate signature for the metric name by the given match modifier.
     pub fn signature_by_match_modifier(&self, modifier: &Option<VectorMatchModifier>) -> Signature {
         match modifier {
             None => self.signature_without_labels(&[]),
@@ -432,6 +451,23 @@ impl MetricName {
                 VectorMatchModifier::On(labels) => self.signature_with_labels(labels.as_ref()),
                 VectorMatchModifier::Ignoring(labels) => {
                     self.signature_without_labels(labels.as_ref())
+                }
+            },
+        }
+    }
+
+    /// Calculate signature for the metric name by the given match modifier without including
+    /// the metric group (i.e. only tags are considered).
+    pub fn tags_signature_by_match_modifier(
+        &self,
+        modifier: &Option<VectorMatchModifier>,
+    ) -> Signature {
+        match modifier {
+            None => self.tags_signature_without_labels(&[]),
+            Some(m) => match m {
+                VectorMatchModifier::On(labels) => self.tags_signature_with_labels(labels.as_ref()),
+                VectorMatchModifier::Ignoring(labels) => {
+                    self.tags_signature_without_labels(labels.as_ref())
                 }
             },
         }
@@ -483,14 +519,14 @@ impl PartialOrd for MetricName {
 
 pub struct WithLabelsIterator<'a> {
     tag_iter: std::slice::Iter<'a, Tag>,
-    names_iter: std::slice::Iter<'a, String>,
+    names: &'a [String],
 }
 
 impl<'a> WithLabelsIterator<'a> {
     pub fn new(metric_name: &'a MetricName, names: &'a [String]) -> Self {
         // todo: sort names here ?
         Self {
-            names_iter: names.iter(),
+            names,
             tag_iter: metric_name.tags.iter(),
         }
     }
@@ -500,22 +536,11 @@ impl<'a> Iterator for WithLabelsIterator<'a> {
     type Item = &'a Tag;
 
     fn next(&mut self) -> Option<Self::Item> {
-        for tag in self.tag_iter.by_ref() {
-            for name in self.names_iter.by_ref() {
-                match name.cmp(&tag.key) {
-                    Ordering::Less => {
-                        continue;
-                    }
-                    Ordering::Equal => {
-                        return Some(tag);
-                    }
-                    Ordering::Greater => {
-                        break;
-                    }
-                }
+        while let Some(tag) = self.tag_iter.next() {
+            if self.names.contains(&tag.key) {
+                return Some(tag);
             }
         }
-
         None
     }
 }
@@ -551,5 +576,169 @@ impl<'a> Iterator for WithoutLabelsIterator<'a> {
             }
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_metric_name() {
+        let mut mn = MetricName::default();
+        mn.set_metric_group("foo");
+        mn.add_tag("bar", "baz");
+        mn.add_tag("qux", "quux");
+        mn.add_tag("qux", "quuz");
+        mn.add_tag("corge", "grault");
+        mn.add_tag("garply", "waldo");
+        mn.add_tag("fred", "plugh");
+        mn.add_tag("xyzzy", "thud");
+        mn.add_tag("xyzzy", "thud");
+        mn.add_tag("xyzzy", "thud");
+        assert_eq!(mn.metric_group, "foo");
+        assert_eq!(mn.tags.len(), 6);
+        assert_eq!(mn.tags[0].key, "bar");
+        assert_eq!(mn.tags[0].value, "baz");
+
+        let mut prev = &mn.tags[0];
+        for curr in mn.tags.iter().skip(1) {
+            assert!(prev.key < curr.key, "tags are not sorted");
+            prev = curr;
+        }
+
+        assert_eq!(mn.tag_value("qux"), Some(&String::from("quuz")));
+        assert_eq!(mn.tag_value("xyzzy"), Some(&String::from("thud")));
+    }
+
+    #[test]
+    fn test_add_tag() {
+        let mut mn = MetricName::default();
+        mn.add_tag("foo", "bar");
+        assert_eq!(mn.tags.len(), 1);
+        assert_eq!(mn.tags[0].key, "foo");
+        assert_eq!(mn.tags[0].value, "bar");
+
+        // replace value if key exists already
+        mn.add_tag("foo", "baz");
+        assert_eq!(mn.tags.len(), 1);
+        assert_eq!(mn.tags[0].key, "foo");
+        assert_eq!(mn.tags[0].value, "baz");
+
+        // ensure sort order is maintained
+        mn.add_tag("bar", "baz");
+        assert_eq!(mn.tags.len(), 2);
+        assert_eq!(mn.tags[0].key, "bar");
+        assert_eq!(mn.tags[1].key, "foo");
+    }
+
+    #[test]
+    fn test_duplicate_keys() {
+        let mut mn = MetricName::default();
+        mn.metric_group = "xxx".to_string();
+        mn.add_tag("foo", "bar");
+        mn.add_tag("duplicate", "tag1");
+        mn.add_tag("duplicate", "tag2");
+        mn.add_tag("tt", "xx");
+        mn.add_tag("foo", "abc");
+        mn.add_tag("duplicate", "tag3");
+
+        let mut mn_expected = MetricName::default();
+        mn_expected.metric_group = "xxx".to_string();
+        mn_expected.add_tag("duplicate", "tag3");
+        mn_expected.add_tag("foo", "abc");
+        mn_expected.add_tag("tt", "xx");
+
+        assert_eq!(mn, mn_expected);
+    }
+
+    #[test]
+    fn test_remove_tags_on() {
+        let mut empty_mn = MetricName::default();
+        empty_mn.metric_group = "name".to_string();
+        empty_mn.add_tag("key", "value");
+        empty_mn.remove_tags_on(&vec![]);
+        assert!(
+            empty_mn.metric_group.is_empty() && empty_mn.tags.is_empty(),
+            "expecting empty metric name got {}",
+            &empty_mn
+        );
+
+        let mut as_is_mn = MetricName::default();
+        as_is_mn.metric_group = "name".to_string();
+        as_is_mn.add_tag("key", "value");
+        let tags = vec![METRIC_NAME_LABEL.to_string(), "key".to_string()];
+        as_is_mn.remove_tags_on(&tags);
+        let mut exp_as_is_mn = MetricName::default();
+        exp_as_is_mn.metric_group = "name".to_string();
+        exp_as_is_mn.add_tag("key", "value");
+        assert_eq!(
+            exp_as_is_mn, as_is_mn,
+            "expecting {} got {}",
+            &exp_as_is_mn, &as_is_mn
+        );
+
+        let mut mn = MetricName::default();
+        mn.metric_group = "name".to_string();
+        mn.add_tag("foo", "bar");
+        mn.add_tag("baz", "qux");
+        let tags = vec!["baz".to_string()];
+        mn.remove_tags_on(&tags);
+        let mut exp_mn = MetricName::default();
+        exp_mn.add_tag("baz", "qux");
+        assert_eq!(exp_mn, mn, "expecting {} got {}", &exp_mn, &mn);
+    }
+
+    #[test]
+    fn test_remove_tag() {
+        let mut mn = MetricName::default();
+        mn.metric_group = "name".to_string();
+        mn.add_tag("foo", "bar");
+        mn.add_tag("baz", "qux");
+        mn.remove_tag("__name__");
+        assert!(
+            mn.metric_group.is_empty(),
+            "expecting empty metric group name got {}",
+            &mn
+        );
+        mn.remove_tag("foo");
+        let mut exp_mn = MetricName::default();
+        exp_mn.add_tag("baz", "qux");
+        assert_eq!(exp_mn, mn, "expecting {} got {}", &exp_mn, &mn);
+    }
+
+    #[test]
+    fn test_remove_tags_ignoring() {
+        let mut mn = MetricName::default();
+        mn.metric_group = "name".to_string();
+        mn.add_tag("foo", "bar");
+        mn.add_tag("baz", "qux");
+        let tags = vec![METRIC_NAME_LABEL.to_string(), "foo".to_string()];
+        mn.remove_tags_ignoring(&tags);
+        let mut exp_mn = MetricName::default();
+        exp_mn.add_tag("baz", "qux");
+        assert_eq!(exp_mn, mn, "expecting {} got {}", &exp_mn, &mn);
+    }
+
+    #[test]
+    fn test_with_tags_iter() {
+        let mut mn = MetricName::default();
+        mn.metric_group = "name".to_string();
+        mn.add_tag("foo", "bar");
+        mn.add_tag("baz", "qux");
+        mn.add_tag("quux", "quuz");
+        mn.add_tag("corge", "grault");
+        mn.add_tag("garply", "waldo");
+        mn.add_tag("cat", "cheshire");
+        mn.add_tag("dog", "daschund");
+        mn.add_tag("fred", "plugh");
+        mn.add_tag("xyzzy", "thud");
+
+        let names = vec!["corge".to_string(), "foo".to_string(), "xyzzy".to_string()];
+        let mut iter = mn.with_labels_iter(&names);
+        assert_eq!(iter.next(), Some(&Tag::new("corge", "grault".to_string())));
+        assert_eq!(iter.next(), Some(&Tag::new("foo", "bar".to_string())));
+        assert_eq!(iter.next(), Some(&Tag::new("xyzzy", "thud".to_string())));
+        assert_eq!(iter.next(), None);
     }
 }

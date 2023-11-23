@@ -51,27 +51,19 @@ fn transform_sort_impl(
         // Note: we handle NaN manually instead of relying on total_cmp because of
         // its handling of negative and positive NaNs. We want to treat them as equal.
         for (x, y) in iter_a.zip(iter_b) {
-            if (x.is_nan() && y.is_nan()) || (x == y) {
-                continue;
-            } else if x.is_nan() {
-                return if is_desc {
-                    Ordering::Greater
-                } else {
-                    Ordering::Less
-                };
-            } else if y.is_nan() {
-                return if is_desc {
-                    Ordering::Less
-                } else {
-                    Ordering::Greater
-                };
-            } else {
+            if !x.is_nan() {
+                if y.is_nan() {
+                    return Ordering::Greater;
+                }
                 let cmp = (comparator)(x, y);
                 if cmp != Ordering::Equal {
                     return cmp;
                 }
+            } else if !y.is_nan() {
+                return Ordering::Less;
             }
         }
+
         Ordering::Equal
     });
 

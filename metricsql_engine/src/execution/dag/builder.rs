@@ -476,8 +476,6 @@ impl DAGBuilder {
         let idx = self.reserve_node();
         let is_left_vector = is_vector_expr(&be.left);
         let is_right_vector = is_vector_expr(&be.right);
-        // in the original code, the metric group is not reset for logical ops
-        let reset_metric_group = should_reset_metric_group(be) && !be.op.is_logical_op();
 
         // ops with 2 constant operands have already been handled by the optimizer
         let res = match (&be.left.as_ref(), &be.right.as_ref()) {
