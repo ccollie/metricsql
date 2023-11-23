@@ -1918,7 +1918,7 @@ mod tests {
 		                label_set(time(), "foo", "bar", "xx", "yy", "__name__", "q1"),
 			            label_set(10, "foo", "qwert", "__name__", "q2")
 		            ) * on(foo) label_set(2, "foo","bar","aa","bb", "__name__", "q2")
-		        ) keep_metric_names`
+		        ) keep_metric_names
         "#;
         let mut r = make_result(&[2000_f64, 2400.0, 2800.0, 3200.0, 3600.0, 4000.0]);
         r.metric.metric_group = "q1".to_string();
