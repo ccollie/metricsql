@@ -1828,7 +1828,7 @@ mod tests {
 
     #[test]
     fn scalar_multiplied_by_vector_keep_metric_names() {
-        let q = r#"sort_desc(2 * (label_set(time(), "foo", "bar", "__name__", "q1") or label_set(10, "foo", "qwert", "__name__", "q2")) keep_metric_names)"#;
+        let q = r#"sort_desc(2 * (label_set(time(), "foo", "bar", "__name__", "q1"), label_set(10, "foo", "qwert", "__name__", "q2")) keep_metric_names)"#;
         let mut r1 = make_result(&[2000_f64, 2400.0, 2800.0, 3200.0, 3600.0, 4000.0]);
         r1.metric.metric_group = "q1".to_string();
         r1.metric.set_tag("foo", "bar");
@@ -2461,12 +2461,14 @@ mod tests {
         or label_set(300, "foo", "bar", "le", "+Inf"),
         "xxx"
         ))"#;
+
         let mut r1 = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
         r1.metric.set_tag("foo", "bar");
         r1.metric.set_tag("xxx", "lower");
 
         let mut r2 = make_result(&[22_f64, 22.0, 22.0, 22.0, 22.0, 22.0]);
         r2.metric.set_tag("foo", "bar");
+
         let mut r3 = make_result(&[30_f64, 30.0, 30.0, 30.0, 30.0, 30.0]);
         r3.metric.set_tag("foo", "bar");
         r2.metric.set_tag("xxx", "upper");
