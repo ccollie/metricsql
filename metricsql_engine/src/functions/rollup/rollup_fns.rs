@@ -555,7 +555,7 @@ pub(super) fn rollup_geomean(rfa: &RollupFuncArg) -> f64 {
     }
 
     let p = rfa.values.iter().fold(1.0, |r, v| r * *v);
-    p.powf((1.0 / len as f64))
+    p.powf(1.0 / len as f64)
 }
 
 pub(super) fn rollup_absent(rfa: &RollupFuncArg) -> f64 {
