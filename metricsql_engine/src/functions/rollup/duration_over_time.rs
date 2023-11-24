@@ -3,7 +3,7 @@ use crate::functions::rollup::{RollupFuncArg, RollupHandler, RollupHandlerFloatA
 use crate::{QueryValue, RuntimeResult};
 
 pub(super) fn new_rollup_duration_over_time(args: &[QueryValue]) -> RuntimeResult<RollupHandler> {
-    let max_interval = get_scalar_param_value(args, 1, "duration_over_time", "max_interval")?;
+    let max_interval = get_scalar_param_value(args, 0, "duration_over_time", "max_interval")?;
 
     let handler =
         RollupHandlerFloatArg::new(max_interval, |rfa: &RollupFuncArg, interval: &f64| -> f64 {

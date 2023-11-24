@@ -21,7 +21,7 @@ use core::{
 /// See [`IsEnabled`] for use with custom types.
 ///
 /// ```
-/// use metricsql_common::IntMap;
+/// use metricsql_common::no_hash::IntMap;
 ///
 /// let mut m: IntMap<u32, bool> = IntMap::default();
 ///
@@ -40,7 +40,7 @@ pub type IntMap<K, V> = std::collections::HashMap<K, V, BuildNoHashHasher<K>>;
 /// See [`IsEnabled`] for use with custom types.
 ///
 /// ```
-/// use metricsql_common::IntSet;
+/// use metricsql_common::no_hash::IntSet;
 ///
 /// let mut m = IntSet::default();
 ///
@@ -58,10 +58,9 @@ pub type IntSet<T> = std::collections::HashSet<T, BuildNoHashHasher<T>>;
 ///
 /// See also [`IntMap`] and [`IntSet`] for some easier usage examples.
 ///
-/// ```
-/// use metricsql_common::NoHashHasher::BuildNoHashHasher;
+/// ``` rust
 /// use std::collections::HashMap;
-/// use metricsql_common::BuildNoHashHasher;
+/// use metricsql_common::prelude::BuildNoHashHasher;
 ///
 /// let mut m: HashMap::<u8, char, BuildNoHashHasher<u8>> =
 ///     HashMap::with_capacity_and_hasher(2, BuildNoHashHasher::default());
@@ -91,9 +90,9 @@ pub type BuildNoHashHasher<T> = BuildHasherDefault<NoHashHasher<T>>;
 /// See also [`BuildNoHashHasher`], [`IntMap`] and [`IntSet`] for some easier
 /// usage examples. See [`IsEnabled`] for use with custom types.
 ///
-/// ```
+/// ``` rust
 /// use std::{collections::HashMap, hash::BuildHasherDefault};
-/// use metricsql_common::NoHashHasher;
+/// use metricsql_common::no_hash::NoHashHasher;
 ///
 /// let mut m: HashMap::<u8, char, BuildHasherDefault<NoHashHasher<u8>>> =
 ///     HashMap::with_capacity_and_hasher(2, BuildHasherDefault::default());
@@ -167,6 +166,8 @@ impl<T> Copy for NoHashHasher<T> {}
 /// # Example
 ///
 /// ```
+/// use metricsql_common::no_hash::{IsEnabled, IntMap};
+///
 /// #[derive(PartialEq, Eq)]
 /// struct SomeType(u32);
 ///
@@ -176,9 +177,9 @@ impl<T> Copy for NoHashHasher<T> {}
 ///     }
 /// }
 ///
-/// impl nohash_hasher::IsEnabled for SomeType {}
+/// impl IsEnabled for SomeType {}
 ///
-/// let mut m = nohash_hasher::IntMap::default();
+/// let mut m = IntMap::default();
 ///
 /// m.insert(SomeType(1), 't');
 /// m.insert(SomeType(0), 'f');

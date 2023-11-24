@@ -84,6 +84,12 @@ impl From<f64> for NodeArg {
     }
 }
 
+impl From<&str> for NodeArg {
+    fn from(s: &str) -> Self {
+        NodeArg::Value(QueryValue::String(s.to_string()))
+    }
+}
+
 impl From<i64> for NodeArg {
     fn from(i: i64) -> Self {
         NodeArg::Value(QueryValue::Scalar(i as f64))

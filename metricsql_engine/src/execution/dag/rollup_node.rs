@@ -98,28 +98,35 @@ impl ExecutableNode for RollupNode {
 
 impl RollupNode {
     pub(crate) fn new(
-        function: RollupFunction,
-        handler: RollupHandler,
-        // expr may contain:
-        // -: RollupFunc(m) if iafc is None
-        // - aggrFunc(rollupFunc(m)) if iafc isn't None
         expr: &Expr,
-    ) -> Self {
-        Self {
+        re: &RollupExpr,
+        rf: RollupFunction,
+        handler: RollupHandler,
+    ) -> RuntimeResult<Self> {
+        let mut node = RollupNode {
             expr: expr.clone(),
-            func: function,
+            func: rf,
             func_handler: handler,
-            keep_metric_names: function.keep_metric_name(),
-            is_incr_aggregate: false,
-            is_tracing: false,
+            keep_metric_names: rf.keep_metric_name(),
             metric_expr: Default::default(),
-            window: None,
-            step: None,
-            offset: None,
+            window: re.window.clone(),
+            offset: re.offset.clone(),
+            step: re.step.clone(),
             at: None,
             at_node: None,
             args: vec![],
+            is_incr_aggregate: false,
+            is_tracing: false,
+        };
+
+        node.keep_metric_names = rf.keep_metric_name();
+
+        if let Expr::MetricExpression(me) = expr {
+            node.metric_expr = me.clone();
+        } else {
+            panic!("expected metric expression")
         }
+        Ok(node)
     }
 
     fn eval_without_at(&self, ctx: &Context, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {

@@ -97,8 +97,8 @@ pub enum TransformFunction {
     RangeSum,
     RangeTrimOutliers,
     RangeTrimSpikes,
-    RangeTrimZscore,
-    RangeZscore,
+    RangeTrimZScore,
+    RangeZScore,
     RemoveResets,
     Round,
     Ru,
@@ -220,8 +220,8 @@ static REVERSE_MAP: phf::Map<&'static str, TransformFunction> = phf_map! {
 "range_sum" => TransformFunction::RangeSum,
 "range_trim_outliers" => TransformFunction::RangeTrimOutliers,
 "range_trim_spikes" => TransformFunction::RangeTrimSpikes,
-"range_trim_zscore" => TransformFunction::RangeTrimZscore,
-"range_zscore" => TransformFunction::RangeZscore,
+"range_trim_zscore" => TransformFunction::RangeTrimZScore,
+"range_zscore" => TransformFunction::RangeZScore,
 "remove_resets" => TransformFunction::RemoveResets,
 "round" => TransformFunction::Round,
 "ru" => TransformFunction::Ru,
@@ -354,8 +354,8 @@ impl TransformFunction {
             RangeSum => "range_sum",
             RangeTrimSpikes => "range_trim_spikes",
             RangeTrimOutliers => "range_trim_outliers",
-            RangeTrimZscore => "range_trim_zscore",
-            RangeZscore => "range_zscore",
+            RangeTrimZScore => "range_trim_zscore",
+            RangeZScore => "range_zscore",
             RemoveResets => "remove_resets",
             Round => "round",
             Ru => "ru",
@@ -575,12 +575,12 @@ impl TransformFunction {
             Now => Signature::exact(vec![], Volatility::Stable),
             Pi => Signature::exact(vec![], Volatility::Immutable),
             Random | RandExponential | RandNormal => {
-                Signature::variadic_min(vec![ValueType::Scalar], 0, Volatility::Volatile)
+                Signature::exact_with_min_args(vec![ValueType::Scalar], 0, Volatility::Volatile)
             }
             RangeNormalize => {
                 Signature::variadic_min(vec![ValueType::InstantVector], 1, Volatility::Stable)
             }
-            RangeTrimOutliers | RangeTrimSpikes | RangeTrimZscore => Signature::exact(
+            RangeTrimOutliers | RangeTrimSpikes | RangeTrimZScore => Signature::exact(
                 vec![ValueType::Scalar, ValueType::InstantVector],
                 Volatility::Stable,
             ),

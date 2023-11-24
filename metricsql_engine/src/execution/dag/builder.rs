@@ -148,8 +148,12 @@ impl DAGBuilder {
 
     fn create_node_arg(&mut self, expr: &Expr, parent_idx: usize) -> RuntimeResult<NodeArg> {
         match expr {
-            Expr::NumberLiteral(value) => Ok(NodeArg::Value(QueryValue::from(value.value))),
-            Expr::StringLiteral(value) => Ok(NodeArg::Value(QueryValue::from(value.as_ref()))),
+            Expr::NumberLiteral(value) => Ok(NodeArg::from(value.value)),
+            Expr::StringLiteral(value) => Ok(NodeArg::from(value.as_str())),
+            Expr::Duration(d) if !d.requires_step() => {
+                let val = d.value_as_secs(1) as f64;
+                Ok(NodeArg::from(val))
+            }
             _ => {
                 let idx = self.create_node(expr)?;
                 self.add_dependency(parent_idx, idx);
@@ -274,7 +278,7 @@ impl DAGBuilder {
             RollupHandler::default()
         } else {
             // if a function is not parameterized, we can get the handler now. In fact it's necessary
-            // for non DAG nodes, since the set_dependency function will never be called.
+            // for leaf DAG nodes, since the set_dependency function will never be called.
             let empty = vec![];
             get_function_handler(rf, &empty)?
         };
@@ -346,16 +350,8 @@ impl DAGBuilder {
         };
 
         match re.expr.as_ref() {
-            Expr::MetricExpression(me) => {
-                let mut rn = RollupNode::default();
-
-                rn.offset = re.offset.clone();
-                rn.step = re.step.clone();
-                rn.window = re.window.clone();
-                rn.func = rf;
-                rn.metric_expr = me.clone();
-                rn.expr = re.expr.as_ref().clone(); // should this be expr.clone()
-                rn.func_handler = func_handler;
+            Expr::MetricExpression(_) => {
+                let mut rn = RollupNode::new(re.expr.as_ref(), re, rf, func_handler)?;
                 rn.at_node = at_arg;
                 rn.at = at_value;
 
@@ -600,7 +596,11 @@ fn is_vector_expr(node: &Expr) -> bool {
 
 #[inline]
 fn is_expr_const(expr: &Expr) -> bool {
-    matches!(expr, Expr::NumberLiteral(_) | Expr::StringLiteral(_))
+    match expr {
+        Expr::NumberLiteral(_) | Expr::StringLiteral(_) => true,
+        Expr::Duration(d) => !d.requires_step(),
+        _ => false,
+    }
 }
 
 // todo: COW
