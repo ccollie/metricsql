@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use rayon::iter::IntoParallelRefIterator;
+use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator};
 
 use metricsql_parser::ast::Expr;
 use metricsql_parser::functions::{can_adjust_window, RollupFunction, TransformFunction};
@@ -269,10 +269,10 @@ impl RollupConfig {
         timestamps: &[i64],
         shared_timestamps: &Arc<Vec<i64>>,
     ) -> RuntimeResult<(u64, Vec<Timeseries>)> {
-        let keep_metric_names = keep_metric_names || func.keep_metric_name();
+        let func_keeps_metric_name = func.keep_metric_name();
         if TimeSeriesMap::is_valid_function(func) {
             let tsm = Arc::new(TimeSeriesMap::new(
-                keep_metric_names,
+                keep_metric_names || func_keeps_metric_name,
                 shared_timestamps,
                 metric,
             ));
@@ -291,7 +291,7 @@ impl RollupConfig {
         if !self.tag_value.is_empty() {
             ts_dst.metric_name.set_tag("rollup", &self.tag_value)
         }
-        if !keep_metric_names {
+        if !keep_metric_names && !func_keeps_metric_name {
             ts_dst.metric_name.reset_metric_group();
         }
         let samples_scanned = self.exec(&mut ts_dst.values, values, timestamps)?;
@@ -436,12 +436,10 @@ impl RollupConfig {
                 dst_values.push(second_val);
             }
             _ => {
-                let mut values = func_args
+                func_args
                     .par_iter()
                     .map(|rfa| (self.handler).eval(rfa))
-                    .collect::<Vec<_>>();
-
-                dst_values.append(&mut values);
+                    .collect_into_vec(dst_values);
             }
         }
 
