@@ -1,6 +1,7 @@
+use std::str::FromStr;
+
 use metricsql_common::pool::get_pooled_vec_f64;
 use metricsql_parser::functions::RollupFunction;
-use std::str::FromStr;
 
 use crate::common::math::{
     is_stale_nan, linear_regression, mad, mode_no_nans, quantile, stddev, stdvar,
@@ -554,7 +555,7 @@ pub(super) fn rollup_geomean(rfa: &RollupFuncArg) -> f64 {
     }
 
     let p = rfa.values.iter().fold(1.0, |r, v| r * *v);
-    p.powf((1 / len) as f64)
+    p.powf((1.0 / len as f64))
 }
 
 pub(super) fn rollup_absent(rfa: &RollupFuncArg) -> f64 {
