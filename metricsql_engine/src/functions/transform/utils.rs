@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use chrono::{Offset, TimeZone};
 
 use metricsql_common::time::timestamp_ms_to_datetime;
-use metricsql_parser::ast::Expr;
+use metricsql_parser::ast::{Expr, MetricExpr};
 
 use crate::functions::transform::TransformFuncArg;
 use crate::{Label, Labels, RuntimeError, RuntimeResult, Timeseries};
@@ -55,24 +55,22 @@ pub(crate) fn ru(free_value: f64, max_value: f64) -> f64 {
         * 100_f64
 }
 
-pub fn extract_labels(expr: &Expr) -> Option<Labels> {
-    if let Expr::MetricExpression(me) = expr {
-        let mut labels = Labels::default();
-        for tf in me.label_filters.iter() {
-            if tf.label.is_empty() {
-                continue;
-            }
-            if tf.is_regexp() || tf.is_negative() {
-                continue;
-            }
-            labels.push(Label {
-                name: tf.label.to_string(),
-                value: tf.value.clone(),
-            });
-        }
-        return Some(labels);
+pub fn extract_labels_from_expr(arg: &Expr) -> Option<Labels> {
+    if let Expr::MetricExpression(me) = arg {
+        return Some(extract_labels(me));
     }
     None
+}
+
+pub fn extract_labels(expr: &MetricExpr) -> Labels {
+    expr.label_filters
+        .iter()
+        .filter(|tf| !tf.label.is_empty() && !tf.is_regexp() && !tf.is_negative())
+        .map(|tf| Label {
+            name: tf.label.to_string(),
+            value: tf.value.clone(),
+        })
+        .collect()
 }
 
 pub(super) fn is_inf(x: f64, sign: i8) -> bool {

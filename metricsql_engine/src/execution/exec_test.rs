@@ -145,9 +145,19 @@ mod tests {
 
     //
     #[test]
-    fn simple_rand_normal() {
-        let q = "rand_normal()";
-        test_query(q, vec![]);
+    fn seeded_rand_normal() {
+        let q = "rand_normal(0)";
+        assert_result_eq(
+            q,
+            &[
+                0.7128130103834549,
+                0.85833144681790008,
+                -2.4362438894664367,
+                0.1633442588933682,
+                -1.2750102039848832,
+                1.2871709906391997,
+            ],
+        );
     }
 
     #[test]
@@ -513,14 +523,10 @@ mod tests {
 
     #[test]
     fn absent_over_time() {
-        assert_result_eq("absent_over_time(time())", &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
-
         assert_result_eq(
             "absent_over_time(NAN[200s:10s])",
             &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
         );
-
-        assert_result_eq("absent(time() > 1500)", &[1.0, 1.0, 1.0, NAN, NAN, NAN]);
 
         let q = r#"absent(label_set(scalar(1 or label_set(2, "xx", "foo")), "yy", "foo"))"#;
         assert_result_eq(q, &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
@@ -538,6 +544,8 @@ mod tests {
             "absent_over_time((time() < 1500)[300s:])",
             &[NAN, NAN, NAN, NAN, 1.0, 1.0],
         );
+
+        assert_result_eq("absent(time() > 1500)", &[1.0, 1.0, 1.0, NAN, NAN, NAN]);
     }
 
     #[test]
@@ -2209,6 +2217,12 @@ mod tests {
     fn stddev_over_time() {
         let q = "round(stddev_over_time(rand(0)[200s:5s]), 0.001)";
         assert_result_eq(q, &[0.291, 0.287, 0.28, 0.318, 0.244, 0.272]);
+    }
+
+    #[test]
+    fn test_tmp() {
+        let q = "rand(0)[200s:5s]";
+        assert_result_eq(q, &[0.281, 0.299, 0.298, 0.267, 0.316, 0.286]);
     }
 
     #[test]

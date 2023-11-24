@@ -11,7 +11,8 @@ use crate::cache::rollup_result_cache::merge_timeseries;
 use crate::execution::context::Context;
 use crate::execution::dag::aggregate_node::get_timeseries_limit;
 use crate::execution::dag::utils::{
-    adjust_series_by_offset, expand_single_value, resolve_at_value, resolve_rollup_handler,
+    adjust_series_by_offset, expand_single_value, handle_aggregate_absent_over_time,
+    resolve_at_value, resolve_rollup_handler,
 };
 use crate::execution::dag::{ExecutableNode, NodeArg};
 use crate::execution::eval_number;
@@ -21,7 +22,6 @@ use crate::functions::aggregate::IncrementalAggrFuncContext;
 use crate::functions::rollup::{
     eval_prefuncs, get_rollup_configs, RollupConfig, RollupHandler, MAX_SILENCE_INTERVAL,
 };
-use crate::functions::transform::get_absent_timeseries;
 use crate::provider::{join_matchers_vec, QueryResult, QueryResults, SearchQuery};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::QueryValue;
@@ -128,7 +128,7 @@ impl RollupNode {
         let mut rvs = self.eval_metric_expr(ctx, &ec_new, &self.metric_expr)?;
 
         if self.func == RollupFunction::AbsentOverTime {
-            //  rvs = aggregate_absent_over_time(ec, &self.re.expr, &rvs)?
+            rvs = handle_aggregate_absent_over_time(&ec, &rvs, Some(&self.metric_expr))?;
         }
 
         adjust_series_by_offset(&mut rvs, offset);
@@ -399,6 +399,7 @@ impl RollupNode {
             keep_metric_names: bool,
             func: RollupFunction,
             rcs: Vec<RollupConfig>,
+            // todo: TinyVec
             timestamps: &'a Arc<Vec<i64>>,
             no_stale_markers: bool,
             samples_scanned_total: RelaxedU64Counter,
@@ -422,6 +423,8 @@ impl RollupNode {
                     drop_stale_nans(ctx.func, &mut rs.values, &mut rs.timestamps);
                 }
                 pre_func(&mut rs.values, &rs.timestamps);
+
+                // todo(perf): rayon
                 for rc in ctx.rcs.iter() {
                     let (samples_scanned, mut series) = rc.process_rollup(
                         ctx.func,
@@ -501,31 +504,6 @@ impl RollupNode {
 
         Ok(rollup_memory_size)
     }
-}
-
-/// aggregate_absent_over_time collapses tss to a single time series with 1 and nan values.
-///
-/// Values for returned series are set to nan if at least a single tss series contains nan at that point.
-/// This means that tss contains a series with non-empty results at that point.
-/// This follows Prometheus logic - see https://github.com/VictoriaMetrics/VictoriaMetrics/issues/2130
-fn aggregate_absent_over_time(
-    ec: &EvalConfig,
-    expr: &Expr,
-    tss: &[Timeseries],
-) -> RuntimeResult<Vec<Timeseries>> {
-    let mut rvs = get_absent_timeseries(ec, expr)?;
-    if tss.is_empty() {
-        return Ok(rvs);
-    }
-    for i in 0..tss[0].values.len() {
-        for ts in tss {
-            if ts.values[i].is_nan() {
-                rvs[0].values[i] = f64::NAN;
-                break;
-            }
-        }
-    }
-    Ok(rvs)
 }
 
 fn mul_no_overflow(a: i64, b: i64) -> i64 {

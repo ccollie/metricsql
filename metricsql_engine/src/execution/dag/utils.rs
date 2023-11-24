@@ -4,13 +4,14 @@ use tinyvec::TinyVec;
 use tracing::{field, trace_span, Span};
 
 use metricsql_parser::functions::RollupFunction;
-use metricsql_parser::prelude::{BinModifier, Operator};
+use metricsql_parser::prelude::{BinModifier, MetricExpr, Operator};
 
 use crate::execution::binary::{exec_binop, BinaryOpFuncArg};
 use crate::execution::dag::NodeArg;
 use crate::execution::utils::series_len;
-use crate::execution::{Context, EvalConfig};
+use crate::execution::{eval_number, Context, EvalConfig};
 use crate::functions::rollup::{get_rollup_function_handler, RollupHandler};
+use crate::functions::transform::extract_labels;
 use crate::{InstantVector, QueryValue, RuntimeError, RuntimeResult, Timeseries};
 
 pub(crate) fn resolve_value(index: usize, value: &mut QueryValue, computed: &mut [QueryValue]) {
@@ -154,4 +155,35 @@ pub(super) fn adjust_series_by_offset(rvs: &mut [Timeseries], offset: i64) {
             ts.timestamps = Arc::clone(&shared);
         }
     }
+}
+
+/// aggregate_absent_over_time collapses tss to a single time series with 1 and nan values.
+///
+/// Values for returned series are set to nan if at least a single tss series contains nan at that point.
+/// This means that tss contains a series with non-empty results at that point.
+/// This follows Prometheus logic - see https://github.com/VictoriaMetrics/VictoriaMetrics/issues/2130
+pub(super) fn handle_aggregate_absent_over_time(
+    ec: &EvalConfig,
+    tss: &[Timeseries],
+    expr: Option<&MetricExpr>,
+) -> RuntimeResult<Vec<Timeseries>> {
+    let mut rvs = eval_number(ec, 1.0)?;
+    if let Some(expr) = expr {
+        let labels = extract_labels(expr);
+        for label in labels {
+            rvs[0].metric_name.set_tag(&label.name, &label.value);
+        }
+    }
+    if tss.is_empty() {
+        return Ok(rvs);
+    }
+    for i in 0..tss[0].values.len() {
+        for ts in tss {
+            if ts.values[i].is_nan() {
+                rvs[0].values[i] = f64::NAN;
+                break;
+            }
+        }
+    }
+    Ok(rvs)
 }

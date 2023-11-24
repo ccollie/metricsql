@@ -3,11 +3,12 @@ use std::sync::Arc;
 use tracing::{field, trace_span, Span};
 
 use metricsql_parser::ast::{DurationExpr, Expr};
-use metricsql_parser::prelude::RollupFunction;
+use metricsql_parser::prelude::{RollupExpr, RollupFunction};
 
+use crate::execution::dag::builder::DAGBuilder;
 use crate::execution::dag::utils::{
-    adjust_series_by_offset, expand_single_value, get_at_value, resolve_at_value,
-    resolve_rollup_handler,
+    adjust_series_by_offset, expand_single_value, get_at_value, handle_aggregate_absent_over_time,
+    resolve_at_value, resolve_rollup_handler,
 };
 use crate::execution::dag::{DAGNode, ExecutableNode, NodeArg};
 use crate::execution::utils::{
@@ -40,6 +41,33 @@ pub struct SubqueryNode {
 }
 
 impl SubqueryNode {
+    pub(crate) fn new(
+        expr: &Expr,
+        re: &RollupExpr,
+        rf: RollupFunction,
+        handler: RollupHandler,
+    ) -> RuntimeResult<Self> {
+        let mut node = SubqueryNode::default();
+
+        node.keep_metric_names = get_keep_metric_names(expr);
+        node.offset = re.offset.clone();
+        node.step = re.step.clone();
+        node.window = re.window.clone();
+        node.func = rf;
+        node.expr = expr.clone();
+        node.func_handler = handler;
+
+        let expr_dag = DAGBuilder::compile(re.expr.as_ref().clone())?;
+        node.expr_node = Box::new(expr_dag);
+
+        Ok(node)
+    }
+
+    pub(super) fn set_at(&mut self, at_arg: NodeArg, value: Option<i64>) {
+        self.at_arg = Some(at_arg);
+        self.at = value;
+    }
+
     fn get_at_timestamp(&self) -> RuntimeResult<Option<Timestamp>> {
         // value was set in pre-execute
         if self.at.is_some() {
@@ -81,6 +109,7 @@ impl ExecutableNode for SubqueryNode {
         } else {
             self.eval_without_at(ctx, ec)?
         };
+
         Ok(QueryValue::from(val))
     }
 }
@@ -140,6 +169,9 @@ impl SubqueryNode {
             ec.max_points_per_series,
         )?);
 
+        // avoid issues later with borrow checker
+        let is_absent_over_time = self.func == RollupFunction::AbsentOverTime;
+
         let min_staleness_interval = ctx.config.min_staleness_interval.num_milliseconds() as usize;
         let (rcs, pre_funcs) = get_rollup_configs(
             self.func,
@@ -190,6 +222,10 @@ impl SubqueryNode {
             span.record("samples_scanned", samples_scanned_total);
         }
 
+        if is_absent_over_time {
+            res = handle_aggregate_absent_over_time(&ec, &res, None)?
+        }
+
         adjust_series_by_offset(&mut res, offset);
         Ok(res)
     }
@@ -210,5 +246,22 @@ impl SubqueryNode {
                 Err(RuntimeError::TypeCastError(msg))
             }
         }
+    }
+}
+
+fn get_keep_metric_names(expr: &Expr) -> bool {
+    match expr {
+        Expr::Function(f) => f.keep_metric_names,
+        Expr::Aggregation(ae) => {
+            // Extract rollupFunc(...) from aggrFunc(rollupFunc(...)).
+            // This case is possible when optimized aggregate calculations are used
+            // such as `sum(rate(...))`
+            if ae.args.len() == 1 {
+                return get_keep_metric_names(&ae.args[0]);
+            }
+            // ae.keep_metric_names
+            false
+        }
+        _ => false,
     }
 }

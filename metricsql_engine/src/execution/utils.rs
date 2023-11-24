@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use rayon::iter::IntoParallelRefIterator;
 
 use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64};
-use metricsql_parser::ast::{BinaryExpr, DurationExpr};
+use metricsql_parser::ast::DurationExpr;
 use metricsql_parser::functions::RollupFunction;
 
 use crate::common::math::is_stale_nan;
@@ -21,16 +21,6 @@ pub(crate) fn series_len(val: &QueryValue) -> usize {
 #[inline]
 pub fn remove_empty_series(tss: &mut Vec<Timeseries>) {
     tss.retain(|ts| !ts.values.iter().all(|v| v.is_nan()));
-}
-
-pub fn should_keep_metric_names(be: &BinaryExpr) -> bool {
-    if be.op.is_comparison() && !be.returns_bool() {
-        // Do not reset MetricGroup for non-boolean `compare` binary ops like Prometheus does.
-        return true;
-    }
-    // Do not reset MetricGroup if it is explicitly requested via `a op b keep_metric_names`
-    // See https://docs.victoriametrics.com/MetricsQL.html#keep_metric_names
-    be.keep_metric_names()
 }
 
 #[inline]
@@ -102,7 +92,7 @@ where
         // todo(perf): have param for if values have NaNs
         remove_nan_values(&mut values, &mut timestamps, &ts.values, &ts.timestamps);
 
-        f(ts, &mut values, &mut timestamps)
+        f(ts, &mut values, &timestamps)
     };
 
     let res = if tss.len() > 1 {

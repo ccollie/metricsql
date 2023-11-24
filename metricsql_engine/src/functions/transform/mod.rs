@@ -1,11 +1,9 @@
-pub(crate) use absent::get_absent_timeseries;
 pub(crate) use histogram::vmrange_buckets_to_le;
 use metricsql_parser::functions::TransformFunction;
-pub(crate) use utils::{extract_labels, get_timezone_offset};
+pub(crate) use utils::{extract_labels, extract_labels_from_expr, get_timezone_offset};
 
 use crate::execution::EvalConfig;
 use crate::functions::arg_parse::get_series_arg;
-pub(crate) use crate::functions::transform::absent::handle_absent;
 use crate::functions::transform::absent::transform_absent;
 use crate::functions::transform::bitmap::{
     transform_bitmap_and, transform_bitmap_or, transform_bitmap_xor,

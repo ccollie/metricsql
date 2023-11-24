@@ -12,6 +12,7 @@ use metricsql_parser::functions::{BuiltinFunction, RollupFunction, TransformFunc
 use metricsql_parser::prelude::{adjust_comparison_ops, Operator};
 
 use crate::execution::binary::{can_push_down_common_filters, should_reset_metric_group};
+use crate::execution::dag::absent_transform_node::AbsentTransformNode;
 use crate::execution::dag::aggregate_node::AggregateNode;
 use crate::execution::dag::binop_node::BinopNode;
 use crate::execution::dag::dynamic_node::DynamicNode;
@@ -19,7 +20,7 @@ use crate::execution::dag::evaluator::{DAGEvaluator, Dependency};
 use crate::execution::dag::rollup_node::RollupNode;
 use crate::execution::dag::scalar_vector_binop_node::ScalarVectorBinaryNode;
 use crate::execution::dag::subquery_node::SubqueryNode;
-use crate::execution::dag::transform_node::{AbsentTransformNode, TransformNode};
+use crate::execution::dag::transform_node::TransformNode;
 use crate::execution::dag::vector_scalar_binop_node::VectorScalarBinaryNode;
 use crate::execution::dag::vector_vector_binary_node::{
     VectorVectorBinaryNode, VectorVectorPushDownNode,
@@ -363,19 +364,9 @@ impl DAGBuilder {
                 Ok(parent_idx)
             }
             _ => {
-                let mut node = SubqueryNode::default();
-
-                node.offset = re.offset.clone();
-                node.step = re.step.clone();
-                node.window = re.window.clone();
-                node.func = rf;
-                node.expr = expr.clone();
-                node.func_handler = func_handler;
+                let mut node = SubqueryNode::new(expr, re, rf, func_handler)?;
                 node.at_arg = at_arg;
                 node.at = at_value;
-
-                let expr_dag = DAGBuilder::compile(re.expr.as_ref().clone())?;
-                node.expr_node = Box::new(expr_dag);
 
                 self.node_map.insert(parent_idx, DAGNode::Subquery(node));
 
