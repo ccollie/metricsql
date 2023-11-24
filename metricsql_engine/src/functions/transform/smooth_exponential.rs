@@ -1,6 +1,6 @@
-use crate::{RuntimeResult, Timeseries};
 use crate::functions::arg_parse::{get_float_arg, get_series_arg};
 use crate::functions::transform::TransformFuncArg;
+use crate::{RuntimeResult, Timeseries};
 
 pub(crate) fn smooth_exponential(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let sf = get_float_arg(&tfa.args, 1, Some(1.0))?;
@@ -9,26 +9,25 @@ pub(crate) fn smooth_exponential(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
     let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
 
     for ts in series.iter_mut() {
-        let len = ts.values.len();
+        let mut iter = ts.values.iter_mut();
+        let mut avg = 0.0;
 
         // skip NaN and Inf
-        let mut i = 0;
-        for (j, v) in ts.values.iter().enumerate() {
+        while let Some(v) = iter.next() {
             if v.is_finite() {
-                i = j;
+                avg = *v;
+                break;
+            }
+        }
+
+        for value in iter {
+            if value.is_nan() {
                 continue;
             }
-            break;
-        }
-
-        if i >= len {
-            continue;
-        }
-
-        let mut avg = ts.values[0];
-        i += 1;
-
-        for value in ts.values[i..].iter_mut() {
+            if value.is_infinite() {
+                *value = avg;
+                continue;
+            }
             if !value.is_nan() {
                 avg = avg * (1.0 - sf_val) + *value * sf_val;
                 *value = avg;
