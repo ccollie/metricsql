@@ -592,6 +592,16 @@ impl Deref for NumberLiteral {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StringLiteral(pub String);
 
+impl StringLiteral {
+    pub fn new<S: Into<String>>(s: S) -> Self {
+        StringLiteral(s.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
 impl Display for StringLiteral {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "{}", self.0)
@@ -609,6 +619,12 @@ impl Deref for StringLiteral {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl From<String> for StringLiteral {
+    fn from(s: String) -> Self {
+        StringLiteral(s)
     }
 }
 
@@ -643,6 +659,10 @@ impl DurationExpr {
             DurationExpr::Millis(v) => *v,
             DurationExpr::StepValue(v) => (*v * step as f64) as i64,
         }
+    }
+
+    pub fn value_as_secs(&self, step: i64) -> i64 {
+        self.value(step) / 1000
     }
 
     pub fn non_negative_value(&self, step: i64) -> Result<i64, String> {
