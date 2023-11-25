@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use chrono_tz::Tz;
 
 use metricsql_common::time::get_local_tz;
@@ -79,4 +81,20 @@ pub(crate) fn parse_timezone(tz_name: &str) -> RuntimeResult<Tz> {
             e
         ))),
     }
+}
+
+pub(crate) fn float_cmp_with_nans(a: f64, b: f64) -> Ordering {
+    if a.is_nan() {
+        if b.is_nan() {
+            return Ordering::Equal;
+        }
+        return Ordering::Less;
+    } else if b.is_nan() {
+        return Ordering::Greater;
+    }
+    a.total_cmp(&b)
+}
+
+pub(crate) fn float_cmp_with_nans_desc(a: f64, b: f64) -> Ordering {
+    float_cmp_with_nans(b, a)
 }

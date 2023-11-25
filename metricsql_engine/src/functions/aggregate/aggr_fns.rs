@@ -18,7 +18,9 @@ use crate::functions::arg_parse::{
 };
 use crate::functions::skip_trailing_nans;
 use crate::functions::transform::vmrange_buckets_to_le;
-use crate::functions::utils::float_to_int_bounded;
+use crate::functions::utils::{
+    float_cmp_with_nans, float_cmp_with_nans_desc, float_to_int_bounded,
+};
 use crate::histogram::{get_pooled_histogram, Histogram, NonZeroBucket};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::signature::Signature;
@@ -791,15 +793,13 @@ where
         maxes.push(TsWithValue { ts, value });
     }
 
-    maxes.sort_by(move |first, second| {
-        let a = first.value;
-        let b = second.value;
-        if is_reverse {
-            b.total_cmp(&a)
-        } else {
-            a.total_cmp(&b)
-        }
-    });
+    let comparator = if is_reverse {
+        float_cmp_with_nans_desc
+    } else {
+        float_cmp_with_nans
+    };
+
+    maxes.sort_by(move |first, second| comparator(first.value, second.value));
 
     let series = maxes.into_iter().map(|x| x.ts);
 
@@ -882,9 +882,13 @@ fn get_int_k(k: f64, k_max: usize) -> usize {
 
 fn min_value(values: &[f64]) -> f64 {
     let mut min = f64::NAN;
-    for v in values.iter() {
-        if !v.is_nan() && *v < min {
-            min = *v
+    let mut iter = values.iter().skip_while(|v| v.is_nan());
+    if let Some(v) = iter.next() {
+        min = *v;
+        for v in iter {
+            if !v.is_nan() && *v < min {
+                min = *v
+            }
         }
     }
     min
