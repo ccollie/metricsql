@@ -201,7 +201,9 @@ impl RollupFunction {
                 Signature::exact(vec![RangeVector, Scalar, Scalar], Volatility::Immutable)
             }
             AggrOverTime => {
-                Signature::exact(vec![InstantVector, RangeVector], Volatility::Immutable)
+                let mut quantile_types: Vec<ValueType> = vec![String; MAX_ARG_COUNT];
+                quantile_types.insert(0, RangeVector);
+                Signature::variadic_min(quantile_types, 2, Volatility::Volatile)
             }
             QuantilesOverTime => {
                 let mut quantile_types: Vec<ValueType> = vec![RangeVector; MAX_ARG_COUNT];
@@ -475,7 +477,7 @@ impl FromStr for RollupTag {
 pub const fn get_rollup_arg_idx(fe: &RollupFunction, arg_count: usize) -> i32 {
     use RollupFunction::*;
     match fe {
-        QuantileOverTime | AggrOverTime | HoeffdingBoundLower | HoeffdingBoundUpper => 1,
+        QuantileOverTime | HoeffdingBoundLower | HoeffdingBoundUpper => 1,
         QuantilesOverTime => (arg_count - 1) as i32,
         _ => 0,
     }
@@ -489,7 +491,7 @@ pub const fn get_rollup_arg_idx_for_optimization(
     use RollupFunction::*;
     match func {
         AbsentOverTime => None,
-        QuantileOverTime | AggrOverTime | HoeffdingBoundLower | HoeffdingBoundUpper => Some(1),
+        QuantileOverTime | HoeffdingBoundLower | HoeffdingBoundUpper => Some(1),
         QuantilesOverTime => Some(arg_count - 1),
         _ => Some(0),
     }

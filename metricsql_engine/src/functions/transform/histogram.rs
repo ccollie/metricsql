@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use ahash::AHashMap;
+
 use metricsql_parser::parser::parse_number;
 
 use crate::execution::merge_non_overlapping_timeseries;
@@ -589,7 +590,7 @@ pub(crate) fn histogram_quantiles(tfa: &mut TransformFuncArg) -> RuntimeResult<V
             }
             Ok(mut tss_tmp) => {
                 for ts in tss_tmp.iter_mut() {
-                    ts.metric_name.remove_tag(&dst_label);
+                    // ts.metric_name.remove_tag(&dst_label);
                     ts.metric_name.set_tag(&dst_label, &phi_str);
                 }
                 rvs.extend(tss_tmp)
@@ -609,7 +610,13 @@ pub(crate) fn histogram_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
 
     // Parse bounds_label. See https://github.com/prometheus/prometheus/issues/5706 for details.
     let bounds_label = if tfa.args.len() > 2 {
-        tfa.args[2].get_string()?
+        match tfa.args[2].get_string() {
+            Ok(s) => s,
+            Err(err) => {
+                let msg = format!("cannot parse boundsLabel (arg #3): {:?}", err);
+                return Err(RuntimeError::ArgumentError(msg));
+            }
+        }
     } else {
         "".to_string()
     };
@@ -619,15 +626,11 @@ pub(crate) fn histogram_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
 
     // Calculate quantile for each group in m
     let last_non_inf = |_i: usize, xss: &[LeTimeseries]| -> f64 {
-        let mut cur = xss;
-        while !cur.is_empty() {
-            let xs_last = &cur[cur.len() - 1];
-            if !is_inf(xs_last.le, 0) {
-                return xs_last.le;
-            }
-            cur = &cur[0..cur.len() - 1]
+        if let Some(v) = xss.iter().rev().find(|x| x.le.is_finite()) {
+            v.le
+        } else {
+            f64::NAN
         }
-        f64::NAN
     };
 
     let quantile = |i: usize, phis: &[f64], xss: &mut Vec<LeTimeseries>| -> (f64, f64, f64) {
@@ -688,7 +691,7 @@ pub(crate) fn histogram_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
         let mut ts_upper: Timeseries;
 
         if !bounds_label.is_empty() {
-            ts_lower = xss[0].ts.clone();
+            ts_lower = xss[0].ts.clone(); // todo: use take and clone instead of 2 clones ?
             ts_lower.metric_name.set_tag(&bounds_label, "lower");
 
             ts_upper = xss[0].ts.clone();
@@ -774,7 +777,7 @@ pub(super) fn fix_broken_buckets(i: usize, xss: &mut Vec<LeTimeseries>) {
             }
             break;
         }
-        if i == 0 {
+        if i == 0 || j == 0 {
             break;
         }
         j -= 1;

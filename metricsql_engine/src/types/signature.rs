@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
+use std::ops::Deref;
 
 use ahash::AHashMap;
 use rayon::prelude::*;
@@ -24,10 +25,23 @@ impl Hash for Signature {
     }
 }
 
+impl Deref for Signature {
+    type Target = u64;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 impl Signature {
     pub fn new(labels: &MetricName) -> Self {
         let iter = labels.tags.iter();
         Self::with_name_and_labels(&labels.metric_group, iter)
+    }
+
+    pub fn from_tags(labels: &MetricName) -> Signature {
+        let iter = labels.tags.iter();
+        Self::with_name_and_labels("", iter)
     }
 
     pub fn with_labels(labels: &MetricName, names: &[String]) -> Signature {

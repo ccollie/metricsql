@@ -3,7 +3,7 @@ use std::sync::Arc;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator};
 
 use metricsql_parser::ast::Expr;
-use metricsql_parser::functions::{can_adjust_window, RollupFunction, TransformFunction};
+use metricsql_parser::functions::{can_adjust_window, RollupFunction};
 
 use crate::common::math::quantile;
 use crate::execution::{get_timestamps, validate_max_points_per_timeseries};
@@ -752,7 +752,7 @@ fn get_rollup_tag(expr: &Expr) -> RuntimeResult<Option<&String>> {
     }
 }
 
-// todo: use in optimize so its cached in the ast
+// todo: use in optimize so its cached in the DAG node
 fn get_rollup_aggr_functions(expr: &Expr) -> RuntimeResult<Vec<RollupFunction>> {
     fn get_func_by_name(name: &str) -> RuntimeResult<RollupFunction> {
         if let Ok(func) = get_rollup_func_by_name(name) {
@@ -770,26 +770,14 @@ fn get_rollup_aggr_functions(expr: &Expr) -> RuntimeResult<Vec<RollupFunction>> 
         }
     }
 
-    fn get_funcs(args: &[Expr]) -> RuntimeResult<Vec<RollupFunction>> {
-        if args.is_empty() {
-            return Err(RuntimeError::ArgumentError(
-                "aggr_over_time() must contain at least a single aggregate function name"
-                    .to_string(),
-            ));
+    fn get_func_from_expr(expr: &Expr) -> RuntimeResult<RollupFunction> {
+        if let Expr::StringLiteral(name) = expr {
+            get_func_by_name(name.as_str())
+        } else {
+            let msg =
+                format!("{expr} cannot be passed here; expecting quoted aggregate function name",);
+            return Err(RuntimeError::ArgumentError(msg));
         }
-        let mut funcs = Vec::with_capacity(args.len());
-        for arg in args.iter() {
-            if let Expr::StringLiteral(name) = arg {
-                let func = get_func_by_name(name)?;
-                funcs.push(func)
-            } else {
-                let msg = format!(
-                    "{arg} cannot be passed here; expecting quoted aggregate function name",
-                );
-                return Err(RuntimeError::ArgumentError(msg));
-            }
-        }
-        Ok(funcs)
     }
 
     let expr = if let Expr::Aggregation(afe) = expr {
@@ -802,52 +790,31 @@ fn get_rollup_aggr_functions(expr: &Expr) -> RuntimeResult<Vec<RollupFunction>> 
         expr
     };
 
-    match expr {
-        Expr::Function(fe) => {
-            let is_aggr_over_time = fe.is_rollup_function(RollupFunction::AggrOverTime);
-            if !is_aggr_over_time {
-                return Err(RuntimeError::ArgumentError(format!(
-                    "BUG: unexpected function name: {}; want `aggr_over_time`",
-                    fe.name
-                )));
-            }
-            if fe.args.len() < 2 {
-                let msg = format!(
-                    "unexpected number of args to aggr_over_time(); got {}; want at least 2",
-                    fe.args.len()
-                );
-                return Err(RuntimeError::ArgumentError(msg));
-            }
-
-            let args = &fe.args[0];
-            match args {
-                Expr::StringLiteral(name) => {
-                    let func = get_func_by_name(name)?;
-                    Ok(vec![func])
-                }
-                Expr::Parens(pe) => {
-                    if pe.expressions.is_empty() {
-                        return Err(RuntimeError::ArgumentError(
-                            "unexpected empty parens; want at least one expression inside parens"
-                                .to_string(),
-                        ));
-                    }
-                    get_funcs(&pe.expressions)
-                }
-                Expr::Function(fe) if fe.is_transform_function(TransformFunction::Union) => {
-                    get_funcs(&fe.args)
-                }
-                _ => Err(RuntimeError::General(format!(
-                    "{args} cannot be passed here; expecting quoted aggregate function name"
-                ))),
-            }
-        }
-        _ => {
+    if let Expr::Function(fe) = expr {
+        if fe.name != "aggr_over_time" {
             let msg = format!(
-                "BUG: unexpected expression; want FunctionExpr; got {}; value: {expr}",
-                expr.variant_name()
+                "BUG: unexpected function name: {}; want `aggr_over_time`",
+                fe.name
             );
-            Err(RuntimeError::ArgumentError(msg))
+            return Err(RuntimeError::ArgumentError(msg));
         }
+        if fe.args.len() < 2 {
+            let msg = format!(
+                "unexpected number of args to aggr_over_time(); got {}; want at least 2",
+                fe.args.len()
+            );
+            return Err(RuntimeError::ArgumentError(msg));
+        }
+        let mut functions = Vec::with_capacity(fe.args.len() - 1);
+        for arg in fe.args[1..].iter() {
+            functions.push(get_func_from_expr(arg)?)
+        }
+        return Ok(functions);
+    } else {
+        let msg = format!(
+            "BUG: unexpected expression; want FunctionExpr; got {}; value: {expr}",
+            expr.variant_name()
+        );
+        Err(RuntimeError::ArgumentError(msg))
     }
 }

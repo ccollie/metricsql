@@ -1,6 +1,5 @@
 use std::borrow::BorrowMut;
 use std::collections::hash_map::Entry;
-use std::collections::BTreeMap;
 use std::ops::Deref;
 use std::ops::DerefMut;
 
@@ -19,7 +18,8 @@ use crate::functions::arg_parse::{
 use crate::functions::skip_trailing_nans;
 use crate::functions::transform::vmrange_buckets_to_le;
 use crate::functions::utils::{
-    float_cmp_with_nans, float_cmp_with_nans_desc, float_to_int_bounded,
+    float_cmp_with_nans, float_cmp_with_nans_desc, float_to_int_bounded, max_with_nans,
+    min_with_nans,
 };
 use crate::histogram::{get_pooled_histogram, Histogram, NonZeroBucket};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
@@ -74,13 +74,13 @@ make_aggr_fn!(aggregate_sum2, aggr_func_sum2);
 make_range_fn!(aggregate_bottomk_avg, avg_value, true);
 make_range_fn!(aggregate_bottomk_last, last_value, true);
 make_range_fn!(aggregate_bottomk_median, median_value, true);
-make_range_fn!(aggregate_bottomk_min, min_value, true);
-make_range_fn!(aggregate_bottomk_max, max_value, true);
+make_range_fn!(aggregate_bottomk_min, min_with_nans, true);
+make_range_fn!(aggregate_bottomk_max, max_with_nans, true);
 
 make_range_fn!(aggregate_topk_avg, avg_value, false);
 make_range_fn!(aggregate_topk_last, last_value, false);
-make_range_fn!(aggregate_topk_min, min_value, false);
-make_range_fn!(aggregate_topk_max, max_value, false);
+make_range_fn!(aggregate_topk_min, min_with_nans, false);
+make_range_fn!(aggregate_topk_max, max_with_nans, false);
 make_range_fn!(aggregate_topk_median, median_value, false);
 
 fn aggregate_bottomk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
@@ -835,11 +835,11 @@ fn get_remaining_sum_timeseries(
     let mut remaining = remaining_sum_tag_name;
 
     if let Some((tag, remains)) = remaining_sum_tag_name.rsplit_once('=') {
-        tag_value = tag;
-        remaining = remains;
+        tag_value = remains;
+        remaining = tag;
     }
 
-    dst.metric_name.remove_tag(remaining);
+    // dst.metric_name.remove_tag(remaining);
     dst.metric_name.set_tag(remaining, tag_value);
     for (i, k) in ks.iter().enumerate() {
         let kn = get_int_k(*k, tss.len());
@@ -878,39 +878,6 @@ fn get_int_k(k: f64, k_max: usize) -> usize {
     }
     let kn = float_to_int_bounded(k).clamp(0, k_max as i64);
     kn as usize
-}
-
-fn min_value(values: &[f64]) -> f64 {
-    let mut min = f64::NAN;
-    let mut iter = values.iter().skip_while(|v| v.is_nan());
-    if let Some(v) = iter.next() {
-        min = *v;
-        for v in iter {
-            if !v.is_nan() && *v < min {
-                min = *v
-            }
-        }
-    }
-    min
-}
-
-fn max_value(values: &[f64]) -> f64 {
-    let mut max = f64::NAN;
-    let mut ofs = 0;
-    for (i, v) in values.iter().enumerate() {
-        if v.is_nan() {
-            continue;
-        }
-        max = *v;
-        ofs = i;
-        break;
-    }
-    for v in values[ofs..].iter() {
-        if !v.is_nan() && *v > max {
-            max = *v
-        }
-    }
-    max
 }
 
 fn avg_value(values: &[f64]) -> f64 {
@@ -966,8 +933,6 @@ fn aggr_func_outliersk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> 
 }
 
 fn aggr_func_limitk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    expect_arg_count(afa, 2)?;
-
     let mut limit = get_int_arg(&afa.args, 0)?;
     if limit < 0 {
         limit = 0
@@ -976,17 +941,29 @@ fn aggr_func_limitk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let limit = limit as usize;
 
     let afe = |tss: &mut Vec<Timeseries>, _modifier: &Option<AggregateModifier>| {
-        let mut map: BTreeMap<Signature, Timeseries> = BTreeMap::new();
-
-        // Sort series by metricName hash in order to get consistent set of output series
-        // across multiple calls to limitk() function.
-        // Sort series by hash in order to guarantee uniform selection across series.
-        for ts in tss.iter_mut() {
-            let digest = ts.metric_name.signature();
-            map.insert(digest, std::mem::take(ts));
+        struct HashSeries {
+            hash: Signature,
+            index: usize,
         }
 
-        map.into_values().take(limit).collect::<Vec<_>>()
+        // Sort series by metric_name hash in order to get consistent set of output series
+        // across multiple calls to limitk() function.
+        // Sort series by hash in order to guarantee uniform selection across series.
+        let mut hss = tss
+            .iter()
+            .enumerate()
+            .map(|(index, ts)| HashSeries {
+                hash: ts.metric_name.signature(),
+                index,
+            })
+            .collect::<Vec<_>>();
+
+        hss.sort_by(|a, b| a.hash.cmp(&b.hash));
+        hss.truncate(limit);
+
+        hss.iter()
+            .map(|f| std::mem::take(tss.get_mut(f.index).unwrap()))
+            .collect::<Vec<_>>()
     };
 
     let mut series = get_series_arg(&afa.args, 1, afa.ec)?;

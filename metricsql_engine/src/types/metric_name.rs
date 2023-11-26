@@ -273,21 +273,51 @@ impl MetricName {
     }
 
     /// sets tags from src with keys matching add_tags.
-    pub(crate) fn set_tags(&mut self, add_tags: &[String], src: &mut MetricName) {
+    pub(crate) fn set_tags(
+        &mut self,
+        prefix: &str,
+        add_tags: &[String],
+        skip_tags: &[String],
+        src: &mut MetricName,
+    ) {
+        if add_tags.len() == 1 && add_tags[0] == "*" {
+            // Special case for copying all the tags except of skipTags from src to mn.
+            self.set_all_tags(prefix, skip_tags, src);
+            return;
+        }
+
         for tag_name in add_tags {
-            if tag_name == METRIC_NAME_LABEL {
-                self.metric_group = tag_name.clone();
+            if skip_tags.contains(&tag_name) {
                 continue;
             }
 
             // todo: use iterators instead
             match src.tag_value(tag_name) {
                 Some(tag_value) => {
-                    self.set_tag(tag_name, tag_value);
+                    if !prefix.is_empty() {
+                        let key = format!("{prefix}{}", tag_name);
+                        self.set_tag(&key, tag_value);
+                    } else {
+                        self.set_tag(tag_name, tag_value);
+                    }
                 }
                 None => {
                     self.remove_tag(tag_name);
                 }
+            }
+        }
+    }
+
+    fn set_all_tags(&mut self, prefix: &str, skip_tags: &[String], src: &MetricName) {
+        for tag in src.tags.iter() {
+            if skip_tags.contains(&tag.key) {
+                continue;
+            }
+            if !prefix.is_empty() {
+                let key = format!("{prefix}{}", tag.key);
+                self.set_tag(&key, &tag.value);
+            } else {
+                self.set_tag(&tag.key, &tag.value);
             }
         }
     }
@@ -413,6 +443,11 @@ impl MetricName {
         WithoutLabelsIterator::new(self, names)
     }
 
+    /// generate a Signature using tags only (excluding the metric group)
+    pub fn tags_signature(&self) -> Signature {
+        Signature::from_tags(self)
+    }
+
     /// `names` have to be sorted in ascending order.
     pub fn tags_signature_with_labels(&self, names: &[String]) -> Signature {
         let empty: &str = "";
@@ -446,7 +481,10 @@ impl MetricName {
     /// Calculate signature for the metric name by the given match modifier.
     pub fn signature_by_match_modifier(&self, modifier: &Option<VectorMatchModifier>) -> Signature {
         match modifier {
-            None => self.signature_without_labels(&[]),
+            None => {
+                self.signature()
+                // self.signature_without_labels(&[])
+            }
             Some(m) => match m {
                 VectorMatchModifier::On(labels) => self.signature_with_labels(labels.as_ref()),
                 VectorMatchModifier::Ignoring(labels) => {
@@ -463,7 +501,7 @@ impl MetricName {
         modifier: &Option<VectorMatchModifier>,
     ) -> Signature {
         match modifier {
-            None => self.tags_signature_without_labels(&[]),
+            None => Signature::from_tags(self),
             Some(m) => match m {
                 VectorMatchModifier::On(labels) => self.tags_signature_with_labels(labels.as_ref()),
                 VectorMatchModifier::Ignoring(labels) => {

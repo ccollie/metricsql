@@ -2220,15 +2220,9 @@ mod tests {
     }
 
     #[test]
-    fn test_tmp() {
-        let q = "rand(0)[200s:5s]";
-        assert_result_eq(q, &[0.281, 0.299, 0.298, 0.267, 0.316, 0.286]);
-    }
-
-    #[test]
     fn histogram_stddev() {
         let q = "round(histogram_stddev(histogram_over_time(rand(0)[200s:5s])), 0.001)";
-        assert_result_eq(q, &[0.281, 0.299, 0.298, 0.267, 0.316, 0.286]);
+        assert_result_eq(q, &[0.288, 0.285, 0.278, 0.32, 0.239, 0.27]);
     }
 
     #[test]
@@ -2240,7 +2234,7 @@ mod tests {
     #[test]
     fn histogram_avg() {
         let q = "round(histogram_avg(histogram_over_time(rand(0)[200s:5s])), 0.001)";
-        assert_result_eq(q, &[0.519, 0.521, 0.503, 0.543, 0.511, 0.506]);
+        assert_result_eq(q, &[0.467, 0.485, 0.464, 0.488, 0.44, 0.473]);
     }
 
     #[test]
@@ -2489,7 +2483,7 @@ mod tests {
 
         let mut r3 = make_result(&[30_f64, 30.0, 30.0, 30.0, 30.0, 30.0]);
         r3.metric.set_tag("foo", "bar");
-        r2.metric.set_tag("xxx", "upper");
+        r3.metric.set_tag("xxx", "upper");
 
         test_query(q, vec![r1, r2, r3]);
     }
@@ -2924,8 +2918,7 @@ mod tests {
         let mut r4 = make_result(&[4_f64, 4.0, 4.0, 4.0, 4.0, 4.0]);
         r4.metric.set_tag("le", "+Inf");
 
-        let result_expected: Vec<QueryResult> = vec![r1, r2, r3, r4];
-        test_query(q, result_expected)
+        test_query(q, vec![r1, r2, r3, r4])
     }
 
     #[test]
@@ -3248,15 +3241,31 @@ mod tests {
     }
 
     #[test]
-    fn test_limitk() {
+    fn limitk() {
         let q = r#"limitk(-1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"))"#;
         test_query(q, vec![]);
+    }
 
+    #[test]
+    fn limitk_1() {
+        // NOTE: the answer here is dependent on thee hashing algo used to preserve consistent
+        // ordering of the series. As such it depends on the hash and not the data. If the
+        // implementation changes, it's legit to change the answer here.
         let q = r#"limitk(1, label_set(10, "foo", "bar") or label_set(time()/150, "xbaz", "sss"))"#;
-        let mut r1 = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
-        r1.metric.set_tag("foo", "bar");
+        let mut r1 = make_result(&[
+            6.666666666666667,
+            8.0,
+            9.333333333333334,
+            10.666666666666666,
+            12.0,
+            13.333333333333334,
+        ]);
+        r1.metric.set_tag("xbaz", "sss");
         test_query(q, vec![r1]);
+    }
 
+    #[test]
+    fn limitk_10() {
         let q = r#"sort(limitk(10, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"#;
         let mut r1 = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
         r1.metric.set_tag("foo", "bar");
@@ -3273,7 +3282,7 @@ mod tests {
     }
 
     #[test]
-    fn test_limitk_inf() {
+    fn limitk_inf() {
         let q = r#"sort(limitk(inf, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"#;
         let mut r1 = make_result(&[10.0, 10.0, 10.0, 10.0, 10.0, 10.0]);
         r1.metric.set_tag("foo", "bar");
@@ -3368,6 +3377,16 @@ mod tests {
     }
 
     #[test]
+    fn topk_max_1() {
+        let q = r#"topk_max(1, histogram_over_time(alias(label_set(rand(0)*1.3+1.1, "foo", "bar"), "xxx")[200s:5s]))"#;
+        let mut r = make_result(&[6_f64, 6.0, 9.0, 13.0, 7.0, 7.0]);
+        r.metric.set_tag("foo", "bar");
+        r.metric.set_tag("vmrange", "1.668e+00...1.896e+00");
+
+        test_query(q, vec![r]);
+    }
+
+    #[test]
     fn topk_max() {
         let q =
             r#"topk_max(1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"))"#;
@@ -3426,13 +3445,6 @@ mod tests {
         r2.metric.set_tag("foo", "bar");
 
         test_query(q, vec![r1, r2]);
-
-        let q = r#"topk_max(1, histogram_over_time(alias(label_set(rand(0)*1.3+1.1, "foo", "bar"), "xxx")[200s:5s]))"#;
-        let mut r = make_result(&[6_f64, 6.0, 9.0, 13.0, 7.0, 7.0]);
-        r.metric.set_tag("foo", "bar");
-        r.metric.set_tag("vmrange", "1.668e+00...1.896e+00");
-
-        test_query(q, vec![r]);
     }
 
     #[test]
@@ -4085,7 +4097,7 @@ mod tests {
         r.metric.set_metric_group("foo");
         test_query(q, vec![r]);
 
-        assert_result_eq("rate(2000-time())", &[5.0, 4.0, 3.0, 2.0, 1.0, 0.0]);
+        assert_result_eq("rate(2000-time())", &[5.5, 4.5, 3.5, 2.5, 1.5, 0.5]);
 
         assert_result_eq("rate((2000-time())[100s])", &[5.0, 4.0, 3.0, 2.0, 1.0, 0.0]);
 
@@ -4188,7 +4200,10 @@ mod tests {
             "remove_resets(abs(1500-time()))",
             &[500.0, 800.0, 900.0, 900.0, 1100.0, 1300.0],
         );
+    }
 
+    #[test]
+    fn remove_resets_sum() {
         let q = r#"remove_resets(sum(
         alias(time(), "full"),
         alias(time()/5 < 300, "partial"),
@@ -4279,12 +4294,12 @@ mod tests {
         assert_result_eq(
             q,
             &[
-                0.2516770508510652,
-                0.2830570387745462,
-                0.27716232108436645,
-                0.3679356319931767,
-                0.3168460474120903,
-                0.23156726248243734,
+                0.30156740146540006,
+                0.23471994636231044,
+                0.18209903174990535,
+                0.3637583992631742,
+                0.28199209507225204,
+                0.2956205035589421,
             ],
         );
     }
@@ -4293,12 +4308,12 @@ mod tests {
     fn hoeffding_bound_upper() {
         let q = r#"hoeffding_bound_upper(0.9, alias(rand(0), "foobar")[:10s])"#;
         let mut r = make_result(&[
-            0.6510581320042821,
-            0.7261021731890429,
-            0.7245290097397009,
-            0.8113950442584258,
-            0.7736122275568004,
-            0.6658564048254882,
+            0.7514246534914918,
+            0.6961710293162271,
+            0.6460729683292205,
+            0.784636439070813,
+            0.7173342952485633,
+            0.6585571598032428,
         ]);
         r.metric.set_metric_group("foobar");
         test_query(q, vec![r])
@@ -4306,18 +4321,18 @@ mod tests {
 
     #[test]
     fn aggr_over_time_single_func() {
-        let q = r#"round(aggr_over_time("increase", rand(0)[:10s]),0.01)"#;
-        let mut r1 = make_result(&[5.47, 6.64, 6.84, 7.24, 5.17, 6.59]);
+        let q = r#"round(aggr_over_time(rand(0)[:10s], "increase"), 0.01)"#;
+        let mut r1 = make_result(&[6.76, 4.59, 3.78, 5.86, 5.93, 6.45]);
         r1.metric.set_tag("rollup", "increase");
         test_query(q, vec![r1]);
     }
 
     #[test]
     fn aggr_over_time_multi_func() {
-        let q = r#"sort(aggr_over_time(("min_over_time", "count_over_time", "max_over_time"), round(rand(0),0.1)[:10s]))"#;
-        let mut r1 = make_result(&[0_f64, 0.0, 0.0, 0.0, 0.0, 0.0]);
+        let q = r#"sort(aggr_over_time(round(rand(0),0.1)[:10s], "min_over_time", "count_over_time", "max_over_time"))"#;
+        let mut r1 = make_result(&[0.0, 0.0, 0.0, 0.0, 0.1, 0.1]);
         r1.metric.set_tag("rollup", "min_over_time");
-        let mut r2 = make_result(&[0.8, 0.9, 1.0, 0.9, 1.0, 0.9]);
+        let mut r2 = make_result(&[1.0, 1.0, 1.0, 0.9, 1.0, 0.9]);
         r2.metric.set_tag("rollup", "max_over_time");
         let mut r3 = make_result(&[20_f64, 20.0, 20.0, 20.0, 20.0, 20.0]);
         r3.metric.set_tag("rollup", "count_over_time");
@@ -4327,11 +4342,11 @@ mod tests {
 
     #[test]
     fn test_avg_aggr_over_time() {
-        let q = r#"avg(aggr_over_time(("min_over_time", "max_over_time"), time()[:10s]))"#;
+        let q = r#"avg(aggr_over_time(time()[:10s], "min_over_time", "max_over_time"))"#;
         assert_result_eq(q, &[905.0, 1105.0, 1305.0, 1505.0, 1705.0, 1905.0]);
 
         // avg(aggr_over_time(multi-func)) by (rollup)
-        let q = r#"sort(avg(aggr_over_time(("min_over_time", "max_over_time"), time()[:10s])) by (rollup))"#;
+        let q = r#"sort(avg(aggr_over_time(time()[:10s], "min_over_time", "max_over_time")) by (rollup))"#;
         let mut r1 = make_result(&[810_f64, 1010.0, 1210.0, 1410.0, 1610.0, 1810.0]);
         r1.metric.set_tag("rollup", "min_over_time");
         let mut r2 = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);

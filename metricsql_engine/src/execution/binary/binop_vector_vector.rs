@@ -170,50 +170,22 @@ fn adjust_binary_op_tags(
     let mut rvs_right: Vec<Timeseries> = Vec::with_capacity(4);
 
     let card = VectorMatchCardinality::OneToOne;
-    let group_modifier: Option<VectorMatchModifier> = None;
+    let none_matching = None;
 
-    let (matching, grouping, mut keep_metric_names, return_bool) =
-        if let Some(modifier) = bfa.modifier {
-            (
-                &modifier.matching,
-                &modifier.card,
-                modifier.keep_metric_names,
-                modifier.return_bool,
-            )
-        } else {
-            (&group_modifier, &card, false, false)
-        };
-
-    let mut is_on = false;
-    // let mut is_ignoring = false;
-
-    // Add __name__ to group_tags if metric name must be preserved.
-    let group_tags = if keep_metric_names {
-        if let Some(VectorMatchModifier::On(labels)) = &matching {
-            is_on = true;
-            let mut changed = labels.clone();
-            changed.push(METRIC_NAME_LABEL.to_string());
-            changed.sort();
-            Cow::Owned(changed)
-        } else {
-            Cow::Owned(Labels::default())
-        }
-    } else if let Some(matching) = matching {
-        match matching {
-            VectorMatchModifier::On(labels) => {
-                is_on = true;
-                Cow::Borrowed(labels)
-            }
-            VectorMatchModifier::Ignoring(labels) => Cow::Borrowed(labels),
-        }
+    let (matching, grouping, keep_metric_names, return_bool) = if let Some(modifier) = bfa.modifier
+    {
+        let keep_metric_names = modifier.keep_metric_names;
+        (
+            &modifier.matching,
+            &modifier.card,
+            keep_metric_names,
+            modifier.return_bool,
+        )
     } else {
-        Cow::Owned(Labels::default())
+        (&none_matching, &card, false, false)
     };
 
-    if !keep_metric_names && bfa.op.is_comparison() && !return_bool {
-        // Do not reset MetricGroup for non-boolean `compare` binary ops like Prometheus does.
-        keep_metric_names = true;
-    }
+    let reset_metric_group = should_reset_metric_group(bfa.op, keep_metric_names, return_bool);
 
     for (k, tss_left) in m_left.iter_mut() {
         let mut tss_right = m_right.remove(k).unwrap_or(vec![]);
@@ -226,7 +198,7 @@ fn adjust_binary_op_tags(
             VectorMatchCardinality::ManyToOne(_) => group_join(
                 "right",
                 bfa,
-                keep_metric_names,
+                reset_metric_group,
                 &mut rvs_left,
                 &mut rvs_right,
                 tss_left,
@@ -236,26 +208,44 @@ fn adjust_binary_op_tags(
             VectorMatchCardinality::OneToMany(_) => group_join(
                 "left",
                 bfa,
-                keep_metric_names,
+                reset_metric_group,
                 &mut rvs_right,
                 &mut rvs_left,
                 &mut tss_right,
                 tss_left,
             )?,
             _ => {
+                let mut is_on = false;
+                let group_tags = match matching {
+                    Some(VectorMatchModifier::On(labels)) => {
+                        is_on = true;
+                        // Add __name__ to groupTags if metric name must be preserved.
+                        if keep_metric_names {
+                            let mut changed = labels.clone();
+                            changed.push(METRIC_NAME_LABEL.to_string());
+                            changed.sort();
+                            Cow::Owned(changed)
+                        } else {
+                            Cow::Borrowed(labels)
+                        }
+                    }
+                    Some(VectorMatchModifier::Ignoring(labels)) => Cow::Borrowed(labels),
+                    None => Cow::Owned(Labels::default()),
+                };
+
                 let mut ts_left = ensure_single_timeseries("left", bfa.op, bfa.modifier, tss_left)?;
                 let ts_right =
                     ensure_single_timeseries("right", bfa.op, bfa.modifier, &mut tss_right)?;
 
-                if !keep_metric_names {
+                if reset_metric_group {
                     ts_left.metric_name.reset_metric_group();
                 }
 
-                let labels = group_tags.as_ref().as_ref();
+                let labels = group_tags.as_ref();
                 if is_on {
-                    ts_left.metric_name.remove_tags_on(labels);
+                    ts_left.metric_name.remove_tags_on(labels.as_ref());
                 } else {
-                    ts_left.metric_name.remove_tags_ignoring(labels);
+                    ts_left.metric_name.remove_tags_ignoring(labels.as_ref());
                 }
 
                 rvs_left.push(ts_left);
@@ -265,6 +255,25 @@ fn adjust_binary_op_tags(
     }
 
     Ok((rvs_left, rvs_right))
+}
+
+fn should_reset_metric_group(op: Operator, keep_metric_names: bool, returns_bool: bool) -> bool {
+    if op.is_comparison() && !returns_bool {
+        // Do not reset metric_group for non-boolean `compare` binary ops like Prometheus does.
+        return false;
+    }
+    if keep_metric_names {
+        // Do not reset metric_group if it is explicitly requested via `a op b keep_metric_names`
+        // See https://docs.victoriametrics.com/MetricsQL.html#keep_metric_names
+        return false;
+    }
+
+    // in the original code, the metric group is not reset for logical ops
+    if op.is_logical_op() {
+        return false;
+    }
+
+    return true;
 }
 
 fn ensure_single_timeseries(
@@ -301,42 +310,54 @@ fn ensure_single_timeseries(
 fn group_join(
     single_timeseries_side: &str,
     bfa: &BinaryOpFuncArg,
-    keep_metric_names: bool,
+    reset_metric_group: bool,
     rvs_left: &mut Vec<Timeseries>,
     rvs_right: &mut Vec<Timeseries>,
     tss_left: &mut Vec<Timeseries>,
     tss_right: &mut Vec<Timeseries>,
 ) -> RuntimeResult<()> {
-    let card = VectorMatchCardinality::OneToOne;
-    let group_modifier: Option<VectorMatchModifier> = None;
-
-    let (matching, grouping) = if let Some(modifier) = bfa.modifier {
-        (&modifier.matching, &modifier.card)
-    } else {
-        (&group_modifier, &card)
-    };
-
+    let empty_prefix = "";
     let empty_labels = Labels::default();
-    let join_tags = grouping.labels().unwrap_or(&empty_labels);
+
+    let (join_tags, skip_tags) = if let Some(modifier) = bfa.modifier {
+        let join = match &modifier.card {
+            VectorMatchCardinality::ManyToOne(labels)
+            | VectorMatchCardinality::OneToMany(labels) => labels,
+            _ => &empty_labels,
+        };
+        let skip = if let Some(VectorMatchModifier::On(labels)) = &modifier.matching {
+            labels
+        } else {
+            &empty_labels
+        };
+        (join, skip)
+    } else {
+        (&empty_labels, &empty_labels)
+    };
 
     struct TsPair {
         left: Timeseries,
         right: Timeseries,
     }
 
+    // todo(perf): IntMap
     let mut map: AHashMap<Signature, TsPair> = AHashMap::with_capacity(tss_left.len());
 
     for ts_left in tss_left.iter_mut() {
-        if !keep_metric_names {
+        if reset_metric_group {
             ts_left.metric_name.reset_metric_group();
         }
 
         if tss_right.len() == 1 {
             let mut right = tss_right.remove(0);
             // Easy case - right part contains only a single matching time series.
-            ts_left
-                .metric_name
-                .set_tags(join_tags.as_ref(), &mut right.metric_name);
+            ts_left.metric_name.set_tags(
+                empty_prefix,
+                join_tags.as_ref(),
+                skip_tags.as_ref(),
+                &mut right.metric_name,
+            );
+
             rvs_left.push(std::mem::take(ts_left));
             rvs_right.push(right);
             continue;
@@ -348,11 +369,14 @@ fn group_join(
 
         for mut ts_right in tss_right.drain(..) {
             let mut ts_copy = ts_left.clone(); // todo: how to avoid clone ?
-            ts_copy
-                .metric_name
-                .set_tags(join_tags.as_ref(), &mut ts_right.metric_name);
+            ts_copy.metric_name.set_tags(
+                empty_prefix,
+                join_tags.as_ref(),
+                skip_tags.as_ref(),
+                &mut ts_right.metric_name,
+            );
 
-            let key = ts_copy.metric_name.signature_by_match_modifier(matching);
+            let key = ts_copy.metric_name.tags_signature();
 
             match map.entry(key) {
                 Entry::Vacant(entry) => {

@@ -54,6 +54,7 @@ pub(super) fn rollup_delta(rfa: &RollupFuncArg) -> f64 {
             // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/894
             return values[values.len() - 1] - rfa.real_prev_value;
         }
+
         // Assume that the previous non-existing value was 0 only in the following cases:
         //
         // - If the delta with the next value equals to 0.
@@ -66,16 +67,15 @@ pub(super) fn rollup_delta(rfa: &RollupFuncArg) -> f64 {
         //
         // This also should prevent from improper increase() results when a part of label values are changed
         // without counter reset.
-
-        let d = if rfa.values.len() > 1 {
-            rfa.values[1] - rfa.values[0]
+        let d = if values.len() > 1 {
+            values[1] - values[0]
         } else if !rfa.real_next_value.is_nan() {
             rfa.real_next_value - values[0]
         } else {
             0.0
         };
 
-        if rfa.values[0].abs() < 10.0 * (d.abs() + 1.0) {
+        if values[0].abs() < 10.0 * (d.abs() + 1.0) {
             prev_value = 0.0;
         } else {
             prev_value = values[0];

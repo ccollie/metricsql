@@ -4,7 +4,7 @@ use metricsql_common::pool::get_pooled_vec_f64_filled;
 
 use crate::common::math::{quantile, quantiles};
 use crate::functions::arg_parse::{get_scalar_param_value, get_string_param_value};
-use crate::functions::rollup::{RollupFuncArg, RollupHandler};
+use crate::functions::rollup::{RollupFuncArg, RollupHandler, RollupHandlerFloatArg};
 use crate::{QueryValue, RuntimeResult};
 
 pub(super) fn new_rollup_quantiles(args: &[QueryValue]) -> RuntimeResult<RollupHandler> {
@@ -32,13 +32,13 @@ pub(super) fn new_rollup_quantiles(args: &[QueryValue]) -> RuntimeResult<RollupH
 pub(super) fn new_rollup_quantile(args: &[QueryValue]) -> RuntimeResult<RollupHandler> {
     let phi = get_scalar_param_value(args, 0, "quantile_over_time", "phi")?;
 
-    let rf = Box::new(move |rfa: &RollupFuncArg| {
+    let rf = RollupHandlerFloatArg::new(phi, |rfa: &RollupFuncArg, phi: &f64| -> f64 {
         // There is no need in handling NaNs here, since they must be cleaned up
         // before calling rollup fns.
-        quantile(phi, rfa.values)
+        quantile(*phi, rfa.values)
     });
 
-    Ok(RollupHandler::General(rf))
+    Ok(RollupHandler::FloatArg(rf))
 }
 
 fn quantiles_impl(rfa: &RollupFuncArg, label: &str, phis: &[f64], phi_labels: &[String]) -> f64 {
