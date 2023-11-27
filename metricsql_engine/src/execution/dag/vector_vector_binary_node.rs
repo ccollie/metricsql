@@ -63,8 +63,8 @@ pub struct VectorVectorPushDownNode {
     #[serde(skip)]
     pub(crate) left: InstantVector,
     #[serde(skip)]
-    // this resolves to an AggregateExpr
     pub(crate) right: Expr,
+    pub(super) is_swapped: bool,
 }
 
 impl ExecutableNode for VectorVectorPushDownNode {
@@ -76,7 +76,11 @@ impl ExecutableNode for VectorVectorPushDownNode {
     fn execute(&mut self, ctx: &Context, ec: &EvalConfig) -> RuntimeResult<QueryValue> {
         let left = std::mem::take(&mut self.left);
         let right = self.fetch_right(ctx, ec)?;
-        exec_vector_vector(ctx, left, right, self.op, &self.modifier)
+        if self.is_swapped {
+            exec_vector_vector(ctx, right, left, self.op, &self.modifier)
+        } else {
+            exec_vector_vector(ctx, left, right, self.op, &self.modifier)
+        }
     }
 }
 

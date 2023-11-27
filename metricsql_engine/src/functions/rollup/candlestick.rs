@@ -4,18 +4,15 @@ use crate::functions::rollup::RollupFuncArg;
 ///
 /// See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/309 for details.
 fn get_candlestick_values<'a>(rfa: &'a RollupFuncArg<'a>) -> &'a [f64] {
-    let curr_timestamp = &rfa.curr_timestamp;
-    let timestamps = &rfa.timestamps[0..];
-    let mut i = timestamps.len() - 1;
+    let curr_timestamp = rfa.curr_timestamp;
 
-    while i > 0 && timestamps[i] > *curr_timestamp - rfa.window {
-        i -= 1;
-    }
-    if i == 0 {
-        return &[];
+    for i in (0..rfa.timestamps.len()).rev() {
+        if rfa.timestamps[i] < curr_timestamp {
+            return &rfa.values[0..i];
+        }
     }
 
-    &rfa.values[0..i]
+    return &[];
 }
 
 fn get_first_value_for_candlestick(rfa: &RollupFuncArg) -> f64 {
@@ -42,7 +39,7 @@ pub(super) fn rollup_close(rfa: &RollupFuncArg) -> f64 {
     if values.is_empty() {
         return get_first_value_for_candlestick(rfa);
     }
-    values[values.len()]
+    values[values.len() - 1]
 }
 
 pub(super) fn rollup_high(rfa: &RollupFuncArg) -> f64 {
@@ -58,9 +55,7 @@ pub(super) fn rollup_high(rfa: &RollupFuncArg) -> f64 {
     }
 
     for v in &values[start..] {
-        if *v > max {
-            max = *v
-        }
+        max = max.max(*v);
     }
 
     max

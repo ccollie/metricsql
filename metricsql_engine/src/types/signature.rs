@@ -49,22 +49,12 @@ impl Signature {
         Self::with_name_and_labels(&labels.metric_group, iter)
     }
 
-    /// `signature_without_labels` is just as [`signature`], but only for labels not matching `names`.
-    pub fn without_labels(labels: &MetricName, exclude_names: &[String]) -> Signature {
-        let iter = labels.without_labels_iter(exclude_names);
-        Self::with_name_and_labels(&labels.metric_group, iter)
-    }
-
-    fn update_from_iter<'a>(hasher: &mut Xxh3, iter: impl Iterator<Item = &'a Tag>) {
-        for tag in iter {
-            tag.update_hash(hasher);
-        }
-    }
-
     pub fn with_name_and_labels<'a>(name: &str, iter: impl Iterator<Item = &'a Tag>) -> Self {
         let mut hasher = Xxh3::new();
         hasher.write(name.as_bytes());
-        Self::update_from_iter(&mut hasher, iter);
+        for tag in iter {
+            tag.update_hash(&mut hasher);
+        }
         let sig = hasher.digest();
         Signature(sig)
     }
@@ -152,4 +142,18 @@ pub fn get_signatures_set_by_match_modifier(
             .collect::<HashSet<_>>()
     };
     res
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::MetricName;
+
+    #[test]
+    fn test_collision() {
+        let mut first = MetricName::default();
+        first.add_tag("t1", "v1");
+
+        let mut second = MetricName::default();
+        first.add_tag("t2", "v3");
+    }
 }

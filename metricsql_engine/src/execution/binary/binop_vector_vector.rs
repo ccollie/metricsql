@@ -650,28 +650,40 @@ fn add_left_nans_if_no_right_nans(tss_left: &mut Vec<Timeseries>, tss_right: &Ve
 fn create_series_map_by_tag_set(
     bfa: &mut BinaryOpFuncArg,
 ) -> (TimeseriesHashMap, TimeseriesHashMap) {
-    let matching = if let Some(modifier) = &bfa.modifier {
-        &modifier.matching
+    let mut is_on = false;
+
+    let empty_labels = Labels::default();
+    let group_tags = if let Some(modifier) = bfa.modifier {
+        match &modifier.matching {
+            Some(VectorMatchModifier::On(labels)) => {
+                is_on = true;
+                labels
+            }
+            Some(VectorMatchModifier::Ignoring(labels)) => labels,
+            None => &empty_labels,
+        }
     } else {
-        &NONE_MATCHING
+        &empty_labels
     };
 
-    fn get_tags_map(
-        arg: &mut Vec<Timeseries>,
-        modifier: &Option<VectorMatchModifier>,
-    ) -> TimeseriesHashMap {
+    fn get_tags_map(arg: &mut Vec<Timeseries>, is_on: bool, labels: &Labels) -> TimeseriesHashMap {
         let mut m = TimeseriesHashMap::with_capacity(arg.len());
         // todo: rayon beyond a threshold
         // todo: move to signature.rs
+        let labels = labels.as_ref();
         for ts in arg.into_iter() {
-            let key = ts.metric_name.tags_signature_by_match_modifier(modifier);
+            let key = if is_on {
+                ts.metric_name.tags_signature_with_labels(labels)
+            } else {
+                ts.metric_name.tags_signature_without_labels(labels)
+            };
             m.entry(key).or_default().push(std::mem::take(ts));
         }
         m
     }
 
-    let m_left = get_tags_map(&mut bfa.left, matching);
-    let m_right = get_tags_map(&mut bfa.right, matching);
+    let m_left = get_tags_map(&mut bfa.left, is_on, group_tags);
+    let m_right = get_tags_map(&mut bfa.right, is_on, group_tags);
 
     (m_left, m_right)
 }

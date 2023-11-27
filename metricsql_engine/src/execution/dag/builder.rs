@@ -257,8 +257,17 @@ impl DAGBuilder {
                 .expect("rollup_arg_idx is None")
         };
 
-        let arg = &fe.args[rollup_arg_idx];
-        let re = get_rollup_expr_arg(arg).map_err(|e| {
+        // todo: errors here should have been caught in the parser
+        let arg = &fe.args.get(rollup_arg_idx);
+
+        if arg.is_none() {
+            return Err(RuntimeError::ArgumentError(format!(
+                "Invalid argument  #{rollup_arg_idx} for rollup function: {:?}",
+                fe.function
+            )));
+        }
+
+        let re = get_rollup_expr_arg(arg.unwrap()).map_err(|e| {
             RuntimeError::ArgumentError(format!("Invalid argument for rollup function: {:?}", e))
         })?;
 
@@ -498,19 +507,18 @@ impl DAGBuilder {
                 } else {
                     // if we can push down, we need to evaluate the left operand first
                     // and then use the result to evaluate the right operand
-                    // Note: both sides at this point are aggregations
-                    let (left_idx, right_expr) = if be.op == Operator::And || be.op == Operator::If
-                    {
-                        // Fetch right-side series at first, since it usually contains a lower number
-                        // of time series for `and` and `if` operator.
-                        // This should produce more specific label filters for the left side of the query.
-                        // This, in turn, should reduce the time to select series for the left side of the query.
-                        let right_idx = self.create_dependency(expr_right, idx)?;
-                        (right_idx, be.left.clone())
-                    } else {
-                        let left_idx = self.create_dependency(expr_left, idx)?;
-                        (left_idx, be.right.clone())
-                    };
+                    let (left_idx, right_expr, is_swapped) =
+                        if be.op == Operator::And || be.op == Operator::If {
+                            // Fetch right-side series at first, since it usually contains a lower number
+                            // of time series for `and` and `if` operator.
+                            // This should produce more specific label filters for the left side of the query.
+                            // This, in turn, should reduce the time to select series for the left side of the query.
+                            let right_idx = self.create_dependency(expr_right, idx)?;
+                            (right_idx, be.left.clone(), true)
+                        } else {
+                            let left_idx = self.create_dependency(expr_left, idx)?;
+                            (left_idx, be.right.clone(), false)
+                        };
 
                     let node = VectorVectorPushDownNode {
                         left_idx,
@@ -518,6 +526,7 @@ impl DAGBuilder {
                         left: Default::default(),
                         op: be.op,
                         modifier: be.modifier.clone(),
+                        is_swapped,
                     };
                     DAGNode::VectorVectorPushDownOp(node)
                 }

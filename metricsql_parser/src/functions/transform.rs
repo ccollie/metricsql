@@ -602,9 +602,10 @@ impl TransformFunction {
                 vec![ValueType::InstantVector, ValueType::Scalar],
                 Volatility::Stable,
             ),
+            Sort => Signature::exact(vec![ValueType::RangeVector], Volatility::Stable),
             SortByLabel | SortByLabelDesc | SortByLabelNumeric | SortByLabelNumericDesc => {
                 let mut types = vec![ValueType::String; MAX_ARG_COUNT];
-                types.insert(0, ValueType::InstantVector);
+                types.insert(0, ValueType::RangeVector);
                 Signature::exact_with_min_args(types, 2, Volatility::Stable)
             }
             Step => Signature::exact(vec![], Volatility::Stable),

@@ -405,8 +405,8 @@ impl RollupNode {
             series: Arc<Mutex<Vec<Timeseries>>>,
             keep_metric_names: bool,
             func: RollupFunction,
-            rcs: Vec<RollupConfig>,
             // todo: TinyVec
+            rcs: Vec<RollupConfig>,
             timestamps: &'a Arc<Vec<i64>>,
             no_stale_markers: bool,
             samples_scanned_total: RelaxedU64Counter,

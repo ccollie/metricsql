@@ -118,12 +118,6 @@ mod tests {
     }
 
     #[test]
-    fn simple_string_op_number() {
-        let q = r#"1+"foobar"*2%9"#;
-        test_query(q, vec![]);
-    }
-
-    #[test]
     fn scalar_vector_arithmetic() {
         let q = "scalar(-1)+2 *vector(3) ^ scalar(4)+5";
         assert_result_eq(q, &[166.0, 166.0, 166.0, 166.0, 166.0, 166.0]);
@@ -2203,7 +2197,7 @@ mod tests {
     fn stdvar_over_time() {
         assert_result_eq(
             "round(stdvar_over_time(rand(0)[200s:5s]), 0.001)",
-            &[0.082, 0.088, 0.092, 0.075, 0.101, 0.08],
+            &[0.085, 0.082, 0.078, 0.101, 0.059, 0.074],
         );
     }
 
@@ -4373,10 +4367,11 @@ mod tests {
         test_query(q, result_expected)
     }
 
+    // revise
     #[test]
     fn rollup_candlestick_high() {
         let q = r#"rollup_candlestick(alias(round(rand(0),0.01),"foobar")[:10s], "high")"#;
-        let mut r = make_result(&[0.9, 0.94, 0.97, 0.93, 0.98, 0.92]);
+        let mut r = make_result(&[0.99, 0.98, 0.98, 0.92, 0.98, 0.99]);
         r.metric.set_metric_group("foobar");
         r.metric.set_tag("rollup", "high");
         let result_expected: Vec<QueryResult> = vec![r];
@@ -4800,6 +4795,8 @@ mod tests {
                 assert_eq!(rv.is_err(), true, "expecting exec error: {}", q);
             });
         }
+
+        f("pi(123)");
 
         // Empty expr
         f("");

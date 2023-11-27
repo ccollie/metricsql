@@ -451,7 +451,8 @@ impl MetricName {
     /// `names` have to be sorted in ascending order.
     pub fn tags_signature_with_labels(&self, names: &[String]) -> Signature {
         let empty: &str = "";
-        Signature::with_name_and_labels(empty, self.with_labels_iter(names))
+        let iter = self.tags.iter().filter(|tag| names.contains(&tag.key));
+        Signature::with_name_and_labels(empty, iter)
     }
 
     /// `names` have to be sorted in ascending order.
@@ -470,12 +471,17 @@ impl MetricName {
         } else {
             ""
         };
-        Signature::with_name_and_labels(group_name, self.without_labels_iter(names))
+        let iter = self.tags.iter().filter(|tag| !names.contains(&tag.key));
+        Signature::with_name_and_labels(group_name, iter)
     }
 
     /// `names` have to be sorted in ascending order.
     pub fn tags_signature_without_labels(&self, names: &[String]) -> Signature {
-        Signature::with_name_and_labels("", self.without_labels_iter(names))
+        if names.is_empty() {
+            return self.tags_signature();
+        }
+        let iter = self.tags.iter().filter(|tag| !names.contains(&tag.key));
+        Signature::with_name_and_labels("", iter)
     }
 
     /// Calculate signature for the metric name by the given match modifier.
