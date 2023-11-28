@@ -44,11 +44,6 @@ impl Signature {
         Self::with_name_and_labels("", iter)
     }
 
-    pub fn with_labels(labels: &MetricName, names: &[String]) -> Signature {
-        let iter = labels.with_labels_iter(names);
-        Self::with_name_and_labels(&labels.metric_group, iter)
-    }
-
     pub fn with_name_and_labels<'a>(name: &str, iter: impl Iterator<Item = &'a Tag>) -> Self {
         let mut hasher = Xxh3::new();
         hasher.write(name.as_bytes());

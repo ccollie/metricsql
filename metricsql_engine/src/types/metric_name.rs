@@ -287,7 +287,7 @@ impl MetricName {
         }
 
         for tag_name in add_tags {
-            if skip_tags.contains(&tag_name) {
+            if skip_tags.contains(tag_name) {
                 continue;
             }
 
@@ -435,53 +435,45 @@ impl MetricName {
         }
     }
 
-    pub fn with_labels_iter<'a>(&'a self, names: &'a [String]) -> impl Iterator<Item = &Tag> {
-        WithLabelsIterator::new(self, names)
-    }
-
-    pub fn without_labels_iter<'a>(&'a self, names: &'a [String]) -> impl Iterator<Item = &Tag> {
-        WithoutLabelsIterator::new(self, names)
-    }
-
     /// generate a Signature using tags only (excluding the metric group)
     pub fn tags_signature(&self) -> Signature {
         Signature::from_tags(self)
     }
 
     /// `names` have to be sorted in ascending order.
-    pub fn tags_signature_with_labels(&self, names: &[String]) -> Signature {
+    pub fn tags_signature_with_labels(&self, labels: &[String]) -> Signature {
         let empty: &str = "";
-        let iter = self.tags.iter().filter(|tag| names.contains(&tag.key));
-        Signature::with_name_and_labels(empty, iter)
+        self.signature_with_labels_internal(empty, labels)
     }
 
     /// `names` have to be sorted in ascending order.
-    pub fn signature_with_labels(&self, names: &[String]) -> Signature {
-        Signature::with_name_and_labels(&self.metric_group, self.with_labels_iter(names))
+    pub fn signature_with_labels(&self, labels: &[String]) -> Signature {
+        self.signature_with_labels_internal(&self.metric_group, labels)
+    }
+
+    fn signature_with_labels_internal(&self, name: &str, labels: &[String]) -> Signature {
+        let iter = self.tags.iter().filter(|tag| labels.contains(&tag.key));
+        Signature::with_name_and_labels(name, iter)
     }
 
     /// `names` have to be sorted in ascending order.
-    pub fn signature_without_labels(&self, names: &[String]) -> Signature {
-        if names.is_empty() {
+    pub fn signature_without_labels(&self, labels: &[String]) -> Signature {
+        self.signature_with_labels_internal(&self.metric_group, labels)
+    }
+
+    /// `names` have to be sorted in ascending order.
+    pub fn tags_signature_without_labels(&self, labels: &[String]) -> Signature {
+        self.signature_without_labels_internal("", labels)
+    }
+
+    fn signature_without_labels_internal(&self, name: &str, labels: &[String]) -> Signature {
+        if labels.is_empty() {
             return self.signature();
         }
-        let includes_metric_group = names.iter().any(|x| *x == METRIC_NAME_LABEL);
-        let group_name = if includes_metric_group {
-            &self.metric_group
-        } else {
-            ""
-        };
-        let iter = self.tags.iter().filter(|tag| !names.contains(&tag.key));
+        let includes_metric_group = labels.iter().any(|x| *x == METRIC_NAME_LABEL);
+        let group_name = if includes_metric_group { name } else { "" };
+        let iter = self.tags.iter().filter(|tag| !labels.contains(&tag.key));
         Signature::with_name_and_labels(group_name, iter)
-    }
-
-    /// `names` have to be sorted in ascending order.
-    pub fn tags_signature_without_labels(&self, names: &[String]) -> Signature {
-        if names.is_empty() {
-            return self.tags_signature();
-        }
-        let iter = self.tags.iter().filter(|tag| !names.contains(&tag.key));
-        Signature::with_name_and_labels("", iter)
     }
 
     /// Calculate signature for the metric name by the given match modifier.
@@ -558,68 +550,6 @@ impl PartialOrd for MetricName {
         }
 
         Some(self.tags.len().cmp(&other.tags.len()))
-    }
-}
-
-pub struct WithLabelsIterator<'a> {
-    tag_iter: std::slice::Iter<'a, Tag>,
-    names: &'a [String],
-}
-
-impl<'a> WithLabelsIterator<'a> {
-    pub fn new(metric_name: &'a MetricName, names: &'a [String]) -> Self {
-        // todo: sort names here ?
-        Self {
-            names,
-            tag_iter: metric_name.tags.iter(),
-        }
-    }
-}
-
-impl<'a> Iterator for WithLabelsIterator<'a> {
-    type Item = &'a Tag;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        while let Some(tag) = self.tag_iter.next() {
-            if self.names.contains(&tag.key) {
-                return Some(tag);
-            }
-        }
-        None
-    }
-}
-
-pub struct WithoutLabelsIterator<'a> {
-    tag_iter: std::slice::Iter<'a, Tag>,
-    names: &'a [String],
-    last_name: Option<&'a String>,
-}
-
-impl<'a> WithoutLabelsIterator<'a> {
-    pub fn new(metric_name: &'a MetricName, names: &'a [String]) -> Self {
-        Self {
-            names,
-            tag_iter: metric_name.tags.iter(),
-            last_name: names.last(),
-        }
-    }
-}
-
-impl<'a> Iterator for WithoutLabelsIterator<'a> {
-    type Item = &'a Tag;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        for tag in self.tag_iter.by_ref() {
-            if let Some(name) = self.last_name {
-                if &tag.key > name {
-                    return None;
-                }
-            }
-            if !self.names.contains(&tag.key) {
-                return Some(tag);
-            }
-        }
-        None
     }
 }
 
@@ -762,27 +692,5 @@ mod tests {
         let mut exp_mn = MetricName::default();
         exp_mn.add_tag("baz", "qux");
         assert_eq!(exp_mn, mn, "expecting {} got {}", &exp_mn, &mn);
-    }
-
-    #[test]
-    fn test_with_tags_iter() {
-        let mut mn = MetricName::default();
-        mn.metric_group = "name".to_string();
-        mn.add_tag("foo", "bar");
-        mn.add_tag("baz", "qux");
-        mn.add_tag("quux", "quuz");
-        mn.add_tag("corge", "grault");
-        mn.add_tag("garply", "waldo");
-        mn.add_tag("cat", "cheshire");
-        mn.add_tag("dog", "daschund");
-        mn.add_tag("fred", "plugh");
-        mn.add_tag("xyzzy", "thud");
-
-        let names = vec!["corge".to_string(), "foo".to_string(), "xyzzy".to_string()];
-        let mut iter = mn.with_labels_iter(&names);
-        assert_eq!(iter.next(), Some(&Tag::new("corge", "grault".to_string())));
-        assert_eq!(iter.next(), Some(&Tag::new("foo", "bar".to_string())));
-        assert_eq!(iter.next(), Some(&Tag::new("xyzzy", "thud".to_string())));
-        assert_eq!(iter.next(), None);
     }
 }

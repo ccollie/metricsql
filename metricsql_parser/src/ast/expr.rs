@@ -318,14 +318,6 @@ pub enum VectorMatchCardinality {
 }
 
 impl VectorMatchCardinality {
-    pub fn join_modifier(&self) -> Option<JoinModifierOp> {
-        match self {
-            VectorMatchCardinality::ManyToOne(_) => Some(JoinModifierOp::GroupLeft),
-            VectorMatchCardinality::OneToMany(_) => Some(JoinModifierOp::GroupRight),
-            _ => None,
-        }
-    }
-
     pub fn group_left(labels: Labels) -> Self {
         VectorMatchCardinality::ManyToOne(labels)
     }
@@ -333,7 +325,6 @@ impl VectorMatchCardinality {
     pub fn group_right(labels: Labels) -> Self {
         VectorMatchCardinality::OneToMany(labels)
     }
-
     pub fn is_group_left(&self) -> bool {
         matches!(self, VectorMatchCardinality::ManyToOne(_))
     }
@@ -411,80 +402,6 @@ impl TryFrom<&str> for JoinModifierOp {
                 Err(ParseError::General(msg))
             }
         }
-    }
-}
-
-/// A JoinModifier clause's nested grouping clause
-#[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize, Deserialize)]
-pub struct JoinModifier {
-    /// The GroupModifier group's operator type (left or right)
-    pub op: JoinModifierOp,
-
-    /// A list of labels to copy to the opposite side of the group operator, i.e.
-    /// group_left(foo) copies the label `foo` from the right hand side
-    pub labels: Vec<String>,
-
-    /// The cardinality of the two Vectors.
-    pub cardinality: VectorMatchCardinality,
-}
-
-impl JoinModifier {
-    pub fn new(op: JoinModifierOp, labels: Vec<String>) -> Self {
-        JoinModifier {
-            op,
-            labels,
-            cardinality: VectorMatchCardinality::OneToOne,
-        }
-    }
-
-    /// Creates a new JoinModifier with the Left op
-    pub fn left() -> Self {
-        JoinModifier::new(JoinModifierOp::GroupLeft, vec![])
-    }
-
-    /// Creates a new JoinModifier with the Right op
-    pub fn right() -> Self {
-        JoinModifier::new(JoinModifierOp::GroupRight, vec![])
-    }
-
-    /// Replaces this JoinModifier's operator
-    pub fn op(mut self, op: JoinModifierOp) -> Self {
-        self.op = op;
-        self
-    }
-
-    /// Adds a label key to this JoinModifier
-    pub fn label<S: Into<String>>(mut self, label: S) -> Self {
-        self.labels.push(label.into());
-        self
-    }
-
-    /// Replaces this JoinModifier's labels with the given set
-    pub fn set_labels(mut self, labels: &[&str]) -> Self {
-        self.labels = labels.iter().map(|l| (*l).to_string()).collect();
-        self
-    }
-
-    /// Clears this JoinModifier's set of labels
-    pub fn clear_labels(mut self) -> Self {
-        self.labels.clear();
-        self
-    }
-}
-
-impl Display for JoinModifier {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{} ", self.op)?;
-        write_comma_separated(self.labels.iter(), f, true)?;
-        Ok(())
-    }
-}
-
-impl PartialEq<JoinModifier> for &JoinModifier {
-    fn eq(&self, other: &JoinModifier) -> bool {
-        self.op == other.op
-            && string_vecs_equal_unordered(&self.labels, &other.labels)
-            && self.cardinality == other.cardinality
     }
 }
 
