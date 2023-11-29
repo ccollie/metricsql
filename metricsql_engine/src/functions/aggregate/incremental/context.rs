@@ -114,7 +114,22 @@ impl<'a> IncrementalAggrFuncContext<'a> {
     pub fn update_timeseries(&self, ts_orig: &mut Timeseries, worker_id: u64) {
         let mut im = self.context_map.write().unwrap();
         let m = im.entry(worker_id).or_default();
+        self.update_timeseries_internal(m, ts_orig);
+    }
 
+    pub fn update_timeseries_many(&self, ts_orig: &mut [Timeseries], worker_id: u64) {
+        let mut im = self.context_map.write().unwrap();
+        let m = im.entry(worker_id).or_default();
+        for ts in ts_orig {
+            self.update_timeseries_internal(m, ts);
+        }
+    }
+
+    pub fn update_timeseries_internal(
+        &self,
+        m: &mut AHashMap<Signature, IncrementalAggrContext>,
+        ts_orig: &mut Timeseries,
+    ) {
         if self.limit > 0 && m.len() >= self.limit {
             // Skip this time series, since the limit on the number of output time series has been already reached.
             return;

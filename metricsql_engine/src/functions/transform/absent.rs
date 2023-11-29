@@ -1,8 +1,5 @@
-use metricsql_parser::ast::Expr;
-
 use crate::execution::{eval_number, EvalConfig};
 use crate::functions::arg_parse::get_series_arg;
-use crate::functions::transform::utils::extract_labels_from_expr;
 use crate::functions::transform::TransformFuncArg;
 use crate::{InstantVector, RuntimeResult, Timeseries};
 
@@ -29,16 +26,5 @@ pub(crate) fn handle_absent(
         }
     }
 
-    Ok(rvs)
-}
-
-pub(crate) fn get_absent_timeseries(ec: &EvalConfig, arg: &Expr) -> RuntimeResult<Vec<Timeseries>> {
-    // Copy tags from arg
-    let mut rvs = eval_number(ec, 1.0)?;
-    if let Some(labels) = extract_labels_from_expr(arg) {
-        for label in labels {
-            rvs[0].metric_name.set_tag(&label.name, &label.value);
-        }
-    }
     Ok(rvs)
 }

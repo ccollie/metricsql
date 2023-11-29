@@ -12,8 +12,6 @@ mod tests {
     const END: i64 = 2000000_i64;
     const STEP: i64 = 200000_i64;
 
-    const TIMESTAMPS_EXPECTED: [i64; 6] = [1000000, 1200000, 1400000, 1600000, 1800000, 2000000];
-
     const TEST_ITERATIONS: usize = 3;
 
     fn run_query(q: &str) -> QueryValue {

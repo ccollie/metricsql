@@ -89,5 +89,5 @@ pub(crate) fn should_reset_metric_group(be: &BinaryExpr) -> bool {
         return false;
     }
 
-    return true;
+    true
 }

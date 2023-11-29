@@ -10,7 +10,7 @@ pub(crate) fn remove_resets(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
     Ok(series)
 }
 
-fn remove_counter_resets_maybe_nans(values: &mut Vec<f64>) {
+fn remove_counter_resets_maybe_nans(values: &mut [f64]) {
     let mut start = 0;
     for (i, v) in values.iter().enumerate() {
         if v.is_nan() {

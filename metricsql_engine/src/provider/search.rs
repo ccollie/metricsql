@@ -1,10 +1,8 @@
 use std::fmt;
 use std::fmt::Display;
 use std::ops::Range;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 
 use metricsql_parser::label::{LabelFilter, Matchers};
@@ -12,7 +10,7 @@ use metricsql_parser::label::{LabelFilter, Matchers};
 use crate::execution::Context;
 use crate::functions::remove_nan_values_in_place;
 use crate::provider::Deadline;
-use crate::runtime_error::{RuntimeError, RuntimeResult};
+use crate::runtime_error::RuntimeResult;
 use crate::types::{MetricName, Timeseries, Timestamp, TimestampTrait};
 
 pub type TimeRange = Range<Timestamp>;
@@ -158,37 +156,14 @@ impl QueryResult {
 }
 
 /// Results holds results returned from ProcessSearchQuery.
-#[derive(Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct QueryResults {
     pub series: Vec<QueryResult>,
-    signal: Arc<AtomicU32>,
-}
-
-impl Default for QueryResults {
-    fn default() -> Self {
-        Self {
-            series: vec![],
-            signal: Arc::new(AtomicU32::new(0_u32)),
-        }
-    }
-}
-
-impl Clone for QueryResults {
-    fn clone(&self) -> Self {
-        let signal_value = self.signal.load(Ordering::Relaxed);
-        QueryResults {
-            series: self.series.clone(),
-            signal: Arc::new(AtomicU32::new(signal_value)),
-        }
-    }
 }
 
 impl QueryResults {
     pub fn new(series: Vec<QueryResult>) -> Self {
-        QueryResults {
-            series,
-            signal: Arc::new(AtomicU32::new(0_u32)),
-        }
+        QueryResults { series }
     }
 
     /// Len returns the number of results in rss.
@@ -198,47 +173,6 @@ impl QueryResults {
 
     pub fn is_empty(&self) -> bool {
         self.series.is_empty()
-    }
-
-    pub fn should_stop(&mut self) -> bool {
-        if self.signal.fetch_add(0, Ordering::Relaxed) != 0 {
-            return true;
-        }
-        false
-    }
-
-    pub fn is_cancelled(&self) -> bool {
-        self.signal.fetch_add(0, Ordering::Relaxed) == 1
-    }
-
-    /// run_parallel runs f in parallel for all the results from rss.
-    ///
-    /// f shouldn't hold references to rs after returning.
-    /// Data processing is immediately stopped if f returns an error.
-    ///
-    /// rss becomes unusable after the call to run_parallel.
-    pub(crate) fn run_parallel<C: Sync + Send, F>(&mut self, ctx: &mut C, f: F) -> RuntimeResult<()>
-    where
-        F: Fn(Arc<&mut C>, &mut QueryResult, u64) -> RuntimeResult<()> + Send + Sync,
-    {
-        let must_stop = AtomicBool::new(false);
-        let sharable_ctx = Arc::new(ctx);
-
-        self.series
-            .par_iter_mut()
-            .enumerate()
-            .filter(|(_, rs)| !rs.timestamps.is_empty())
-            .try_for_each(|(id, rs)| {
-                if must_stop.load(Ordering::Relaxed) {
-                    return Err(RuntimeError::TaskCancelledError("Search".to_string()));
-                }
-
-                f(Arc::clone(&sharable_ctx), rs, id as u64)
-            })
-    }
-
-    pub fn cancel(&self) {
-        self.signal.store(1, Ordering::Relaxed);
     }
 }
 

@@ -1185,13 +1185,3 @@ fn get_per_point_mads(tss: &[Timeseries], medians: &[f64]) -> Vec<f64> {
     }
     mads
 }
-
-fn expect_arg_count(tfa: &AggrFuncArg, expected: usize) -> RuntimeResult<()> {
-    let arg_count = tfa.args.len();
-    if arg_count == expected {
-        return Ok(());
-    }
-    Err(RuntimeError::ArgumentError(format!(
-        "unexpected number of args; got {arg_count}; want {expected}",
-    )))
-}

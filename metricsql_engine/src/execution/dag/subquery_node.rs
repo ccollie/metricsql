@@ -63,11 +63,6 @@ impl SubqueryNode {
         Ok(node)
     }
 
-    pub(super) fn set_at(&mut self, at_arg: NodeArg, value: Option<i64>) {
-        self.at_arg = Some(at_arg);
-        self.at = value;
-    }
-
     fn get_at_timestamp(&self) -> RuntimeResult<Option<Timestamp>> {
         // value was set in pre-execute
         if self.at.is_some() {

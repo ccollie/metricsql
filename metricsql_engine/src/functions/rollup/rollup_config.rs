@@ -77,13 +77,13 @@ wrap_rollup_fn!(FN_HIGH, rollup_high);
 
 fn get_tag_fn_from_str(name: &str) -> Option<&RollupHandler> {
     match name {
-        "min" => Some(&FN_MIN),
-        "max" => Some(&FN_MAX),
-        "avg" => Some(&FN_AVG),
-        "open" => Some(&FN_OPEN),
-        "close" => Some(&FN_CLOSE),
-        "low" => Some(&FN_LOW),
-        "high" => Some(&FN_HIGH),
+        op if op.eq_ignore_ascii_case("min") => Some(&FN_MIN),
+        op if op.eq_ignore_ascii_case("max") => Some(&FN_MAX),
+        op if op.eq_ignore_ascii_case("avg") => Some(&FN_AVG),
+        op if op.eq_ignore_ascii_case("open") => Some(&FN_OPEN),
+        op if op.eq_ignore_ascii_case("close") => Some(&FN_CLOSE),
+        op if op.eq_ignore_ascii_case("low") => Some(&FN_LOW),
+        op if op.eq_ignore_ascii_case("high") => Some(&FN_HIGH),
         _ => None,
     }
 }
@@ -776,7 +776,7 @@ fn get_rollup_aggr_functions(expr: &Expr) -> RuntimeResult<Vec<RollupFunction>> 
         } else {
             let msg =
                 format!("{expr} cannot be passed here; expecting quoted aggregate function name",);
-            return Err(RuntimeError::ArgumentError(msg));
+            Err(RuntimeError::ArgumentError(msg))
         }
     }
 
@@ -809,7 +809,7 @@ fn get_rollup_aggr_functions(expr: &Expr) -> RuntimeResult<Vec<RollupFunction>> 
         for arg in fe.args[1..].iter() {
             functions.push(get_func_from_expr(arg)?)
         }
-        return Ok(functions);
+        Ok(functions)
     } else {
         let msg = format!(
             "BUG: unexpected expression; want FunctionExpr; got {}; value: {expr}",

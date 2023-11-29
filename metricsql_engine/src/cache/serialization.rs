@@ -333,11 +333,6 @@ fn map_err(e: QCompressError) -> RuntimeError {
     RuntimeError::SerializationError(e.to_string())
 }
 
-fn map_unmarshal_err(e: RuntimeError, what: &str) -> RuntimeError {
-    let msg = format!("error reading {what}: {:?}", e);
-    RuntimeError::SerializationError(msg)
-}
-
 fn read_timestamp(compressed: &[u8]) -> RuntimeResult<(&[u8], i64)> {
     crate::common::encoding::read_i64(compressed, "timestamp")
 }

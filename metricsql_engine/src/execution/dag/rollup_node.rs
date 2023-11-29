@@ -1,5 +1,6 @@
 use std::sync::{Arc, Mutex};
 
+use rayon::iter::IntoParallelRefMutIterator;
 use tracing::{field, trace_span, Span};
 
 use metricsql_common::atomic_counter::{AtomicCounter, RelaxedU64Counter};
@@ -22,7 +23,9 @@ use crate::functions::aggregate::IncrementalAggrFuncContext;
 use crate::functions::rollup::{
     eval_prefuncs, get_rollup_configs, RollupConfig, RollupHandler, MAX_SILENCE_INTERVAL,
 };
-use crate::provider::{join_matchers_vec, QueryResult, QueryResults, SearchQuery};
+use crate::provider::{join_matchers_vec, QueryResults, SearchQuery};
+use crate::rayon::iter::IndexedParallelIterator;
+use crate::rayon::iter::ParallelIterator;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::QueryValue;
 use crate::{Timeseries, Timestamp};
@@ -135,7 +138,7 @@ impl RollupNode {
         let mut rvs = self.eval_metric_expr(ctx, &ec_new, &self.metric_expr)?;
 
         if self.func == RollupFunction::AbsentOverTime {
-            rvs = handle_aggregate_absent_over_time(&ec, &rvs, Some(&self.metric_expr))?;
+            rvs = handle_aggregate_absent_over_time(ec, &rvs, Some(&self.metric_expr))?;
         }
 
         adjust_series_by_offset(&mut rvs, offset);
@@ -235,7 +238,6 @@ impl RollupNode {
         let mut rss = ctx.process_search_query(&sq, &ec.deadline)?;
 
         if rss.is_empty() {
-            rss.cancel();
             let dst: Vec<Timeseries> = vec![];
             let tss = merge_timeseries(tss_cached, dst, start, ec)?;
             return Ok(tss);
@@ -314,52 +316,50 @@ impl RollupNode {
 
         let iafc = Arc::new(IncrementalAggrFuncContext::new(ae)?);
 
+        let keep_metric_names = self.keep_metric_names;
+
         struct Context<'a> {
             func: RollupFunction,
-            keep_metric_names: bool,
             iafc: Arc<IncrementalAggrFuncContext<'a>>,
             rcs: Vec<RollupConfig>,
             timestamps: Arc<Vec<i64>>,
-            ignore_staleness: bool,
             samples_scanned_total: RelaxedU64Counter,
         }
 
-        let mut ctx = Context {
-            keep_metric_names: self.keep_metric_names,
+        let ctx = Context {
             func: self.func,
             iafc,
             rcs,
             timestamps: Arc::clone(shared_timestamps),
-            ignore_staleness,
             samples_scanned_total: Default::default(),
         };
 
-        rss.run_parallel(
-            &mut ctx,
-            |ctx: Arc<&mut Context>, rs: &mut QueryResult, worker_id: u64| {
-                if !ctx.ignore_staleness {
+        rss.series
+            .par_iter_mut()
+            .enumerate()
+            .try_for_each(|(id, rs)| {
+                if !ignore_staleness {
                     drop_stale_nans(ctx.func, &mut rs.values, &mut rs.timestamps);
                 }
                 pre_func(&mut rs.values, &rs.timestamps);
 
+                // todo: possibly use rayon based on rcs.len()
                 for rc in ctx.rcs.iter() {
                     let (samples_scanned, mut series) = rc.process_rollup(
                         ctx.func,
                         &rs.metric,
-                        ctx.keep_metric_names,
+                        keep_metric_names,
                         &rs.values,
                         &rs.timestamps,
                         &ctx.timestamps,
                     )?;
 
-                    for ts in series.iter_mut() {
-                        ctx.iafc.update_timeseries(ts, worker_id);
-                    }
+                    ctx.iafc.update_timeseries_many(&mut series, id as u64);
                     ctx.samples_scanned_total.add(samples_scanned);
                 }
-                Ok(())
-            },
-        )?;
+
+                Ok::<(), RuntimeError>(())
+            })?;
 
         let tss = ctx.iafc.finalize();
 
@@ -401,54 +401,49 @@ impl RollupNode {
         }
         .entered();
 
+        let keep_metric_names = self.keep_metric_names;
+
         struct TaskCtx<'a> {
             series: Arc<Mutex<Vec<Timeseries>>>,
-            keep_metric_names: bool,
             func: RollupFunction,
             // todo: TinyVec
             rcs: Vec<RollupConfig>,
             timestamps: &'a Arc<Vec<i64>>,
-            no_stale_markers: bool,
             samples_scanned_total: RelaxedU64Counter,
         }
 
         let series = Arc::new(Mutex::new(Vec::with_capacity(rss.len() * rcs.len())));
-        let mut ctx = TaskCtx {
+        let ctx = TaskCtx {
             series: Arc::clone(&series),
-            keep_metric_names: self.keep_metric_names,
             func: self.func,
             rcs,
-            no_stale_markers,
             timestamps: shared_timestamps,
             samples_scanned_total: Default::default(),
         };
 
-        rss.run_parallel(
-            &mut ctx,
-            |ctx: Arc<&mut TaskCtx>, rs: &mut QueryResult, _: u64| {
-                if !ctx.no_stale_markers {
-                    drop_stale_nans(ctx.func, &mut rs.values, &mut rs.timestamps);
-                }
-                pre_func(&mut rs.values, &rs.timestamps);
+        rss.series.par_iter_mut().try_for_each(|rs| {
+            if !no_stale_markers {
+                drop_stale_nans(ctx.func, &mut rs.values, &mut rs.timestamps);
+            }
+            pre_func(&mut rs.values, &rs.timestamps);
 
-                // todo(perf): rayon
-                for rc in ctx.rcs.iter() {
-                    let (samples_scanned, mut series) = rc.process_rollup(
-                        ctx.func,
-                        &rs.metric,
-                        ctx.keep_metric_names,
-                        &rs.values,
-                        &rs.timestamps,
-                        ctx.timestamps,
-                    )?;
+            // todo: possibly use rayon based on rcs.len()
+            for rc in ctx.rcs.iter() {
+                let (samples_scanned, mut series) = rc.process_rollup(
+                    ctx.func,
+                    &rs.metric,
+                    keep_metric_names,
+                    &rs.values,
+                    &rs.timestamps,
+                    ctx.timestamps,
+                )?;
 
-                    let mut series_vec = ctx.series.lock().unwrap();
-                    series_vec.append(&mut series);
-                    ctx.samples_scanned_total.add(samples_scanned);
-                }
-                Ok(())
-            },
-        )?;
+                let mut series_vec = ctx.series.lock().unwrap();
+                series_vec.append(&mut series);
+                ctx.samples_scanned_total.add(samples_scanned);
+            }
+            Ok::<(), RuntimeError>(())
+        })?;
 
         // https://users.rust-lang.org/t/how-to-move-the-content-of-mutex-wrapped-by-arc/10259/7
         let res = Arc::try_unwrap(series).unwrap().into_inner().unwrap();
@@ -493,7 +488,6 @@ impl RollupNode {
         let memory_limit = ctx.rollup_result_cache.memory_limit();
 
         if !ctx.rollup_result_cache.reserve_memory(rollup_memory_size) {
-            rss.cancel();
             let msg = format!("not enough memory for processing {} data points across {} time series with {} points in each time series; \n
                                   total available memory for concurrent requests: {} bytes; requested memory: {} bytes; \n
                                   possible solutions are: reducing the number of matching time series; switching to node with more RAM; \n

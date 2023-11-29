@@ -41,10 +41,6 @@ impl<'a> BinaryOpFuncArg<'a> {
     pub fn returns_bool(&self) -> bool {
         matches!(self.modifier, Some(modifier) if modifier.return_bool)
     }
-
-    pub fn keep_metric_names(&self) -> bool {
-        matches!(self.modifier, Some(modifier) if modifier.keep_metric_names)
-    }
 }
 
 pub type BinaryOpFuncResult = RuntimeResult<Vec<Timeseries>>;
@@ -273,7 +269,7 @@ fn should_reset_metric_group(op: Operator, keep_metric_names: bool, returns_bool
         return false;
     }
 
-    return true;
+    true
 }
 
 fn ensure_single_timeseries(
@@ -583,16 +579,6 @@ fn binary_op_if_not(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>>
     Ok(rvs)
 }
 
-fn fill_left_empty_with_right_values(left_ts: &mut Timeseries, right_ts: &Timeseries) {
-    // Fill gaps in tssLeft with values from tssRight as Prometheus does.
-    // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/552
-    for (right_value, left_value) in right_ts.values.iter().zip(left_ts.values.iter_mut()) {
-        if left_value.is_nan() && !right_value.is_nan() {
-            *left_value = *right_value;
-        }
-    }
-}
-
 #[inline]
 /// Fill gaps in tss_left with values from tss_right as Prometheus does.
 /// See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/552
@@ -671,7 +657,7 @@ fn create_series_map_by_tag_set(
         // todo: rayon beyond a threshold
         // todo: move to signature.rs
         let labels = labels.as_ref();
-        for ts in arg.into_iter() {
+        for ts in arg.iter_mut() {
             let key = if is_on {
                 ts.metric_name.tags_signature_with_labels(labels)
             } else {
@@ -687,8 +673,6 @@ fn create_series_map_by_tag_set(
 
     (m_left, m_right)
 }
-
-const NONE_MATCHING: Option<VectorMatchModifier> = None;
 
 pub(in crate::execution) fn is_scalar(arg: &[Timeseries]) -> bool {
     if arg.len() != 1 {

@@ -13,7 +13,7 @@ pub(crate) fn smooth_exponential(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
         let mut avg = 0.0;
 
         // skip NaN and Inf
-        while let Some(v) = iter.next() {
+        for v in iter.by_ref() {
             if v.is_finite() {
                 avg = *v;
                 break;

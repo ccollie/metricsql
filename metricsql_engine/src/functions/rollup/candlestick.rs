@@ -12,7 +12,7 @@ fn get_candlestick_values<'a>(rfa: &'a RollupFuncArg<'a>) -> &'a [f64] {
         }
     }
 
-    return &[];
+    &[]
 }
 
 fn get_first_value_for_candlestick(rfa: &RollupFuncArg) -> f64 {
