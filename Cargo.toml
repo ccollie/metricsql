@@ -3,10 +3,10 @@ version = "0.1.0"
 authors = ["ccollie <collie.clayton@gmail.com>"]
 edition = "2021"
 license = "Apache-2.0"
-description = "A promql execution engine"
+description = "A promql-compatible execution engine"
 homepage = "https://github.com/ccolle/metricsql"
 repository = "https://github.com/ccolle/metricsql"
-keywords = ["promql", "prometheus", "observability", "metrics"]
+keywords = ["promql", "prometheus", "observability", "metrics", "timeseries"]
 readme = "README.md"
 
 [workspace]
@@ -14,7 +14,8 @@ members = [
     "metricsql_common",
     "metricsql_encoding",
     "metricsql_parser",
-    "metricsql_engine"
+    "metricsql_engine",
+    "metricsql_redis",
 ]
 resolver = "2"
 

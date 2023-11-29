@@ -1,0 +1,22 @@
+[package]
+name = "metricsql_redis"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+description.workspace = true
+homepage.workspace = true
+repository.workspace = true
+keywords.workspace = true
+readme.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+futures = "0.3.29"
+metricsql_common = { path = "../metricsql_common" }
+metricsql_engine = { path = "../metricsql_engine" }
+metricsql_parser = { path = "../metricsql_parser" }
+redis = "0.23.3"
+redis_ts = "0.5.2"
+regex-syntax = { workspace = true }
