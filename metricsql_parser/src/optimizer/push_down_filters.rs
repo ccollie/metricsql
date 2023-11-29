@@ -5,7 +5,7 @@ use std::vec::Vec;
 use ahash::AHashSet;
 
 use crate::ast::{
-    AggregateModifier, AggregationExpr, Expr, Operator, RollupExpr, VectorMatchModifier,
+    AggregateModifier, AggregationExpr, BinaryExpr, Expr, Operator, RollupExpr, VectorMatchModifier,
 };
 use crate::label::{LabelFilter, NAME_LABEL};
 use crate::prelude::VectorMatchCardinality;
@@ -39,7 +39,9 @@ pub fn can_pushdown_filters(expr: &Expr) -> bool {
         }
         Function(f) => f.args.iter().any(can_pushdown_filters),
         Aggregation(agg) => agg.args.iter().any(can_pushdown_filters),
-        BinaryOperator(_) => true,
+        BinaryOperator(BinaryExpr { left, right, .. }) => {
+            can_pushdown_filters(left) || can_pushdown_filters(right)
+        }
         _ => false,
     }
 }
