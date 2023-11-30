@@ -24,10 +24,10 @@ fn invalid_number(lex: &mut Lexer<Token>) -> ParseResult<()> {
 #[logos(error = ParseError)]
 #[logos(subpattern decimal = r"[0-9][_0-9]*")]
 #[logos(subpattern hex = r"-?0[xX][0-9a-fA-F][_0-9a-fA-F]*")]
-#[logos(subpattern octal = r"-?0[oO]?[1-7][0-7]*")]
+#[logos(subpattern octal = r"-?0[oO]?[1-7][_0-7]*")]
 #[logos(subpattern binary = r"-?0[bB][0-1][_0-1]*")]
-#[logos(subpattern float = r"-?(?:([0-9]*[.])?[0-9]+)(?:[eE][+-]?\d+)?")]
-#[logos(subpattern duration = r"-?(?:([0-9]*[.])?[0-9]+)(ms|s|m|h|d|w|y|i)")]
+#[logos(subpattern float = r"-?(?:([0-9]*[.])?[0-9][0-9_]*)(?:[eE][+-]?[0-9][0-9_]*)?")]
+#[logos(subpattern duration = r"-?(?:([0-9]*[.])?[0-9][0-9_]*)(ms|s|m|h|d|w|y|i)")]
 #[logos(skip r"[ \t\n\f\r]+")]
 #[logos(skip r"#[^\r\n]*(\r\n|\n)?")] // single line comment
 pub enum Token {
@@ -360,6 +360,7 @@ impl Display for Token {
 #[cfg(test)]
 mod tests {
     use logos::Logos;
+    use pretty_assertions::assert_eq;
     use test_case::test_case;
 
     use super::Token;
@@ -378,7 +379,7 @@ mod tests {
         let actual = lex.next().expect(&format!("Expected token {}", index + 1)).unwrap();
         let expected = $tok;
         let text = lex.slice();
-        assert_eq!(actual, expected, "index: {}", index);
+        assert_eq!(actual, expected);
         $(
           assert_eq!(text, $val, "index: {}", index);
         )?
@@ -637,6 +638,27 @@ mod tests {
     #[test_case("-4.5TIB")]
     fn number_with_unit(src: &str) {
         test_tokens!(src, [Number]);
+    }
+
+    fn get_single_token(src: &str) -> Token {
+        let mut lexer = Token::lexer(src);
+        if let Some(first) = lexer.next() {
+            let token = first.unwrap();
+            if let Some(next) = lexer.next() {
+                let next_token = next.unwrap();
+                panic!("unexpected token after {:?} : {}", token, lexer.slice());
+            }
+            return token;
+        }
+        panic!("unexpected EOF")
+    }
+
+    #[test_case("1_2_334")]
+    #[test_case("1_2.3_34_5")]
+    #[test_case("1_2.3_34_5e8")]
+    fn number_with_underscore(src: &str) {
+        let token = get_single_token(src);
+        assert_eq!(token, Number);
     }
 
     #[test]

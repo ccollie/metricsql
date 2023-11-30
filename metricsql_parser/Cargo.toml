@@ -26,6 +26,7 @@ metricsql_common = { path = "../metricsql_common" }
 
 [dev-dependencies]
 test-case.workspace = true
+pretty_assertions.workspace = true
 
 [lib]
 name="metricsql_parser"
