@@ -1,11 +1,16 @@
-use redis::{Client, Commands, Connection};
-use redis_ts::{AsyncCommands, TsCommands, TsFilterOptions, TsRangeQuery};
-
 use futures::future::join_all;
-use metricsql_engine::prelude::TimestampTrait;
+use rustis::{
+    client::Client,
+    commands::{
+        TimeSeriesCommands,
+        TsGroupByOptions,
+        TsMRangeOptions,
+    },
+};
+
+use metricsql_engine::{Deadline, MetricName, QueryResult, QueryResults, SearchQuery};
 use metricsql_engine::provider::MetricDataProvider;
 use metricsql_engine::runtime_error::{RuntimeError, RuntimeResult};
-use metricsql_engine::{Deadline, MetricName, QueryResult, QueryResults, SearchQuery};
 use metricsql_parser::label::{LabelFilterOp, Matchers};
 
 pub struct RedisMetricsQLProvider {
@@ -45,7 +50,6 @@ impl RedisMetricsQLProvider {
         sq: &SearchQuery,
         deadline: &Deadline,
     ) -> RuntimeResult<QueryResults> {
-        let mut qr = QueryResults::default();
         let mut filter_options = TsFilterOptions::default();
         filter_options.with_labels(true);
 
@@ -53,13 +57,16 @@ impl RedisMetricsQLProvider {
         range_query.from(sq.start);
         range_query.to(sq.end);
 
+        let mut filters_scratch: Vec<String> = Vec::with_capacity(4);
         let calls = Vec::with_capacity(sq.matchers.len());
-        for matcher in sq.matchers.iter() {}
-        let calls = sq
-            .matchers
-            .iter()
-            .map(|matcher| append_filter(&mut filter_options, matcher));
-
+        for matcher in sq.matchers.iter() {
+            calls.push(self.fetch_one(sq.start, sq.end, matcher));
+        }
+        let results = join_all(calls).await?;
+        let mut qr = QueryResults::default();
+        for result in results {
+            qr.series.extend(result);
+        }
         Ok(qr)
     }
 
@@ -69,17 +76,23 @@ impl RedisMetricsQLProvider {
         end: i64,
         matchers: &Matchers,
     ) -> RuntimeResult<Vec<QueryResult>> {
-        let mut range_query = TsRangeQuery::default();
-        range_query.from(start);
-        range_query.to(end);
+        let range_query = TsRangeQuery::default().from(start).to(end);
 
-        let mut filter_options = TsFilterOptions::default();
-        filter_options.with_labels(true);
+        let mut filter_options = TsFilterOptions::default().with_labels(true);
+        let group_options = TsGroupByOptions::new().with_labels(true));
+
+        let range_options = TsMRangeOptions::default().withlabels();
+        let mut filters = Vec::with_capacity(matchers.len());
         append_filter(&mut filter_options, matchers)?;
 
-        let from_redis = self
-            .connection
-            .ts_mrange(range_query, filter_options)
+        let from_redis = self.client
+            .ts_mrange(
+                start,
+                end,
+                range_options,
+                filters,
+                TsGroupByOptions::default())
+            .await
             .map_err(|e| {
                 RuntimeError::ProviderError(format!("Failed to fetch data from redis: {:?}", e))
             })?;
@@ -121,22 +134,22 @@ impl MetricDataProvider for RedisMetricsQLProvider {
     }
 }
 
-fn append_filter(filter_options: &mut TsFilterOptions, matchers: &Matchers) -> RuntimeResult<()> {
+fn append_filter(filter_options: &mut Vec<String>, matchers: &Matchers) -> RuntimeResult<()> {
     for label_filter in matchers.iter() {
         match label_filter.op {
             LabelFilterOp::Equal => {
-                filter_options.equals(label_filter.label.as_str(), label_filter.value.as_str());
+                filter_options.push(format!("{}={}", label_filter.label, label_filter.value));
             }
             LabelFilterOp::NotEqual => {
-                filter_options.not_equals(label_filter.label.as_str(), label_filter.value.as_str());
+                filter_options.push(format!("{}!={}", label_filter.label, label_filter.value));
             }
             LabelFilterOp::RegexEqual => {
                 let or_values = get_or_values_from_regex(label_filter.value.as_str())?;
-                filter_options.not_in_set(label_filter.label.as_str(), or_values);
+                filter_options.push(format!("{}=({})", label_filter.label, or_values.join(",")));
             }
             LabelFilterOp::RegexNotEqual => {
                 let or_values = get_or_values_from_regex(label_filter.value.as_str())?;
-                filter_options.not_in_set(label_filter.label.as_str(), or_values);
+                filter_options.push(format!("{}!=({})", label_filter.label, or_values.join(",")));
             }
         }
     }
