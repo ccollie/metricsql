@@ -1,19 +1,9 @@
-use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 
-use ahash::AHashMap;
-use rayon::prelude::*;
 use xxhash_rust::xxh3::Xxh3;
 
-use metricsql_parser::prelude::VectorMatchModifier;
-
-use crate::{MetricName, Tag, Timeseries};
-
-/// The minimum threshold of timeseries tags to process in parallel when computing signatures.
-pub(crate) const SIGNATURE_PARALLELIZATION_THRESHOLD: usize = 8;
-
-pub type TimeseriesHashMap = AHashMap<Signature, Vec<Timeseries>>;
+use crate::{MetricName, Tag};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Copy, Ord, PartialOrd)]
 pub struct Signature(u64);
@@ -33,6 +23,9 @@ impl Deref for Signature {
     }
 }
 
+const EMPTY_LIST_SIGNATURE: u64 = 0x9e3779b97f4a7c15;
+const EMPTY_NAME_VALUE: u64 = 0x9e3779b97f4a7c16;
+
 impl Signature {
     pub fn new(labels: &MetricName) -> Self {
         let iter = labels.tags.iter();
@@ -46,9 +39,19 @@ impl Signature {
 
     pub fn with_name_and_labels<'a>(name: &str, iter: impl Iterator<Item = &'a Tag>) -> Self {
         let mut hasher = Xxh3::new();
-        hasher.write(name.as_bytes());
+        let mut has_tags = false;
+
+        if !name.is_empty() {
+            hasher.write(name.as_bytes());
+        } else {
+            hasher.write_u64(EMPTY_NAME_VALUE);
+        }
         for tag in iter {
             tag.update_hash(&mut hasher);
+            has_tags = true;
+        }
+        if !has_tags {
+            hasher.write_u64(EMPTY_LIST_SIGNATURE);
         }
         let sig = hasher.digest();
         Signature(sig)
@@ -59,82 +62,4 @@ impl From<Signature> for u64 {
     fn from(sig: Signature) -> Self {
         sig.0
     }
-}
-
-pub fn group_series_by_match_modifier(
-    series: &mut Vec<Timeseries>,
-    modifier: &Option<VectorMatchModifier>,
-) -> TimeseriesHashMap {
-    let mut m: TimeseriesHashMap = AHashMap::with_capacity(series.len());
-
-    if series.len() >= SIGNATURE_PARALLELIZATION_THRESHOLD {
-        let sigs: Vec<Signature> = series
-            .par_iter()
-            .map_with(modifier, |modifier, timeseries| {
-                timeseries.metric_name.signature_by_match_modifier(modifier)
-            })
-            .collect();
-
-        for (ts, sig) in series.iter_mut().zip(sigs.iter()) {
-            m.entry(*sig).or_default().push(std::mem::take(ts));
-        }
-    } else {
-        for ts in series.iter_mut() {
-            ts.metric_name.sort_tags();
-            let key = ts.metric_name.signature_by_match_modifier(modifier);
-            m.entry(key).or_default().push(std::mem::take(ts));
-        }
-    };
-
-    m
-}
-
-pub fn group_series_indexes_by_match_modifier(
-    series: &Vec<Timeseries>,
-    modifier: &Option<VectorMatchModifier>,
-) -> AHashMap<Signature, Vec<usize>> {
-    let mut m: AHashMap<Signature, Vec<usize>> = AHashMap::with_capacity(series.len());
-
-    if series.len() >= SIGNATURE_PARALLELIZATION_THRESHOLD {
-        let sigs: Vec<(Signature, usize)> = series
-            .par_iter()
-            .enumerate()
-            .map_with(modifier, |modifier, (index, ts)| {
-                let sig = ts.metric_name.signature_by_match_modifier(modifier);
-                (sig, index)
-            })
-            .collect();
-
-        for (sig, index) in sigs {
-            m.entry(sig).or_default().push(index);
-        }
-    } else {
-        for (index, ts) in series.iter().enumerate() {
-            let key = ts.metric_name.signature_by_match_modifier(modifier);
-            m.entry(key).or_default().push(index);
-        }
-    };
-
-    m
-}
-
-// todo(perf): return AHashset or use nohash_hasher
-pub fn get_signatures_set_by_match_modifier(
-    series: &[Timeseries],
-    modifier: &Option<VectorMatchModifier>,
-) -> HashSet<Signature> {
-    let res: HashSet<Signature> = if series.len() >= SIGNATURE_PARALLELIZATION_THRESHOLD {
-        series
-            .par_iter()
-            .map_with(modifier, |modifier, ts| {
-                ts.metric_name.signature_by_match_modifier(modifier)
-            })
-            .collect::<HashSet<_>>()
-    } else {
-        series
-            .iter()
-            .map(|ts| ts.metric_name.signature_by_match_modifier(modifier))
-            .collect::<HashSet<_>>()
-    };
-    res
 }

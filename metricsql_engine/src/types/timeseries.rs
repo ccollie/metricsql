@@ -1,9 +1,18 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 
+use ahash::AHashMap;
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+
+use metricsql_parser::ast::VectorMatchModifier;
+
 use crate::runtime_error::{RuntimeError, RuntimeResult};
+use crate::signature::Signature;
 
 use super::MetricName;
+
+pub type TimeseriesHashMap = AHashMap<Signature, Vec<Timeseries>>;
+pub type TimeseriesHashMapRef<'a> = AHashMap<Signature, &'a [Timeseries]>;
 
 #[derive(Default, Debug, Clone, PartialEq)]
 pub struct Timeseries {
@@ -119,4 +128,46 @@ pub(crate) fn assert_identical_timestamps(tss: &[Timeseries], step: i64) -> Runt
 pub(crate) fn get_timeseries() -> Timeseries {
     // timeseries_pool().pull().timeseries.borrow_mut()
     Timeseries::default()
+}
+
+/// The minimum threshold of timeseries tags to process in parallel when computing signatures.
+pub(crate) const SIGNATURE_PARALLELIZATION_THRESHOLD: usize = 8;
+
+pub fn group_series_by_match_modifier(
+    series: &mut Vec<Timeseries>,
+    modifier: &Option<VectorMatchModifier>,
+    with_metric_name: bool,
+) -> TimeseriesHashMap {
+    let mut m: TimeseriesHashMap = AHashMap::with_capacity(series.len());
+
+    if series.len() >= SIGNATURE_PARALLELIZATION_THRESHOLD {
+        let sigs: Vec<Signature> = series
+            .par_iter()
+            .map_with(modifier, |modifier, timeseries| {
+                if with_metric_name {
+                    timeseries.metric_name.signature_by_match_modifier(modifier)
+                } else {
+                    timeseries
+                        .metric_name
+                        .tags_signature_by_match_modifier(modifier)
+                }
+            })
+            .collect();
+
+        for (ts, sig) in series.iter_mut().zip(sigs.iter()) {
+            m.entry(*sig).or_default().push(std::mem::take(ts));
+        }
+    } else {
+        for ts in series.iter_mut() {
+            ts.metric_name.sort_tags();
+            let key = if with_metric_name {
+                ts.metric_name.signature_by_match_modifier(modifier)
+            } else {
+                ts.metric_name.tags_signature_by_match_modifier(modifier)
+            };
+            m.entry(key).or_default().push(std::mem::take(ts));
+        }
+    };
+
+    m
 }
