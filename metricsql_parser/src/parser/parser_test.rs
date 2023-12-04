@@ -481,7 +481,7 @@ mod tests {
             r#"with (foo = bar) {__name__=~"foo"}"#,
             r#"{__name__=~"foo"}"#,
         );
-        // another(r#"with (foo = bar) foo{name_= "foo"}"#, "bar");
+        // another(r#"with (foo = bar) foo{__name__= "foo"}"#, "bar");
         // another(
         //    r#"with (foo = bar) {__name__="foo", x="y"}"#,
         //    r#"bar{x="y"}"#,
