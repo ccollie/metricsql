@@ -481,7 +481,7 @@ mod tests {
             r#"with (foo = bar) {__name__=~"foo"}"#,
             r#"{__name__=~"foo"}"#,
         );
-        // another(r#"with (foo = bar) foo{name_= "foo"}"#, "bar");
+        // another(r#"with (foo = bar) foo{__name__= "foo"}"#, "bar");
         // another(
         //    r#"with (foo = bar) {__name__="foo", x="y"}"#,
         //    r#"bar{x="y"}"#,
@@ -728,7 +728,7 @@ mod tests {
 
     fn assert_invalid_ex(s: &str, msg_to_check: Option<&str>) {
         match parse(s) {
-            Ok(_) => panic!("expecting error expr when parsing {}", s),
+            Ok(_) => panic!("expecting error expr when parsing {s}"),
             Err(e) => {
                 if let Some(msg) = msg_to_check {
                     assert!(e.to_string().contains(msg));
