@@ -17,6 +17,6 @@ futures = "0.3.29"
 metricsql_common = { path = "../metricsql_common" }
 metricsql_engine = { path = "../metricsql_engine" }
 metricsql_parser = { path = "../metricsql_parser" }
-rustis = { version = "0.12.2", features = ["redis-time-series"] }
+rustis = { version = "0.12", features = ["redis-time-series"] }
 regex-syntax = { workspace = true }
 tokio = "1.34"

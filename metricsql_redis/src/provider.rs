@@ -1,37 +1,30 @@
-use futures::future::join_all;
+use futures::future::{join_all, try_join_all};
+use futures::{SinkExt, TryFutureExt};
+use rustis::commands::TsRangeSample;
+use rustis::resp::CollectionResponse;
 use rustis::{
     client::Client,
-    commands::{
-        TimeSeriesCommands,
-        TsGroupByOptions,
-        TsMRangeOptions,
-    },
+    commands::{TimeSeriesCommands, TsGroupByOptions, TsMRangeOptions},
 };
 
-use metricsql_engine::{Deadline, MetricName, QueryResult, QueryResults, SearchQuery};
 use metricsql_engine::provider::MetricDataProvider;
 use metricsql_engine::runtime_error::{RuntimeError, RuntimeResult};
+use metricsql_engine::{Deadline, MetricName, QueryResult, QueryResults, SearchQuery};
 use metricsql_parser::label::{LabelFilterOp, Matchers};
 
 pub struct RedisMetricsQLProvider {
-    connection: Connection,
     client: Client,
     pub url: String,
 }
 
 impl RedisMetricsQLProvider {
-    pub fn new(url: &str) -> RuntimeResult<Self> {
-        let client = Client::open(url).map_err(|e| {
+    pub async fn new(url: &str) -> RuntimeResult<Self> {
+        let client = Client::connect(url).await.map_err(|e| {
             RuntimeError::ProviderError(format!("Failed to open redis client: {:?}", e))
-        })?;
-
-        let connection = client.get_connection().map_err(|e| {
-            RuntimeError::ProviderError(format!("Failed to get redis connection: {:?}", e))
         })?;
 
         Ok(Self {
             client,
-            connection,
             url: url.to_string(),
         })
     }
@@ -46,23 +39,19 @@ impl RedisMetricsQLProvider {
     }
 
     async fn fetch_data(
-        &mut self,
+        &self,
         sq: &SearchQuery,
-        deadline: &Deadline,
+        _deadline: &Deadline,
     ) -> RuntimeResult<QueryResults> {
-        let mut filter_options = TsFilterOptions::default();
-        filter_options.with_labels(true);
-
-        let mut range_query = TsRangeQuery::default();
-        range_query.from(sq.start);
-        range_query.to(sq.end);
-
-        let mut filters_scratch: Vec<String> = Vec::with_capacity(4);
-        let calls = Vec::with_capacity(sq.matchers.len());
+        let mut calls = Vec::with_capacity(sq.matchers.len());
         for matcher in sq.matchers.iter() {
             calls.push(self.fetch_one(sq.start, sq.end, matcher));
         }
-        let results = join_all(calls).await?;
+
+        let results = try_join_all(calls).await.map_err(|e| {
+            RuntimeError::ProviderError(format!("Failed to fetch data from redis: {:?}", e))
+        })?;
+
         let mut qr = QueryResults::default();
         for result in results {
             qr.series.extend(result);
@@ -71,34 +60,31 @@ impl RedisMetricsQLProvider {
     }
 
     async fn fetch_one(
-        mut self,
+        &self,
         start: i64,
         end: i64,
         matchers: &Matchers,
     ) -> RuntimeResult<Vec<QueryResult>> {
-        let range_query = TsRangeQuery::default().from(start).to(end);
-
-        let mut filter_options = TsFilterOptions::default().with_labels(true);
-        let group_options = TsGroupByOptions::new().with_labels(true));
-
         let range_options = TsMRangeOptions::default().withlabels();
         let mut filters = Vec::with_capacity(matchers.len());
-        append_filter(&mut filter_options, matchers)?;
+        append_filter(&mut filters, matchers)?;
 
-        let from_redis = self.client
+        let from_redis: Vec<TsRangeSample> = self
+            .client
             .ts_mrange(
                 start,
                 end,
                 range_options,
                 filters,
-                TsGroupByOptions::default())
+                TsGroupByOptions::default(),
+            )
             .await
             .map_err(|e| {
                 RuntimeError::ProviderError(format!("Failed to fetch data from redis: {:?}", e))
             })?;
 
-        let mut result = Vec::with_capacity(from_redis.values.len());
-        for entry in from_redis.values.iter() {
+        let mut result = Vec::with_capacity(from_redis.len());
+        for entry in from_redis.iter() {
             let mut metric_name = MetricName::default();
             for (key, value) in entry.labels.iter() {
                 metric_name.set_tag(key, value);
@@ -110,7 +96,7 @@ impl RedisMetricsQLProvider {
 
             for (ts, v) in entry.values.iter() {
                 query_result.values.push(*v);
-                query_result.timestamps.push(*ts);
+                query_result.timestamps.push(*ts as i64);
             }
 
             result.push(query_result);
@@ -122,13 +108,7 @@ impl RedisMetricsQLProvider {
 
 impl MetricDataProvider for RedisMetricsQLProvider {
     fn search(&self, sq: &SearchQuery, deadline: &Deadline) -> RuntimeResult<QueryResults> {
-        let qr = QueryResults::default();
-        let mut filter_options = TsFilterOptions::default();
-        filter_options.with_labels(true);
-
-        let mut range_query = TsRangeQuery::default();
-        range_query.from(sq.start);
-        range_query.to(sq.end);
+        let mut qr = self.fetch_data(sq, deadline)?;
 
         Ok(qr)
     }

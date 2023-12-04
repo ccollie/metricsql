@@ -203,6 +203,8 @@ fn anchored_literal_to_expr(v: &[Hir]) -> Option<&str> {
     }
 }
 
+fn get_alternatives(v: &[Hir]) -> Vec<&str> {}
+
 fn anchored_alternation_to_exprs(v: &[Hir]) -> Option<Vec<&str>> {
     if 3 != v.len() {
         return None;
