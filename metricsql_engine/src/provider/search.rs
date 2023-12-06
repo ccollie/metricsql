@@ -15,7 +15,7 @@ use crate::types::{MetricName, Timeseries, Timestamp, TimestampTrait};
 
 pub type TimeRange = Range<Timestamp>;
 
-// todo: async ???. Add context ?
+// todo: async_executor ???. Add context ?
 pub trait MetricDataProvider: Sync + Send {
     fn search(&self, sq: &SearchQuery, deadline: &Deadline) -> RuntimeResult<QueryResults>;
 }
