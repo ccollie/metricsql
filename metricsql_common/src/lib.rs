@@ -7,10 +7,12 @@ extern crate rand;
 extern crate xxhash_rust;
 
 pub mod atomic_counter;
+mod bytes_util;
 pub mod duration;
 pub mod fast_cache;
 pub mod no_hash;
 pub mod pool;
+pub mod regex_util;
 pub mod time;
 
 pub mod prelude {
@@ -19,5 +21,6 @@ pub mod prelude {
     pub use crate::fast_cache::*;
     pub use crate::no_hash::*;
     pub use crate::pool::*;
+    pub use crate::regex_util::*;
     pub use crate::time::*;
 }
