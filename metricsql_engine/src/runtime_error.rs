@@ -43,6 +43,8 @@ pub enum RuntimeError {
     NotImplemented(String),
     #[error("Cannot optimize expression: {0}")]
     OptimizerError(String),
+    #[error("Provider error: {0}")]
+    ProviderError(String),
 }
 
 impl RuntimeError {

@@ -8,6 +8,7 @@
       <sourceFolder url="file://$MODULE_DIR$/sql/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/storage/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/metricsql_encoding/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/metricsql_redis/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />
