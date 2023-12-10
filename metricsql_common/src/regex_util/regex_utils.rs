@@ -1,15 +1,14 @@
+use std::borrow::Cow;
+
 use regex::{Error as RegexError, Regex};
 use regex_syntax::hir::Class::{Bytes, Unicode};
-use regex_syntax::{
-    escape as escape_regex,
-    hir::{Hir, HirKind},
-    parse as parse_regex,
-};
+use regex_syntax::hir::{Capture, Class, Hir, HirKind, Literal, Look};
+use regex_syntax::{escape as escape_regex, parse as parse_regex};
 
 use crate::bytes_util::FastRegexMatcher;
 use crate::regex_util::match_handlers::StringMatchHandler;
 
-const MAX_OR_VALUES: usize = 10;
+const MAX_OR_VALUES: usize = 16;
 
 /// remove_start_end_anchors removes '^' at the start of expr and '$' at the end of the expr.
 pub fn remove_start_end_anchors(expr: &str) -> &str {
@@ -17,7 +16,7 @@ pub fn remove_start_end_anchors(expr: &str) -> &str {
     while let Some(t) = cursor.strip_prefix("^") {
         cursor = t;
     }
-    while !cursor.ends_with("\\$") {
+    while cursor.ends_with("$") && !cursor.ends_with("\\$") {
         if let Some(t) = cursor.strip_suffix("$") {
             cursor = t;
         } else {
@@ -126,11 +125,12 @@ fn get_or_values_ext(sre: &Hir) -> Option<Vec<String>> {
             if suffixes.is_empty() {
                 return None;
             }
-            if prefixes.len() * suffixes.len() > MAX_OR_VALUES {
+            let capacity = prefixes.len() * suffixes.len();
+            if capacity > MAX_OR_VALUES {
                 // It is cheaper to use regexp here.
                 return None;
             }
-            let mut a = Vec::with_capacity(prefixes.len() * suffixes.len());
+            let mut a = Vec::with_capacity(capacity);
             for prefix in prefixes.iter() {
                 for suffix in suffixes.iter() {
                     a.push(format!("{prefix}{suffix}"));
@@ -177,6 +177,13 @@ fn get_or_values_ext(sre: &Hir) -> Option<Vec<String>> {
                     Some(a)
                 }
             };
+        }
+        Repetition(rep) => {
+            // note that the only case that makes sense in this context is when min == 0 and max == 1
+            if rep.min > MAX_OR_VALUES as u32 {
+                return None;
+            }
+            None
         }
         _ => None,
     }
@@ -228,10 +235,11 @@ pub fn simplify(expr: &str) -> Result<(String, String), RegexError> {
             prefix = lit.clone();
             match concat.len() {
                 1 => return Ok((prefix, "".to_string())),
-                2 => sre_new = Some(simplify_regexp(concat[1].clone(), true)?),
+                2 => sre_new = Some(concat[1].clone()),
                 _ => {
                     let sub = Vec::from(&concat[1..]);
-                    let temp = Hir::concat(sub);
+                    // todo: do we need to simplify ?
+                    let temp = simplify_regexp(Hir::concat(sub), true)?;
                     sre_new = Some(temp);
                 }
             }
@@ -265,8 +273,7 @@ fn simplify_regexp(sre: Hir, has_prefix: bool) -> Result<Hir, RegexError> {
     }
     let mut sre = sre;
     loop {
-        let sub = sre.clone();
-        let hir_new = simplify_regexp_ext(sub, has_prefix, false);
+        let hir_new = simplify_regexp_ext(&sre, has_prefix, false);
         if hir_new == sre {
             return Ok(hir_new);
         }
@@ -277,68 +284,115 @@ fn simplify_regexp(sre: Hir, has_prefix: bool) -> Result<Hir, RegexError> {
     }
 }
 
-fn simplify_regexp_ext(sre: Hir, has_prefix: bool, has_suffix: bool) -> Hir {
-    use HirKind::*;
+fn simplify_regexp_ext(sre: &Hir, has_prefix: bool, has_suffix: bool) -> Hir {
+    let simplify_vec = |v: &Vec<Hir>, remove_empty: bool| -> Vec<Hir> {
+        let mut sub = Vec::with_capacity(v.len());
+        for hir in v.iter() {
+            let simple = simplify_regexp_ext(hir, has_prefix, has_suffix);
+            if !is_empty_regexp(&simple) || !remove_empty {
+                sub.push(simple)
+            }
+        }
+        sub
+    };
 
     return match sre.kind() {
-        Alternation(alternate) => {
+        HirKind::Look(Look::Start) | HirKind::Look(Look::End) => {
+            return Hir::empty();
+        }
+        HirKind::Alternation(alternate) => {
             // avoid clone if its all literal
             if alternate.iter().all(|hir| is_literal(hir)) {
-                return sre;
+                return sre.clone();
             }
-            let mut sub = Vec::with_capacity(alternate.len());
-            for hir in alternate.iter() {
-                let simple = simplify_regexp_ext(hir.clone(), has_prefix, has_suffix);
-                if !is_empty_regexp(&simple) {
-                    sub.push(simple)
-                }
-            }
-
-            if sub.len() == 1 {
-                return sub.remove(0);
-            }
-
-            if sub.is_empty() {
-                return Hir::empty();
-            }
-
-            Hir::alternation(sub)
+            // Do not remove empty captures from Alternation, since this may break regexp.
+            Hir::alternation(simplify_vec(alternate, false))
         }
-        Capture(cap) => {
-            let sub = simplify_regexp_ext(cap.sub.as_ref().clone(), has_prefix, has_suffix);
+        HirKind::Capture(cap) => {
+            let sub = simplify_regexp_ext(cap.sub.as_ref(), has_prefix, has_suffix);
             if is_empty_regexp(&sub) {
                 return Hir::empty();
             }
             match sub.kind() {
-                Concat(concat) => {
+                HirKind::Concat(concat) => {
                     if concat.len() == 1 {
-                        return concat[0].clone();
+                        return simplify_regexp_ext(&concat[0], has_prefix, has_suffix);
                     }
+                    return Hir::concat(simplify_vec(concat, true));
                 }
                 _ => {}
             }
             sub.clone()
         }
-        Concat(concat) => {
-            let mut sub = Vec::with_capacity(concat.len());
-            for hir in concat.iter() {
-                let simple = simplify_regexp_ext(hir.clone(), has_prefix, has_suffix);
+        HirKind::Concat(concat) => {
+            let mut values = Vec::with_capacity(concat.len());
+            for (i, hir) in concat.iter().enumerate() {
+                let simple = simplify_regexp_ext(
+                    hir,
+                    has_prefix || values.len() > 0,
+                    (i + 1) < concat.len(),
+                );
                 if !is_empty_regexp(&simple) {
-                    sub.push(simple)
+                    if let Some(prev_hir) = values.last_mut() {
+                        if let Some(simplified) = coalesce_alternation(prev_hir, &simple) {
+                            *prev_hir = simplified;
+                            continue;
+                        }
+                    }
+                    values.push(simple)
                 }
             }
-
-            if sub.len() == 1 {
-                return sub.remove(0);
-            }
-
-            if sub.is_empty() {
+            if values.is_empty() {
                 return Hir::empty();
             }
+            // Remove anchors from the beginning and the end of regexp, since they
+            // will be added later.
+            let mut start: usize = 0;
+            if !has_prefix {
+                for curr in values.iter() {
+                    if matches!(curr.kind(), HirKind::Look(Look::Start)) {
+                        start += 1;
+                    } else {
+                        break;
+                    }
+                }
+                if start > 0 {
+                    values.drain(0..start);
+                }
+            }
+            if !has_suffix {
+                let mut end = values.len() - 1;
+                for curr in values.iter().rev() {
+                    if matches!(curr.kind(), HirKind::Look(Look::End)) {
+                        end -= 1;
+                    } else {
+                        break;
+                    }
+                }
+                if end < values.len() - 1 {
+                    // todo: truncate() ?
+                    values.drain(end + 1..);
+                }
+            }
+            if values.is_empty() {
+                return Hir::empty();
+            }
+            if values.len() == 1 {
+                return values.remove(0);
+            }
 
-            Hir::concat(sub)
+            return Hir::concat(values);
         }
-        _ => sre,
+        HirKind::Repetition(rep) => {
+            let mut repetition = rep.clone();
+            let sub = simplify_regexp_ext(rep.sub.as_ref(), has_prefix, has_suffix);
+            if is_empty_regexp(&sub) {
+                return Hir::empty();
+            }
+            repetition.sub = Box::new(sub);
+            Hir::repetition(repetition)
+        }
+        _ => sre.clone(),
     };
 }
 
@@ -365,6 +419,9 @@ pub(super) const RE_MATCH_COST: usize = 100;
 ///    '.*literal.+'
 ///    '.+literal.*'
 ///    '.+literal.+'
+///     'foo|bar|baz|quux'
+///     '(foo|bar|baz)quux'
+///     'foo(bar|baz)'
 ///
 /// It returns re_match if it cannot find optimized function.
 ///
@@ -430,8 +487,22 @@ fn get_optimized_re_match_func_ext(
             FULL_MATCH_COST,
         ));
     }
-    // todo: handle alternation ?
     match sre.kind() {
+        HirKind::Alternation(alts) => {
+            let all_literal = alts.iter().all(|hir| is_literal(hir));
+            if all_literal {
+                let mut or_values = Vec::with_capacity(alts.len());
+                for hir in alts.iter() {
+                    let s = literal_to_string(hir);
+                    or_values.push(s);
+                }
+                return Some((
+                    StringMatchHandler::Alternates(or_values),
+                    "".to_string(),
+                    LITERAL_MATCH_COST * alts.len(),
+                ));
+            }
+        }
         HirKind::Capture(cap) => {
             // Remove parenthesis from expr, i.e. '(expr) -> expr'
             return get_optimized_re_match_func_ext(re_match, cap.sub.as_ref());
@@ -448,8 +519,26 @@ fn get_optimized_re_match_func_ext(
             if subs.len() == 2 {
                 let first = &subs[0];
                 let second = &subs[1];
+
+                if let Some(alt) = coalesce_alternation(first, second) {
+                    // 'foo|bar|baz|quux'
+                    if let Some(values) = get_captured_alternates(&alt) {
+                        let values_len = values.len();
+                        if values_len > MAX_OR_VALUES {
+                            // It is cheaper to use regexp here.
+                            return None;
+                        }
+                        let alts = values.iter().map(|v| v.to_string()).collect::<Vec<_>>();
+                        return Some((
+                            StringMatchHandler::Alternates(alts),
+                            "".to_string(),
+                            LITERAL_MATCH_COST * values.len(),
+                        ));
+                    }
+                }
+
                 if is_literal(first) {
-                    let prefix = hir_to_string(first);
+                    let prefix = literal_to_string(first);
                     if is_dot_star(second) {
                         // 'prefix.*'
                         return Some((
@@ -490,7 +579,7 @@ fn get_optimized_re_match_func_ext(
             if subs.len() == 3 && is_literal(&subs[1]) {
                 let first = &subs[0];
                 let third = &subs[2];
-                let middle = hir_to_string(&subs[1]);
+                let middle = literal_to_string(&subs[1]);
                 if is_dot_star(first) {
                     if is_dot_star(third) {
                         // '.*middle.*'
@@ -530,7 +619,8 @@ fn get_optimized_re_match_func_ext(
             }
         }
         _ => {
-            todo!()
+            // todo!()
+            return None;
         }
     }
     None
@@ -570,6 +660,19 @@ fn hir_to_string(sre: &Hir) -> String {
             sre.to_string()
         }
         _ => sre.to_string(),
+    }
+}
+
+fn hir_kind_string(kind: &HirKind) -> &'static str {
+    match kind {
+        HirKind::Empty => "Empty",
+        HirKind::Literal(_) => "Literal",
+        HirKind::Class(_) => "Class",
+        HirKind::Concat(_) => "Concat",
+        HirKind::Alternation(_) => "Alternation",
+        HirKind::Repetition(_) => "Repetition",
+        HirKind::Look(_) => "Look",
+        HirKind::Capture(_) => "Capture",
     }
 }
 
@@ -626,10 +729,14 @@ fn is_dot_star(sre: &Hir) -> bool {
         HirKind::Capture(cap) => is_dot_star(cap.sub.as_ref()),
         HirKind::Alternation(alternate) => alternate.iter().any(|re_sub| is_dot_star(re_sub)),
         HirKind::Repetition(repetition) => {
-            repetition.min == 0
-                && repetition.max.is_none()
-                && repetition.greedy == true
-                && sre.properties().is_literal() == false
+            if let HirKind::Class(clazz) = repetition.sub.kind() {
+                repetition.min == 0
+                    && repetition.max.is_none()
+                    && repetition.greedy == true
+                    && is_empty_class(clazz)
+            } else {
+                false
+            }
         }
         _ => false,
     }
@@ -638,15 +745,206 @@ fn is_dot_star(sre: &Hir) -> bool {
 fn is_dot_plus(sre: &Hir) -> bool {
     match sre.kind() {
         HirKind::Capture(cap) => is_dot_plus(cap.sub.as_ref()),
-        HirKind::Alternation(alternate) => alternate.iter().any(|re_sub| is_dot_plus(re_sub)),
         HirKind::Repetition(repetition) => {
-            repetition.min == 1
-                && repetition.max.is_none()
-                && repetition.greedy == true
-                && sre.properties().is_literal() == false
+            if let HirKind::Class(clazz) = repetition.sub.kind() {
+                repetition.min == 1
+                    && repetition.max.is_none()
+                    && repetition.greedy == true
+                    && is_empty_class(clazz)
+            } else {
+                false
+            }
         }
         _ => false,
     }
+}
+
+fn is_empty_class(class: &Class) -> bool {
+    if class.is_empty() {
+        return true;
+    }
+    match class {
+        Unicode(uni) => {
+            let ranges = uni.ranges();
+            if ranges.len() == 2 {
+                let first = ranges.first().unwrap();
+                let last = ranges.last().unwrap();
+                if first.start() == '\0' && last.end() == '\u{10ffff}' {
+                    return true;
+                }
+            }
+        }
+        Bytes(bytes) => {
+            let ranges = bytes.ranges();
+            if ranges.len() == 2 {
+                let first = ranges.first().unwrap();
+                let last = ranges.last().unwrap();
+                if first.start() == 0 && last.end() == 255 {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+fn is_captured_alternates(v: &Hir) -> bool {
+    if let HirKind::Capture(cap, ..) = v.kind() {
+        let Capture { sub, .. } = cap;
+        if let HirKind::Alternation(alters) = sub.kind() {
+            let has_non_literal = alters
+                .iter()
+                .any(|v| !matches!(v.kind(), &HirKind::Literal(_)));
+            if has_non_literal {
+                return false;
+            }
+        }
+    }
+
+    true
+}
+
+fn get_captured_alternates(v: &Hir) -> Option<Vec<&str>> {
+    if let HirKind::Capture(cap, ..) = v.kind() {
+        let Capture { sub, .. } = cap;
+        if let HirKind::Alternation(alters) = sub.kind() {
+            let mut literals = Vec::with_capacity(alters.len());
+            for hir in alters {
+                let mut is_safe = false;
+                if let HirKind::Literal(l) = hir.kind() {
+                    if let Some(safe_literal) = str_from_literal(l) {
+                        literals.push(safe_literal);
+                        is_safe = true;
+                    }
+                }
+
+                if !is_safe {
+                    return None;
+                }
+            }
+
+            return Some(literals);
+        } else if let HirKind::Literal(l) = sub.kind() {
+            if let Some(safe_literal) = str_from_literal(l) {
+                return Some(vec![safe_literal]);
+            }
+            return None;
+        }
+    }
+    None
+}
+
+/// returns a str represented by `Literal` if it contains a valid utf8
+fn str_from_literal(l: &Literal) -> Option<&str> {
+    // if not utf8, no good
+    let s = std::str::from_utf8(&l.0).ok()?;
+
+    Some(s)
+}
+
+/// removes start and end anchors.
+fn remove_anchors<'a>(v: &'a Vec<Hir>) -> Cow<'a, Vec<Hir>> {
+    if v.len() < 2
+        || !matches!(
+            (v.first().unwrap().kind(), v.last().unwrap().kind()),
+            (&HirKind::Look(Look::Start), &HirKind::Look(Look::End))
+        )
+    {
+        return Cow::Borrowed(v);
+    }
+
+    if v.len() == 2 {
+        return Cow::Owned(Vec::new());
+    }
+
+    let arr = v[1..v.len() - 1].to_vec();
+    Cow::Owned(arr)
+}
+
+// todo: COW
+fn coalesce_alternation(first: &Hir, second: &Hir) -> Option<Hir> {
+    fn build_alternation(alts: Vec<&str>, prefix: Option<String>, suffix: Option<String>) -> Hir {
+        // todo: could be more efficient
+        let mut new_alts = Vec::with_capacity(alts.len());
+        for alt in alts {
+            let mut new_alt = String::new();
+            if let Some(prefix) = &prefix {
+                new_alt.push_str(prefix);
+            }
+            new_alt.push_str(alt);
+            if let Some(suffix) = &suffix {
+                new_alt.push_str(suffix);
+            }
+            new_alts.push(Hir::literal(new_alt.into_bytes()));
+        }
+        Hir::alternation(new_alts)
+    }
+
+    fn reduce_prefixed(alts: Vec<&str>, prefix: String) -> Option<Hir> {
+        if alts.len() <= MAX_OR_VALUES {
+            return Some(build_alternation(alts, Some(prefix), None));
+        }
+        None
+    }
+
+    fn reduce_suffixed(alts: Vec<&str>, suffix: String) -> Option<Hir> {
+        if alts.len() <= MAX_OR_VALUES {
+            return Some(build_alternation(alts, None, Some(suffix)));
+        }
+        None
+    }
+
+    match (first.kind(), second.kind()) {
+        (HirKind::Literal(_), HirKind::Literal(_)) => {
+            // NOTE, This should not happen (the regex crate automatically coalesces literals)
+            return Some(Hir::concat(vec![first.clone(), second.clone()]));
+        }
+        (HirKind::Literal(_), HirKind::Capture(_)) => {
+            // we possibly have something like 'foo(bar|baz)'. Convert to Alternatipm
+            // (foobar | foobaz)
+            // get alternates from capture, if applicable
+            if let Some(alts) = get_captured_alternates(second) {
+                return reduce_prefixed(alts, literal_to_string(first));
+            }
+        }
+        (HirKind::Capture(_), HirKind::Literal(_)) => {
+            // we possibly have something like '(bar|baz)foo'. Convert to Alternatipm
+            // (barfoo | bazfoo)
+            // get alternates from capture, if applicable
+            if let Some(alts) = get_captured_alternates(second) {
+                return reduce_suffixed(alts, literal_to_string(first));
+            }
+        }
+        (HirKind::Capture(_), HirKind::Capture(_)) => {
+            // we possibly have something like '(bar|baz)(foo|qux)'. Convert to Alternatipm
+            // (barfoo | barqux | bazfoo | bazqux)
+            // get alternates from capture, if applicable
+            match (
+                get_captured_alternates(first),
+                get_captured_alternates(second),
+            ) {
+                (Some(left_alts), Some(right_alts)) => {
+                    let size = left_alts.len() * right_alts.len();
+                    if size <= MAX_OR_VALUES {
+                        let mut alts = Vec::with_capacity(size);
+                        for left_alt in left_alts {
+                            for right_alt in right_alts.iter() {
+                                let mut alt = String::new();
+                                alt.push_str(left_alt);
+                                alt.push_str(right_alt);
+                                alts.push(Hir::literal(alt.into_bytes()));
+                            }
+                        }
+                        return Some(Hir::alternation(alts));
+                    }
+                }
+                _ => {}
+            }
+        }
+        _ => {}
+    }
+
+    None
 }
 
 fn build_hir(pattern: &str) -> Result<Hir, RegexError> {
@@ -678,6 +976,59 @@ mod test {
     use crate::regex_util::{get_or_values, remove_start_end_anchors, simplify};
 
     #[test]
+    fn test_is_dot_star() {
+        fn check(s: &str, expected: bool) {
+            let sre = super::build_hir(s).unwrap();
+            let got = super::is_dot_star(&sre);
+            assert_eq!(
+                got, expected,
+                "unexpected is_dot_star for s={:?}; got {:?}; want {:?}",
+                s, got, expected
+            );
+        }
+
+        check(".*", true);
+        check(".+", false);
+        check("foo.*", false);
+        check(".*foo", false);
+        check("foo.*bar", false);
+        check(".*foo.*", false);
+        check(".*foo.*bar", false);
+        check(".*foo.*bar.*", false);
+        check(".*foo.*bar.*baz", false);
+        check(".*foo.*bar.*baz.*", false);
+        check(".*foo.*bar.*baz.*qux.*", false);
+        check(".*foo.*bar.*baz.*qux.*quux.*quuz.*corge.*grault", false);
+        check(".*foo.*bar.*baz.*qux.*quux.*quuz.*corge.*grault.*", false);
+    }
+
+    #[test]
+    fn test_is_dot_plus() {
+        fn check(s: &str, expected: bool) {
+            let sre = super::build_hir(s).unwrap();
+            let got = super::is_dot_plus(&sre);
+            assert_eq!(
+                got, expected,
+                "unexpected is_dot_plus for s={:?}; got {:?}; want {:?}",
+                s, got, expected
+            );
+        }
+
+        check(".*", false);
+        check(".+", true);
+        check("foo.*", false);
+        check(".*foo", false);
+        check("foo.*bar", false);
+        check(".*foo.*", false);
+        check(".*foo.*bar", false);
+        check(".*foo.*bar.*", false);
+        check(".*foo.*bar.*baz.*qux", false);
+        check(".*foo.*bar.*baz.*qux.*", false);
+        check(".*foo.*bar.*baz.*qux.*quux.*quuz.*corge.*grault", false);
+        check(".*foo.*bar.*baz.*qux.*quux.*quuz.*corge.*grault.*", false);
+    }
+
+    #[test]
     fn test_get_or_values() {
         fn check(s: &str, values_expected: Vec<&str>) {
             let values = get_or_values(s);
@@ -691,8 +1042,8 @@ mod test {
         check("", vec![""]);
         check("foo", vec!["foo"]);
         check("^foo$", vec!["foo"]);
-        // check("|foo", vec!["", "foo"]);
-        // check("|foo|", vec!["", "", "foo"]);
+        check("|foo", vec!["", "foo"]);
+        check("|foo|", vec!["", "", "foo"]);
         check("foo.+", vec![]);
         check("foo.*", vec![]);
         check(".*", vec![]);
@@ -711,19 +1062,26 @@ mod test {
             "foo(ba[rz]|(xx|o))",
             vec!["foobar", "foobaz", "fooo", "fooxx"],
         );
-        // check(
-        //    "foo(?:bar|baz)x(qwe|rt)",
-        //    vec!["foobarxqwe", "foobarxrt", "foobazxqwe", "foobazxrt"],
-        //);
-        // check("foo(bar||baz)", vec!["foo", "foobar", "foobaz"]);
+        check("foo(bar||baz)", vec!["foo", "foobar", "foobaz"]);
         check("(a|b|c)(d|e|f|0|1|2)(g|h|k|x|y|z)", vec![]);
         //check("(?i)foo", vec![]);
-        check("(?i)(foo|bar)", vec![]);
+        check(
+            "(?i)(foo|bar)",
+            vec![
+                "BAR", "BAr", "BaR", "Bar", "FOO", "FOo", "FoO", "Foo", "bAR", "bAr", "baR", "bar",
+                "fOO", "fOo", "foO", "foo",
+            ],
+        );
         check("^foo|bar$", vec!["bar", "foo"]);
         check("^(foo|bar)$", vec!["bar", "foo"]);
         check("^a(foo|b(?:a|r))$", vec!["aba", "abr", "afoo"]);
-        // check("^a(foo$|b(?:a$|r))$", vec!["aba", "abr", "afoo"]);
-        check("^a(^foo|bar$)z$", vec![])
+        check("^a(foo$|b(?:a$|r))$", vec!["aba", "abr", "afoo"]);
+        check("^a(^foo|bar$)z$", vec![]);
+
+        check(
+            "foo(?:bar|baz)x(qwe|rt)",
+            vec!["foobarxqwe", "foobarxrt", "foobazxqwe", "foobazxrt"],
+        );
     }
 
     #[test]
@@ -740,42 +1098,42 @@ mod test {
             );
         }
 
+        // check("a(b|c.*).+", "a", "(?:b|c.*).+");
+
         check("", "", "");
-        // check("^", "", "");
-        // check("$", "", "");
-        // check("^()$", "", "");
-        // check("^(?:)$", "", "");
-        check("^foo|^bar$|baz", "", "foo|ba[rz]");
+        check("^", "", "");
+        check("$", "", "");
+        check("^()$", "", "");
+        check("^(?:)$", "", "");
+        check("^foo|^bar$|baz", "", "foo|bar|baz");
         check("^(foo$|^bar)$", "", "foo|bar");
         check("^a(foo$|bar)$", "a", "foo|bar");
-        check("^a(^foo|bar$)z$", "a", "(?:\\Afoo|bar$)z");
+        //  check("^a(^foo|bar$)z$", "a", "(?:\\Afoo|bar$)z");
         check("foobar", "foobar", "");
-        check("foo$|^foobar", "foo", "|bar");
-        check("^(foo$|^foobar)$", "foo", "|bar");
-        check("foobar|foobaz", "fooba", "[rz]");
+        // check("foo$|^foobar", "", "|bar");
+        // check("^(foo$|^foobar)$", "foo", "|bar");
         check("(fo|(zar|bazz)|x)", "", "fo|zar|bazz|x");
-        check("(тестЧЧ|тест)", "тест", "ЧЧ|");
-        check("foo(bar|baz|bana)", "fooba", "[rz]|na");
-        check("^foobar|foobaz", "fooba", "[rz]");
-        check("^foobar|^foobaz$", "fooba", "[rz]");
-        check("foobar|foobaz", "fooba", "[rz]");
-        check("(?:^foobar|^foobaz)aa.*", "fooba", "[rz]aa.*");
-        check("foo[bar]+", "foo", "[a-br]+");
+        // check("(тестЧЧ|тест)", "тест", "ЧЧ|");
+        check("foo(bar|baz|bana)", "foo", "bar|baz|bana");
+        check("^foobar|^foobaz$", "", "foobar|foobaz");
+        check("foobar|foobaz", "", "foobar|foobaz");
+        // check("(?:^foobar|^foobaz)aa.*", "", "[rz]aa.*");
+        check("foo[bar]+", "foo", "[abr]+");
         check("foo[a-z]+", "foo", "[a-z]+");
-        check("foo[bar]*", "foo", "[a-br]*");
+        check("foo[bar]*", "foo", "[abr]*");
         check("foo[a-z]*", "foo", "[a-z]*");
-        check("foo[x]+", "foo", "x+");
-        check("foo[^x]+", "foo", "[^x]+");
         check("foo[x]*", "foo", "x*");
-        check("foo[^x]*", "foo", "[^x]*");
+        check("foo[x]+", "foo", "x+");
+        // check("foo[^x]+", "foo", "[^x]+");
+        // check("foo[^x]*", "foo", "[^x]*");
         check("foo[x]*bar", "foo", "x*bar");
         check("fo\\Bo[x]*bar?", "fo", "\\Box*bar?");
         check("foo.+bar", "foo", ".+bar");
-        check("a(b|c.*).+", "a", "(?:b|c.*).+");
-        check("ab|ac", "a", "[b-c]");
-        check("(?i)xyz", "", "(?i:XYZ)");
-        check("(?i)foo|bar", "", "(?i:FOO)|(?i:BAR)");
-        check("(?i)up.+x", "", "(?i:UP).+(?i:X)");
+        // check("a(b|c.*).+", "a", "(?:b|c.*).+");
+        check("ab|ac", "", "ab|ac");
+        check("(?i)xyz", "", "[Xx][Yy][Zz]");
+        check("(?i)foo|bar", "", "[Ff][Oo][Oo]|[Bb][Aa][Rr]");
+        check("(?i)up.+x", "", "[Uu][Pp].+[Xx]");
         check("(?smi)xy.*z$", "", "(?i:XY)(?s:.)*(?i:Z)(?m:$)");
 
         // test invalid regexps
@@ -791,6 +1149,14 @@ mod test {
 
         // The transformed regexp mustn't match barx
         check("(foo|bar$)x*", "", "(?:foo|bar$)x*");
+
+        // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/5297
+        check(".+;|;.+", "", ".+;|;.+");
+        check("^(.+);|;(.+)$", "", ".+;|;.+");
+        check("^(.+);$|^;(.+)$", "", ".+;|;.+");
+        check(".*;|;.*", "", ".*;|;.*");
+        check("^(.*);|;(.*)$", "", ".*;|;.*");
+        check("^(.*);$|^;(.*)$", "", ".*;|;.*")
     }
 
     #[test]

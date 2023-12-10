@@ -9,6 +9,7 @@ pub(crate) enum StringMatchHandler {
     FastRegex(FastRegexMatcher),
     Alternates(Vec<String>),
     MatchFn(MatchFnHandler),
+    MultiMatch(Vec<StringMatchHandler>),
 }
 
 impl Default for StringMatchHandler {
@@ -121,6 +122,7 @@ impl StringMatchHandler {
             StringMatchHandler::Fsm(fsm) => fsm.matches(s),
             StringMatchHandler::MatchFn(m) => m.matches(s),
             StringMatchHandler::FastRegex(r) => r.matches(s),
+            StringMatchHandler::MultiMatch(m) => m.iter().all(|h| h.matches(s)),
         }
     }
 }

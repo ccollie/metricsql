@@ -24,6 +24,7 @@ regex-syntax = { workspace = true }
 tinyvec = { workspace = true }
 xxhash-rust = { workspace = true }
 regex = { workspace = true }
+matches = { version = "0.1.10", features = [] }
 
 [dev-dependencies]
 test-case.workspace = true
