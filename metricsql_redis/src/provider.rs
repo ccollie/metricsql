@@ -1,12 +1,12 @@
-use futures::future::{join_all, try_join_all};
-use futures::{SinkExt, TryFutureExt};
+use futures::future::try_join_all;
+use futures::TryFutureExt;
 use rustis::commands::TsRangeSample;
-use rustis::resp::CollectionResponse;
 use rustis::{
     client::Client,
     commands::{TimeSeriesCommands, TsGroupByOptions, TsMRangeOptions},
 };
 
+use metricsql_common::prelude::get_or_values;
 use metricsql_engine::provider::MetricDataProvider;
 use metricsql_engine::runtime_error::{RuntimeError, RuntimeResult};
 use metricsql_engine::{Deadline, MetricName, QueryResult, QueryResults, SearchQuery};
@@ -139,5 +139,12 @@ fn append_filter(filter_options: &mut Vec<String>, matchers: &Matchers) -> Runti
 /// RedisTimeseries does not support regexes. We attempt here to translate certain regexes into
 /// a form that regex can handle - specifically alternations.
 fn get_or_values_from_regex(pattern: &str) -> RuntimeResult<Vec<String>> {
-    todo!()
+    let alternates = get_or_values(pattern);
+    if alternates.is_empty() {
+        // todo: specific Unsupported variant
+        return Err(RuntimeError::ProviderError(
+            "redis provider: unsupported regex".into(),
+        ));
+    }
+    Ok(alternates)
 }
