@@ -1,15 +1,18 @@
 use std::sync::Arc;
 
+use agnostik::AgnostikExecutor;
 use chrono::Duration;
 use tracing::{span_enabled, Level};
 
+use crate::{MetricDataProvider, MetricStorage, NullMetricDataProvider, NullMetricStorage};
+// todo: isolate this to mod async_executor
+use crate::async_executor::get_runtime;
 use crate::cache::rollup_result_cache::RollupResultCache;
 use crate::execution::active_queries::{ActiveQueries, ActiveQueryEntry};
 use crate::execution::parser_cache::{ParseCache, ParseCacheResult, ParseCacheValue};
 use crate::provider::{Deadline, QueryResults, SearchQuery};
 use crate::query_stats::query_stats::QueryStatsTracker;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::{MetricDataProvider, NullMetricDataProvider};
 
 const DEFAULT_MAX_QUERY_LEN: usize = 16 * 1024;
 const DEFAULT_MAX_UNIQUE_TIMESERIES: usize = 1000;
@@ -22,6 +25,7 @@ pub struct Context {
     pub rollup_result_cache: RollupResultCache,
     pub(crate) active_queries: ActiveQueries,
     pub query_stats: QueryStatsTracker,
+    pub storage: Arc<dyn MetricStorage>,
     pub metric_data_provider: Arc<dyn MetricDataProvider + Send + Sync>, // mutex
 }
 
@@ -33,6 +37,18 @@ impl Context {
     pub fn with_provider(mut self, provider: Arc<dyn MetricDataProvider + Send + Sync>) -> Self {
         self.metric_data_provider = provider;
         self
+    }
+
+    pub fn search(&self, sq: SearchQuery, deadline: Deadline) -> RuntimeResult<QueryResults> {
+        // see https://greptime.com/blogs/2023-03-09-bridging-async-and-sync-rust#solve-the-problem
+        // https://github.com/tokio-rs/tokio/issues/237
+        let storage = self.storage.clone();
+        futures::executor::block_on(async move {
+            let runtime = get_runtime();
+            runtime
+                .spawn(async move { storage.search(&sq, deadline).await })
+                .await
+        })
     }
 
     pub fn process_search_query(
@@ -76,6 +92,7 @@ impl Default for Context {
             rollup_result_cache: Default::default(),
             active_queries: ActiveQueries::new(),
             query_stats: Default::default(),
+            storage: Arc::new(NullMetricStorage {}),
             metric_data_provider: Arc::new(NullMetricDataProvider {}),
         }
     }

@@ -46,11 +46,6 @@ phf = { version = "0.11.2", features = ["macros"] }
 thiserror = "1"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 
-[features]
-tokio = []
-async-std = []
-default = ["tokio", "tracing"]
-
 
 [profile.release]
 lto = "fat"

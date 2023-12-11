@@ -235,7 +235,7 @@ impl RollupNode {
         }
         let filters = tfss.to_vec();
         let sq = SearchQuery::new(min_timestamp, ec.end, filters, ec.max_series);
-        let mut rss = ctx.process_search_query(&sq, &ec.deadline)?;
+        let mut rss = ctx.search(sq, ec.deadline)?;
 
         if rss.is_empty() {
             let dst: Vec<Timeseries> = vec![];

@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use std::ops::Deref;
 use std::sync::{Arc, RwLock};
 
+use async_trait::async_trait;
 use itertools::Itertools;
 use regex::Regex;
 
@@ -10,7 +11,8 @@ use metricsql_parser::prelude::{LabelFilter, LabelFilterOp, Matchers};
 
 use crate::signature::Signature;
 use crate::{
-    Deadline, MetricDataProvider, MetricName, QueryResult, QueryResults, RuntimeResult, SearchQuery,
+    Deadline, MetricDataProvider, MetricName, MetricStorage, QueryResult, QueryResults,
+    RuntimeResult, SearchQuery,
 };
 
 #[derive(Debug, Clone)]
@@ -170,7 +172,7 @@ impl MemoryMetricProvider {
         inner.clear();
     }
 
-    pub fn search(
+    fn search_internal(
         &self,
         start: i64,
         end: i64,
@@ -179,11 +181,27 @@ impl MemoryMetricProvider {
         let inner = self.inner.read().unwrap();
         inner.search(start, end, filters)
     }
+
+    pub fn search(
+        &self,
+        start: i64,
+        end: i64,
+        filters: &Vec<Matchers>,
+    ) -> RuntimeResult<QueryResults> {
+        self.search_internal(start, end, filters)
+    }
 }
 
 impl MetricDataProvider for MemoryMetricProvider {
     fn search(&self, sq: &SearchQuery, _deadline: &Deadline) -> RuntimeResult<QueryResults> {
         self.search(sq.start, sq.end, &sq.matchers)
+    }
+}
+
+#[async_trait]
+impl MetricStorage for MemoryMetricProvider {
+    async fn search(&self, sq: &SearchQuery, _deadline: Deadline) -> RuntimeResult<QueryResults> {
+        self.search_internal(sq.start, sq.end, &sq.matchers)
     }
 }
 

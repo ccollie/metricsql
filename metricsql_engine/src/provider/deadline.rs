@@ -25,6 +25,10 @@ impl Deadline {
         Deadline::with_start_time(Timestamp::now(), timeout)
     }
 
+    pub fn from_now(timeout: Duration) -> RuntimeResult<Self> {
+        Deadline::with_start_time(Timestamp::now(), timeout)
+    }
+
     /// Returns a deadline for the given start time and timeout.
     pub fn with_start_time<T>(start_time: T, timeout: Duration) -> RuntimeResult<Self>
     where

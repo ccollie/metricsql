@@ -25,6 +25,8 @@ extern crate topologic;
 #[cfg(feature = "xxh64")]
 extern crate xxhash_rust;
 
+use agnostik::AgnostikExecutor;
+
 pub use cache::*;
 pub use provider::*;
 pub use query_stats::*;
