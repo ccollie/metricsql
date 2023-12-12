@@ -1,6 +1,7 @@
-use metricsql_parser::prelude::Matchers;
 use std::sync::Arc;
 use std::sync::RwLock;
+
+use metricsql_parser::prelude::Matchers;
 
 use crate::execution::context::Context;
 use crate::provider::Deadline;
@@ -119,11 +120,12 @@ pub struct EvalConfig {
 
 impl EvalConfig {
     pub fn new(start: Timestamp, end: Timestamp, step: i64) -> Self {
-        let mut result = EvalConfig::default();
-        result.start = start;
-        result.end = end;
-        result.step = step;
-        result
+        EvalConfig {
+            start,
+            end,
+            step,
+            ..Default::default()
+        }
     }
 
     pub fn copy_no_timestamps(&self) -> EvalConfig {

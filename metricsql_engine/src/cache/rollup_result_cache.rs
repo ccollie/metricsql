@@ -427,7 +427,7 @@ impl RollupResultCache {
         let mut meta_info_buf = get_pooled_buffer(512);
         let found = inner.cache.get(&hash.to_ne_bytes(), &mut meta_info_buf);
         if found && meta_info_buf.len() > 0 {
-            match RollupResultCacheMetaInfo::from_buf(&mut meta_info_buf) {
+            match RollupResultCacheMetaInfo::from_buf(&meta_info_buf) {
                 Err(_) => {
                     let msg = "BUG: cannot unmarshal RollupResultCacheMetaInfo; it looks like it was improperly saved";
                     Err(RuntimeError::SerializationError(msg.to_string()))

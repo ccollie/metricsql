@@ -4,14 +4,14 @@ use agnostik::AgnostikExecutor;
 use chrono::Duration;
 use tracing::{span_enabled, Level};
 
-use crate::{MetricDataProvider, MetricStorage, NullMetricDataProvider, NullMetricStorage};
+use crate::{MetricStorage, NullMetricStorage};
 // todo: isolate this to mod async_executor
 use crate::async_executor::get_runtime;
 use crate::cache::rollup_result_cache::RollupResultCache;
 use crate::execution::active_queries::{ActiveQueries, ActiveQueryEntry};
 use crate::execution::parser_cache::{ParseCache, ParseCacheResult, ParseCacheValue};
 use crate::provider::{Deadline, QueryResults, SearchQuery};
-use crate::query_stats::query_stats::QueryStatsTracker;
+use crate::query_stats::QueryStatsTracker;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 
 const DEFAULT_MAX_QUERY_LEN: usize = 16 * 1024;
@@ -26,7 +26,6 @@ pub struct Context {
     pub(crate) active_queries: ActiveQueries,
     pub query_stats: QueryStatsTracker,
     pub storage: Arc<dyn MetricStorage>,
-    pub metric_data_provider: Arc<dyn MetricDataProvider + Send + Sync>, // mutex
 }
 
 impl Context {
@@ -34,8 +33,8 @@ impl Context {
         Self::default()
     }
 
-    pub fn with_provider(mut self, provider: Arc<dyn MetricDataProvider + Send + Sync>) -> Self {
-        self.metric_data_provider = provider;
+    pub fn with_metric_storage(mut self, storage: Arc<dyn MetricStorage>) -> Self {
+        self.storage = storage;
         self
     }
 
@@ -49,15 +48,6 @@ impl Context {
                 .spawn(async move { storage.search(&sq, deadline).await })
                 .await
         })
-    }
-
-    pub fn process_search_query(
-        &self,
-        sq: &SearchQuery,
-        deadline: &Deadline,
-    ) -> RuntimeResult<QueryResults> {
-        // todo: trace
-        self.metric_data_provider.search(sq, deadline)
     }
 
     // todo: pass in tracer
@@ -93,7 +83,6 @@ impl Default for Context {
             active_queries: ActiveQueries::new(),
             query_stats: Default::default(),
             storage: Arc::new(NullMetricStorage {}),
-            metric_data_provider: Arc::new(NullMetricDataProvider {}),
         }
     }
 }

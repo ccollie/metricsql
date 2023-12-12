@@ -3,15 +3,18 @@ use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Display;
 use std::hash::{Hash, Hasher};
+use std::str::FromStr;
 
 use ahash::{AHashMap, AHashSet};
 use enquote::enquote;
 use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::Xxh3;
 
+use metricsql_parser::label::LabelFilterOp;
 use metricsql_parser::prelude::{AggregateModifier, VectorMatchModifier};
 
 use crate::common::encoding::{read_string, read_usize, write_string, write_usize};
+use crate::parse_metric_selector;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::signature::Signature;
 
@@ -104,6 +107,27 @@ impl MetricName {
         }
 
         Ok(res)
+    }
+
+    pub fn parse(s: &str) -> RuntimeResult<Self> {
+        let filters = parse_metric_selector(s)?;
+        let mut mn = MetricName::default();
+        // make sure we only have '=' filters
+        for f in filters.into_iter() {
+            if f.op != LabelFilterOp::Equal {
+                return Err(RuntimeError::from(format!(
+                    "invalid operator {} in metric name",
+                    f.op
+                )));
+            }
+            let tag = Tag {
+                key: f.label,
+                value: f.value,
+            };
+            mn.tags.push(tag);
+        }
+        mn.sort_tags();
+        Ok(mn)
     }
 
     pub fn reset_metric_group(&mut self) {
@@ -506,6 +530,30 @@ impl MetricName {
                 }
             },
         }
+    }
+}
+
+impl FromStr for MetricName {
+    type Err = RuntimeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        MetricName::parse(s)
+    }
+}
+
+impl TryFrom<&str> for MetricName {
+    type Error = RuntimeError;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        MetricName::parse(s)
+    }
+}
+
+impl TryFrom<String> for MetricName {
+    type Error = RuntimeError;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        MetricName::parse(&s)
     }
 }
 

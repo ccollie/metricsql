@@ -50,6 +50,7 @@ tracing = { workspace = true }
 xxhash-rust = { workspace = true }
 metricsql_common={ path = "../metricsql_common" }
 metricsql_parser={ path = "../metricsql_parser" }
+matchers = { version = "0.1.0", features = [] }
 
 [features]
 default = ["tokio"]

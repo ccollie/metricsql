@@ -47,15 +47,17 @@ impl SubqueryNode {
         rf: RollupFunction,
         handler: RollupHandler,
     ) -> RuntimeResult<Self> {
-        let mut node = SubqueryNode::default();
-
-        node.keep_metric_names = get_keep_metric_names(expr);
-        node.offset = re.offset.clone();
-        node.step = re.step.clone();
-        node.window = re.window.clone();
-        node.func = rf;
-        node.expr = expr.clone();
-        node.func_handler = handler;
+        let mut node = SubqueryNode {
+            func: rf,
+            func_handler: handler,
+            expr: expr.clone(),
+            expr_node: Box::new(DAGNode::default()),
+            keep_metric_names: get_keep_metric_names(expr),
+            step: re.step.clone(),
+            offset: re.offset.clone(),
+            window: re.window.clone(),
+            ..Default::default()
+        };
 
         let expr_dag = DAGBuilder::compile(re.expr.as_ref().clone())?;
         node.expr_node = Box::new(expr_dag);

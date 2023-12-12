@@ -17,6 +17,7 @@
 use std::collections::BTreeSet;
 use std::fmt;
 use std::hash::Hash;
+use std::str::FromStr;
 
 use ahash::AHashSet;
 use serde::{Deserialize, Serialize};
@@ -157,6 +158,16 @@ impl Hash for Labels {
                 sorted.hash(state);
             }
         }
+    }
+}
+
+impl FromStr for Labels {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut labels: Vec<Label> = s.split(',').map(|s| s.to_string()).collect();
+        labels.sort();
+        Ok(Self(labels))
     }
 }
 

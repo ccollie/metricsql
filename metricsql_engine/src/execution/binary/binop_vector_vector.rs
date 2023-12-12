@@ -635,12 +635,12 @@ fn add_left_nans_if_no_right_nans(tss_left: &mut Vec<Timeseries>, tss_right: &Ve
 fn create_series_map_by_tag_set(
     bfa: &mut BinaryOpFuncArg,
 ) -> (TimeseriesHashMap, TimeseriesHashMap) {
-    let EMPTY_MATCHING = None;
+    let empty_matching = None;
 
     let matching = if let Some(modifier) = bfa.modifier.as_ref() {
         &modifier.matching
     } else {
-        &EMPTY_MATCHING
+        &empty_matching
     };
 
     let m_left = group_series_by_match_modifier(&mut bfa.left, matching, false);
