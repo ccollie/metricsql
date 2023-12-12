@@ -3,14 +3,15 @@ use std::collections::BTreeMap;
 use std::ops::Deref;
 use std::sync::{Arc, RwLock};
 
+use async_trait::async_trait;
 use itertools::Itertools;
-use regex::Regex;
 
-use metricsql_parser::prelude::{LabelFilter, LabelFilterOp, Matchers};
+use metricsql_parser::prelude::{LabelFilter, Matchers};
 
 use crate::signature::Signature;
 use crate::{
-    Deadline, MetricDataProvider, MetricName, QueryResult, QueryResults, RuntimeResult, SearchQuery,
+    Deadline, MetricDataProvider, MetricName, MetricStorage, QueryResult, QueryResults,
+    RuntimeResult, SearchQuery,
 };
 
 #[derive(Debug, Clone)]
@@ -65,7 +66,7 @@ impl Storage {
         let mut results: Vec<QueryResult> = vec![];
         for matchers in filters {
             for (k, labels) in &self.labels_hash {
-                let matched = matchers.iter().any(|m| matches_filter(labels, m));
+                let matched = matchers.iter().all(|m| matches_filter(labels, m));
                 if matched {
                     if let Some(res) = self.get_range(*k, start, end) {
                         results.push(res)
@@ -170,7 +171,7 @@ impl MemoryMetricProvider {
         inner.clear();
     }
 
-    pub fn search(
+    fn search_internal(
         &self,
         start: i64,
         end: i64,
@@ -178,6 +179,15 @@ impl MemoryMetricProvider {
     ) -> RuntimeResult<QueryResults> {
         let inner = self.inner.read().unwrap();
         inner.search(start, end, filters)
+    }
+
+    pub fn search(
+        &self,
+        start: i64,
+        end: i64,
+        filters: &Vec<Matchers>,
+    ) -> RuntimeResult<QueryResults> {
+        self.search_internal(start, end, filters)
     }
 }
 
@@ -187,21 +197,16 @@ impl MetricDataProvider for MemoryMetricProvider {
     }
 }
 
+#[async_trait]
+impl MetricStorage for MemoryMetricProvider {
+    async fn search(&self, sq: &SearchQuery, _deadline: Deadline) -> RuntimeResult<QueryResults> {
+        self.search_internal(sq.start, sq.end, &sq.matchers)
+    }
+}
+
 fn matches_filter(mn: &MetricName, filter: &LabelFilter) -> bool {
     if let Some(v) = mn.tag_value(filter.label.as_str()) {
-        let fv = filter.value.as_str();
-        return match filter.op {
-            LabelFilterOp::Equal => v == fv,
-            LabelFilterOp::NotEqual => v != fv,
-            LabelFilterOp::RegexEqual => {
-                let re = Regex::new(fv).unwrap();
-                re.is_match(v)
-            }
-            LabelFilterOp::RegexNotEqual => {
-                let re = Regex::new(fv).unwrap();
-                !re.is_match(v)
-            }
-        };
+        return filter.is_match(v);
     }
     false
 }
@@ -215,5 +220,100 @@ fn find_first_index(range_values: &[Point], ts: i64) -> Option<usize> {
         // we would be computing `0 - 1`, which would underflow an `usize`.
         // We use `checked_sub` to get `None` instead.
         Err(index) => index.checked_sub(1),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::MetricName;
+
+    use super::*;
+
+    #[test]
+    fn append_new_metric_creates_new_entry() {
+        let mut provider = MemoryMetricProvider::new();
+        let mut labels = MetricName::default();
+        labels.add_tag("foo", "bar");
+        provider.append(labels.clone(), 1, 1.0).unwrap();
+
+        let inner = provider.inner.read().unwrap();
+        assert!(inner.labels_hash.contains_key(&labels.signature()));
+    }
+
+    #[test]
+    fn append_existing_metric_adds_point() {
+        let mut provider = MemoryMetricProvider::new();
+        let mut labels = MetricName::default();
+        labels.add_tag("foo", "bar");
+        provider.append(labels.clone(), 1, 1.0).unwrap();
+        provider.append(labels.clone(), 2, 2.0).unwrap();
+
+        let inner = provider.inner.read().unwrap();
+        assert_eq!(
+            inner.sample_values.get(&labels.signature()).unwrap().len(),
+            2
+        );
+    }
+
+    #[test]
+    fn search_returns_matching_metrics() {
+        let mut provider = MemoryMetricProvider::new();
+        let mut labels = MetricName::default();
+        labels.add_tag("foo", "bar");
+        provider.append(labels.clone(), 1, 1.0).unwrap();
+
+        let mut matchers = Vec::new();
+        matchers.push(Matchers::new(vec![
+            LabelFilter::equal("foo", "bar").unwrap()
+        ]));
+        let results = provider.search(0, 2, &matchers).unwrap();
+
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn search_returns_empty_for_no_match() {
+        let mut provider = MemoryMetricProvider::new();
+        let mut labels = MetricName::default();
+        labels.add_tag("foo", "bar");
+        provider.append(labels.clone(), 1, 1.0).unwrap();
+
+        let mut matchers = Vec::new();
+        matchers.push(Matchers::new(vec![
+            LabelFilter::equal("foo", "baz").unwrap()
+        ]));
+        let results = provider.search(0, 2, &matchers).unwrap();
+
+        assert_eq!(results.len(), 0);
+    }
+
+    #[test]
+    fn commit_persists_pending_values() {
+        let mut provider = MemoryMetricProvider::new();
+        let sample = Sample {
+            metric: MetricName::default(),
+            timestamp: 1,
+            value: 1.0,
+        };
+        provider.add_sample(sample.clone()).unwrap();
+        provider.commit().unwrap();
+
+        let inner = provider.inner.read().unwrap();
+        assert!(inner.sample_values.contains_key(&sample.metric.signature()));
+    }
+
+    #[test]
+    fn rollback_discards_pending_values() {
+        let mut provider = MemoryMetricProvider::new();
+        let sample = Sample {
+            metric: MetricName::default(),
+            timestamp: 1,
+            value: 1.0,
+        };
+        provider.add_sample(sample.clone()).unwrap();
+        provider.rollback();
+
+        let inner = provider.inner.read().unwrap();
+        assert!(!inner.sample_values.contains_key(&sample.metric.signature()));
     }
 }

@@ -315,6 +315,51 @@ impl RollupFunction {
                 | ZScoreOverTime
         )
     }
+
+    // All rollup the functions which do not rely on the previous sample
+    // before the lookbehind window (aka prev_value), do not need silence interval.
+    pub const fn need_silence_interval(&self) -> bool {
+        use RollupFunction::*;
+        !matches!(
+            self,
+            AbsentOverTime
+                | AvgOverTime
+                | CountEqOverTime
+                | CountGtOverTime
+                | CountLeOverTime
+                | CountNeOverTime
+                | CountOverTime
+                | DefaultRollup
+                | FirstOverTime
+                | HistogramOverTime
+                | HoeffdingBoundLower
+                | HoeffdingBoundUpper
+                | LastOverTime
+                | MadOverTime
+                | MaxOverTime
+                | MedianOverTime
+                | MinOverTime
+                | PredictLinear
+                | PresentOverTime
+                | QuantileOverTime
+                | QuantilesOverTime
+                | RangeOverTime
+                | ShareGtOverTime
+                | ShareLeOverTime
+                | ShareEqOverTime
+                | StaleSamplesOverTime
+                | StddevOverTime
+                | StdvarOverTime
+                | SumOverTime
+                | TFirstOverTime
+                | Timestamp
+                | TimestampWithName
+                | TLastOverTime
+                | TMaxOverTime
+                | TMinOverTime
+                | ZScoreOverTime
+        )
+    }
 }
 
 /// We can extend lookbehind window for these functions in order to make sure it contains enough

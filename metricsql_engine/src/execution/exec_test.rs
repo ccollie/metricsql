@@ -469,7 +469,7 @@ mod tests {
     }
 
     #[test]
-    fn test_abs() {
+    fn abs() {
         assert_result_eq(
             "abs(1500-time())",
             &[500.0, 300.0, 100.0, 100.0, 300.0, 500.0],
@@ -4678,11 +4678,12 @@ mod tests {
 
     #[test]
     fn result_sorting() {
-        let q = r#"label_set(1, "instance", "localhost:1001", "type", "free")
-        or label_set(1, "instance", "localhost:1001", "type", "buffers")
-        or label_set(1, "instance", "localhost:1000", "type", "buffers")
-        or label_set(1, "instance", "localhost:1000", "type", "free")
-        "#;
+        let q = r#"(
+        label_set(1, "instance", "localhost:1001", "type", "free"),
+        label_set(1, "instance", "localhost:1001", "type", "buffers"),
+        label_set(1, "instance", "localhost:1000", "type", "buffers"),
+        label_set(1, "instance", "localhost:1000", "type", "free")
+        )"#;
         let mut r1 = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         test_add_labels(
             &mut r1.metric,

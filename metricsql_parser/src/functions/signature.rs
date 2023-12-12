@@ -16,7 +16,7 @@
 // under the License.
 
 //! Signature module contains foundational types that are used to represent signatures, types,
-//! and return types of functions in DataFusion.
+//! and return types of functions.
 use serde::{Deserialize, Serialize};
 
 use crate::common::ValueType;

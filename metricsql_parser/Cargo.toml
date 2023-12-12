@@ -17,8 +17,8 @@ phf = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true }
 scopeguard = { workspace = true }
-strum = "0.25.0"
-strum_macros = "0.25.3"
+strum = "0.25"
+strum_macros = "0.25"
 thiserror = { workspace = true }
 tinyvec = { workspace = true }
 xxhash-rust = { workspace = true }
@@ -26,6 +26,7 @@ metricsql_common = { path = "../metricsql_common" }
 
 [dev-dependencies]
 test-case.workspace = true
+pretty_assertions.workspace = true
 
 [lib]
 name="metricsql_parser"

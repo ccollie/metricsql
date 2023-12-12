@@ -706,7 +706,7 @@ impl MetricExpr {
         if self.is_empty() {
             return true;
         }
-        self.label_filters.iter().all(|x| x.is_match(""))
+        self.label_filters.iter().all(|x| x.is_empty_matcher())
     }
 
     /// find all the matchers whose name equals the specified name.

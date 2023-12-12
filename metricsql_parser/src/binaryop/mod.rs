@@ -14,6 +14,7 @@ fn op_eq(left: f64, right: f64) -> bool {
 }
 
 /// neq returns true of left != right.
+#[inline]
 fn op_neq(left: f64, right: f64) -> bool {
     // Special handling for comparison with nan.
     if left.is_nan() {

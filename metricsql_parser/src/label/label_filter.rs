@@ -211,14 +211,14 @@ impl LabelFilter {
     /// {job=~".*"} # Bad!
     pub fn is_empty_matcher(&self) -> bool {
         use LabelFilterOp::*;
+        // if we're matching against __name__, a negative comparison against the empty
+        // string is valid
+        let is_name_label = self.label == NAME_LABEL;
         match self.op {
             Equal => self.value.is_empty(),
-            NotEqual => !self.value.is_empty(),
+            NotEqual => !self.value.is_empty() && !is_name_label,
             RegexEqual => is_empty_regex(&self.value),
-            RegexNotEqual => {
-                let str = self.value.to_string();
-                is_empty_regex(&str)
-            }
+            RegexNotEqual => is_empty_regex(&self.value) && !is_name_label,
         }
     }
 

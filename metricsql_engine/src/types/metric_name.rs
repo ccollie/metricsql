@@ -3,15 +3,18 @@ use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Display;
 use std::hash::{Hash, Hasher};
+use std::str::FromStr;
 
 use ahash::{AHashMap, AHashSet};
 use enquote::enquote;
 use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::Xxh3;
 
+use metricsql_parser::label::LabelFilterOp;
 use metricsql_parser::prelude::{AggregateModifier, VectorMatchModifier};
 
 use crate::common::encoding::{read_string, read_usize, write_string, write_usize};
+use crate::parse_metric_selector;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::signature::Signature;
 
@@ -25,8 +28,8 @@ pub const METRIC_NAME_LABEL: &str = "__name__";
 const SEP: u8 = 0xff;
 
 // for tag manipulation (removing, adding, etc), name vectors longer than this will be converted to a hashmap
-// for comparison, otherwise we do a linear provider
-const SET_SEARCH_MIN_THRESHOLD: usize = 8;
+// for comparison, otherwise we do a linear probe
+const SET_SEARCH_MIN_THRESHOLD: usize = 16;
 
 /// Tag represents a (key, value) tag for metric.
 #[derive(Debug, Default, PartialEq, Eq, Clone, Hash, Serialize, Deserialize)]
@@ -104,6 +107,27 @@ impl MetricName {
         }
 
         Ok(res)
+    }
+
+    pub fn parse(s: &str) -> RuntimeResult<Self> {
+        let filters = parse_metric_selector(s)?;
+        let mut mn = MetricName::default();
+        // make sure we only have '=' filters
+        for f in filters.into_iter() {
+            if f.op != LabelFilterOp::Equal {
+                return Err(RuntimeError::from(format!(
+                    "invalid operator {} in metric name",
+                    f.op
+                )));
+            }
+            let tag = Tag {
+                key: f.label,
+                value: f.value,
+            };
+            mn.tags.push(tag);
+        }
+        mn.sort_tags();
+        Ok(mn)
     }
 
     pub fn reset_metric_group(&mut self) {
@@ -440,13 +464,13 @@ impl MetricName {
         Signature::from_tags(self)
     }
 
-    /// `names` have to be sorted in ascending order.
+    /// Compute a signature hash using only the tags passed in `labels`. `metric_group` is ignored.
     pub fn tags_signature_with_labels(&self, labels: &[String]) -> Signature {
         let empty: &str = "";
         self.signature_with_labels_internal(empty, labels)
     }
 
-    /// `names` have to be sorted in ascending order.
+    /// Compute a signature hash using only the tags passed in `labels`.
     pub fn signature_with_labels(&self, labels: &[String]) -> Signature {
         self.signature_with_labels_internal(&self.metric_group, labels)
     }
@@ -456,19 +480,21 @@ impl MetricName {
         Signature::with_name_and_labels(name, iter)
     }
 
-    /// `names` have to be sorted in ascending order.
+    /// Compute a signature hash ignoring the passed in labels.
     pub fn signature_without_labels(&self, labels: &[String]) -> Signature {
         self.signature_with_labels_internal(&self.metric_group, labels)
     }
 
-    /// `names` have to be sorted in ascending order.
+    /// Compute a signature hash from tags ignoring the passed in labels.
+    /// The `metric_group` is ignored.
     pub fn tags_signature_without_labels(&self, labels: &[String]) -> Signature {
         self.signature_without_labels_internal("", labels)
     }
 
     fn signature_without_labels_internal(&self, name: &str, labels: &[String]) -> Signature {
         if labels.is_empty() {
-            return self.signature();
+            let iter = self.tags.iter();
+            return Signature::with_name_and_labels(name, iter);
         }
         let includes_metric_group = labels.iter().any(|x| *x == METRIC_NAME_LABEL);
         let group_name = if includes_metric_group { name } else { "" };
@@ -479,10 +505,7 @@ impl MetricName {
     /// Calculate signature for the metric name by the given match modifier.
     pub fn signature_by_match_modifier(&self, modifier: &Option<VectorMatchModifier>) -> Signature {
         match modifier {
-            None => {
-                self.signature()
-                // self.signature_without_labels(&[])
-            }
+            None => self.signature(),
             Some(m) => match m {
                 VectorMatchModifier::On(labels) => self.signature_with_labels(labels.as_ref()),
                 VectorMatchModifier::Ignoring(labels) => {
@@ -507,6 +530,30 @@ impl MetricName {
                 }
             },
         }
+    }
+}
+
+impl FromStr for MetricName {
+    type Err = RuntimeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        MetricName::parse(s)
+    }
+}
+
+impl TryFrom<&str> for MetricName {
+    type Error = RuntimeError;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        MetricName::parse(s)
+    }
+}
+
+impl TryFrom<String> for MetricName {
+    type Error = RuntimeError;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        MetricName::parse(&s)
     }
 }
 
@@ -692,5 +739,53 @@ mod tests {
         let mut exp_mn = MetricName::default();
         exp_mn.add_tag("baz", "qux");
         assert_eq!(exp_mn, mn, "expecting {} got {}", &exp_mn, &mn);
+    }
+
+    #[test]
+    fn test_tags_signature_without_labels() {
+        let mut mn = MetricName::new("name");
+        mn.add_tag("foo", "bar");
+        mn.add_tag("baz", "qux");
+        let mut exp_mn = MetricName::new("name");
+        exp_mn.add_tag("baz", "qux");
+        assert_eq!(
+            exp_mn.tags_signature_without_labels(&vec!["foo".to_string()]),
+            mn.tags_signature_without_labels(&vec!["foo".to_string()]),
+            "expecting {} got {}",
+            &exp_mn,
+            &mn
+        );
+    }
+
+    #[test]
+    fn test_tags_signature_with_labels() {
+        let mut mn = MetricName::new("name");
+        mn.add_tag("le", "8.799e1");
+        mn.add_tag("foo", "bar");
+        mn.add_tag("baz", "qux");
+        let mut exp_mn = MetricName::default();
+        exp_mn.add_tag("baz", "qux");
+        let actual = mn.tags_signature_with_labels(&vec!["baz".to_string()]);
+        let expected = exp_mn.tags_signature_with_labels(&vec!["baz".to_string()]);
+        assert_eq!(
+            actual, expected,
+            "expecting {:?} got {:?}",
+            expected, actual
+        );
+    }
+
+    #[test]
+    fn test_tags_1() {
+        let mut mn = MetricName::new("name");
+        mn.add_tag("le", "8.799e1");
+        let mut exp_mn = MetricName::default();
+        exp_mn.add_tag("le", "8.799e1");
+        let actual = mn.tags_signature_without_labels(&vec![]);
+        let expected = exp_mn.tags_signature_without_labels(&vec![]);
+        assert_eq!(
+            actual, expected,
+            "expecting {:?} got {:?}",
+            expected, actual
+        );
     }
 }

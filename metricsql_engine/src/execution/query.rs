@@ -326,7 +326,7 @@ pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<Query
 fn export_handler(ctx: &Context, cp: CommonParams) -> RuntimeResult<QueryResults> {
     let max_series = &ctx.config.max_unique_timeseries;
     let sq = SearchQuery::new(cp.start, cp.end, cp.filters, *max_series);
-    ctx.process_search_query(&sq, &cp.deadline)
+    ctx.search(sq, cp.deadline)
 }
 
 /// query_range processes a range vector request

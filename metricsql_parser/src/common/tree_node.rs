@@ -23,10 +23,7 @@ use std::sync::Arc;
 use crate::parser::ParseResult;
 
 /// Defines a visitable and rewriteable a tree node. This trait is
-/// implemented for plans ([`ExecutionPlan`] and [`LogicalPlan`]) as
-/// well as expression trees ([`PhysicalExpr`], [`Expr`]) in
-/// DataFusion
-/// [`Expr`]: https://docs.rs/datafusion-expr/latest/datafusion_expr/expr/enum.Expr.html
+/// implemented for expression trees ([`Expr`]) in MetricSQL
 pub trait TreeNode: Sized {
     /// Use preorder to iterate the node on the tree so that we can
     /// stop fast for some cases.

@@ -11,10 +11,9 @@ use metricsql_parser::prelude::{BinModifier, Labels};
 
 use crate::execution::utils::remove_empty_series;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::signature::TimeseriesHashMap;
 use crate::types::signature::Signature;
 use crate::types::Timeseries;
-use crate::{InstantVector, METRIC_NAME_LABEL};
+use crate::{group_series_by_match_modifier, InstantVector, TimeseriesHashMap, METRIC_NAME_LABEL};
 
 pub(crate) struct BinaryOpFuncArg<'a> {
     op: Operator,
@@ -636,50 +635,22 @@ fn add_left_nans_if_no_right_nans(tss_left: &mut Vec<Timeseries>, tss_right: &Ve
 fn create_series_map_by_tag_set(
     bfa: &mut BinaryOpFuncArg,
 ) -> (TimeseriesHashMap, TimeseriesHashMap) {
-    let mut is_on = false;
+    let empty_matching = None;
 
-    let empty_labels = Labels::default();
-    let group_tags = if let Some(modifier) = bfa.modifier {
-        match &modifier.matching {
-            Some(VectorMatchModifier::On(labels)) => {
-                is_on = true;
-                labels
-            }
-            Some(VectorMatchModifier::Ignoring(labels)) => labels,
-            None => &empty_labels,
-        }
+    let matching = if let Some(modifier) = bfa.modifier.as_ref() {
+        &modifier.matching
     } else {
-        &empty_labels
+        &empty_matching
     };
 
-    fn get_tags_map(arg: &mut Vec<Timeseries>, is_on: bool, labels: &Labels) -> TimeseriesHashMap {
-        let mut m = TimeseriesHashMap::with_capacity(arg.len());
-        // todo: rayon beyond a threshold
-        // todo: move to signature.rs
-        let labels = labels.as_ref();
-        for ts in arg.iter_mut() {
-            let key = if is_on {
-                ts.metric_name.tags_signature_with_labels(labels)
-            } else {
-                ts.metric_name.tags_signature_without_labels(labels)
-            };
-            m.entry(key).or_default().push(std::mem::take(ts));
-        }
-        m
-    }
-
-    let m_left = get_tags_map(&mut bfa.left, is_on, group_tags);
-    let m_right = get_tags_map(&mut bfa.right, is_on, group_tags);
+    let m_left = group_series_by_match_modifier(&mut bfa.left, matching, false);
+    let m_right = group_series_by_match_modifier(&mut bfa.right, matching, false);
 
     (m_left, m_right)
 }
 
 pub(in crate::execution) fn is_scalar(arg: &[Timeseries]) -> bool {
-    if arg.len() != 1 {
-        return false;
-    }
-    let mn = &arg[0].metric_name;
-    mn.tags.is_empty() && mn.metric_group.is_empty()
+    arg.len() == 1 && arg[0].metric_name.is_empty()
 }
 
 fn series_by_key<'a>(m: &'a TimeseriesHashMap, key: &Signature) -> Option<&'a Vec<Timeseries>> {
