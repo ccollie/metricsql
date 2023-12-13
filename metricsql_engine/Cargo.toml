@@ -41,6 +41,7 @@ rand_distr = { workspace = true }
 rayon = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 tinyvec = { workspace = true }
 topologic = "1.0.0"

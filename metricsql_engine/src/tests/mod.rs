@@ -1,7 +1,7 @@
 pub use series_data::*;
+pub use utils::*;
 
-#[cfg(test)]
 pub mod generators;
+mod power_consumption;
 mod series_data;
-#[cfg(test)]
 pub mod utils;

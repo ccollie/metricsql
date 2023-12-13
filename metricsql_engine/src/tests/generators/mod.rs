@@ -1,10 +1,11 @@
 use ::rand::prelude::*;
 
+pub use generators::*;
 pub use rand::*;
 
 mod generators;
-mod mackey_glass;
-mod rand;
+pub mod mackey_glass;
+pub mod rand;
 
 pub fn create_rng(seed: Option<u64>) -> Result<StdRng, String> {
     if let Some(seed) = seed {

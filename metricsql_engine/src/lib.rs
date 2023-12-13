@@ -45,8 +45,8 @@ mod types;
 
 pub mod async_executor;
 mod common;
-#[cfg(test)]
-mod tests;
+
+pub mod tests;
 
 pub mod prelude {
     pub use crate::async_executor::*;
@@ -55,5 +55,6 @@ pub mod prelude {
     pub use crate::provider::*;
     pub use crate::query_stats::*;
     pub use crate::runtime_error::*;
+    pub use crate::tests::*;
     pub use crate::types::*;
 }
