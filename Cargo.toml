@@ -14,7 +14,8 @@ members = [
     "metricsql_common",
     "metricsql_encoding",
     "metricsql_parser",
-    "metricsql_engine"
+    "metricsql_engine",
+    "metricsql_redis_ts",
 ]
 resolver = "2"
 
@@ -33,7 +34,7 @@ q_compress = "0.11.7"
 rand = "0.8.5"
 rand_distr = "0.4.3"
 rayon = "1.8.0"
-regex = "1.8.4"
+regex = "1.10.2"
 regex-syntax = "0.8.2"
 rs_unit = "0.0.2"
 scopeguard = "1.2.0"

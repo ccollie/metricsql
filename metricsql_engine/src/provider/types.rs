@@ -16,30 +16,16 @@ use crate::types::{MetricName, Timeseries, Timestamp, TimestampTrait};
 
 pub type TimeRange = Range<Timestamp>;
 
-// todo: async_executor ???. Add context ?
-pub trait MetricDataProvider: Sync + Send {
-    fn search(&self, sq: &SearchQuery, deadline: &Deadline) -> RuntimeResult<QueryResults>;
-}
-
-pub struct NullMetricDataProvider {}
-
-impl MetricDataProvider for NullMetricDataProvider {
-    fn search(&self, _sq: &SearchQuery, _deadline: &Deadline) -> RuntimeResult<QueryResults> {
-        let qr = QueryResults::default();
-        Ok(qr)
-    }
-}
-
 #[async_trait]
-pub trait MetricStorage: Sync + Send {
-    async fn search(&self, sq: &SearchQuery, deadline: Deadline) -> RuntimeResult<QueryResults>;
+pub trait MetricStorageProvider: Sync + Send {
+    async fn search(&self, sq: SearchQuery, deadline: Deadline) -> RuntimeResult<QueryResults>;
 }
 
 pub struct NullMetricStorage {}
 
 #[async_trait]
-impl MetricStorage for NullMetricStorage {
-    async fn search(&self, _sq: &SearchQuery, _deadline: Deadline) -> RuntimeResult<QueryResults> {
+impl MetricStorageProvider for NullMetricStorage {
+    async fn search(&self, _sq: SearchQuery, _deadline: Deadline) -> RuntimeResult<QueryResults> {
         let qr = QueryResults::default();
         Ok(qr)
     }

@@ -4,7 +4,7 @@ use agnostik::AgnostikExecutor;
 use chrono::Duration;
 use tracing::{span_enabled, Level};
 
-use crate::{MetricStorage, NullMetricStorage};
+use crate::{MetricStorageProvider, NullMetricStorage};
 // todo: isolate this to mod async_executor
 use crate::async_executor::get_runtime;
 use crate::cache::rollup_result_cache::RollupResultCache;
@@ -25,7 +25,7 @@ pub struct Context {
     pub rollup_result_cache: RollupResultCache,
     pub(crate) active_queries: ActiveQueries,
     pub query_stats: QueryStatsTracker,
-    pub storage: Arc<dyn MetricStorage>,
+    pub storage: Arc<dyn MetricStorageProvider>,
 }
 
 impl Context {
@@ -33,7 +33,7 @@ impl Context {
         Self::default()
     }
 
-    pub fn with_metric_storage(mut self, storage: Arc<dyn MetricStorage>) -> Self {
+    pub fn with_metric_storage(mut self, storage: Arc<dyn MetricStorageProvider>) -> Self {
         self.storage = storage;
         self
     }
@@ -45,7 +45,7 @@ impl Context {
         futures::executor::block_on(async move {
             let runtime = get_runtime();
             runtime
-                .spawn(async move { storage.search(&sq, deadline).await })
+                .spawn(async move { storage.search(sq, deadline).await })
                 .await
         })
     }

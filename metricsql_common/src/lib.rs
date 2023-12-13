@@ -12,8 +12,8 @@ pub mod duration;
 pub mod fast_cache;
 pub mod no_hash;
 pub mod pool;
+pub mod regex_util;
 pub mod time;
-mod regex_util;
 
 pub mod prelude {
     pub use crate::atomic_counter::*;

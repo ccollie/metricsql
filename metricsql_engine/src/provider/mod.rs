@@ -1,8 +1,8 @@
 pub use deadline::*;
-pub use search::*;
+pub use types::*;
 pub use utils::*;
 
 mod deadline;
 mod memory_provider;
-mod search;
+mod types;
 mod utils;
