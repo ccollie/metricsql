@@ -30,7 +30,7 @@ use std::collections::VecDeque;
 
 use rand::Rng;
 
-use crate::tests::generators::create_rng;
+use super::create_rng;
 
 // https://github.com/mila-iqia/summerschool2015/blob/master/rnn_tutorial/synthetic.py
 ///
@@ -43,7 +43,7 @@ use crate::tests::generators::create_rng;
 ///           timeseries at each invocation.
 ///         - n_samples : number of samples to generate
 pub fn mackey_glass(sample_len: usize, tau: usize, seed: Option<u64>) -> Vec<f64> {
-    let mut delta_t = 10;
+    let delta_t = 10; // todo: pass in ?
     let history_len = tau * delta_t;
     let mut timeseries = 1.2;
 

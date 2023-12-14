@@ -16,6 +16,7 @@ members = [
     "metricsql_parser",
     "metricsql_engine",
     "metricsql_redis_ts",
+    "metricsql_testing",
 ]
 resolver = "2"
 

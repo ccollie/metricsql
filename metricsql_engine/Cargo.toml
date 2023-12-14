@@ -51,6 +51,7 @@ tracing = { workspace = true }
 xxhash-rust = { workspace = true }
 metricsql_common={ path = "../metricsql_common" }
 metricsql_parser={ path = "../metricsql_parser" }
+metricsql_testing={ path = "../metricsql_testing" }
 
 [features]
 default = ["tokio"]

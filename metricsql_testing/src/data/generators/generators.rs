@@ -1,13 +1,12 @@
+use crate::data::generators::create_rng;
 use std::ops::Range;
 
+use super::mackey_glass::mackey_glass;
 use rand::distributions::Uniform;
 use rand::prelude::StdRng;
 use rand::Rng;
 use rand_distr::Distribution;
 use rand_distr::StandardNormal;
-
-use crate::tests::generators::create_rng;
-use crate::tests::generators::mackey_glass::mackey_glass;
 
 pub struct RandomGenerator {
     rng: StdRng,

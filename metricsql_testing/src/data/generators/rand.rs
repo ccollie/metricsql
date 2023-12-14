@@ -3,12 +3,13 @@ use std::time::Duration;
 
 use metricsql_common::time::current_time_millis;
 
-use crate::tests::generators::generators::{
+use super::generators::{
     DerivativeGenerator, MackeyGlassGenerator, RandomGenerator, StdNormalGenerator,
     UniformGenerator,
 };
-use crate::tests::SeriesData;
-use crate::Timestamp;
+use crate::SeriesData;
+
+pub type Timestamp = i64;
 
 #[derive(Debug, Copy, Clone, Default)]
 pub enum RandAlgo {
@@ -112,7 +113,7 @@ pub fn generate_series_data(options: &GeneratorOptions) -> Result<SeriesData, St
         (end - options.start) / options.samples as i64
     };
 
-    let mut generator = get_generator_impl(options.typ, options.seed, &options.range)?;
+    let generator = get_generator_impl(options.typ, options.seed, &options.range)?;
 
     let values = generator.take(options.samples).collect::<Vec<f64>>();
     let timestamps = generate_timestamps(

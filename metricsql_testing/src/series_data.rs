@@ -1,4 +1,15 @@
-use crate::Sample;
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Sample {
+    /// Time in microseconds
+    pub timestamp: i64,
+    pub value: f64,
+}
+
+impl Sample {
+    pub fn new(timestamp: i64, value: f64) -> Self {
+        Self { timestamp, value }
+    }
+}
 
 // Time series measurements.
 pub struct SeriesData {
@@ -47,7 +58,7 @@ impl SeriesData {
     }
 }
 
-pub(crate) struct SeriesDataIter<'a> {
+pub struct SeriesDataIter<'a> {
     series: &'a SeriesData,
     idx: usize,
 }
