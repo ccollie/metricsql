@@ -156,10 +156,7 @@ fn expand_with_selector_expression(
     if me.is_resolved() {
         // Already expanded.
         let matchers = me.to_matchers()?;
-        let res = MetricExpr {
-            matchers,
-            label_filters: vec![],
-        };
+        let res = MetricExpr { matchers };
         return Ok(Expr::MetricExpression(res));
     }
 

@@ -58,7 +58,7 @@ pub struct SearchQuery {
     pub end: Timestamp,
 
     /// Tag filters for the provider query
-    pub matchers: Vec<Matchers>,
+    pub matchers: Matchers,
 
     /// The maximum number of time series the provider query can return.
     pub max_metrics: usize,
@@ -69,7 +69,7 @@ impl SearchQuery {
     pub fn new(
         start: Timestamp,
         end: Timestamp,
-        tag_filter_list: Vec<Matchers>,
+        tag_filter_list: Matchers,
         max_metrics: usize,
     ) -> Self {
         let mut max = max_metrics;

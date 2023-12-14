@@ -8,7 +8,7 @@ use crate::execution::{
     adjust_start_end, exec, parse_promql_internal, validate_max_points_per_timeseries,
 };
 use crate::execution::{Context, EvalConfig};
-use crate::provider::join_matchers_vec;
+use crate::provider::{join_matchers_vec, join_matchers_with_extra_filters};
 use crate::types::{Timestamp, TimestampTrait};
 use crate::{
     remove_empty_values_and_timeseries, Deadline, QueryResult, QueryResults, RuntimeError,
@@ -28,7 +28,7 @@ pub struct QueryParams {
     pub step: Duration,
     pub deadline: Deadline,
     pub round_digits: u8,
-    pub required_tag_filters: Vec<Matchers>,
+    pub required_tag_filters: Vec<Vec<LabelFilter>>,
 }
 
 impl Default for QueryParams {
@@ -87,7 +87,7 @@ pub struct QueryBuilder {
     end: Option<Timestamp>,
     step: Option<Duration>,
     timeout: Option<Duration>,
-    etfs: Vec<Matchers>,
+    extra_tag_filters: Vec<Vec<LabelFilter>>,
     round_digits: u8,
     no_cache: bool,
     trace_enabled: bool,
@@ -101,7 +101,7 @@ impl Default for QueryBuilder {
             end: None,
             step: None,
             timeout: None,
-            etfs: vec![],
+            extra_tag_filters: vec![],
             round_digits: 100,
             no_cache: false,
             trace_enabled: false,
@@ -176,8 +176,8 @@ impl QueryBuilder {
         q.step = self
             .step
             .unwrap_or_else(|| Duration::milliseconds(DEFAULT_STEP));
-        if !self.etfs.is_empty() {
-            q.required_tag_filters = self.etfs.clone();
+        if !self.extra_tag_filters.is_empty() {
+            q.required_tag_filters = self.extra_tag_filters.clone();
         }
         q.round_digits = self.round_digits;
         q.deadline = get_deadline_for_query(context, q.start, Some(timeout))?;
@@ -191,7 +191,7 @@ struct CommonParams {
     deadline: Deadline,
     start: Timestamp,
     end: Timestamp,
-    filters: Vec<Matchers>,
+    filters: Vec<Vec<LabelFilter>>,
 }
 
 /// Query handler for `Instant Queries`
@@ -234,14 +234,13 @@ pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<Query
             }
 
             // Fetch the remaining part of the result.
-            let base_filters = vec![Matchers::new(filters.clone())]; // can we avoid cloning ???
-            let tfs_list = join_matchers_vec(&base_filters, &params.required_tag_filters);
+            let tfs_list = join_matchers_with_extra_filters(&filters, &params.required_tag_filters);
 
             let cp = CommonParams {
                 deadline: params.deadline,
                 start,
                 end,
-                filters: tfs_list.to_vec(),
+                filters: tfs_list.to_vec(), // todo: avoid this
             };
 
             return match export_handler(context, cp) {
@@ -451,7 +450,7 @@ fn get_max_lookback(ctx: &Context, step: i64, max: Option<i64>) -> i64 {
 }
 
 struct DeconstructedRollup<'a> {
-    filters: Option<&'a Vec<LabelFilter>>,
+    filters: Option<&'a Matchers>,
     window: &'a DurationExpr,
     offset: Cow<'a, DurationExpr>,
     step: Cow<'a, DurationExpr>,
@@ -473,8 +472,8 @@ fn get_rollup(expr: &Expr) -> Option<DeconstructedRollup> {
                 if re.step.is_none() {
                     // check whether expr contains PromQL metric selector wrapped into rollup.
                     if let Expr::MetricExpression(me) = &re.expr.as_ref() {
-                        if !me.label_filters.is_empty() {
-                            res.filters = Some(&me.label_filters);
+                        if !me.matchers.is_empty() {
+                            res.filters = Some(&me.matchers);
                         }
                     }
                     // todo: see if we have default_rollup(metric{job="email"})

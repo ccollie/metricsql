@@ -6,12 +6,12 @@ use metricsql_parser::parser::parse;
 
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 
-pub(crate) fn join_matchers<'a>(
+pub(crate) fn join_matchers_with_extra_filters<'a>(
     src: &'a Matchers,
-    etfs: &'a Matchers,
+    etfs: &'a Vec<Vec<LabelFilter>>,
 ) -> Cow<'a, Matchers> {
     if src.is_empty() {
-        return Cow::Borrowed::<'a>(etfs);
+        return Cow::Owned::<'a>(Matchers::with_or_matchers(etfs.clone()));
     }
     if etfs.is_empty() {
         return Cow::Borrowed::<'a>(src);
@@ -42,22 +42,6 @@ fn get_matcher_list_len(matchers: &Matchers) -> usize {
     len
 }
 
-pub(crate) fn join_matchers_vec<'a>(
-    src: &'a Vec<Matchers>,
-    etfs: &'a Vec<Matchers>,
-) -> Cow<'a, Vec<Matchers>> {
-    if src.is_empty() {
-        return Cow::Borrowed::<'a>(etfs);
-    }
-    if etfs.is_empty() {
-        return Cow::Borrowed::<'a>(src);
-    }
-    let mut dst: Vec<Matchers> = Vec::with_capacity(src.len());
-    for tf in src.iter() {
-        dst.push(tf.clone());
-    }
-    Cow::Owned::<'a>(dst)
-}
 
 /// parse_metric_selector parses s containing PromQL metric selector and returns the corresponding
 /// LabelFilters.

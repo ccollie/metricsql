@@ -1,7 +1,7 @@
 use std::mem::size_of;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::RwLock;
-use ahash::HashSetExt;
+use gxhash::HashSetExt;
 
 use crate::hash::{fast_hash64, FastHashSet, IntMap};
 use crate::pool::get_pooled_buffer;

@@ -643,10 +643,9 @@ impl Prettier for DurationExpr {
 ///	`rate(x{job="foo",instance="bar" or job="x",instance="baz"}[5m])`
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MetricExpr {
-    pub matchers: Matchers,
-    /// LabelFilters contains a list of label filters from curly braces.
+    /// matchers contains a list of label filters from curly braces.
     /// Filter or metric name must be the first if present.
-    pub label_filters: Vec<LabelFilter>,
+    pub matchers: Matchers,
 }
 
 impl MetricExpr {
@@ -654,21 +653,18 @@ impl MetricExpr {
         let name_filter = LabelFilter::new(LabelFilterOp::Equal, NAME_LABEL, name.into()).unwrap();
         MetricExpr {
             matchers: Matchers::default().append(name_filter),
-            label_filters: vec![],
         }
     }
 
     pub fn with_filters(filters: Vec<LabelFilter>) -> Self {
         MetricExpr {
             matchers: Matchers::new(filters),
-            label_filters: vec![],
         }
     }
 
     pub fn with_or_filters(filters: Vec<Vec<LabelFilter>>) -> Self {
         MetricExpr {
             matchers: Matchers::with_or_matchers(filters),
-            label_filters: vec![],
         }
     }
 
@@ -1125,7 +1121,7 @@ pub struct RollupExpr {
     /// window contains optional window value from square brackets. Equivalent to `range` in
     /// prometheus terminology
     ///
-    /// For example, `http_requests_total[5m]` will have Window value `5m`.
+    /// For example, `http_requests_total[5m]` will have window value `5m`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub window: Option<DurationExpr>,
 

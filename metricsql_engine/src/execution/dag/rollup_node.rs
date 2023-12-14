@@ -30,6 +30,7 @@ use crate::rayon::iter::ParallelIterator;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::QueryValue;
 use crate::{Timeseries, Timestamp};
+use crate::prelude::join_matchers_with_extra_filters;
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct RollupNode {
@@ -226,8 +227,7 @@ impl RollupNode {
         };
 
         // Fetch the remaining part of the result.
-        let tfs = vec![Matchers::new(me.label_filters.clone())];
-        let tfss = join_matchers_vec(&tfs, &ec.enforced_tag_filters);
+        let tfss = join_matchers_with_extra_filters(&me.matchers, &ec.enforced_tag_filters);
         let mut min_timestamp = start;
 
         if self.func.need_silence_interval() {
