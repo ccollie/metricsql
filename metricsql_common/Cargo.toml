@@ -17,6 +17,7 @@ chrono = { workspace = true }
 chrono-tz = { workspace = true }
 dynamic-lru-cache = "0.2.1"
 byte-pool = "0.2.4"
+gxhash = { workspace = true }
 lockfree-object-pool = "0.1.4"
 rand = { workspace = true }
 rand_distr = { workspace = true }

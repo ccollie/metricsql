@@ -25,6 +25,7 @@ ahash = { version = "0.8", features = ["std", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.8"
 enquote = "1.1.0"
+gxhash = "2.3.0"
 integer-encoding = "4.0.0"
 itertools = "0.12"
 num-traits = "0.2"
