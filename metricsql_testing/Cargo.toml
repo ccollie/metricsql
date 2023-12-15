@@ -15,7 +15,7 @@ readme.workspace = true
 [dependencies]
 chrono = { workspace = true }
 itertools = { workspace = true }
-metricsql_common={ path = "../metricsql_common" }
+metricsql_common = { path = "../metricsql_common" }
 rand = { workspace = true }
 rand_distr = { workspace = true }
 serde = { workspace = true }

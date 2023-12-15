@@ -14,14 +14,14 @@ impl FastStringMatcher {
     ///
     /// match_func must return the same result for the same input.
     pub fn new(match_func: fn(s: &str) -> bool) -> Self {
-        return Self {
+        Self {
             inner: StringTransformCache::new(match_func),
-        };
+        }
     }
 
     // Match applies match_func to s and returns the result.
     pub fn matches(&self, s: &str) -> bool {
-        return self.inner.transform(s);
+        self.inner.transform(s)
     }
 }
 

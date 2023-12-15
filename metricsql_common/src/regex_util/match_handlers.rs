@@ -118,7 +118,7 @@ impl StringMatchHandler {
 
     pub fn matches(&self, s: &str) -> bool {
         match self {
-            StringMatchHandler::Alternates(alts) => matches_alternates(&alts, s),
+            StringMatchHandler::Alternates(alts) => matches_alternates(alts, s),
             StringMatchHandler::Fsm(fsm) => fsm.matches(s),
             StringMatchHandler::MatchFn(m) => m.matches(s),
             StringMatchHandler::FastRegex(r) => r.matches(s),
@@ -176,14 +176,14 @@ fn dot_star(_: &str, _: &str) -> bool {
 
 // .+
 fn dot_plus(_: &str, candidate: &str) -> bool {
-    candidate.len() > 0
+    !candidate.is_empty()
 }
 
 // prefix + '.*'
 #[allow(unused)]
 fn prefix_dot_star(prefix: &str, candidate: &str) -> bool {
     // Fast path - the pr contains "prefix.*"
-    return candidate.starts_with(prefix);
+    candidate.starts_with(prefix)
 }
 
 #[allow(unused)]

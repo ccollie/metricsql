@@ -33,7 +33,9 @@ pub use runtime_error::*;
 pub use tests::utils::*;
 pub use types::*;
 
+pub mod async_runtime;
 pub mod cache;
+mod common;
 pub mod execution;
 mod functions;
 mod histogram;
@@ -41,15 +43,11 @@ mod memory_pool;
 pub mod provider;
 pub mod query_stats;
 pub mod runtime_error;
+pub mod tests;
 mod types;
 
-pub mod async_executor;
-mod common;
-
-pub mod tests;
-
 pub mod prelude {
-    pub use crate::async_executor::*;
+    pub use crate::async_runtime::*;
     pub use crate::cache::*;
     pub use crate::execution::*;
     pub use crate::provider::*;

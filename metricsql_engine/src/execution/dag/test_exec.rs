@@ -5,7 +5,8 @@ mod tests {
     use chrono::Duration;
 
     use crate::execution::{compile_expression, Context, EvalConfig};
-    use crate::{test_query_values_equal, Deadline, MetricName, QueryValue, Timeseries};
+    use crate::test_query_values_equal;
+    use crate::{Deadline, MetricName, QueryValue, Timeseries};
 
     const NAN: f64 = f64::NAN;
     const START: i64 = 1000000_i64;

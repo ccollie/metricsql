@@ -75,7 +75,7 @@ pub fn compare_values(actual: &[f64], expected: &[f64]) {
 }
 
 pub fn compare_floats(expected: f64, actual: f64) -> bool {
-    return match (expected.is_finite(), actual.is_finite()) {
+    match (expected.is_finite(), actual.is_finite()) {
         (true, true) => {
             let eps = (actual - expected).abs();
             eps <= EPSILON
@@ -87,8 +87,8 @@ pub fn compare_floats(expected: f64, actual: f64) -> bool {
             if expected == f64::INFINITY {
                 return actual == f64::INFINITY;
             }
-            return actual == f64::NEG_INFINITY;
+            actual == f64::NEG_INFINITY
         }
         _ => false,
-    };
+    }
 }

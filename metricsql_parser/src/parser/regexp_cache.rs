@@ -1,5 +1,6 @@
-use crate::parser::{ParseError, ParseResult};
 use regex::Regex;
+
+use crate::parser::{ParseError, ParseResult};
 
 /// todo: have cache.
 pub fn compile_regexp(re: &str) -> ParseResult<Regex> {
@@ -16,12 +17,5 @@ pub fn is_empty_regex(re: &str) -> bool {
             Err(_) => false,
             Ok(regex) => regex.is_match(""),
         },
-    }
-}
-
-pub(crate) fn is_regex_match(re: &str, s: &str) -> bool {
-    match compile_regexp(re) {
-        Err(_) => false,
-        Ok(regex) => regex.is_match(s),
     }
 }

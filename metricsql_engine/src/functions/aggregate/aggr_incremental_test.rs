@@ -6,10 +6,11 @@ mod tests {
     use rayon::iter::IntoParallelRefMutIterator;
 
     use metricsql_parser::ast::AggregationExpr;
+    use metricsql_testing::compare_values;
 
     use crate::functions::aggregate::IncrementalAggrFuncContext;
     use crate::rayon::iter::ParallelIterator;
-    use crate::{compare_values, RuntimeError, RuntimeResult, Timeseries};
+    use crate::{RuntimeError, RuntimeResult, Timeseries};
 
     const NAN: f64 = f64::NAN;
 
@@ -187,16 +188,7 @@ mod tests {
             );
             return Err(RuntimeError::from(msg));
         }
-        match compare_values(&actual.values, &expected.values) {
-            Err(err) => {
-                let msg = format!(
-                    "{:?}; actual {:?}; expected {:?}",
-                    err, &actual.values, &expected.values
-                );
-                return Err(RuntimeError::from(msg));
-            }
-            _ => {}
-        }
+        compare_values(&actual.values, &expected.values);
         Ok(())
     }
 }

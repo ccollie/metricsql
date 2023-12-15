@@ -1,7 +1,11 @@
 #[cfg(test)]
 mod tests {
-    use metricsql_parser::functions::RollupFunction;
     use std::str::FromStr;
+
+    use metricsql_parser::functions::RollupFunction;
+    use metricsql_testing::compare_floats;
+    use metricsql_testing::compare_values;
+    use metricsql_testing::test_rows_equal;
 
     use crate::common::math::linear_regression;
     use crate::functions::rollup::delta::*;
@@ -18,10 +22,7 @@ mod tests {
         get_rollup_function_factory, get_rollup_function_handler, RollupConfig, RollupFuncArg,
         RollupHandler, RollupHandlerFactory,
     };
-    use crate::{
-        compare_floats, compare_values, test_rows_equal, QueryValue, RuntimeError, RuntimeResult,
-        Timeseries,
-    };
+    use crate::{QueryValue, RuntimeError, RuntimeResult, Timeseries};
 
     // https://github.com/VictoriaMetrics/VictoriaMetrics/blob/master/app/vmselect/promql/rollup_test.go
 
@@ -497,8 +498,8 @@ mod tests {
         let f = |values: &[f64], timestamps: &[i64], exp_v: f64, exp_k: f64| {
             let ts = &timestamps[0] + 100;
             let (v, k) = linear_regression(values, timestamps, ts);
-            compare_values(&[v], &[exp_v]).unwrap();
-            compare_values(&vec![k], &vec![exp_k]).unwrap();
+            compare_values(&[v], &[exp_v]);
+            compare_values(&vec![k], &vec![exp_k]);
         };
 
         f(&[1.0], &[1], f64::NAN, f64::NAN);

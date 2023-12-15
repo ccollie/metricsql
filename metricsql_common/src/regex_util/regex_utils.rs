@@ -14,11 +14,11 @@ const MAX_OR_VALUES: usize = 16;
 /// remove_start_end_anchors removes '^' at the start of expr and '$' at the end of the expr.
 pub fn remove_start_end_anchors(expr: &str) -> &str {
     let mut cursor = &expr[..];
-    while let Some(t) = cursor.strip_prefix("^") {
+    while let Some(t) = cursor.strip_prefix('^') {
         cursor = t;
     }
-    while cursor.ends_with("$") && !cursor.ends_with("\\$") {
-        if let Some(t) = cursor.strip_suffix("$") {
+    while cursor.ends_with('$') && !cursor.ends_with("\\$") {
+        if let Some(t) = cursor.strip_suffix('$') {
             cursor = t;
         } else {
             break;
@@ -61,7 +61,7 @@ pub fn get_or_values(expr: &str) -> Vec<String> {
                     *or_value = format!("{prefix}{or_value}")
                 }
             }
-            return or_values;
+            or_values
         }
         Err(err) => {
             panic!(
@@ -88,12 +88,10 @@ fn get_or_values_ext(sre: &Hir) -> Option<Vec<String>> {
     match sre.kind() {
         Empty => Some(vec!["".to_string()]),
         Capture(cap) => get_or_values_ext(cap.sub.as_ref()),
-        Literal(literal) => {
-            return match String::from_utf8(literal.0.to_vec()) {
-                Ok(s) => Some(vec![s]),
-                Err(_) => None,
-            }
-        }
+        Literal(literal) => match String::from_utf8(literal.0.to_vec()) {
+            Ok(s) => Some(vec![s]),
+            Err(_) => None,
+        },
         Alternation(alt) => {
             let mut a = Vec::with_capacity(alt.len());
             for sub in alt.iter() {
@@ -107,7 +105,7 @@ fn get_or_values_ext(sre: &Hir) -> Option<Vec<String>> {
                     return None;
                 }
             }
-            return Some(a);
+            Some(a)
         }
         Concat(concat) => {
             if concat.is_empty() {
@@ -137,7 +135,7 @@ fn get_or_values_ext(sre: &Hir) -> Option<Vec<String>> {
                     a.push(format!("{prefix}{suffix}"));
                 }
             }
-            return Some(a);
+            Some(a)
         }
         Class(class) => {
             if let Some(literal) = class.literal() {
@@ -148,7 +146,7 @@ fn get_or_values_ext(sre: &Hir) -> Option<Vec<String>> {
             }
 
             let mut a = Vec::with_capacity(32);
-            return match class {
+            match class {
                 Unicode(uni) => {
                     for urange in uni.iter() {
                         let start = urange.start();
@@ -177,7 +175,7 @@ fn get_or_values_ext(sre: &Hir) -> Option<Vec<String>> {
                     }
                     Some(a)
                 }
-            };
+            }
         }
         Repetition(rep) => {
             // note that the only case that makes sense in this context is when min == 0 and max == 1
@@ -257,7 +255,7 @@ pub fn simplify(expr: &str) -> Result<(String, String), RegexError> {
 
     let mut s = hir_to_string(&sre);
 
-    if let Err(_) = Regex::new(&s) {
+    if Regex::new(&s).is_err() {
         // Cannot compile the regexp. Return it all as prefix.
         return Ok((expr.to_string(), "".to_string()));
     }
@@ -265,7 +263,7 @@ pub fn simplify(expr: &str) -> Result<(String, String), RegexError> {
     s = s.replace("(?:)", "");
     s = s.replace("(?-s:.)", ".");
     s = s.replace("(?-m:$)", "$");
-    return Ok((prefix, s));
+    Ok((prefix, s))
 }
 
 fn simplify_regexp(sre: Hir, has_prefix: bool) -> Result<Hir, RegexError> {
@@ -303,7 +301,7 @@ fn simplify_regexp_ext(sre: &Hir, has_prefix: bool, has_suffix: bool) -> Hir {
         }
         HirKind::Alternation(alternate) => {
             // avoid clone if its all literal
-            if alternate.iter().all(|hir| is_literal(hir)) {
+            if alternate.iter().all(is_literal) {
                 return sre.clone();
             }
             // Do not remove empty captures from Alternation, since this may break regexp.
@@ -314,14 +312,11 @@ fn simplify_regexp_ext(sre: &Hir, has_prefix: bool, has_suffix: bool) -> Hir {
             if is_empty_regexp(&sub) {
                 return Hir::empty();
             }
-            match sub.kind() {
-                HirKind::Concat(concat) => {
-                    if concat.len() == 1 {
-                        return simplify_regexp_ext(&concat[0], has_prefix, has_suffix);
-                    }
-                    return Hir::concat(simplify_vec(concat, true));
+            if let HirKind::Concat(concat) = sub.kind() {
+                if concat.len() == 1 {
+                    return simplify_regexp_ext(&concat[0], has_prefix, has_suffix);
                 }
-                _ => {}
+                return Hir::concat(simplify_vec(concat, true));
             }
             sub.clone()
         }
@@ -330,7 +325,7 @@ fn simplify_regexp_ext(sre: &Hir, has_prefix: bool, has_suffix: bool) -> Hir {
             for (i, hir) in concat.iter().enumerate() {
                 let simple = simplify_regexp_ext(
                     hir,
-                    has_prefix || values.len() > 0,
+                    has_prefix || !values.is_empty(),
                     (i + 1) < concat.len(),
                 );
                 if !is_empty_regexp(&simple) {
@@ -490,7 +485,7 @@ fn get_optimized_re_match_func_ext(
     }
     match sre.kind() {
         HirKind::Alternation(alts) => {
-            let all_literal = alts.iter().all(|hir| is_literal(hir));
+            let all_literal = alts.iter().all(is_literal);
             if all_literal {
                 let mut or_values = Vec::with_capacity(alts.len());
                 for hir in alts.iter() {
@@ -512,7 +507,7 @@ fn get_optimized_re_match_func_ext(
             if !is_literal(sre) {
                 return None;
             }
-            let s = literal_to_string(&sre);
+            let s = literal_to_string(sre);
             // Literal match
             return Some((StringMatchHandler::literal(&s), s, LITERAL_MATCH_COST));
         }
@@ -639,10 +634,10 @@ fn hir_to_string(sre: &Hir) -> String {
         }
         HirKind::Alternation(alternate) => {
             // avoid extra allocation if its all literal
-            if alternate.iter().all(|hir| is_literal(hir)) {
+            if alternate.iter().all(is_literal) {
                 return alternate
                     .iter()
-                    .map(|hir| hir_to_string(hir))
+                    .map(hir_to_string)
                     .collect::<Vec<_>>()
                     .join("|");
             }
@@ -728,12 +723,12 @@ fn is_empty_regexp(sre: &Hir) -> bool {
 fn is_dot_star(sre: &Hir) -> bool {
     match sre.kind() {
         HirKind::Capture(cap) => is_dot_star(cap.sub.as_ref()),
-        HirKind::Alternation(alternate) => alternate.iter().any(|re_sub| is_dot_star(re_sub)),
+        HirKind::Alternation(alternate) => alternate.iter().any(is_dot_star),
         HirKind::Repetition(repetition) => {
             if let HirKind::Class(clazz) = repetition.sub.kind() {
                 repetition.min == 0
                     && repetition.max.is_none()
-                    && repetition.greedy == true
+                    && repetition.greedy
                     && is_empty_class(clazz)
             } else {
                 false
@@ -750,7 +745,7 @@ fn is_dot_plus(sre: &Hir) -> bool {
             if let HirKind::Class(clazz) = repetition.sub.kind() {
                 repetition.min == 1
                     && repetition.max.is_none()
-                    && repetition.greedy == true
+                    && repetition.greedy
                     && is_empty_class(clazz)
             } else {
                 false
@@ -844,7 +839,7 @@ fn str_from_literal(l: &Literal) -> Option<&str> {
 }
 
 /// removes start and end anchors.
-fn remove_anchors<'a>(v: &'a Vec<Hir>) -> Cow<'a, Vec<Hir>> {
+fn remove_anchors(v: &Vec<Hir>) -> Cow<Vec<Hir>> {
     if v.len() < 2
         || !matches!(
             (v.first().unwrap().kind(), v.last().unwrap().kind()),
@@ -920,26 +915,23 @@ fn coalesce_alternation(first: &Hir, second: &Hir) -> Option<Hir> {
             // we possibly have something like '(bar|baz)(foo|qux)'. Convert to Alternatipm
             // (barfoo | barqux | bazfoo | bazqux)
             // get alternates from capture, if applicable
-            match (
+            if let (Some(left_alts), Some(right_alts)) = (
                 get_captured_alternates(first),
                 get_captured_alternates(second),
             ) {
-                (Some(left_alts), Some(right_alts)) => {
-                    let size = left_alts.len() * right_alts.len();
-                    if size <= MAX_OR_VALUES {
-                        let mut alts = Vec::with_capacity(size);
-                        for left_alt in left_alts {
-                            for right_alt in right_alts.iter() {
-                                let mut alt = String::new();
-                                alt.push_str(left_alt);
-                                alt.push_str(right_alt);
-                                alts.push(Hir::literal(alt.into_bytes()));
-                            }
+                let size = left_alts.len() * right_alts.len();
+                if size <= MAX_OR_VALUES {
+                    let mut alts = Vec::with_capacity(size);
+                    for left_alt in left_alts {
+                        for right_alt in right_alts.iter() {
+                            let mut alt = String::new();
+                            alt.push_str(left_alt);
+                            alt.push_str(right_alt);
+                            alts.push(Hir::literal(alt.into_bytes()));
                         }
-                        return Some(Hir::alternation(alts));
                     }
+                    return Some(Hir::alternation(alts));
                 }
-                _ => {}
             }
         }
         _ => {}

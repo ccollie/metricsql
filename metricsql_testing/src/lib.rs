@@ -1,8 +1,9 @@
+pub use series_data::*;
+pub use utils::*;
+
 pub mod data;
 mod series_data;
 pub mod utils;
-pub use series_data::*;
-pub use utils::*;
 
 pub mod prelude {
     pub use crate::data::generators::*;

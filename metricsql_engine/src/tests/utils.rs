@@ -1,5 +1,7 @@
-use crate::{MetricName, QueryResult, Timeseries};
+use metricsql_parser::common::Value;
 use metricsql_testing::test_rows_equal;
+
+use crate::{MetricName, QueryResult, QueryValue, Timeseries};
 
 pub fn test_results_equal(result: &[QueryResult], result_expected: &[QueryResult]) {
     assert_eq!(
@@ -20,6 +22,47 @@ pub fn test_results_equal(result: &[QueryResult], result_expected: &[QueryResult
             &expected.timestamps,
         );
         i = i + 1;
+    }
+}
+
+pub fn test_query_values_equal(actual: &QueryValue, expected: &QueryValue) {
+    use QueryValue::*;
+
+    let actual_type = actual.value_type();
+    let expected_type = expected.value_type();
+    assert_eq!(
+        actual_type, expected_type,
+        "unexpected value type; got {}; want {}",
+        actual_type, expected_type
+    );
+    match (&actual, &expected) {
+        (Scalar(actual), Scalar(expected)) => {
+            assert_eq!(
+                actual, expected,
+                "unexpected scalar value; got {}; want {}",
+                actual, expected
+            );
+        }
+        (String(actual), String(expected)) => {
+            assert_eq!(
+                actual, expected,
+                "unexpected string value; got {}; want {}",
+                actual, expected
+            );
+        }
+        (InstantVector(actual), InstantVector(expected)) => {
+            test_timeseries_equal(actual, expected);
+        }
+        (RangeVector(actual), RangeVector(expected)) => {
+            test_timeseries_equal(actual, expected);
+        }
+        (left, right) => {
+            assert_eq!(
+                left, right,
+                "unexpected value; got {}; want {}",
+                left, right
+            );
+        }
     }
 }
 

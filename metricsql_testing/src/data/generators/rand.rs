@@ -3,11 +3,12 @@ use std::time::Duration;
 
 use metricsql_common::time::current_time_millis;
 
+use crate::SeriesData;
+
 use super::generators::{
     DerivativeGenerator, MackeyGlassGenerator, RandomGenerator, StdNormalGenerator,
     UniformGenerator,
 };
-use crate::SeriesData;
 
 pub type Timestamp = i64;
 
@@ -125,7 +126,7 @@ pub fn generate_series_data(options: &GeneratorOptions) -> Result<SeriesData, St
     ts.timestamps = timestamps;
     ts.values = values;
 
-    return Ok(ts);
+    Ok(ts)
 }
 
 pub fn generate_timestamps_in_range(

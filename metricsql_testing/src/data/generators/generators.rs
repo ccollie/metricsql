@@ -1,12 +1,14 @@
-use crate::data::generators::create_rng;
 use std::ops::Range;
 
-use super::mackey_glass::mackey_glass;
 use rand::distributions::Uniform;
 use rand::prelude::StdRng;
 use rand::Rng;
 use rand_distr::Distribution;
 use rand_distr::StandardNormal;
+
+use crate::data::generators::create_rng;
+
+use super::mackey_glass::mackey_glass;
 
 pub struct RandomGenerator {
     rng: StdRng,
@@ -157,7 +159,7 @@ impl Iterator for MackeyGlassGenerator {
         }
         let v = self.buf[self.index];
         self.index += 1;
-        return Some(self.range.start + (self.range.end - self.range.start) * v);
+        Some(self.range.start + (self.range.end - self.range.start) * v)
     }
 }
 

@@ -8,10 +8,18 @@ Define your datasource as a trait and execute timeseries queries against your da
 
 ```rust
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    use metricsql::{Context, QueryBuilder, RedisTimeseriesProvider};
+
+    // Define your async runtime adapter. In this case we use an adapter that uses the currently tokio
+    // active runtime (for example for programs using the #[tokio::main] macro. You can also use a runtime adapter 
+    // for async-std or any other async runtime.
+    let runtime = Arc::new(TokioCurrentRuntime::new()?);
+
     // Define your datasource
-    let provider = Arc::new(MyDataProvider::new());
+    let provider = Arc::new(RedisTimeseriesProvider::new());
     // Create a Context, which will be used to provides session level config and services like caching and query stats
-    let ctx = Context::default().with_provider(provider);
+    let ctx = Context::default()
+        .with_provider(provider);
 
     let mut builder = QueryBuilder::default()
         .start(Utc::now() - Duration::minutes(5))
@@ -40,12 +48,20 @@ also in heavy flux and will change frequently.
 - Builtin support for query tracing
 - Uses [Rayon](https://docs.rs/rayon/latest/rayon/) for query execution parallelization
 
+### Security
+
+The crate itself uses #[ forbid(unsafe_code) ].
+
+Our dependencies may use unsafe.
+
 ### Roadmap
 
 - [x] Implement query parsing
 - [x] Implement basic query execution
 - [x] Implement query functions
 - [ ] Test coverage
+- [ ] [Prometheus](https://prometheus.io/) provider
+- [ ] [RedisTimeSeries](https://redis.io/docs/data-types/timeseries/) provider
 - [ ] [Datafusion](https://arrow.apache.org/datafusion/) based provider. Expected support for `postgres`, `mysql`,
   and `sqlite` as well as file based sources like `csv`, `json` and `parquet`
 
