@@ -45,6 +45,12 @@ pub enum RuntimeError {
     OptimizerError(String),
     #[error("Provider Error: {0}")] // todo: include provider name
     ProviderError(String),
+    /// The I/O operation’s timeout expired
+    #[error("{0}")]
+    Timeout(String),
+    /// Error spawning a future
+    #[error("Spawn Error: {0}")]
+    SpawnError(String),
 }
 
 impl RuntimeError {

@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use chrono::Duration;
+use std::time::Duration;
 
 use metricsql_parser::prelude::{DurationExpr, Expr, LabelFilter, Matchers};
 
@@ -38,7 +38,7 @@ impl Default for QueryParams {
             may_cache: true,
             start: 0,
             end: 0,
-            step: Duration::milliseconds(DEFAULT_STEP),
+            step: Duration::from_millis(DEFAULT_STEP as u64),
             deadline: Default::default(),
             round_digits: 100,
             required_tag_filters: vec![],
@@ -70,8 +70,8 @@ impl QueryParams {
             return Err(RuntimeError::from(msg));
         }
 
-        if self.step.num_milliseconds() <= 0 {
-            let msg = format!("BUG: step must be greater than 0; got {}", self.step);
+        if self.step.as_millis() <= 0 {
+            let msg = format!("BUG: step must be greater than 0; got {:?}", self.step);
             return Err(RuntimeError::from(msg));
         }
 
@@ -167,7 +167,7 @@ impl QueryBuilder {
 
         let timeout = self
             .timeout
-            .unwrap_or_else(|| Duration::milliseconds(TWO_DAYS_MSECS));
+            .unwrap_or_else(|| Duration::from_millis(TWO_DAYS_MSECS as u64));
 
         q.query = self.query.clone();
         q.start = start;
@@ -175,7 +175,7 @@ impl QueryBuilder {
         q.may_cache = !self.no_cache;
         q.step = self
             .step
-            .unwrap_or_else(|| Duration::milliseconds(DEFAULT_STEP));
+            .unwrap_or_else(|| Duration::from_millis(DEFAULT_STEP as u64));
         if !self.etfs.is_empty() {
             q.required_tag_filters = self.etfs.clone();
         }
@@ -201,7 +201,7 @@ pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<Query
     let ct = Timestamp::now();
     let mut start = params.start;
     let mut end = params.end;
-    let step_millis = params.step.num_milliseconds();
+    let step_millis = params.step.as_millis() as i64;
 
     let lookback_delta = get_max_lookback(context, step_millis, Some(TWO_DAYS_MSECS));
     let mut step = if step_millis == 0 {
@@ -334,7 +334,7 @@ fn export_handler(ctx: &Context, cp: CommonParams) -> RuntimeResult<QueryResults
 /// See https://prometheus.io/docs/prometheus/latest/querying/api/#range-queries
 pub fn query_range(ctx: &Context, params: &QueryParams) -> RuntimeResult<Vec<QueryResult>> {
     let ct = Timestamp::now();
-    let mut step = params.step.num_milliseconds();
+    let mut step = params.step.as_millis() as i64;
     if step <= 0 {
         step = DEFAULT_STEP;
     }
@@ -358,7 +358,7 @@ fn query_range_handler(
 ) -> RuntimeResult<Vec<QueryResult>> {
     let config = &ctx.config;
 
-    let (mut start, mut end, mut step) = (params.start, params.end, params.step.num_milliseconds());
+    let (mut start, mut end, mut step) = (params.start, params.end, params.step.as_millis() as i64);
 
     if step <= 0 {
         step = DEFAULT_STEP
@@ -387,7 +387,7 @@ fn query_range_handler(
     ec.update_from_context(ctx);
 
     let mut result = exec(ctx, &mut ec, &params.query, false)?;
-    if step < config.max_step_for_points_adjustment.num_milliseconds() {
+    if step <= 0 || (step as u64) < config.max_step_for_points_adjustment.as_millis() as u64 {
         let query_offset = get_latency_offset_milliseconds(ctx);
         if ct - query_offset < end {
             adjust_last_points(&mut result, ct - query_offset, ct + step)
@@ -439,11 +439,11 @@ fn adjust_last_points(tss: &mut [QueryResult], start: Timestamp, end: Timestamp)
 
 fn get_max_lookback(ctx: &Context, step: i64, max: Option<i64>) -> i64 {
     let config = &ctx.config;
-    let mut d = config.max_lookback.num_milliseconds();
+    let mut d = config.max_lookback.as_millis();
     if d == 0 {
-        d = config.max_staleness_interval.num_milliseconds()
+        d = config.max_staleness_interval.as_millis()
     }
-    d = max.unwrap_or(d);
+    let mut d = max.unwrap_or(d as i64);
     if config.set_lookback_to_step && step > 0 {
         d = step;
     }
@@ -496,11 +496,11 @@ fn get_duration_expr(offset: &Option<DurationExpr>) -> Cow<DurationExpr> {
 }
 
 fn get_latency_offset_milliseconds(ctx: &Context) -> i64 {
-    std::cmp::min(ctx.config.latency_offset.num_milliseconds(), 1000)
+    std::cmp::min(ctx.config.latency_offset.as_millis() as u64, 1000) as i64
 }
 
 fn validate_duration(arg_key: &str, duration: Duration, default_value: i64) -> RuntimeResult<()> {
-    let mut msecs = duration.num_milliseconds();
+    let mut msecs = duration.as_millis() as i64;
     if msecs == 0 {
         msecs = default_value
     }
@@ -524,26 +524,26 @@ where
     T: Into<Timestamp>,
     D: Into<Duration>,
 {
-    let d_max = ctx.config.max_query_duration.num_milliseconds();
+    let d_max = ctx.config.max_query_duration.as_millis() as u64;
     get_deadline_with_max_duration(duration, start_time, d_max)
 }
 
 fn get_deadline_with_max_duration<D, T>(
     candidate: Option<D>,
     start_time: T,
-    d_max: i64,
+    d_max: u64,
 ) -> RuntimeResult<Deadline>
 where
     T: Into<Timestamp>,
     D: Into<Duration>,
 {
     let mut d = if let Some(val) = candidate {
-        val.into().num_milliseconds()
+        val.into().as_millis() as u64
     } else {
         0
     };
     if d == 0 || d > d_max {
         d = d_max
     }
-    Deadline::with_start_time(start_time, Duration::milliseconds(d))
+    Deadline::with_start_time(start_time, Duration::from_millis(d))
 }

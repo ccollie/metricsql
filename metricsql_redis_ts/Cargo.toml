@@ -27,9 +27,7 @@ clap = "4.4.11"
 
 [features]
 default = ["metricsql_engine/default"]
-tokio_tp = ["metricsql_engine/tokio_tp", "rustis/tokio-runtime"]
-tokio_tp_tls = ["metricsql_engine/tokio_tp", "rustis/tokio-tls"]
-tokio_ct = ["metricsql_engine/tokio_ct", "rustis/tokio-runtime"]
-tokio_cp_tls = ["metricsql_engine/tokio_ct", "rustis/tokio-tls"]
-async-std = ["metricsql_engine/async_std", "rustis/async-std-runtime"]
-async-std-tls = ["metricsql_engine/async_std", "rustis/async-std-tls"]
+tokio_tp = ["metricsql_engine/tokio-runtime", "rustis/tokio-runtime"]
+tokio_tls = ["metricsql_engine/tokio-runtime", "rustis/tokio-tls"]
+async-std-runtime = ["metricsql_engine/async-std-runtime", "rustis/async-std-runtime"]
+async-std-tls = ["metricsql_engine/async-std-runtime", "rustis/async-std-tls"]

@@ -1,13 +1,11 @@
 use std::sync::Arc;
-
-use async_executors::SpawnHandleExt;
-use chrono::Duration;
+use std::time::Duration;
 use tracing::{span_enabled, Level};
 
-use crate::async_runtime::{create_default_handler, AsyncHandler};
 use crate::cache::rollup_result_cache::RollupResultCache;
 use crate::execution::active_queries::{ActiveQueries, ActiveQueryEntry};
 use crate::execution::parser_cache::{ParseCache, ParseCacheResult, ParseCacheValue};
+use crate::prelude::block_on_with_timeout;
 use crate::provider::{Deadline, QueryResults, SearchQuery};
 use crate::query_stats::QueryStatsTracker;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
@@ -25,7 +23,6 @@ pub struct Context {
     pub(crate) active_queries: ActiveQueries,
     pub query_stats: QueryStatsTracker,
     pub storage: Arc<dyn MetricStorageProvider>,
-    pub runtime: Arc<dyn AsyncHandler>,
 }
 
 impl Context {
@@ -39,14 +36,10 @@ impl Context {
     }
 
     pub fn search(&self, sq: SearchQuery, deadline: Deadline) -> RuntimeResult<QueryResults> {
-        // see https://greptime.com/blogs/2023-03-09-bridging-async-and-sync-rust#solve-the-problem
-        // https://github.com/tokio-rs/tokio/issues/237
         let storage = self.storage.clone();
-        futures::executor::block_on(async move {
-            self.runtime
-                .spawn_handle(async move { storage.search(sq, deadline).await })
-                .await
-        })
+        block_on_with_timeout(deadline.timeout, async move {
+            storage.search(sq, deadline).await
+        })?
     }
 
     // todo: pass in tracer
@@ -75,7 +68,6 @@ impl Context {
 
 impl Default for Context {
     fn default() -> Self {
-        let runtime_handler = create_default_handler();
         Self {
             config: Default::default(),
             parse_cache: Default::default(),
@@ -83,7 +75,6 @@ impl Default for Context {
             active_queries: ActiveQueries::new(),
             query_stats: Default::default(),
             storage: Arc::new(NullMetricStorage {}),
-            runtime: Arc::new(runtime_handler),
         }
     }
 }
@@ -190,17 +181,17 @@ impl Default for SessionConfig {
             disable_cache: false,
             trace_enabled: false,
             max_query_len: DEFAULT_MAX_QUERY_LEN,
-            latency_offset: Duration::milliseconds(DEFAULT_LATENCY_OFFSET as i64),
+            latency_offset: Duration::from_millis(DEFAULT_LATENCY_OFFSET as u64),
             max_memory_per_query: 0,
             no_stale_markers: true,
             max_points_subquery_per_timeseries: 0,
-            max_staleness_interval: Duration::milliseconds(0),
-            min_staleness_interval: Duration::milliseconds(0),
+            max_staleness_interval: Duration::from_secs(0),
+            min_staleness_interval: Duration::from_secs(0),
             max_unique_timeseries: DEFAULT_MAX_UNIQUE_TIMESERIES,
-            max_lookback: Duration::milliseconds(0),
+            max_lookback: Duration::default(),
             set_lookback_to_step: false,
-            max_step_for_points_adjustment: Duration::minutes(1),
-            max_query_duration: Duration::seconds(30),
+            max_step_for_points_adjustment: Duration::from_secs(60),
+            max_query_duration: Duration::from_secs(30), // todo: const
         }
     }
 }

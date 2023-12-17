@@ -192,7 +192,7 @@ impl EvalConfig {
         self.disable_cache = state_config.disable_cache;
         self.max_points_per_series = state_config.max_points_subquery_per_timeseries;
         self.no_stale_markers = state_config.no_stale_markers;
-        self.lookback_delta = state_config.max_lookback.num_milliseconds();
+        self.lookback_delta = state_config.max_lookback.as_millis() as i64;
         self.max_series = state_config.max_unique_timeseries;
     }
 

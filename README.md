@@ -60,6 +60,8 @@ Our dependencies may use unsafe.
 - [x] Implement basic query execution
 - [x] Implement query functions
 - [ ] Test coverage
+- [ ] WASM support
+- [ ] "Slim" mode (no tracing or query stats)
 - [ ] [Prometheus](https://prometheus.io/) provider
 - [ ] [RedisTimeSeries](https://redis.io/docs/data-types/timeseries/) provider
 - [ ] [Datafusion](https://arrow.apache.org/datafusion/) based provider. Expected support for `postgres`, `mysql`,

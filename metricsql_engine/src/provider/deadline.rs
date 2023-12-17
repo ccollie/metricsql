@@ -1,8 +1,7 @@
 use std::fmt;
 use std::fmt::Display;
 use std::ops::Add;
-
-use chrono::Duration;
+use std::time::Duration;
 
 use crate::types::{Timestamp, TimestampTrait};
 use crate::{RuntimeError, RuntimeResult};
@@ -34,19 +33,21 @@ impl Deadline {
     where
         T: Into<Timestamp>,
     {
-        let millis = timeout.num_milliseconds();
+        let millis = timeout.as_millis() as i64;
         if millis > MAX_DURATION_MSECS {
             return Err(RuntimeError::ArgumentError(format!(
-                "Timeout value too large: {timeout}",
+                "Timeout value too large: {:?}",
+                timeout
             )));
         }
         if millis < MIN_TIME_MSECS {
             return Err(RuntimeError::ArgumentError(format!(
-                "Negative timeouts are not supported. Got {timeout}",
+                "Negative timeouts are not supported. Got {:?}",
+                timeout
             )));
         }
         Ok(Deadline {
-            deadline: start_time.into().add(timeout.num_milliseconds()),
+            deadline: start_time.into().add(timeout.as_millis() as i64),
             timeout,
         })
     }
@@ -60,9 +61,9 @@ impl Deadline {
 impl Default for Deadline {
     fn default() -> Self {
         let start = Timestamp::now();
-        let timeout = Duration::seconds(10); // todo: constant
+        let timeout = Duration::from_secs(10); // todo: constant
         Deadline {
-            deadline: start.add(timeout.num_milliseconds()),
+            deadline: start.add(timeout.as_millis() as i64),
             timeout,
         }
     }
@@ -76,23 +77,23 @@ impl TryFrom<Duration> for Deadline {
     }
 }
 
-impl TryFrom<i64> for Deadline {
+impl TryFrom<u64> for Deadline {
     type Error = RuntimeError;
 
-    fn try_from(value: i64) -> Result<Self, Self::Error> {
-        let timeout = Duration::milliseconds(value);
+    fn try_from(value: u64) -> Result<Self, Self::Error> {
+        let timeout = Duration::from_secs(value);
         Deadline::new(timeout)
     }
 }
 
 impl Display for Deadline {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let start_time = self.deadline - self.timeout.num_milliseconds();
+        let start_time = self.deadline - self.timeout.as_millis() as i64;
         let elapsed = (Timestamp::now() - start_time) / 1000_i64;
         write!(
             f,
             "{:.3} seconds (elapsed {:.3} seconds);",
-            self.timeout.num_seconds(),
+            self.timeout.as_secs(),
             elapsed
         )?;
         Ok(())

@@ -205,7 +205,7 @@ impl RollupNode {
             ec.max_points_per_series,
         )?);
 
-        let min_staleness_interval = ctx.config.min_staleness_interval.num_milliseconds() as usize;
+        let min_staleness_interval = ctx.config.min_staleness_interval.as_millis() as usize;
         let (rcs, pre_funcs) = get_rollup_configs(
             self.func,
             &self.func_handler,
