@@ -7,31 +7,30 @@ Define your datasource as a trait and execute timeseries queries against your da
 ### Usage
 
 ```rust
+use std::time::Duration;
+
+#[tokio::main]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use metricsql::{Context, QueryBuilder, RedisTimeseriesProvider};
+  use chrono::{Duration, Utc};
+  use metricsql::{Context, QueryBuilder, RedisTimeseriesProvider};
 
-    // Define your async runtime adapter. In this case we use an adapter that uses the currently tokio
-    // active runtime (for example for programs using the #[tokio::main] macro. You can also use a runtime adapter 
-    // for async-std or any other async runtime.
-    let runtime = Arc::new(TokioCurrentRuntime::new()?);
+  // Define your datasource
+  let provider = Arc::new(RedisTimeseriesProvider::new());
+  // Create a Context, which will be used to provides session level config and services like caching and query stats
+  let ctx = Context::default()
+          .with_provider(provider);
 
-    // Define your datasource
-    let provider = Arc::new(RedisTimeseriesProvider::new());
-    // Create a Context, which will be used to provides session level config and services like caching and query stats
-    let ctx = Context::default()
-        .with_provider(provider);
+  let mut builder = QueryBuilder::default()
+          .start(Utc::now() - Duration::from_secs(5 * 60))
+          .end(Utc::now())
+          .step(Duration::from_secs(60))
+          .enable_tracing()
+          .query(r#"sum(rate(foo{bar="baz"}[5m])) by (job)"#);
 
-    let mut builder = QueryBuilder::default()
-        .start(Utc::now() - Duration::minutes(5))
-        .end(Utc::now())
-        .step(Duration::minutes(1))
-        .enable_tracing()
-        .query(r#"sum(rate(foo{bar="baz"}[5m])) by (job)"#);
+  let query_params = builder.build(&context)?;
 
-    let query_params = builder.build(&context)?;
-
-    // run arbitrary query against your datasource
-    let result = runtime::query_range(&context, query_params)?;
+  // run arbitrary query against your datasource
+  let result = runtime::query_range(&context, query_params)?;
 }
 ```
 
@@ -60,12 +59,13 @@ Our dependencies may use unsafe.
 - [x] Implement basic query execution
 - [x] Implement query functions
 - [ ] Test coverage
-- [ ] WASM support
 - [ ] "Slim" mode (no tracing or query stats)
 - [ ] [Prometheus](https://prometheus.io/) provider
 - [ ] [RedisTimeSeries](https://redis.io/docs/data-types/timeseries/) provider
+- [ ] WASM support
 - [ ] [Datafusion](https://arrow.apache.org/datafusion/) based provider. Expected support for `postgres`, `mysql`,
   and `sqlite` as well as file based sources like `csv`, `json` and `parquet`
+- [ ] SIMD, possibly using [newel](https://github.com/graydon/newel)
 
 ### Contributing
 
