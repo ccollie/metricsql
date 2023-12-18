@@ -532,7 +532,7 @@ pub const fn get_rollup_arg_idx_for_optimization(
     func: RollupFunction,
     arg_count: usize,
 ) -> Option<usize> {
-    // This must be kept in sync with GetRollupArgIdx()
+    // This must be kept in sync with get_rollup_arg_idx()
     use RollupFunction::*;
     match func {
         AbsentOverTime => None,
@@ -554,20 +554,24 @@ pub fn is_rollup_aggregation_over_time(func: RollupFunction) -> bool {
         return true;
     }
 
-    matches!(func, |Delta| DeltaPrometheus
-        | Deriv
-        | DerivFast
-        | IDelta
-        | IDeriv
-        | Increase
-        | IncreasePure
-        | IncreasePrometheus
-        | IRate
-        | PredictLinear
-        | Rate
-        | Resets
-        | RollupDeriv
-        | RollupDelta
-        | RollupIncrease
-        | RollupRate)
+    matches!(
+        func,
+        Delta
+            | DeltaPrometheus
+            | Deriv
+            | DerivFast
+            | IDelta
+            | IDeriv
+            | Increase
+            | IncreasePure
+            | IncreasePrometheus
+            | IRate
+            | PredictLinear
+            | Rate
+            | Resets
+            | RollupDeriv
+            | RollupDelta
+            | RollupIncrease
+            | RollupRate
+    )
 }

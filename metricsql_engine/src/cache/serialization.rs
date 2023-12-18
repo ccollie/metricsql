@@ -241,15 +241,9 @@ pub(crate) fn get_timestamp_index_bounds(
     end_ts: Timestamp,
 ) -> (usize, usize) {
     let stamps = &timestamps[0..];
-    let start_idx = match stamps.binary_search(&start_ts) {
-        Ok(idx) => idx,
-        Err(idx) => idx,
-    };
+    let start_idx = stamps.binary_search(&start_ts).unwrap_or_else(|idx| idx);
 
-    let end_idx = match stamps.binary_search(&end_ts) {
-        Ok(idx) => idx,
-        Err(idx) => idx - 1,
-    };
+    let end_idx = stamps.binary_search(&end_ts).unwrap_or_else(|idx| idx - 1);
 
     (start_idx, end_idx)
 }

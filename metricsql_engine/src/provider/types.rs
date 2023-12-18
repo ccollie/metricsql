@@ -104,7 +104,7 @@ fn filters_to_string(tfs: &[LabelFilter]) -> String {
 
 /// QueryResult is a single timeseries result.
 ///
-/// ProcessSearchQuery returns QueryResult slices.
+/// Context::search returns QueryResult slices.
 #[derive(Default, Debug, Clone, PartialEq)]
 pub struct QueryResult {
     /// The name of the metric.

@@ -113,6 +113,7 @@ impl Storage {
         None
     }
 
+    #[allow(dead_code)]
     fn clear(&mut self) {
         self.labels_hash.clear();
         self.sample_values.clear();
@@ -135,6 +136,7 @@ impl Storage {
     }
 }
 
+#[allow(dead_code)]
 impl MemoryMetricProvider {
     pub fn new() -> Self {
         Self {

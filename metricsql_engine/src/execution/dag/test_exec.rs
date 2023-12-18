@@ -1,8 +1,7 @@
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
-
-    use chrono::Duration;
+    use std::time::Duration;
 
     use crate::execution::{compile_expression, Context, EvalConfig};
     use crate::test_query_values_equal;
@@ -20,7 +19,7 @@ mod tests {
         ec.max_series = 1000;
         ec.max_points_per_series = 15000;
         ec.round_digits = 100;
-        ec.deadline = Deadline::new(Duration::minutes(1)).unwrap();
+        ec.deadline = Deadline::new(Duration::from_secs(60)).unwrap();
         let context = Context::default();
         let expr = metricsql_parser::prelude::parse(q).unwrap();
         let mut node = compile_expression(&expr).unwrap();
