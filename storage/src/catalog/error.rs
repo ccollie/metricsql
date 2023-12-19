@@ -16,8 +16,7 @@ use std::any::Any;
 
 use snafu::{Location, Snafu};
 
-use common_error::ext::ErrorExt;
-use common_error::status_code::StatusCode;
+use crate::status_code::StatusCode;
 
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub))]

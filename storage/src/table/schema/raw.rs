@@ -15,7 +15,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
-use crate::schema::{ColumnSchema, Schema, SchemaBuilder};
+use crate::table::schema::ColumnSchema;
 
 /// Struct used to serialize and deserialize [`Schema`](crate::schema::Schema).
 ///
@@ -72,8 +72,9 @@ impl From<&Schema> for RawSchema {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::data_type::ConcreteDataType;
+
+    use super::*;
 
     #[test]
     fn test_raw_convert() {

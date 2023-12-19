@@ -21,7 +21,6 @@ use datafusion::logical_expr::Expr;
 use datafusion::physical_plan::SendableRecordBatchStream;
 
 use datatypes::schema::SchemaRef;
-use store_api::storage::ScanRequest;
 
 use crate::error::{Result, UnsupportedSnafu};
 use crate::table::metadata::{FilterPushDownType, TableId, TableInfoRef, TableType};

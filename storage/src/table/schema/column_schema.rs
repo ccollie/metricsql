@@ -18,11 +18,8 @@ use arrow::datatypes::Field;
 use serde::{Deserialize, Serialize};
 use snafu::{ensure, ResultExt};
 
-use crate::data_type::{ConcreteDataType, DataType};
 use crate::error::{self, Error, Result};
-use crate::schema::constraint::ColumnDefaultConstraint;
-use crate::value::Value;
-use crate::vectors::VectorRef;
+use crate::table::ColumnDefaultConstraint;
 
 pub type Metadata = HashMap<String, String>;
 
@@ -183,9 +180,11 @@ mod tests {
 
     use arrow::datatypes::DataType as ArrowDataType;
 
-    use super::*;
+    use crate::table::ColumnDefaultConstraint;
     use crate::value::Value;
     use crate::vectors::Int32Vector;
+
+    use super::*;
 
     #[test]
     fn test_column_schema() {

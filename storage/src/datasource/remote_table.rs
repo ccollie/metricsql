@@ -3,6 +3,9 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use connectorx::destinations::arrowstream::ArrowDestination;
+use connectorx::get_arrow::get_arrow;
+use connectorx::prelude::{CXQuery, SourceConn, SourceType};
 use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::common::DataFusionError;
 use datafusion::datasource::TableProvider;
@@ -15,16 +18,14 @@ use datafusion::physical_expr::PhysicalExpr;
 use datafusion::physical_plan::memory::MemoryExec;
 use datafusion::physical_plan::projection::ProjectionExec;
 use datafusion::physical_plan::ExecutionPlan;
-use datafusion_remote_tables::filter_pushdown::{
-    quote_identifier_backticks, quote_identifier_double_quotes, MySQLFilterPushdown,
-    PostgresFilterPushdown, SQLiteFilterPushdown,
-};
 use tokio::task;
+use tracing::debug;
 
-use arrow::datatypes::SchemaRef;
-use connectorx::prelude::{get_arrow, ArrowDestination, CXQuery, SourceConn, SourceType};
-use datafusion_expr::{Expr, TableProviderFilterPushDown, TableType};
-use log::debug;
+use crate::datasource::{
+    filter_expr_to_sql, quote_identifier_backticks, quote_identifier_double_quotes,
+    MySQLFilterPushdown, PostgresFilterPushdown, SQLiteFilterPushdown,
+};
+use crate::table::metadata::TableType;
 
 // Implementation of a remote table, capable of querying Postgres, MySQL, SQLite, etc...
 pub struct RemoteTable {
@@ -150,7 +151,7 @@ impl TableProvider for RemoteTable {
         let where_clause = if filters.is_empty() {
             "".to_string()
         } else {
-            // NB: Given that all supplied filters have passed the shipabilty check individually,
+            // NB: Given that all supplied filters have passed the shippabilty check individually,
             // there should be no harm in merging them together and converting that to equivalent SQL
             let merged_filter = conjunction(filters.to_vec()).ok_or_else(|| {
                 DataFusionError::Execution(format!(

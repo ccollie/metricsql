@@ -20,7 +20,7 @@ use snafu::{ensure, OptionExt};
 use tracing::error;
 
 use crate::error::{EngineExistSnafu, EngineNotFoundSnafu, Result};
-use crate::table::engine::{TableEngineProcedureRef, TableEngineRef};
+use crate::table::engine::TableEngineRef;
 use crate::table::error::EngineNotFoundSnafu;
 
 #[async_trait::async_trait]
@@ -33,10 +33,6 @@ pub trait TableEngineManager: Send + Sync {
 
     /// closes all registered engines
     async fn close(&self) -> Result<()>;
-
-    /// returns [TableEngineProcedureRef] of specific engine `name` or
-    /// [Error::EngineNotFound](crate::error::Error::EngineNotFound) if engine not found
-    fn engine_procedure(&self, name: &str) -> Result<TableEngineProcedureRef>;
 }
 
 pub type TableEngineManagerRef = Arc<dyn TableEngineManager>;
@@ -44,7 +40,6 @@ pub type TableEngineManagerRef = Arc<dyn TableEngineManager>;
 /// Simple in-memory table engine manager
 pub struct MemoryTableEngineManager {
     pub engines: RwLock<HashMap<String, TableEngineRef>>,
-    engine_procedures: RwLock<HashMap<String, TableEngineProcedureRef>>,
 }
 
 impl MemoryTableEngineManager {
@@ -59,19 +54,7 @@ impl MemoryTableEngineManager {
         let engines = HashMap::from([(name, engine)]);
         let engines = RwLock::new(engines);
 
-        MemoryTableEngineManager {
-            engines,
-            engine_procedures: RwLock::new(HashMap::new()),
-        }
-    }
-
-    /// Attach the `engine_procedures` to the manager.
-    pub fn with_engine_procedures(
-        mut self,
-        engine_procedures: HashMap<String, TableEngineProcedureRef>,
-    ) -> Self {
-        self.engine_procedures = RwLock::new(engine_procedures);
-        self
+        MemoryTableEngineManager { engines }
     }
 
     pub fn with(engines: Vec<TableEngineRef>) -> Self {
@@ -80,10 +63,7 @@ impl MemoryTableEngineManager {
             .map(|engine| (engine.name().to_string(), engine))
             .collect::<HashMap<_, _>>();
         let engines = RwLock::new(engines);
-        MemoryTableEngineManager {
-            engines,
-            engine_procedures: RwLock::new(HashMap::new()),
-        }
+        MemoryTableEngineManager { engines }
     }
 }
 
@@ -124,20 +104,11 @@ impl TableEngineManager for MemoryTableEngineManager {
 
         Ok(())
     }
-
-    fn engine_procedure(&self, name: &str) -> Result<TableEngineProcedureRef> {
-        let engine_procedures = self.engine_procedures.read().unwrap();
-        engine_procedures
-            .get(name)
-            .cloned()
-            .context(EngineNotFoundSnafu { engine: name })
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::assert_matches::assert_matches;
-    use std::collections::HashMap;
     use std::sync::Arc;
 
     use datafusion::logical_expr::UserDefinedLogicalNode;
@@ -145,7 +116,6 @@ mod tests {
     use crate::engine::TableEngine;
     use crate::error;
     use crate::table::engine::manager::MemoryTableEngineManager;
-    use crate::table::engine::TableEngineProcedureRef;
     use crate::test_util::MockTableEngine;
 
     use super::*;
@@ -155,12 +125,6 @@ mod tests {
         let table_engine = MockTableEngine::new();
         let table_engine_ref = Arc::new(table_engine);
         let table_engine_manager = MemoryTableEngineManager::new(table_engine_ref.clone());
-
-        // Attach engine procedures.
-        let engine_procedure: TableEngineProcedureRef = table_engine_ref.clone();
-        let engine_procedures =
-            HashMap::from([(table_engine_ref.name().to_string(), engine_procedure)]);
-        let table_engine_manager = table_engine_manager.with_engine_procedures(engine_procedures);
 
         table_engine_manager
             .register_engine("yet_another", table_engine_ref.clone())

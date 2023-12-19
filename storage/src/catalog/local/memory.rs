@@ -19,6 +19,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, RwLock};
 
 use snafu::OptionExt;
+
 use table::metadata::TableId;
 use table::table::TableIdProvider;
 use table::TableRef;
@@ -26,11 +27,13 @@ use table::TableRef;
 use crate::catalog::consts::{DEFAULT_CATALOG_NAME, DEFAULT_SCHEMA_NAME, MIN_USER_TABLE_ID};
 use crate::catalog::manager::{
     CatalogManager, DeregisterSchemaRequest, DeregisterTableRequest, RegisterSchemaRequest,
-    RegisterSystemTableRequest, RegisterTableRequest, RenameTableRequest,
+    RegisterTableRequest, RenameTableRequest,
 };
 use crate::error::{
     CatalogNotFoundSnafu, Result, SchemaNotFoundSnafu, TableExistsSnafu, TableNotFoundSnafu,
 };
+use crate::table::metadata::TableId;
+use crate::table::{TableIdProvider, TableRef};
 use crate::{
     CatalogManager, DeregisterSchemaRequest, DeregisterTableRequest, RegisterSchemaRequest,
     RegisterSystemTableRequest, RegisterTableRequest,

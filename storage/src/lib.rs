@@ -13,11 +13,10 @@ extern crate tokio;
 
 mod catalog;
 mod common;
-mod connector_x;
+mod datasource;
 mod engine;
 mod error;
 mod status_code;
 mod table;
 mod udf;
 mod utils;
-mod r#object

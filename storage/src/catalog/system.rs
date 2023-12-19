@@ -22,19 +22,14 @@ use serde::{Deserialize, Serialize};
 use snafu::{ensure, OptionExt, ResultExt};
 use tracing::debug;
 
-
-use common_recordbatch::SendableRecordBatchStream;
+use crate::table::engine::{EngineContext, TableEngineRef};
+use crate::table::metadata::{TableId, TableInfoRef};
+use crate::table::{ColumnSchema, RawSchema, Result as TableResult, Table, TableRef};
 use common_time::util;
 use datatypes::prelude::{ConcreteDataType, ScalarVector, VectorRef};
 use datatypes::schema::{ColumnSchema, RawSchema, SchemaRef};
 use datatypes::vectors::{BinaryVector, TimestampMillisecondVector, UInt8Vector};
 use lib::current_time_millis;
-use crate::table::engine::{EngineContext, TableEngineRef};
-use crate::table::metadata::{TableId, TableInfoRef};
-use table::requests::{
-    CreateTableRequest, DeleteRequest, InsertRequest, OpenTableRequest, TableOptions,
-};
-use crate::table::{Result as TableResult, Table, TableRef};
 
 use crate::catalog::consts::{
     DEFAULT_CATALOG_NAME, DEFAULT_SCHEMA_NAME, INFORMATION_SCHEMA_NAME, MITO_ENGINE,
@@ -45,7 +40,6 @@ use crate::error::{
     self, CreateSystemCatalogSnafu, EmptyValueSnafu, Error, InvalidEntryTypeSnafu, InvalidKeySnafu,
     OpenSystemCatalogSnafu, Result, ValueDeserializeSnafu,
 };
-use crate::DeregisterTableRequest;
 
 pub const ENTRY_TYPE_INDEX: usize = 0;
 pub const KEY_INDEX: usize = 1;
@@ -437,13 +431,10 @@ mod tests {
     use datafusion::sql::sqlparser::ast::Expr::Value;
     use object_store::ObjectStore;
 
-    use common_recordbatch::RecordBatches;
     use common_test_util::temp_dir::{create_temp_dir, TempDir};
     use datatypes::value::Value;
-    use log_store::NoopLogStore;
     use mito::config::EngineConfig;
     use mito::engine::{MitoEngine, MITO_ENGINE};
-    use storage::compaction::noop::NoopCompactionScheduler;
     use storage::config::EngineConfig as StorageEngineConfig;
     use storage::EngineImpl;
     use table::metadata::TableType;
@@ -585,9 +576,15 @@ mod tests {
         assert_eq!(batch.num_rows(), 1);
 
         let row = batch.rows().next().unwrap();
-        let Value::UInt8(entry_type) = row[0] else { unreachable!() };
-        let Value::Binary(key) = row[1].clone() else { unreachable!() };
-        let Value::Binary(value) = row[3].clone() else { unreachable!() };
+        let Value::UInt8(entry_type) = row[0] else {
+            unreachable!()
+        };
+        let Value::Binary(key) = row[1].clone() else {
+            unreachable!()
+        };
+        let Value::Binary(value) = row[3].clone() else {
+            unreachable!()
+        };
         let entry = decode_system_catalog(Some(entry_type), Some(&*key), Some(&*value)).unwrap();
         let expected = Entry::Table(TableEntry {
             catalog_name: DEFAULT_CATALOG_NAME.to_string(),

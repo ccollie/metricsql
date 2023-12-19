@@ -22,10 +22,10 @@ use datafusion::execution::context::SessionState;
 use datafusion::logical_expr::TableProviderFilterPushDown;
 use datafusion::physical_expr::expressions::Column;
 use datafusion::physical_expr::PhysicalSortExpr;
+use datafusion::physical_plan::ExecutionPlan as DfPhysicalPlan;
 use datafusion::prelude::Expr as DfExpr;
 
 use common_query::physical_plan::DfPhysicalPlanAdapter;
-use common_query::DfPhysicalPlan;
 use common_recordbatch::OrderOption;
 use store_api::storage::ScanRequest;
 

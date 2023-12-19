@@ -12,11 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Path constants for table engines, cluster states and WAL
-/// All paths relative to data_home(file storage) or root path(S3, OSS etc).
+//! Common types.
 
-/// WAL dir for local file storage
-pub const WAL_DIR: &str = "wal/";
-
-/// Data dir for table engines
-pub const DATA_DIR: &str = "data/";
+/// Represents a sequence number of data in storage. The offset of logstore can be used
+/// as a sequence number.
+pub type SequenceNumber = u64;

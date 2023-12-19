@@ -69,9 +69,7 @@ impl LogicalTypeId {
     /// # Panics
     /// Panics if data type is not supported.
     #[cfg(any(test, feature = "test"))]
-    pub fn data_type(&self) -> crate::data_type::ConcreteDataType {
-        use crate::data_type::ConcreteDataType;
-
+    pub fn data_type(&self) -> ConcreteDataType {
         match self {
             LogicalTypeId::Null => ConcreteDataType::null_datatype(),
             LogicalTypeId::Boolean => ConcreteDataType::boolean_datatype(),

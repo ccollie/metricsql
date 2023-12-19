@@ -21,7 +21,7 @@ use datafusion::arrow::datatypes::Fields;
 use datafusion::optimizer::utils::conjunction;
 use datafusion::{
     arrow::array::{Float64Array, Int64Array, StringArray},
-    common::{OwnedTableReference, ScalarValue, TableReference},
+    common::{OwnedTableReference, ScalarValue},
     datasource::{DefaultTableSource, TableProvider},
     error::{DataFusionError, Result},
     logical_expr::{
@@ -34,13 +34,15 @@ use snafu::{ensure, OptionExt, ResultExt};
 
 use metricsql::common::{LabelFilter, LabelFilterOp, MatchOp};
 use metricsql::prelude::{Matchers, MetricExpr};
-use runtime::{Label, RangeValue, Sample};
+use runtime::{Label, RangeValue, Sample, Timestamp};
 
 use crate::error::{
-    CatalogSnafu, ColumnNotFoundSnafu, DataFusionPlanningSnafu, TableNotFoundSnafu,
+    CatalogSnafu, ColumnNotFoundSnafu, DataFusionPlanningSnafu, TableNameNotFoundSnafu,
+    TimeIndexNotFoundSnafu, UnknownTableSnafu, UnsupportedExprSnafu,
 };
 use crate::sql::extension_plan::{SeriesDivide, SeriesNormalize};
-use crate::TableContext;
+use crate::table::adapter::DfTableProviderAdapter;
+use crate::table::engine::TableReference;
 
 // https://github.com/splitgraph/seafowl/tree/main/datafusion_remote_tables
 
@@ -55,8 +57,8 @@ const FIELD_COLUMN_MATCHER: &str = "__field__";
 #[derive(Default, Debug, Clone)]
 struct PromPlannerContext {
     // query parameters
-    start: Millisecond,
-    end: Millisecond,
+    start: Timestamp,
+    end: Timestamp,
 
     // planner states
     time_index_column: Option<String>,
@@ -196,9 +198,9 @@ impl SqlDataSource {
 
         let mut df_group = table.clone().filter(self.create_date_filter(start, end)?)?;
         for mat in selector.label_filters.iter() {
-            if mat.name == timestamp_column
-                || mat.name == value_column
-                || ctx.schema.field_with_name(&mat.name).is_err()
+            if mat.label == timestamp_column
+                || mat.label == value_column
+                || ctx.schema.field_with_name(&mat.label).is_err()
             {
                 continue;
             }
@@ -281,7 +283,7 @@ impl SqlDataSource {
     /// Returns a new [Matchers] that doesn't contains metric name matcher.
     fn preprocess_label_matchers(&mut self, label_matchers: &Matchers) -> Result<Matchers> {
         let mut matchers = HashSet::new();
-        for matcher in &label_matchers.matchers.iter() {
+        for matcher in &label_matchers.iter() {
             if matcher.name == METRIC_NAME {
                 if matches!(matcher.op, MatchOp::Equal) {
                     self.ctx.table_name = Some(matcher.value.clone());
@@ -307,7 +309,7 @@ impl SqlDataSource {
             let mut result_set = HashSet::new();
             // opt-out set
             let mut reverse_set = HashSet::new();
-            for matcher in field_matchers {
+            for matcher in field_matchers.iter() {
                 match &matcher.op {
                     MatchOp::Equal => {
                         if col_set.contains(&matcher.value) {
@@ -428,8 +430,8 @@ impl SqlDataSource {
     // TODO(ruihang): ignore `MetricNameLabel` (`__name__`) matcher
     fn matcher_to_expr(&self, matcher: &LabelFilter, supports_regex: bool) -> Result<DfExpr> {
         use LabelFilterOp::*;
-        let col = DfExpr::Column(Column::from_name(matcher.name));
-        let lit = DfExpr::Literal(ScalarValue::Utf8(Some(matcher.value)));
+        let col = DfExpr::Column(Column::from_name(&matcher.label));
+        let lit = DfExpr::Literal(ScalarValue::Utf8(Some(matcher.value.clone())));
         let expr = match matcher.op {
             Equal => col.eq(lit),
             NotEqual => col.not_eq(lit),
@@ -493,7 +495,6 @@ impl SqlDataSource {
         let table_name = self.ctx.table_name.clone().unwrap();
 
         // make filter exprs
-        let range_ms = self.ctx.range.unwrap_or_default();
         let mut scan_filters = self.matchers_to_expr(label_matchers.clone())?;
         scan_filters.push(self.create_time_index_column_expr()?.gt_eq(DfExpr::Literal(
             ScalarValue::TimestampMillisecond(Some(self.ctx.start), None),

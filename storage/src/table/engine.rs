@@ -16,7 +16,6 @@ use std::fmt::{self, Display};
 use std::sync::Arc;
 
 use common_base::paths::DATA_DIR;
-use common_procedure::BoxedProcedure;
 
 use crate::error::{self, Result};
 use crate::table::metadata::TableId;
@@ -127,25 +126,6 @@ pub type TableEngineRef = Arc<dyn TableEngine>;
 /// Table engine context.
 #[derive(Debug, Clone, Default)]
 pub struct EngineContext {}
-
-/// Procedures for table engine.
-pub trait TableEngineProcedure: Send + Sync {
-    /// Returns a procedure that creates a table by specific `request`.
-    fn create_table_procedure(
-        &self,
-        ctx: &EngineContext,
-        request: CreateTableRequest,
-    ) -> Result<BoxedProcedure>;
-
-    /// Returns a procedure that drops a table by specific `request`.
-    fn drop_table_procedure(
-        &self,
-        ctx: &EngineContext,
-        request: DropTableRequest,
-    ) -> Result<BoxedProcedure>;
-}
-
-pub type TableEngineProcedureRef = Arc<dyn TableEngineProcedure>;
 
 #[inline]
 pub fn table_dir(catalog_name: &str, schema_name: &str, table_id: TableId) -> String {

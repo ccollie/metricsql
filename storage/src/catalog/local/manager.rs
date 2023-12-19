@@ -20,24 +20,11 @@ use datafusion::arrow::record_batch::RecordBatch;
 use snafu::{ensure, OptionExt, ResultExt};
 use tracing::{error, info};
 
-use common_catalog::consts::{
-    DEFAULT_CATALOG_NAME, DEFAULT_SCHEMA_NAME, INFORMATION_SCHEMA_NAME, MIN_USER_TABLE_ID,
-    MITO_ENGINE, NUMBERS_TABLE_ID, SYSTEM_CATALOG_NAME, SYSTEM_CATALOG_TABLE_ID,
-    SYSTEM_CATALOG_TABLE_NAME,
-};
-use common_catalog::format_full_table_name;
 use common_recordbatch::{RecordBatch, SendableRecordBatchStream};
 use common_telemetry::{error, info};
 use datatypes::prelude::ScalarVector;
 use datatypes::vectors::{BinaryVector, UInt8Vector};
 use futures_util::lock::Mutex;
-use table::engine::manager::TableEngineManagerRef;
-use table::engine::EngineContext;
-use table::metadata::TableId;
-use table::requests::OpenTableRequest;
-use table::table::numbers::{NumbersTable, NUMBERS_TABLE_NAME};
-use table::table::TableIdProvider;
-use table::TableRef;
 
 use crate::catalog::consts::{MIN_USER_TABLE_ID, MITO_ENGINE, SYSTEM_CATALOG_NAME};
 use crate::catalog::local::MemoryCatalogManager;
@@ -49,14 +36,17 @@ use crate::catalog::system::{
     decode_system_catalog, Entry, SystemCatalogTable, TableEntry, ENTRY_TYPE_INDEX, KEY_INDEX,
     VALUE_INDEX,
 };
-use crate::catalog::tables::SystemCatalog;
+use crate::catalog::utils::format_full_table_name;
 use crate::error::{
     self, CatalogNotFoundSnafu, IllegalManagerStateSnafu, OpenTableSnafu, ReadSystemCatalogSnafu,
     Result, SchemaExistsSnafu, SchemaNotFoundSnafu, SystemCatalogSnafu,
     SystemCatalogTypeMismatchSnafu, TableEngineNotFoundSnafu, TableExistsSnafu, TableNotExistSnafu,
     TableNotFoundSnafu, UnimplementedSnafu,
 };
-use crate::local::memory::MemoryCatalogManager;
+use crate::table::engine::EngineContext;
+use crate::table::metadata::TableId;
+use crate::table::requests::OpenTableRequest;
+use crate::table::{TableIdProvider, TableRef};
 
 /// A `CatalogManager` consists of a system catalog and a bunch of user catalogs.
 pub struct LocalCatalogManager {

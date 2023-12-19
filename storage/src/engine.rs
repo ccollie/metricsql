@@ -25,6 +25,9 @@ use datafusion::{
     prelude::{col, lit, SessionContext},
 };
 use futures::future::try_join_all;
+
+use metricsql::ast::NumberLiteral;
+use metricsql::common::MatchOp;
 use promql_parser::{
     label::MatchOp,
     parser::{
@@ -100,7 +103,7 @@ impl Engine {
                     }
                 }
             }
-            PromExpr::NumberLiteral(NumberLiteral { val }) => Value::Float(*val),
+            PromExpr::NumberLiteral(NumberLiteral { val, .. }) => Value::Float(*val),
             PromExpr::VectorSelector(v) => {
                 let data = self.eval_vector_selector(v).await?;
                 if data.is_empty() {

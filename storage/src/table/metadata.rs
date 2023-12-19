@@ -341,6 +341,7 @@ impl TryFrom<RawTableInfo> for TableInfo {
 #[cfg(test)]
 mod tests {
     use datafusion::arrow::datatypes::{Schema, SchemaBuilder};
+    use datafusion::arrow::ipc::SchemaBuilder;
 
     use common_error::ext::ErrorExt;
     use common_error::status_code::StatusCode;

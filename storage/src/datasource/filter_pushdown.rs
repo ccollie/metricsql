@@ -8,6 +8,7 @@ use datafusion::error::Result;
 use datafusion::logical_expr::{Expr, Operator};
 use datafusion::physical_plan::expressions::BinaryExpr;
 use datafusion::scalar::ScalarValue;
+use datafusion::sql::sqlparser::ast::Expr::InList;
 use itertools::Itertools;
 
 pub struct FilterPushdownVisitor<T: FilterPushdownConverter> {
@@ -289,9 +290,11 @@ pub fn filter_expr_to_sql<T: FilterPushdownConverter>(filter: &Expr, source: T) 
 mod tests {
     use datafusion::error::Result;
     use datafusion::logical_expr::Expr;
-
     use rstest::rstest;
 
+    use crate::datasource::{
+        filter_expr_to_sql, MySQLFilterPushdown, PostgresFilterPushdown, SQLiteFilterPushdown,
+    };
     use crate::table::filter_pushdown::{
         filter_expr_to_sql, MySQLFilterPushdown, PostgresFilterPushdown, SQLiteFilterPushdown,
     };
