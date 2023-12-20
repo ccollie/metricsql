@@ -7,8 +7,6 @@ Define your datasource as a trait and execute timeseries queries against your da
 ### Usage
 
 ```rust
-use std::time::Duration;
-
 #[tokio::main]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
   use chrono::{Duration, Utc};
