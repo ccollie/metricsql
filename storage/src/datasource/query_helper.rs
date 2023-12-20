@@ -287,7 +287,7 @@ impl SqlDataSource {
 
     /// Extract metric name from `__name__` matcher and set it into [PromPlannerContext].
     /// Returns a new [Matchers] that doesn't contains metric name matcher.
-    fn preprocess_label_matchers(&mut self, label_matchers: &Matchers) -> Result<Matchers> {
+    fn preprocess_label_matchers(&mut self, label_matchers: &Matchers) -> Matchers {
         let mut matchers = HashSet::new();
         for matcher in &label_matchers.iter() {
             if matcher.name == METRIC_NAME {
@@ -303,7 +303,7 @@ impl SqlDataSource {
                 let _ = matchers.insert(matcher.clone());
             }
         }
-        Ok(Matchers { matchers })
+        Matchers { matchers }
     }
 
     // filter_columns filters the columns in the table according to the field matchers.
@@ -426,7 +426,7 @@ impl SqlDataSource {
             }
 
             if result_set.is_empty() {
-                // throw error !!! "Missing seleector"
+                // throw error !!! "Missing selector"
             }
             self.ctx.table_names = result_set.iter().cloned().collect();
             Ok(result)
