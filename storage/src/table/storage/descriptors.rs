@@ -17,7 +17,8 @@ use std::fmt;
 use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
 
-use crate::storage::{ColumnDefaultConstraint, ColumnSchema, ConcreteDataType};
+use crate::datatypes::data_type::ConcreteDataType;
+use crate::datatypes::schema::ColumnSchema;
 
 /// Id of column. Unique in each region.
 pub type ColumnId = u32;
@@ -156,10 +157,6 @@ pub struct ColumnDescriptor {
     /// Is time index column, default is true.
     #[builder(default = "false")]
     is_time_index: bool,
-    /// Default constraint of column, default is None, which means no default constraint
-    /// for this column, and user must provide a value for a not-null column.
-    #[builder(default)]
-    default_constraint: Option<ColumnDefaultConstraint>,
     #[builder(default, setter(into))]
     pub comment: String,
 }
@@ -172,11 +169,6 @@ impl ColumnDescriptor {
     #[inline]
     pub fn is_time_index(&self) -> bool {
         self.is_time_index
-    }
-
-    #[inline]
-    pub fn default_constraint(&self) -> Option<&ColumnDefaultConstraint> {
-        self.default_constraint.as_ref()
     }
 
     /// Convert [ColumnDescriptor] to [ColumnSchema]. Fields not in ColumnSchema **will not**
@@ -206,18 +198,6 @@ impl ColumnDescriptorBuilder {
             }
         }
 
-        if let (Some(Some(constraint)), Some(data_type)) =
-            (&self.default_constraint, &self.data_type)
-        {
-            // The default value of unwrap_or should be same as the default value
-            // defined in the `#[builder(default = "xxx")]` attribute.
-            let is_nullable = self.is_nullable.unwrap_or(true);
-
-            constraint
-                .validate(data_type, is_nullable)
-                .map_err(|e| e.to_string())?;
-        }
-
         Ok(())
     }
 }
@@ -240,7 +220,6 @@ mod tests {
         assert_eq!("test", desc.name);
         assert_eq!(ConcreteDataType::int32_datatype(), desc.data_type);
         assert!(desc.is_nullable);
-        assert!(desc.default_constraint.is_none());
         assert!(desc.comment.is_empty());
 
         let desc = new_column_desc_builder()
@@ -250,24 +229,6 @@ mod tests {
         assert!(!desc.is_nullable());
 
         let desc = new_column_desc_builder()
-            .default_constraint(Some(ColumnDefaultConstraint::Value(Value::Null)))
-            .build()
-            .unwrap();
-        assert_eq!(
-            ColumnDefaultConstraint::Value(Value::Null),
-            *desc.default_constraint().unwrap()
-        );
-
-        let desc = new_column_desc_builder()
-            .default_constraint(Some(ColumnDefaultConstraint::Value(Value::Int32(123))))
-            .build()
-            .unwrap();
-        assert_eq!(
-            ColumnDefaultConstraint::Value(Value::Int32(123)),
-            desc.default_constraint.unwrap()
-        );
-
-        let desc = new_column_desc_builder()
             .comment("A test column")
             .build()
             .unwrap();
@@ -275,16 +236,13 @@ mod tests {
 
         assert!(new_column_desc_builder()
             .is_nullable(false)
-            .default_constraint(Some(ColumnDefaultConstraint::Value(Value::Null)))
             .build()
             .is_err());
     }
 
     #[test]
     fn test_descriptor_to_column_schema() {
-        let constraint = ColumnDefaultConstraint::Value(Value::Int32(123));
         let desc = new_column_desc_builder()
-            .default_constraint(Some(constraint.clone()))
             .is_nullable(false)
             .build()
             .unwrap();

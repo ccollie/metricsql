@@ -13,15 +13,13 @@
 // limitations under the License.
 
 use std::any::Any;
-use datafusion::arrow::datatypes;
 
+use datafusion::arrow::datatypes;
 use datafusion::arrow::error::ArrowError;
 use datafusion::error::DataFusionError;
 use snafu::{Location, Snafu};
 
-use common_error::ext::{BoxedError, ErrorExt};
-use common_error::status_code::StatusCode;
-
+use crate::common::{BoxedError, ErrorExt};
 use crate::status_code::StatusCode;
 use crate::table::metadata::TableId;
 

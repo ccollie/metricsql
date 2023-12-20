@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use datafusion::catalog::ResolvedTableReference;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -21,11 +20,13 @@ use datafusion::datasource::provider_as_source;
 use datafusion::logical_expr::TableSource;
 use snafu::{ensure, OptionExt};
 
+use crate::catalog::consts::INFORMATION_SCHEMA_NAME;
+use crate::catalog::error::{QueryAccessDeniedSnafu, TableNotExistSnafu};
 use crate::catalog::manager::CatalogManagerRef;
 use crate::catalog::utils::format_full_table_name;
-use crate::error::{Result, TableNotExistSnafu};
+use crate::error::Result;
+use crate::session::context::QueryContext;
 use crate::table::adapter::DfTableProviderAdapter;
-use crate::table::engine::TableReference;
 
 pub struct DfTableSourceProvider {
     catalog_manager: CatalogManagerRef,
@@ -119,8 +120,6 @@ impl DfTableSourceProvider {
 #[cfg(test)]
 mod tests {
     use std::borrow::Cow;
-
-    use session::context::QueryContext;
 
     use crate::catalog::local::MemoryCatalogManager;
     use crate::table::engine::TableReference;

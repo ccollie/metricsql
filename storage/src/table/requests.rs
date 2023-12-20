@@ -15,14 +15,13 @@
 //! Table and TableEngine requests
 
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use common_base::readable_size::ReadableSize;
-use common_time::range::TimestampRange;
-use datatypes::prelude::VectorRef;
-
+use crate::common::ReadableSize;
+use crate::datatypes::vectors::VectorRef;
 use crate::error;
 use crate::table::engine::TableReference;
 use crate::table::error::ParseTableOptionSnafu;
@@ -63,6 +62,14 @@ impl CreateTableRequest {
             table: &self.table_name,
         }
     }
+}
+
+#[derive(Debug)]
+pub struct InsertRequest {
+    pub catalog_name: String,
+    pub schema_name: String,
+    pub table_name: String,
+    pub columns_values: HashMap<String, VectorRef>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -188,35 +195,6 @@ impl CloseTableRequest {
             table: &self.table_name,
         }
     }
-}
-
-#[derive(Debug)]
-pub enum CopyDirection {
-    Export,
-    Import,
-}
-
-/// Copy table request
-#[derive(Debug)]
-pub struct CopyTableRequest {
-    pub catalog_name: String,
-    pub schema_name: String,
-    pub table_name: String,
-    pub location: String,
-    pub with: HashMap<String, String>,
-    pub connection: HashMap<String, String>,
-    pub pattern: Option<String>,
-    pub direction: CopyDirection,
-    pub timestamp_range: Option<TimestampRange>,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct FlushTableRequest {
-    pub catalog_name: String,
-    pub schema_name: String,
-    pub table_name: Option<String>,
-    /// Wait until the flush is done.
-    pub wait: Option<bool>,
 }
 
 #[macro_export]

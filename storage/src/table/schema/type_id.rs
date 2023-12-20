@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::datatypes::data_type::ConcreteDataType;
+
 /// Unique identifier for logical data type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LogicalTypeId {

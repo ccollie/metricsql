@@ -19,9 +19,9 @@ use async_trait::async_trait;
 use snafu::{ensure, OptionExt};
 use tracing::error;
 
-use crate::error::{EngineExistSnafu, EngineNotFoundSnafu, Result};
+use crate::error::Result;
 use crate::table::engine::TableEngineRef;
-use crate::table::error::EngineNotFoundSnafu;
+use crate::table::error::{EngineExistSnafu, EngineNotFoundSnafu};
 
 #[async_trait::async_trait]
 pub trait TableEngineManager: Send + Sync {
@@ -113,7 +113,6 @@ mod tests {
 
     use datafusion::logical_expr::UserDefinedLogicalNode;
 
-    use crate::engine::TableEngine;
     use crate::error;
     use crate::table::engine::manager::MemoryTableEngineManager;
     use crate::test_util::MockTableEngine;
@@ -140,7 +139,7 @@ mod tests {
 
         let missing = table_engine_manager.engine("not_exists");
 
-        assert_matches!(missing.err().unwrap(), error::Error::EngineNotFound { .. });
+        assert_matches!(missing.err().unwrap(), EngineNotFound { .. });
 
         assert!(table_engine_manager
             .engine_procedure(table_engine_ref.name())

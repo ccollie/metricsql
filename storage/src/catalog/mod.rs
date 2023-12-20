@@ -17,5 +17,5 @@ mod error;
 pub mod local;
 pub mod manager;
 pub mod system;
-mod table_source_provider;
+pub mod table_source_provider;
 pub mod utils;

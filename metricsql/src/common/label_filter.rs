@@ -332,6 +332,10 @@ impl Matchers {
     pub fn iter(&self) -> impl Iterator<Item = &LabelFilter> {
         self.0.iter()
     }
+
+    pub fn as_slice(&self) -> &[LabelFilter] {
+        self.0.as_slice()
+    }
 }
 
 impl fmt::Display for Matchers {

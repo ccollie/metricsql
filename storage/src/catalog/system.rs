@@ -22,24 +22,25 @@ use serde::{Deserialize, Serialize};
 use snafu::{ensure, OptionExt, ResultExt};
 use tracing::debug;
 
-use crate::table::engine::{EngineContext, TableEngineRef};
-use crate::table::metadata::{TableId, TableInfoRef};
-use crate::table::{ColumnSchema, RawSchema, Result as TableResult, Table, TableRef};
 use common_time::util;
-use datatypes::prelude::{ConcreteDataType, ScalarVector, VectorRef};
-use datatypes::schema::{ColumnSchema, RawSchema, SchemaRef};
-use datatypes::vectors::{BinaryVector, TimestampMillisecondVector, UInt8Vector};
 use lib::current_time_millis;
 
 use crate::catalog::consts::{
     DEFAULT_CATALOG_NAME, DEFAULT_SCHEMA_NAME, INFORMATION_SCHEMA_NAME, MITO_ENGINE,
     SYSTEM_CATALOG_NAME, SYSTEM_CATALOG_TABLE_ID, SYSTEM_CATALOG_TABLE_NAME,
 };
-use crate::catalog::manager::{CreateTableRequest, DeregisterTableRequest};
-use crate::error::{
-    self, CreateSystemCatalogSnafu, EmptyValueSnafu, Error, InvalidEntryTypeSnafu, InvalidKeySnafu,
-    OpenSystemCatalogSnafu, Result, ValueDeserializeSnafu,
+use crate::catalog::error::{
+    CreateSystemCatalogSnafu, InvalidEntryTypeSnafu, InvalidKeySnafu, OpenSystemCatalogSnafu,
+    SystemCatalogTableScanSnafu, ValueDeserializeSnafu,
 };
+use crate::catalog::manager::DeregisterTableRequest;
+use crate::datatypes::data_type::ConcreteDataType;
+use crate::datatypes::vectors::BinaryVector;
+use crate::error::{Error, Result};
+use crate::table::engine::{EngineContext, TableEngineRef};
+use crate::table::metadata::{TableId, TableInfoRef};
+use crate::table::requests::{CreateTableRequest, InsertRequest, OpenTableRequest, TableOptions};
+use crate::table::{ColumnSchema, RawSchema, Result as TableResult, Table, TableRef};
 
 pub const ENTRY_TYPE_INDEX: usize = 0;
 pub const KEY_INDEX: usize = 1;
@@ -70,10 +71,6 @@ impl Table for SystemCatalogTable {
         self.0.table_info()
     }
 
-    async fn delete(&self, request: DeleteRequest) -> TableResult<usize> {
-        self.0.delete(request).await
-    }
-
     fn statistics(&self) -> Option<table::stats::TableStatistics> {
         self.0.statistics()
     }
@@ -86,7 +83,6 @@ impl SystemCatalogTable {
             schema_name: INFORMATION_SCHEMA_NAME.to_string(),
             table_name: SYSTEM_CATALOG_TABLE_NAME.to_string(),
             table_id: SYSTEM_CATALOG_TABLE_ID,
-            region_numbers: vec![0],
         };
         let schema = build_system_catalog_schema();
         let ctx = EngineContext::default();
@@ -133,7 +129,7 @@ impl SystemCatalogTable {
         let stream = self
             .scan_to_stream(scan_req)
             .await
-            .context(error::SystemCatalogTableScanSnafu)?;
+            .context(SystemCatalogTableScanSnafu)?;
         Ok(stream)
     }
 }
@@ -435,10 +431,6 @@ mod tests {
     use datatypes::value::Value;
     use mito::config::EngineConfig;
     use mito::engine::{MitoEngine, MITO_ENGINE};
-    use storage::config::EngineConfig as StorageEngineConfig;
-    use storage::EngineImpl;
-    use table::metadata::TableType;
-    use table::metadata::TableType::Base;
 
     use crate::catalog::consts::{DEFAULT_CATALOG_NAME, DEFAULT_SCHEMA_NAME};
     use crate::catalog::manager::DeregisterTableRequest;

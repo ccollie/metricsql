@@ -16,6 +16,8 @@ datafusion = "32.0.0"
 datafusion-common = "32.0.0"
 datafusion-expr = "32.0.0"
 derive_builder = "0.11"
+humantime = "2.1"
+humantime-serde = "1.1"
 futures = "0.3"
 itertools = { workspace = true }
 lib = { path = "../lib" }
@@ -34,6 +36,8 @@ tokio = "1"
 tracing = { workspace = true }
 xxhash-rust = { workspace = true }
 ahash = "0.7.7"
+arc-swap = "1.6.0"
+toml = { version = "0.8.8", features = [] }
 
 [lib]
 name = "storage"

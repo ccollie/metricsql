@@ -27,6 +27,7 @@ pub const SYSTEM_CATALOG_TABLE_ID: u32 = 0;
 pub const SCRIPTS_TABLE_ID: u32 = 1;
 /// numbers table id
 pub const NUMBERS_TABLE_ID: u32 = 2;
+pub const NUMBERS_TABLE_NAME: &str = "numbers";
 
 pub const MITO_ENGINE: &str = "mito";
 pub const DB_ENGINE: &str = "db";

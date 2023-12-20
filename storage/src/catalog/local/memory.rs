@@ -20,24 +20,15 @@ use std::sync::{Arc, RwLock};
 
 use snafu::OptionExt;
 
-use table::metadata::TableId;
-use table::table::TableIdProvider;
-use table::TableRef;
-
 use crate::catalog::consts::{DEFAULT_CATALOG_NAME, DEFAULT_SCHEMA_NAME, MIN_USER_TABLE_ID};
+use crate::catalog::error::{CatalogNotFoundSnafu, SchemaNotFoundSnafu, TableExistsSnafu};
 use crate::catalog::manager::{
     CatalogManager, DeregisterSchemaRequest, DeregisterTableRequest, RegisterSchemaRequest,
     RegisterTableRequest, RenameTableRequest,
 };
-use crate::error::{
-    CatalogNotFoundSnafu, Result, SchemaNotFoundSnafu, TableExistsSnafu, TableNotFoundSnafu,
-};
+use crate::error::Result;
 use crate::table::metadata::TableId;
 use crate::table::{TableIdProvider, TableRef};
-use crate::{
-    CatalogManager, DeregisterSchemaRequest, DeregisterTableRequest, RegisterSchemaRequest,
-    RegisterSystemTableRequest, RegisterTableRequest,
-};
 
 type SchemaEntries = HashMap<String, HashMap<String, TableRef>>;
 
@@ -301,12 +292,9 @@ pub fn new_memory_catalog_manager() -> Result<Arc<MemoryCatalogManager>> {
 
 #[cfg(test)]
 mod tests {
-    use common_catalog::consts::*;
     use common_error::ext::ErrorExt;
-    use common_error::status_code::StatusCode;
-    use table::table::numbers::{NumbersTable, NUMBERS_TABLE_NAME};
 
-    use crate::catalog::consts::NUMBERS_TABLE_ID;
+    use crate::catalog::consts::{NUMBERS_TABLE_ID, NUMBERS_TABLE_NAME};
 
     use super::*;
 

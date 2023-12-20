@@ -22,12 +22,13 @@ use std::sync::Arc;
 use snafu::ResultExt;
 use tracing::info;
 
+use crate::catalog::error::CreateTableSnafu;
 use crate::catalog::utils::format_full_table_name;
-use crate::error::{CreateTableSnafu, Result};
+use crate::error::Result;
 use crate::table::engine::{EngineContext, TableEngineRef};
 use crate::table::metadata::TableId;
 use crate::table::requests::CreateTableRequest;
-use crate::table::{RawSchema, TableRef};
+use crate::table::TableRef;
 
 #[async_trait::async_trait]
 pub trait CatalogManager: Send + Sync {
@@ -118,19 +119,6 @@ impl Debug for RegisterTableRequest {
             .field("table", &self.table.table_info())
             .finish()
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct CreateTableRequest {
-    pub catalog_name: String,
-    pub schema_name: String,
-    pub table_name: String,
-    pub id: TableId,
-    pub engine: String,
-    pub create_if_not_exists: bool,
-    pub desc: Option<String>,
-    pub schema: RawSchema,
-    pub primary_key_indices: Vec<usize>,
 }
 
 #[derive(Debug, Clone)]

@@ -25,9 +25,7 @@ use datafusion::physical_expr::PhysicalSortExpr;
 use datafusion::physical_plan::ExecutionPlan as DfPhysicalPlan;
 use datafusion::prelude::Expr as DfExpr;
 
-use common_query::physical_plan::DfPhysicalPlanAdapter;
 use common_recordbatch::OrderOption;
-use store_api::storage::ScanRequest;
 
 use crate::table::metadata::TableType;
 use crate::table::table::TableRef;

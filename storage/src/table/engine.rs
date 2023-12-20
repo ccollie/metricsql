@@ -15,9 +15,8 @@
 use std::fmt::{self, Display};
 use std::sync::Arc;
 
-use common_base::paths::DATA_DIR;
-
-use crate::error::{self, Result};
+use crate::error::Result;
+use crate::table::error::UnsupportedSnafu;
 use crate::table::metadata::TableId;
 use crate::table::requests::{
     CloseTableRequest, CreateTableRequest, DropTableRequest, OpenTableRequest,
@@ -111,7 +110,7 @@ pub trait TableEngine: Send + Sync {
         _ctx: &EngineContext,
         _request: CloseTableRequest,
     ) -> Result<CloseTableResult> {
-        error::UnsupportedSnafu {
+        UnsupportedSnafu {
             operation: "close_table",
         }
         .fail()?

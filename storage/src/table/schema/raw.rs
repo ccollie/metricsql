@@ -14,6 +14,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::datatypes::schema::{Schema, SchemaBuilder};
 use crate::error::{Error, Result};
 use crate::table::schema::ColumnSchema;
 
@@ -72,7 +73,7 @@ impl From<&Schema> for RawSchema {
 
 #[cfg(test)]
 mod tests {
-    use crate::data_type::ConcreteDataType;
+    use crate::datatypes::data_type::ConcreteDataType;
 
     use super::*;
 

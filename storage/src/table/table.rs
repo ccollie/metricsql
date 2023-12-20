@@ -20,9 +20,7 @@ use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::logical_expr::Expr;
 use datafusion::physical_plan::SendableRecordBatchStream;
 
-use datatypes::schema::SchemaRef;
-
-use crate::error::{Result, UnsupportedSnafu};
+use crate::error::Result;
 use crate::table::metadata::{FilterPushDownType, TableId, TableInfoRef, TableType};
 
 /// Table abstraction.
@@ -48,16 +46,6 @@ pub trait Table: Send + Sync {
     /// to optimise data retrieval.
     fn supports_filters_pushdown(&self, filters: &[&Expr]) -> Result<Vec<FilterPushDownType>> {
         Ok(vec![FilterPushDownType::Unsupported; filters.len()])
-    }
-
-    /// Flush table.
-    ///
-    /// Options:
-    /// - region_number: specify region to flush.
-    /// - wait: Whether to wait until flush is done.
-    async fn flush(&self, wait: Option<bool>) -> Result<()> {
-        let _ = wait;
-        UnsupportedSnafu { operation: "FLUSH" }.fail()?
     }
 
     /// Close the table.

@@ -13,8 +13,7 @@
 // limitations under the License.
 
 //! Constants.
-
-use crate::storage::descriptors::ColumnId;
+use crate::table::storage::descriptors::ColumnId;
 
 // ---------- Reserved column ids ----------------------------------------------
 

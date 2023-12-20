@@ -13,17 +13,20 @@
 // limitations under the License.
 
 use arrow::datatypes::{DataType as ArrowDataType, Date32Type};
-use common_time::Date;
+use datafusion::parquet::data_type::DataType;
 use serde::{Deserialize, Serialize};
 use snafu::OptionExt;
 
-use crate::data_type::{ConcreteDataType, DataType};
-use crate::error::{self, Result};
+use common_time::Date;
+
+use crate::datatypes::data_type::ConcreteDataType;
+use crate::datatypes::error::CastTypeSnafu;
+use crate::datatypes::type_id::LogicalTypeId;
+use crate::datatypes::types::LogicalPrimitiveType;
+use crate::datatypes::vectors::{DateVector, DateVectorBuilder, Vector};
+use crate::error::Result;
 use crate::scalars::ScalarVectorBuilder;
-use crate::type_id::LogicalTypeId;
-use crate::types::LogicalPrimitiveType;
 use crate::value::{Value, ValueRef};
-use crate::vectors::{DateVector, DateVectorBuilder, MutableVector, Vector};
 
 /// Data type for Date (YYYY-MM-DD).
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -73,7 +76,7 @@ impl LogicalPrimitiveType for DateType {
         vector
             .as_any()
             .downcast_ref::<DateVector>()
-            .with_context(|| error::CastTypeSnafu {
+            .with_context(|| CastTypeSnafu {
                 msg: format!("Failed to cast {} to DateVector", vector.vector_type_name(),),
             })
     }
@@ -82,7 +85,7 @@ impl LogicalPrimitiveType for DateType {
         match value {
             ValueRef::Null => Ok(None),
             ValueRef::Date(v) => Ok(Some(v)),
-            other => error::CastTypeSnafu {
+            other => CastTypeSnafu {
                 msg: format!("Failed to cast value {other:?} to Date"),
             }
             .fail(),

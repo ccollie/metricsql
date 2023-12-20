@@ -23,10 +23,10 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use snafu::ResultExt;
 
-pub use datatypes::error::{Error as ConvertError, Result as ConvertResult};
-
 use crate::catalog::consts::{DEFAULT_CATALOG_NAME, DEFAULT_SCHEMA_NAME};
+pub use crate::datatypes::error::{Error as ConvertError, Result as ConvertResult};
 use crate::table::requests::TableOptions;
+use crate::table::RawSchema;
 
 // use datatypes::schema::{ColumnSchema, RawSchema, Schema, SchemaBuilder, SchemaRef};
 
@@ -102,6 +102,8 @@ pub struct TableMeta {
     pub primary_key_indices: Vec<usize>,
     #[builder(default = "self.default_value_indices()?")]
     pub value_indices: Vec<usize>,
+    /// The indices of columns to return as tags in query responses
+    pub tag_column_indices: Option<Vec<usize>>,
     #[builder(default, setter(into))]
     pub engine: String,
     /// Options for table engine.
@@ -157,6 +159,20 @@ impl TableMeta {
             .enumerate()
             .filter(|(i, cs)| !primary_key_indices.contains(i) && !cs.is_time_index())
             .map(|(_, cs)| &cs.name)
+    }
+
+    pub fn tag_column_names(&self) -> impl Iterator<Item = &String> {
+        let columns_schemas = &self.schema.column_schemas();
+        if let Some(tag_column_indices) = &self.tag_column_indices {
+            tag_column_indices
+                .iter()
+                .map(move |idx| &columns_schemas[*idx].name)
+        } else {
+            let columns_schemas = &self.schema.column_schemas();
+            self.primary_key_indices
+                .iter()
+                .map(move |idx| &columns_schemas[*idx].name)
+        }
     }
 
     fn new_meta_builder(&self) -> TableMetaBuilder {
@@ -248,6 +264,7 @@ pub struct RawTableMeta {
     pub schema: RawSchema,
     pub primary_key_indices: Vec<usize>,
     pub value_indices: Vec<usize>,
+    pub tag_column_indices: Option<Vec<usize>>,
     pub engine: String,
     pub engine_options: HashMap<String, String>,
     pub options: TableOptions,
@@ -262,6 +279,7 @@ impl From<TableMeta> for RawTableMeta {
             schema: RawSchema::from(&*meta.schema),
             primary_key_indices: meta.primary_key_indices,
             value_indices: meta.value_indices,
+            tag_column_indices: meta.tag_column_indices,
             engine: meta.engine,
             engine_options: meta.engine_options,
             options: meta.options,
@@ -280,6 +298,7 @@ impl TryFrom<RawTableMeta> for TableMeta {
             schema: Arc::new(Schema::try_from(raw.schema)?),
             primary_key_indices: raw.primary_key_indices,
             value_indices: raw.value_indices,
+            tag_column_indices: raw.tag_column_indices,
             engine: raw.engine,
             engine_options: raw.engine_options,
             options: raw.options,
@@ -341,12 +360,9 @@ impl TryFrom<RawTableInfo> for TableInfo {
 #[cfg(test)]
 mod tests {
     use datafusion::arrow::datatypes::{Schema, SchemaBuilder};
-    use datafusion::arrow::ipc::SchemaBuilder;
 
-    use common_error::ext::ErrorExt;
-    use common_error::status_code::StatusCode;
-    use datatypes::data_type::ConcreteDataType;
-    use datatypes::schema::{ColumnSchema, Schema, SchemaBuilder};
+    use crate::datatypes::data_type::ConcreteDataType;
+    use crate::table::ColumnSchema;
 
     use super::*;
 
@@ -457,7 +473,7 @@ mod tests {
         let column_schema = ColumnSchema::new("col1", ConcreteDataType::int32_datatype(), true);
         let desc = meta.alloc_new_column("test_table", &column_schema).unwrap();
 
-        assert_eq!(4, meta.next_column_id);
+        assert_eq!(4, meta.xnext_column_id);
         assert_eq!(column_schema.name, desc.name);
     }
 

@@ -22,11 +22,15 @@ use tracing::{error, info};
 
 use common_recordbatch::{RecordBatch, SendableRecordBatchStream};
 use common_telemetry::{error, info};
-use datatypes::prelude::ScalarVector;
-use datatypes::vectors::{BinaryVector, UInt8Vector};
 use futures_util::lock::Mutex;
 
 use crate::catalog::consts::{MIN_USER_TABLE_ID, MITO_ENGINE, SYSTEM_CATALOG_NAME};
+use crate::catalog::error::Error::SystemCatalog;
+use crate::catalog::error::{
+    CatalogNotFoundSnafu, OpenTableSnafu, SchemaExistsSnafu, SchemaNotFoundSnafu,
+    SystemCatalogSnafu, SystemCatalogTypeMismatchSnafu, TableEngineNotFoundSnafu, TableExistsSnafu,
+    TableNotFoundSnafu, UnimplementedSnafu,
+};
 use crate::catalog::local::MemoryCatalogManager;
 use crate::catalog::manager::{
     handle_system_table_request, CatalogManager, DeregisterSchemaRequest, DeregisterTableRequest,
@@ -37,12 +41,8 @@ use crate::catalog::system::{
     VALUE_INDEX,
 };
 use crate::catalog::utils::format_full_table_name;
-use crate::error::{
-    self, CatalogNotFoundSnafu, IllegalManagerStateSnafu, OpenTableSnafu, ReadSystemCatalogSnafu,
-    Result, SchemaExistsSnafu, SchemaNotFoundSnafu, SystemCatalogSnafu,
-    SystemCatalogTypeMismatchSnafu, TableEngineNotFoundSnafu, TableExistsSnafu, TableNotExistSnafu,
-    TableNotFoundSnafu, UnimplementedSnafu,
-};
+use crate::datatypes::vectors::{BinaryVector, UInt8Vector};
+use crate::error::Result;
 use crate::table::engine::EngineContext;
 use crate::table::metadata::TableId;
 use crate::table::requests::OpenTableRequest;
@@ -66,7 +66,7 @@ impl LocalCatalogManager {
                 engine_name: MITO_ENGINE,
             })?;
         let table = SystemCatalogTable::new(engine.clone()).await?;
-        let memory_catalog_manager = crate::local::memory::new_memory_catalog_manager()?;
+        let memory_catalog_manager = super::memory::new_memory_catalog_manager()?;
         let system_catalog = Arc::new(SystemCatalog::new(table));
         Ok(Self {
             catalogs: memory_catalog_manager,
