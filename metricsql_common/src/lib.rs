@@ -10,17 +10,17 @@ pub mod atomic_counter;
 pub mod bytes_util;
 pub mod duration;
 pub mod fast_cache;
-pub mod no_hash;
+pub mod hash;
 pub mod pool;
-pub mod time;
 mod regex_util;
+pub mod time;
 
 pub mod prelude {
     pub use crate::atomic_counter::*;
     pub use crate::bytes_util::*;
     pub use crate::duration::*;
     pub use crate::fast_cache::*;
-    pub use crate::no_hash::*;
+    pub use crate::hash::*;
     pub use crate::pool::*;
     pub use crate::time::*;
 }

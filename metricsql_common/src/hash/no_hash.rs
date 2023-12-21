@@ -21,7 +21,7 @@ use core::{
 /// See [`IsEnabled`] for use with custom types.
 ///
 /// ```
-/// use metricsql_common::no_hash::IntMap;
+/// use metricsql_common::hash::IntMap;
 ///
 /// let mut m: IntMap<u32, bool> = IntMap::default();
 ///
@@ -40,7 +40,7 @@ pub type IntMap<K, V> = std::collections::HashMap<K, V, BuildNoHashHasher<K>>;
 /// See [`IsEnabled`] for use with custom types.
 ///
 /// ```
-/// use metricsql_common::no_hash::IntSet;
+/// use metricsql_common::hash::IntSet;
 ///
 /// let mut m = IntSet::default();
 ///
@@ -92,7 +92,7 @@ pub type BuildNoHashHasher<T> = BuildHasherDefault<NoHashHasher<T>>;
 ///
 /// ``` rust
 /// use std::{collections::HashMap, hash::BuildHasherDefault};
-/// use metricsql_common::no_hash::NoHashHasher;
+/// use metricsql_common::hash::NoHashHasher;
 ///
 /// let mut m: HashMap::<u8, char, BuildHasherDefault<NoHashHasher<u8>>> =
 ///     HashMap::with_capacity_and_hasher(2, BuildHasherDefault::default());
@@ -166,7 +166,7 @@ impl<T> Copy for NoHashHasher<T> {}
 /// # Example
 ///
 /// ```
-/// use metricsql_common::no_hash::{IsEnabled, IntMap};
+/// use metricsql_common::hash::{IsEnabled, IntMap};
 ///
 /// #[derive(PartialEq, Eq)]
 /// struct SomeType(u32);
