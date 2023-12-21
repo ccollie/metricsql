@@ -44,10 +44,10 @@ impl<R: Clone> StringTransformCache<R> {
             last_cleanup_time: current_time_millis(),
             map: HashMap::new(),
         };
-        return Self {
+        Self {
             inner: Mutex::new(inner),
             transform_func,
-        };
+        }
     }
 
     /// Match applies transform to s and returns the result.
@@ -88,7 +88,7 @@ impl<R: Clone> StringTransformCache<R> {
             inner.map.retain(|_k, v| v.last_access_time >= deadline);
         }
 
-        return value;
+        value
     }
 }
 

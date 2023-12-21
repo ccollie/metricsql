@@ -178,14 +178,14 @@ fn dot_star(_: &str, _: &str) -> bool {
 
 // .+
 fn dot_plus(_: &str, candidate: &str) -> bool {
-    candidate.len() > 0
+    !candidate.is_empty()
 }
 
 // prefix + '.*'
 #[allow(dead_code)]
 fn prefix_dot_star(prefix: &str, candidate: &str) -> bool {
     // Fast path - the pr contains "prefix.*"
-    return candidate.starts_with(prefix);
+    candidate.starts_with(prefix)
 }
 
 #[allow(dead_code)]

@@ -342,7 +342,7 @@ impl VectorMatchCardinality {
 
     pub fn labels(&self) -> Option<&Labels> {
         match self {
-            VectorMatchCardinality::ManyToOne(labels) => Some(labels),
+            VectorMatchCardinality::ManyToOne(labels) |
             VectorMatchCardinality::OneToMany(labels) => Some(labels),
             _ => None,
         }
@@ -564,10 +564,7 @@ impl DurationExpr {
     }
 
     pub fn requires_step(&self) -> bool {
-        match self {
-            DurationExpr::Millis(_) => false,
-            DurationExpr::StepValue(_) => true,
-        }
+        matches!(self, DurationExpr::StepValue(_))
     }
 
     /// Duration returns the duration from de in milliseconds.

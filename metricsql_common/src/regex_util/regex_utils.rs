@@ -14,7 +14,7 @@ const MAX_OR_VALUES: usize = 16;
 /// remove_start_end_anchors removes '^' at the start of expr and '$' at the end of the expr.
 pub fn remove_start_end_anchors(expr: &str) -> &str {
     let mut cursor = &expr[..];
-    while let Some(t) = cursor.strip_prefix("^") {
+    while let Some(t) = cursor.strip_prefix('^') {
         cursor = t;
     }
     while cursor.ends_with("$") && !cursor.ends_with("\\$") {
@@ -61,7 +61,7 @@ pub fn get_or_values(expr: &str) -> Vec<String> {
                     *or_value = format!("{prefix}{or_value}")
                 }
             }
-            return or_values;
+            or_values
         }
         Err(err) => {
             panic!(
@@ -89,9 +89,10 @@ fn get_or_values_ext(sre: &Hir) -> Option<Vec<String>> {
         Empty => Some(vec!["".to_string()]),
         Capture(cap) => get_or_values_ext(cap.sub.as_ref()),
         Literal(literal) => {
-            return match String::from_utf8(literal.0.to_vec()) {
-                Ok(s) => Some(vec![s]),
-                Err(_) => None,
+            if let Ok(s) = String::from_utf8(literal.0.to_vec()) {
+                Some(vec![s])
+            } else {
+                None
             }
         }
         Alternation(alt) => {
@@ -107,7 +108,7 @@ fn get_or_values_ext(sre: &Hir) -> Option<Vec<String>> {
                     return None;
                 }
             }
-            return Some(a);
+            Some(a)
         }
         Concat(concat) => {
             if concat.is_empty() {
@@ -137,14 +138,15 @@ fn get_or_values_ext(sre: &Hir) -> Option<Vec<String>> {
                     a.push(format!("{prefix}{suffix}"));
                 }
             }
-            return Some(a);
+            Some(a)
         }
         Class(class) => {
             if let Some(literal) = class.literal() {
-                return match String::from_utf8(literal.to_vec()) {
-                    Ok(s) => Some(vec![s]),
-                    Err(_) => None,
-                };
+                return if let Ok(s) = String::from_utf8(literal.to_vec()) {
+                    Some(vec![s])
+                } else {
+                    None
+                }
             }
 
             let mut a = Vec::with_capacity(32);
@@ -265,7 +267,7 @@ pub fn simplify(expr: &str) -> Result<(String, String), RegexError> {
     s = s.replace("(?:)", "");
     s = s.replace("(?-s:.)", ".");
     s = s.replace("(?-m:$)", "$");
-    return Ok((prefix, s));
+    Ok((prefix, s))
 }
 
 fn simplify_regexp(sre: Hir, has_prefix: bool) -> Result<Hir, RegexError> {
@@ -303,7 +305,7 @@ fn simplify_regexp_ext(sre: &Hir, has_prefix: bool, has_suffix: bool) -> Hir {
         }
         HirKind::Alternation(alternate) => {
             // avoid clone if its all literal
-            if alternate.iter().all(|hir| is_literal(hir)) {
+            if alternate.iter().all(is_literal) {
                 return sre.clone();
             }
             // Do not remove empty captures from Alternation, since this may break regexp.
