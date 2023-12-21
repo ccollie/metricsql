@@ -15,7 +15,6 @@
 use table::metadata::TableVersion;
 
 pub mod immutable;
-mod procedure;
 #[cfg(test)]
 mod tests;
 

@@ -48,11 +48,6 @@ use crate::table::TableRef;
 
 // https://github.com/splitgraph/seafowl/tree/main/datafusion_remote_tables
 
-const DEFAULT_TIME_INDEX_COLUMN: &str = "time";
-
-/// default value column name for empty metric
-const DEFAULT_FIELD_COLUMN: &str = "value";
-
 /// Special modifier to project field columns under multi-field mode
 const FIELD_COLUMN_MATCHER: &str = "__field__";
 const METRIC_NAME: &str = "__name__";
