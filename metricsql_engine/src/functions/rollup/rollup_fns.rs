@@ -37,6 +37,8 @@ use crate::QueryValue;
 
 const NAN: f64 = f64::NAN;
 
+const ROLLUP_LAST: fn(&RollupFuncArg) -> f64 = rollup_default;
+
 pub(super) fn get_rollup_fn(f: &RollupFunction) -> RuntimeResult<RollupFunc> {
     use RollupFunction::*;
 
@@ -63,7 +65,7 @@ pub(super) fn get_rollup_fn(f: &RollupFunction) -> RuntimeResult<RollupFunc> {
         Integrate => rollup_integrate,
         IRate => rollup_ideriv,
         Lag => rollup_lag,
-        LastOverTime => rollup_last,
+        LastOverTime => ROLLUP_LAST,
         Lifetime => rollup_lifetime,
         MaxOverTime => rollup_max,
         MinOverTime => rollup_min,
@@ -143,7 +145,7 @@ make_factory!(new_rollup_histogram_over_time, rollup_histogram);
 make_factory!(new_rollup_increase_pure, rollup_increase_pure);
 make_factory!(new_rollup_increases_over_time, rollup_increases);
 make_factory!(new_rollup_lag, rollup_lag);
-make_factory!(new_rollup_last_over_time, rollup_last);
+make_factory!(new_rollup_last_over_time, ROLLUP_LAST);
 make_factory!(new_rollup_lifetime, rollup_lifetime);
 make_factory!(new_rollup_mad_over_time, rollup_mad);
 make_factory!(new_rollup_max_over_time, rollup_max);
@@ -850,7 +852,7 @@ pub(super) fn rollup_zscore_over_time(rfa: &RollupFuncArg) -> f64 {
     if scrape_interval.is_nan() || lag.is_nan() || lag > scrape_interval {
         return NAN;
     }
-    let d = rollup_last(rfa) - rollup_avg(rfa);
+    let d = ROLLUP_LAST(rfa) - rollup_avg(rfa);
     if d == 0.0 {
         return 0.0;
     }
@@ -881,16 +883,6 @@ pub(crate) fn rollup_default(rfa: &RollupFuncArg) -> f64 {
     // Intentionally do not skip the possible last Prometheus staleness mark.
     // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/1526 .
     *values.last().unwrap()
-}
-
-pub(super) fn rollup_last(rfa: &RollupFuncArg) -> f64 {
-    if rfa.values.is_empty() {
-        // do not take into account rfa.prev_value, since it may lead
-        // to inconsistent results comparing to Prometheus on broken time series
-        // with irregular data points.
-        return NAN;
-    }
-    *rfa.values.last().unwrap()
 }
 
 pub(super) fn rollup_distinct(rfa: &RollupFuncArg) -> f64 {
