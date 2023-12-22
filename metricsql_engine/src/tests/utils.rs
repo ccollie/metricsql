@@ -21,7 +21,7 @@ pub fn test_results_equal(result: &[QueryResult], result_expected: &[QueryResult
             &expected.values,
             &expected.timestamps,
         );
-        i = i + 1;
+        i += i;
     }
 }
 

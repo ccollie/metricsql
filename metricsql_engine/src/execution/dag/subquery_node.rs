@@ -51,7 +51,7 @@ impl SubqueryNode {
             func: rf,
             func_handler: handler,
             expr: expr.clone(),
-            expr_node: Box::new(DAGNode::default()),
+            expr_node: Box::<DAGNode>::default(),
             keep_metric_names: get_keep_metric_names(expr),
             step: re.step.clone(),
             offset: re.offset.clone(),
