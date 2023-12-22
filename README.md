@@ -57,6 +57,8 @@ Our dependencies may use unsafe.
 - [x] Implement basic query execution
 - [x] Implement query functions
 - [ ] Test coverage
+- [ ] SIMD
+- [ ] WASM support
 - [ ] "Slim" mode (no tracing or query stats)
 - [ ] [Prometheus](https://prometheus.io/) provider
 - [ ] [RedisTimeSeries](https://redis.io/docs/data-types/timeseries/) provider
