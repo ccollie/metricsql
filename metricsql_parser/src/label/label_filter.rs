@@ -349,6 +349,15 @@ impl Matchers {
         self.0.sort();
     }
 
+    pub fn name(&self) -> Option<&str> {
+        for m in &self.0 {
+            if m.label == NAME_LABEL {
+                return Some(&m.value);
+            }
+        }
+        None
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = &LabelFilter> {
         self.0.iter()
     }

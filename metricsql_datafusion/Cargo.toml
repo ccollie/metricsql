@@ -1,0 +1,82 @@
+[package]
+name = "metricsql_datafusion"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+description.workspace = true
+homepage.workspace = true
+repository.workspace = true
+keywords.workspace = true
+readme.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+arc-swap = "1.6.0"
+arrow = "49.0.0"
+arrow-buffer = "49.0.0"
+arrow-csv = "49.0.0"
+arrow-schema = { version = "49.0.0", features = ["serde"] }
+async-compression = { version = "0.4.5", features = [
+    "bzip2",
+    "gzip",
+    "xz",
+    "zstd",
+    "futures-io",
+    "tokio",
+] }
+async-recursion = "1.0.5"
+async-trait.workspace = true
+bytes = "1.5.0"
+chrono = { workspace = true }
+# Remote query execution for a variety of DBs
+connectorx = { git = "https://github.com/splitgraph/connector-x", branch = "datafusion-34-upgrade", features = [ "dst_arrow", "src_postgres", "src_mysql", "src_sqlite" ] }
+
+datafusion = "34.0.0"
+datafusion-common = "34.0.0"
+datafusion-expr = "34.0.0"
+derive_builder = "0.12.0"
+derive_builder_macro = "0.12.0"
+humantime-serde = "1.1.1"
+itertools = { workspace = true }
+log = "0.4"
+moka = {  version = "0.12.1", features = ["future"] }
+metricsql_engine = { path = "../metricsql_engine" }
+metricsql_parser = { path = "../metricsql_parser" }
+metricsql_common = { path = "../metricsql_common" }
+once_cell.workspace = true
+orc-rust = "0.2"
+parquet = "49.0"
+serde.workspace = true
+snafu.workspace = true
+strum.workspace = true
+tokio = { version = "1.0", features = ["macros", "rt", "rt-multi-thread", "signal", "process"] }
+prost = "0.12.3"
+serde_json.workspace = true
+humantime = { version = "2.1.0", features = [] }
+futures.workspace = true
+tracing.workspace = true
+lazy_static.workspace = true
+md5 = "0.7"
+opendal = { version = "0.44.1", features = [
+    "layers-tracing",
+] }
+prometheus = "0.13.3"
+paste = "1.0.14"
+futures-util = "0.3.30"
+regex.workspace = true
+url = "2.5.0"
+tokio-util = {  version = "0.7.10", features = ["io", "compat", "io-util"] }
+rand.workspace = true
+quote = { version = "1.0.35", features = [] }
+uuid = "1.6.1"
+lru-cache = "0.1.2"
+bytemuck = "1.14.0"
+regex-syntax = {  workspace = true }
+anyhow = "1.0.79"
+
+[dev-dependencies]
+anyhow = "1.0"
+rstest = "*"
+tempfile = "3"

@@ -1,14 +1,25 @@
-use std::str::FromStr;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+// Copyright 2023 Greptime Team
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
-/// the majority of the functionality in this file is Licensed to the Apache Software Foundation (ASF)
+/// Part of the functionality in this file is Licensed to the Apache Software Foundation (ASF)
 /// under the APACHE License 2.0
 /// http://www.apache.org/licenses/LICENSE-2.0
 /// https://docs.rs/arrow-array/29.0.0/src/arrow_array/lib.rs.html
-use chrono::{
-    DateTime, Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Timelike, Utc,
-    Weekday,
-};
+///
+use std::str::FromStr;
+
+use chrono::{Datelike, DateTime, LocalResult, NaiveDate, NaiveDateTime, Timelike, TimeZone, Utc, Weekday};
 use chrono_tz::Tz;
 
 /// Number of seconds in a day
@@ -20,77 +31,22 @@ pub const MICROSECONDS: i64 = 1_000_000;
 /// Number of nanoseconds in a second
 pub const NANOSECONDS: i64 = 1_000_000_000;
 
-const DAYS_IN_MONTH: [u8; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+use super::timezone::get_timezone;
 
-pub type Time = Instant;
-
-pub fn now() -> Instant {
-    Instant::now()
-}
-
-/// Converts a nanosecond UTC timestamp into a DateTime structure
-/// (which can have year, month, etc. extracted)
-///
-/// This is roughly equivalent to ConvertTime
-/// from <https://github.com/influxdata/flux/blob/1e9bfd49f21c0e679b42acf6fc515ce05c6dec2b/values/time.go#L35-L37>
-pub fn timestamp_to_datetime(ts: i64) -> Option<DateTime<Utc>> {
-    timestamp_ns_to_datetime(ts).map(|naive| Utc.from_utc_datetime(&naive))
-}
-
-pub fn systemtime_to_timestamp(time: SystemTime) -> u64 {
-    match time.duration_since(UNIX_EPOCH) {
-        Ok(duration) => duration.as_secs() * 1000 + u64::from(duration.subsec_nanos()) / 1_000_000,
-        Err(e) => panic!(
-            "SystemTime before UNIX EPOCH! Difference: {:?}",
-            e.duration()
-        ),
+pub fn format_utc_datetime(utc: &NaiveDateTime, pattern: &str) -> String {
+    match get_timezone(None) {
+        super::Timezone::Offset(offset) => {
+            offset.from_utc_datetime(utc).format(pattern).to_string()
+        }
+        super::Timezone::Named(tz) => tz.from_utc_datetime(utc).format(pattern).to_string(),
     }
 }
 
-pub fn round_to_seconds(ms: i64) -> i64 {
-    ms - &ms % 1000
-}
-
-/// converts a `i64` representing a `time64(us)` to [`NaiveDateTime`]
-#[inline]
-pub fn time64us_to_time(v: i64) -> Option<NaiveTime> {
-    NaiveTime::from_num_seconds_from_midnight_opt(
-        // extract seconds from microseconds
-        (v / MICROSECONDS) as u32,
-        // discard extracted seconds and convert microseconds to
-        // nanoseconds
-        (v % MICROSECONDS * MILLISECONDS) as u32,
-    )
-}
-
-/// converts a `i64` representing a `time64(ns)` to [`NaiveDateTime`]
-#[inline]
-pub fn time64ns_to_time(v: i64) -> Option<NaiveTime> {
-    NaiveTime::from_num_seconds_from_midnight_opt(
-        // extract seconds from nanoseconds
-        (v / NANOSECONDS) as u32,
-        // discard extracted seconds
-        (v % NANOSECONDS) as u32,
-    )
-}
-
-/// converts [`NaiveTime`] to a `i64` representing a `time64(us)`
-#[inline]
-pub fn time_to_time64us(v: NaiveTime) -> i64 {
-    v.num_seconds_from_midnight() as i64 * MICROSECONDS
-        + v.nanosecond() as i64 * MICROSECONDS / NANOSECONDS
-}
-
-/// converts [`NaiveTime`] to a `i64` representing a `time64(ns)`
-#[inline]
-pub fn time_to_time64ns(v: NaiveTime) -> i64 {
-    v.num_seconds_from_midnight() as i64 * NANOSECONDS + v.nanosecond() as i64
-}
-
-/// converts a `i64` representing a `timestamp(s)` to [`NaiveDateTime`]
-#[inline]
-pub fn timestamp_s_to_datetime(v: i64) -> Option<NaiveDateTime> {
-    NaiveDateTime::from_timestamp_opt(v, 0)
+pub fn local_datetime_to_utc(local: &NaiveDateTime) -> LocalResult<NaiveDateTime> {
+    match get_timezone(None) {
+        super::Timezone::Offset(offset) => offset.from_local_datetime(local).map(|x| x.naive_utc()),
+        super::Timezone::Named(tz) => tz.from_local_datetime(local).map(|x| x.naive_utc()),
+    }
 }
 
 /// converts a `i64` representing a `timestamp(ms)` to [`NaiveDateTime`]
@@ -104,6 +60,12 @@ pub fn timestamp_ms_to_datetime(v: i64) -> Option<NaiveDateTime> {
         // discard extracted seconds and convert milliseconds to nanoseconds
         milli_sec * MICROSECONDS as u32,
     )
+}
+
+/// converts a `i64` representing a `timestamp(s)` to [`NaiveDateTime`]
+#[inline]
+pub fn timestamp_s_to_datetime(v: i64) -> Option<NaiveDateTime> {
+    NaiveDateTime::from_timestamp_opt(v, 0)
 }
 
 /// converts a `i64` representing a `time64(s)` to [`NaiveDateTime`]
@@ -144,38 +106,60 @@ pub fn timestamp_ns_to_datetime(v: i64) -> Option<NaiveDateTime> {
     )
 }
 
+/// Converts a nanosecond UTC timestamp into a DateTime structure
+/// (which can have year, month, etc. extracted)
+///
+/// This is roughly equivalent to ConvertTime
+/// from <https://github.com/influxdata/flux/blob/1e9bfd49f21c0e679b42acf6fc515ce05c6dec2b/values/time.go#L35-L37>
+pub fn timestamp_to_datetime(ts: i64) -> Option<DateTime<Utc>> {
+    timestamp_ns_to_datetime(ts).map(|naive| Utc.from_utc_datetime(&naive))
+}
+
+pub fn find_tz_from_env() -> Option<Tz> {
+    // Windows does not support "TZ" env variable, which is used in the `Local` timezone under Unix.
+    // However, we are used to set "TZ" env as the default timezone without actually providing a
+    // timezone argument (especially in tests), and it's very convenient to do so, we decide to make
+    // it work under Windows as well.
+    std::env::var("TZ")
+        .ok()
+        .and_then(|tz| Tz::from_str(&tz).ok())
+}
+
+pub fn get_local_tz() -> Option<Tz> {
+    find_tz_from_env().or_else(|| Tz::from_str("UTC").ok())
+}
+
 /// Returns the time duration since UNIX_EPOCH in milliseconds.
 pub fn current_time_millis() -> i64 {
-    Utc::now().timestamp_millis()
+    chrono::Utc::now().timestamp_millis()
+}
+
+/// Returns the current time in rfc3339 format.
+pub fn current_time_rfc3339() -> String {
+    chrono::Utc::now().to_rfc3339()
+}
+
+/// Returns the yesterday time in rfc3339 format.
+pub fn yesterday_rfc3339() -> String {
+    let now = chrono::Utc::now();
+    let day_before = now - chrono::Duration::days(1);
+    day_before.to_rfc3339()
+}
+
+/// Port of rust unstable features `int_roundings`.
+pub(crate) fn div_ceil(this: i64, rhs: i64) -> i64 {
+    let d = this / rhs;
+    let r = this % rhs;
+    if r > 0 && rhs > 0 {
+        d + 1
+    } else {
+        d
+    }
 }
 
 #[inline]
 pub(crate) fn split_second(v: i64, base: i64) -> (i64, u32) {
     (v.div_euclid(base), v.rem_euclid(base) as u32)
-}
-
-/// converts a `i64` representing a `duration(s)` to [`Duration`]
-#[inline]
-pub fn duration_s_to_duration(v: i64) -> Duration {
-    Duration::seconds(v)
-}
-
-/// converts a `i64` representing a `duration(ms)` to [`Duration`]
-#[inline]
-pub fn duration_ms_to_duration(v: i64) -> Duration {
-    Duration::milliseconds(v)
-}
-
-/// converts a `i64` representing a `duration(us)` to [`Duration`]
-#[inline]
-pub fn duration_us_to_duration(v: i64) -> Duration {
-    Duration::microseconds(v)
-}
-
-/// converts a `i64` representing a `duration(ns)` to [`Duration`]
-#[inline]
-pub fn duration_ns_to_duration(v: i64) -> Duration {
-    Duration::nanoseconds(v)
 }
 
 pub fn is_leap_year(y: u32) -> bool {
@@ -187,6 +171,8 @@ pub fn is_leap_year(y: u32) -> bool {
     }
     y % 400 == 0
 }
+
+const DAYS_IN_MONTH: [u8; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 
 pub fn days_in_month<Tz: TimeZone>(t: DateTime<Tz>) -> u8 {
     let m = t.month() as usize;
@@ -208,6 +194,7 @@ pub fn int_day_of_week<Tz: TimeZone>(t: DateTime<Tz>) -> u8 {
         Weekday::Sat => 6_u8,
     }
 }
+
 
 #[derive(Clone, Copy)]
 pub enum DateTimePart {
@@ -260,6 +247,7 @@ impl DateTimePart {
         None
     }
 }
+
 pub fn datetime_part<Tz: TimeZone>(datetime: DateTime<Tz>, part: DateTimePart) -> Option<u32> {
     match part {
         DateTimePart::DayOfMonth => Some(datetime.day()),
@@ -282,28 +270,37 @@ pub fn datetime_part<Tz: TimeZone>(datetime: DateTime<Tz>, part: DateTimePart) -
     }
 }
 
-pub fn find_tz_from_env() -> Option<Tz> {
-    // Windows does not support "TZ" env variable, which is used in the `Local` timezone under Unix.
-    // However, we are used to set "TZ" env as the default timezone without actually providing a
-    // timezone argument (especially in tests), and it's very convenient to do so, we decide to make
-    // it work under Windows as well.
-    std::env::var("TZ")
-        .ok()
-        .and_then(|tz| Tz::from_str(&tz).ok())
-}
-
-pub fn get_local_tz() -> Option<Tz> {
-    find_tz_from_env().or_else(|| Tz::from_str("UTC").ok())
-}
-
 #[cfg(test)]
 mod tests {
-    use chrono::NaiveDateTime;
+    use std::time::{self, SystemTime};
 
-    use crate::prelude::{
-        timestamp_ms_to_datetime, timestamp_ns_to_datetime, timestamp_us_to_datetime, NANOSECONDS,
-    };
-    use crate::time::split_second;
+    use chrono::{Datelike, TimeZone, Timelike};
+
+    use super::*;
+
+    #[test]
+    fn test_current_time_millis() {
+        let now = current_time_millis();
+
+        let millis_from_std = SystemTime::now()
+            .duration_since(time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+        let datetime_now = chrono::Utc.timestamp_millis_opt(now).unwrap();
+        let datetime_std = chrono::Utc.timestamp_millis_opt(millis_from_std).unwrap();
+
+        assert_eq!(datetime_std.year(), datetime_now.year());
+        assert_eq!(datetime_std.month(), datetime_now.month());
+        assert_eq!(datetime_std.day(), datetime_now.day());
+        assert_eq!(datetime_std.hour(), datetime_now.hour());
+        assert_eq!(datetime_std.minute(), datetime_now.minute());
+    }
+
+    #[test]
+    fn test_div_ceil() {
+        let v0 = 9223372036854676001;
+        assert_eq!(9223372036854677, div_ceil(v0, 1000));
+    }
 
     #[test]
     fn negative_input_timestamp_ns_to_datetime() {
@@ -343,19 +340,6 @@ mod tests {
             NaiveDateTime::from_timestamp_opt(-2, 999_000_000)
         );
     }
-
-    // #[test]
-    // fn negative_input_date64_to_datetime() {
-    //     assert_eq!(
-    //         date64_to_datetime(-1),
-    //         NaiveDateTime::from_timestamp_opt(-1, 999_000_000)
-    //     );
-    //
-    //     assert_eq!(
-    //         date64_to_datetime(-1_001),
-    //         NaiveDateTime::from_timestamp_opt(-2, 999_000_000)
-    //     );
-    // }
 
     #[test]
     fn test_split_seconds() {

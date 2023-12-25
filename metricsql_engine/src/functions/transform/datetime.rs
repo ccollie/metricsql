@@ -1,6 +1,6 @@
 use chrono::Utc;
 
-use metricsql_common::time::{datetime_part, timestamp_secs_to_utc_datetime, DateTimePart};
+use metricsql_common::time::util::{datetime_part, timestamp_secs_to_utc_datetime, DateTimePart};
 
 use crate::execution::{eval_number, eval_time};
 use crate::functions::arg_parse::{get_series_arg, get_string_arg};

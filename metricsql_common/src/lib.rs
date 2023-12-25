@@ -1,3 +1,5 @@
+#![feature(error_iter)]
+
 extern crate byte_pool;
 extern crate chrono_tz;
 extern crate core;
@@ -12,15 +14,19 @@ pub mod duration;
 pub mod fast_cache;
 pub mod hash;
 pub mod pool;
-mod regex_util;
+pub mod regex_util;
+pub mod time_utils;
+pub mod error;
 pub mod time;
 
 pub mod prelude {
     pub use crate::atomic_counter::*;
     pub use crate::bytes_util::*;
     pub use crate::duration::*;
+    pub use crate::error::*;
     pub use crate::fast_cache::*;
     pub use crate::hash::*;
     pub use crate::pool::*;
     pub use crate::time::*;
+    pub use crate::time_utils::*;
 }

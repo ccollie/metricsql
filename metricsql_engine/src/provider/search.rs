@@ -70,17 +70,13 @@ impl SearchQuery {
         start: Timestamp,
         end: Timestamp,
         tag_filter_list: Vec<Matchers>,
-        max_metrics: usize,
+        max_metrics: Option<usize>,
     ) -> Self {
-        let mut max = max_metrics;
-        if max_metrics == 0 {
-            max = 2e9 as usize
-        }
         SearchQuery {
             start,
             end,
             matchers: tag_filter_list,
-            max_metrics: max,
+            max_metrics: max_metrics.unwrap_or(2e9 as usize),
         }
     }
 }

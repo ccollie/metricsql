@@ -351,10 +351,7 @@ pub(crate) fn label_value(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Times
     for ts in series.iter_mut() {
         ts.metric_name.reset_metric_group();
         let v = match ts.metric_name.tag_value(&label_name) {
-            Some(v) => match v.parse::<f64>() {
-                Ok(v) => v,
-                Err(..) => f64::NAN,
-            },
+            Some(v) => v.parse::<f64>().unwrap_or_else(|_| f64::NAN),
             None => f64::NAN,
         };
 

@@ -8,6 +8,11 @@
       <sourceFolder url="file://$MODULE_DIR$/sql/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/storage/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/metricsql_encoding/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/metricsql_datafusion_base/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/metricsql_datafusion/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/metricsql_datafusion_macros/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/metricsql_datafusion_common/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/metricsql_common_macros/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

@@ -234,7 +234,7 @@ impl RollupNode {
             min_timestamp -= ec.step
         }
         let filters = tfss.to_vec();
-        let sq = SearchQuery::new(min_timestamp, ec.end, filters, ec.max_series);
+        let sq = SearchQuery::new(min_timestamp, ec.end, filters, Some(ec.max_series));
         let mut rss = ctx.search(sq, ec.deadline)?;
 
         if rss.is_empty() {

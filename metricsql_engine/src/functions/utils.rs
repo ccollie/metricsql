@@ -1,8 +1,7 @@
 use std::cmp::Ordering;
 
 use chrono_tz::Tz;
-
-use metricsql_common::time::get_local_tz;
+use metricsql_common::time::util::get_local_tz;
 
 use crate::{RuntimeError, RuntimeResult};
 

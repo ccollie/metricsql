@@ -1,6 +1,6 @@
 use num_traits::FloatConst;
 
-use metricsql_common::prelude::{datetime_part, timestamp_secs_to_utc_datetime, DateTimePart};
+use metricsql_common::time::util::{datetime_part, timestamp_secs_to_utc_datetime, DateTimePart};
 
 use crate::ast::{
     BinaryExpr, DurationExpr, Expr, FunctionExpr, NumberLiteral, Operator, UnaryExpr,
