@@ -72,30 +72,37 @@ where
     futures::executor::block_on(async move { spawn(future).await })
 }
 
-/// Await on a future for a maximum amount of time before returning an error.
-#[allow(dead_code)]
-pub(crate) async fn timeout<F: Future>(
-    timeout: Duration,
-    future: F,
-) -> Result<F::Output, RuntimeError> {
-    #[cfg(feature = "tokio-runtime")]
-    {
-        tokio::time::timeout(timeout, future)
-            .await
-            .map_err(|_| RuntimeError::Timeout("The I/O operation’s timeout expired".to_owned()))
-    }
-    #[cfg(feature = "async-std-runtime")]
-    {
-        // This avoids a panic on async-std when the provided duration is too large.
-        // See: https://github.com/async-rs/async-std/issues/1037.
-        if timeout == Duration::MAX {
-            Ok(future.await)
-        } else {
-            async_std::future::timeout(timeout, future)
+cfg_if::cfg_if! {
+    if #[cfg(feature = "tokio-runtime")] {
+        /// Await on a future for a maximum amount of time before returning an error.
+        pub(crate) async fn timeout<F: Future>(
+            timeout: Duration,
+            future: F,
+        ) -> Result<F::Output, RuntimeError> {
+            tokio::time::timeout(timeout, future)
                 .await
-                .map_err(|_| {
-                    RuntimeError::Timeout("The I/O operation’s timeout expired".to_owned())
-                })
+                .map_err(|_| RuntimeError::Timeout("The I/O operation’s timeout expired".to_owned()))
         }
+    } else if #[cfg(feature = "async-std-runtime")] {
+        /// Await on a future for a maximum amount of time before returning an error.
+        pub(crate) async fn timeout<F: Future>(
+            timeout: Duration,
+            future: F,
+        ) -> Result<F::Output, RuntimeError> {
+            // This avoids a panic on async-std when the provided duration is too large.
+            // See: https://github.com/async-rs/async-std/issues/1037.
+            if timeout == Duration::MAX {
+                Ok(future.await)
+            } else {
+                async_std::future::timeout(timeout, future)
+                    .await
+                    .map_err(|_| {
+                        RuntimeError::Timeout("The I/O operation’s timeout expired".to_owned())
+                    })
+            }
+        }
+    } else {
+        compile_error!("No runtime specified");
     }
 }
+

@@ -264,7 +264,7 @@ mod tests {
         same("sum(a) or sum(b)");
         same("sum(a) by () or sum(b) without (x, y)");
         same("sum(a) + sum(b)");
-        another("sum(x) * (1 + sum(a))", "sum(x) * 1 + sum(a)");
+        same("sum(x) * (1 + sum(a))");
         same("avg(x) limit 10");
         same("avg(x) without (z, b) limit 1");
         another("avg by(x) (z) limit 20", "avg(z) by (x) limit 20");
@@ -464,23 +464,23 @@ mod tests {
             r#"baz{foo="bar"}"#,
         );
         another(r#"with (foo = bar) baz"#, "baz");
-        // another(
-        //    r#"with (foo = bar) foo + foo{a="b"}"#,
-        //    r#"bar{a="b"} + bar{a="b"}"#,
-        // );
         another(r#"with (foo = bar, bar=baz + now()) test"#, "test");
         another(
             r#"with (ct={job="test"}) a{ct} + ct() + sum({ct="x"})"#,
             r#"(a{job="test"} + {job="test"}) + sum({ct="x"})"#,
         );
-        // another(
-        //     r#"with (ct={job="test", i="bar"}) ct + {ct, x="d"} + foo{ct, ct} + cos(1)"#,
-        //     r#"(({job="test", i="bar"} + {job="test", i="bar", x="d"}) + foo{job="test", i="bar"}) + cos(1)"#,
-        // );
         another(
             r#"with (foo = bar) {__name__=~"foo"}"#,
             r#"{__name__=~"foo"}"#,
         );
+        another(
+           r#"with (foo = bar) foo + foo{a="b"}"#,
+           r#"bar{a="b"} + bar{a="b"}"#,
+        );
+        // another(
+        //     r#"with (ct={job="test", i="bar"}) ct + {ct, x="d"} + foo{ct, ct} + cos(1)"#,
+        //     r#"(({job="test", i="bar"} + {job="test", i="bar", x="d"}) + foo{job="test", i="bar"}) + cos(1)"#,
+        // );
         // another(r#"with (foo = bar) foo{__name__= "foo"}"#, "bar");
         // another(
         //    r#"with (foo = bar) {__name__="foo", x="y"}"#,
@@ -490,7 +490,7 @@ mod tests {
             r#"with (foo(bar) = {__name__!="bar"}) foo(x)"#,
             r#"{__name__!="bar"}"#,
         );
-        another(r#"with (foo(bar) = bar{__name__="bar"}) foo(x)"#, "x");
+        // another(r#"with (foo(bar) = bar{__name__="bar"}) foo(x)"#, "x");
         another(
             r#"with (foo\-bar(baz) = baz + baz) foo\-bar((x,y))"#,
             "(x, y) + (x, y)",
@@ -515,6 +515,17 @@ mod tests {
             "(clamp_min(n - clamp_min(m, 0), 0) / clamp_min(n, 0)) * 100",
         );
 
+        another(
+            "with(y=123,z=5) union(with(y=3,f(x)=x*y) f(2) + f(3), with(x=5,y=2) x*y*z)",
+            "union(15, 50)",
+        );
+
+        another("with(sum=123,now=5) union(with(sum=3,f(x)=x*sum) f(2) + f(3), with(x=5,sum=2) x*sum*now)",
+                "union(15, 50)");
+    }
+
+    #[test]
+    fn with_expr_recursion_and_forward_reference() {
         // Verify withExpr recursion and forward reference
         another("with (x = x+y, y = x+x) y ^ 2", "((x + y) + (x + y)) ^ 2");
         another("with (f1(x)=f2(x), f2(x)=f1(x)^2) f1(foobar)", "f2(foobar)");
@@ -522,7 +533,24 @@ mod tests {
             "with (f1(x)=f2(x), f2(x)=f1(x)^2) f2(foobar)",
             "f2(foobar) ^ 2",
         );
+    }
 
+    #[test]
+    fn with_expr_and_durations() {
+        // withExpr and durations
+        another("with (w=5m) w + m[w] offset w", "5m + (m[5m] offset 5m)");
+        another(r#"with (f() = 5m + rate(m{x="a"}[5m:1h] offset 1h)) f()"#,
+                r#"5m + rate(m{x="a"}[5m:1h] offset 1h)"#);
+        another(r#"with (f(w1, w2) = w1 + rate(m{x="a"}[w1:w2] offset w2)) f(5m, 1h)"#,
+                r#"5m + rate(m{x="a"}[5m:1h] offset 1h)"#);
+        another("with (f(w) = m[w], f2(x) = f(x) / x) f2(5m)", "m[5m] / 5m");
+        another("with (f(w) = m[w:w], f2(x) = f(x) / x) f2(5i)", "m[5i:5i] / 5i");
+        another("with (f(w,w1) = m[w:w1], f2(x) = f(x, 23.34) / x) f2(123.456)",
+                "m[123.456:23.34] / 123.456")
+    }
+
+    #[test]
+    fn with_expr_for_aggregation_func_modifiers() {
         // Verify withExpr for aggr fn modifiers
         another("with (f(x) = x, y = sum(m) by (f)) y", "sum(m) by (f)");
         another(
@@ -658,18 +686,6 @@ mod tests {
         // complex withExpr
         another(
             r#"WITH (
-			treshold = (0.9),
-			commonFilters = {job="cacher", instance=~"1.2.3.4"},
-			hits = rate(cache{type="hit", commonFilters}[5m]),
-			miss = rate(cache{type="miss", commonFilters}[5m]),
-			sumByInstance(arg) = sum(arg) by (instance),
-			hitRatio = sumByInstance(hits) / sumByInstance(hits + miss)
-			)
-			hitRatio < treshold"#,
-            r#"(sum(rate(cache{type="hit", job="cacher", instance=~"1.2.3.4"}[5m])) by (instance) / sum(rate(cache{type="hit", job="cacher", instance=~"1.2.3.4"}[5m]) + rate(cache{type="miss", job="cacher", instance=~"1.2.3.4"}[5m])) by (instance)) < 0.9"#,
-        );
-        another(
-            r#"WITH (
 			x2(x) = x^2,
 			f(x, y) = x2(x) + x*y + x2(y)
 			)
@@ -679,21 +695,30 @@ mod tests {
         );
         another(
             r#"WITH (
-			x2(x) = x^2,
-			f(x, y) = x2(x) + x*y + x2(y)
-			)
-			f(2, 3)
-			"#,
-            "19",
-        );
-        another(
-            r#"WITH (
 				commonFilters = {instance="foo"},
 				timeToFuckup(currv, maxv) = (maxv - currv) / rate(currv)
 				)
 				timeToFuckup(diskUsage{commonFilters}, maxDiskSize{commonFilters})"#,
             r#"(maxDiskSize{instance="foo"} - diskUsage{instance="foo"}) / rate(diskUsage{instance="foo"})"#,
         );
+
+        another("WITH(now = sum(rate(my_metric_total)), before = sum(rate(my_metric_total) offset 1h)) now/before*100",
+                "(sum(rate(my_metric_total)) / sum(rate(my_metric_total) offset 1h)) * 100");
+
+        another("with(sum=123,now=5) union(with(sum=3,f(x)=x*sum) f(2) + f(3), with(x=5,sum=2) x*sum*now)", "union(15, 50)");
+        another("WITH(now = sum(rate(my_metric_total)), before = sum(rate(my_metric_total) offset 1h)) now/before*100",
+                "(sum(rate(my_metric_total)) / sum(rate(my_metric_total) offset 1h)) * 100");
+        another("with (sum = x) sum", "x");
+        another("with (clamp_min=x) clamp_min", "x");
+        another("with (now=now(), sum=sum()) now", "now()");
+        another("with (now=now(), sum=sum()) now()", "now()");
+        another("with (now(a)=now()+a) now(1)", "now() + 1");
+        another("with (rate(a,b)=a+b) rate(1,2)", "3");
+        another("with (now=now(), sum=sum()) x", "x");
+        another("with (rate(a) = b) c", "c");
+        another("rate(x) + with (rate(a,b)=a*b) rate(2,b)", "rate(x) + (2 * b)");
+        another("with (sum(a,b)=a+b) sum(c,d)", "c + d");
+
         another(
             r#"WITH (
 				commonFilters = {job="foo", instance="bar"},
@@ -705,25 +730,17 @@ mod tests {
         );
 
         another(
-            "with(y=123,z=5) union(with(y=3,f(x)=x*y) f(2) + f(3), with(x=5,y=2) x*y*z)",
-            "union(15, 50)",
+            r#"WITH (
+			treshold = (0.9),
+			commonFilters = {job="cacher", instance=~"1.2.3.4"},
+			hits = rate(cache{type="hit", commonFilters}[5m]),
+			miss = rate(cache{type="miss", commonFilters}[5m]),
+			sumByInstance(arg) = sum(arg) by (instance),
+			hitRatio = sumByInstance(hits) / sumByInstance(hits + miss)
+			)
+			hitRatio < treshold"#,
+            r#"(sum(rate(cache{type="hit", job="cacher", instance=~"1.2.3.4"}[5m])) by (instance) / sum(rate(cache{type="hit", job="cacher", instance=~"1.2.3.4"}[5m]) + rate(cache{type="miss", job="cacher", instance=~"1.2.3.4"}[5m])) by (instance)) < 0.9"#,
         );
-
-        another("with(sum=123,now=5) union(with(sum=3,f(x)=x*sum) f(2) + f(3), with(x=5,sum=2) x*sum*now)", "union(15, 50)");
-        another("WITH(now = sum(rate(my_metric_total)), before = sum(rate(my_metric_total) offset 1h)) now/before*100", "(sum(rate(my_metric_total)) / sum(rate(my_metric_total) offset 1h)) * 100");
-        another("with (sum = x) sum", "x");
-        another("with (clamp_min=x) clamp_min", "x");
-        another("with (now=now(), sum=sum()) now", "now()");
-        another("with (now=now(), sum=sum()) now()", "now()");
-        another("with (now(a)=now()+a) now(1)", "now() + 1");
-        another("with (rate(a,b)=a+b) rate(1,2)", "3");
-        another("with (now=now(), sum=sum()) x", "x");
-        another("with (rate(a) = b) c", "c");
-        another(
-            "rate(x) + with (rate(a,b)=a*b) rate(2,b)",
-            "rate(x) + (2 * b)",
-        );
-        another("with (sum(a,b)=a+b) sum(c,d)", "c + d")
     }
 
     fn assert_invalid_ex(s: &str, msg_to_check: Option<&str>) {

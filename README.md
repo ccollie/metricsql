@@ -40,6 +40,9 @@ also in heavy flux and will change frequently.
 ### Features
 
 - Handles PromQL as well as a superset (MetricsQL). Note, however that 100% PromQL compatibility is not a goal.
+- Trait based datasource definition
+- Supports a variety of data sources (RedisTimeSeries, Prometheus, Postgres, MySql, S3, GCP)
+- Supports a variety of data formats (CSV, JSON, Parquet) for files accessed over local or cloud storage
 - Over 200 supported functions (Aggregation, Rollup and Transformation)
 - Builtin support for query rollup caching
 - Builtin support for query tracing
@@ -56,16 +59,13 @@ Our dependencies may use unsafe.
 - [x] Implement query parsing
 - [x] Implement basic query execution
 - [x] Implement query functions
-- [ ] Test coverage
 - [ ] SIMD
 - [ ] WASM support
 - [ ] "Slim" mode (no tracing or query stats)
 - [ ] [Prometheus](https://prometheus.io/) provider
 - [ ] [RedisTimeSeries](https://redis.io/docs/data-types/timeseries/) provider
-- [ ] WASM support
-- [ ] [Datafusion](https://arrow.apache.org/datafusion/) based provider. Expected support for `postgres`, `mysql`,
-  and `sqlite` as well as file based sources like `csv`, `json` and `parquet`
-- [ ] SIMD, possibly using [newel](https://github.com/graydon/newel)
+- [ ] [MongoDB](https://www.mongodb.com/) provider
+- [ ] [Datafusion](https://arrow.apache.org/datafusion/) based provider. Expected support for `postgres`, `mysql`, and `sqlite` as well as file based sources like `csv`, `json` and `parquet` from the local filesystem and cloud services like S3.
 
 ### Contributing
 
