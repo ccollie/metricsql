@@ -26,16 +26,17 @@ use datafusion::prelude::SessionContext;
 use futures::StreamExt;
 
 use crate::datasource::compression::CompressionType;
+//use crate::datasource::error::Error::UnsupportedFormat;
 use crate::datasource::file_format::csv::{CsvConfigBuilder, CsvOpener};
 use crate::datasource::file_format::json::JsonOpener;
 use crate::datasource::file_format::orc::{OrcFormat, OrcOpener};
 use crate::datasource::file_format::parquet::DefaultParquetFileReaderFactory;
 use crate::datasource::test_util;
 use crate::datasource::test_util::{scan_config, test_basic_schema, test_store};
-use crate::error;
 use crate::test_util::find_workspace_path;
 
 use super::{FileFormat, Format, FORMAT_TYPE};
+use super::error::Error::UnsupportedFormat;
 
 struct Test<'a, T: FileOpener> {
     config: FileScanConfig,
@@ -274,7 +275,7 @@ fn test_format() {
 
     assert_matches!(
         Format::try_from(&value).unwrap_err(),
-        error::Error::UnsupportedFormat { .. }
+        UnsupportedFormat { .. }
     );
 
     let value = HashMap::new();
