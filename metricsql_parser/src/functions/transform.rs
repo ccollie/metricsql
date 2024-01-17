@@ -420,7 +420,7 @@ impl TransformFunction {
         )
     }
 
-    pub const fn may_sort_results(&self) -> bool {
+    pub const fn is_sort_function(&self) -> bool {
         use TransformFunction::*;
         matches!(
             &self,

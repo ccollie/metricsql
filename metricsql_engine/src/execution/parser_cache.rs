@@ -132,8 +132,8 @@ impl ParseCache {
 
 fn should_sort_results(e: &Expr) -> bool {
     match e {
-        Expr::Function(fe) => !fe.function.may_sort_results(),
-        Expr::Aggregation(ae) => !ae.function.may_sort_results(),
+        Expr::Function(fe) => !fe.function.should_sort_results(),
+        Expr::Aggregation(ae) => !ae.function.should_sort_results(),
         Expr::BinaryOperator(be) => {
             // Do not sort results for `a or b` in the same way as Prometheus does.
             // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/4763

@@ -143,12 +143,12 @@ impl BuiltinFunction {
         }
     }
 
-    pub fn may_sort_results(&self) -> bool {
+    pub fn should_sort_results(&self) -> bool {
         use BuiltinFunction::*;
         match self {
-            Aggregate(af) => af.may_sort_results(),
+            Aggregate(af) => af.should_sort_results(),
             Rollup(_) => false, // todo
-            Transform(tf) => tf.may_sort_results(),
+            Transform(tf) => !tf.is_sort_function(),
         }
     }
 

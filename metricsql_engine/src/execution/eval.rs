@@ -220,7 +220,7 @@ impl EvalConfig {
         Ok(res)
     }
 
-    pub fn timerange_string(&self) -> String {
+    pub fn time_range_string(&self) -> String {
         format!("[{}..{}]", self.start.to_rfc3339(), self.end.to_rfc3339())
     }
 

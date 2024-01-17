@@ -177,8 +177,13 @@ pub(crate) fn timeseries_to_result(
     may_sort: bool,
 ) -> RuntimeResult<Vec<QueryResult>> {
     remove_empty_series(tss);
+
     if tss.is_empty() {
         return Ok(vec![]);
+    }
+
+    if may_sort {
+        sort_series_by_metric_name(tss);
     }
 
     let mut result: Vec<QueryResult> = Vec::with_capacity(tss.len());
@@ -206,11 +211,11 @@ pub(crate) fn timeseries_to_result(
         }
     }
 
-    if may_sort {
-        result.sort_by(|a, b| a.metric.partial_cmp(&b.metric).unwrap())
-    }
-
     Ok(result)
+}
+
+pub fn sort_series_by_metric_name(tss: &mut Vec<Timeseries>) {
+    tss.sort_by(|a, b| a.metric_name.partial_cmp(&b.metric_name).unwrap());
 }
 
 #[inline]

@@ -1733,6 +1733,29 @@ mod tests {
     }
 
     #[test]
+    fn series_or_series() {
+        let q = r#"(
+                label_set(time(), "x", "foo"),
+                label_set(time()+1, "x", "bar"),
+            ) or (
+                label_set(time()+2, "x", "foo"),
+                label_set(time()+3, "x", "baz"),
+            )"#;
+
+        let mut r1 = make_result(&[1001.0, 1201.0, 1401.0, 1601.0, 1801.0, 2001.0]);
+        r1.set_tag("x", "bar");
+
+        let mut r2 = make_result(&[1000.0, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
+        r2.set_tag("x", "foo");
+
+        let mut r3 = make_result(&[1003.0, 1203.0, 1403.0, 1603.0, 1803.0, 2003.0]);
+        r3.set_tag("x", "baz");
+
+        let result_expected = vec![r1, r2, r3];
+        test_query(q, result_expected)
+    }
+
+    #[test]
     fn scalar_default_scalar() {
         assert_result_eq(
             "time() > 1400 default 123",
@@ -3352,6 +3375,19 @@ mod tests {
         let mut r1 = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
         r1.metric.set_tag("foo", "bar");
         test_query(q, vec![r1]);
+    }
+
+    #[test]
+    fn bottomk_1() {
+        let q = r#"bottomk(1, label_set(10, "foo", "bar") or
+                        label_set(time()/150, "baz", "sss") or
+                        label_set(time()<100, "a", "b"))"#;
+        let mut r1 = make_result(&[f64::NAN, f64::NAN, f64::NAN, 10.0, 10.0, 10.0]);
+        r1.metric.set_tag("foo", "bar");
+        let mut r2 = make_result(&[6.666666666666667, 8.0, 9.333333333333334, f64::NAN, f64::NAN, f64::NAN]);
+        r2.metric.set_tag("baz", "sss");
+
+        test_query(q, vec![r1, r2])
     }
 
     #[test]

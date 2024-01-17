@@ -73,7 +73,7 @@ impl AggregateFunction {
         aggregate_function_signature(self)
     }
 
-    pub const fn may_sort_results(&self) -> bool {
+    pub const fn should_sort_results(&self) -> bool {
         use AggregateFunction::*;
         matches!(
             self,
