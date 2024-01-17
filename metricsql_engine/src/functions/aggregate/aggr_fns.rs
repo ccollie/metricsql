@@ -1,7 +1,9 @@
 use std::borrow::BorrowMut;
+use std::cmp::Ordering;
 use std::collections::hash_map::Entry;
 use std::ops::Deref;
 use std::ops::DerefMut;
+use std::rc::Rc;
 
 use ahash::AHashMap;
 use lockfree_object_pool::LinearReusable;
@@ -28,7 +30,6 @@ use crate::{QueryValue, Timeseries};
 
 const MAX_SERIES_PER_AGGR_FUNC: usize = 100000;
 
-// todo: add lifetime so we dont need to copy modifier
 pub struct AggrFuncArg<'a> {
     pub args: Vec<QueryValue>,
     pub ec: &'a EvalConfig,
@@ -83,12 +84,12 @@ make_range_fn!(aggregate_topk_min, min_with_nans, false);
 make_range_fn!(aggregate_topk_max, max_with_nans, false);
 make_range_fn!(aggregate_topk_median, median_value, false);
 
-fn aggregate_bottomk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    func_topk_impl(afa, true)
+pub(super) fn aggregate_bottomk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    aggr_func_topk_impl(afa, true)
 }
 
-fn aggregate_topk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    func_topk_impl(afa, false)
+pub(super) fn aggregate_topk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+    aggr_func_topk_impl(afa, false)
 }
 
 pub(crate) fn exec_aggregate_fn(
@@ -722,28 +723,26 @@ fn aggr_func_count_values(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries
     Ok(rvs)
 }
 
-fn func_topk_impl(afa: &mut AggrFuncArg, is_reverse: bool) -> RuntimeResult<Vec<Timeseries>> {
+fn aggr_func_topk_impl(afa: &mut AggrFuncArg, is_reverse: bool) -> RuntimeResult<Vec<Timeseries>> {
     let k = get_float_arg(&afa.args, 0, None)?;
-
-    let afe =
-        |tss: &mut Vec<Timeseries>, _modifier: &Option<AggregateModifier>| -> Vec<Timeseries> {
-            for n in 0..tss[0].values.len() {
-                tss.sort_by(|first, second| {
-                    let a = first.values[n];
-                    let b = second.values[n];
-                    if is_reverse {
-                        b.total_cmp(&a)
-                    } else {
-                        a.total_cmp(&b)
-                    }
-                });
-                fill_nans_at_idx(n, k, tss)
-            }
-            remove_empty_series(tss);
-            tss.reverse();
-
-            std::mem::take(tss)
-        };
+    let afe = |tss: &mut Vec<Timeseries>, _modifier: &Option<AggregateModifier>| {
+        for n in 0 .. tss[0].values.len() {
+            let less_func = if is_reverse {
+                float_cmp_with_nans
+            } else {
+                float_cmp_reversed
+            };
+            tss.sort_by(|first, second| -> Ordering {
+                let a = first.values[n];
+                let b = second.values[n];
+                less_func(a, b)
+            });
+            fill_nans_at_idx(n, k, tss)
+        }
+        remove_empty_series(tss);
+        tss.reverse();
+        std::mem::take(tss)
+    };
 
     let mut series = get_series_arg(&afa.args, 1, afa.ec)?;
     aggr_func_ext(afe, &mut series, afa.modifier, afa.limit, true)
@@ -787,10 +786,18 @@ where
         value: f64,
     }
 
-    let mut maxes: Vec<TsWithValue> = Vec::with_capacity(tss.len());
+    let mut maxes = Vec::with_capacity(tss.len());
+    let mut maxes_no_nans = Vec::with_capacity(tss.len());
+
     for ts in tss.drain(0..) {
         let value = f(&ts.values);
-        maxes.push(TsWithValue { ts, value });
+        let item = Rc::new(TsWithValue { ts, value });
+        if !value.is_nan() {
+            // Drop maxes with NaNs before sorting.
+            // This is needed for https://github.com/VictoriaMetrics/VictoriaMetrics/issues/5506
+            maxes_no_nans.push(item.clone())
+        }
+        maxes.push(item);
     }
 
     let comparator = if is_reverse {
@@ -799,11 +806,19 @@ where
         float_cmp_with_nans
     };
 
-    maxes.sort_by(move |first, second| comparator(first.value, second.value));
+    maxes_no_nans.sort_by(move |first, second| comparator(first.value, second.value));
 
-    let series = maxes.into_iter().map(|x| x.ts);
+    for tsv in maxes {
+        if tsv.value.is_nan() {
+            maxes_no_nans.push(tsv.clone())
+        }
+    }
 
-    tss.extend(series);
+    for tsv in maxes_no_nans.into_iter() {
+        if let Ok(tsv) = Rc::try_unwrap(tsv) {
+            tss.push(tsv.ts)
+        }
+    }
 
     let remaining_sum_ts = get_remaining_sum_timeseries(tss, modifier, ks, remaining_sum_tag_name);
     for (i, k) in ks.iter().enumerate() {
@@ -1184,4 +1199,20 @@ fn get_per_point_mads(tss: &[Timeseries], medians: &[f64]) -> Vec<f64> {
         mads.push(median_value(&values))
     }
     mads
+}
+
+#[inline]
+fn float_cmp(a: f64, b: f64) -> Ordering {
+    if a.is_nan() {
+        return if b.is_nan() { Ordering::Equal } else { Ordering::Less };
+    }
+    a.total_cmp(&b)
+}
+
+#[inline]
+fn float_cmp_reversed(a: f64, b: f64) -> Ordering {
+    if a.is_nan() {
+        return Ordering::Less
+    }
+    b.total_cmp(&a)
 }
