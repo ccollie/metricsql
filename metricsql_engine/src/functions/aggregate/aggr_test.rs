@@ -87,6 +87,7 @@ mod tests {
         f(1.0, 1.0, Equal)
     }
 
+    #[test]
     fn test_top_k() {
         fn f(all: Vec<Vec<Timeseries>>, expected: &[Timeseries], k: usize, reversed: bool) {
             let topk_func = if reversed {
