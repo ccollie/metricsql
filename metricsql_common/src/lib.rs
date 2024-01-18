@@ -1,6 +1,8 @@
 // #![feature(error_iter)]
 extern crate agnostic;
 extern crate byte_pool;
+#[macro_use]
+extern crate cfg_if;
 extern crate chrono_tz;
 extern crate core;
 extern crate lockfree_object_pool;
@@ -18,10 +20,11 @@ pub mod regex_util;
 pub mod time_utils;
 pub mod error;
 pub mod time;
-mod async_runtime;
+pub mod async_runtime;
 
 pub mod prelude {
     pub use crate::atomic_counter::*;
+    pub use crate::async_runtime::*;
     pub use crate::bytes_util::*;
     pub use crate::duration::*;
     pub use crate::error::*;
