@@ -4,7 +4,6 @@ pub mod error;
 mod common;
 pub mod table;
 mod catalog;
-
 pub mod datatypes;
 pub mod data_source;
 pub(crate) mod datasource;

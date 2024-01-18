@@ -1,5 +1,5 @@
-#![feature(error_iter)]
-
+// #![feature(error_iter)]
+extern crate agnostic;
 extern crate byte_pool;
 extern crate chrono_tz;
 extern crate core;
@@ -18,6 +18,7 @@ pub mod regex_util;
 pub mod time_utils;
 pub mod error;
 pub mod time;
+mod async_runtime;
 
 pub mod prelude {
     pub use crate::atomic_counter::*;
