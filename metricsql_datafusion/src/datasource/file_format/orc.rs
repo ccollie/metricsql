@@ -111,7 +111,7 @@ impl<T: AsyncRead + AsyncSeek + Unpin + Send + 'static> Stream for OrcArrowStrea
                     let field = self.output_schema.field(*idx);
 
                     if column.data_type() != field.data_type() {
-                        let output = cast(&column, field.data_type())?;
+                        let output = cast(column, field.data_type())?;
                         columns.push(output)
                     } else {
                         columns.push(column.clone())

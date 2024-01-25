@@ -15,17 +15,17 @@
 use std::any::Any;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
+use async_trait::async_trait;
 
 use futures::future::BoxFuture;
 
 pub(crate) use utils::*;
 
 use crate::catalog::error::CatalogResult;
-use crate::table::{TableId, TableRef};
 use crate::table::requests::CreateTableRequest;
+use crate::table::TableRef;
 
 pub mod consts;
-
 pub mod error;
 pub mod information_schema;
 pub mod memory;
@@ -35,6 +35,7 @@ mod utils;
 
 pub type Result<T> = super::error::Result<T>;
 
+#[async_trait]
 pub trait CatalogManager: Send + Sync {
     fn as_any(&self) -> &dyn Any;
 
@@ -63,7 +64,7 @@ pub type CatalogManagerRef = Arc<dyn CatalogManager>;
 
 /// Hook called after system table opening.
 pub type OpenSystemTableHook =
-Box<dyn Fn(TableRef) -> BoxFuture<'static, Result<()>> + Send + Sync>;
+    Box<dyn Fn(TableRef) -> BoxFuture<'static, Result<()>> + Send + Sync>;
 
 /// Register system table request:
 /// - When system table is already created and registered, the hook will be called
@@ -79,7 +80,6 @@ pub struct RegisterTableRequest {
     pub catalog: String,
     pub schema: String,
     pub table_name: String,
-    pub table_id: TableId,
     pub table: TableRef,
 }
 
@@ -89,7 +89,6 @@ impl Debug for RegisterTableRequest {
             .field("catalog", &self.catalog)
             .field("schema", &self.schema)
             .field("table_name", &self.table_name)
-            .field("table_id", &self.table_id)
             .field("table", &self.table.table_info())
             .finish()
     }
@@ -101,7 +100,6 @@ pub struct RenameTableRequest {
     pub schema: String,
     pub table_name: String,
     pub new_table_name: String,
-    pub table_id: TableId,
 }
 
 #[derive(Debug, Clone)]

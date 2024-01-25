@@ -85,7 +85,12 @@ async fn resolve_tables(
 }
 
 impl ContextProvider for DfContextProviderAdapter {
+    // deprecated
     fn get_table_provider(&self, name: TableReference) -> DfResult<Arc<dyn TableSource>> {
+        self.get_table_source(name)
+    }
+
+    fn get_table_source(&self, name: TableReference) -> DfResult<Arc<dyn TableSource>> {
         let table_ref = self.table_provider.resolve_table_ref(name)?;
         self.tables
             .get(&table_ref.to_string())

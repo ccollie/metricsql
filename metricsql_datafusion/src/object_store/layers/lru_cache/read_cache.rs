@@ -21,6 +21,7 @@ use opendal::raw::oio::{Read, ReadExt, Reader, WriteExt};
 use opendal::raw::{Accessor, OpDelete, OpList, OpRead, OpStat, OpWrite, RpRead};
 use opendal::{Error as OpendalError, ErrorKind, Result};
 use tracing::debug;
+use opendal::raw::oio::Page;
 use crate::object_store::metrics::{OBJECT_STORE_LRU_CACHE_BYTES, OBJECT_STORE_LRU_CACHE_ENTRIES, OBJECT_STORE_LRU_CACHE_HIT, OBJECT_STORE_LRU_CACHE_MISS, OBJECT_STORE_READ_ERROR};
 
 /// Cache value for read file
@@ -246,7 +247,7 @@ impl<C: Accessor + Clone> ReadCache<C> {
                 // Call `close` to ensure data is written.
                 writer.close().await?;
 
-                let read_bytes = rp.metadata().content_length() as u32;
+                let read_bytes = rp.metadata.content_length() as u32;
                 OBJECT_STORE_LRU_CACHE_ENTRIES.inc();
                 OBJECT_STORE_LRU_CACHE_BYTES.add(read_bytes as i64);
 

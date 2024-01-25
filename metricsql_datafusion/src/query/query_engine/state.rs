@@ -20,6 +20,7 @@ use datafusion::error::Result as DfResult;
 use datafusion::execution::context::{SessionConfig, SessionState};
 use datafusion::execution::runtime_env::RuntimeEnv;
 use datafusion::prelude::SessionContext;
+use datafusion_expr::ScalarUDF;
 
 use crate::catalog::CatalogManagerRef;
 use crate::table::adapter::DfTableProviderAdapter;
@@ -40,6 +41,7 @@ impl fmt::Debug for QueryEngineState {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("QueryEngineState")
             .field("state", &self.df_context.state())
+            .field("disallow_cross_schema_query", &self.disallow_cross_schema_query)
             .finish()
     }
 }
@@ -76,6 +78,10 @@ impl QueryEngineState {
 
     pub(crate) fn session_state(&self) -> SessionState {
         self.df_context.state()
+    }
+
+    pub fn register_udf(&self, udf: ScalarUDF) {
+        self.df_context.register_udf(udf);
     }
 
     /// Create a DataFrame for a table

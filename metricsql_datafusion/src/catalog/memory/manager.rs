@@ -16,6 +16,7 @@ use std::any::Any;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock, Weak};
+use async_trait::async_trait;
 
 use snafu::OptionExt;
 
@@ -37,6 +38,7 @@ pub struct MemoryCatalogManager {
     catalogs: Arc<RwLock<HashMap<String, SchemaEntries>>>,
 }
 
+#[async_trait]
 impl CatalogManager for MemoryCatalogManager {
     fn as_any(&self) -> &dyn Any {
         self
@@ -104,11 +106,15 @@ impl CatalogManager for MemoryCatalogManager {
         let res = self.catalogs
             .read()
             .unwrap()
-            .get(catalog)?
-            .get(schema)?
+            .get(catalog)
+            .with_context(|| CatalogNotFoundSnafu {
+                catalog_name: catalog,
+            })?
+            .get(schema)
+            .with_context(|| SchemaNotFoundSnafu { catalog, schema })?
             .get(table_name)
-            .cloned()?;
-        Ok(Some(res))
+            .cloned();
+        Ok(res)
     }
 }
 
@@ -281,7 +287,6 @@ impl MemoryCatalogManager {
             catalog: catalog.to_string(),
             schema: schema.to_string(),
             table_name: table.table_info().name.clone(),
-            table_id: table.table_info().ident.table_id,
             table,
         };
         let _ = manager.register_table_sync(request).unwrap();
@@ -310,7 +315,6 @@ mod tests {
             catalog: DEFAULT_CATALOG_NAME.to_string(),
             schema: DEFAULT_SCHEMA_NAME.to_string(),
             table_name: NUMBERS_TABLE_NAME.to_string(),
-            table_id: NUMBERS_TABLE_ID,
             table: NumbersTable::table(NUMBERS_TABLE_ID),
         };
 
@@ -347,7 +351,6 @@ mod tests {
             catalog: DEFAULT_CATALOG_NAME.to_string(),
             schema: DEFAULT_SCHEMA_NAME.to_string(),
             table_name: table_name.to_string(),
-            table_id: 2333,
             table: NumbersTable::table(2333),
         };
         catalog.register_table_sync(register_table_req).unwrap();

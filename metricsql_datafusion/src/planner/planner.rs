@@ -16,22 +16,22 @@ use std::collections::HashSet;
 use datafusion::common::{OwnedTableReference, Result as DfResult};
 use datafusion::datasource::DefaultTableSource;
 use datafusion::logical_expr::{BinaryExpr, LogicalPlan, LogicalPlanBuilder, Operator};
-use datafusion::logical_expr::expr::Alias;
+use datafusion_expr::expr::Alias;
 use datafusion::prelude::{Column, Expr as DfExpr};
 use datafusion::scalar::ScalarValue;
 use datafusion::sql::TableReference;
+use datafusion_expr::utils::conjunction;
 use snafu::{ensure, OptionExt, ResultExt};
-
-use metricsql_engine::SearchQuery;
 use metricsql_parser::prelude::{LabelFilter, LabelFilterOp, Matchers, METRIC_NAME};
 
 use crate::catalog::table_source::DfTableSourceProvider;
-use crate::common::conjunction;
+use crate::query::planner::EvalStmt;
 use crate::table::adapter::DfTableProviderAdapter;
+use crate::table::is_timestamp_field;
 
 use super::error::{
     CatalogSnafu, ColumnNotFoundSnafu, DataFusionPlanningSnafu, MultipleMetricMatchersSnafu,
-    NoMetricMatcherSnafu, Result, TableNameNotFoundSnafu, TimeIndexNotFoundSnafu,
+    Result, TableNameNotFoundSnafu, TimeIndexNotFoundSnafu,
     UnknownTableSnafu, UnsupportedExprSnafu, ValueNotFoundSnafu,
 };
 
@@ -53,10 +53,10 @@ struct PromPlannerContext {
 }
 
 impl PromPlannerContext {
-    fn from_search_query(search_query: &SearchQuery) -> Self {
+    fn from_eval_stmt(eval_stmt: &EvalStmt) -> Self {
         Self {
-            start: search_query.start,
-            end: search_query.end,
+            start: eval_stmt.start,
+            end: eval_stmt.end,
             ..Default::default()
         }
     }
@@ -71,7 +71,7 @@ impl PromPlannerContext {
     }
 }
 
-pub struct PromPlanner {
+pub(crate) struct PromPlanner {
     table_provider: DfTableSourceProvider,
     ctx: PromPlannerContext,
 }
@@ -79,27 +79,32 @@ pub struct PromPlanner {
 impl PromPlanner {
     pub async fn query_to_plan(
         table_provider: DfTableSourceProvider,
-        sq: SearchQuery,
+        stmt: &EvalStmt,
     ) -> Result<LogicalPlan> {
         let mut planner = Self {
             table_provider,
-            ctx: PromPlannerContext::from_search_query(&sq),
+            ctx: PromPlannerContext::from_eval_stmt(&stmt),
         };
-        planner.search_query_to_plan(sq).await
+        planner.eval_stmt_to_plan(stmt).await
     }
 
-    pub async fn search_query_to_plan(&mut self, sq: SearchQuery) -> Result<LogicalPlan> {
-        self.ctx.start = sq.start;
-        self.ctx.end = sq.end;
-        for matchers in sq.matchers {
-            let plan = self.plan_one(matchers).await?;
+    pub(crate) fn new(start: i64, end: i64, table_provider: DfTableSourceProvider) -> Self {
+        Self {
+            table_provider,
+            ctx: PromPlannerContext {
+                start,
+                end,
+                ..Default::default()
+            },
         }
-        Ok(res)
     }
 
-    async fn plan_one(&mut self, matchers: Matchers) -> Result<LogicalPlan> {
+    pub async fn eval_stmt_to_plan(&mut self, stmt: &EvalStmt) -> Result<LogicalPlan> {
+        self.ctx.start = stmt.start;
+        self.ctx.end = stmt.end;
+
         let name: Option<String> = None;
-        let matchers = self.preprocess_label_matchers(&matchers, &name)?;
+        let matchers = self.preprocess_label_matchers(&stmt.filters, &name)?;
         self.setup_context().await?;
 
         let normalize = self
@@ -125,24 +130,27 @@ impl PromPlanner {
     ) -> Result<Matchers> {
         self.ctx.reset();
         let metric_name;
+
+        let matchers = label_matchers.find_matchers(METRIC_NAME);
         if let Some(name) = name.clone() {
             metric_name = Some(name);
             ensure!(
-                label_matchers.find_matcher(METRIC_NAME).is_none(),
-                MultipleMetricMatchersSnafu
+                matchers.len() == 1,
+                MultipleMetricMatchersSnafu { count: matchers.len( )}
             );
         } else {
-            metric_name = Some(
-                label_matchers
-                    .find_matcher(METRIC_NAME)
-                    .context(NoMetricMatcherSnafu)?,
+            let matchers = label_matchers.find_matchers(METRIC_NAME);
+            ensure!(
+                matchers.len() == 1,
+                MultipleMetricMatchersSnafu { count: matchers.len() }
             );
+            metric_name = Some(matchers[0].value.clone());
         }
         self.ctx.table_name = metric_name;
 
         let mut matchers = HashSet::new();
-        for matcher in &label_matchers.iter() {
-            if matcher.name == FIELD_COLUMN_MATCHER {
+        for matcher in label_matchers.iter() {
+            if matcher.label == FIELD_COLUMN_MATCHER {
                 self.ctx
                     .field_column_matcher
                     .get_or_insert_with(|| Default::default())
@@ -340,10 +348,13 @@ impl PromPlanner {
         // set time index column name
         let time_index = table
             .schema()
-            .timestamp_column()
-            .with_context(|| TimeIndexNotFoundSnafu { table: table_name })?
-            .name
+            .fields
+            .iter()
+            .find(|field| is_timestamp_field(*field))
+            .with_context(|| TimeIndexNotFoundSnafu { table: table_name.clone() })?
+            .name()
             .clone();
+
         self.ctx.time_index_column = Some(time_index);
 
         // set values columns
@@ -353,6 +364,7 @@ impl PromPlanner {
             .field_column_names()
             .cloned()
             .collect();
+
         self.ctx.field_columns = values;
 
         // set primary key (tag) columns
@@ -362,6 +374,7 @@ impl PromPlanner {
             .row_key_column_names()
             .cloned()
             .collect();
+
         self.ctx.tag_columns = tags;
 
         Ok(())
@@ -453,7 +466,7 @@ impl PromPlanner {
         let field_columns_iter = result_field_columns
             .into_iter()
             .zip(self.ctx.field_columns.iter())
-            .map(|(expr, name)| Ok(DfExpr::Alias(Alias::new(expr, name.to_string()))));
+            .map(|(expr, name)| Ok(DfExpr::Alias(Alias::new(expr, None::<OwnedTableReference>, name))));
 
         // chain non-value columns (unchanged) and value columns (applied computation then alias)
         let project_fields = non_field_columns_iter
@@ -502,7 +515,7 @@ mod test {
     use arrow_schema::{DataType, Schema, TimeUnit};
     use datafusion::datasource::empty::EmptyTable;
 
-    use metricsql_engine::parse_metric_selector;
+    use metricsql_engine::{parse_metric_selector, SearchQuery};
     use metricsql_parser::parser;
 
     use crate::catalog::consts::{DEFAULT_CATALOG_NAME, DEFAULT_SCHEMA_NAME};
@@ -559,7 +572,6 @@ mod test {
                 catalog: DEFAULT_CATALOG_NAME.to_string(),
                 schema: DEFAULT_SCHEMA_NAME.to_string(),
                 table_name,
-                table_id: 1024,
                 table,
             })
             .is_ok());

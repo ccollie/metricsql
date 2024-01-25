@@ -15,12 +15,11 @@
 //! Error of record batch.
 use std::any::Any;
 
-use arrow_schema::{DataType, SchemaRef};
+use arrow_schema::{ArrowError, DataType, SchemaRef};
 use snafu::Snafu;
 
 use metricsql_common::error::ext::{BoxedError, ErrorExt};
 use metricsql_common::error::status_code::StatusCode;
-use crate::datatypes::error::DataTypeError;
 
 pub type Result<T> = std::result::Result<T, Error>;
 pub type RecordBatchResult<T> = std::result::Result<T, Error>;
@@ -32,12 +31,12 @@ pub enum Error {
     #[snafu(display("Fail to create datafusion record batch"))]
     NewDfRecordBatch {
         #[snafu(source)]
-        error: arrow::error::ArrowError,
+        error: ArrowError,
     },
 
     #[snafu(display("Data types error"))]
     DataTypes {
-        source: DataTypeError,
+        source: ArrowError,
     },
 
     #[snafu(display("External error"))]
@@ -50,7 +49,7 @@ pub enum Error {
 
     #[snafu(display("Failed to convert Arrow schema"))]
     SchemaConversion {
-        source: DataTypeError,
+        source: ArrowError,
     },
 
     #[snafu(display(""))]
@@ -62,7 +61,7 @@ pub enum Error {
     #[snafu(display("Fail to format record batch"))]
     Format {
         #[snafu(source)]
-        error: arrow::error::ArrowError,
+        error: ArrowError,
     },
 
     #[snafu(display("Failed to init Recordbatch stream"))]
@@ -78,7 +77,7 @@ pub enum Error {
     ))]
     ProjectArrowRecordBatch {
         #[snafu(source)]
-        error: arrow::error::ArrowError,
+        error: ArrowError,
         schema: SchemaRef,
         projection: Vec<usize>,
     },
@@ -87,6 +86,7 @@ pub enum Error {
     ColumnNotExists {
         column_name: String,
         table_name: String,
+        source: ArrowError
     },
 
     #[snafu(display(
@@ -97,7 +97,7 @@ pub enum Error {
     CastVector {
         from_type: DataType,
         to_type: DataType,
-        source: DataTypeError,
+        source: ArrowError,
     },
 }
 
@@ -116,8 +116,12 @@ impl ErrorExt for Error {
 
             Error::External { source, .. } => source.status_code(),
 
-            Error::SchemaConversion { source, .. } | Error::CastVector { source, .. } => {
-                source.status_code()
+            Error::SchemaConversion { .. } => {
+                StatusCode::Internal // ?? use better code ?
+            },
+
+            Error::CastVector { .. } => {
+                StatusCode::Internal // ?? use better code ?
             }
         }
     }

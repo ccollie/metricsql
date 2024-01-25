@@ -14,7 +14,7 @@
 
 use datafusion_expr::LogicalPlan;
 
-use crate::error::Result;
+use crate::query::error::Result;
 
 pub trait LogicalOptimizer {
     fn optimize(&self, plan: &LogicalPlan) -> Result<LogicalPlan>;

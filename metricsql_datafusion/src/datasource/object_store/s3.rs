@@ -20,7 +20,7 @@ use object_store::ObjectStore;
 use object_store::services::S3;
 
 use crate::datasource::error::{BuildBackendSnafu, InvalidConnectionSnafu};
-use crate::error::Result;
+use crate::datasource::error::Result;
 use crate::object_store;
 
 const ENDPOINT: &str = "endpoint";

@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use datafusion::execution::SendableRecordBatchStream;
+use crate::common::recordbatch::SendableRecordBatchStream;
 
 use metricsql_common::error::ext::BoxedError;
 

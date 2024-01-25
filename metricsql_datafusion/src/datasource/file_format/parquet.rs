@@ -22,8 +22,8 @@ use arrow_schema::{Schema, SchemaRef};
 use async_trait::async_trait;
 use datafusion::datasource::physical_plan::{FileMeta, ParquetFileReaderFactory};
 use datafusion::error::Result as DatafusionResult;
-use datafusion::parquet::arrow::{ArrowWriter, parquet_to_arrow_schema};
 use datafusion::parquet::arrow::async_reader::AsyncFileReader;
+use datafusion::parquet::arrow::{parquet_to_arrow_schema, ArrowWriter};
 use datafusion::parquet::errors::{ParquetError, Result as ParquetResult};
 use datafusion::parquet::file::metadata::ParquetMetaData;
 use datafusion::parquet::format::FileMetaData;
@@ -172,10 +172,7 @@ type InnerBufferedWriter = LazyBufferedWriter<
     object_store::Writer,
     ArrowWriter<SharedBuffer>,
     Box<
-        dyn FnMut(
-                String,
-            )
-                -> Pin<Box<dyn Future<Output = Result<object_store::Writer>> + Send>>
+        dyn FnMut(String) -> Pin<Box<dyn Future<Output = Result<object_store::Writer>> + Send>>
             + Send,
     >,
 >;

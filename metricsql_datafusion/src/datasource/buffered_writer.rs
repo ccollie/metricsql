@@ -21,7 +21,7 @@ use snafu::{OptionExt, ResultExt};
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 
 use crate::datasource::error::{AsyncWriteSnafu, BufferedWriterClosedSnafu};
-use crate::error::Result;
+use crate::datasource::error::Result;
 
 use super::share_buffer::SharedBuffer;
 

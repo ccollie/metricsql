@@ -16,7 +16,7 @@ use std::any::Any;
 
 use arrow_schema::SchemaRef;
 use async_trait::async_trait;
-use datafusion::execution::SendableRecordBatchStream;
+use crate::common::recordbatch::SendableRecordBatchStream;
 use datafusion_expr::{Expr, TableType};
 use snafu::ResultExt;
 

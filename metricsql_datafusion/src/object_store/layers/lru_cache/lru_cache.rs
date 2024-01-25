@@ -22,7 +22,7 @@ use opendal::raw::{
 };
 use opendal::Result;
 use tracing::info;
-use crate::object_store::layers::lru_cache::read_cache::ReadCache;
+use super::read_cache::ReadCache;
 
 /// An opendal layer with local LRU file cache supporting.
 #[derive(Clone)]
@@ -80,8 +80,8 @@ impl<I: Accessor, C: Accessor + Clone> LayeredAccessor for LruCacheAccessor<I, C
     type BlockingReader = I::BlockingReader;
     type Writer = I::Writer;
     type BlockingWriter = I::BlockingWriter;
-    type Lister = I::Lister;
-    type BlockingLister = I::BlockingLister;
+    type Pager = I::Pager;
+    type BlockingPager = I::BlockingPager;
 
     fn inner(&self) -> &Self::Inner {
         &self.inner
@@ -111,7 +111,7 @@ impl<I: Accessor, C: Accessor + Clone> LayeredAccessor for LruCacheAccessor<I, C
         result
     }
 
-    async fn list(&self, path: &str, args: OpList) -> Result<(RpList, Self::Lister)> {
+    async fn list(&self, path: &str, args: OpList) -> Result<(RpList, Self::Pager)> {
         self.inner.list(path, args).await
     }
 
@@ -129,7 +129,7 @@ impl<I: Accessor, C: Accessor + Clone> LayeredAccessor for LruCacheAccessor<I, C
         result
     }
 
-    fn blocking_list(&self, path: &str, args: OpList) -> Result<(RpList, Self::BlockingLister)> {
+    fn blocking_list(&self, path: &str, args: OpList) -> Result<(RpList, Self::BlockingPager)> {
         self.inner.blocking_list(path, args)
     }
 }

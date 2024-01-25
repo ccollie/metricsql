@@ -14,12 +14,12 @@
 
 use std::sync::{Arc, Weak};
 
-use arrow::record_batch::RecordBatch;
 use arrow::array::ArrayRef;
 use arrow_schema::{DataType, Field, Schema, SchemaRef as ArrowSchemaRef, SchemaRef};
-use datafusion::execution::{SendableRecordBatchStream, TaskContext};
+use crate::common::recordbatch::{RecordBatch, SendableRecordBatchStream};
+use datafusion::execution::{TaskContext};
 use datafusion::physical_plan::SendableRecordBatchStream as DfSendableRecordBatchStream;
-use datafusion::physical_plan::stream::{RecordBatchStreamAdapter as DfRecordBatchStreamAdapter, RecordBatchStreamAdapter};
+use datafusion::physical_plan::stream::{RecordBatchStreamAdapter as DfRecordBatchStreamAdapter};
 use datafusion::physical_plan::streaming::PartitionStream as DfPartitionStream;
 use snafu::{OptionExt, ResultExt};
 
@@ -29,7 +29,9 @@ use crate::catalog::{CatalogManager, StringVectorBuilder};
 use crate::catalog::consts::{SEMANTIC_TYPE_FIELD, SEMANTIC_TYPE_PRIMARY_KEY, SEMANTIC_TYPE_TIME_INDEX};
 use crate::catalog::consts::INFORMATION_SCHEMA_COLUMNS_TABLE_ID;
 use crate::catalog::error::{CreateRecordBatchSnafu, InternalSnafu, Result, UpgradeWeakCatalogManagerRefSnafu};
-use crate::table::TableId;
+use crate::common::recordbatch::adapter::RecordBatchStreamAdapter;
+use crate::datatypes::data_type_name;
+use crate::table::{is_timestamp_field, TableId};
 
 use super::{COLUMNS, InformationTable};
 
@@ -89,7 +91,7 @@ impl InformationTable for InformationSchemaColumns {
     }
 
     fn to_stream(&self) -> Result<SendableRecordBatchStream> {
-        let schema = self.schema.arrow_schema().clone();
+        let schema = self.schema.clone();
         let mut builder = self.builder();
         let stream = Box::pin(DfRecordBatchStreamAdapter::new(
             schema,
@@ -168,8 +170,8 @@ impl InformationSchemaColumnsBuilder {
                     let keys = &table.table_info().meta.primary_key_indices;
                     let schema = table.schema();
 
-                    for (idx, column) in schema.column_schemas().iter().enumerate() {
-                        let semantic_type = if column.is_time_index() {
+                    for (idx, column) in schema.fields.iter().enumerate() {
+                        let semantic_type = if is_timestamp_field(column) {
                             SEMANTIC_TYPE_TIME_INDEX
                         } else if keys.contains(&idx) {
                             SEMANTIC_TYPE_PRIMARY_KEY
@@ -181,8 +183,8 @@ impl InformationSchemaColumnsBuilder {
                             &catalog_name,
                             &schema_name,
                             &table_name,
-                            &column.name,
-                            &column.data_type.name(),
+                            &column.name(),
+                            data_type_name(column.data_type()),
                             semantic_type,
                         );
                     }
@@ -228,11 +230,11 @@ impl InformationSchemaColumnsBuilder {
 
 impl DfPartitionStream for InformationSchemaColumns {
     fn schema(&self) -> &ArrowSchemaRef {
-        self.schema.arrow_schema()
+        &self.schema
     }
 
     fn execute(&self, _: Arc<TaskContext>) -> DfSendableRecordBatchStream {
-        let schema = self.schema.arrow_schema().clone();
+        let schema = self.schema.clone();
         let mut builder = self.builder();
         Box::pin(DfRecordBatchStreamAdapter::new(
             schema,

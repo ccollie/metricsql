@@ -14,14 +14,13 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use arrow_schema::DataType;
+use arrow_schema::{DataType, Field};
 
 use chrono::{DateTime, Utc};
 use datafusion::arrow::datatypes::{Schema, SchemaRef};
 use datafusion::logical_expr::TableProviderFilterPushDown;
 use datafusion_expr::TableType;
 use derive_builder::Builder;
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::consts::{DEFAULT_CATALOG_NAME, DEFAULT_SCHEMA_NAME};
@@ -31,6 +30,10 @@ use crate::table::schema::raw::RawSchema;
 
 pub type TableId = u32;
 pub type TableVersion = u64;
+
+pub const TIMESTAMP_COLUMN_KEY: &str = "timestamp_column";
+pub const VALUE_COLUMN_KEY: &str = "value_column";
+
 
 /// Indicates whether and how a filter expression can be handled by a
 /// Table for table scans.
@@ -69,20 +72,10 @@ impl From<FilterPushDownType> for TableProviderFilterPushDown {
     }
 }
 
-/// Identifier of the table.
-#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Default)]
-pub struct TableIdent {
-    /// Unique id of this table.
-    pub table_id: TableId,
-    /// Version of the table, bumped when metadata (such as schema) of the table
-    /// being changed.
-    pub version: TableVersion,
-}
-
 /// The table metadata
 /// Note: if you add new fields to this struct, please ensure 'new_meta_builder' function works.
 /// TODO(dennis): find a better way to ensure 'new_meta_builder' works when adding new fields.
-#[derive(Clone, Debug, Hash, Builder, PartialEq, Eq)]
+#[derive(Clone, Debug, Builder, PartialEq, Eq)]
 pub struct TableMeta {
     pub schema: SchemaRef,
     /// The indices of columns in primary key. Note that the index of timestamp column
@@ -130,7 +123,7 @@ impl TableMeta {
             .fields
             .iter()
             .enumerate()
-            .filter(|(i, cs)| !primary_key_indices.contains(i) && !cs.is_time_index())
+            .filter(|(i, cs)| !primary_key_indices.contains(i) && !is_timestamp_field(*cs))
             .map(|(_, cs)| cs.name())
     }
 
@@ -142,9 +135,15 @@ impl TableMeta {
                 .map(|idx| columns_schemas[*idx].name())
         } else {
             let columns_schemas = &self.schema.fields;
-            self.primary_key_indices
+            self.schema.fields
                 .iter()
-                .map(|idx| columns_schemas[*idx].name())
+                .enumerate()
+                .filter(|(idx, cs)| {
+                    if !self.primary_key_indices.contains(idx) && !is_timestamp_field(*cs) {
+                        return true;
+                    }
+                    false
+                }).map(|(_, cs)| cs.name())
         }
     }
 
@@ -160,12 +159,9 @@ impl TableMeta {
     }
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq, Builder)]
+#[derive(Clone, Debug, PartialEq, Eq, Builder)]
 #[builder(pattern = "owned")]
 pub struct TableInfo {
-    /// Id and version of the table.
-    #[builder(default, setter(into))]
-    pub ident: TableIdent,
     /// Name of the table.
     #[builder(setter(into))]
     pub name: String,
@@ -206,33 +202,6 @@ impl TableInfoBuilder {
             meta: Some(meta),
             ..Default::default()
         }
-    }
-
-    pub fn table_id(mut self, id: TableId) -> Self {
-        let ident = self.ident.get_or_insert_with(TableIdent::default);
-        ident.table_id = id;
-        self
-    }
-
-    pub fn table_version(mut self, version: TableVersion) -> Self {
-        let ident = self.ident.get_or_insert_with(TableIdent::default);
-        ident.version = version;
-        self
-    }
-}
-
-impl TableIdent {
-    pub fn new(table_id: TableId) -> Self {
-        Self {
-            table_id,
-            version: 0,
-        }
-    }
-}
-
-impl From<TableId> for TableIdent {
-    fn from(table_id: TableId) -> Self {
-        Self::new(table_id)
     }
 }
 
@@ -287,7 +256,6 @@ impl TryFrom<RawTableMeta> for TableMeta {
 /// Struct used to serialize and deserialize [`TableInfo`].
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct RawTableInfo {
-    pub ident: TableIdent,
     pub name: String,
     pub desc: Option<String>,
     pub catalog_name: String,
@@ -301,7 +269,6 @@ pub struct RawTableInfo {
 impl From<TableInfo> for RawTableInfo {
     fn from(info: TableInfo) -> RawTableInfo {
         RawTableInfo {
-            ident: info.ident,
             name: info.name,
             desc: info.desc,
             catalog_name: info.catalog_name,
@@ -319,7 +286,6 @@ impl TryFrom<RawTableInfo> for TableInfo {
 
     fn try_from(raw: RawTableInfo) -> ConvertResult<TableInfo> {
         Ok(TableInfo {
-            ident: raw.ident,
             name: raw.name,
             desc: raw.desc,
             catalog_name: raw.catalog_name,
@@ -349,7 +315,7 @@ pub fn table_type_from_str(table_type: &str) -> Option<TableType> {
     }
 }
 
-pub fn is_timestamp_compatible(field: DataType) -> bool {
+pub fn is_timestamp_compatible(field: &DataType) -> bool {
     matches!(
         field,
         DataType::Timestamp(_, _) |
@@ -357,6 +323,44 @@ pub fn is_timestamp_compatible(field: DataType) -> bool {
         DataType::Date64 |
         DataType::Int64
     )
+}
+
+fn is_value_compatible(data_type: &DataType) -> bool {
+    use DataType::*;
+
+    matches!(
+            data_type,
+            UInt8
+                | UInt16
+                | UInt32
+                | UInt64
+                | Int8
+                | Int16
+                | Int32
+                | Int64
+                | Float16
+                | Float32
+                | Float64
+        )
+}
+
+pub fn is_timestamp_field(field: &Field) -> bool {
+    let data_type = field.data_type();
+    is_timestamp_compatible(data_type) &&
+        get_bool(field.metadata(), TIMESTAMP_COLUMN_KEY)
+}
+
+pub fn is_value_field(field: &Field) -> bool {
+    let is_numeric= is_value_compatible(field.data_type());
+    is_numeric &&
+        get_bool(field.metadata(), VALUE_COLUMN_KEY)
+}
+
+fn get_bool(metadata: &HashMap<String, String>, key: &str) -> bool {
+    metadata
+        .get(key)
+        .map(|v| v.parse::<bool>().unwrap_or_default())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]

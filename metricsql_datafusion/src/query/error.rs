@@ -39,7 +39,7 @@ pub enum Error {
     Unimplemented { operation: String },
 
     #[snafu(display("General catalog error"))]
-    Catalog { source: Box<CatalogError> },
+    Catalog { source: CatalogError },
 
     #[snafu(display("Catalog not found: {}", catalog))]
     CatalogNotFound { catalog: String },
@@ -176,9 +176,6 @@ pub enum Error {
     #[snafu(display("Column schema has no default value, column: {}", column))]
     ColumnSchemaNoDefault { column: String },
 
-    #[snafu(display("Region query error"))]
-    RegionQuery { source: BoxedError },
-
     #[snafu(display("Table mutation error"))]
     TableMutation { source: BoxedError },
 
@@ -236,8 +233,6 @@ impl ErrorExt for Error {
             PlanSql { .. } => StatusCode::PlanQuery,
             ConvertSqlType { source, .. } | ConvertSqlValue { source, .. } => source.status_code(),
             CreateSchema { source, .. } => source.status_code(),
-
-            RegionQuery { source, .. } => source.status_code(),
             TableMutation { source, .. } => source.status_code(),
             MissingTableMutationHandler { .. } => StatusCode::Unexpected,
             ExecuteRepeatedly { .. } => StatusCode::Unexpected,

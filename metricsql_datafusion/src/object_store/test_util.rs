@@ -15,6 +15,7 @@
 use std::env;
 
 use crate::object_store::ObjectStore;
+pub type Result<T> = std::result::Result<T, opendal::Error>;
 
 /// Temp folder for object store test
 pub struct TempFolder {
@@ -31,9 +32,9 @@ impl TempFolder {
         }
     }
 
-    pub async fn remove_all(&self) -> Result<(), dyn std::error::Error> {
-        self.store.remove_all(&self.path).await
-            .map_err(|e| Err(()))
+    pub async fn remove_all(&self) -> Result<()> {
+        self.store.remove_all(&self.path)
+            .await
     }
 }
 

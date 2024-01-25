@@ -3,7 +3,7 @@ pub(crate) mod planner;
 pub mod error;
 mod common;
 pub mod table;
-mod catalog;
+pub mod catalog;
 pub mod datatypes;
 pub mod data_source;
 pub(crate) mod datasource;
@@ -15,3 +15,8 @@ mod query;
 mod sql;
 mod udf;
 mod session;
+mod provider;
+
+pub mod prelude {
+    pub use crate::provider::*;
+}

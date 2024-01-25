@@ -11,7 +11,7 @@ pub mod engine;
 pub(crate) mod thin_table;
 #[cfg(test)]
 mod test_util;
-pub mod storage;
+pub(crate) mod storage;
 pub mod schema;
 mod dist_table;
-pub mod path_utils;
+pub(crate) mod path_utils;

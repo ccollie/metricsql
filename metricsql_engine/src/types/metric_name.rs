@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::fmt::Display;
 use std::hash::{Hash, Hasher};
@@ -554,6 +554,28 @@ impl TryFrom<String> for MetricName {
 
     fn try_from(s: String) -> Result<Self, Self::Error> {
         MetricName::parse(&s)
+    }
+}
+
+impl TryFrom<HashMap<String, String>> for MetricName {
+    type Error = RuntimeError;
+
+    fn try_from(tags: HashMap<String, String>) -> Result<Self, Self::Error> {
+        let mut mn = MetricName::default();
+        mn.add_tags_from_hashmap(&tags);
+        Ok(mn)
+    }
+}
+
+impl TryFrom<BTreeMap<String, String>> for MetricName {
+    type Error = ();
+
+    fn try_from(value: BTreeMap<String, String>) -> Result<Self, Self::Error> {
+        let mut mn = MetricName::default();
+        for (key, value) in value {
+            mn.add_tag(&key, &value);
+        }
+        Ok(mn)
     }
 }
 

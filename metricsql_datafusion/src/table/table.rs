@@ -14,12 +14,13 @@
 
 use std::any::Any;
 use std::sync::Arc;
+use async_trait::async_trait;
 
 use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::logical_expr::Expr;
-use datafusion::physical_plan::SendableRecordBatchStream;
 use datafusion_expr::TableType;
 
+use crate::common::recordbatch::SendableRecordBatchStream;
 use crate::table::metadata::{FilterPushDownType, TableInfoRef};
 use crate::table::storage::ScanRequest;
 
@@ -31,6 +32,7 @@ pub mod numbers;
 mod metrics;
 
 /// Table abstraction.
+#[async_trait]
 pub trait Table: Send + Sync {
     /// Returns the table as [`Any`](std::any::Any) so that it can be
     /// downcast to a specific implementation.

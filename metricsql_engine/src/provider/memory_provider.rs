@@ -10,7 +10,7 @@ use metricsql_parser::prelude::{LabelFilter, Matchers};
 
 use crate::signature::Signature;
 use crate::{
-    Deadline, MetricDataProvider, MetricName, MetricStorage, QueryResult, QueryResults,
+    Deadline, MetricName, MetricStorage, QueryResult, QueryResults,
     RuntimeResult, SearchQuery,
 };
 
@@ -188,12 +188,6 @@ impl MemoryMetricProvider {
         filters: &Vec<Matchers>,
     ) -> RuntimeResult<QueryResults> {
         self.search_internal(start, end, filters)
-    }
-}
-
-impl MetricDataProvider for MemoryMetricProvider {
-    fn search(&self, sq: &SearchQuery, _deadline: &Deadline) -> RuntimeResult<QueryResults> {
-        self.search(sq.start, sq.end, &sq.matchers)
     }
 }
 

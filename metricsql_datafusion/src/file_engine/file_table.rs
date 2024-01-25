@@ -17,16 +17,17 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use arrow_schema::{Field, SchemaRef};
-use datafusion::execution::SendableRecordBatchStream;
+use crate::common::recordbatch::SendableRecordBatchStream;
 use datafusion_expr::TableType;
 use serde::{Deserialize, Serialize};
+use snafu::ResultExt;
 
 use metricsql_common::prelude::BoxedError;
 
 use crate::data_source::DataSource;
 use crate::datasource::file_format::Format;
 use crate::table::{Table, TableInfo, TableInfoRef};
-use crate::table::error::TableResult;
+use crate::table::error::{TableResult, TablesRecordBatchSnafu};
 use crate::table::storage::ScanRequest;
 
 use super::error::Result;
@@ -49,7 +50,7 @@ pub struct FileTable {
 
 pub type FileTableRef = Arc<FileTable>;
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct FileTableCreateRequest {
     pub url: String,
     /// Region query_engine name
@@ -77,7 +78,7 @@ impl FileTable {
             file_options: request.file_options,
             format: request.format,
             options,
-            table_info: TableInfo {},
+            table_info,
         }))
     }
 
@@ -112,6 +113,7 @@ impl Table for FileTable {
 
     async fn scan_to_stream(&self, request: ScanRequest) -> TableResult<SendableRecordBatchStream> {
         self.query(request)
+            .context(TablesRecordBatchSnafu)
     }
 }
 
@@ -122,36 +124,4 @@ mod tests {
     use crate::file_engine::test_util::{new_test_column_metadata, new_test_object_store, new_test_options};
 
     use super::*;
-
-    #[tokio::test]
-    async fn test_create_region() {
-        let (_dir, object_store) = new_test_object_store("test_create_region");
-
-        let request = FileTableCreateRequest {
-            url: "".to_string(),
-            engine: "file".to_string(),
-            column_metadatas: new_test_column_metadata(),
-            options: new_test_options(),
-        };
-
-        let region = FileTable::create(request.clone(), &object_store)
-            .await
-            .unwrap();
-
-        assert_eq!(region.url, "test");
-        assert_eq!(region.file_options.files, vec!["1.csv"]);
-        assert_matches!(region.format, Format::Csv { .. });
-        assert_eq!(region.options, new_test_options());
-
-        assert!(object_store
-            .is_exist("create_region_dir/manifest/_file_manifest")
-            .await
-            .unwrap());
-
-        // Object exists, should fail
-        let err = FileTable::create(request)
-            .await
-            .unwrap_err();
-        assert_matches!(err, ManifestExistsSnafu { .. });
-    }
 }

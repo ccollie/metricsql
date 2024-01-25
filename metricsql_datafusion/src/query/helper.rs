@@ -17,7 +17,7 @@ use arrow::array::{ArrayRef, StringArray};
 use arrow::compute;
 use arrow::compute::kernels::comparison;
 use arrow::array::BooleanArray;
-use snafu::{OptionExt, ResultExt};
+use snafu::{ResultExt};
 
 use crate::datatypes::error::{ArrowComputeSnafu, Result};
 
@@ -32,27 +32,25 @@ impl Helper {
         let s = StringArray::new_scalar(s);
         let filter = comparison::like(&array, &s).context(ArrowComputeSnafu)?;
 
-        let result = compute::filter(&array, &filter).context(ArrowComputeSnafu)?;
-        Helper::try_into_vector(result)
+        compute::filter(&array, &filter).context(ArrowComputeSnafu)
     }
 
     pub fn like_utf8_filter(names: Vec<String>, s: &str) -> Result<(ArrayRef, BooleanArray)> {
         let array = StringArray::from(names);
         let s = StringArray::new_scalar(s);
         let filter = comparison::like(&array, &s).context(ArrowComputeSnafu)?;
-        let result = compute::filter(&array, &filter).context(ArrowComputeSnafu)?;
-        let vector = Helper::try_into_vector(result)?;
+        let array = compute::filter(&array, &filter).context(ArrowComputeSnafu)?;
 
-        Ok((vector, BooleanArray::from(filter)))
+        Ok((array, BooleanArray::from(filter)))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use arrow::array::{
+        Array,
         ArrayRef, BooleanArray
     };
-    use arrow_array::Array;
 
     use super::*;
 

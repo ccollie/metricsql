@@ -15,9 +15,9 @@ use datafusion::physical_plan::ExecutionPlan;
 use datafusion::physical_plan::memory::MemoryExec;
 use datafusion::physical_plan::projection::ProjectionExec;
 use datafusion_expr::{Expr, TableProviderFilterPushDown, TableType};
+use datafusion_expr::utils::conjunction;
 use log::debug;
 use tokio::task;
-use crate::common::conjunction;
 
 use crate::planner::filter_pushdown::{
     filter_expr_to_sql, MySQLFilterPushdown, PostgresFilterPushdown,

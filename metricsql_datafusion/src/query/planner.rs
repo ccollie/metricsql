@@ -13,8 +13,6 @@
 // limitations under the License.
 
 use std::sync::Arc;
-use std::time::SystemTime;
-
 use async_trait::async_trait;
 use datafusion::execution::context::SessionState;
 use datafusion_expr::LogicalPlan;
@@ -33,9 +31,9 @@ use crate::session::context::QueryContextRef;
 pub struct EvalStmt {
     /// The time boundaries for the evaluation. If start equals end an instant
     /// is evaluated.
-    pub start: SystemTime,
-    pub end: SystemTime,
-    pub filters: Vec<Matchers>,
+    pub start: i64, // todo: Timestamp/Range
+    pub end: i64,
+    pub filters: Matchers,
 }
 
 #[async_trait]
@@ -64,7 +62,7 @@ impl DfLogicalPlanner {
             self.engine_state.disallow_cross_schema_query(),
             query_ctx.as_ref(),
         );
-        PromPlanner::stmt_to_plan(table_provider, stmt)
+        PromPlanner::query_to_plan(table_provider, &stmt)
             .await
             .map_err(BoxedError::new)
             .context(QueryPlanSnafu)

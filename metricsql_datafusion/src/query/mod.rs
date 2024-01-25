@@ -1,9 +1,7 @@
 use std::fmt::{Debug, Formatter};
 
 pub use ::datafusion::physical_plan::ExecutionPlan;
-
 use crate::common::recordbatch::{RecordBatches, SendableRecordBatchStream};
-
 pub mod error;
 pub mod sql;
 pub mod physical_plan;

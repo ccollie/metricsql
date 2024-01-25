@@ -35,9 +35,12 @@ pub enum StatusCode {
     InvalidArguments = 1004,
     /// The task is cancelled.
     Cancelled = 1005,
+    /// The task is timed out
+    TimedOut = 1006,
+
     // ====== End of common status code ================
 
-    // ====== Begin of SQL related status code =========
+    // ====== Begin of SQL/PromQL related status code =========
     /// SQL Syntax error.
     InvalidSyntax = 2000,
     // ====== End of SQL related status code ===========
@@ -121,6 +124,7 @@ impl StatusCode {
             | StatusCode::EngineExecuteQuery
             | StatusCode::TableAlreadyExists
             | StatusCode::TableNotFound
+            | StatusCode::TimedOut
             | StatusCode::RegionNotFound
             | StatusCode::RegionAlreadyExists
             | StatusCode::TableColumnNotFound
@@ -161,6 +165,7 @@ impl StatusCode {
             | StatusCode::RegionAlreadyExists
             | StatusCode::TableColumnNotFound
             | StatusCode::TableColumnExists
+            | StatusCode::TimedOut
             | StatusCode::DatabaseNotFound
             | StatusCode::RateLimited
             | StatusCode::UserNotFound
@@ -210,6 +215,7 @@ impl StatusCode {
             v if v == StatusCode::UserPasswordMismatch as u32 => {
                 Some(StatusCode::UserPasswordMismatch)
             }
+            v if v == StatusCode::TimedOut as u32 => Some(StatusCode::TimedOut),
             v if v == StatusCode::AuthHeaderNotFound as u32 => Some(StatusCode::AuthHeaderNotFound),
             v if v == StatusCode::InvalidAuthHeader as u32 => Some(StatusCode::InvalidAuthHeader),
             v if v == StatusCode::AccessDenied as u32 => Some(StatusCode::AccessDenied),

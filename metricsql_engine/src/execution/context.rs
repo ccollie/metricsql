@@ -1,12 +1,8 @@
 use std::sync::Arc;
-
-use agnostik::AgnostikExecutor;
 use chrono::Duration;
 use tracing::{span_enabled, Level};
 
 use crate::{MetricStorage, NullMetricStorage};
-// todo: isolate this to mod async_executor
-use crate::async_executor::get_runtime;
 use crate::cache::rollup_result_cache::RollupResultCache;
 use crate::execution::active_queries::{ActiveQueries, ActiveQueryEntry};
 use crate::execution::parser_cache::{ParseCache, ParseCacheResult, ParseCacheValue};
@@ -39,15 +35,39 @@ impl Context {
     }
 
     pub fn search(&self, sq: SearchQuery, deadline: Deadline) -> RuntimeResult<QueryResults> {
-        // see https://greptime.com/blogs/2023-03-09-bridging-async-and-sync-rust#solve-the-problem
-        // https://github.com/tokio-rs/tokio/issues/237
+        use metricsql_common::async_runtime::*;
+
         let storage = self.storage.clone();
-        futures::executor::block_on(async move {
-            let runtime = get_runtime();
-            runtime
-                .spawn(async move { storage.search(&sq, deadline).await })
-                .await
-        })
+        // todo: use std::time::Duration for deadline
+        let duration = std::time::Duration::from_millis(deadline.timeout.num_milliseconds() as u64);
+        let res= block_sync(async move {
+            if duration.is_zero() {
+                storage.search(&sq, deadline).await
+            } else {
+                let res = timeout(duration, async move {
+                    storage.search(&sq, deadline).await
+                }).await;
+                match res {
+                    Ok(res) => res,
+                    Err(err) => match err {
+                        std::io::Error { .. } => Err(RuntimeError::DeadlineExceededError(err.to_string())),
+                    }
+                }
+            }
+        });
+        match res {
+            Ok(res) => res,
+            Err(err) => {
+                match err {
+                    Error::Join { msg } => Err(RuntimeError::General(msg)), // todo: better error
+                    Error::Timeout { .. } => Err(RuntimeError::DeadlineExceededError("search timeout".to_string())),
+                    Error::Execution { source } => {
+                        // todo: check is source is RuntimeError
+                        Err(RuntimeError::ExecutionError(source.to_string()))
+                    },
+                }
+            },
+        }
     }
 
     // todo: pass in tracer

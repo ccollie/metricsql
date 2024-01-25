@@ -16,9 +16,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use arrow::array::{Array, ArrayRef, StringArray};
-use arrow_schema::{DataType, Field, Schema, TimeUnit};
+use arrow::compute::can_cast_types;
+use arrow_schema::{DataType, Field, FieldRef, Schema, TimeUnit};
 use datafusion_common::ScalarValue;
-use datafusion_expr::UserDefinedLogicalNode;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use snafu::{ensure, OptionExt, ResultExt};
@@ -30,16 +30,21 @@ use crate::datasource::file_format::{FileFormat, Format, infer_schemas};
 use crate::datasource::lister::{Lister, Source};
 use crate::datasource::object_store::build_backend;
 use crate::datasource::util::find_dir_and_filename;
+use crate::datatypes::{data_type_name, table_type_name};
 use crate::object_store::ObjectStore;
 use crate::query::datafusion::execute_show_with_filter;
-use crate::query::error::{BuildBackendSnafu, BuildRegexSnafu, CatalogSnafu, ColumnSchemaIncompatibleSnafu, ColumnSchemaNoDefaultSnafu, ConvertSchemaSnafu, CreateRecordBatchSnafu, InferSchemaSnafu, ListObjectsSnafu, MissingRequiredFieldSnafu, ParseFileFormatSnafu, Result, VectorComputationSnafu};
+use crate::query::error::{
+    BuildBackendSnafu, BuildRegexSnafu, CatalogSnafu, ColumnSchemaIncompatibleSnafu,
+    ColumnSchemaNoDefaultSnafu, CreateRecordBatchSnafu, InferSchemaSnafu, ListObjectsSnafu,
+    MissingRequiredFieldSnafu, ParseFileFormatSnafu, Result, VectorComputationSnafu
+};
 use crate::query::helper::Helper;
 use crate::query::Output;
 use crate::session::context::QueryContextRef;
 use crate::sql::statements::show::{ShowDatabases, ShowKind, ShowTables};
 use crate::table::requests::{FILE_TABLE_LOCATION_KEY, FILE_TABLE_PATTERN_KEY};
 use crate::table::schema::raw::RawSchema;
-use crate::table::TableRef;
+use crate::table::{is_timestamp_field, TableRef};
 
 const SCHEMAS_COLUMN: &str = "Schemas";
 const TABLES_COLUMN: &str = "Tables";
@@ -229,13 +234,12 @@ pub async fn show_tables(
 
 pub fn describe_table(table: TableRef) -> Result<Output> {
     let table_info = table.table_info();
-    let columns_schemas = table_info.meta.schema.column_schemas();
+    let columns_schemas = table_info.meta.schema.fields().as_ref();
     let columns = vec![
         describe_column_names(columns_schemas),
         describe_column_types(columns_schemas),
         describe_column_keys(columns_schemas, &table_info.meta.primary_key_indices),
         describe_column_nullables(columns_schemas),
-        describe_column_defaults(columns_schemas),
         describe_column_semantic_types(columns_schemas, &table_info.meta.primary_key_indices),
     ];
     let records = RecordBatches::try_from_columns(DESCRIBE_TABLE_OUTPUT_SCHEMA.clone(), columns)
@@ -243,38 +247,38 @@ pub fn describe_table(table: TableRef) -> Result<Output> {
     Ok(Output::RecordBatches(records))
 }
 
-fn describe_column_names(columns_schemas: &[Field]) -> ArrayRef {
-    Arc::new(StringArray::from_iterator(
-        columns_schemas.iter().map(|cs| cs.name().as_str()),
+fn describe_column_names(columns_schemas: &[FieldRef]) -> ArrayRef {
+    Arc::new(StringArray::from(
+        columns_schemas.iter().map(|cs| cs.name().as_str()).collect::<Vec<_>>()
     ))
 }
 
-fn describe_column_types(columns_schemas: &[Field]) -> ArrayRef {
+fn describe_column_types(columns_schemas: &[FieldRef]) -> ArrayRef {
     Arc::new(StringArray::from(
         columns_schemas
             .iter()
-            .map(|cs| cs.data_type().name())
+            .map(|cs| data_type_name(cs.data_type()))
             .collect::<Vec<_>>(),
     ))
 }
 
 fn describe_column_keys(
-    columns_schemas: &[Field],
+    columns_schemas: &[FieldRef],
     primary_key_indices: &[usize],
 ) -> ArrayRef {
-    Arc::new(StringArray::from_iterator(
-        columns_schemas.iter().enumerate().map(|(i, cs)| {
-            if cs.is_time_index() || primary_key_indices.contains(&i) {
-                PRI_KEY
-            } else {
-                ""
-            }
-        }),
-    ))
+    let vals = columns_schemas.iter().enumerate().map(|(i, cs)| {
+        if is_timestamp_field(cs) || primary_key_indices.contains(&i) {
+            PRI_KEY
+        } else {
+            ""
+        }
+    }).collect::<Vec<_>>();
+
+    Arc::new(StringArray::from(vals))
 }
 
-fn describe_column_nullables(columns_schemas: &[Field]) -> ArrayRef {
-    Arc::new(StringArray::from_iterator(columns_schemas.iter().map(
+fn describe_column_nullables(columns_schemas: &[FieldRef]) -> ArrayRef {
+    Arc::new(StringArray::from(columns_schemas.iter().map(
         |cs| {
             if cs.is_nullable() {
                 NULLABLE_YES
@@ -282,35 +286,23 @@ fn describe_column_nullables(columns_schemas: &[Field]) -> ArrayRef {
                 NULLABLE_NO
             }
         },
-    )))
-}
-
-fn describe_column_defaults(columns_schemas: &[Field]) -> ArrayRef {
-    Arc::new(StringArray::from(
-        columns_schemas
-            .iter()
-            .map(|cs| {
-                cs.default_constraint()
-                    .map_or(String::from(""), |dc| dc.to_string())
-            })
-            .collect::<Vec<String>>(),
-    ))
+    ).collect::<Vec<_>>()))
 }
 
 fn describe_column_semantic_types(
-    columns_schemas: &[Field],
+    columns_schemas: &[FieldRef],
     primary_key_indices: &[usize],
 ) -> ArrayRef {
-    Arc::new(StringArray::from_iterator(
+    Arc::new(StringArray::from(
         columns_schemas.iter().enumerate().map(|(i, cs)| {
             if primary_key_indices.contains(&i) {
                 SEMANTIC_TYPE_PRIMARY_KEY
-            } else if cs.is_time_index() {
+            } else if is_timestamp_field(cs) {
                 SEMANTIC_TYPE_TIME_INDEX
             } else {
                 SEMANTIC_TYPE_FIELD
             }
-        }),
+        }).collect::<Vec<_>>()
     ))
 }
 
@@ -366,9 +358,7 @@ pub async fn infer_file_table_schema(
     let merged = infer_schemas(object_store, files, format.as_ref())
         .await
         .context(InferSchemaSnafu)?;
-    Ok(RawSchema::from(
-        &Schema::try_from(merged).context(ConvertSchemaSnafu)?,
-    ))
+    Ok(RawSchema::from(&merged))
 }
 
 // Converts the file column schemas to table column schemas.
@@ -384,7 +374,7 @@ pub fn file_column_schemas_to_table(
     file_column_schemas: &[Field],
 ) -> (Vec<Field>, String) {
     let mut column_schemas = file_column_schemas.to_owned();
-    if let Some(time_index_column) = column_schemas.iter().find(|c| c.is_time_index()) {
+    if let Some(time_index_column) = column_schemas.iter().find(|c| is_timestamp_field(c)) {
         let time_index = time_index_column.name().clone();
         return (column_schemas, time_index);
     }
@@ -427,12 +417,11 @@ pub fn check_file_to_table_schema_compatibility(
         .collect::<HashMap<_, _>>();
 
     for table_column in table_column_schemas {
-        if let Some(file_column) = file_schemas_map.get(&table_column.name()) {
+        let field_name = table_column.name();
+        if let Some(file_column) = file_schemas_map.get(field_name) {
             // TODO(zhongzc): a temporary solution, we should use `can_cast_to` once it's ready.
             ensure!(
-                file_column
-                    .data_type()
-                    .can_arrow_type_cast_to(&table_column.data_type()),
+                can_cast_types(file_column.data_type(), table_column.data_type()),
                 ColumnSchemaIncompatibleSnafu {
                     column: table_column.name().clone(),
                     file_type: file_column.data_type().clone(),
@@ -441,7 +430,7 @@ pub fn check_file_to_table_schema_compatibility(
             );
         } else {
             ensure!(
-                table_column.is_nullable() || table_column.default_constraint().is_some(),
+                table_column.is_nullable(),
                 ColumnSchemaNoDefaultSnafu {
                     column: table_column.name().clone(),
                 }
@@ -476,7 +465,7 @@ async fn get_table_types(
             .await
             .context(CatalogSnafu)?
         {
-            table_types.push(table.table_type().to_string());
+            table_types.push(table_type_name(table.table_type()).to_string());
         }
     }
     Ok(Arc::new(StringArray::from(table_types)) as _)
@@ -485,8 +474,7 @@ async fn get_table_types(
 #[cfg(test)]
 mod test {
     use std::sync::Arc;
-
-    use arrow_array::{ArrayRef, StringArray, TimestampMillisecondArray, UInt32Array};
+    use arrow::array::{ArrayRef, StringArray, TimestampMillisecondArray, UInt32Array};
     use arrow_schema::{DataType, Field, Schema, SchemaRef, TimeUnit};
     use datafusion::datasource::MemTable;
     use snafu::ResultExt;

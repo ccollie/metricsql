@@ -14,12 +14,11 @@
 
 use std::sync::Arc;
 
-use arrow::record_batch::RecordBatch;
 use arrow::array::ArrayRef;
 use arrow_schema::{SchemaRef as ArrowSchemaRef, SchemaRef};
-use datafusion::execution::{SendableRecordBatchStream, TaskContext};
+use datafusion::execution::TaskContext;
 use datafusion::physical_plan::SendableRecordBatchStream as DfSendableRecordBatchStream;
-use datafusion::physical_plan::stream::{RecordBatchStreamAdapter as DfRecordBatchStreamAdapter, RecordBatchStreamAdapter};
+use datafusion::physical_plan::stream::RecordBatchStreamAdapter as DfRecordBatchStreamAdapter;
 use datafusion::physical_plan::streaming::PartitionStream as DfPartitionStream;
 use snafu::ResultExt;
 
@@ -29,6 +28,8 @@ pub use tables::get_schema_columns;
 use crate::catalog::error::{CreateRecordBatchSnafu, Result};
 use crate::catalog::error::InternalSnafu;
 use crate::catalog::information_schema::InformationTable;
+use crate::common::recordbatch::adapter::RecordBatchStreamAdapter;
+use crate::common::recordbatch::{SendableRecordBatchStream, RecordBatch};
 use crate::table::TableId;
 
 mod tables;
@@ -76,7 +77,7 @@ impl InformationTable for MemoryTable {
     }
 
     fn to_stream(&self) -> Result<SendableRecordBatchStream> {
-        let schema = self.schema.arrow_schema().clone();
+        let schema = self.schema.clone();
         let mut builder = self.builder();
         let stream = Box::pin(DfRecordBatchStreamAdapter::new(
             schema,
@@ -119,11 +120,11 @@ impl MemoryTableBuilder {
 
 impl DfPartitionStream for MemoryTable {
     fn schema(&self) -> &ArrowSchemaRef {
-        self.schema.arrow_schema()
+        &self.schema
     }
 
     fn execute(&self, _: Arc<TaskContext>) -> DfSendableRecordBatchStream {
-        let schema = self.schema.arrow_schema().clone();
+        let schema = self.schema.clone();
         let mut builder = self.builder();
         Box::pin(DfRecordBatchStreamAdapter::new(
             schema,
@@ -142,7 +143,7 @@ impl DfPartitionStream for MemoryTable {
 mod tests {
     use std::sync::Arc;
 
-    use arrow_array::StringArray;
+    use arrow::array::StringArray;
     use arrow_schema::{DataType, Field, Schema};
 
     use crate::common::recordbatch::RecordBatches;

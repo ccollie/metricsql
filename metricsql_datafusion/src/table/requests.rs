@@ -22,11 +22,13 @@ use arrow::array::ArrayRef;
 use serde::{Deserialize, Serialize};
 
 use crate::common::ReadableSize;
-use crate::error;
+use crate::table::error;
 use crate::table::error::ParseTableOptionSnafu;
 use crate::table::metadata::TableId;
 use crate::table::schema::raw::RawSchema;
 use crate::table::TableReference;
+
+pub const DB_TABLE_NAME: &str = "databases";
 
 pub const FILE_TABLE_LOCATION_KEY: &str = "location";
 pub const FILE_TABLE_PATTERN_KEY: &str = "pattern";
@@ -67,6 +69,8 @@ pub struct InsertRequest {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct TableOptions {
+    pub time_column: Option<String>,
+    pub value_column: Option<String>,
     /// Memtable size of memtable.
     pub write_buffer_size: Option<ReadableSize>,
     /// Time-to-live of table. Expired data will be automatically purged.
@@ -80,6 +84,9 @@ pub const WRITE_BUFFER_SIZE_KEY: &str = "write_buffer_size";
 pub const TTL_KEY: &str = "ttl";
 pub const REGIONS_KEY: &str = "regions";
 
+pub const TIME_COLUMN_KEY: &str = "time_column";
+pub const VALUE_COLUMN_KEY: &str = "value_column";
+
 impl TryFrom<&HashMap<String, String>> for TableOptions {
     type Error = error::Error;
 
@@ -91,11 +98,17 @@ impl TryFrom<&HashMap<String, String>> for TableOptions {
                     key: WRITE_BUFFER_SIZE_KEY,
                     value: write_buffer_size,
                 }
-                    .build()
+                .build()
             })?;
             options.write_buffer_size = Some(size)
         }
 
+        if let Some(time_column) = value.get(TIME_COLUMN_KEY) {
+            options.time_column = Some(time_column.clone());
+        }
+        if let Some(value_column) = value.get(VALUE_COLUMN_KEY) {
+            options.value_column = Some(value_column.clone());
+        }
         if let Some(ttl) = value.get(TTL_KEY) {
             let ttl_value = ttl
                 .parse::<humantime::Duration>()
@@ -104,13 +117,13 @@ impl TryFrom<&HashMap<String, String>> for TableOptions {
                         key: TTL_KEY,
                         value: ttl,
                     }
-                        .build()
+                    .build()
                 })?
                 .into();
             options.ttl = Some(ttl_value);
         }
         options.extra_options = HashMap::from_iter(value.iter().filter_map(|(k, v)| {
-            if k != WRITE_BUFFER_SIZE_KEY && k != REGIONS_KEY && k != TTL_KEY {
+            if k != WRITE_BUFFER_SIZE_KEY && k != TTL_KEY {
                 Some((k.clone(), v.clone()))
             } else {
                 None
@@ -208,6 +221,8 @@ mod tests {
     #[test]
     fn test_serialize_table_options() {
         let options = TableOptions {
+            time_column: None,
+            value_column: None,
             write_buffer_size: None,
             ttl: Some(Duration::from_secs(1000)),
             extra_options: HashMap::new(),
@@ -220,6 +235,8 @@ mod tests {
     #[test]
     fn test_convert_hashmap_between_table_options() {
         let options = TableOptions {
+            time_column: None,
+            value_column: None,
             write_buffer_size: Some(ReadableSize::mb(128)),
             ttl: Some(Duration::from_secs(1000)),
             extra_options: HashMap::new(),
@@ -229,6 +246,8 @@ mod tests {
         assert_eq!(options, serialized);
 
         let options = TableOptions {
+            time_column: None,
+            value_column: None,
             write_buffer_size: None,
             ttl: None,
             extra_options: HashMap::new(),
@@ -238,6 +257,8 @@ mod tests {
         assert_eq!(options, serialized);
 
         let options = TableOptions {
+            time_column: None,
+            value_column: None,
             write_buffer_size: Some(ReadableSize::mb(128)),
             ttl: Some(Duration::from_secs(1000)),
             extra_options: HashMap::from([("a".to_string(), "A".to_string())]),

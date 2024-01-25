@@ -14,24 +14,23 @@
 
 use std::sync::{Arc, Weak};
 
-use arrow::record_batch::RecordBatch;
 use arrow::array::ArrayRef;
-use arrow_schema::{DataType, Field, Schema, SchemaRef as ArrowSchemaRef, SchemaRef};
-use datafusion::execution::{SendableRecordBatchStream, TaskContext};
-use datafusion::physical_plan::SendableRecordBatchStream as DfSendableRecordBatchStream;
-use datafusion::physical_plan::stream::{RecordBatchStreamAdapter as DfRecordBatchStreamAdapter, RecordBatchStreamAdapter};
+use arrow_schema::{DataType, Field, Schema, SchemaRef};
+use datafusion::execution::TaskContext;
+use datafusion::physical_plan::stream::RecordBatchStreamAdapter as DfRecordBatchStreamAdapter;
 use datafusion::physical_plan::streaming::PartitionStream as DfPartitionStream;
+use datafusion::physical_plan::SendableRecordBatchStream as DfSendableRecordBatchStream;
 use datafusion_expr::TableType;
 use snafu::{OptionExt, ResultExt};
 
 use metricsql_common::prelude::BoxedError;
 
-use crate::catalog::{StringVectorBuilder, UInt32VectorBuilder};
-use crate::catalog::CatalogManager;
 use crate::catalog::consts::INFORMATION_SCHEMA_TABLES_TABLE_ID;
-use crate::catalog::error::{
-    CreateRecordBatchSnafu, InternalSnafu, Result, UpgradeWeakCatalogManagerRefSnafu
-};
+use crate::catalog::error::{CreateRecordBatchSnafu, InternalSnafu, Result, UpgradeWeakCatalogManagerRefSnafu};
+use crate::catalog::CatalogManager;
+use crate::catalog::{StringVectorBuilder, UInt32VectorBuilder};
+use crate::common::recordbatch::adapter::RecordBatchStreamAdapter;
+use crate::common::recordbatch::{RecordBatch, SendableRecordBatchStream};
 use crate::table::TableId;
 
 use super::{InformationTable, TABLES};
@@ -53,7 +52,7 @@ impl InformationSchemaTables {
 
     pub(crate) fn schema() -> SchemaRef {
         Arc::new(Schema::new(vec![
-            Field::new("table_catalog",  DataType::Utf8, false),
+            Field::new("table_catalog", DataType::Utf8, false),
             Field::new("table_schema", DataType::Utf8, false),
             Field::new("table_name", DataType::Utf8, false),
             Field::new("table_type", DataType::Utf8, false),
@@ -85,7 +84,7 @@ impl InformationTable for InformationSchemaTables {
     }
 
     fn to_stream(&self) -> Result<SendableRecordBatchStream> {
-        let schema = self.schema.arrow_schema().clone();
+        let schema = self.schema.clone();
         let mut builder = self.builder();
         let stream = Box::pin(DfRecordBatchStreamAdapter::new(
             schema,
@@ -170,7 +169,6 @@ impl InformationSchemaTablesBuilder {
                         &schema_name,
                         &table_name,
                         table.table_type(),
-                        Some(table_info.ident.table_id),
                         Some(&table_info.meta.engine),
                     );
                 } else {
@@ -188,7 +186,6 @@ impl InformationSchemaTablesBuilder {
         schema_name: &str,
         table_name: &str,
         table_type: TableType,
-        table_id: Option<u32>,
         engine: Option<&str>,
     ) {
         self.catalog_names.push(Some(catalog_name));
@@ -199,7 +196,6 @@ impl InformationSchemaTablesBuilder {
             TableType::View => "VIEW",
             TableType::Temporary => "LOCAL TEMPORARY",
         }));
-        self.table_ids.push(table_id);
         self.engines.push(engine);
     }
 
@@ -209,7 +205,6 @@ impl InformationSchemaTablesBuilder {
             Arc::new(self.schema_names.finish()),
             Arc::new(self.table_names.finish()),
             Arc::new(self.table_types.finish()),
-            Arc::new(self.table_ids.finish()),
             Arc::new(self.engines.finish()),
         ];
         RecordBatch::new(self.schema.clone(), columns).context(CreateRecordBatchSnafu)
@@ -217,12 +212,12 @@ impl InformationSchemaTablesBuilder {
 }
 
 impl DfPartitionStream for InformationSchemaTables {
-    fn schema(&self) -> &ArrowSchemaRef {
-        self.schema.arrow_schema()
+    fn schema(&self) -> &SchemaRef {
+        &self.schema
     }
 
     fn execute(&self, _: Arc<TaskContext>) -> DfSendableRecordBatchStream {
-        let schema = self.schema.arrow_schema().clone();
+        let schema = self.schema.clone();
         let mut builder = self.builder();
         Box::pin(DfRecordBatchStreamAdapter::new(
             schema,

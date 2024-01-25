@@ -13,9 +13,11 @@
 // limitations under the License.
 
 use arrow_schema::{Schema, SchemaBuilder};
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
+use crate::table::is_timestamp_field;
 use crate::table::schema::column_schema::ColumnSchema;
 
 /// Struct used to serialize and deserialize [`Schema`](crate::schema::Schema).
@@ -56,17 +58,24 @@ impl TryFrom<RawSchema> for Schema {
         // While building Schema, we don't trust the fields, such as timestamp_index,
         // in RawSchema. We use SchemaBuilder to perform the validation.
         SchemaBuilder::try_from(raw.column_schemas)?
-            .version(raw.version)
             .build()
     }
 }
 
 impl From<&Schema> for RawSchema {
     fn from(schema: &Schema) -> RawSchema {
+        let timestamp_index = schema.fields.iter()
+            .find_position(|field| is_timestamp_field(field))
+            .map(|(i, _)| i);
+
+        let column_schemas = schema.fields.iter().map(|field| {
+            ColumnSchema::from(field.as_ref())
+        }).collect::<Vec<_>>();
+
         RawSchema {
-            column_schemas: schema.column_schemas.clone(),
-            timestamp_index: schema.timestamp_index,
-            version: schema.version,
+            column_schemas,
+            timestamp_index,
+            version: 0,
         }
     }
 }

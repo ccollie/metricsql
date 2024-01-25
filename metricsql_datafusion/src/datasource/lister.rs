@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use datafusion_expr::UserDefinedLogicalNode;
 use futures::{future, TryStreamExt};
 use opendal::Entry;
 use regex::Regex;

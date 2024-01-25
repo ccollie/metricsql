@@ -17,6 +17,7 @@ use metricsql_common::error::status_code::StatusCode;
 use snafu::Snafu;
 use std::any::Any;
 use std::fmt::Debug;
+use arrow_schema::ArrowError;
 
 #[derive(Snafu)]
 #[snafu(visibility(pub))]
@@ -36,7 +37,7 @@ pub enum Error {
     },
 
     #[snafu(display("Failed to convert datafusion type: {}", from))]
-    Conversion { from: String },
+    Conversion { from: String, source: ArrowError },
 
     #[snafu(display("Bad array access, Index out of bounds: {}, size: {}", index, size))]
     BadArrayAccess { index: usize, size: usize },

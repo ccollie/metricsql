@@ -42,14 +42,11 @@ pub mod provider;
 pub mod query_stats;
 pub mod runtime_error;
 mod types;
-
-pub mod async_executor;
 mod common;
 #[cfg(test)]
 mod tests;
 
 pub mod prelude {
-    pub use crate::async_executor::*;
     pub use crate::cache::*;
     pub use crate::execution::*;
     pub use crate::provider::*;

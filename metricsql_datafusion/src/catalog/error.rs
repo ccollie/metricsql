@@ -145,7 +145,7 @@ pub enum Error {
     UpgradeWeakCatalogManagerRef,
 
     #[snafu(display("Failed to execute system catalog table scan"))]
-    SystemCatalogTableScanExec { source: crate::query::error::Error },
+    SystemCatalogTableScanExec { source: BoxedError },
 
     #[snafu(display("Cannot parse catalog value"))]
     InvalidCatalogValue { source: Box<Error> },
@@ -215,7 +215,7 @@ impl ErrorExt for Error {
             Error::Unimplemented { .. } | Error::NotSupported { .. } => StatusCode::Unsupported,
             Error::QueryAccessDenied { .. } => StatusCode::AccessDenied,
             Error::Datafusion { .. } => StatusCode::EngineExecuteQuery,
-            Error::InvalidFullTableName { .. } => {}
+            Error::InvalidFullTableName { .. } => StatusCode::InvalidSyntax, // ????
             Error::Internal { .. } => StatusCode::Internal,
         }
     }

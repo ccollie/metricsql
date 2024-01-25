@@ -16,6 +16,7 @@ readme.workspace = true
 arc-swap = "1.6.0"
 arrow = "49.0.0"
 arrow-buffer = "49.0.0"
+arrow-cast = "49.0.0"
 arrow-csv = "49.0.0"
 arrow-schema = { version = "49.0.0", features = ["serde"] }
 async-compression = { version = "0.4.5", features = [
@@ -36,8 +37,8 @@ connectorx = { git = "https://github.com/splitgraph/connector-x", branch = "data
 datafusion = "34.0.0"
 datafusion-common = "34.0.0"
 datafusion-expr = "34.0.0"
-derive_builder = "0.12.0"
-derive_builder_macro = "0.12.0"
+derive_builder = "0.13.0"
+derive_builder_macro = "0.13.0"
 humantime-serde = "1.1.1"
 itertools = { workspace = true }
 log = "0.4"
@@ -59,7 +60,7 @@ futures.workspace = true
 tracing.workspace = true
 lazy_static.workspace = true
 md5 = "0.7"
-opendal = { version = "0.44.1", features = [
+opendal = { version = "0.40.0", features = [
     "layers-tracing",
 ] }
 prometheus = "0.13.3"
@@ -70,7 +71,7 @@ url = "2.5.0"
 tokio-util = {  version = "0.7.10", features = ["io", "compat", "io-util"] }
 rand.workspace = true
 quote = { version = "1.0.35", features = [] }
-uuid = "1.6.1"
+uuid = "1.7.0"
 lru-cache = "0.1.2"
 bytemuck = "1.14.0"
 regex-syntax = {  workspace = true }

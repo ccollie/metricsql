@@ -130,7 +130,7 @@ impl fmt::Display for LabelFilterOp {
 }
 
 /// LabelFilter represents MetricsQL label filter like `foo="bar"`.
-#[derive(Default, Debug, Clone, Eq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Eq, Hash, Serialize, Deserialize)]
 pub struct LabelFilter {
     pub op: LabelFilterOp,
 
@@ -305,7 +305,7 @@ impl fmt::Display for LabelFilter {
     }
 }
 
-#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Matchers(Vec<LabelFilter>);
 
 impl Matchers {

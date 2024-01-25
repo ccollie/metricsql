@@ -20,6 +20,7 @@ use arrow_schema::DataType;
 use serde::{Deserialize, Serialize};
 
 use crate::table::error::{Error, Result};
+use crate::table::is_timestamp_field;
 
 pub type Metadata = HashMap<String, String>;
 
@@ -118,21 +119,19 @@ impl ColumnSchema {
     }
 }
 
-impl TryFrom<&Field> for ColumnSchema {
-    type Error = Error;
-
-    fn try_from(field: &Field) -> Result<ColumnSchema> {
-        let data_type = field.data_type()?;
+impl From<&Field> for ColumnSchema {
+    fn from(field: &Field) -> ColumnSchema {
+        let data_type = field.data_type().clone();
         let mut metadata = field.metadata().clone();
-        let is_time_index = metadata.contains_key(TIME_INDEX_KEY);
+        let is_time_index = is_timestamp_field(field);
 
-        Ok(ColumnSchema {
+        ColumnSchema {
             name: field.name().clone(),
             data_type,
             is_nullable: field.is_nullable(),
             is_time_index,
             metadata,
-        })
+        }
     }
 }
 
@@ -144,7 +143,7 @@ impl TryFrom<&ColumnSchema> for Field {
 
         Ok(Field::new(
             &column_schema.name,
-            column_schema.data_type.as_arrow_type(),
+            column_schema.data_type.clone(),
             column_schema.is_nullable(),
         )
             .with_metadata(metadata))

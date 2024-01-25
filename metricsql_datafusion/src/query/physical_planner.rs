@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use datafusion_expr::LogicalPlan;
 
-use crate::error::Result;
+use crate::query::error::Result;
 use crate::query::physical_plan::PhysicalPlan;
 use crate::query::query_engine::QueryEngineContext;
 

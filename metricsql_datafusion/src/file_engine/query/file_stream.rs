@@ -26,7 +26,7 @@ use datafusion::physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion::prelude::SessionContext;
 use datafusion_expr::Expr;
 use snafu::ResultExt;
-use crate::common::conjunction;
+use datafusion_expr::utils::conjunction;
 
 use crate::common::recordbatch::adapter::RecordBatchStreamAdapter;
 use crate::common::recordbatch::SendableRecordBatchStream;
@@ -133,7 +133,7 @@ fn new_csv_stream(
     config: &ScanPlanConfig,
     format: &CsvFormat,
 ) -> Result<SendableRecordBatchStream> {
-    let file_schema = config.file_schema.arrow_schema().clone();
+    let file_schema = config.file_schema.clone();
     let opener = build_csv_opener(file_schema.clone(), config, format)?;
     // push down limit only if there is no filter
     let limit = config.filters.is_empty().then_some(config.limit).flatten();
@@ -145,7 +145,7 @@ fn new_json_stream(
     config: &ScanPlanConfig,
     format: &JsonFormat,
 ) -> Result<SendableRecordBatchStream> {
-    let file_schema = config.file_schema.arrow_schema().clone();
+    let file_schema = config.file_schema.clone();
     let opener = build_json_opener(file_schema.clone(), config, format)?;
     // push down limit only if there is no filter
     let limit = config.filters.is_empty().then_some(config.limit).flatten();
@@ -157,7 +157,7 @@ fn new_parquet_stream_with_exec_plan(
     config: &ScanPlanConfig,
     _format: &ParquetFormat,
 ) -> Result<SendableRecordBatchStream> {
-    let file_schema = config.file_schema.arrow_schema().clone();
+    let file_schema = config.file_schema.clone();
     let ScanPlanConfig {
         files,
         projection,
@@ -186,7 +186,7 @@ fn new_parquet_stream_with_exec_plan(
     // build predicate filter
     let filters = filters
         .iter()
-        .map(|f| f.df_expr().clone())
+        .map(|f| f.clone())
         .collect::<Vec<_>>();
     let filters = if let Some(expr) = conjunction(filters) {
         let df_schema = file_schema
@@ -221,7 +221,7 @@ fn new_orc_stream(
     config: &ScanPlanConfig,
     _format: &OrcFormat,
 ) -> Result<SendableRecordBatchStream> {
-    let file_schema = config.file_schema.arrow_schema().clone();
+    let file_schema = config.file_schema.clone();
     let opener = build_orc_opener(file_schema.clone(), config)?;
     // push down limit only if there is no filter
     let limit = config.filters.is_empty().then_some(config.limit).flatten();

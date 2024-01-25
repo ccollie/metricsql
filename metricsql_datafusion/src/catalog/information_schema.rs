@@ -16,9 +16,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, Weak};
 
 use arrow_schema::SchemaRef;
-use datafusion::execution::SendableRecordBatchStream;
 use datafusion_expr::TableType;
 use futures_util::StreamExt;
+use itertools::Itertools;
 use lazy_static::lazy_static;
 use paste::paste;
 use snafu::ResultExt;
@@ -30,7 +30,7 @@ use crate::catalog::CatalogManager;
 use crate::catalog::consts::INFORMATION_SCHEMA_NAME;
 use crate::catalog::information_schema::memory_table::{get_schema_columns, MemoryTable};
 use crate::catalog::information_schema::tables::InformationSchemaTables;
-use crate::common::recordbatch::RecordBatchStreamWrapper;
+use crate::common::recordbatch::{RecordBatchStreamWrapper, SendableRecordBatchStream};
 use crate::data_source::DataSource;
 use crate::table::{TableId, TableRef};
 use crate::table::error::{SchemaConversionSnafu, TablesRecordBatchSnafu};
@@ -95,19 +95,14 @@ impl InformationSchemaProvider {
         provider
     }
 
-    /// Returns table names in the order of table id.
+    /// Returns table names.
     pub fn table_names(&self) -> Vec<String> {
         let mut tables = self.tables.values().clone().collect::<Vec<_>>();
 
-        tables.sort_by(|t1, t2| {
-            t1.table_info()
-                .table_id()
-                .partial_cmp(&t2.table_info().table_id())
-                .unwrap()
-        });
         tables
             .into_iter()
             .map(|t| t.table_info().name.clone())
+            .sorted_by(|a, b| a.cmp(b))
             .collect()
     }
 
@@ -169,11 +164,9 @@ impl InformationSchemaProvider {
         let table_meta = TableMetaBuilder::default()
             .schema(table.schema())
             .primary_key_indices(vec![])
-            .next_column_id(0)
             .build()
             .unwrap();
         let table_info = TableInfoBuilder::default()
-            .table_id(table.table_id())
             .name(table.table_name().to_string())
             .catalog_name(catalog_name)
             .schema_name(INFORMATION_SCHEMA_NAME.to_string())
@@ -214,7 +207,7 @@ impl InformationTableDataSource {
         let schema = self
             .table
             .schema()
-            .try_project(projection)
+            .project(projection)
             .context(SchemaConversionSnafu)
             .map_err(BoxedError::new)?;
         Ok(Arc::new(schema))

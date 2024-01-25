@@ -21,8 +21,6 @@ use snafu::Snafu;
 
 use metricsql_common::prelude::{ErrorExt, status_code::StatusCode};
 
-use crate::datatypes::error::DataTypeError;
-
 #[derive(Snafu)]
 #[snafu(visibility(pub))]
 #[derive(Debug)]
@@ -80,7 +78,10 @@ pub enum Error {
     },
 
     #[snafu(display("Failed to project schema"))]
-    ProjectSchema { source: DataTypeError },
+    ProjectSchema {
+        #[snafu(source)]
+        error: ArrowError,
+    },
 
     #[snafu(display("Failed to build stream adapter"))]
     BuildStreamAdapter {
@@ -115,11 +116,8 @@ pub enum Error {
     #[snafu(display("Failed to create default value for column: {}", column))]
     CreateDefault {
         column: String,
-        source: DataTypeError,
+        source: ArrowError,
     },
-
-    #[snafu(display("Failed to convert arrow schema"))]
-    ConvertArrowSchema { source: DataTypeError },
 
     #[snafu(display("Missing default value for column: {}", column))]
     MissingColumnNoDefault { column: String },
@@ -141,7 +139,7 @@ impl ErrorExt for Error {
             | CreateDefault { .. }
             | MissingColumnNoDefault { .. } => StatusCode::InvalidArguments,
 
-            BuildBackend { source, .. } | ConvertArrowSchema { source, .. } => source.status_code(),
+            BuildBackend { source, .. } => source.status_code(),
             BuildStreamAdapter { source, .. } => source.status_code(),
             ParseFileFormat { source, .. } => source.status_code(),
 

@@ -18,23 +18,24 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use arrow::array::ArrayRef;
-use arrow_schema::{DataType, Schema, SchemaRef};
+use arrow::compute;
+use arrow_schema::{DataType, FieldRef, Schema, SchemaRef};
 use datafusion::logical_expr::utils as df_logical_expr_utils;
+use datafusion_common::ScalarValue;
 use datafusion_expr::Expr;
 use futures::Stream;
-use snafu::{ensure, OptionExt, ResultExt};
+use snafu::{ensure, ResultExt};
 
 use metricsql_common::prelude::BoxedError;
 
 use crate::common::recordbatch::{RecordBatch, RecordBatchStream, SendableRecordBatchStream};
 use crate::common::recordbatch::error::{CastVectorSnafu, ExternalSnafu, Result as RecordBatchResult};
 use crate::datasource::object_store::build_backend;
+use crate::datatypes::try_array_from_scalar_value;
 use crate::file_engine::error::{
-    BuildBackendSnafu, CreateDefaultSnafu, ExtractColumnFromFilterSnafu, MissingColumnNoDefaultSnafu,
-    ProjectionOutOfBoundsSnafu, ProjectSchemaSnafu,
-    Result
+    BuildBackendSnafu, CreateDefaultSnafu, ExtractColumnFromFilterSnafu,
+    ProjectionOutOfBoundsSnafu, ProjectSchemaSnafu, Result
 };
-use crate::table::schema::column_schema::ColumnSchema;
 use crate::table::storage::ScanRequest;
 
 use super::file_table::FileTable;
@@ -82,16 +83,19 @@ impl FileTable {
 
         let file_column_schemas = &self.file_options.file_column_schemas;
         let mut file_projection = Vec::with_capacity(scan_projection.len());
+        let schema = self.schema();
+
         for column_index in scan_projection {
+            let field = schema.fields.get(*column_index);
             ensure!(
-                *column_index < self.schema().num_columns(),
+                field.is_some(),
                 ProjectionOutOfBoundsSnafu {
                     column_index: *column_index,
-                    bounds: self.schema().num_columns()
+                    bounds: schema.fields.len()
                 }
             );
 
-            let column_name = self.schema().column_name_by_index(*column_index);
+            let column_name = field.unwrap().name();
             let file_column_index = file_column_schemas
                 .iter()
                 .position(|c| c.name() == column_name);
@@ -116,7 +120,7 @@ impl FileTable {
 
         let mut aux_column_set = HashSet::new();
         for scan_filter in scan_filters {
-            df_logical_expr_utils::expr_to_columns(scan_filter.df_expr(), &mut aux_column_set)
+            df_logical_expr_utils::expr_to_columns(scan_filter, &mut aux_column_set)
                 .context(ExtractColumnFromFilterSnafu)?;
 
             let all_file_columns = aux_column_set
@@ -136,7 +140,7 @@ impl FileTable {
             Arc::new(
                 self
                     .schema()
-                    .try_project(indices)
+                    .project(indices)
                     .context(ProjectSchemaSnafu)?,
             )
         } else {
@@ -189,12 +193,12 @@ impl FileToScanRegionStream {
 
     fn schema_eq(&self, file_record_batch: &RecordBatch) -> bool {
         self.scan_schema
-            .column_schemas()
+            .fields
             .iter()
             .all(|scan_column_schema| {
                 file_record_batch
-                    .column_by_name(&scan_column_schema.name)
-                    .map(|rb| rb.data_type() == scan_column_schema.data_type)
+                    .column_by_name(&scan_column_schema.name())
+                    .map(|rb| rb.data_type() == scan_column_schema.data_type())
                     .unwrap_or_default()
             })
     }
@@ -212,12 +216,12 @@ impl FileToScanRegionStream {
         let file_row_count = file_record_batch.num_rows();
         let columns = self
             .scan_schema
-            .column_schemas()
+            .fields
             .iter()
             .map(|scan_column_schema| {
-                let file_column = file_record_batch.column_by_name(&scan_column_schema.name);
+                let file_column = file_record_batch.column_by_name(&scan_column_schema.name());
                 if let Some(file_column) = file_column {
-                    Self::cast_column_type(file_column, &scan_column_schema.data_type)
+                    Self::cast_column_type(file_column, &scan_column_schema.data_type())
                 } else {
                     Self::backfill_column(scan_column_schema, file_row_count)
                 }
@@ -231,20 +235,20 @@ impl FileToScanRegionStream {
         source_column: &ArrayRef,
         target_data_type: &DataType,
     ) -> RecordBatchResult<ArrayRef> {
-        if &source_column.data_type() == target_data_type {
+        let source_type = source_column.data_type();
+        if source_type == target_data_type {
             Ok(source_column.clone())
         } else {
-            source_column
-                .cast(target_data_type)
+            compute::cast(source_column, target_data_type)
                 .context(CastVectorSnafu {
-                    from_type: source_column.data_type(),
+                    from_type: source_type.clone(),
                     to_type: target_data_type.clone(),
                 })
         }
     }
 
     fn backfill_column(
-        column_schema: &ColumnSchema,
+        column_schema: &FieldRef,
         num_rows: usize,
     ) -> RecordBatchResult<ArrayRef> {
         Self::create_default_vector(column_schema, num_rows)
@@ -252,14 +256,16 @@ impl FileToScanRegionStream {
             .context(ExternalSnafu)
     }
 
-    fn create_default_vector(column_schema: &ColumnSchema, num_rows: usize) -> Result<ArrayRef> {
-        column_schema
-            .create_default_vector(num_rows)
+    fn create_default_vector(column_schema: &FieldRef, num_rows: usize) -> Result<ArrayRef> {
+        let data_type = column_schema.data_type();
+        let value = ScalarValue::new_zero(data_type)
             .with_context(|_| CreateDefaultSnafu {
-                column: column_schema.name.clone(),
-            })?
-            .with_context(|| MissingColumnNoDefaultSnafu {
-                column: column_schema.name.clone(),
-            })
+                column: column_schema.name().clone(),
+            })?;
+
+        Ok(try_array_from_scalar_value(value, num_rows)
+            .with_context(|_| CreateDefaultSnafu {
+                column: column_schema.name().clone(),
+            })?)
     }
 }

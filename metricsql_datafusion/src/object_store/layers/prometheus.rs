@@ -124,8 +124,9 @@ impl<A: Accessor> LayeredAccessor for PrometheusAccessor<A> {
     type BlockingReader = PrometheusMetricWrapper<A::BlockingReader>;
     type Writer = PrometheusMetricWrapper<A::Writer>;
     type BlockingWriter = PrometheusMetricWrapper<A::BlockingWriter>;
-    type Lister = ();
-    type BlockingLister = ();
+    type Pager = A::Pager;
+    type BlockingPager = A::BlockingPager;
+
 
     fn inner(&self) -> &Self::Inner {
         &self.inner
@@ -243,7 +244,7 @@ impl<A: Accessor> LayeredAccessor for PrometheusAccessor<A> {
         })
     }
 
-    async fn list(&self, path: &str, args: OpList) -> Result<(RpList, Self::Lister)> {
+    async fn list(&self, path: &str, args: OpList) -> Result<(RpList, Self::Pager)> {
         REQUESTS_TOTAL
             .with_label_values(&[&self.scheme, Operation::List.into_static()])
             .inc();
@@ -388,7 +389,7 @@ impl<A: Accessor> LayeredAccessor for PrometheusAccessor<A> {
         })
     }
 
-    fn blocking_list(&self, path: &str, args: OpList) -> Result<(RpList, Self::BlockingLister)> {
+    fn blocking_list(&self, path: &str, args: OpList) -> Result<(RpList, Self::BlockingPager)> {
         REQUESTS_TOTAL
             .with_label_values(&[&self.scheme, Operation::BlockingList.into_static()])
             .inc();

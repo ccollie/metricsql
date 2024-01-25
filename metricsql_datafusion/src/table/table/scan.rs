@@ -17,6 +17,7 @@ use std::fmt::{Debug, Formatter};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
+use arrow::array::Array;
 
 use arrow_schema::SchemaRef;
 use datafusion::execution::context::TaskContext;
@@ -43,7 +44,7 @@ impl Debug for StreamScanAdapter {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("StreamScanAdapter")
             .field("stream", &"<SendableRecordBatchStream>")
-            .field("schema", &self.schema.arrow_schema().fields)
+            .field("schema", &self.schema.fields)
             .finish()
     }
 }
@@ -127,7 +128,7 @@ impl Stream for StreamWithMetricWrapper {
             let batch_mem_size = record_batch
                 .columns()
                 .iter()
-                .map(|vec_ref| vec_ref.memory_size())
+                .map(|vec_ref| vec_ref.get_buffer_memory_size())
                 .sum::<usize>();
             // we don't record elapsed time here
             // since it's calling storage api involving I/O ops
@@ -147,7 +148,7 @@ impl RecordBatchStream for StreamWithMetricWrapper {
 
 #[cfg(test)]
 mod test {
-    use arrow_array::Int32Array;
+    use arrow::array::Int32Array;
     use arrow_schema::{DataType, Schema};
     use datafusion::prelude::SessionContext;
 

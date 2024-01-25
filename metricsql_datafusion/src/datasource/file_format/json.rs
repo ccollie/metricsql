@@ -30,8 +30,7 @@ use datafusion::error::{DataFusionError, Result as DataFusionResult};
 use datafusion::physical_plan::SendableRecordBatchStream;
 use snafu::ResultExt;
 use tokio_util::io::SyncIoBridge;
-
-use common_runtime;
+use metricsql_common::async_runtime::spawn_blocking;
 
 use crate::datasource::buffered_writer::DfRecordBatchEncoder;
 use crate::datasource::compression::CompressionType;
@@ -97,7 +96,7 @@ impl FileFormat for JsonFormat {
 
         let schema_infer_max_record = self.schema_infer_max_record;
 
-        common_runtime::spawn_blocking_read(move || {
+        spawn_blocking(move || {
             let mut reader = BufReader::new(SyncIoBridge::new(decoded));
 
             let iter = ValueIter::new(&mut reader, schema_infer_max_record);

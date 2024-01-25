@@ -11,12 +11,11 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 use crate::table::path_utils::DATA_DIR;
 use std::fmt::{self, Display};
 use std::sync::Arc;
 
-use crate::error::Result;
+use crate::table::error::Result;
 use crate::table::error::UnsupportedSnafu;
 use crate::table::metadata::TableId;
 use crate::table::requests::{
@@ -113,8 +112,7 @@ pub trait TableEngine: Send + Sync {
     ) -> Result<CloseTableResult> {
         UnsupportedSnafu {
             operation: "close_table",
-        }
-        .fail()?
+        }.fail()?
     }
 
     /// Close the query_engine.

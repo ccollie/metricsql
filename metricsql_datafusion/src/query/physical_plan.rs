@@ -24,14 +24,11 @@ use datafusion::physical_plan::{DisplayAs, DisplayFormatType, Statistics};
 use datafusion::physical_plan::expressions::PhysicalSortExpr;
 use datafusion::physical_plan::metrics::{BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet};
 pub use datafusion::physical_plan::Partitioning;
-use datafusion_expr::UserDefinedLogicalNode;
 use snafu::ResultExt;
 
 use crate::common::recordbatch::{DfSendableRecordBatchStream, SendableRecordBatchStream};
 use crate::common::recordbatch::adapter::{DfRecordBatchStreamAdapter, RecordBatchStreamAdapter};
-use crate::error::Result;
-use crate::file_engine::error::ConvertArrowSchemaSnafu;
-use crate::query::error::{ConvertDfRecordBatchStreamSnafu, DataFusionSnafu};
+use crate::query::error::{ConvertDfRecordBatchStreamSnafu, DataFusionSnafu, Result};
 use crate::query::ExecutionPlan;
 
 pub type PhysicalPlanRef = Arc<dyn PhysicalPlan>;
@@ -166,7 +163,7 @@ impl ExecutionPlan for DfPhysicalPlanAdapter {
     }
 
     fn schema(&self) -> DfSchemaRef {
-        self.0.schema().arrow_schema().clone()
+        self.0.schema().clone()
     }
 
     fn output_partitioning(&self) -> Partitioning {
@@ -189,12 +186,8 @@ impl ExecutionPlan for DfPhysicalPlanAdapter {
         self: Arc<Self>,
         children: Vec<Arc<dyn ExecutionPlan>>,
     ) -> DfResult<Arc<dyn ExecutionPlan>> {
-        let df_schema = self.schema();
-        let schema: SchemaRef = Arc::new(
-            df_schema
-                .try_into()
-                .context(ConvertArrowSchemaSnafu)?,
-        );
+        let schema = self.schema();
+
         let children = children
             .into_iter()
             .map(|x| Arc::new(PhysicalPlanAdapter::new(schema.clone(), x)) as _)
@@ -216,8 +209,8 @@ impl ExecutionPlan for DfPhysicalPlanAdapter {
         self.0.metrics()
     }
 
-    fn statistics(&self) -> Statistics {
-        Statistics::default()
+    fn statistics(&self) -> DfResult<Statistics> {
+        Ok(Statistics::new_unknown(self.schema().as_ref()))
     }
 }
 
@@ -230,7 +223,7 @@ impl DisplayAs for DfPhysicalPlanAdapter {
 #[cfg(test)]
 mod test {
     use arrow::util::pretty;
-    use arrow_array::Int32Array;
+    use arrow::array::Int32Array;
     use arrow_schema::{DataType, Field, Schema};
     use async_trait::async_trait;
     use datafusion::datasource::{DefaultTableSource, TableProvider as DfTableProvider, TableType};
@@ -380,7 +373,7 @@ mod test {
 
         let plan = PhysicalPlanAdapter::new(
             Arc::new(Schema::try_from(df_schema.clone()).unwrap()),
-            Arc::new(EmptyExec::new(true, df_schema.clone())),
+            Arc::new(EmptyExec::new(df_schema.clone())),
         );
         let _ = plan.df_plan.as_any().downcast_ref::<EmptyExec>().unwrap();
 

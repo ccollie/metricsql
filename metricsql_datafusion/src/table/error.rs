@@ -26,18 +26,20 @@ use crate::table::metadata::TableId;
 pub type Result<T> = std::result::Result<T, Error>;
 pub type TableResult<T> = std::result::Result<T, Error>;
 
+pub(crate) type QueryError = crate::query::error::Error;
+
 /// Default error implementation of table.
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub))]
 pub enum Error {
     #[snafu(display("Datafusion error: {}", source))]
     Datafusion {
-        source: DataFusionError,
+        source: ArrowError,
     },
 
     #[snafu(display("Failed to convert Arrow schema, source: {}", source))]
     SchemaConversion {
-        source: DataTypeError,
+        source: ArrowError,
     },
 
     #[snafu(display("Engine not found: {}", engine))]

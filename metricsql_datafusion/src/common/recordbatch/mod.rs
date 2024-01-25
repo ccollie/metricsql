@@ -102,7 +102,7 @@ impl RecordBatches {
     #[inline]
     pub fn empty() -> Self {
         Self {
-            schema: Arc::new(Schema::new(vec![])),
+            schema: Arc::new(Schema::empty()),
             batches: vec![],
         }
     }
@@ -162,7 +162,7 @@ impl RecordBatches {
             .collect();
         // unwrap safety: `MemoryStream::try_new` won't fail
         Box::pin(
-            MemoryStream::try_new(df_record_batches, self.schema.arrow_schema().clone(), None)
+            MemoryStream::try_new(df_record_batches, self.schema.clone(), None)
                 .unwrap(),
         )
     }

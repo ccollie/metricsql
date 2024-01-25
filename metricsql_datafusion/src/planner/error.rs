@@ -89,8 +89,8 @@ pub enum Error {
     #[snafu(display("Cannot find column {col}"))]
     ColumnNotFound { col: String },
 
-    #[snafu(display("Found multiple metric matchers in selector"))]
-    MultipleMetricMatchers,
+    #[snafu(display("Found multiple metric matchers ({count}) in selector"))]
+    MultipleMetricMatchers { count: usize },
 
     #[snafu(display("Expect a metric matcher, but not found"))]
     NoMetricMatcher,

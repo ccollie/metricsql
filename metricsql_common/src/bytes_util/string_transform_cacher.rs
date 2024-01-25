@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Duration;
+use crate::time::util::current_time_millis;
 
-use crate::time_utils::current_time_millis;
 
 // todo: move to global config
 const CACHE_EXPIRE_DURATION: Duration = Duration::from_secs(5 * 60);

@@ -16,17 +16,20 @@ use std::collections::HashMap;
 use std::slice;
 use std::sync::Arc;
 
-use arrow::array::ArrayRef;
+use arrow::array::{ArrayRef};
+use arrow::compute;
 use arrow_schema::SchemaRef;
 use datafusion::arrow::record_batch::RecordBatch as DfRecordBatch;
 use datafusion::arrow::util::pretty::pretty_format_batches;
-use datafusion_common::{ExprSchema, ScalarValue};
-use serde::{Serialize, Serializer};
+use datafusion_common::ScalarValue;
+use itertools::Itertools;
 use serde::ser::{Error, SerializeStruct};
-use snafu::{OptionExt, ResultExt};
+use serde::{Serialize, Serializer};
+use snafu::ResultExt;
 
 use crate::common::recordbatch::error::{
-    CastVectorSnafu, ColumnNotExistsSnafu, DataTypesSnafu, NewDfRecordBatchSnafu, ProjectArrowRecordBatchSnafu, Result
+    CastVectorSnafu, ColumnNotExistsSnafu, DataTypesSnafu, NewDfRecordBatchSnafu,
+    ProjectArrowRecordBatchSnafu, Result,
 };
 
 /// A two-dimensional batch of column-oriented data with a defined schema.
@@ -44,9 +47,9 @@ impl RecordBatch {
         columns: I,
     ) -> Result<RecordBatch> {
         let columns: Vec<_> = columns.into_iter().collect();
-        let arrow_arrays = columns.iter().map(|v| v.to_arrow_array()).collect();
 
-        let df_record_batch = DfRecordBatch::try_new(schema.arrow_schema().clone(), arrow_arrays)
+        // todo: how to avoid columns.clone() ?
+        let df_record_batch = DfRecordBatch::try_new(schema.clone(), columns.clone())
             .context(NewDfRecordBatchSnafu)?;
 
         Ok(RecordBatch {
@@ -58,7 +61,7 @@ impl RecordBatch {
 
     /// Create an empty [`RecordBatch`] from `schema`.
     pub fn new_empty(schema: SchemaRef) -> Result<RecordBatch> {
-        let df_record_batch = DfRecordBatch::new_empty(schema.arrow_schema().clone());
+        let df_record_batch = DfRecordBatch::new_empty(schema.clone());
         Ok(RecordBatch {
             schema,
             columns: vec![],
@@ -67,7 +70,7 @@ impl RecordBatch {
     }
 
     pub fn try_project(&self, indices: &[usize]) -> Result<Self> {
-        let schema = Arc::new(self.schema.try_project(indices).context(DataTypesSnafu)?);
+        let schema = Arc::new(self.schema.project(indices).context(DataTypesSnafu)?);
         let mut columns = Vec::with_capacity(indices.len());
         for index in indices {
             columns.push(self.columns[*index].clone());
@@ -96,7 +99,8 @@ impl RecordBatch {
         let columns = df_record_batch
             .columns()
             .iter()
-            .collect::<Result<Vec<_>>>()?;
+            .cloned()
+            .collect::<Vec<_>>();
 
         Ok(RecordBatch {
             schema,
@@ -126,8 +130,11 @@ impl RecordBatch {
     }
 
     pub fn column_by_name(&self, name: &str) -> Option<&ArrayRef> {
-        let idx = self.schema.column_index_by_name(name)?;
-        Some(&self.columns[idx])
+        if let Some((idx, _)) = self.schema.fields.iter().find_position(|f| f.name() == name) {
+            Some(&self.columns[idx])
+        } else {
+            None
+        }
     }
 
     #[inline]
@@ -153,22 +160,21 @@ impl RecordBatch {
         let mut vectors = HashMap::with_capacity(self.num_columns());
 
         // column schemas in recordbatch must match its vectors, otherwise it's corrupted
-        for (vector_schema, vector) in self.schema.column_schemas().iter().zip(self.columns.iter())
+        for (vector_schema, vector) in self.schema.fields().iter().zip(self.columns.iter())
         {
-            let column_name = &vector_schema.name;
+            let column_name = vector_schema.name();
             let column_schema =
                 table_schema
-                    .column_schema_by_name(column_name)
+                    .field_with_name(column_name)
                     .context(ColumnNotExistsSnafu {
-                        table_name,
-                        column_name,
+                        table_name: table_name.to_string(),
+                        column_name: column_name.to_string(),
                     })?;
-            let vector = if vector_schema.data_type != column_schema.data_type {
-                vector
-                    .cast(&column_schema.data_type)
+            let vector = if vector_schema.data_type() != column_schema.data_type() {
+                compute::cast(vector, &column_schema.data_type())
                     .with_context(|_| CastVectorSnafu {
-                        from_type: vector_schema.data_type,
-                        to_type: column_schema.data_type.clone(),
+                        from_type: vector_schema.data_type(),
+                        to_type: column_schema.data_type(),
                     })?
             } else {
                 vector.clone()
@@ -196,7 +202,7 @@ impl Serialize for RecordBatch {
         // TODO(yingwen): arrow and arrow2's schemas have different fields, so
         // it might be better to use our `RawSchema` as serialized field.
         let mut s = serializer.serialize_struct("record", 2)?;
-        s.serialize_field("schema", &**self.schema.arrow_schema())?;
+        s.serialize_field("schema", &self.schema)?;
 
         let vec = self
             .columns
@@ -239,7 +245,10 @@ impl<'a> Iterator for RecordBatchRowIterator<'a> {
 
             for col in 0..self.columns {
                 let column = self.record_batch.column(col);
-                row.push(column.value(self.row_cursor));
+                let value = column.as_ref()
+                    .value(self.row_cursor);
+
+                row.push(value);
             }
 
             self.row_cursor += 1;
@@ -293,11 +302,7 @@ mod tests {
 
     #[test]
     pub fn test_serialize_recordbatch() {
-        let column_schemas = vec![Field::new(
-            "number",
-            DataType::UInt32,
-            false,
-        )];
+        let column_schemas = vec![Field::new("number", DataType::UInt32, false)];
         let schema = Arc::new(Schema::try_new(column_schemas).unwrap());
 
         let numbers: Vec<u32> = (0..10).collect();
@@ -340,7 +345,10 @@ mod tests {
         );
 
         assert_eq!(
-            vec![ScalarValue::UInt32(Some(2)), ScalarValue::Utf8("hello".into())],
+            vec![
+                ScalarValue::UInt32(Some(2)),
+                ScalarValue::Utf8("hello".into())
+            ],
             record_batch_iter
                 .next()
                 .unwrap()
@@ -349,7 +357,10 @@ mod tests {
         );
 
         assert_eq!(
-            vec![ScalarValue::UInt32(Some(3)), ScalarValue::Utf8("greptime".into())],
+            vec![
+                ScalarValue::UInt32(Some(3)),
+                ScalarValue::Utf8("greptime".into())
+            ],
             record_batch_iter
                 .next()
                 .unwrap()

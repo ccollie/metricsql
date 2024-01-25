@@ -16,7 +16,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use arrow::array::UInt32Array;
-use arrow_schema::{DataType, Field, SchemaBuilder, SchemaRef};
+use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use datafusion::arrow::record_batch::RecordBatch as DfRecordBatch;
 use datafusion_expr::TableType;
 use futures::Stream;
@@ -62,10 +62,7 @@ impl NumbersTable {
             DataType::UInt32,
             false,
         )];
-        let schema = SchemaBuilder::try_from_columns(column_schemas)
-            .unwrap()
-            .build()
-            .unwrap();
+        let schema = Schema::new(column_schemas);
         Arc::new(schema)
     }
 
@@ -73,16 +70,13 @@ impl NumbersTable {
         let table_meta = TableMetaBuilder::default()
             .schema(Self::schema())
             .primary_key_indices(vec![0])
-            .next_column_id(1)
             .engine(engine)
             .build()
             .unwrap();
         let table_info = TableInfoBuilder::default()
-            .table_id(table_id)
             .name(name)
             .catalog_name(DEFAULT_CATALOG_NAME)
             .schema_name(DEFAULT_SCHEMA_NAME)
-            .table_version(0)
             .table_type(TableType::Temporary)
             .meta(table_meta)
             .build()
@@ -134,7 +128,7 @@ impl Stream for NumbersStream {
         self.already_run = true;
         let numbers: Vec<u32> = (0..self.limit).collect();
         let batch = DfRecordBatch::try_new(
-            self.schema.arrow_schema().clone(),
+            self.schema.clone(),
             vec![Arc::new(UInt32Array::from(numbers))],
         )
         .unwrap();

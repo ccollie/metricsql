@@ -15,13 +15,13 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use arrow_schema::Schema;
+use arrow_schema::SchemaRef;
 use async_trait::async_trait;
 use datafusion::dataframe::DataFrame;
 use datafusion_expr::{LogicalPlan, ScalarUDF};
 
 use crate::catalog::CatalogManagerRef;
-use crate::error::Result;
+use crate::query::error::Result;
 use crate::query::datafusion::DatafusionQueryEngine;
 use crate::query::Output;
 use crate::query::planner::LogicalPlanner;
@@ -33,7 +33,7 @@ use crate::table::TableRef;
 #[derive(Debug)]
 pub struct DescribeResult {
     /// The schema of statement
-    pub schema: Schema,
+    pub schema: SchemaRef,
     /// The logical plan for statement
     pub logical_plan: LogicalPlan,
 }

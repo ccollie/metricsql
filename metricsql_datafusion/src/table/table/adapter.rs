@@ -24,6 +24,7 @@ use datafusion::physical_plan::ExecutionPlan;
 use datafusion::physical_plan::expressions::Column;
 use datafusion_expr::{TableProviderFilterPushDown as DfTableProviderFilterPushDown, TableType};
 use datafusion_expr::expr::Expr as DfExpr;
+use itertools::Itertools;
 
 use crate::common::recordbatch::OrderOption;
 use crate::query::physical_plan::DfPhysicalPlanAdapter;
@@ -67,7 +68,7 @@ impl TableProvider for DfTableProviderAdapter {
     }
 
     fn schema(&self) -> SchemaRef {
-        self.table.schema().arrow_schema().clone()
+        self.table.schema().clone()
     }
 
     fn table_type(&self) -> TableType {
@@ -97,7 +98,13 @@ impl TableProvider for DfTableProviderAdapter {
             order_opts
                 .iter()
                 .map(|order_opt| {
-                    let col_index = schema.column_index_by_name(&order_opt.name).unwrap();
+                    let field = schema
+                        .fields()
+                        .iter()
+                        .find_position(|f| *f.name() == order_opt.name)
+                        .unwrap(); // ???
+
+                    let col_index = field.0;
                     let col_expr = Arc::new(Column::new(&order_opt.name, col_index));
                     PhysicalSortExpr {
                         expr: col_expr,

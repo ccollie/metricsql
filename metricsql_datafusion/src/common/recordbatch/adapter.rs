@@ -14,10 +14,9 @@
 
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use arrow_schema::{Schema, SchemaRef};
+use arrow_schema::{SchemaRef};
 use datafusion::arrow::compute::cast;
 use datafusion::arrow::datatypes::SchemaRef as DfSchemaRef;
 use datafusion::error::Result as DfResult;
@@ -32,7 +31,7 @@ use crate::common::recordbatch::{
     DfRecordBatch, DfSendableRecordBatchStream, RecordBatch, RecordBatchStream,
     SendableRecordBatchStream,
 };
-use crate::common::recordbatch::error::{PollStreamSnafu, SchemaConversionSnafu};
+use crate::common::recordbatch::error::PollStreamSnafu;
 
 use super::error::Result;
 
@@ -125,7 +124,7 @@ impl DfRecordBatchStreamAdapter {
 
 impl DfRecordBatchStream for DfRecordBatchStreamAdapter {
     fn schema(&self) -> DfSchemaRef {
-        self.stream.schema().arrow_schema().clone()
+        self.stream.schema().clone()
     }
 }
 
@@ -159,7 +158,7 @@ pub struct RecordBatchStreamAdapter {
 
 impl RecordBatchStreamAdapter {
     pub fn try_new(stream: DfSendableRecordBatchStream) -> Result<Self> {
-        let schema = Arc::new(Schema::try_from(stream.schema()).context(SchemaConversionSnafu)?);
+        let schema = stream.schema().clone();
         Ok(Self {
             schema,
             stream,
@@ -171,7 +170,7 @@ impl RecordBatchStreamAdapter {
         stream: DfSendableRecordBatchStream,
         metrics: BaselineMetrics,
     ) -> Result<Self> {
-        let schema = Arc::new(Schema::try_from(stream.schema()).context(SchemaConversionSnafu)?);
+        let schema = stream.schema().clone();
         Ok(Self {
             schema,
             stream,
@@ -276,13 +275,14 @@ impl Stream for AsyncRecordBatchStreamAdapter {
 
 #[cfg(test)]
 mod test {
+    use std::sync::Arc;
     use arrow::array::Int32Array;
-    use arrow_schema::DataType;
+    use arrow_schema::{DataType, Schema};
     use snafu::IntoError;
-
-    use crate::common::error::ext::BoxedError;
-    use crate::common::error::mock::MockError;
-    use crate::common::error::status_code::StatusCode;
+    use metricsql_common::error::{
+        BoxedError, StatusCode,
+        mock::MockError
+    };
     use crate::common::recordbatch::error::ExternalSnafu;
     use crate::common::recordbatch::RecordBatches;
     use crate::table::schema::column_schema::Field;

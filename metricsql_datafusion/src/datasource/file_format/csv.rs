@@ -29,7 +29,7 @@ use derive_builder::Builder;
 use snafu::ResultExt;
 use tokio_util::io::SyncIoBridge;
 
-use common_runtime;
+use metricsql_common::async_runtime::spawn_blocking;
 
 use crate::datasource::buffered_writer::DfRecordBatchEncoder;
 use crate::datasource::compression::CompressionType;
@@ -122,7 +122,7 @@ impl CsvConfig {
         let mut builder = csv::ReaderBuilder::new(self.file_schema.clone())
             .with_delimiter(self.delimiter)
             .with_batch_size(self.batch_size)
-            .has_header(self.has_header);
+            .with_header(self.has_header);
 
         if let Some(proj) = &self.file_projection {
             builder = builder.with_projection(proj.clone());
@@ -180,7 +180,7 @@ impl FileFormat for CsvFormat {
         let schema_infer_max_record = self.schema_infer_max_record;
         let has_header = self.has_header;
 
-        common_runtime::spawn_blocking_read(move || {
+        spawn_blocking(move || {
             let reader = SyncIoBridge::new(decoded);
 
             let (schema, _records_read) =

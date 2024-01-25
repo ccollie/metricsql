@@ -15,8 +15,8 @@
 use snafu::ensure;
 
 use crate::catalog::consts::INFORMATION_SCHEMA_NAME;
-use crate::catalog::error::QueryAccessDeniedSnafu;
 use crate::query::error::Result;
+use crate::query::error::QueryAccessDeniedSnafu;
 use crate::session::context::QueryContextRef;
 
 #[derive(Default, Clone)]
