@@ -16,8 +16,8 @@ use arrow_schema::{Schema, SchemaBuilder};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
-use crate::error::{Error, Result};
-use crate::table::is_timestamp_field;
+use crate::table::error::{Error, Result};
+use crate::table::{is_timestamp_field, TIMESTAMP_COLUMN_KEY};
 use crate::table::schema::column_schema::ColumnSchema;
 
 /// Struct used to serialize and deserialize [`Schema`](crate::schema::Schema).
@@ -57,7 +57,25 @@ impl TryFrom<RawSchema> for Schema {
     fn try_from(raw: RawSchema) -> Result<Schema> {
         // While building Schema, we don't trust the fields, such as timestamp_index,
         // in RawSchema. We use SchemaBuilder to perform the validation.
-        SchemaBuilder::try_from(raw.column_schemas)?
+        let mut fields = raw.column_schemas
+            .into_iter()
+            .map(|column_schema| column_schema.into())
+            .collect::<Vec<_>>();
+
+        if let Some(timestamp_index) = raw.timestamp_index {
+            if !is_timestamp_field(&fields[timestamp_index]) {
+                return Err(Error::MissingTimeIndexColumn(format!(
+                    "timestamp_index {} is not a timestamp field",
+                    timestamp_index
+                )));
+            }
+            fields[timestamp_index].metadata().insert(
+                TIMESTAMP_COLUMN_KEY.to_string(),
+                "true".to_string(),
+            );
+        }
+        //Ok(Schema::new(fields))
+        SchemaBuilder::try_from(fields)?
             .build()
     }
 }

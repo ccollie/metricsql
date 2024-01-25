@@ -87,9 +87,6 @@ pub enum Error {
     #[snafu(display("Expect a range selector, but not found"))]
     ExpectRangeSelector,
 
-    #[snafu(display("Zero range in range selector"))]
-    ZeroRangeSelector,
-
     #[snafu(display("Cannot find column {col}"))]
     ColumnNotFound { col: String },
 
@@ -123,7 +120,6 @@ impl ErrorExt for Error {
             | UnsupportedExpr { .. }
             | ExpectExpr { .. }
             | ExpectRangeSelector { .. }
-            | ZeroRangeSelector { .. }
             | ColumnNotFound { .. }
             | Deserialize { .. }
             | FunctionInvalidArgument { .. }

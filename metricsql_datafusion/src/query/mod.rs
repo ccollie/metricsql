@@ -14,6 +14,7 @@ pub(crate) mod planner;
 pub(crate) mod logical_optimizer;
 pub(crate) mod physical_optimizer;
 mod helper;
+mod dataframe;
 
 // sql output
 pub enum Output {

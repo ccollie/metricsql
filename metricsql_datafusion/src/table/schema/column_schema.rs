@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::fmt;
 
 use arrow::datatypes::Field;
-use arrow_schema::DataType;
+use arrow_schema::{DataType, Schema};
 use serde::{Deserialize, Serialize};
 
 use crate::table::error::{Error, Result};
@@ -60,11 +60,7 @@ impl fmt::Debug for ColumnSchema {
 }
 
 impl ColumnSchema {
-    pub fn new<T: Into<String>>(
-        name: T,
-        data_type: DataType,
-        is_nullable: bool,
-    ) -> ColumnSchema {
+    pub fn new<T: Into<String>>(name: T, data_type: DataType, is_nullable: bool) -> ColumnSchema {
         ColumnSchema {
             name: name.into(),
             data_type,
@@ -139,14 +135,23 @@ impl TryFrom<&ColumnSchema> for Field {
     type Error = Error;
 
     fn try_from(column_schema: &ColumnSchema) -> Result<Field> {
-        let mut metadata = column_schema.metadata.clone();
+        let metadata = column_schema.metadata.clone();
 
         Ok(Field::new(
             &column_schema.name,
             column_schema.data_type.clone(),
             column_schema.is_nullable(),
         )
-            .with_metadata(metadata))
+        .with_metadata(metadata))
+    }
+}
+
+impl Into<Field> for ColumnSchema {
+    fn into(self) -> Field {
+        let metadata = self.metadata.clone();
+
+        Field::new(&self.name, self.data_type, self.is_nullable)
+            .with_metadata(metadata)
     }
 }
 
@@ -213,8 +218,7 @@ mod tests {
         assert!(v.only_null());
 
         // Explicit default null.
-        let column_schema = ColumnSchema::new("test", DataType::Int32, true)
-            .unwrap();
+        let column_schema = ColumnSchema::new("test", DataType::Int32, true).unwrap();
         let v = column_schema.create_default_vector(5).unwrap().unwrap();
         assert_eq!(5, v.len());
         assert!(v.only_null());
@@ -234,11 +238,9 @@ mod tests {
 
     #[test]
     fn test_debug_for_column_schema() {
-        let column_schema_int8 =
-            ColumnSchema::new("test_column_1", DataType::Int8, true);
+        let column_schema_int8 = ColumnSchema::new("test_column_1", DataType::Int8, true);
 
-        let column_schema_int32 =
-            ColumnSchema::new("test_column_2", DataType::Int32, false);
+        let column_schema_int32 = ColumnSchema::new("test_column_2", DataType::Int32, false);
 
         let formatted_int8 = format!("{:?}", column_schema_int8);
         let formatted_int32 = format!("{:?}", column_schema_int32);

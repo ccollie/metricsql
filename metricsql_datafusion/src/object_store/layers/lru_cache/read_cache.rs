@@ -247,7 +247,7 @@ impl<C: Accessor + Clone> ReadCache<C> {
                 // Call `close` to ensure data is written.
                 writer.close().await?;
 
-                let read_bytes = rp.metadata.content_length() as u32;
+                let read_bytes = rp.metadata().content_length() as u32;
                 OBJECT_STORE_LRU_CACHE_ENTRIES.inc();
                 OBJECT_STORE_LRU_CACHE_BYTES.add(read_bytes as i64);
 
