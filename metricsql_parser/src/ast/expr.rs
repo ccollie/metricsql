@@ -1304,7 +1304,7 @@ pub struct BinaryExpr {
     /// left contains left arg for the `left op right` expression.
     pub left: BExpression,
 
-    /// right contains right arg for the `left op right` expression.
+    /// contains right arg for the `left op right` expression.
     pub right: BExpression,
 
     /// Op is the operation itself, i.e. `+`, `-`, `*`, etc.
@@ -1624,7 +1624,7 @@ impl ParensExpr {
         }
     }
 
-    /// Return thee innermost expression wrapped by a `ParensExpr` if the `ParensExpr` contains
+    /// Return the innermost expression wrapped by a `ParensExpr` if the `ParensExpr` contains
     /// exactly one expression. For example : (((x + y))) would return a reef to `x + y`
     pub fn innermost_expr(&self) -> Option<&Expr> {
         match self.len() {

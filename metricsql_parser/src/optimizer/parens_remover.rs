@@ -48,7 +48,7 @@ fn remove_parens_args(args: Vec<Expr>) -> Vec<Expr> {
     args.into_iter().map(remove_parens_expr).collect()
 }
 
-// remove_parens_expr removes parensExpr for (Expr) case.
+/// remove_parens_expr removes parensExpr for (Expr) case.
 pub fn remove_parens_expr(e: Expr) -> Expr {
     match e {
         Expr::Rollup(re) => Expr::Rollup(RollupExpr {

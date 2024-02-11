@@ -98,7 +98,7 @@ impl ExprSimplifier {
         let mut result = expr
             .rewrite(&mut const_evaluator)?
             .rewrite(&mut simplifier)?
-            // run both passes twice to try an minimize simplifications that we missed
+            // run both passes twice to try and minimize simplifications that we missed
             .rewrite(&mut const_evaluator)?
             .rewrite(&mut simplifier)?;
 
@@ -172,7 +172,7 @@ impl TreeNodeRewriter for PushDownFilterRewriter {
 
         // NB: do not short circuit recursion even if we find a
         // node wee can't evaluate node (so we can fold other children, args to
-        // functions, etc)
+        // functions, etc.)
         Ok(RewriteRecursion::Continue)
     }
 
@@ -236,7 +236,7 @@ impl TreeNodeRewriter for Simplifier {
                     // etc. can return vectors contain NaN
                     Add if is_zero(&left) && Expr::is_number(&right) => *right,
 
-                    // A + A --> 2 * A
+                    // A + A --> A * 2
                     // Our use case envisions that this expression involving metric selectors
                     // will need to make network calls to evaluate. If both sides are the same
                     // we can optimize by multiplying by 2 and only making one network call.
@@ -545,7 +545,7 @@ mod tests {
 
         // A * 0 --> 0
         {
-            // should remain unchanged for non numeric A
+            // should remain unchanged for non-numeric A
             let expr = selector("foo") * number(0.0);
             let expected = expr.clone();
             let actual = simplify(expr);
@@ -562,7 +562,7 @@ mod tests {
     #[test]
     fn test_simplify_div_by_one() {
         // A / 1 = A
-        // should remain unchanged for non numeric A
+        // should remain unchanged for non-numeric A
         let expr = selector("c2") / number(1.0);
         let expected = expr.clone();
         let actual = simplify(expr);
@@ -661,7 +661,7 @@ mod tests {
     #[test]
     fn test_simplify_simple_and() {
         // (c > 5) AND (c > 5)
-        let expr = (selector("c2").gt(number(5.0))).and(selector("c2").gt(number(5.0)));
+        let expr = selector("c2").gt(number(5.0)).and(selector("c2").gt(number(5.0)));
         let expected = selector("c2").gt(number(5.0));
         let actual = simplify(expr);
         assert_expr_eq(&expected, &actual);

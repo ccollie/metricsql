@@ -157,10 +157,10 @@ fn adjust_binary_op_tags(
     InstantVector, // left
     InstantVector, // right
 )> {
-    // `vector op vector` or `a op {on|ignoring} {group_left|group_right} b`
+    // `vector op vector` or `foo op {on|ignoring} {group_left|group_right} bar`
     let (mut m_left, mut m_right) = create_series_map_by_tag_set(bfa);
 
-    // i think if we wanted we could reuse bfa.left and bfa.right here
+    // I think if we wanted we could reuse bfa.left and bfa.right here
     let mut rvs_left: Vec<Timeseries> = Vec::with_capacity(4);
     let mut rvs_right: Vec<Timeseries> = Vec::with_capacity(4);
 
@@ -258,7 +258,7 @@ fn should_reset_metric_group(op: Operator, keep_metric_names: bool, returns_bool
         return false;
     }
     if keep_metric_names {
-        // Do not reset metric_group if it is explicitly requested via `a op b keep_metric_names`
+        // Do not reset metric_group if it is explicitly requested via `foo op bar keep_metric_names`
         // See https://docs.victoriametrics.com/MetricsQL.html#keep_metric_names
         return false;
     }
@@ -554,7 +554,7 @@ fn binary_op_unless(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>>
 
     for (k, mut tss_left) in m_left.into_iter() {
         if let Some(tss_right) = m_right.get(&k) {
-            // Add gaps to tss_left if the are no gaps at tss_right.
+            // Add gaps to tss_left if there are no gaps at tss_right.
             add_left_nans_if_no_right_nans(&mut tss_left, tss_right);
         }
         rvs.append(&mut tss_left);

@@ -105,7 +105,7 @@ impl RollupResultCache {
         Self {
             inner: Mutex::new(inner),
             memory_limiter,
-            max_marshaled_size: (max_size as u64 / 4_u64),
+            max_marshaled_size: max_size as u64 / 4_u64,
             cache_key_suffix: RelaxedU64Counter::new(suffix),
             full_hits: Default::default(),
             partial_hits: Default::default(),
@@ -193,7 +193,7 @@ impl RollupResultCache {
             info!("missing cache entry");
             return Ok((None, ec.start));
         }
-        // we don't need cache past this point
+        // we don't need the cache past this point
         drop(inner);
 
         // Decompress into newly allocated byte slice

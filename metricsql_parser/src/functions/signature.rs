@@ -171,7 +171,7 @@ impl Signature {
     }
 
     /// exact - Creates a signature which must match the types in exact_types in order, but with
-    /// an minimum number of args.
+    /// a minimum number of args.
     pub fn exact_with_min_args(
         exact_types: Vec<ValueType>,
         min: usize,
@@ -185,7 +185,7 @@ impl Signature {
         }
     }
 
-    /// any - Creates a signature which can a be made of any type but of a fixed number
+    /// any - Creates a signature which can be made of any type but of a fixed number
     pub fn any(arg_count: usize, volatility: Volatility) -> Self {
         Signature {
             type_signature: TypeSignature::Any(arg_count),

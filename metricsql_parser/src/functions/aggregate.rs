@@ -265,6 +265,6 @@ pub fn get_aggregate_arg_idx_for_optimization(
         | TopkMin => Some(1),
         CountValues => None,
         Quantiles => Some(arg_count - 1),
-        _ => Some(0),
+        _ => Some(0)
     }
 }

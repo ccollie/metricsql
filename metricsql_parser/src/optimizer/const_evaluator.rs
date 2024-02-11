@@ -19,7 +19,7 @@ use crate::parser::{parse_number, ParseError, ParseResult};
 pub struct ConstEvaluator {
     /// `can_evaluate` is used during the depth-first-provider of the
     /// `Expr` tree to track if any siblings (or their descendants) were
-    /// non evaluatable (e.g. had a column reference or volatile
+    /// non-evaluatable (e.g. had a column reference or volatile
     /// function)
     ///
     /// Specifically, `can_evaluate[N]` represents the state of
@@ -27,7 +27,7 @@ pub struct ConstEvaluator {
     /// this Expr and each of its parents.
     ///
     /// After visiting all siblings if `can_evaluate.top()`` is true, that
-    /// means there were no non evaluatable siblings (or their
+    /// means there were no non-evaluatable siblings (or their
     /// descendants) so this `Expr` can be evaluated
     can_evaluate: Vec<bool>,
 }
@@ -58,7 +58,7 @@ impl TreeNodeRewriter for ConstEvaluator {
 
         // NB: do not short circuit recursion even if we find a non
         // evaluatable node (so we can fold other children, args to
-        // functions, etc)
+        // functions, etc.)
         Ok(RewriteRecursion::Continue)
     }
 
@@ -75,7 +75,7 @@ impl TreeNodeRewriter for ConstEvaluator {
 }
 
 impl ConstEvaluator {
-    /// Create a new `ConstantEvaluator`. Session constants (such as
+    /// Create a new `ConstantEvaluator`. Session constants such as
     /// the time for `now()` are taken from the passed
     /// `execution_props`.
     pub fn new() -> Self {
@@ -378,7 +378,7 @@ mod tests {
         );
         // (foo != foo) OR (c = 1) --> false OR (c = 1)
         test_const_simplify(
-            (lit("foo").not_eq(lit("foo"))).or(selector("c").eq(number(1.0))),
+            lit("foo").not_eq(lit("foo")).or(selector("c").eq(number(1.0))),
             number(0.0).or(selector("c").eq(number(1.0))),
         );
     }
@@ -458,7 +458,7 @@ mod tests {
         test_math_fn("atan", 1.0, 1_f64.atan());
 
         // atanh
-        test_math_fn("atanh", 0.5, (0.5_f64).atanh());
+        test_math_fn("atanh", 0.5, 0.5_f64.atanh());
 
         // ceil
         test_math_fn("ceil", 0.0, 0.0);
@@ -474,7 +474,7 @@ mod tests {
         test_math_fn("deg", std::f64::consts::FRAC_PI_2, 90.0);
 
         // exp
-        test_math_fn("exp", 1.0, (1_f64).exp());
+        test_math_fn("exp", 1.0, 1_f64.exp());
 
         // floor
         test_math_fn("floor", 0.0, 0.0);
@@ -507,7 +507,7 @@ mod tests {
         test_math_fn("sqrt", 4.0, 2.0);
 
         // tan
-        test_math_fn("tan", 0.75, (0.75_f64).tan());
+        test_math_fn("tan", 0.75, 0.75_f64.tan());
 
         // tanh
         test_math_fn("tanh", 1.0, 1_f64.tanh());
