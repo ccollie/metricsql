@@ -8,7 +8,7 @@ use crate::ast::{
     AggregateModifier, AggregationExpr, BinaryExpr, Expr, Operator, RollupExpr, VectorMatchModifier,
 };
 use crate::label::{LabelFilter, NAME_LABEL};
-use crate::prelude::{FunctionExpr, VectorMatchCardinality};
+use crate::prelude::VectorMatchCardinality;
 
 /// push_down_filters optimizes e in order to improve its performance.
 ///
@@ -286,7 +286,7 @@ pub fn push_down_binary_op_filters_in_place(e: &mut Expr, common_filters: &mut V
             me.label_filters.sort();
         }
         Function(fe) => {
-            if let Some(idx) = get_aggr_arg_idx_for_optimization(fe) {
+            if let Some(idx) = fe.arg_idx_for_optimization() {
                 if let Some(val) = fe.args.get_mut(idx) {
                     push_down_binary_op_filters_in_place(val, common_filters);
                 }
@@ -314,27 +314,6 @@ pub fn push_down_binary_op_filters_in_place(e: &mut Expr, common_filters: &mut V
             push_down_binary_op_filters_in_place(&mut re.expr, common_filters);
         }
         _ => {}
-    }
-}
-
-fn get_aggr_arg_idx_for_optimization(fe: &FunctionExpr) -> Option<usize> {
-    let name = fe.function.name();
-    match name {
-        "bottomk" | "bottomk_avg" | "bottomk_max" | "bottomk_median" | "bottomk_last" | "bottomk_min"
-        | "limitk" | "outliers_mad" | "outliersk" | "quantile" | "topk" | "topk_avg" | "topk_max"
-        | "topk_median" | "topk_last" | "topk_min" => Some(1),
-        "count_values" => None,
-        "quantiles" => Some(fe.args.len() - 1),
-        _ => {
-            if fe.args.len() > 1 {
-                for e in &fe.args {
-                    if let Expr::Aggregation(_) = e {
-                        return None;
-                    }
-                }
-            }
-            Some(0)
-        },
     }
 }
 

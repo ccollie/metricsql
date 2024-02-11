@@ -18,6 +18,7 @@ use crate::ast::{
 };
 use crate::common::{hash_f64, write_comma_separated, write_number, Value, ValueType};
 use crate::functions::{AggregateFunction, BuiltinFunction, TransformFunction};
+use crate::functions::AggregateFunction::{Bottomk, BottomkAvg, BottomkLast, BottomkMax, BottomkMedian, BottomkMin, CountValues, Limitk, Outliersk, OutliersMAD, Quantile, Quantiles, Topk, TopkAvg, TopkLast, TopkMax, TopkMedian, TopkMin};
 use crate::label::{LabelFilter, LabelFilterOp, Labels, NAME_LABEL};
 use crate::parser::{escape_ident, ParseError, ParseResult};
 use crate::prelude::{
@@ -868,13 +869,39 @@ impl FunctionExpr {
     }
 
     pub fn arg_idx_for_optimization(&self) -> Option<usize> {
-        self.function.get_arg_idx_for_optimization(self.args.len())
+        match self.function {
+            BuiltinFunction::Aggregate(aggr_fn) => self.get_aggr_arg_idx_for_optimization(aggr_fn),
+            _ => {
+                self.function.get_arg_idx_for_optimization(self.args.len())
+            }
+        }
     }
 
     pub fn arg_for_optimization(&self) -> Option<&Expr> {
         match self.arg_idx_for_optimization() {
             None => None,
             Some(idx) => self.args.get(idx),
+        }
+    }
+
+    fn get_aggr_arg_idx_for_optimization(&self, func: AggregateFunction) -> Option<usize> {
+        let arg_count = self.args.len();
+        use AggregateFunction::*;
+        // todo: just examine the signature and return the position containing a vector
+        match func {
+            Bottomk | BottomkAvg | BottomkMax | BottomkMedian | BottomkLast | BottomkMin | Limitk
+            | Outliersk | OutliersMAD | Quantile | Topk | TopkAvg | TopkMax | TopkMedian | TopkLast
+            | TopkMin => Some(1),
+            CountValues => None,
+            Quantiles => Some(arg_count - 1),
+            _ => {
+                for e in self.args {
+                    if let Expr::Aggregation(_) = e {
+                        return None;
+                    }
+                }
+                Some(0)
+            },
         }
     }
 
