@@ -8,7 +8,7 @@ use crate::ast::{
     AggregateModifier, AggregationExpr, BinaryExpr, Expr, Operator, RollupExpr, VectorMatchModifier,
 };
 use crate::label::{LabelFilter, NAME_LABEL};
-use crate::prelude::VectorMatchCardinality;
+use crate::prelude::{can_accept_multiple_args_for_aggr_func, VectorMatchCardinality};
 
 /// push_down_filters optimizes e in order to improve its performance.
 ///
@@ -90,6 +90,15 @@ pub fn get_common_label_filters(e: &Expr) -> Vec<LabelFilter> {
             }
         }
         Aggregation(agg) => {
+            if agg.args.len() > 0 && can_accept_multiple_args_for_aggr_func(agg.function) {
+                let mut filters = get_common_label_filters(&agg.args[0]);
+                for arg in &agg.args[1..] {
+                    let lfs = get_common_label_filters(arg);
+                    intersect_label_filters(&mut filters, &lfs);
+                }
+                trim_filters_by_aggr_modifier(&mut filters, agg);
+                return filters
+            }
             if let Some(argument) = agg.get_arg_for_optimization() {
                 let mut filters = get_common_label_filters(argument);
                 trim_filters_by_aggr_modifier(&mut filters, agg);
@@ -304,7 +313,11 @@ pub fn push_down_binary_op_filters_in_place(e: &mut Expr, common_filters: &mut V
         }
         Aggregation(aggr) => {
             trim_filters_by_aggr_modifier(common_filters, aggr);
-            if let Some(arg_idx) = aggr.arg_idx_for_optimization() {
+            if aggr.args.len() > 0 && can_accept_multiple_args_for_aggr_func(aggr.function) {
+                for arg in &mut aggr.args {
+                    push_down_binary_op_filters_in_place(arg, common_filters);
+                }
+            } else if let Some(arg_idx) = aggr.arg_idx_for_optimization() {
                 if let Some(expr) = aggr.args.get_mut(arg_idx) {
                     push_down_binary_op_filters_in_place(expr, common_filters);
                 }

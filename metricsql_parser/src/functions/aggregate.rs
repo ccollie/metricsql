@@ -268,3 +268,13 @@ pub fn get_aggregate_arg_idx_for_optimization(
         _ => Some(0)
     }
 }
+
+// todo: use signature
+pub(crate) fn can_accept_multiple_args_for_aggr_func(func: AggregateFunction) -> bool {
+    use AggregateFunction::*;
+    match func {
+        Any | Avg | Count | Distinct | GeoMean | Group | Histogram | MAD | Max | Median | Min |
+        Mode | Share | StdDev | StdVar | Sum | Sum2 | ZScore  => true,
+        _ => false,
+    }
+}

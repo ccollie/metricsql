@@ -428,7 +428,7 @@ mod tests {
         );
         validate_optimized(
             r#"sum(foo, bar) by (a) + baz{a="b"}"#,
-            r#"sum(foo{a="b"}, bar) by (a) + baz{a="b"}"#,
+            r#"sum(foo{a="b"}, bar{a="b"}) by (a) + baz{a="b"}"#,
         );
         validate_optimized(
             r#"topk(3, foo) by (baz,x) + bar{baz="a"}"#,
@@ -453,7 +453,7 @@ mod tests {
                 avg(foo{bar="two"}[1i]) by (bar)
             ) by(bar)
                 + avg(foo{bar="three"}) by(bar)"#,
-            r#"sum(avg(foo{bar="one"}) by(bar), avg(foo{bar="two"}[1i]) by(bar)) by(bar) + avg(foo{bar="three"}) by(bar)"#,
+            r#"sum(avg(foo{bar="one", bar="three"}) by(bar), avg(foo{bar="three", bar="two"}[1i]) by(bar)) by(bar) + avg(foo{bar="three"}) by(bar)"#,
         );
 
         validate_optimized(
@@ -462,7 +462,7 @@ mod tests {
                 avg(foo{bar="two"}[1i]) by (bar)
             ) by(bar)
                 + avg(foo{bar="three"}) by(bar)"#,
-            r#"sum(foo{bar="one"}, avg(foo{bar="two"}[1i]) by(bar)) by(bar) + avg(foo{bar="three"}) by(bar)"#,
+            r#"sum(foo{bar="one",bar="three"}, avg(foo{bar="three",bar="two"}[1i]) by(bar)) by(bar) + avg(foo{bar="three"}) by(bar)"#,
         );
     }
 
