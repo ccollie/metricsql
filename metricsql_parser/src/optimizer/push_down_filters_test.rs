@@ -446,6 +446,24 @@ mod tests {
             r#"count_values("foo", bar{baz="a"}) by (bar,b) + a{b="c"}"#,
             r#"count_values("foo", bar{baz="a"}) by (bar, b) + a{b="c"}"#,
         );
+
+        validate_optimized(
+            r#"sum(
+                avg(foo{bar="one"}) by (bar),
+                avg(foo{bar="two"}[1i]) by (bar)
+            ) by(bar)
+                + avg(foo{bar="three"}) by(bar)"#,
+            r#"sum(avg(foo{bar="one"}) by(bar), avg(foo{bar="two"}[1i]) by(bar)) by(bar) + avg(foo{bar="three"}) by(bar)"#,
+        );
+
+        validate_optimized(
+            r#"sum(
+                foo{bar="one"},
+                avg(foo{bar="two"}[1i]) by (bar)
+            ) by(bar)
+                + avg(foo{bar="three"}) by(bar)"#,
+            r#"sum(foo{bar="one"}, avg(foo{bar="two"}[1i]) by(bar)) by(bar) + avg(foo{bar="three"}) by(bar)"#,
+        );
     }
 
     #[test]
@@ -612,7 +630,7 @@ mod tests {
             r#"rate(avg_over_time(foo[5m:])) + bar{baz="a"}"#,
             r#"rate(avg_over_time(foo{baz="a"}[5m:])) + bar{baz="a"}"#,
         );
-        // currently aggregation functions dont accept range vectors like VM does (as yet)
+        // currently aggregation functions don't accept range vectors like VM does (as yet)
         /*
         validate_optimized(
             r#"rate(sum(foo[5m:])) + bar{baz="a"}"#,
