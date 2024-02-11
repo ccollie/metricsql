@@ -667,6 +667,13 @@ pub(super) fn rollup_scrape_interval(rfa: &RollupFuncArg) -> f64 {
     ((rfa.timestamps[count - 1] - rfa.prev_timestamp) as f64 / 1e3_f64) / count as f64
 }
 
+#[inline]
+fn change_below_tolerance(v: f64, prev_value: f64) -> bool {
+    let tolerance = 1e-12 * v.abs();
+    (v - prev_value).abs() < tolerance
+}
+
+
 pub(super) fn rollup_changes_prometheus(rfa: &RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
@@ -680,6 +687,10 @@ pub(super) fn rollup_changes_prometheus(rfa: &RollupFuncArg) -> f64 {
     let mut n = 0;
     for v in rfa.values.iter().skip(1) {
         if *v != prev_value {
+            if change_below_tolerance(*v, prev_value) {
+                // This may be precision error. See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/767#issuecomment-1650932203
+                continue
+            }
             n += 1;
             prev_value = *v;
         }
@@ -705,6 +716,10 @@ pub(super) fn rollup_changes(rfa: &RollupFuncArg) -> f64 {
 
     for v in values.iter() {
         if *v != prev_value {
+            if change_below_tolerance(*v, prev_value) {
+                // This may be precision error. See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/767#issuecomment-1650932203
+                continue;
+            }
             n += 1;
             prev_value = *v;
         }
@@ -738,6 +753,10 @@ pub(super) fn rollup_increases(rfa: &RollupFuncArg) -> f64 {
     let mut n = 0;
     for v in values.iter() {
         if *v > prev_value {
+            if change_below_tolerance(*v, prev_value) {
+                // This may be precision error. See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/767#issuecomment-1650932203
+                continue;
+            }
             n += 1;
         }
         prev_value = *v;
@@ -774,6 +793,10 @@ pub(super) fn rollup_resets(rfa: &RollupFuncArg) -> f64 {
     let mut n = 0;
     for v in values.iter() {
         if *v < prev_value {
+            if change_below_tolerance(*v, prev_value) {
+                // This may be precision error. See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/767#issuecomment-1650932203
+                continue;
+            }
             n += 1;
         }
         prev_value = *v;
