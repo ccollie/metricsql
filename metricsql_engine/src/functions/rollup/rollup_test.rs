@@ -461,6 +461,63 @@ mod tests {
     }
 
     #[test]
+    fn test_rollup_sum_le_over_time() {
+        let f = |le: f64, expected: f64| {
+            let les = QueryValue::from(le);
+            let args = vec![QueryValue::from(0), les];
+            test_rollup_func("sum_le_over_time", args, expected);
+        };
+
+        f(-123.0, 0_f64);
+        f(0.0, 0_f64);
+        f(10.0, 0_f64);
+        f(12.0, 12_f64);
+        f(30.0, 33_f64);
+        f(50.0, 289_f64);
+        f(100.0, 442_f64);
+        f(123.0, 565_f64);
+        f(1000.0, 565_f64)
+    }
+
+    #[test]
+    fn test_rollup_sum_gt_over_time() {
+        let f = |le, expected: f64| {
+            let les = QueryValue::from(le);
+            let args = vec![QueryValue::from(0), les];
+            test_rollup_func("sum_gt_over_time", args, expected);
+        };
+
+        f(-123.0, 565.0);
+        f(0.0, 565.0);
+        f(10.0, 565.0);
+        f(12.0, 553.0);
+        f(30.0, 532.0);
+        f(50.0, 276.0);
+        f(100.0, 123.0);
+        f(123.0, 0.0);
+        f(1000.0, 0.0)
+    }
+
+    #[test]
+    fn test_rollup_sum_eq_over_time() {
+        let f = |le, expected: f64| {
+            let les = QueryValue::from(le);
+            let args = vec![QueryValue::from(0), les];
+            test_rollup_func("sum_eq_over_time", args, expected);
+        };
+
+        f(-123.0, 0.0);
+        f(0.0, 0.0);
+        f(10.0, 0.0);
+        f(12.0, 12.0);
+        f(30.0, 0.0);
+        f(50.0, 0.0);
+        f(100.0, 0.0);
+        f(123.0, 123.0);
+        f(1000.0, 0.0);
+    }
+
+    #[test]
     fn test_rollup_quantile_over_time() {
         let f = |phi: f64, expected: f64| {
             let phis = QueryValue::from(phi);
