@@ -30,6 +30,7 @@ use crate::functions::rollup::{
     RollupHandlerFloatArg,
 };
 use crate::functions::rollup::{RollupFunc, RollupFuncArg, RollupHandler};
+use crate::functions::rollup::counts::{new_rollup_sum_eq, new_rollup_sum_gt, new_rollup_sum_le};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::QueryValue;
 
@@ -37,7 +38,7 @@ use crate::QueryValue;
 
 const NAN: f64 = f64::NAN;
 
-const ROLLUP_LAST: fn(&RollupFuncArg) -> f64 = rollup_default;
+pub(crate) const ROLLUP_LAST: fn(&RollupFuncArg) -> f64 = rollup_default;
 
 pub(super) fn get_rollup_fn(f: &RollupFunction) -> RuntimeResult<RollupFunc> {
     use RollupFunction::*;
@@ -254,6 +255,9 @@ pub(crate) fn get_rollup_function_factory(func: RollupFunction) -> RollupHandler
         StddevOverTime => new_rollup_stddev_over_time,
         StdvarOverTime => new_rollup_stdvar_over_time,
         SumOverTime => new_rollup_sum_over_time,
+        SumEqOverTime => new_rollup_sum_eq,
+        SumGtOverTime => new_rollup_sum_gt,
+        SumLeOverTime => new_rollup_sum_le,
         Sum2OverTime => new_rollup_sum2_over_time,
         TFirstOverTime => new_rollup_tfirst_over_time,
         Timestamp => new_rollup_timestamp,
@@ -285,6 +289,9 @@ pub(crate) fn rollup_func_requires_config(f: &RollupFunction) -> bool {
             | ShareEqOverTime
             | ShareGtOverTime
             | ShareLeOverTime
+            | SumGtOverTime
+            | SumLeOverTime
+            | SumEqOverTime
     )
 }
 

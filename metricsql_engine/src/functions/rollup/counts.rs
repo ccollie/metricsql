@@ -39,6 +39,13 @@ fn share_filtered(values: &[f64], limit: f64, pred: fn(f64, f64) -> bool) -> f64
     n / len as f64
 }
 
+fn sum_filtered(values: &[f64], limit: f64, pred: fn(f64, f64) -> bool) -> f64 {
+    if values.is_empty() {
+        return f64::NAN;
+    }
+    values.iter().filter(|x| pred(**x, limit)).sum()
+}
+
 fn get_limit(args: &[QueryValue], func_name: &str, param_name: &str) -> RuntimeResult<f64> {
     get_float_arg(args, 0, None).map_err(|_| {
         RuntimeError::ArgumentError(format!(
@@ -91,3 +98,22 @@ make_share_fn!(
 );
 make_share_fn!(new_rollup_share_gt, "share_gt_over_time", "gt", greater);
 make_share_fn!(new_rollup_share_eq, "share_eq_over_time", "eq", equal);
+
+
+macro_rules! make_sum_fn {
+    ( $name: ident, $func_name: tt, $param_name: tt, $predicate_fn: expr ) => {
+        pub(super) fn $name(args: &[QueryValue]) -> RuntimeResult<RollupHandler> {
+            let limit = get_limit(args, $func_name, $param_name)?;
+            let handler =
+                RollupHandlerFloatArg::new(limit, |rfa: &RollupFuncArg, limit: &f64| -> f64 {
+                    sum_filtered(rfa.values, *limit, $predicate_fn)
+                });
+            Ok(RollupHandler::FloatArg(handler))
+        }
+    };
+}
+
+
+make_sum_fn!(new_rollup_sum_eq, "sum_eq_over_time", "eq", equal);
+make_sum_fn!(new_rollup_sum_gt, "sum_gt_over_time", "gt", greater);
+make_sum_fn!(new_rollup_sum_le, "sum_le_over_time", "le", less_or_equal);

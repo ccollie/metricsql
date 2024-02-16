@@ -82,6 +82,9 @@ pub enum RollupFunction {
     StaleSamplesOverTime,
     StddevOverTime,
     StdvarOverTime,
+    SumEqOverTime,
+    SumGtOverTime,
+    SumLeOverTime,
     SumOverTime,
     Sum2OverTime,
     TFirstOverTime,
@@ -171,6 +174,9 @@ impl RollupFunction {
             StaleSamplesOverTime => "stale_samples_over_time",
             StddevOverTime => "stddev_over_time",
             StdvarOverTime => "stdvar_over_time",
+            SumEqOverTime => "sum_eq_over_time",
+            SumGtOverTime => "sum_gt_over_time",
+            SumLeOverTime => "sum_le_over_time",
             SumOverTime => "sum_over_time",
             Sum2OverTime => "sum2_over_time",
             TFirstOverTime => "tfirst_over_time",
@@ -192,8 +198,11 @@ impl RollupFunction {
         // note: the physical expression must accept the type returned by this function or the execution panics.
         match self {
             CountEqOverTime | CountLeOverTime | CountNeOverTime | CountGtOverTime
-            | DurationOverTime | PredictLinear | ShareEqOverTime | ShareGtOverTime
-            | ShareLeOverTime => Signature::exact(vec![RangeVector, Scalar], Volatility::Immutable),
+            | DurationOverTime | PredictLinear
+            | ShareEqOverTime | ShareGtOverTime | ShareLeOverTime
+            | SumEqOverTime | SumGtOverTime | SumLeOverTime
+            | TFirstOverTime | TLastChangeOverTime | TLastOverTime
+            => Signature::exact(vec![RangeVector, Scalar], Volatility::Immutable),
             HoeffdingBoundLower | HoeffdingBoundUpper => {
                 Signature::exact(vec![Scalar, RangeVector], Volatility::Immutable)
             }

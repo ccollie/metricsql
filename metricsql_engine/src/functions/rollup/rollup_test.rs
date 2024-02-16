@@ -10,7 +10,7 @@ mod tests {
     use crate::functions::rollup::outlier_iqr::rollup_outlier_iqr;
     use crate::functions::rollup::rollup_fns::{
         remove_counter_resets, rollup_avg, rollup_changes, rollup_changes_prometheus, rollup_count,
-        rollup_default, rollup_distinct, rollup_first, rollup_lag, rollup_last, rollup_lifetime,
+        rollup_default, rollup_distinct, rollup_first, rollup_lag, ROLLUP_LAST, rollup_lifetime,
         rollup_max, rollup_min, rollup_mode_over_time, rollup_rate_over_sum, rollup_resets,
         rollup_scrape_interval, rollup_stddev, rollup_sum, rollup_zscore_over_time,
     };
@@ -784,7 +784,7 @@ mod tests {
     #[test]
     fn test_window_partial_points_before_start() {
         let mut rc = RollupConfig::default();
-        rc.handler = RollupHandler::Wrapped(rollup_last);
+        rc.handler = RollupHandler::Wrapped(ROLLUP_LAST);
         rc.start = 0;
         rc.end = 20;
         rc.step = 5;
@@ -800,7 +800,7 @@ mod tests {
     #[test]
     fn test_window_partial_points_after_end() {
         let mut rc = RollupConfig::default();
-        rc.handler = RollupHandler::Wrapped(rollup_last);
+        rc.handler = RollupHandler::Wrapped(ROLLUP_LAST);
         rc.start = 100;
         rc.end = 160;
         rc.step = 20;
@@ -816,7 +816,7 @@ mod tests {
     #[test]
     fn test_window_partial_points_middle() {
         let mut rc = RollupConfig::default();
-        rc.handler = RollupHandler::Wrapped(rollup_last);
+        rc.handler = RollupHandler::Wrapped(ROLLUP_LAST);
         rc.start = 0;
         rc.end = 150;
         rc.step = 50;

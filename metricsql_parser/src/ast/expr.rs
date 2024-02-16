@@ -18,7 +18,6 @@ use crate::ast::{
 };
 use crate::common::{hash_f64, write_comma_separated, write_number, Value, ValueType};
 use crate::functions::{AggregateFunction, BuiltinFunction, TransformFunction};
-use crate::functions::AggregateFunction::{Bottomk, BottomkAvg, BottomkLast, BottomkMax, BottomkMedian, BottomkMin, CountValues, Limitk, Outliersk, OutliersMAD, Quantile, Quantiles, Topk, TopkAvg, TopkLast, TopkMax, TopkMedian, TopkMin};
 use crate::label::{LabelFilter, LabelFilterOp, Labels, NAME_LABEL};
 use crate::parser::{escape_ident, ParseError, ParseResult};
 use crate::prelude::{
@@ -895,7 +894,7 @@ impl FunctionExpr {
             CountValues => None,
             Quantiles => Some(arg_count - 1),
             _ => {
-                for e in self.args {
+                for e in &self.args {
                     if let Expr::Aggregation(_) = e {
                         return None;
                     }
