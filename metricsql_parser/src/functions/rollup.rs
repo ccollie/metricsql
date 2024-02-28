@@ -8,6 +8,7 @@ use strum_macros::EnumIter;
 use crate::common::ValueType;
 use crate::functions::signature::{Signature, Volatility};
 use crate::functions::MAX_ARG_COUNT;
+use crate::functions::RollupFunction::CountValuesOverTime;
 use crate::parser::ParseError;
 
 /// Built-in Rollup Functions
@@ -26,6 +27,7 @@ pub enum RollupFunction {
     CountLeOverTime,
     CountNeOverTime,
     CountOverTime,
+    CountValuesOverTime,
     DecreasesOverTime,
     #[default]
     DefaultRollup,
@@ -119,6 +121,7 @@ impl RollupFunction {
             CountLeOverTime => "count_le_over_time",
             CountNeOverTime => "count_ne_over_time",
             CountOverTime => "count_over_time",
+            CountValuesOverTime => "count_values_over_time",
             DecreasesOverTime => "decreases_over_time",
             DefaultRollup => "default_rollup",
             Delta => "delta",
@@ -203,6 +206,7 @@ impl RollupFunction {
             | SumEqOverTime | SumGtOverTime | SumLeOverTime
             | TFirstOverTime | TLastChangeOverTime | TLastOverTime
             => Signature::exact(vec![RangeVector, Scalar], Volatility::Immutable),
+            CountValuesOverTime => Signature::exact(vec![String, RangeVector], Volatility::Immutable),
             HoeffdingBoundLower | HoeffdingBoundUpper => {
                 Signature::exact(vec![Scalar, RangeVector], Volatility::Immutable)
             }

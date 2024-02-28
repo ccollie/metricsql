@@ -3110,6 +3110,27 @@ mod tests {
     }
 
     #[test]
+    fn count_values_over_time() {
+        let q = r##"sort_by_label(
+            count_values_over_time("foo", round(label_set(rand(0), "x", "y"), 0.4)[200s:5s]),
+            "foo",
+        )"##;
+        let mut r1 = make_result(&[4.0, 8.0, 7.0, 6.0, 10.0, 9.0]);
+        r1.metric.set_tag("foo", "0");
+        r1.metric.set_tag("x", "y");
+
+        let mut r2 = make_result(&[20.0, 13.0, 19.0, 18.0, 14.0, 13.0]);
+        r2.metric.set_tag("foo", "0.4");
+        r2.metric.set_tag("x", "y");
+
+        let mut r3 = make_result(&[16.0, 19.0, 14.0, 16.0, 16.0, 18.0]);
+        r3.metric.set_tag("foo", "0.8");
+        r3.metric.set_tag("x", "y");
+
+        test_query(q, vec![r1, r2, r3]);
+    }
+
+    #[test]
     fn histogram_over_time() {
         let q = r#"sort_by_label(histogram_over_time(alias(label_set(rand(0)*1.3+1.1, "foo", "bar"), "xxx")[200s:5s]), "vmrange")"#;
         let mut r1 = make_result(&[1_f64, 2.0, 2.0, 2.0, NAN, 1.0]);

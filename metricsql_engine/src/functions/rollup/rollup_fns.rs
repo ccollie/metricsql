@@ -30,7 +30,7 @@ use crate::functions::rollup::{
     RollupHandlerFloatArg,
 };
 use crate::functions::rollup::{RollupFunc, RollupFuncArg, RollupHandler};
-use crate::functions::rollup::counts::{new_rollup_sum_eq, new_rollup_sum_gt, new_rollup_sum_le};
+use crate::functions::rollup::counts::{new_rollup_count_values, new_rollup_sum_eq, new_rollup_sum_gt, new_rollup_sum_le};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::QueryValue;
 
@@ -199,6 +199,7 @@ pub(crate) fn get_rollup_function_factory(func: RollupFunction) -> RollupHandler
         CountLeOverTime => new_rollup_count_le,
         CountNeOverTime => new_rollup_count_ne,
         CountOverTime => new_rollup_count_over_time,
+        CountValuesOverTime => new_rollup_count_values,
         DecreasesOverTime => new_rollup_decreases_over_time,
         DefaultRollup => new_rollup_default,
         Delta => new_rollup_delta,
@@ -280,6 +281,7 @@ pub(crate) fn rollup_func_requires_config(f: &RollupFunction) -> bool {
             | CountGtOverTime
             | CountEqOverTime
             | CountNeOverTime
+            | CountValuesOverTime
             | DurationOverTime
             | HoeffdingBoundLower
             | HoeffdingBoundUpper
@@ -382,6 +384,7 @@ pub(crate) fn rollup_mad(rfa: &RollupFuncArg) -> f64 {
     // before calling rollup funcs.
     mad(rfa.values)
 }
+
 
 pub(super) fn rollup_max(rfa: &RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
@@ -518,11 +521,7 @@ pub(super) fn rollup_rate_over_sum(rfa: &RollupFuncArg) -> f64 {
     // before calling rollup fns.
     let timestamps = &rfa.timestamps;
     if timestamps.is_empty() {
-        if rfa.prev_value.is_nan() {
-            return NAN;
-        }
-        // Assume that the value didn't change since rfa.prev_value.
-        return 0.0;
+        return NAN;
     }
     let sum: f64 = rfa.values.iter().sum();
     sum / (rfa.window as f64 / 1e3_f64)
@@ -550,7 +549,7 @@ pub(super) fn rollup_sum2(rfa: &RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
     if rfa.values.is_empty() {
-        return rfa.prev_value * rfa.prev_value;
+        return NAN;
     }
     rfa.values.iter().fold(0.0, |r, x| r + (*x * *x))
 }
@@ -560,7 +559,7 @@ pub(super) fn rollup_geomean(rfa: &RollupFuncArg) -> f64 {
     // before calling rollup fns.
     let len = rfa.values.len();
     if len == 0 {
-        return rfa.prev_value;
+        return NAN;
     }
 
     let p = rfa.values.iter().fold(1.0, |r, v| r * *v);
@@ -919,10 +918,7 @@ pub(super) fn rollup_distinct(rfa: &RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
     if rfa.values.is_empty() {
-        if rfa.prev_value.is_nan() {
-            return NAN;
-        }
-        return 0.0;
+        return NAN;
     }
 
     let mut copy = get_pooled_vec_f64(rfa.values.len());

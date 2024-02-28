@@ -43,8 +43,8 @@ fn holt_winters_internal(rfa: &RollupFuncArg, sf: f64, tf: f64) -> f64 {
         ofs = 1;
         s0 = rfa.values[0];
 
-        if rfa.values.len() <= 1 {
-            return s0;
+        if rfa.values.is_empty() {
+            return f64::NAN;
         }
     }
 
