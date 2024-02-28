@@ -1,3 +1,4 @@
+use std::io::Cursor;
 use crate::functions::arg_parse::get_float_arg;
 use crate::functions::rollup::{RollupFuncArg, RollupHandler, RollupHandlerFloatArg};
 use crate::{QueryValue, RuntimeError, RuntimeResult};
@@ -117,3 +118,59 @@ macro_rules! make_sum_fn {
 make_sum_fn!(new_rollup_sum_eq, "sum_eq_over_time", "eq", equal);
 make_sum_fn!(new_rollup_sum_gt, "sum_gt_over_time", "gt", greater);
 make_sum_fn!(new_rollup_sum_le, "sum_le_over_time", "le", less_or_equal);
+
+pub(super) fn new_rollup_count_values(args: &[QueryValue]) -> RuntimeResult<RollupHandler> {
+    if (args.len() != 2) {
+        return Err(RuntimeError::ArgumentError(
+            "expecting 2 args to count_values_over_time()".to_string(),
+        ));
+    }
+
+    match args[1] {
+        QueryValue::RangeVector(ref tss) => tss,
+        _ => {
+            return Err(RuntimeError::ArgumentError(
+                "expecting instant vector as the second arg to count_values_over_time()".to_string(),
+            ));
+        }
+    };
+
+    let label_name = match args[0] {
+        QueryValue::String(ref s) => s,
+        _ => {
+            return Err(RuntimeError::ArgumentError(
+                "expecting string as the first arg to count_values_over_time()".to_string(),
+            ));
+        }
+    };
+
+    let f = move |rfa: RollupFuncArg| -> f64 {
+        let tsm = rfa.get_tsm();
+        let idx = rfa.idx;
+
+        // https://stackoverflow.com/questions/73117416/how-do-i-print-u64-to-a-buffer-on-stack-in-rust
+        let mut cursor = Cursor::new([0u8; 40]);
+
+        // Note: the code below may create very big number of time series
+        // if the number of unique values in rfa.values is big.
+        for v in rfa.values {
+            write!(cursor, "{v}").unwrap();
+            let pos = cursor.position();
+            let buffer = cursor.get_ref()[..pos];
+
+            let label_value = buffer;
+            let ts = tsm.get_or_create_series(label_name, label_value);
+            let count = ts.values[idx];
+            if count.is_nan() {
+                count = 1.0;
+            } else {
+                count = count + 1.0;
+            }
+            ts.values[idx] = count;
+        }
+        f64::NAN
+    };
+
+    let handler = RollupHandler::General(Box::new(f));
+    return Ok(handler)
+}
