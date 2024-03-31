@@ -83,6 +83,27 @@ pub fn get_common_label_filters(e: &Expr) -> Vec<LabelFilter> {
         MetricExpression(m) => get_common_label_filters_without_metric_name(&m.label_filters),
         Rollup(r) => get_common_label_filters(&r.expr),
         Function(fe) => {
+            match fe.function {
+                match BuiltInFunction::Transform(tf) => {
+                    let mut filters = get_common_label_filters(&fe.args[0]);
+                    let lfs = get_common_label_filters(&fe.args[1]);
+                    intersect_label_filters(&mut filters, &lfs);
+                    filters
+                }
+                "label_replace" => {
+                    let mut filters = get_common_label_filters(&fe.args[0]);
+                    let lfs = get_common_label_filters(&fe.args[1]);
+                    intersect_label_filters(&mut filters, &lfs);
+                    filters
+                }
+                _ => {
+                    if let Some(arg) = fe.arg_for_optimization() {
+                        get_common_label_filters(arg)
+                    } else {
+                        vec![]
+                    }
+                }
+            }
             if let Some(arg) = fe.arg_for_optimization() {
                 get_common_label_filters(arg)
             } else {

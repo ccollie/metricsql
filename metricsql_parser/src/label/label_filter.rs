@@ -12,7 +12,6 @@ use crate::common::join_vector;
 use crate::parser::{compile_regexp, escape_ident, is_empty_regex, quote, ParseError};
 
 pub const NAME_LABEL: &str = "__name__";
-
 pub type LabelName = String;
 
 pub type LabelValue = String;

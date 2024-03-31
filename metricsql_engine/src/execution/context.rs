@@ -125,7 +125,7 @@ pub struct SessionConfig {
     /// See https://valyala.medium.com/prometheus-subqueries-in-victoriametrics-9b1492b720b3
     pub max_points_subquery_per_timeseries: usize,
 
-    /// The maximum interval for staleness calculations. By default it is automatically calculated from
+    /// The maximum interval for staleness calculations. By default, it is automatically calculated from
     /// the median interval between samples. This could be useful for tuning Prometheus data model
     /// closer to Influx-style data model.
     /// See https://prometheus.io/docs/prometheus/latest/querying/basics/#staleness for details.
