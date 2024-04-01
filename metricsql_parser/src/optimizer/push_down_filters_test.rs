@@ -104,7 +104,12 @@ mod tests {
             r#"{a="b"}"#,
             r#"scalar(foo) + bar{a="b"}"#,
         );
+
         f("vector(foo)", r#"{a="b"}"#, "vector(foo)");
+
+        // f(r#"vector(foo{x="y"} + a) + bar{a="b"}"#,
+        //   r#"vector(foo{a="b",x="y"} + a{a="b",x="y"}) + bar{a="b",x="y"}"#);
+
         f(
             r#"{a="b"} + on() group_left() {c="d"}"#,
             r#"{a="b"}"#,
@@ -545,6 +550,16 @@ mod tests {
             r#"vector(foo{x="y"} + a) + bar{a="b"}"#,
             r#"vector(foo{x="y"} + a{x="y"}) + bar{a="b"}"#,
         );
+
+        // range_normalize
+        validate_optimized(r#"range_normalize(foo{a="b",c="d"},bar{a="b",x="y"}) + baz{z="w"}"#,
+                           r#"range_normalize(foo{a="b",c="d",z="w"}, bar{a="b",x="y",z="w"}) + baz{a="b",z="w"}"#);
+
+        // union
+        validate_optimized(r#"union(foo{a="b",c="d"},bar{a="b",x="y"}) + baz{z="w"}"#,
+                           r#"union(foo{a="b",c="d",z="w"}, bar{a="b",x="y",z="w"}) + baz{a="b",z="w"}"#);
+        validate_optimized(r#"(foo{a="b",c="d"},bar{a="b",x="y"}) + baz{z="w"}"#,
+                           r#"(foo{a="b",c="d",z="w"}, bar{a="b",x="y",z="w"}) + baz{a="b",z="w"}"#);
     }
 
     #[test]
@@ -611,6 +626,10 @@ mod tests {
             r#"quantiles_over_time("quantile", 0.1, 0.9, foo{x="y"}[5m] offset 4h) + bar{a!="b"}"#,
             r#"quantiles_over_time("quantile", 0.1, 0.9, foo{a!="b", x="y"}[5m] offset 4h) + bar{a!="b", x="y"}"#,
         );
+
+        // count_values_over_time
+        validate_optimized(r#"count_values_over_time("a", foo{a="x",b="c"}[5m]) + bar{a="y",d="e"}"#,
+          r#"count_values_over_time("a", foo{a="x",b="c",d="e"}[5m]) + bar{a="y",b="c",d="e"}"#);
     }
 
     #[test]

@@ -24,7 +24,7 @@ use crate::ast::utils::{expr_contains, is_null, is_one, is_op_with, is_zero};
 use crate::ast::{BinaryExpr, Expr, Operator};
 use crate::common::{RewriteRecursion, TreeNode, TreeNodeRewriter};
 use crate::optimizer::const_evaluator::ConstEvaluator;
-use crate::optimizer::push_down_filters::{can_pushdown_filters, optimize_label_filters_inplace};
+use crate::optimizer::push_down_filters::{can_pushdown_filters, optimize_label_filters_in_place};
 use crate::optimizer::remove_parens_expr;
 use crate::parser::{ParseError, ParseResult};
 use crate::prelude::BuiltinFunction;
@@ -103,7 +103,7 @@ impl ExprSimplifier {
             .rewrite(&mut simplifier)?;
 
         // push down filters
-        optimize_label_filters_inplace(&mut result);
+        optimize_label_filters_in_place(&mut result);
         Ok(result)
     }
 }
@@ -141,7 +141,7 @@ impl PushDownFilterRewriter {
 
     fn push_down_filters(expr: Expr) -> ParseResult<Expr> {
         let mut expr = expr;
-        optimize_label_filters_inplace(&mut expr);
+        optimize_label_filters_in_place(&mut expr);
         Ok(expr)
     }
 }
