@@ -447,6 +447,12 @@ mod tests {
             r#"count_values("foo", bar{baz="a"}) by (bar, b) + a{b="c"}"#,
         );
 
+        // count_values
+        validate_optimized(r#"count_values("foo", bar{a="b",c="d"}) by (a,x,y) + baz{foo="c",x="q",z="r"}"#, r#"count_values("foo", bar{a="b",c="d",x="q"}) by(a,x,y) + baz{a="b",foo="c",x="q",z="r"}"#);
+        validate_optimized(r#"count_values("foo", bar{a="b",c="d"}) by (a) + baz{foo="c",x="q",z="r"}"#, r#"count_values("foo", bar{a="b",c="d"}) by(a) + baz{a="b",foo="c",x="q",z="r"}"#);
+        validate_optimized(r#"count_values("foo", bar{a="b",c="d"}) + baz{foo="c",x="q",z="r"}"#, r#"count_values("foo", bar{a="b",c="d"}) + baz{foo="c",x="q",z="r"}"#);
+
+
         validate_optimized(
             r#"sum(
                 avg(foo{bar="one"}) by (bar),
