@@ -35,7 +35,7 @@ pub fn get_pool_vec_i64_filled(size: usize, value: i64) -> PooledVecI64 {
 
 static F64_POOL: OnceLock<BytePool<Vec<f64>>> = OnceLock::new();
 
-/// get_pooled_vec_f64 returns an f64 slice with the given size.
+/// get_pooled_vec_f64 returns a f64 slice with the given size.
 pub fn get_pooled_vec_f64(size: usize) -> PooledVecF64 {
     let pool = F64_POOL.get_or_init(BytePool::new);
     let mut v = pool.alloc(size);

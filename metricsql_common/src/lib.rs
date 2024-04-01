@@ -14,8 +14,10 @@ pub mod hash;
 pub mod pool;
 mod regex_util;
 pub mod time;
+pub mod async_runtime;
 
 pub mod prelude {
+    pub use crate::async_runtime::*;
     pub use crate::atomic_counter::*;
     pub use crate::bytes_util::*;
     pub use crate::duration::*;
