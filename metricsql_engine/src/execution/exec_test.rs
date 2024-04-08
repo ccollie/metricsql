@@ -1331,6 +1331,14 @@ mod tests {
     }
 
     #[test]
+    fn label_join_dst_label_equals_src_label() {
+        let q = r#"label_join(label_join(time(), "bar", "sep1", "a", "b"), "bar", "sep2", "a", "bar")"#;
+        let mut r = make_result(&[1000.0, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
+        r.set_tag("bar", "sep2sep1");
+        test_query(q, vec![r])
+    }
+
+    #[test]
     fn label_value() {
         let q = r#"with (
         x = (
@@ -3622,7 +3630,7 @@ mod tests {
 
     #[test]
     fn bottomk() {
-        let q = r#"bottomk(1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"))"#;
+        let q = r#"bottomk(1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")) or label_set(time()<100, "a", "b"))"#;
         let mut r1 = make_result(&[NAN, NAN, NAN, 10.0, 10.0, 10.0]);
         r1.metric.set_tag("foo", "bar");
         let mut r2 = make_result(&[6.666666666666667, 8.0, 9.333333333333334, NAN, NAN, NAN]);
@@ -4455,30 +4463,30 @@ mod tests {
 
     #[test]
     fn rollup_rate() {
-        let q = "rollup_rate((2000-time())[600s])";
+        let q = "rollup_rate((2200-time())[600s])";
         let mut r1 = make_result(&[5_f64, 4.0, 3.0, 2.0, 1.0, 0.0]);
         r1.metric.set_tag("rollup", "avg");
 
-        let mut r2 = make_result(&[6_f64, 5.0, 4.0, 3.0, 2.0, 1.0]);
+        let mut r2 = make_result(&[7.0, 6.0, 5.0, 4.0, 3.0, 2.0]);
         r2.metric.set_tag("rollup", "max");
 
-        let mut r3 = make_result(&[4_f64, 3.0, 2.0, 1.0, 0.0, -1.0]);
+        let mut r3 = make_result(&[5.0, 4.0, 3.0, 2.0, 1.0, 0.0]);
         r3.metric.set_tag("rollup", "min");
         test_query(q, vec![r1, r2, r3]);
     }
 
     #[test]
     fn rollup_rate_max() {
-        let q = r#"rollup_rate((2000-time())[600s], "max")"#;
-        let mut r = make_result(&[6_f64, 5.0, 4.0, 3.0, 2.0, 1.0]);
+        let q = r#"rollup_rate((2200-time())[600s], "max")"#;
+        let mut r = make_result(&[7.0, 6.0, 5.0, 4.0, 3.0, 2.0]);
         r.metric.set_tag("rollup", "max");
         test_query(q, vec![r]);
     }
 
     #[test]
     fn rollup_rate_avg() {
-        let q = r#"rollup_rate((2000-time())[600s], "avg")"#;
-        let mut r = make_result(&[5_f64, 4.0, 3.0, 2.0, 1.0, 0.0]);
+        let q = r#"rollup_rate((2200-time())[600s], "avg")"#;
+        let mut r = make_result(&[6.0, 5.0, 4.0, 3.0, 2.0, 1.0]);
         r.metric.set_tag("rollup", "avg");
         test_query(q, vec![r]);
     }

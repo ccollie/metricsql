@@ -149,16 +149,6 @@ struct Bucket {
 }
 
 impl Bucket {
-    fn new(ts: Timeseries) -> Self {
-        Self {
-            start_str: "".to_string(),
-            end_str: "".to_string(),
-            start: 0.0,
-            end: 0.0,
-            ts: Rc::new(RefCell::new(ts)),
-        }
-    }
-
     fn is_set(&self) -> bool {
         !self.start_str.is_empty()
             || !self.end_str.is_empty() && self.start != 0.0 && self.end != 0.0
@@ -169,7 +159,7 @@ impl Bucket {
         ts.values.iter().all(|x| *x <= 0.0)
     }
 
-    // Convert `vmrange` label in each group of time series to `le` label.
+    /// Convert `vmrange` label in each group of time series to `le` label.
     fn copy_ts(&self, le_str: &str) -> SharedTimeseries {
         let src = self.ts.borrow();
         let mut ts: Timeseries = src.clone();
@@ -190,7 +180,7 @@ impl Bucket {
                 Some(refcell.to_owned())
             }
             Err(_) => {
-                // another Rc still exists so you cannot take ownership of the value
+                // another Rc still exists, so you cannot take ownership of the value
                 debug_assert!(false, "Cannot borrow mutably");
                 None
             }

@@ -39,7 +39,8 @@ impl Context {
 
         let storage = self.storage.clone();
         // todo: use std::time::Duration for deadline
-        let duration = std::time::Duration::from_millis(deadline.timeout.num_milliseconds() as u64);
+        let timeout_ms = deadline.timeout.num_milliseconds() as u64;
+        let duration = std::time::Duration::from_millis(timeout_ms);
         let res= block_sync(async move {
             if duration.is_zero() {
                 storage.search(&sq, deadline).await
@@ -49,8 +50,9 @@ impl Context {
                 }).await;
                 match res {
                     Ok(res) => res,
-                    Err(err) => match err {
-                        std::io::Error { .. } => Err(RuntimeError::DeadlineExceededError(err.to_string())),
+                    Err(_elapsed) => {
+                        let msg = format!("search timeout after {} ms", timeout_ms);
+                        Err(RuntimeError::DeadlineExceededError(msg))
                     }
                 }
             }

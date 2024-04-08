@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex};
+use ahash::AHashSet;
 
 use rayon::iter::IntoParallelRefMutIterator;
 use tracing::{field, trace_span, Span};
@@ -227,7 +228,12 @@ impl RollupNode {
         // Fetch the remaining part of the result.
         let tfs = vec![Matchers::new(me.label_filters.clone())];
         let tfss = join_matchers_vec(&tfs, &ec.enforced_tag_filters);
-        let mut min_timestamp = start - MAX_SILENCE_INTERVAL;
+        let mut min_timestamp = start;
+
+        if self.func.need_silence_interval() {
+            min_timestamp -= MAX_SILENCE_INTERVAL;
+        }
+
         if window > ec.step {
             min_timestamp -= &window
         } else {
@@ -505,6 +511,25 @@ impl RollupNode {
 
         Ok(rollup_memory_size)
     }
+}
+
+
+fn has_duplicate_series(tss: &[Timeseries]) -> bool {
+    if tss.len() <= 1 {
+        return false
+    }
+
+    let mut m: AHashSet<String> = AHashSet::with_capacity(tss.len());
+    // todo: use buffer pools to avoid memory allocations
+
+    for ts in tss {
+        let name = ts.metric_name.to_string();
+        if m.contains(&name) {
+            return true
+        }
+        m.insert(name);
+    }
+    return false
 }
 
 fn mul_no_overflow(a: i64, b: i64) -> i64 {

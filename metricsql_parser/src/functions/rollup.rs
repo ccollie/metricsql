@@ -8,7 +8,6 @@ use strum_macros::EnumIter;
 use crate::common::ValueType;
 use crate::functions::signature::{Signature, Volatility};
 use crate::functions::MAX_ARG_COUNT;
-use crate::functions::RollupFunction::CountValuesOverTime;
 use crate::parser::ParseError;
 
 /// Built-in Rollup Functions
@@ -201,12 +200,14 @@ impl RollupFunction {
         // note: the physical expression must accept the type returned by this function or the execution panics.
         match self {
             CountEqOverTime | CountLeOverTime | CountNeOverTime | CountGtOverTime
-            | DurationOverTime | PredictLinear
-            | ShareEqOverTime | ShareGtOverTime | ShareLeOverTime
-            | SumEqOverTime | SumGtOverTime | SumLeOverTime
-            | TFirstOverTime | TLastChangeOverTime | TLastOverTime
-            => Signature::exact(vec![RangeVector, Scalar], Volatility::Immutable),
-            CountValuesOverTime => Signature::exact(vec![String, RangeVector], Volatility::Immutable),
+            | DurationOverTime | PredictLinear | ShareEqOverTime | ShareGtOverTime
+            | ShareLeOverTime | SumEqOverTime | SumGtOverTime | SumLeOverTime | TFirstOverTime
+            | TLastChangeOverTime | TLastOverTime => {
+                Signature::exact(vec![RangeVector, Scalar], Volatility::Immutable)
+            }
+            CountValuesOverTime => {
+                Signature::exact(vec![String, RangeVector], Volatility::Immutable)
+            }
             HoeffdingBoundLower | HoeffdingBoundUpper => {
                 Signature::exact(vec![Scalar, RangeVector], Volatility::Immutable)
             }
@@ -335,43 +336,36 @@ impl RollupFunction {
         use RollupFunction::*;
         !matches!(
             self,
-            AbsentOverTime
-                | AvgOverTime
-                | CountEqOverTime
-                | CountGtOverTime
-                | CountLeOverTime
-                | CountNeOverTime
-                | CountOverTime
+            AscentOverTime
+                | Changes
+                | DecreasesOverTime
+            // The default_rollup implicitly relies on the previous samples in order to fill gaps.
+	        // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/5388
                 | DefaultRollup
-                | FirstOverTime
-                | HistogramOverTime
-                | HoeffdingBoundLower
-                | HoeffdingBoundUpper
-                | LastOverTime
-                | MadOverTime
-                | MaxOverTime
-                | MedianOverTime
-                | MinOverTime
-                | PredictLinear
-                | PresentOverTime
-                | QuantileOverTime
-                | QuantilesOverTime
-                | RangeOverTime
-                | ShareGtOverTime
-                | ShareLeOverTime
-                | ShareEqOverTime
-                | StaleSamplesOverTime
-                | StddevOverTime
-                | StdvarOverTime
-                | SumOverTime
-                | TFirstOverTime
-                | Timestamp
-                | TimestampWithName
-                | TLastOverTime
-                | TMaxOverTime
-                | TMinOverTime
-                | ZScoreOverTime
-        )
+                | Delta
+                | DerivFast
+                | DescentOverTime
+                | IDelta
+                | IDeriv
+                | Increase
+                | IncreasePure
+                | IncreasesOverTime
+                | Integrate
+                | IRate
+                | Lag
+                | Lifetime
+                | Rate
+                | Resets
+                | Rollup
+                | RollupCandlestick
+                | RollupDelta
+                | RollupDeriv
+                | RollupIncrease
+                | RollupRate
+                | RollupScrapeInterval
+                | ScrapeInterval
+                | TLastChangeOverTime
+            )
     }
 }
 
@@ -567,7 +561,9 @@ pub fn is_rollup_aggregation_over_time(func: RollupFunction) -> bool {
         return true;
     }
 
-    matches!(func, |Delta| DeltaPrometheus
+    matches!(func,
+        | Delta
+        | DeltaPrometheus
         | Deriv
         | DerivFast
         | IDelta

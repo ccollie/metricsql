@@ -76,6 +76,11 @@ impl SearchQuery {
         if max_metrics == 0 {
             max = 2e9 as usize
         }
+        let start = if start < 0 {
+            0
+        } else {
+            start
+        };
         SearchQuery {
             start,
             end,

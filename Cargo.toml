@@ -18,29 +18,33 @@ members = [
 ]
 resolver = "2"
 
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [workspace.dependencies]
 ahash = { version = "0.8", features = ["std", "serde"] }
 byte-pool = "0.2"
 chrono = { version = "0.4", features = ["serde"] }
-chrono-tz = "0.8"
+chrono-tz = "0.9"
 enquote = "1.1"
+futures = "0.3"
 gxhash = "3.1"
-integer-encoding = "4.0.0"
+integer-encoding = "4.0"
 itertools = "0.12"
 num-traits = "0.2"
-pretty_assertions = "1.4.0"
+pretty_assertions = "1.4"
 q_compress = "0.11"
-rand = "0.8.5"
+rand = "0.8"
 rand_distr = "0.4.3"
 rayon = "1.10"
-regex = "1.10.4"
+regex = "1.10"
 regex-syntax = "0.8"
 rs_unit = "0.0.2"
 scopeguard = "1.2.0"
 serde = { version = "1", features = ["derive"] }
 serde_with = "3"
+snafu = "0.8"
+snafu-derive = "0.8"
+strum = { version = "0.26", features = ["derive"] }
+strum_macros = { version = "0.26" }
 test-case = "3"
 tinyvec = { version = "1.6", features = ["alloc", "rustc_1_57"] }
 tracing = "0.1.40"

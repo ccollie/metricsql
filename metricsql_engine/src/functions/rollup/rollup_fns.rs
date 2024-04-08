@@ -306,7 +306,7 @@ pub(super) fn remove_counter_resets(values: &mut [f64]) {
     let mut correction: f64 = 0.0;
     let mut prev_value = values[0];
 
-    for v in values.iter_mut() {
+    for (i, v) in values.iter_mut().enumerate() {
         let d = *v - prev_value;
         if d < 0.0 {
             if (-d * 8.0) < prev_value {
@@ -317,8 +317,13 @@ pub(super) fn remove_counter_resets(values: &mut [f64]) {
                 correction += prev_value;
             }
         }
-        prev_value = *v;
         *v += correction;
+        // Check again, there could be precision error in float operations,
+        // see https://github.com/VictoriaMetrics/VictoriaMetrics/issues/5571
+        if i > 0 && *v < prev_value {
+            *v = prev_value;
+        }
+        prev_value = *v;
     }
 }
 

@@ -150,7 +150,7 @@ mod tests {
         // removeCounterResets doesn't expect negative values, so it doesn't work properly with them.
         let mut values: Vec<f64> = vec![-100.0, -200.0, -300.0, -400.0];
         remove_counter_resets(&mut values);
-        let values_expected = vec![-100.0, -300.0, -600.0, -1000.0];
+        let values_expected = vec![-100.0, -100.0, -100.0, -100.0];
         let timestamps_expected: Vec<i64> = vec![0, 1, 2, 3];
         test_rows_equal(
             &values,
@@ -170,7 +170,19 @@ mod tests {
             &timestamps_expected,
             &values_expected,
             &timestamps_expected,
-        )
+        );
+
+        // verify results always increase monotonically with possible float operations precision error
+        let mut values = [34.094223, 2.7518, 2.140669, 0.044878, 1.887095, 2.546569, 2.490149, 0.045, 0.035684, 0.062454, 0.058296];
+        remove_counter_resets(&mut values);
+
+        let mut prev: f64 = values[0];
+        for (i, v) in values.iter().enumerate() {
+            if *v < prev {
+                panic!("error: unexpected value keep getting bigger {i}; cur {v}; pre {prev}\n");
+            }
+            prev = *v;
+        }
     }
 
     #[test]

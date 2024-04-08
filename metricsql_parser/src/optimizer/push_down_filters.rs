@@ -5,7 +5,7 @@ use std::vec::Vec;
 use ahash::AHashSet;
 
 use crate::ast::{
-    AggregateModifier, AggregationExpr, BinaryExpr, Expr, Operator, RollupExpr, VectorMatchModifier,
+    AggregateModifier, AggregationExpr, BinaryExpr, Expr, Operator, RollupExpr, VectorMatchModifier
 };
 use crate::functions::BuiltinFunction::Transform;
 use crate::functions::{AggregateFunction, BuiltinFunction, RollupFunction, TransformFunction};
@@ -162,7 +162,7 @@ pub fn get_common_label_filters(e: &Expr) -> Vec<LabelFilter> {
                 return lfs;
             }
             let func = BuiltinFunction::Aggregate(agg.function);
-            if let Some(argument) = get_func_arg_for_optimization(func, &agg.args) {
+            if let Ok(Some(argument)) = get_func_arg_for_optimization(func, &agg.args) {
                 let mut filters = get_common_label_filters(argument);
                 trim_filters_by_aggr_modifier(&mut filters, agg);
                 filters
@@ -309,7 +309,7 @@ fn get_common_label_filters_for_label_copy(args: &[Expr]) -> Vec<LabelFilter> {
             return vec![];
         }
     }
-    lfs.retain(|x| !label_names.contains(&x.label));
+    lfs.retain(|x| !label_names.contains(x.label.as_str()));
     lfs
 }
 
@@ -353,11 +353,12 @@ fn get_common_label_filters_for_label_set(args: &[Expr]) -> Vec<LabelFilter> {
         }
 
         drop_label_filters_for_label_name(&mut lfs, &label_name);
+        // LabelFilter::new() errors only in the case where operator is regex eq/ne, so the following unwrap() is safe
         lfs.push(LabelFilter::new(
             LabelFilterOp::Equal,
             se_label_name,
             se_label_value,
-        )?);
+        ).unwrap());
     }
     lfs
 }
@@ -575,10 +576,8 @@ fn pushdown_label_filters_for_label_copy(args: &mut Vec<Expr>, lfs: &mut Vec<Lab
     if args.is_empty() {
         return;
     }
-    let arg = args.get_mut(0).unwrap();
-    let args = &args[1..];
-    let mut label_names: AHashSet<&str> = AHashSet::with_capacity(args.len() / 2);
-    for i in (0..args.len()).step_by(2) {
+    let mut label_names: AHashSet<&str> = AHashSet::with_capacity(&args.len() - 1 / 2);
+    for i in (1..args.len()).step_by(2) {
         if i + 1 >= args.len() {
             return;
         }
@@ -588,7 +587,8 @@ fn pushdown_label_filters_for_label_copy(args: &mut Vec<Expr>, lfs: &mut Vec<Lab
             return;
         }
     }
-    lfs.retain(|x| !label_names.contains(&x.label));
+    lfs.retain(|x| !label_names.contains(x.label.as_str()));
+    let arg = args.get_mut(0).unwrap();
     push_down_binary_op_filters_in_place(arg, lfs)
 }
 
@@ -605,17 +605,16 @@ fn pushdown_label_filters_for_label_set(args: &mut Vec<Expr>, lfs: &mut Vec<Labe
     if args.is_empty() {
         return;
     }
-    let arg = args.get_mut(0).unwrap();
-    let args = &args[1..];
     let mut label_names: AHashSet<&str> = AHashSet::with_capacity(args.len() / 2);
-    for i in (0..args.len()).step_by(2) {
+    for i in (1..args.len()).step_by(2) {
         if let Some(v) = get_expr_as_string(args.get(i).unwrap()) {
             label_names.insert(v);
         } else {
             return;
         }
     }
-    lfs.retain(|x| !label_names.contains(&x.label));
+    lfs.retain(|x| !label_names.contains(x.label.as_str()));
+    let arg = args.get_mut(0).unwrap();
     push_down_binary_op_filters_in_place(arg, lfs)
 }
 
@@ -654,25 +653,25 @@ fn union_label_filters(a: &mut Vec<LabelFilter>, b: &Vec<LabelFilter>) {
 fn keep_label_filters_for_label_names(lfs: &mut Vec<LabelFilter>, label_names: &[Expr]) {
     let mut names_set: AHashSet<&str> = AHashSet::with_capacity(label_names.len());
     for label_name in label_names {
-        if let Expr::StringLiteral(seLabelName) = label_name {
-            names_set.insert(seLabelName.as_str());
+        if let Expr::StringLiteral(se_label_name) = label_name {
+            names_set.insert(se_label_name.as_str());
         } else {
             return;
         }
     }
-    lfs.retain(|x| names_set.contains(&x.label))
+    lfs.retain(|x| names_set.contains(x.label.as_str()))
 }
 
 fn drop_label_filters_for_label_names(lfs: &mut Vec<LabelFilter>, label_names: &[Expr]) {
     let mut names_set: AHashSet<&str> = AHashSet::with_capacity(label_names.len());
     for label_name in label_names {
-        if let Expr::StringLiteral(seLabelName) = label_name {
-            names_set.insert(seLabelName.as_str());
+        if let Expr::StringLiteral(se_label_name) = label_name {
+            names_set.insert(se_label_name.as_str());
         } else {
             return;
         }
     }
-    lfs.retain(|x| !names_set.contains(&x.label))
+    lfs.retain(|x| !names_set.contains(x.label.as_str()))
 }
 
 fn drop_label_filters_for_label_name(lfs: &mut Vec<LabelFilter>, label_name: &Expr) {
@@ -733,8 +732,8 @@ fn get_aggr_arg_idx_for_optimization(
     use AggregateFunction::*;
     match func {
         CountValues => {
-            return Err(ParseError::Unexpected(
-                "BUG: count_values must be already handled".to_str(),
+            return Err(ParseError::ArgumentError(
+                "BUG: count_values must be already handled".to_string(),
             ))
         }
         Bottomk | BottomkAvg | BottomkLast | BottomkMax | BottomkMedian | BottomkMin
@@ -744,7 +743,7 @@ fn get_aggr_arg_idx_for_optimization(
         _ => {
             if func.can_accept_multiple_args() {
                 let msg = format!("BUG: {} must be already handled", func);
-                return Err(ParseError::Unexpected(msg));
+                return Err(ParseError::ArgumentError(msg));
             }
             Ok(Some(0))
         }

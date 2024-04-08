@@ -64,7 +64,7 @@ impl TimestampTrait for Timestamp {
     }
 
     fn to_string_millis(&self) -> String {
-        match NaiveDateTime::from_timestamp_millis(self / 1000) {
+        match DateTime::from_timestamp_millis(self / 1000) {
             Some(ts) => ts.format("%Y-%m-%dT%H:%M:%S%.3f").to_string(),
             None => "".to_string(),
         }

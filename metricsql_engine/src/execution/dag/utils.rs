@@ -23,8 +23,8 @@ pub(crate) fn resolve_value(index: usize, value: &mut QueryValue, computed: &mut
     //      ) keep_metric_names)
     //
     //  Notice that we have many constant dependencies (args) here. Rather than create a node for
-    //  the each constant, we just store it directly in the computed array.
-    //  We won't ever have non primitive (string/scalar) constants, so we can just swap the value
+    //  each constant, we just store it directly in the computed array.
+    //  We won't ever have non-primitive (string/scalar) constants, so we can just swap the value
     //  of InstantVector/RangeVectors, but we need to preserve the value of constants.
     let dependency = &mut computed[index];
     match dependency {
@@ -186,4 +186,19 @@ pub(super) fn handle_aggregate_absent_over_time(
         }
     }
     Ok(rvs)
+}
+
+
+fn assert_instant_values(tss: Vec<Timeseries>) -> RuntimeResult<()> {
+    for ts in tss {
+        if ts.values.len() != 1 {
+            let msg = format!("BUG: instant series must contain a single value; got {} values", ts.values.len());
+            return Err(RuntimeError::Internal(msg));
+        }
+        if ts.timestamps.len() != 1 {
+            let msg = format!("BUG: instant series must contain a single timestamp; got {} timestamps", ts.timestamps.len());
+            return Err(RuntimeError::Internal(msg));
+        }
+    }
+    Ok(())
 }

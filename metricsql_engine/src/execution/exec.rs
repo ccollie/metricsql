@@ -220,3 +220,8 @@ pub(crate) fn remove_empty_series(tss: &mut Vec<Timeseries>) {
     }
     tss.retain(|ts| !ts.is_all_nans());
 }
+
+#[inline]
+pub(crate) fn sort_series_by_metric_name(result: &mut Vec<QueryResult>) {
+    result.sort_by(|a, b| a.metric.partial_cmp(&b.metric).unwrap());
+}

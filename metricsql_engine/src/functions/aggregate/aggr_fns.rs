@@ -10,21 +10,18 @@ use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_f64_filled};
 use metricsql_parser::ast::AggregateModifier;
 use metricsql_parser::functions::AggregateFunction;
 
-use crate::common::math::{mode_no_nans, quantile, quantiles, IQR_PHIS};
-use crate::execution::{eval_number, remove_empty_series, EvalConfig};
+use crate::{QueryValue, Timeseries};
+use crate::common::math::{IQR_PHIS, mode_no_nans, quantile, quantiles};
+use crate::execution::{eval_number, EvalConfig, remove_empty_series};
 use crate::functions::arg_parse::{
     get_float_arg, get_int_arg, get_scalar_arg_as_vec, get_series_arg, get_string_arg,
 };
 use crate::functions::skip_trailing_nans;
 use crate::functions::transform::vmrange_buckets_to_le;
-use crate::functions::utils::{
-    float_cmp_with_nans, float_cmp_with_nans_desc, float_to_int_bounded, max_with_nans,
-    min_with_nans,
-};
+use crate::functions::utils::{float_cmp_with_nans, float_cmp_with_nans_desc, float_to_int_bounded, max_with_nans, min_with_nans};
 use crate::histogram::{get_pooled_histogram, Histogram, NonZeroBucket};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::signature::Signature;
-use crate::{QueryValue, Timeseries};
 
 const MAX_SERIES_PER_AGGR_FUNC: usize = 100000;
 
@@ -727,16 +724,15 @@ fn func_topk_impl(afa: &mut AggrFuncArg, is_reverse: bool) -> RuntimeResult<Vec<
 
     let afe =
         |tss: &mut Vec<Timeseries>, _modifier: &Option<AggregateModifier>| -> Vec<Timeseries> {
+            let comparator = if is_reverse {
+                float_cmp_with_nans_desc
+            } else {
+                float_cmp_with_nans
+            };
+
             for n in 0..tss[0].values.len() {
-                tss.sort_by(|first, second| {
-                    let a = first.values[n];
-                    let b = second.values[n];
-                    if is_reverse {
-                        b.total_cmp(&a)
-                    } else {
-                        a.total_cmp(&b)
-                    }
-                });
+                tss.sort_by(move |first, second| comparator(first.values[n], second.values[n]));
+
                 fill_nans_at_idx(n, k, tss)
             }
             remove_empty_series(tss);
@@ -779,8 +775,8 @@ fn get_range_topk_timeseries<F>(
     f: F,
     is_reverse: bool,
 ) -> Vec<Timeseries>
-where
-    F: Fn(&[f64]) -> f64,
+    where
+        F: Fn(&[f64]) -> f64,
 {
     struct TsWithValue {
         ts: Timeseries,
