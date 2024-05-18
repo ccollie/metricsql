@@ -46,9 +46,9 @@ pub trait TreeNode: Sized {
     }
 
     /// Visit the tree node using the given [TreeNodeVisitor]
-    /// It performs a depth first walk of an node and its children.
+    /// It performs a depth first walk of a node and its children.
     ///
-    /// For an node tree such as
+    /// For a node tree such as
     /// ```text
     /// ParentNode
     ///    left: ChildNode1
@@ -128,9 +128,9 @@ pub trait TreeNode: Sized {
     }
 
     /// Transform the tree node using the given [TreeNodeRewriter]
-    /// It performs a depth first walk of an node and its children.
+    /// It performs a depth first walk of a node and its children.
     ///
-    /// For an node tree such as
+    /// For a node tree such as
     /// ```text
     /// ParentNode
     ///    left: ChildNode1

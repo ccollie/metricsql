@@ -12,7 +12,7 @@ use super::regex_utils::{get_prefix_matcher, get_suffix_matcher, simplify};
 /// - prefix match such as "foo.*" or "foo.+"
 /// - substring match such as ".*foo.*" or ".+bar.+"
 ///
-/// The rest of regexps are also optimized by returning cached match results for the same input strings.
+/// The rest of regexes are also optimized by returning cached match results for the same input strings.
 pub struct PromRegex {
     /// prefix contains literal prefix for regex.
     /// For example, prefix="foo" for regex="foo(a|b)"

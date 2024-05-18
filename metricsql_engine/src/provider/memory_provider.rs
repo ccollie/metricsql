@@ -37,7 +37,6 @@ pub struct MemoryMetricProvider {
 struct Storage {
     labels_hash: BTreeMap<Signature, Arc<MetricName>>,
     sample_values: BTreeMap<Signature, Vec<Point>>,
-    pending_values: BTreeMap<Signature, Vec<Sample>>,
 }
 
 impl Storage {
@@ -117,22 +116,6 @@ impl Storage {
         self.labels_hash.clear();
         self.sample_values.clear();
     }
-
-    fn commit(&mut self) -> RuntimeResult<()> {
-        let mut all_samples = vec![];
-        for samples in self.pending_values.values_mut() {
-            all_samples.append(samples);
-        }
-        for sample in all_samples {
-            self.append(sample.metric, sample.timestamp, sample.value)?;
-        }
-        self.pending_values.clear();
-        Ok(())
-    }
-
-    fn rollback(&mut self) {
-        self.pending_values.clear();
-    }
 }
 
 impl MemoryMetricProvider {
@@ -141,7 +124,6 @@ impl MemoryMetricProvider {
             inner: RwLock::new(Storage {
                 labels_hash: Default::default(),
                 sample_values: Default::default(),
-                pending_values: Default::default(),
             }),
         }
     }
@@ -149,16 +131,6 @@ impl MemoryMetricProvider {
     pub fn append(&mut self, labels: MetricName, t: i64, v: f64) -> RuntimeResult<()> {
         let mut inner = self.inner.write().unwrap();
         inner.append(labels, t, v)
-    }
-
-    pub fn commit(&mut self) -> RuntimeResult<()> {
-        let mut inner = self.inner.write().unwrap();
-        inner.commit()
-    }
-
-    pub fn rollback(&mut self) {
-        let mut inner = self.inner.write().unwrap();
-        inner.rollback();
     }
 
     pub fn add_sample(&mut self, sample: Sample) -> RuntimeResult<()> {
@@ -285,35 +257,5 @@ mod tests {
         let results = provider.search(0, 2, &matchers).unwrap();
 
         assert_eq!(results.len(), 0);
-    }
-
-    #[test]
-    fn commit_persists_pending_values() {
-        let mut provider = MemoryMetricProvider::new();
-        let sample = Sample {
-            metric: MetricName::default(),
-            timestamp: 1,
-            value: 1.0,
-        };
-        provider.add_sample(sample.clone()).unwrap();
-        provider.commit().unwrap();
-
-        let inner = provider.inner.read().unwrap();
-        assert!(inner.sample_values.contains_key(&sample.metric.signature()));
-    }
-
-    #[test]
-    fn rollback_discards_pending_values() {
-        let mut provider = MemoryMetricProvider::new();
-        let sample = Sample {
-            metric: MetricName::default(),
-            timestamp: 1,
-            value: 1.0,
-        };
-        provider.add_sample(sample.clone()).unwrap();
-        provider.rollback();
-
-        let inner = provider.inner.read().unwrap();
-        assert!(!inner.sample_values.contains_key(&sample.metric.signature()));
     }
 }

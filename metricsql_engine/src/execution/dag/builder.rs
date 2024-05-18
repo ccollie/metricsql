@@ -286,7 +286,7 @@ impl DAGBuilder {
             // for now, set the default handler
             RollupHandler::default()
         } else {
-            // if a function is not parameterized, we can get the handler now. In fact it's necessary
+            // if a function is not parameterized, we can get the handler now. In fact, it's necessary
             // for leaf DAG nodes, since the set_dependency function will never be called.
             let empty = vec![];
             get_function_handler(rf, &empty)?

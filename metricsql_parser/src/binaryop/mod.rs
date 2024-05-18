@@ -102,7 +102,7 @@ fn op_default(left: f64, right: f64) -> f64 {
     left
 }
 
-/// If returns left if right is not NaN. Otherwise NaN is returned.
+/// If returns left if right is not NaN. Otherwise, NaN is returned.
 #[inline]
 fn op_if(left: f64, right: f64) -> f64 {
     if right.is_nan() {
@@ -111,7 +111,7 @@ fn op_if(left: f64, right: f64) -> f64 {
     left
 }
 
-/// if_not returns left if right is NaN. Otherwise NaN is returned.
+/// if_not returns left if right is NaN. Otherwise, NaN is returned.
 #[inline]
 pub fn op_if_not(left: f64, right: f64) -> f64 {
     if right.is_nan() {

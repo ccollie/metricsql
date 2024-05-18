@@ -383,7 +383,7 @@ pub fn remove_duplicate_label_filters(filters: &mut Vec<LabelFilter>) {
 // Go and Rust handle the repeat pattern differently
 // in Go the following is valid: `aaa{bbb}ccc`
 // in Rust {bbb} is seen as an invalid repeat and must be escaped \{bbb}
-// This escapes the opening { if its not followed by valid repeat pattern (e.g. 4,6).
+// This escapes the opening "{" if it's not followed by valid repeat pattern (e.g. 4,6).
 pub fn try_escape_for_repeat_re(re: &str) -> String {
     fn is_repeat(chars: &mut std::str::Chars<'_>) -> (bool, String) {
         let mut buf = String::new();

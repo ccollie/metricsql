@@ -360,7 +360,7 @@ impl RollupNode {
                         &ctx.timestamps,
                     )?;
 
-                    ctx.iafc.update_timeseries_many(&mut series, id as u64);
+                    ctx.iafc.update_timeseries(&mut series, id as u64);
                     ctx.samples_scanned_total.add(samples_scanned);
                 }
 

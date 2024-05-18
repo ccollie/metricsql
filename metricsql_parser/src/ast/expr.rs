@@ -1475,32 +1475,6 @@ impl BinaryExpr {
         None
     }
 
-    fn need_left_parens(&self) -> bool {
-        need_binary_op_arg_parens(&self.left)
-    }
-
-    fn need_right_parens(&self) -> bool {
-        if need_binary_op_arg_parens(&self.right) {
-            return true;
-        }
-        match &self.right.as_ref() {
-            Expr::MetricExpression(me) => {
-                return if let Some(mn) = &me.metric_name() {
-                    is_reserved_binary_op_ident(mn)
-                } else {
-                    false
-                };
-            }
-            Expr::Function(fe) => {
-                if is_reserved_binary_op_ident(&fe.name) {
-                    return true;
-                }
-                self.keep_metric_names()
-            }
-            _ => false,
-        }
-    }
-
     fn fmt_no_keep_metric_name(&self, f: &mut Formatter) -> fmt::Result {
         write!(
             f,
@@ -1516,31 +1490,6 @@ impl BinaryExpr {
             Some(modifier) => format!("{}{modifier}", self.op),
             None => self.op.to_string(),
         }
-    }
-}
-
-fn is_reserved_binary_op_ident(s: &str) -> bool {
-    match s {
-        s if s.eq_ignore_ascii_case("group_left") => true,
-        s if s.eq_ignore_ascii_case("group_right") => true,
-        s if s.eq_ignore_ascii_case("on") => true,
-        s if s.eq_ignore_ascii_case("ignoring") => true,
-        s if s.eq_ignore_ascii_case("without") => true,
-        s if s.eq_ignore_ascii_case("bool") => true,
-        _ => false,
-    }
-}
-
-fn need_binary_op_arg_parens(arg: &Expr) -> bool {
-    match arg {
-        Expr::BinaryOperator(_) => true,
-        Expr::Rollup(re) => {
-            if let Expr::BinaryOperator(be) = &*re.expr {
-                return be.keep_metric_names();
-            }
-            re.offset.is_some() || re.at.is_some()
-        }
-        _ => false,
     }
 }
 
