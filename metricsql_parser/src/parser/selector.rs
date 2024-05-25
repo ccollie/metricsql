@@ -19,16 +19,16 @@ pub fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expr> {
 
     fn create_metric_expr(
         name: Option<String>,
-        filters: Vec<LabelFilterExpr>,
+        filters: Vec<Vec<LabelFilterExpr>>,
     ) -> ParseResult<Expr> {
         let mut me = if let Some(name) = name {
             MetricExpr::new(name)
         } else {
             MetricExpr::default()
         };
-        for filter in filters {
-            let resolved = filter.to_label_filter()?;
-            me.label_filters.push(resolved);
+        for mut filters in filters {
+            let converted = filters.iter().map(|x| x.to_label_filter()).collect::<ParseResult<Vec<_>>>()?;
+            me.label_filterss.push(converted);
         }
         me.sort_filters();
         Ok(Expr::MetricExpression(me))
@@ -69,27 +69,38 @@ pub fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expr> {
 ///
 /// '{' [ <label_name> <match_op> <match_string>, ... ] '}'
 ///
-fn parse_label_filters(p: &mut Parser) -> ParseResult<Vec<LabelFilterExpr>> {
+fn parse_label_filters(p: &mut Parser) -> ParseResult<Vec<Vec<LabelFilterExpr>>> {
     use Token::*;
 
     p.expect(&LeftBrace)?;
-    let mut filters = p.parse_comma_separated(&[RightBrace], parse_label_filter)?;
-    if !p.can_lookup() {
-        // if we're not parsing a WITH statement, we need to make sure we have no unresolved identifiers
-        for filter in &filters {
-            if filter.is_variable() {
-                return Err(unexpected(
-                    "label filter",
-                    &filter.label,
-                    "unresolved identifier",
-                    None,
-                ));
+    let mut result: Vec<Vec<LabelFilterExpr>> = Vec::with_capacity(2);
+
+    loop {
+        let filters = p.parse_comma_separated(&[RightBrace, OpOr], parse_label_filter)?;
+        if !p.can_lookup() {
+            // if we're not parsing a WITH statement, we need to make sure we have no unresolved identifiers
+            for filter in &filters {
+                if filter.is_variable() {
+                    return Err(unexpected(
+                        "label filter",
+                        &filter.label,
+                        "unresolved identifier",
+                        None,
+                    ));
+                }
             }
+        }
+
+        if filters.is_empty() {
+            result.push(filters);
+        }
+
+        if !p.at(&OpOr) {
+            break;
         }
     }
 
-    dedupe_label_filters(&mut filters);
-    Ok(filters)
+    Ok(result)
 }
 
 /// parse_label_filter parses a single label matcher.

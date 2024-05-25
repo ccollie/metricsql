@@ -160,6 +160,21 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_metric_expr_with_or() {
+        // metricExpr with 'or'
+        same(r#"metric{foo="bar" or baz="a"}"#);
+        same(r#"metric{foo="bar",x="y" or baz="a",z="q" or a="b"}"#);
+        same(r#"{foo="bar",x="y" or baz="a",z="q" or a="b"}"#);
+        another(r#"metric{foo="bar" OR baz="a"}"#, r#"metric{foo="bar" or baz="a"}"#);
+        another(r#"{foo="bar" OR baz="a"}"#, r#"{foo="bar" or baz="a"}"#);
+
+        another(r#"{__name__="a",bar="baz" or __name__="a"}"#, r#"a{bar="baz"}"#);
+        another(r#"{__name__="a",bar="baz" or __name__="a" or __name__="a"}"#, r#"a{bar="baz"}"#);
+        another(r#"{__name__="a",bar="baz" or __name__="a",bar="abc"}"#, r#"{bar="baz" or bar="abc"}"#);
+        another(r#"{__name__="a" or __name__="a",bar="abc",x!="y"}"#, r#"a{bar="abc",x!="y"}"#);
+    }
+
+    #[test]
     fn test_parse_at_modifier() {
         // @ modifier
         // See https://prometheus.io/docs/prometheus/latest/querying/basics/#modifier

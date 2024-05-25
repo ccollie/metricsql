@@ -117,7 +117,7 @@ pub struct SessionConfig {
     /// should we log query stats
     pub stats_enabled: bool,
 
-    /// Whether to disable response caching. This may be useful during data back filling"
+    /// Whether to disable response caching. This may be useful during data back filling
     pub disable_cache: bool,
 
     /// Whether query tracing is enabled.

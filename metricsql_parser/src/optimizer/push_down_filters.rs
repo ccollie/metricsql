@@ -110,7 +110,7 @@ pub fn get_common_label_filters(e: &Expr) -> Vec<LabelFilter> {
     use Expr::*;
 
     match e {
-        MetricExpression(m) => get_common_label_filters_without_metric_name(&m.label_filters),
+        MetricExpression(m) => get_common_label_filters_without_metric_name(&m.label_filterss),
         Rollup(r) => get_common_label_filters(&r.expr),
         Function(fe) => {
             use TransformFunction::*;
@@ -401,19 +401,20 @@ pub fn trim_filters_by_match_modifier(
     }
 }
 
-fn get_common_label_filters_without_metric_name(lfs: &Vec<LabelFilter>) -> Vec<LabelFilter> {
-    if lfs.is_empty() {
+fn get_common_label_filters_without_metric_name(lfss: &Vec<Vec<LabelFilter>>) -> Vec<LabelFilter> {
+    if lfss.is_empty() {
         return vec![];
     }
-    // let lfs_a = get_label_filters_without_metric_name(lfs);
-    // for lfs in &lfss[1..].iter() {
-    //     if lfs_a.is_empty() {
-    //         return vec![];
-    //     }
-    //     let lfs_b = get_label_filters_without_metric_name(lfs);
-    //     lfs_a = intersect_label_filters(lfs_a, lfs_b)
-    // }
-    get_label_filters_without_metric_name(lfs)
+    let head = &lfss[0];
+    let mut lfs_a = get_label_filters_without_metric_name(head);
+    for lfs in &lfss[1..].iter() {
+        if lfs_a.is_empty() {
+            return vec![];
+        }
+        let lfs_b = get_label_filters_without_metric_name(lfs);
+        intersect_label_filters(&mut lfs_a, &lfs_b);
+    }
+    lfs_a
 }
 
 // todo: use lifetimes instead of cloning
@@ -473,6 +474,7 @@ pub fn push_down_binary_op_filters_in_place(e: &mut Expr, common_filters: &mut V
     match e {
         MetricExpression(me) => {
             union_label_filters(&mut me.label_filters, common_filters);
+            // do we need to sort this ?
             me.label_filters.sort();
         }
         Function(fe) => {

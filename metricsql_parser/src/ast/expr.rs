@@ -16,7 +16,7 @@ use crate::ast::utils::string_vecs_equal_unordered;
 use crate::ast::{
     expr_equals, indent, prettify_args, Operator, Prettier, StringExpr, MAX_CHARACTERS_PER_LINE,
 };
-use crate::common::{hash_f64, write_comma_separated, write_number, Value, ValueType};
+use crate::common::{hash_f64, write_comma_separated, write_number, Value, ValueType, join_vector};
 use crate::functions::{AggregateFunction, BuiltinFunction, TransformFunction};
 use crate::label::{LabelFilter, LabelFilterOp, Labels, NAME_LABEL};
 use crate::parser::{escape_ident, ParseError, ParseResult};
@@ -629,8 +629,23 @@ impl Prettier for DurationExpr {
 
 // todo: MetricExpr => Selector
 /// MetricExpr represents MetricsQL metric with optional filters, i.e. `foo{...}`.
+///
+/// Curly braces may contain or-delimited list of filters. For example:
+///
+///	x{job="foo",instance="bar" or job="x",instance="baz"}
+///
+/// In this case the filter returns all the series, which match at least one of the following filters:
+///
+///	x{job="foo",instance="bar"}
+///	x{job="x",instance="baz"}
+///
+/// This allows using or-delimited list of filters inside rollup functions. For example,
+/// the following query calculates rate per each matching series for the given or-delimited filters:
+///
+///	rate(x{job="foo",instance="bar" or job="x",instance="baz"}[5m])
 #[derive(Debug, Default, Clone, Eq, Serialize, Deserialize)]
 pub struct MetricExpr {
+    pub label_filterss: Vec<Vec<LabelFilter>>, // todo: tinyvec
     /// LabelFilters contains a list of label filters from curly braces.
     /// Filter or metric name must be the first if present.
     pub label_filters: Vec<LabelFilter>,
@@ -641,42 +656,66 @@ impl MetricExpr {
         let name_filter = LabelFilter::new(LabelFilterOp::Equal, NAME_LABEL, name.into()).unwrap();
         MetricExpr {
             label_filters: vec![name_filter],
+            label_filterss: vec![],
         }
     }
 
     pub fn with_filters(filters: Vec<LabelFilter>) -> Self {
         MetricExpr {
-            label_filters: filters,
+            label_filters: vec![],
+            label_filterss: vec![filters],
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.label_filters.is_empty()
+        self.label_filterss.is_empty()
     }
 
     pub fn has_non_empty_metric_group(&self) -> bool {
-        if self.label_filters.is_empty() {
-            return false;
-        }
-        self.label_filters[0].is_metric_name_filter()
-    }
-
-    pub fn is_only_metric_group(&self) -> bool {
-        if self.label_filters.len() == 1 {
-            return self.label_filters[0].is_metric_name_filter();
+        let first = self.label_filterss.first().and_then(|f| f.first());
+        if let Some(first) = first {
+            return first.is_metric_name_filter();
         }
         false
     }
 
-    pub fn metric_name(&self) -> Option<&str> {
-        match self
-            .label_filters
-            .iter()
-            .find(|filter| filter.is_name_label())
-        {
-            Some(f) => Some(&f.value),
-            None => None,
+    pub fn is_only_metric_group(&self) -> bool {
+        if self.label_filterss.len() == 1 {
+            if let Some(first) = self.label_filterss[0].first() {
+                return first.is_metric_name_filter();
+            }
         }
+        false
+    }
+
+    pub fn is_only_metric_name(&self) -> bool {
+        if self.metric_name().is_none() {
+            return false;
+        }
+        self.label_filterss.iter().all(|f| f.len() <= 1)
+    }
+
+    pub fn metric_name(&self) -> Option<&str> {
+        let lfss = &self.label_filterss.first();
+        if lfss.is_empty() {
+            return None;
+        }
+        let first = &lfss[0];
+        if first.is_empty() {
+            return None;
+        }
+        let head = &first[0];
+        let name = head.value.as_str();
+        for lfs in &lfss[1..] {
+            if lfs.is_empty() {
+                return None;
+            }
+            let head = &lfs[0];
+            if !head.is_metric_name_filter() || head.value.as_str() != name {
+                return None;
+            }
+        }
+        Some(name)
     }
 
     pub fn add_tag<S: Into<String>>(&mut self, name: S, value: &str) {
@@ -724,20 +763,22 @@ impl MetricExpr {
     }
 
     pub fn sort_filters(&mut self) {
-        self.label_filters.sort_by(|a, b| {
-            let mut res = a.label.cmp(&b.label);
-            match res {
-                Ordering::Equal => {
-                    res = a.value.cmp(&b.value);
-                    if res == Ordering::Equal {
-                        let right = b.op.as_str();
-                        res = a.op.as_str().cmp(right)
+        for filter_list in self.label_filterss.iter_mut() {
+            filter_list.sort_by(|a, b| {
+                let mut res = a.label.cmp(&b.label);
+                match res {
+                    Ordering::Equal => {
+                        res = a.value.cmp(&b.value);
+                        if res == Ordering::Equal {
+                            let right = b.op.as_str();
+                            res = a.op.as_str().cmp(right)
+                        }
+                        res
                     }
-                    res
+                    _ => res,
                 }
-                _ => res,
-            }
-        });
+            });
+        }
     }
 }
 
@@ -754,20 +795,27 @@ impl Display for MetricExpr {
             return Ok(());
         }
 
-        let mut lfs: &[LabelFilter] = &self.label_filters;
-
-        if !lfs.is_empty() {
-            let lf = &lfs[0];
-            if lf.is_name_label() {
-                write!(f, "{}", &lf.value)?;
-                lfs = &lfs[1..];
-            }
+        let mut offset = 0;
+        let metric_name = self.metric_name().unwrap_or("");
+        if !metric_name.is_empty() {
+            write!(f, "{}", escape_ident(metric_name))?;
+            offset = 1;
         }
 
-        if !lfs.is_empty() {
-            write!(f, "{{")?;
-            write_comma_separated(lfs.iter(), f, false)?;
-            write!(f, "}}")?;
+        if self.is_only_metric_name() {
+            return Ok(());
+        }
+
+        let lfss = &self.label_filterss;
+        if !lfss.is_empty() {
+            let or_matchers_string =
+                lfss
+                    .iter()
+                    .fold(String::new(), |or_matchers_str, pair| {
+                        format!("{} or {}", or_matchers_str, join_vector(pair, ", ", false))
+                    });
+            let or_matchers_string = or_matchers_string.trim_start_matches(" or").trim();
+            write!(f, "{{{}}}", or_matchers_string)?;
         }
         Ok(())
     }
@@ -791,6 +839,9 @@ impl Neg for MetricExpr {
 impl PartialEq<MetricExpr> for MetricExpr {
     fn eq(&self, other: &MetricExpr) -> bool {
         if self.label_filters.len() != other.label_filters.len() {
+            return false;
+        }
+        if self.label_filterss.len() != other.label_filterss.len() {
             return false;
         }
         let mut hasher: Xxh3 = Xxh3::new();

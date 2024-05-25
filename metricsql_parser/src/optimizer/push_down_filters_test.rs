@@ -25,7 +25,16 @@ mod tests {
             let filters_expr = parse_selector(filters);
             match filters_expr {
                 Expr::MetricExpression(mut me) => {
-                    let result_expr = pushdown_binary_op_filters(&expr, &mut me.label_filters);
+                    if me.label_filterss.len() > 1 {
+                        panic!("filters={} mustn't contain 'or'", filters)
+                    }
+
+                    let mut lfs= vec![];
+                    if me.label_filterss.len() == 1 {
+                        lfs = me.label_filterss.pop().unwrap();
+                    }
+
+                    let result_expr = pushdown_binary_op_filters(&expr, &mut lfs);
                     let expected_expr = parse(result_expected).expect("parse error in test");
                     let result = result_expr.to_string();
                     assert!(

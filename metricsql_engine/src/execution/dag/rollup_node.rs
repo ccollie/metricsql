@@ -39,21 +39,21 @@ pub struct RollupNode {
     pub(crate) func_handler: RollupHandler,
     pub(crate) keep_metric_names: bool,
     pub metric_expr: MetricExpr,
-    /// window contains optional window value from square brackets. Equivalent to `range` in
+    /// `window` contains optional window value from square brackets. Equivalent to `range` in
     /// prometheus terminology
     ///
-    /// For example, `http_requests_total[5m]` will have Window value `5m`.
+    /// For example, `http_requests_total[5m]` will have `window` value `5m`.
     pub window: Option<DurationExpr>,
 
-    /// offset contains optional value from `offset` part.
+    /// `offset` contains optional value from `offset` part.
     ///
-    /// For example, `foobar{baz="aa"} offset 5m` will have offset value `5m`.
+    /// For example, `foobar{baz="aa"} offset 5m` will have `offset` value `5m`.
     pub offset: Option<DurationExpr>,
 
-    /// step contains optional step value from square brackets. Equivalent to `resolution`
+    /// `step` contains optional step value from square brackets. Equivalent to `resolution`
     /// in the prometheus docs
     ///
-    /// For example, `foobar[1h:3m]` will have step value `3m`.
+    /// For example, `foobar[1h:3m]` will have `step` value `3m`.
     pub step: Option<DurationExpr>,
 
     pub(super) at: Option<i64>,
