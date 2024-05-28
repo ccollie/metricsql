@@ -9,7 +9,7 @@ use crate::ast::{
 };
 use crate::functions::BuiltinFunction::Transform;
 use crate::functions::{AggregateFunction, BuiltinFunction, RollupFunction, TransformFunction};
-use crate::label::{LabelFilter, LabelFilterOp, NAME_LABEL};
+use crate::label::{LabelFilter, LabelFilterOp, Matchers, NAME_LABEL};
 use crate::parser::{ParseError, ParseResult};
 use crate::prelude::{can_accept_multiple_args_for_aggr_func, VectorMatchCardinality};
 
@@ -110,17 +110,24 @@ pub fn get_common_label_filters(e: &Expr) -> Vec<LabelFilter> {
     use Expr::*;
 
     match e {
-        MetricExpression(m) => get_common_label_filters_without_metric_name(&m.label_filterss),
+        MetricExpression(m) => get_common_label_filters_without_metric_name(&m.matchers),
         Rollup(r) => get_common_label_filters(&r.expr),
         Function(fe) => {
             use TransformFunction::*;
+            use RollupFunction::*;
 
             match fe.function {
+                BuiltinFunction::Rollup(rf) => match rf {
+                    CountValuesOverTime => {
+                        return get_common_label_filters_for_count_values_over_time(&fe.args)
+                    }
+                    _=> {}
+                }
                 Transform(tf) => match tf {
                     LabelSet => {
                         return get_common_label_filters_for_label_set(&fe.args)
                     }
-                    LabelMap | LabelJoin | LabelMatch | LabelMismatch | LabelReplace => {
+                    LabelMap | LabelJoin | LabelMatch | LabelMismatch | LabelReplace | LabelTransform => {
                         return get_common_label_filters_for_label_replace(&fe.args)
                     }
                     LabelCopy | LabelMove => {
@@ -401,20 +408,24 @@ pub fn trim_filters_by_match_modifier(
     }
 }
 
-fn get_common_label_filters_without_metric_name(lfss: &Vec<Vec<LabelFilter>>) -> Vec<LabelFilter> {
-    if lfss.is_empty() {
-        return vec![];
-    }
-    let head = &lfss[0];
-    let mut lfs_a = get_label_filters_without_metric_name(head);
-    for lfs in &lfss[1..].iter() {
-        if lfs_a.is_empty() {
-            return vec![];
+fn get_common_label_filters_without_metric_name(matchers: &Matchers) -> Vec<LabelFilter> {
+    if !matchers.or_matchers.is_empty() {
+        let lfss = &matchers.or_matchers;
+        let head = &lfss[0];
+        let mut lfs_a = get_label_filters_without_metric_name(head);
+        for lfs in lfss[1..].iter() {
+            if lfs_a.is_empty() {
+                return vec![];
+            }
+            let lfs_b = get_label_filters_without_metric_name(lfs);
+            intersect_label_filters(&mut lfs_a, &lfs_b);
         }
-        let lfs_b = get_label_filters_without_metric_name(lfs);
-        intersect_label_filters(&mut lfs_a, &lfs_b);
+        return lfs_a
     }
-    lfs_a
+    if !matchers.matchers.is_empty() {
+        return get_label_filters_without_metric_name(&matchers.matchers)
+    }
+    vec![]
 }
 
 // todo: use lifetimes instead of cloning
@@ -473,14 +484,23 @@ pub fn push_down_binary_op_filters_in_place(e: &mut Expr, common_filters: &mut V
 
     match e {
         MetricExpression(me) => {
-            union_label_filters(&mut me.label_filters, common_filters);
+            union_label_filters(&mut me.matchers.matchers, common_filters);
+            for filters in me.matchers.or_matchers.iter_mut() {
+                union_label_filters(filters, common_filters);
+            }
             // do we need to sort this ?
-            me.label_filters.sort();
+            me.matchers.sort_filters();
         }
         Function(fe) => {
             use TransformFunction::*;
 
             match fe.function {
+                BuiltinFunction::Rollup(rf) => match rf {
+                    RollupFunction::CountValuesOverTime => {
+                        return pushdown_label_filters_for_count_values_over_time(&mut fe.args, common_filters)
+                    }
+                    _ => {}
+                }
                 Transform(tf) => match tf {
                     LabelSet => {
                         return pushdown_label_filters_for_label_set(&mut fe.args, common_filters)
@@ -548,7 +568,7 @@ fn pushdown_label_filters_for_all_args(lfs: &mut Vec<LabelFilter>, args: &mut Ve
     }
 }
 
-fn pushdown_label_filters_for_count_values_over_time(lfs: &mut Vec<LabelFilter>, args: &mut Vec<Expr>) {
+fn pushdown_label_filters_for_count_values_over_time(args: &mut Vec<Expr>, lfs: &mut Vec<LabelFilter>) {
     if args.len() != 2 {
         return
     }
@@ -636,7 +656,7 @@ fn intersect_label_filters(first: &mut Vec<LabelFilter>, second: &[LabelFilter])
 
 fn union_label_filters(a: &mut Vec<LabelFilter>, b: &Vec<LabelFilter>) {
     // todo (perf) do we need to clone, or can we drain ?
-    if a.is_empty() {
+    if a.is_empty() && !b.is_empty() {
         a.append(&mut b.clone());
         return;
     }

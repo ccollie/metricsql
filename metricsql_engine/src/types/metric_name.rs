@@ -111,9 +111,15 @@ impl MetricName {
 
     pub fn parse(s: &str) -> RuntimeResult<Self> {
         let filters = parse_metric_selector(s)?;
+        if filters.is_empty() {
+            return Err(RuntimeError::from("labelFilters cannot be empty"));
+        }
+        if !filters.or_matchers.is_empty() {
+            return Err(RuntimeError::from("Invalid metric selector"));
+        }
         let mut mn = MetricName::default();
         // make sure we only have '=' filters
-        for f in filters.into_iter() {
+        for f in filters.matchers.into_iter() {
             if f.op != LabelFilterOp::Equal {
                 return Err(RuntimeError::from(format!(
                     "invalid operator {} in metric name",

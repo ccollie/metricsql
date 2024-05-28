@@ -3,20 +3,13 @@ mod tests {
     use pretty_assertions::assert_eq;
     use strum::IntoEnumIterator;
 
-    use crate::ast::{expr_equals, Expr};
+    use crate::ast::Expr;
     use crate::optimizer::optimize;
     use crate::parser::parse;
     use crate::prelude::Operator;
 
     fn parse_or_panic(s: &str) -> Expr {
         parse(s).expect(format!("Error parsing expression {s}").as_str())
-    }
-
-    fn assert_eq_expr(expected: &Expr, actual: &Expr) {
-        assert!(
-            expr_equals(expected, actual),
-            "expected\n{expected}\nactual\n{actual}",
-        );
     }
 
     fn another(s: &str, expected: &str) {

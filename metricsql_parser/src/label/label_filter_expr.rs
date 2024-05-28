@@ -1,8 +1,5 @@
 use std::fmt;
-use std::hash::Hasher;
-
 use serde::{Deserialize, Serialize};
-use xxhash_rust::xxh3::Xxh3;
 
 use crate::ast::StringExpr;
 use crate::label::{LabelFilter, LabelFilterOp, LabelName, NAME_LABEL};
@@ -177,12 +174,6 @@ impl LabelFilterExpr {
             && self.op == LabelFilterOp::Equal
             && !self.label.is_empty()
             && self.label != NAME_LABEL
-    }
-
-    pub(crate) fn update_hash(&self, hasher: &mut Xxh3) {
-        hasher.write(self.label.as_bytes());
-        self.value.update_hash(hasher);
-        hasher.write(self.op.as_str().as_bytes())
     }
 }
 

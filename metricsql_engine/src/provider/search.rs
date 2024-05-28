@@ -94,7 +94,7 @@ impl Display for SearchQuery {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut a: Vec<String> = Vec::with_capacity(self.matchers.len());
         for tfs in &self.matchers {
-            a.push(filters_to_string(tfs))
+            a.push(format!("{tfs}"))
         }
         let start = self.start.to_string_millis();
         let end = self.end.to_string_millis();

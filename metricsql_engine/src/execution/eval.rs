@@ -1,13 +1,13 @@
 use std::sync::Arc;
 use std::sync::RwLock;
 
-use metricsql_parser::prelude::Matchers;
+use metricsql_parser::label::LabelFilter;
 
 use crate::execution::context::Context;
 use crate::provider::Deadline;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::types::{Timeseries, Timestamp};
 use crate::TimestampTrait;
+use crate::types::{Timeseries, Timestamp};
 
 /// validate_max_points_per_timeseries checks the maximum number of points that
 /// may be returned per each time series.
@@ -80,7 +80,7 @@ pub struct EvalConfig {
     pub end: Timestamp,
     pub step: i64, // todo: Duration
 
-    /// max_series is the maximum number of time series which can be scanned by the query.
+    /// `max_series` is the maximum number of time series which can be scanned by the query.
     /// Zero means 'no limit'
     pub max_series: usize,
 
@@ -89,9 +89,6 @@ pub struct EvalConfig {
 
     pub deadline: Deadline,
 
-    /// Whether the response can be cached.
-    _may_cache: bool,
-
     /// lookback_delta is analog to `-query.lookback-delta` from Prometheus.
     /// todo: change type to Duration
     pub lookback_delta: i64,
@@ -99,8 +96,8 @@ pub struct EvalConfig {
     /// How many decimal digits after the point to leave in response.
     pub round_digits: u8,
 
-    /// enforced_tag_filters may contain additional label filters to use in the query.
-    pub enforced_tag_filters: Vec<Matchers>,
+    /// `enforced_tag_filters` may contain additional label filters to use in the query.
+    pub enforced_tag_filters: Vec<Vec<LabelFilter>>,
 
     /// Set this flag to true if the data doesn't contain Prometheus stale markers, so there is
     /// no need in spending additional CPU time on its handling. Staleness markers may exist only in
@@ -116,6 +113,9 @@ pub struct EvalConfig {
     /// The timestamps for the query.
     /// Note: investigate using https://docs.rs/arc-swap/latest/arc_swap/
     _timestamps: RwLock<Arc<Vec<Timestamp>>>,
+
+    /// Whether the response can be cached.
+    _may_cache: bool,
 }
 
 impl EvalConfig {

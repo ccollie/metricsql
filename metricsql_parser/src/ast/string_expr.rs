@@ -1,10 +1,8 @@
+use std::{fmt, ops};
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
-use std::hash::Hasher;
-use std::{fmt, ops};
 
 use serde::{Deserialize, Serialize};
-use xxhash_rust::xxh3::Xxh3;
 
 use crate::ast::Prettier;
 use crate::common::ValueType;
@@ -205,15 +203,6 @@ impl StringExpr {
             }
         }
         None
-    }
-
-    pub(crate) fn update_hash(&self, hasher: &mut Xxh3) {
-        for s in self.0.iter() {
-            match s {
-                StringSegment::Literal(lit) => hasher.write(lit.as_bytes()),
-                StringSegment::Ident(ident) => hasher.write(ident.as_bytes()),
-            }
-        }
     }
 }
 

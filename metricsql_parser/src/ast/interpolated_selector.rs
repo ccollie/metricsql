@@ -1,32 +1,34 @@
 use std::fmt;
 use std::fmt::{Display, Formatter};
 
-use ahash::AHashSet;
 use serde::{Deserialize, Serialize};
-use xxhash_rust::xxh3::Xxh3;
 
-use crate::ast::{LabelFilterExpr, Prettier, StringExpr};
+use crate::ast::{Prettier, StringExpr};
 use crate::common::{Value, ValueType};
-use crate::label::{LabelFilter, NAME_LABEL};
+use crate::label::{LabelFilterExpr, Matchers, NAME_LABEL};
 use crate::parser::ParseResult;
 
-/// InterpolatedSelector represents a Vector Selector in the context of a WITH expression.
-#[derive(Debug, Default, Clone, Eq, Serialize, Deserialize)]
+/// InterpolatedSelector represents a Vector Selector in the context of a `WITH` expression.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InterpolatedSelector {
     /// a list of label filter expressions from WITH clause.
     /// This is transformed into label_filters during compilation.
-    pub(crate) matchers: Vec<LabelFilterExpr>,
+    pub(crate) matchers: Vec<Vec<LabelFilterExpr>>,
 }
 
 impl InterpolatedSelector {
     pub fn new<S: Into<String>>(name: S) -> InterpolatedSelector {
         let name_filter = LabelFilterExpr::equal(NAME_LABEL, StringExpr::new(name)).unwrap();
         InterpolatedSelector {
-            matchers: vec![name_filter],
+            matchers: vec![vec![name_filter]],
         }
     }
 
     pub fn with_filters(filters: Vec<LabelFilterExpr>) -> Self {
+        InterpolatedSelector { matchers: vec![filters] }
+    }
+
+    pub fn with_or_filters(filters: Vec<Vec<LabelFilterExpr>>) -> Self {
         InterpolatedSelector { matchers: filters }
     }
 
@@ -35,53 +37,86 @@ impl InterpolatedSelector {
     }
 
     pub fn is_resolved(&self) -> bool {
-        self.matchers.is_empty() || self.matchers.iter().all(|x| x.is_resolved())
+        self.matchers.is_empty() ||
+            self.matchers
+                .iter()
+                .all(
+                    |x| x.iter().all(|label| label.is_resolved())
+                )
     }
 
-    pub fn has_non_empty_metric_group(&self) -> bool {
-        if self.matchers.is_empty() {
-            return false;
+    pub fn metric_name(&self) -> Option<&str> {
+        let lfss = &self.matchers;
+        if lfss.is_empty() {
+            return None;
         }
-        self.matchers[0].is_metric_name_filter()
-    }
 
-    pub fn is_only_metric_group(&self) -> bool {
-        if !self.has_non_empty_metric_group() {
-            return false;
+        fn get_name(lf: &LabelFilterExpr) -> Option<&str> {
+            if lf.is_metric_name_filter() {
+                if let Some(literal) = lf.value.get_literal().unwrap_or(None) {
+                    return Some(literal.as_str())
+                }
+            }
+            None
         }
-        self.matchers.len() == 1
-    }
 
-    pub fn name(&self) -> Option<String> {
-        self.matchers
-            .iter()
-            .find(|filter| filter.is_name_label())
-            .map(|f| f.value.to_string())
+        if let Some((first, rest)) = lfss.split_first() {
+            if let Some(lf) = first.first() {
+                if let Some(literal) = get_name(lf) {
+                    let metric_name = literal;
+                    for lf in rest {
+                        if let Some(head) = lf.first() {
+                            if let Some(literal) = get_name(head) {
+                                if literal != metric_name {
+                                    return None;
+                                }
+                            }
+                        } else {
+                            return None;
+                        }
+                    }
+                    return Some(metric_name);
+                }
+            }
+        }
+        None
     }
 
     pub fn return_type(&self) -> ValueType {
         ValueType::InstantVector
     }
 
-    pub fn to_label_filters(&self) -> ParseResult<Vec<LabelFilter>> {
+    pub fn to_matchers(&self) -> ParseResult<Matchers> {
         if !self.is_resolved() {
             // todo: err
         }
-        let mut items = Vec::with_capacity(self.matchers.len());
-        for filter in self.matchers.iter() {
-            items.push(filter.to_label_filter()?)
+
+        let mut or_matchers = vec![];
+        for m in &self.matchers {
+            let mut and_matchers = vec![];
+            for l in m {
+                and_matchers.push(l.to_label_filter()?);
+            }
+            or_matchers.push(and_matchers);
         }
-        Ok(items)
+
+        Ok(Matchers::with_or_matchers(or_matchers))
     }
 
     pub fn is_empty_matchers(&self) -> bool {
-        self.matchers.is_empty() || self.matchers.iter().all(|x| x.is_empty_matcher())
+        self.matchers.is_empty() ||
+            self.matchers
+                .iter()
+                .all(|x|
+                    x.iter().all(|y| y.is_empty_matcher())
+                )
     }
 
     /// find all the matchers whose name equals the specified name.
     pub fn find_matchers(&self, name: &str) -> Vec<&LabelFilterExpr> {
         self.matchers
             .iter()
+            .flatten()
             .filter(|m| m.label.eq_ignore_ascii_case(name))
             .collect()
     }
@@ -95,31 +130,23 @@ impl Value for InterpolatedSelector {
 
 impl Display for InterpolatedSelector {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        if self.is_empty() {
-            write!(f, "{{}}")?;
-            return Ok(());
-        }
+        write!(f, "{{")?;
 
-        let mut exprs: &[LabelFilterExpr] = &self.matchers;
+        let exprs = &self.matchers[0..];
 
-        if !exprs.is_empty() {
-            let lf = &exprs[0];
-            if lf.is_name_label() {
-                write!(f, "{}", &lf.value)?;
-                exprs = &exprs[1..];
-            }
-        }
-
-        if !exprs.is_empty() {
-            write!(f, "{{")?;
-            for (i, arg) in exprs.iter().enumerate() {
-                if i > 0 {
+        for (i, filter_list) in exprs.iter().enumerate() {
+            for (j, filter) in filter_list.iter().enumerate() {
+                write!(f, "{}", filter)?;
+                if j + 1 < filter_list.len() {
                     write!(f, ", ")?;
                 }
-                write!(f, "{}", arg)?;
             }
-            write!(f, "}}")?;
+            if i + 1 < exprs.len() {
+                write!(f, " or ")?;
+            }
         }
+
+        write!(f, "}}")?;
 
         Ok(())
     }
@@ -128,34 +155,5 @@ impl Display for InterpolatedSelector {
 impl Prettier for InterpolatedSelector {
     fn needs_split(&self, _max: usize) -> bool {
         false
-    }
-}
-
-impl PartialEq<InterpolatedSelector> for InterpolatedSelector {
-    fn eq(&self, other: &InterpolatedSelector) -> bool {
-        if self.matchers.len() != other.matchers.len() {
-            return false;
-        }
-        let mut hasher: Xxh3 = Xxh3::new();
-
-        if !self.matchers.is_empty() {
-            let mut set: AHashSet<u64> = AHashSet::new();
-            for filter in &self.matchers {
-                hasher.reset();
-                filter.update_hash(&mut hasher);
-                set.insert(hasher.digest());
-            }
-
-            for filter in &other.matchers {
-                hasher.reset();
-                filter.update_hash(&mut hasher);
-                let hash = hasher.digest();
-                if !set.contains(&hash) {
-                    return false;
-                }
-            }
-        }
-
-        true
     }
 }

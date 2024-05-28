@@ -9,10 +9,7 @@ mod tests {
         // check_ast raises hell if we construct a MetricExpr with an empty filter set.
         // This is a workaround to avoid that for testing purposes.
         if q == "{}" {
-            return Expr::MetricExpression(MetricExpr {
-                label_filters: vec![],
-                ..Default::default()
-            });
+            return Expr::MetricExpression(MetricExpr::default());
         }
         parse(q).expect(format!("unexpected error in parse({})", q).as_str())
     }
@@ -24,14 +21,14 @@ mod tests {
             let orig = expr.to_string();
             let filters_expr = parse_selector(filters);
             match filters_expr {
-                Expr::MetricExpression(mut me) => {
-                    if me.label_filterss.len() > 1 {
+                Expr::MetricExpression(me) => {
+                    if me.matchers.or_matchers.len() > 1 {
                         panic!("filters={} mustn't contain 'or'", filters)
                     }
 
                     let mut lfs= vec![];
-                    if me.label_filterss.len() == 1 {
-                        lfs = me.label_filterss.pop().unwrap();
+                    if me.matchers.matchers.len() == 1 {
+                        lfs = me.matchers.matchers;
                     }
 
                     let result_expr = pushdown_binary_op_filters(&expr, &mut lfs);

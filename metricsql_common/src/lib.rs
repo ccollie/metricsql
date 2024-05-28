@@ -3,7 +3,6 @@ extern crate chrono_tz;
 extern crate core;
 extern crate lockfree_object_pool;
 extern crate rand;
-#[cfg(feature = "xxh64")]
 extern crate xxhash_rust;
 
 pub mod atomic_counter;

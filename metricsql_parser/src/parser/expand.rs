@@ -1,8 +1,6 @@
-use std::hash::Hasher;
 use std::ops::Deref;
 
-use ahash::{AHashMap, AHashSet};
-use xxhash_rust::xxh3::Xxh3;
+use ahash::AHashSet;
 
 use crate::ast::{
     AggregateModifier, AggregationExpr, BinaryExpr, Expr, FunctionExpr, MetricExpr, ParensExpr,
@@ -10,8 +8,8 @@ use crate::ast::{
     WithArgExpr, WithExpr,
 };
 use crate::label::{LabelFilter, Labels};
+use crate::parser::{ParseError, ParseResult, syntax_error};
 use crate::parser::symbol_provider::SymbolProviderRef;
-use crate::parser::{syntax_error, ParseError, ParseResult};
 use crate::prelude::InterpolatedSelector;
 
 pub(super) fn expand_with_expr(
@@ -59,7 +57,7 @@ pub fn should_expand(expr: &Expr) -> bool {
     match expr {
         StringLiteral(_) | NumberLiteral(_) | Duration(_) => false,
         BinaryOperator(be) => should_expand(&be.left) || should_expand(&be.right),
-        MetricExpression(me) => me.is_only_metric_group(),
+        MetricExpression(me) => me.is_only_metric_name(), // todo: is this correct ?????
         StringExpr(se) => !se.is_expanded(),
         Parens(pe) => !pe.expressions.is_empty() && pe.expressions.iter().any(should_expand),
         Rollup(re) => {
@@ -148,109 +146,107 @@ fn expand_binary_operator(
     Ok(Expr::BinaryOperator(be))
 }
 
-fn remove_dupes(filters: &mut Vec<LabelFilter>) {
-    fn get_hash(hasher: &mut Xxh3, filter: &LabelFilter) -> u64 {
-        hasher.reset();
-        hasher.write(filter.label.as_bytes());
-        hasher.write(filter.op.as_str().as_bytes());
-        hasher.finish()
-    }
-
-    let mut hasher = Xxh3::new();
-    let mut hash_map: AHashMap<u64, bool> = AHashMap::with_capacity(filters.len());
-
-    for i in (0..filters.len()).rev() {
-        let hash = get_hash(&mut hasher, &filters[i]);
-        if let std::collections::hash_map::Entry::Vacant(e) = hash_map.entry(hash) {
-            e.insert(true);
-        } else {
-            filters.remove(i);
-        }
-    }
-}
-
-fn merge_selectors(dst: &mut MetricExpr, src: &mut MetricExpr) {
-    src.label_filters.retain(|x| x.is_metric_name_filter());
-
-    let mut items = src.label_filters.drain(..).collect::<Vec<_>>();
-    dst.label_filters.append(&mut items);
-
-    remove_dupes(&mut dst.label_filters);
-}
 
 fn expand_with_selector_expression(
     symbols: &SymbolProviderRef,
     was: &Vec<WithArgExpr>,
     me: InterpolatedSelector,
 ) -> ParseResult<Expr> {
-    fn handle_expanded(dst: &MetricExpr, src: &mut MetricExpr) -> ParseResult<Expr> {
-        let mut dst = dst.clone();
-        merge_selectors(&mut dst, src);
-        Ok(Expr::MetricExpression(dst))
-    }
 
     if me.is_resolved() {
         // Already expanded.
-        let filters = me.to_label_filters()?;
-        let res = MetricExpr::with_filters(filters);
+        let matchers = me.to_matchers()?;
+        let res = MetricExpr {
+            matchers,
+            label_filters: vec![],
+        };
         return Ok(Expr::MetricExpression(res));
     }
 
     let mut new_selector: MetricExpr = MetricExpr::default();
 
     // Populate me.LabelFilters
-    for lfe in me.matchers {
-        if lfe.value.is_empty() || lfe.is_variable() {
-            // Expand lfe.Label into vec<LabelFilter>.
-            // we have something like: foo{commonFilters} and we want to expand it into
-            // foo{bar="bax", job="trace"}
+    for lfes in &me.matchers {
+        for lfe in lfes {
             let label = lfe.name();
-            let wa = get_with_arg_expr(symbols, was, &label);
-            if wa.is_none() {
-                let msg = format!("missing {label} value inside {new_selector}");
-                return Err(ParseError::General(msg));
-            }
-            let e_new = expand_with_expr_ext(symbols, was, wa.unwrap(), vec![])?;
 
-            let mut has_non_empty_metric_group = false;
-            let wme = match e_new {
-                Expr::MetricExpression(ref me) => {
-                    has_non_empty_metric_group = me.has_non_empty_metric_group();
-                    Some(me)
+            if lfe.value.is_empty() || lfe.is_variable() {
+                // Expand lfe.Label into vec<LabelFilter>.
+                // we have something like: foo{commonFilters} and we want to expand it into
+                // foo{bar="bax", job="trace"}
+                let wa = get_with_arg_expr(symbols, was, &label);
+                if wa.is_none() {
+                    let msg = format!("cannot find WITH template for {label} inside {me}");
+                    return Err(ParseError::General(msg));
                 }
-                _ => None,
-            };
-            if wme.is_none() || has_non_empty_metric_group {
-                let msg = format!(
-                    "{label} must be filters expression inside {new_selector}; got {e_new}"
-                );
-                return Err(ParseError::General(msg));
+                let e_new = expand_with_expr_ext(symbols, was, wa.unwrap(), vec![])?;
+
+                let mut has_non_empty_metric_group = false;
+                let wme = match e_new {
+                    Expr::MetricExpression(ref me) => {
+                        has_non_empty_metric_group = me.metric_name().is_some();
+                        Some(me)
+                    }
+                    _ => None,
+                };
+                if wme.is_none() || has_non_empty_metric_group {
+                    let msg = format!(
+                        "WITH template {label} inside {me} must be {{...}}; got {e_new}"
+                    );
+                    return Err(ParseError::General(msg));
+                }
+
+                let wme = wme.unwrap();
+
+                if wme.is_empty() {
+                    continue;
+                }
+
+                let substitute = if wme.has_or_matchers() {
+                    if wme.matchers.or_matchers.len() > 1 {
+                        let msg = format!(
+                            "WITH template {label} at {me} must be {{...}} without 'or'; got {wme}"
+                        );
+                        return Err(ParseError::General(msg));
+                    }
+                    let first = &wme.matchers.or_matchers[0];
+                    if first.is_empty() {
+                        continue;
+                    }
+                    &first[0]
+                } else {
+                    if wme.matchers.is_empty() {
+                        continue;
+                    }
+                    &wme.matchers.matchers[0]
+                };
+
+                new_selector.matchers = new_selector.matchers.append(substitute.clone());
+
+                continue;
             }
-            let mut labels = wme.unwrap().label_filters.clone();
 
-            new_selector.label_filters.append(&mut labels);
+            // convert lfe to LabelFilter.
+            let se = expand_string_expr(symbols, was, &lfe.value)?;
+            let lf = LabelFilter {
+                label,
+                op: lfe.op,
+                value: get_expr_as_string(&se)?,
+            };
 
-            continue;
+            new_selector = new_selector.append(lf);
         }
-
-        // convert lfe to LabelFilter.
-        let se = expand_string_expr(symbols, was, &lfe.value)?;
-        let lf = LabelFilter {
-            label: lfe.label,
-            op: lfe.op,
-            value: get_expr_as_string(&se)?,
-        };
-
-        new_selector.label_filters.push(lf);
     }
 
-    remove_dupes(&mut new_selector.label_filters);
+    new_selector.matchers.dedup();
     new_selector.sort_filters();
 
-    if !new_selector.has_non_empty_metric_group() {
+    let metric_name = me.metric_name();
+    if metric_name.is_none() {
         return Ok(Expr::MetricExpression(new_selector));
     }
-    let k = &new_selector.label_filters[0].value;
+
+    let k = metric_name.unwrap();
     let wa = get_with_arg_expr(symbols, was, k);
     if wa.is_none() {
         return Ok(Expr::MetricExpression(new_selector));
@@ -258,32 +254,82 @@ fn expand_with_selector_expression(
 
     let expanded = expand_with_expr_ext(symbols, was, wa.unwrap(), vec![])?;
 
-    let wme = match &expanded {
-        Expr::MetricExpression(me) => {
-            let res = handle_expanded(me, &mut new_selector)?;
-            Some(res)
-        }
+    let inner = match &expanded {
+        Expr::MetricExpression(me) => Some(me),
         Expr::Rollup(re) => match re.expr.deref() {
-            Expr::MetricExpression(me) => {
-                let mut rollup = re.clone();
-                rollup.expr = Box::new(handle_expanded(me, &mut new_selector)?);
-                Some(Expr::Rollup(rollup))
-            }
+            Expr::MetricExpression(me) => Some(me),
             _ => None,
         },
         _ => None,
     };
 
-    match wme {
-        None => {
-            if !new_selector.is_only_metric_group() {
-                let msg =
-                    format!("cannot expand {new_selector} to non-metric expression {expanded}",);
-                return Err(ParseError::General(msg));
-            }
-            Ok(expanded)
+    let is_only_metric_name = new_selector.is_only_metric_name();
+
+    if inner.is_none() {
+        if is_only_metric_name {
+            return Ok(expanded);
         }
-        Some(e) => Ok(e),
+        let msg = format!("cannot expand {new_selector} to non-metric expression {expanded}");
+        return Err(ParseError::General(msg));
+    }
+
+    let wme = inner.unwrap();
+
+    let lfss_src: Vec<_> = wme.matchers.iter().collect();
+    let mut or_matchers: Vec<Vec<LabelFilter>> = vec![];
+    if lfss_src.len() != 1 {
+
+        // template_name{filters} where template_name is {... or ...}
+        if is_only_metric_name {
+            // {filters} is empty. Return {... or ...}
+            return Ok(expanded);
+        }
+
+        if new_selector.has_or_matchers() {
+            let name = metric_name.unwrap_or("");
+            // {filters} contain {... or ...}. It cannot be merged with {... or ...}
+            let msg = format!("metric {name} must not contain 'or' filters; got {wme}");
+            return Err(ParseError::General(msg));
+        }
+
+        let list_to_merge = new_selector.matchers.iter().next().unwrap();
+        let non_metric_name = &list_to_merge[1..];
+
+        // {filters} doesn't contain `or`. Merge it with {... or ...} into {...,filters or ...,filters}
+        for lfs in lfss_src {
+            let mut filters = lfs.clone();
+            for filter in non_metric_name {
+                filters.push(filter.clone());
+            }
+            or_matchers.push(filters);
+        }
+    } else {
+        // template_name{... or ...} where template_name is an ordinary {filters} without 'or'.
+        // Merge it into {filters,... or filters,...}
+        for lfs in new_selector.matchers.iter() {
+            let mut filters = lfs.clone();
+            for filter in lfss_src[0] {
+                filters.push(filter.clone());
+            }
+            for filter in lfs[1..].iter() {
+                filters.push(filter.clone());
+            }
+            or_matchers.push(filters);
+        }
+    }
+
+    let me = if or_matchers.len() == 1 {
+        MetricExpr::with_filters(or_matchers.pop().unwrap())
+    } else {
+        MetricExpr::with_or_filters(or_matchers)
+    };
+
+    match expanded {
+        Expr::Rollup(mut re) => {
+            re.expr = Box::new(Expr::MetricExpression(me));
+            return Ok(Expr::Rollup(re));
+        },
+        _ => Ok(Expr::MetricExpression(me))
     }
 }
 
@@ -309,14 +355,14 @@ fn expand_metric_expression(
     was: &Vec<WithArgExpr>,
     me: MetricExpr,
 ) -> ParseResult<Expr> {
-    if !me.is_only_metric_group() {
+    if !me.is_only_metric_name() {
         // Already expanded.
         return Ok(Expr::MetricExpression(me));
     }
-
-    let k = &me.label_filters[0].value;
-    if let Some(wa) = get_with_arg_expr(symbols, was, k) {
-        return expand_with_expr_ext(symbols, was, wa, vec![]);
+    if let Some(metric_name) = me.metric_name() {
+        if let Some(wa) = get_with_arg_expr(symbols, was, metric_name) {
+            return expand_with_expr_ext(symbols, was, wa, vec![]);
+        }
     }
 
     Ok(Expr::MetricExpression(me))
@@ -432,7 +478,7 @@ fn expand_string_expr(
                     let value = get_expr_as_string(&expr)?;
                     b.push_str(&value);
                 } else {
-                    let msg = format!("missing {} value inside string expression", ident);
+                    let msg = format!("missing {ident} value inside string expression");
                     return Err(ParseError::General(msg));
                 }
             }
@@ -470,10 +516,11 @@ fn expand_modifier_args(
 
         match expr {
             Expr::MetricExpression(me) => {
-                if !me.is_only_metric_group() {
+                if !me.is_only_metric_name() {
                     return error(expr, arg, args);
                 }
-                Ok(me.label_filters[0].value.clone())
+                let metric_name = me.metric_name().unwrap();
+                Ok(String::from(metric_name))
             }
             _ => error(expr, arg, args),
         }

@@ -1,15 +1,14 @@
 use std::cmp::Ordering;
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::ops::Deref;
 
-use ahash::AHashSet;
+use ahash::AHashMap;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::Xxh3;
 
 use crate::common::join_vector;
-use crate::parser::{compile_regexp, escape_ident, is_empty_regex, quote, ParseError};
+use crate::parser::{compile_regexp, escape_ident, is_empty_regex, ParseError, quote};
 
 pub const NAME_LABEL: &str = "__name__";
 pub type LabelName = String;
@@ -122,12 +121,6 @@ impl TryFrom<&str> for LabelFilterOp {
 impl fmt::Display for LabelFilterOp {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.as_str())
-    }
-}
-
-impl Ord for LabelFilterOp {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.as_str().cmp(&other.as_str())
     }
 }
 
@@ -265,12 +258,6 @@ impl LabelFilter {
         self.label.clone()
     }
 
-    pub(crate) fn update_hash(&self, hasher: &mut Xxh3) {
-        hasher.write(self.label.as_bytes());
-        hasher.write(self.value.as_bytes());
-        hasher.write(self.op.as_str().as_bytes())
-    }
-
     // Go and Rust handle the repeat pattern differently
     // in Go the following is valid: `aaa{bbb}ccc`
     // in Rust {bbb} is seen as an invalid repeat and must be ecaped \{bbb}
@@ -326,7 +313,6 @@ pub struct Matchers {
     pub or_matchers: Vec<Vec<LabelFilter>>,
 }
 
-
 impl Matchers {
     pub fn new(filters: Vec<LabelFilter>) -> Self {
         Matchers {
@@ -346,9 +332,11 @@ impl Matchers {
         self.matchers.is_empty() && self.or_matchers.is_empty()
     }
 
-    pub fn with_or_matchers(mut self, or_matchers: Vec<Vec<LabelFilter>>) -> Self {
-        self.or_matchers = or_matchers;
-        self
+    pub fn with_or_matchers(or_matchers: Vec<Vec<LabelFilter>>) -> Self {
+        Matchers {
+            matchers: vec![],
+            or_matchers,
+        }
     }
 
     pub fn append(mut self, matcher: LabelFilter) -> Self {
@@ -418,6 +406,92 @@ impl Matchers {
             }
         }
     }
+
+    pub fn is_only_metric_name(&self) -> bool {
+        if !self.matchers.is_empty() {
+            return self.matchers.len() == 1 && self.matchers[0].is_metric_name_filter();
+        }
+        if !self.or_matchers.is_empty() {
+            if self.metric_name().is_none() {
+                return false;
+            }
+            return self.or_matchers.iter().all(|lfs| {
+                lfs.len() <= 1
+            });
+        }
+        return true;
+    }
+
+    pub fn metric_name(&self) -> Option<&str> {
+        if !self.matchers.is_empty() {
+            let found = self.matchers
+                .iter()
+                .find(|m| m.is_metric_name_filter())
+                .map(|m| m.value.as_str());
+
+            // todo: make sure only 1 is specified
+            return found;
+        }
+        if !self.or_matchers.is_empty() {
+            let lfs = self.or_matchers.first().unwrap();
+            if lfs.is_empty() {
+                return None;
+            }
+            let head = &lfs[0];
+            if !head.is_metric_name_filter() {
+                return None;
+            }
+            let metric_name = head.value.as_str();
+            for or_matchers in &self.or_matchers[1..] {
+                if or_matchers.is_empty() {
+                    return None;
+                }
+                let first = &or_matchers[0];
+                if !first.is_metric_name_filter() || first.value.as_str() != metric_name {
+                    return None;
+                }
+            }
+            return Some(metric_name);
+        }
+        None
+    }
+
+    pub fn dedup(&mut self) {
+        if !self.matchers.is_empty() {
+            remove_duplicate_label_filters(&mut self.matchers);
+        }
+        if !self.or_matchers.is_empty() {
+            for or_matchers in &mut self.or_matchers {
+                remove_duplicate_label_filters(or_matchers);
+            }
+        }
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Vec<LabelFilter>> {
+        return OrIter::new(&self.matchers, &self.or_matchers);
+    }
+
+    pub fn filter_iter(&self) -> impl Iterator<Item = &LabelFilter> {
+        self.matchers.iter().chain(self.or_matchers.iter().flatten())
+    }
+
+}
+
+fn hash_filters(hasher: &mut impl Hasher, filters: &[LabelFilter]) {
+    for filter in filters {
+        filter.hash(hasher);
+    }
+}
+
+impl Hash for Matchers {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        if !self.matchers.is_empty() {
+            hash_filters(state, &self.matchers);
+        }
+        for filters in &self.or_matchers {
+            hash_filters(state, filters);
+        }
+    }
 }
 
 impl fmt::Display for Matchers {
@@ -439,17 +513,62 @@ impl fmt::Display for Matchers {
     }
 }
 
-pub fn remove_duplicate_label_filters(filters: &mut Vec<LabelFilter>) {
-    let mut set: AHashSet<String> = AHashSet::with_capacity(filters.len());
-    filters.retain(|filters| {
-        let key = filters.to_string();
-        if !set.contains(&key) {
-            set.insert(key);
-            true
-        } else {
-            false
+struct OrIter<'a> {
+    matchers: &'a Vec<LabelFilter>,
+    or_matchers: &'a Vec<Vec<LabelFilter>>,
+    index: usize,
+    first: bool
+}
+
+impl<'a> OrIter<'a> {
+    fn new(matchers: &'a Vec<LabelFilter>, or_matchers: &'a Vec<Vec<LabelFilter>>) -> Self {
+        Self {
+            matchers,
+            or_matchers,
+            index: 0,
+            first: true,
         }
-    })
+    }
+}
+impl<'a> Iterator for OrIter<'a> {
+    type Item = &'a Vec<LabelFilter>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.first {
+            self.first = false;
+            if !self.matchers.is_empty() {
+                return Some(self.matchers);
+            }
+        }
+        if self.index < self.or_matchers.len() {
+            let index = self.index;
+            self.index += 1;
+            return Some(&self.or_matchers[index]);
+        }
+        None
+    }
+}
+
+pub(crate) fn remove_duplicate_label_filters(filters: &mut Vec<LabelFilter>) {
+    fn get_hash(hasher: &mut Xxh3, filter: &LabelFilter) -> u64 {
+        hasher.reset();
+        hasher.write(filter.label.as_bytes());
+        hasher.write(filter.op.as_str().as_bytes());
+        hasher.write(filter.value.as_bytes());
+        hasher.finish()
+    }
+
+    let mut hasher = Xxh3::new();
+    let mut hash_map: AHashMap<u64, bool> = AHashMap::with_capacity(filters.len());
+
+    for i in (0..filters.len()).rev() {
+        let hash = get_hash(&mut hasher, &filters[i]);
+        if let std::collections::hash_map::Entry::Vacant(e) = hash_map.entry(hash) {
+            e.insert(true);
+        } else {
+            filters.remove(i);
+        }
+    }
 }
 
 // Go and Rust handle the repeat pattern differently
@@ -512,60 +631,9 @@ pub fn try_escape_for_repeat_re(re: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::hash::{DefaultHasher, Hash, Hasher};
-    use regex::Regex;
     use crate::label::{LabelFilter, LabelFilterOp, Matchers};
+
     use super::try_escape_for_repeat_re;
-
-    fn hash<H>(op: H) -> u64
-        where
-            H: Hash,
-    {
-        let mut hasher = DefaultHasher::new();
-        op.hash(&mut hasher);
-        hasher.finish()
-    }
-
-    #[test]
-    fn test_LabelFilterOp_hash() {
-        assert_eq!(hash(LabelFilterOp::Equal), hash(LabelFilterOp::Equal));
-        assert_eq!(hash(LabelFilterOp::NotEqual), hash(LabelFilterOp::NotEqual));
-        assert_eq!(hash(LabelFilterOp::RegexEqual), hash(LabelFilterOp::RegexEqual));
-        assert_eq!(hash(LabelFilterOp::RegexNotEqual), hash(LabelFilterOp::RegexNotEqual));
-    }
-
-    #[test]
-    fn test_matcher_hash() {
-        assert_eq!(
-            hash(LabelFilter::new(LabelFilterOp::Equal, "name", "value").unwrap()),
-            hash(LabelFilter::new(LabelFilterOp::Equal, "name", "value").unwrap()),
-        );
-
-        assert_eq!(
-            hash(LabelFilter::new(LabelFilterOp::NotEqual, "name".into(), "value".into()).unwrap()),
-            hash(LabelFilter::new(LabelFilterOp::NotEqual, "name", "value").unwrap()),
-        );
-
-        assert_eq!(
-            hash(LabelFilter::regex_equal("name", "\\s+").unwrap()),
-            hash(LabelFilter::regex_equal("name", "\\s+").unwrap()),
-        );
-
-        assert_eq!(
-            hash(LabelFilter::regex_notequal("name", "\\s+").unwrap()),
-            hash(LabelFilter::regex_notequal("name", "\\s+").unwrap()),
-        );
-
-        assert_ne!(
-            hash(LabelFilter::new(LabelFilterOp::Equal, "name", "value").unwrap()),
-            hash(LabelFilter::new(LabelFilterOp::NotEqual, "name", "value").unwrap()),
-        );
-
-        assert_ne!(
-            hash(LabelFilter::regex_equal("name", "\\s+").unwrap()),
-            hash(LabelFilter::regex_notequal("name", "\\s+").unwrap()),
-        );
-    }
 
     #[test]
     fn test_matcher_eq_ne() {
@@ -584,7 +652,7 @@ mod tests {
     #[test]
     fn test_matcher_re() {
         let value = "api/v1/.*";
-        let matcher = LabelFilter::new(LabelFilterOp::RegexEqual, "name", value);
+        let matcher = LabelFilter::new(LabelFilterOp::RegexEqual, "name", value).unwrap();
         assert!(matcher.is_match("api/v1/query"));
         assert!(matcher.is_match("api/v1/range_query"));
         assert!(!matcher.is_match("api/v2"));
@@ -604,24 +672,24 @@ mod tests {
 
         assert_ne!(
             LabelFilter::new(LabelFilterOp::Equal, "code", "200"),
-            LabelFilter::new(LabelFilterOp::NotEqual, "code", "200")
+            LabelFilter::not_equal("code", "200")
         );
     }
 
     #[test]
     fn test_ne_matcher_equality() {
         assert_eq!(
-            LabelFilter::new(LabelFilterOp::NotEqual, "code", "200"),
-            LabelFilter::new(LabelFilterOp::NotEqual, "code", "200")
+            LabelFilter::not_equal("code", "200"),
+            LabelFilter::not_equal("code", "200")
         );
 
         assert_ne!(
-            LabelFilter::new(LabelFilterOp::NotEqual, "code", "200"),
-            LabelFilter::new(LabelFilterOp::NotEqual, "code", "201")
+            LabelFilter::not_equal("code", "200"),
+            LabelFilter::not_equal("code", "201")
         );
 
         assert_ne!(
-            LabelFilter::new(LabelFilterOp::NotEqual, "code", "200"),
+            LabelFilter::not_equal("code", "200"),
             LabelFilter::new(LabelFilterOp::Equal, "code", "200")
         );
     }
@@ -658,7 +726,7 @@ mod tests {
 
         assert_ne!(
             LabelFilter::regex_equal("code", "2??").unwrap(),
-            LabelFilter::new(LabelFilterOp::Equal, "code", "2??").unwrap()
+            LabelFilter::equal("code", "2??").unwrap()
         );
     }
 
@@ -666,32 +734,32 @@ mod tests {
     fn test_matchers_equality() {
         assert_eq!(
             Matchers::empty()
-                .append(LabelFilter::new(LabelFilterOp::Equal, "name1", "val1").unwrap())
-                .append(LabelFilter::new(LabelFilterOp::Equal, "name2", "val2").unwrap()),
+                .append(LabelFilter::equal("name1", "val1").unwrap())
+                .append(LabelFilter::equal("name2", "val2").unwrap()),
             Matchers::empty()
-                .append(LabelFilter::new(LabelFilterOp::Equal, "name1", "val1").unwrap())
-                .append(LabelFilter::new(LabelFilterOp::Equal, "name2", "val2").unwrap())
+                .append(LabelFilter::equal("name1", "val1").unwrap())
+                .append(LabelFilter::equal("name2", "val2").unwrap())
         );
 
         assert_ne!(
-            Matchers::empty().append(LabelFilter::new(LabelFilterOp::Equal, "name1", "val1").unwrap()),
-            Matchers::empty().append(LabelFilter::new(LabelFilterOp::Equal, "name2", "val2").unwrap())
+            Matchers::empty().append(LabelFilter::equal("name1", "val1").unwrap()),
+            Matchers::empty().append(LabelFilter::equal( "name2", "val2").unwrap())
         );
 
         assert_ne!(
-            Matchers::empty().append(LabelFilter::new(LabelFilterOp::Equal, "name1", "val1").unwrap()),
-            Matchers::empty().append(LabelFilter::new(LabelFilterOp::NotEqual, "name1", "val1").unwrap())
+            Matchers::empty().append(LabelFilter::equal("name1", "val1").unwrap()),
+            Matchers::empty().append(LabelFilter::not_equal("name1", "val1").unwrap())
         );
 
         assert_eq!(
             Matchers::empty()
-                .append(LabelFilter::new(LabelFilterOp::Equal, "name1", "val1").unwrap())
-                .append(LabelFilter::new(LabelFilterOp::NotEqual, "name2", "val2").unwrap())
+                .append(LabelFilter::equal("name1", "val1").unwrap())
+                .append(LabelFilter::not_equal("name2", "val2").unwrap())
                 .append(LabelFilter::regex_equal("name2", "\\d+").unwrap())
                 .append(LabelFilter::regex_notequal("name2", "\\d+").unwrap()),
             Matchers::empty()
-                .append(LabelFilter::new(LabelFilterOp::Equal, "name1", "val1").unwrap())
-                .append(LabelFilter::new(LabelFilterOp::NotEqual, "name2", "val2").unwrap())
+                .append(LabelFilter::equal("name1", "val1").unwrap())
+                .append(LabelFilter::not_equal("name2", "val2").unwrap())
                 .append(LabelFilter::regex_equal("name2", "\\d+").unwrap())
                 .append(LabelFilter::regex_notequal("name2", "\\d+").unwrap())
         );
@@ -700,10 +768,10 @@ mod tests {
     #[test]
     fn test_find_matchers() {
         let matchers = Matchers::empty()
-            .append(LabelFilter::new(LabelFilterOp::Equal, "foo".into(), "bar".into())
-            .append(LabelFilter::new(LabelFilterOp::NotEqual, "foo", "bar"))
-            .append(LabelFilter::new(LabelFilterOp::Equal, "FOO", "bar"))
-            .append(LabelFilter::new(LabelFilterOp::NotEqual, "bar", "bar")));
+            .append(LabelFilter::equal("foo", "bar").unwrap())
+            .append(LabelFilter::not_equal("foo", "bar").unwrap())
+            .append(LabelFilter::equal("FOO", "bar").unwrap())
+            .append(LabelFilter::not_equal( "bar", "bar").unwrap());
 
         let ms = matchers.find_matchers("foo");
         assert_eq!(4, ms.len());

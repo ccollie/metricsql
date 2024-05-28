@@ -838,8 +838,8 @@ mod tests {
         if let DAGNode::Rollup(r) = node {
             assert_eq!(r.expr, expr_clone);
             assert_eq!(r.metric_expr, MetricExpr::with_filters(filters.clone()));
-            if let Expr::MetricExpression(MetricExpr { label_filters, .. }) = &r.expr {
-                assert_eq!(&filters, label_filters);
+            if let Expr::MetricExpression(MetricExpr { matchers, .. }) = &r.expr {
+                assert_eq!(&filters, matchers.matchers);
             } else {
                 panic!("Expected Expr::MetricExpression(_)");
             }

@@ -107,17 +107,10 @@ mod tests {
     }
 
     fn vector_selector_includes_namespace(namespace: &str, vector_selector: &MetricExpr) -> bool {
-        let mut includes_namespace = false;
-        for filters in &vector_selector.label_filters {
-            if filters.label.eq("namespace")
-                && filters.value.eq(namespace)
-                && filters.op == LabelFilterOp::Equal
-            {
-                includes_namespace = true;
-                break;
-            }
-        }
-        includes_namespace
+        vector_selector.matchers.find_matchers("namespace")
+            .iter()
+            .find(|x| x.op == LabelFilterOp::Equal && x.value.eq(namespace))
+            .is_some()
     }
 
     impl ExprVisitor for NamespaceVisitor {

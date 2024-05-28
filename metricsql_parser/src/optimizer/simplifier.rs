@@ -228,12 +228,12 @@ impl TreeNodeRewriter for Simplifier {
 
                     // A + 0 --> A
                     // Valid only for NumberLiteral, since MetricExpression, Rollup, Aggregation,
-                    // etc. can return vectors contain NaN
+                    // etc. can return vectors containing NaN
                     Add if is_zero(&right) && Expr::is_number(&left) => *left,
 
                     // 0 + A --> A
                     // Valid only for NumberLiteral, since MetricExpression, Rollup, Aggregation,
-                    // etc. can return vectors contain NaN
+                    // etc. can return vectors containing NaN
                     Add if is_zero(&left) && Expr::is_number(&right) => *right,
 
                     // A + A --> A * 2

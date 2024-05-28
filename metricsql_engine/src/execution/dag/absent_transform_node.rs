@@ -35,6 +35,7 @@ impl AbsentTransformNode {
 
     pub fn from_arg(expr: &Expr, node_arg: NodeArg) -> Self {
         let labels = extract_labels_from_expr(expr);
+        // todo: dedup labels
         let (arg, arg_const) = if node_arg.is_const() {
             let mut arg = QueryValue::default();
             node_arg.resolve(&mut arg, &mut []);

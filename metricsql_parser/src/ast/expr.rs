@@ -1,27 +1,25 @@
+use std::{fmt, iter, ops};
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter, Write};
 use std::hash::{Hash, Hasher};
 use std::ops::{Deref, Neg, Range};
 use std::str::FromStr;
-use std::{fmt, iter, ops};
 
-use ahash::AHashSet;
 use enquote::enquote;
 use serde::{Deserialize, Serialize};
-use xxhash_rust::xxh3::Xxh3;
 
 use metricsql_common::duration::fmt_duration_ms;
 
-use crate::ast::utils::string_vecs_equal_unordered;
 use crate::ast::{
-    expr_equals, indent, prettify_args, Operator, Prettier, StringExpr, MAX_CHARACTERS_PER_LINE,
+    expr_equals, indent, MAX_CHARACTERS_PER_LINE, Operator, Prettier, prettify_args, StringExpr,
 };
-use crate::common::{hash_f64, write_comma_separated, write_number, Value, ValueType, join_vector};
+use crate::ast::utils::string_vecs_equal_unordered;
+use crate::common::{hash_f64, join_vector, Value, ValueType, write_comma_separated, write_number};
 use crate::functions::{AggregateFunction, BuiltinFunction, TransformFunction};
-use crate::label::{LabelFilter, LabelFilterOp, Labels, NAME_LABEL};
+use crate::label::{LabelFilter, LabelFilterOp, Labels, Matchers, NAME_LABEL};
 use crate::parser::{escape_ident, ParseError, ParseResult};
 use crate::prelude::{
-    get_aggregate_arg_idx_for_optimization, BuiltinFunctionType, InterpolatedSelector,
+    BuiltinFunctionType, get_aggregate_arg_idx_for_optimization, InterpolatedSelector,
     RollupFunction,
 };
 
@@ -632,20 +630,20 @@ impl Prettier for DurationExpr {
 ///
 /// Curly braces may contain or-delimited list of filters. For example:
 ///
-///	x{job="foo",instance="bar" or job="x",instance="baz"}
+///	`x{job="foo",instance="bar" or job="x",instance="baz"}`
 ///
 /// In this case the filter returns all the series, which match at least one of the following filters:
 ///
-///	x{job="foo",instance="bar"}
-///	x{job="x",instance="baz"}
+///	`x{job="foo",instance="bar"}`
+///	`x{job="x",instance="baz"}`
 ///
 /// This allows using or-delimited list of filters inside rollup functions. For example,
 /// the following query calculates rate per each matching series for the given or-delimited filters:
 ///
-///	rate(x{job="foo",instance="bar" or job="x",instance="baz"}[5m])
-#[derive(Debug, Default, Clone, Eq, Serialize, Deserialize)]
+///	`rate(x{job="foo",instance="bar" or job="x",instance="baz"}[5m])`
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MetricExpr {
-    pub label_filterss: Vec<Vec<LabelFilter>>, // todo: tinyvec
+    pub matchers: Matchers,
     /// LabelFilters contains a list of label filters from curly braces.
     /// Filter or metric name must be the first if present.
     pub label_filters: Vec<LabelFilter>,
@@ -655,83 +653,45 @@ impl MetricExpr {
     pub fn new<S: Into<String>>(name: S) -> MetricExpr {
         let name_filter = LabelFilter::new(LabelFilterOp::Equal, NAME_LABEL, name.into()).unwrap();
         MetricExpr {
-            label_filters: vec![name_filter],
-            label_filterss: vec![],
+            matchers: Matchers::default().append(name_filter),
+            label_filters: vec![],
         }
     }
 
     pub fn with_filters(filters: Vec<LabelFilter>) -> Self {
         MetricExpr {
+            matchers: Matchers::new(filters),
             label_filters: vec![],
-            label_filterss: vec![filters],
+        }
+    }
+
+    pub fn with_or_filters(filters: Vec<Vec<LabelFilter>>) -> Self {
+        MetricExpr {
+            matchers: Matchers::with_or_matchers(filters),
+            label_filters: vec![],
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.label_filterss.is_empty()
-    }
-
-    pub fn has_non_empty_metric_group(&self) -> bool {
-        let first = self.label_filterss.first().and_then(|f| f.first());
-        if let Some(first) = first {
-            return first.is_metric_name_filter();
-        }
-        false
-    }
-
-    pub fn is_only_metric_group(&self) -> bool {
-        if self.label_filterss.len() == 1 {
-            if let Some(first) = self.label_filterss[0].first() {
-                return first.is_metric_name_filter();
-            }
-        }
-        false
+        self.matchers.is_empty()
     }
 
     pub fn is_only_metric_name(&self) -> bool {
-        if self.metric_name().is_none() {
-            return false;
-        }
-        self.label_filterss.iter().all(|f| f.len() <= 1)
+        self.matchers.is_only_metric_name()
     }
 
     pub fn metric_name(&self) -> Option<&str> {
-        let lfss = &self.label_filterss.first();
-        if lfss.is_empty() {
-            return None;
-        }
-        let first = &lfss[0];
-        if first.is_empty() {
-            return None;
-        }
-        let head = &first[0];
-        let name = head.value.as_str();
-        for lfs in &lfss[1..] {
-            if lfs.is_empty() {
-                return None;
-            }
-            let head = &lfs[0];
-            if !head.is_metric_name_filter() || head.value.as_str() != name {
-                return None;
-            }
-        }
-        Some(name)
+        self.matchers.metric_name()
     }
 
-    pub fn add_tag<S: Into<String>>(&mut self, name: S, value: &str) {
-        let name_str = name.into();
-        for label in self.label_filters.iter_mut() {
-            if label.label == name_str {
-                label.value.clear();
-                label.value.push_str(value);
-                return;
-            }
-        }
-        self.label_filters.push(LabelFilter {
-            op: LabelFilterOp::Equal,
-            label: name_str,
-            value: value.to_string(),
-        });
+    pub fn append(mut self, filter: LabelFilter) -> Self {
+        self.matchers = self.matchers.append(filter);
+        self
+    }
+
+    pub fn append_or(mut self, filter: LabelFilter) -> Self {
+        self.matchers = self.matchers.append_or(filter);
+        self
     }
 
     pub fn return_type(&self) -> ValueType {
@@ -739,46 +699,20 @@ impl MetricExpr {
     }
 
     pub fn is_empty_matchers(&self) -> bool {
-        if self.is_empty() {
-            return true;
-        }
-        self.label_filters.iter().all(|x| x.is_empty_matcher())
+        self.matchers.is_empty_matchers()
     }
 
     /// find all the matchers whose name equals the specified name.
     pub fn find_matchers(&self, name: &str) -> Vec<&LabelFilter> {
-        self.label_filters
-            .iter()
-            .filter(|m| m.label.eq_ignore_ascii_case(name))
-            .collect()
-    }
-
-    pub fn find_matcher_value(&self, name: &str) -> Option<String> {
-        for m in &self.label_filters {
-            if m.label.eq(name) {
-                return Some(m.value.clone());
-            }
-        }
-        None
+        self.matchers.find_matchers(name)
     }
 
     pub fn sort_filters(&mut self) {
-        for filter_list in self.label_filterss.iter_mut() {
-            filter_list.sort_by(|a, b| {
-                let mut res = a.label.cmp(&b.label);
-                match res {
-                    Ordering::Equal => {
-                        res = a.value.cmp(&b.value);
-                        if res == Ordering::Equal {
-                            let right = b.op.as_str();
-                            res = a.op.as_str().cmp(right)
-                        }
-                        res
-                    }
-                    _ => res,
-                }
-            });
-        }
+        self.matchers.sort_filters();
+    }
+
+    pub fn has_or_matchers(&self) -> bool {
+        !self.matchers.or_matchers.is_empty()
     }
 }
 
@@ -806,7 +740,14 @@ impl Display for MetricExpr {
             return Ok(());
         }
 
-        let lfss = &self.label_filterss;
+        let lfss = &self.matchers.or_matchers;
+        for (i, lfs) in self.matchers.iter().enumerate() {
+            if lfs.len() < offset {
+                continue
+            }
+            let lfs_ = &lfs[offset..];
+            write!(f, "{{{}}}", join_vector(lfs_, ", ", false))?;
+        }
         if !lfss.is_empty() {
             let or_matchers_string =
                 lfss
@@ -833,38 +774,6 @@ impl Neg for MetricExpr {
     fn neg(self) -> Self::Output {
         let ex = Expr::MetricExpression(self);
         UnaryExpr { expr: Box::new(ex) }
-    }
-}
-
-impl PartialEq<MetricExpr> for MetricExpr {
-    fn eq(&self, other: &MetricExpr) -> bool {
-        if self.label_filters.len() != other.label_filters.len() {
-            return false;
-        }
-        if self.label_filterss.len() != other.label_filterss.len() {
-            return false;
-        }
-        let mut hasher: Xxh3 = Xxh3::new();
-
-        if !self.label_filters.is_empty() {
-            let mut set: AHashSet<u64> = AHashSet::new();
-            for filter in &self.label_filters {
-                hasher.reset();
-                filter.update_hash(&mut hasher);
-                set.insert(hasher.digest());
-            }
-
-            for filter in &other.label_filters {
-                hasher.reset();
-                filter.update_hash(&mut hasher);
-                let hash = hasher.digest();
-                if !set.contains(&hash) {
-                    return false;
-                }
-            }
-        }
-
-        true
     }
 }
 
@@ -1922,7 +1831,7 @@ impl Expr {
 
     pub fn vectors(&self) -> Box<dyn Iterator<Item = &LabelFilter> + '_> {
         match self {
-            Self::MetricExpression(v) => Box::new(v.label_filters.iter()),
+            Self::MetricExpression(v) => Box::new(v.matchers.filter_iter()),
             Self::Rollup(re) => Box::new(re.expr.vectors().chain(if let Some(at) = &re.at {
                 at.vectors()
             } else {
