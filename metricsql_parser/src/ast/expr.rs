@@ -739,25 +739,20 @@ impl Display for MetricExpr {
         if self.is_only_metric_name() {
             return Ok(());
         }
-
-        let lfss = &self.matchers.or_matchers;
-        for (i, lfs) in self.matchers.iter().enumerate() {
+        write!(f, "{{")?;
+        let mut count = 0;
+        for lfs in self.matchers.iter() {
             if lfs.len() < offset {
                 continue
             }
+            if count > 0 {
+                write!(f, " or ")?;
+            }
             let lfs_ = &lfs[offset..];
-            write!(f, "{{{}}}", join_vector(lfs_, ", ", false))?;
+            write!(f, "{}", join_vector(lfs_, ", ", false))?;
+            count += 1;
         }
-        if !lfss.is_empty() {
-            let or_matchers_string =
-                lfss
-                    .iter()
-                    .fold(String::new(), |or_matchers_str, pair| {
-                        format!("{} or {}", or_matchers_str, join_vector(pair, ", ", false))
-                    });
-            let or_matchers_string = or_matchers_string.trim_start_matches(" or").trim();
-            write!(f, "{{{}}}", or_matchers_string)?;
-        }
+        write!(f, "}}")?;
         Ok(())
     }
 }

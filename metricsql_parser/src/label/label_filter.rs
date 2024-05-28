@@ -257,16 +257,6 @@ impl LabelFilter {
         }
         self.label.clone()
     }
-
-    // Go and Rust handle the repeat pattern differently
-    // in Go the following is valid: `aaa{bbb}ccc`
-    // in Rust {bbb} is seen as an invalid repeat and must be ecaped \{bbb}
-    // This escapes the opening "{" if it's not followed by valid repeat pattern (e.g. 4,6).
-    fn try_parse_re(re: &str) -> Result<Regex, String> {
-        Regex::new(re)
-            .or_else(|_| Regex::new(&try_escape_for_repeat_re(re)))
-            .map_err(|_| format!("illegal regex for {re}",))
-    }
 }
 
 impl PartialEq<LabelFilter> for LabelFilter {

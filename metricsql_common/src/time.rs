@@ -90,7 +90,7 @@ pub fn time_to_time64ns(v: NaiveTime) -> i64 {
 /// converts a `i64` representing a `timestamp(s)` to [`NaiveDateTime`]
 #[inline]
 pub fn timestamp_s_to_datetime(v: i64) -> Option<NaiveDateTime> {
-    NaiveDateTime::from_timestamp_opt(v, 0)
+    Some(DateTime::from_timestamp(v, 0)?.naive_utc())
 }
 
 /// converts a `i64` representing a `timestamp(ms)` to [`NaiveDateTime`]
@@ -98,20 +98,18 @@ pub fn timestamp_s_to_datetime(v: i64) -> Option<NaiveDateTime> {
 pub fn timestamp_ms_to_datetime(v: i64) -> Option<NaiveDateTime> {
     let (sec, milli_sec) = split_second(v, MILLISECONDS);
 
-    NaiveDateTime::from_timestamp_opt(
+    let datetime = DateTime::from_timestamp(
         // extract seconds from milliseconds
         sec,
         // discard extracted seconds and convert milliseconds to nanoseconds
         milli_sec * MICROSECONDS as u32,
-    )
+    )?;
+    Some(datetime.naive_utc())
 }
 
 /// converts a `i64` representing a `time64(s)` to [`NaiveDateTime`]
 pub fn timestamp_secs_to_datetime(secs: i64) -> Option<NaiveDateTime> {
-    NaiveDateTime::from_timestamp_opt(
-        // extract seconds from seconds
-        secs, 0_u32,
-    )
+    Some(DateTime::from_timestamp(secs, 0)?.naive_utc())
 }
 
 /// converts a `i64` representing a `time64(s)` to [`DateTime<Utc>`]
@@ -124,12 +122,13 @@ pub fn timestamp_secs_to_utc_datetime(secs: i64) -> Option<DateTime<Utc>> {
 pub fn timestamp_us_to_datetime(v: i64) -> Option<NaiveDateTime> {
     let (sec, micro_sec) = split_second(v, MICROSECONDS);
 
-    NaiveDateTime::from_timestamp_opt(
+    let datetime = DateTime::from_timestamp(
         // extract seconds from microseconds
         sec,
         // discard extracted seconds and convert microseconds to nanoseconds
         micro_sec * MILLISECONDS as u32,
-    )
+    )?;
+    Some(datetime.naive_utc())
 }
 
 /// converts a `i64` representing a `timestamp(ns)` to [`NaiveDateTime`]
@@ -137,11 +136,12 @@ pub fn timestamp_us_to_datetime(v: i64) -> Option<NaiveDateTime> {
 pub fn timestamp_ns_to_datetime(v: i64) -> Option<NaiveDateTime> {
     let (sec, nano_sec) = split_second(v, NANOSECONDS);
 
-    NaiveDateTime::from_timestamp_opt(
+    let datetime = DateTime::from_timestamp(
         // extract seconds from nanoseconds
         sec, // discard extracted seconds
         nano_sec,
-    )
+    )?;
+    Some(datetime.naive_utc())
 }
 
 /// Returns the time duration since UNIX_EPOCH in milliseconds.
@@ -298,7 +298,7 @@ pub fn get_local_tz() -> Option<Tz> {
 
 #[cfg(test)]
 mod tests {
-    use chrono::NaiveDateTime;
+    use chrono::{DateTime, NaiveDateTime};
 
     use crate::prelude::{
         timestamp_ms_to_datetime, timestamp_ns_to_datetime, timestamp_us_to_datetime, NANOSECONDS,
@@ -309,12 +309,12 @@ mod tests {
     fn negative_input_timestamp_ns_to_datetime() {
         assert_eq!(
             timestamp_ns_to_datetime(-1),
-            NaiveDateTime::from_timestamp_opt(-1, 999_999_999)
+            DateTime::from_timestamp(-1, 999_999_999).map(|x| x.naive_utc())
         );
 
         assert_eq!(
             timestamp_ns_to_datetime(-1_000_000_001),
-            NaiveDateTime::from_timestamp_opt(-2, 999_999_999)
+            DateTime::from_timestamp(-2, 999_999_999).map(|x| x.naive_utc())
         );
     }
 
@@ -322,12 +322,12 @@ mod tests {
     fn negative_input_timestamp_us_to_datetime() {
         assert_eq!(
             timestamp_us_to_datetime(-1),
-            NaiveDateTime::from_timestamp_opt(-1, 999_999_000)
+            DateTime::from_timestamp(-1, 999_999_000).map(|x| x.naive_utc())
         );
 
         assert_eq!(
             timestamp_us_to_datetime(-1_000_001),
-            NaiveDateTime::from_timestamp_opt(-2, 999_999_000)
+            DateTime::from_timestamp(-2, 999_999_000).map(|x| x.naive_utc())
         );
     }
 
@@ -335,12 +335,12 @@ mod tests {
     fn negative_input_timestamp_ms_to_datetime() {
         assert_eq!(
             timestamp_ms_to_datetime(-1),
-            NaiveDateTime::from_timestamp_opt(-1, 999_000_000)
+            DateTime::from_timestamp(-1, 999_000_000).map(|x| x.naive_utc())
         );
 
         assert_eq!(
             timestamp_ms_to_datetime(-1_001),
-            NaiveDateTime::from_timestamp_opt(-2, 999_000_000)
+            DateTime::from_timestamp(-2, 999_000_000).map(|x| x.naive_utc())
         );
     }
 
