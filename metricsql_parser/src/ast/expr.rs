@@ -1024,33 +1024,30 @@ impl AggregationExpr {
             true
         }
 
-        return match &self.args[0] {
-            Expr::MetricExpression(me) => validate(me, false),
-            Expr::Rollup(re) => {
-                match re.expr.deref() {
-                    // e = metricExpr[d]
+        fn validate_expr(expr: &Expr) -> bool {
+            match expr {
+                Expr::MetricExpression(me) => validate(me, false),
+                Expr::Rollup(re) => match &*re.expr {
                     Expr::MetricExpression(me) => validate(me, re.for_subquery()),
                     _ => false,
-                }
+                },
+                _ => false,
             }
+        }
+
+        let first = &self.args[0];
+        return match first {
             Expr::Function(fe) => match fe.function {
                 BuiltinFunction::Rollup(_) => {
                     return if let Some(arg) = fe.arg_for_optimization() {
-                        match arg {
-                            Expr::MetricExpression(me) => validate(me, false),
-                            Expr::Rollup(re) => match &*re.expr {
-                                Expr::MetricExpression(me) => validate(me, re.for_subquery()),
-                                _ => false,
-                            },
-                            _ => false,
-                        }
+                        validate_expr(arg)
                     } else {
                         false
                     };
                 }
                 _ => false,
             },
-            _ => false,
+            _ => validate_expr(first),
         };
     }
 

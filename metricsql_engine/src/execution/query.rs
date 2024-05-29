@@ -8,7 +8,7 @@ use crate::execution::{
     adjust_start_end, exec, parse_promql_internal, validate_max_points_per_timeseries,
 };
 use crate::execution::{Context, EvalConfig};
-use crate::provider::{join_matchers_vec, join_matchers_with_extra_filters};
+use crate::provider::{join_matchers_with_extra_filters};
 use crate::types::{Timestamp, TimestampTrait};
 use crate::{
     remove_empty_values_and_timeseries, Deadline, QueryResult, QueryResults, RuntimeError,
