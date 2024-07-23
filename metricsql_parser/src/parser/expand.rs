@@ -41,7 +41,7 @@ pub(super) fn expand_with_expr(
 
 fn expand_with(
     symbols: &SymbolProviderRef,
-    was: &[WithArgExpr],
+    was: Vec<WithArgExpr>,
     we: WithExpr,
 ) -> ParseResult<Expr> {
     let mut was_new = Vec::with_capacity(was.len() + we.was.len());
