@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 use strum_macros::EnumIter;
 
 use crate::common::ValueType;
-use crate::functions::signature::{Signature, Volatility};
 use crate::functions::MAX_ARG_COUNT;
+use crate::functions::signature::{Signature, Volatility};
 use crate::parser::ParseError;
 
 /// Aggregation AggregateFunctions
@@ -207,7 +207,8 @@ impl FromStr for AggregateFunction {
                 let lower = s.to_ascii_lowercase();
                 FUNCTION_MAP.get(lower.as_str())
             })
-            .ok_or_else(|| ParseError::InvalidFunction(s.to_string())).copied()
+            .ok_or_else(|| ParseError::InvalidFunction(s.to_string()))
+            .copied()
     }
 }
 
@@ -268,16 +269,31 @@ pub fn get_aggregate_arg_idx_for_optimization(
         | TopkMin => Some(1),
         CountValues => None,
         Quantiles => Some(arg_count - 1),
-        _ => Some(0)
+        _ => Some(0),
     }
 }
 
 // todo: use signature
 pub(crate) fn can_accept_multiple_args_for_aggr_func(func: AggregateFunction) -> bool {
     use AggregateFunction::*;
-    match func {
-        Any | Avg | Count | Distinct | GeoMean | Group | Histogram | MAD | Max | Median | Min |
-        Mode | Share | StdDev | StdVar | Sum | Sum2 | ZScore  => true,
-        _ => false,
-    }
+    matches!(
+        func,
+        Any | Avg
+            | Count
+            | Distinct
+            | GeoMean
+            | Group
+            | Histogram
+            | MAD
+            | Max
+            | Median
+            | Min
+            | Mode
+            | Share
+            | StdDev
+            | StdVar
+            | Sum
+            | Sum2
+            | ZScore
+    )
 }

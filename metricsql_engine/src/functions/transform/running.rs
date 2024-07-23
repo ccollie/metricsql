@@ -69,10 +69,8 @@ fn running_func_impl(
             if tfa.ec.real_end > 0 && *ts > tfa.ec.real_end {
                 break
             }
-            if *ts > tfa.ec.real_start {
-                if !v.is_nan() {
-                    prev_value = rf(prev_value, *v, i + 1);
-                }
+            if *ts > tfa.ec.real_start && !v.is_nan() {
+                prev_value = rf(prev_value, *v, i + 1);
             }
             *v = prev_value;
         }
