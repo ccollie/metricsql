@@ -2,18 +2,18 @@ use std::borrow::Cow;
 
 use chrono::Duration;
 
-use metricsql_parser::prelude::{DurationExpr, Expr, LabelFilter, Matchers};
+use metricsql_parser::prelude::{DurationExpr, Expr, Matchers};
 
+use crate::{
+    Deadline, MAX_DURATION_MSECS, QueryResult, QueryResults, remove_empty_values_and_timeseries,
+    RuntimeError, RuntimeResult, SearchQuery,
+};
 use crate::execution::{
     adjust_start_end, exec, parse_promql_internal, validate_max_points_per_timeseries,
 };
 use crate::execution::{Context, EvalConfig};
-use crate::provider::{join_matchers_with_extra_filters};
+use crate::provider::join_matchers_with_extra_filters;
 use crate::types::{Timestamp, TimestampTrait};
-use crate::{
-    remove_empty_values_and_timeseries, Deadline, QueryResult, QueryResults, RuntimeError,
-    RuntimeResult, SearchQuery, MAX_DURATION_MSECS,
-};
 
 /// Default step used if not set.
 const DEFAULT_STEP: i64 = 5 * 60 * 1000;
@@ -28,7 +28,7 @@ pub struct QueryParams {
     pub step: Duration,
     pub deadline: Deadline,
     pub round_digits: u8,
-    pub required_tag_filters: Vec<Vec<LabelFilter>>,
+    pub required_tag_filters: Option<Matchers>,
 }
 
 impl Default for QueryParams {
@@ -41,7 +41,7 @@ impl Default for QueryParams {
             step: Duration::milliseconds(DEFAULT_STEP),
             deadline: Default::default(),
             round_digits: 100,
-            required_tag_filters: vec![],
+            required_tag_filters: None,
         }
     }
 }
@@ -87,7 +87,7 @@ pub struct QueryBuilder {
     end: Option<Timestamp>,
     step: Option<Duration>,
     timeout: Option<Duration>,
-    extra_tag_filters: Vec<Vec<LabelFilter>>,
+    extra_tag_filters: Option<Matchers>,
     round_digits: u8,
     no_cache: bool,
     trace_enabled: bool,
@@ -101,7 +101,7 @@ impl Default for QueryBuilder {
             end: None,
             step: None,
             timeout: None,
-            extra_tag_filters: vec![],
+            extra_tag_filters: None,
             round_digits: 100,
             no_cache: false,
             trace_enabled: false,
@@ -176,9 +176,7 @@ impl QueryBuilder {
         q.step = self
             .step
             .unwrap_or_else(|| Duration::milliseconds(DEFAULT_STEP));
-        if !self.extra_tag_filters.is_empty() {
-            q.required_tag_filters = self.extra_tag_filters.clone();
-        }
+        q.required_tag_filters = self.extra_tag_filters.clone(); // todo: use take to avoid clone
         q.round_digits = self.round_digits;
         q.deadline = get_deadline_for_query(context, q.start, Some(timeout))?;
         Ok(q)
@@ -187,12 +185,20 @@ impl QueryBuilder {
 
 /// CommonParams contains common parameters for all /api/v1/* handlers
 #[derive(Debug, Default)]
-struct CommonParams {
+struct CommonParams<'a> {
     deadline: Deadline,
     start: Timestamp,
     end: Timestamp,
-    filters: Vec<Vec<LabelFilter>>,
+    current_timestamp: i64,
+    filters: Cow<'a, Matchers>,
 }
+
+impl CommonParams {
+    pub fn is_default_time_range(&self) -> bool {
+        self.start == 0 && self.current_timestamp - self.end < 1000
+    }
+}
+
 
 /// Query handler for `Instant Queries`
 ///
@@ -240,7 +246,8 @@ pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<Query
                 deadline: params.deadline,
                 start,
                 end,
-                filters: tfs_list.to_vec(), // todo: avoid this
+                current_timestamp: ct,
+                filters: tfs_list,
             };
 
             return match export_handler(context, cp) {
@@ -292,7 +299,7 @@ pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<Query
 
     let mut ec = EvalConfig::new(start, end, step);
 
-    if !ec.enforced_tag_filters.is_empty() {
+    if ec.enforced_tag_filters.is_some() {
         ec.enforced_tag_filters = params.required_tag_filters.clone(); // todo: .into()?
     }
 
@@ -324,7 +331,7 @@ pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<Query
 
 fn export_handler(ctx: &Context, cp: CommonParams) -> RuntimeResult<QueryResults> {
     let max_series = &ctx.config.max_unique_timeseries;
-    let sq = SearchQuery::new(cp.start, cp.end, cp.filters, *max_series);
+    let sq = SearchQuery::new(cp.start, cp.end, &cp.filters, *max_series);
     ctx.search(sq, cp.deadline)
 }
 

@@ -122,7 +122,7 @@ impl DAGBuilder {
             ),
             Expr::StringLiteral(s) => Ok(self.push_node(DAGNode::from(s.to_string()))),
             Expr::StringExpr(_) => {
-                panic!("invalid node type (SpringExpr) in expression")
+                panic!("invalid node type (StringExpr) in expression")
             }
             Expr::With(_) => {
                 panic!("invalid node type (With) in expression")
@@ -219,7 +219,7 @@ impl DAGBuilder {
 
     fn create_absent_node(&mut self, fe: &FunctionExpr) -> RuntimeResult<usize> {
         // we should only have one arg here.
-        // Todo: this should have been checked in the parser
+        // todo: this should have been checked in the parser
         if fe.args.len() != 1 {
             return Err(RuntimeError::ArgumentError(format!(
                 "unexpected number of args; got {}; want 1",

@@ -34,7 +34,7 @@ impl Context {
         self
     }
 
-    pub fn search(&self, sq: SearchQuery, deadline: Deadline) -> RuntimeResult<QueryResults> {
+    pub fn search(&self, sq: &SearchQuery, deadline: Deadline) -> RuntimeResult<QueryResults> {
         use metricsql_common::async_runtime::*;
 
         let storage = self.storage.clone();

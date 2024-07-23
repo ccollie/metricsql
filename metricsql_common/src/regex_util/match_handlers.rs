@@ -23,15 +23,19 @@ impl StringMatchHandler {
     pub fn literal<T: Into<String>>(value: T) -> Self {
         Self::MatchFn(MatchFnHandler::new(value, matches_literal))
     }
+
+    #[allow(dead_code)]
     pub fn literal_mismatch<T: Into<String>>(value: T) -> Self {
         Self::MatchFn(MatchFnHandler::new(value, mismatches_literal))
     }
 
+    #[allow(dead_code)]
     pub fn alternates(alts: Vec<String>) -> Self {
         Self::Alternates(alts)
     }
 
     /// handler for .*
+    #[allow(dead_code)]
     pub fn dot_star() -> Self {
         Self::MatchFn(MatchFnHandler::new("", dot_star))
     }
@@ -41,6 +45,7 @@ impl StringMatchHandler {
         Self::MatchFn(MatchFnHandler::new("", dot_plus))
     }
 
+    #[allow(dead_code)]
     pub fn match_fn(pattern: String, match_fn: MatchFn) -> Self {
         Self::MatchFn(MatchFnHandler::new(pattern, match_fn))
     }
@@ -49,10 +54,12 @@ impl StringMatchHandler {
         Self::MatchFn(MatchFnHandler::new(prefix.into(), starts_with))
     }
 
+    #[allow(dead_code)]
     pub fn contains<T: Into<String>>(needle: T) -> Self {
         Self::MatchFn(MatchFnHandler::new(needle.into(), contains))
     }
 
+    #[allow(dead_code)]
     pub fn prefix<T: Into<String>>(prefix: T, is_dot_star: bool) -> Self {
         Self::MatchFn(MatchFnHandler::new(
             prefix,
@@ -97,6 +104,7 @@ impl StringMatchHandler {
         ))
     }
 
+    #[allow(dead_code)]
     pub(super) fn middle(prefix: &'static str, pattern: String, suffix: &'static str) -> Self {
         match (prefix, suffix) {
             (".+", ".+") => Self::match_fn(pattern, dot_plus_dot_plus),
@@ -107,6 +115,7 @@ impl StringMatchHandler {
         }
     }
 
+    #[allow(dead_code)]
     pub(super) fn not_middle(prefix: &'static str, pattern: String, suffix: &'static str) -> Self {
         match (prefix, suffix) {
             (".+", ".+") => Self::match_fn(pattern, not_dot_plus_dot_plus),
@@ -117,6 +126,7 @@ impl StringMatchHandler {
         }
     }
 
+    #[allow(dead_code)]
     pub fn matches(&self, s: &str) -> bool {
         match self {
             StringMatchHandler::Alternates(alts) => matches_alternates(&alts, s),
@@ -142,6 +152,7 @@ impl MatchFnHandler {
         }
     }
 
+    #[allow(dead_code)]
     pub(super) fn matches(&self, s: &str) -> bool {
         (self.match_fn)(&self.pattern, s)
     }

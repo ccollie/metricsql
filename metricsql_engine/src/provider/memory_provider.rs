@@ -60,13 +60,12 @@ impl Storage {
         &self,
         start: i64,
         end: i64,
-        filters: &Vec<Matchers>,
+        filters: &Matchers,
     ) -> RuntimeResult<QueryResults> {
         let mut results: Vec<QueryResult> = vec![];
-        for matchers in filters {
-            for (k, labels) in &self.labels_hash {
-                let matched = matchers.iter().all(|m| matches_filter(labels, m));
-                if matched {
+        for (k, labels) in &self.labels_hash {
+            for matchers in filters.iter() {
+                if matches_filters(labels, matchers) {
                     if let Some(res) = self.get_range(*k, start, end) {
                         results.push(res)
                     }
@@ -147,7 +146,7 @@ impl MemoryMetricProvider {
         &self,
         start: i64,
         end: i64,
-        filters: &Vec<Matchers>,
+        filters: &Matchers,
     ) -> RuntimeResult<QueryResults> {
         let inner = self.inner.read().unwrap();
         inner.search(start, end, filters)
@@ -157,7 +156,7 @@ impl MemoryMetricProvider {
         &self,
         start: i64,
         end: i64,
-        filters: &Vec<Matchers>,
+        filters: &Matchers,
     ) -> RuntimeResult<QueryResults> {
         self.search_internal(start, end, filters)
     }
@@ -181,6 +180,10 @@ fn matches_filter(mn: &MetricName, filter: &LabelFilter) -> bool {
         return filter.is_match(v);
     }
     false
+}
+
+fn matches_filters(mn: &MetricName, filters: &[LabelFilter]) -> bool {
+    filters.iter().all(|f| matches_filter(mn, f))
 }
 
 fn find_first_index(range_values: &[Point], ts: i64) -> Option<usize> {
@@ -234,10 +237,9 @@ mod tests {
         labels.add_tag("foo", "bar");
         provider.append(labels.clone(), 1, 1.0).unwrap();
 
-        let mut matchers = Vec::new();
-        matchers.push(Matchers::new(vec![
+        let matchers = Matchers::new(vec![
             LabelFilter::equal("foo", "bar").unwrap()
-        ]));
+        ]);
         let results = provider.search(0, 2, &matchers).unwrap();
 
         assert_eq!(results.len(), 1);
@@ -250,10 +252,9 @@ mod tests {
         labels.add_tag("foo", "bar");
         provider.append(labels.clone(), 1, 1.0).unwrap();
 
-        let mut matchers = Vec::new();
-        matchers.push(Matchers::new(vec![
+        let matchers = Matchers::new(vec![
             LabelFilter::equal("foo", "baz").unwrap()
-        ]));
+        ]);
         let results = provider.search(0, 2, &matchers).unwrap();
 
         assert_eq!(results.len(), 0);

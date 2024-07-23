@@ -14,15 +14,14 @@ use metricsql_parser::ast::Expr;
 use metricsql_parser::prelude::Matchers;
 
 use crate::cache::default_result_cache_storage::DefaultResultCacheStorage;
-use crate::cache::serialization::{compress_series, deserialize_series_between, estimate_size};
+use crate::cache::serialization::{compress_series_slice, deserialize_series_between};
 use crate::cache::traits::RollupResultCacheStorage;
 use crate::common::encoding::{marshal_var_int, marshal_var_usize, read_i64, read_u64, read_usize};
 use crate::common::memory::memory_limit;
 use crate::common::memory_limiter::MemoryLimiter;
 use crate::execution::EvalConfig;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::types::assert_identical_timestamps;
-use crate::types::{Timestamp, TimestampTrait};
+use crate::types::{assert_identical_timestamps, SeriesSlice, Timestamp, TimestampTrait};
 use crate::Timeseries;
 
 /// The maximum duration since the current time for response data, which is always queried from the
@@ -219,7 +218,7 @@ impl RollupResultCache {
             return Ok((None, ec.start));
         }
 
-        let timestamps = &tss[0].timestamps;
+        let timestamps = tss[0].timestamps.as_slice();
         if timestamps.is_empty() {
             // no matches.
             info!("no data-points found in the cached series on the given timeRange");
@@ -289,10 +288,11 @@ impl RollupResultCache {
 
         // Remove values up to currentTime - step - CACHE_TIMESTAMP_OFFSET,
         // since these values may be added later.
-        let timestamps = &tss[0].timestamps;
+        let timestamps = tss[0].timestamps.as_slice();
         let deadline =
             (Timestamp::now() as f64 / 1e6_f64) as i64 - ec.step - CACHE_TIMESTAMP_OFFSET;
         let mut i = timestamps.len() - 1;
+        // todo: use binary search
         while i > 0 && timestamps[i] > deadline {
             i -= 1;
         }
@@ -302,36 +302,35 @@ impl RollupResultCache {
             return Ok(());
         }
 
+        // timestamps are stored only once for all the tss, since they are identical.
+        assert_identical_timestamps(tss, ec.step)?;
+
         if i < timestamps.len() {
-            let ts_slice = Arc::new(tss[0].timestamps[0..i].to_vec());
-            // Make a copy of tss and remove unfit values
             let rvs = tss
                 .iter()
-                .map(|ts| Timeseries {
-                    metric_name: ts.metric_name.clone(),
-                    timestamps: Arc::clone(&ts_slice),
-                    values: ts.values[0..i].to_vec(),
-                })
-                .collect::<Vec<_>>();
+                .map(|ts| SeriesSlice::from_timeseries(ts, Some((0, i))))
+                .collect::<Vec<SeriesSlice>>();
 
             self.put_internal(&rvs, ec, expr, window, &span)
         } else {
-            self.put_internal(tss, ec, expr, window, &span)
+            let rvs = tss
+                .iter()
+                .map(|ts| SeriesSlice::from_timeseries(ts, None))
+                .collect::<Vec<SeriesSlice>>();
+
+            self.put_internal(&rvs, ec, expr, window, &span)
         }
     }
 
     fn put_internal(
         &self,
-        tss: &[Timeseries],
+        tss: &[SeriesSlice],
         ec: &EvalConfig,
         expr: &Expr,
         window: i64,
         span: &EnteredSpan,
     ) -> RuntimeResult<()> {
         let is_tracing = span_enabled!(Level::TRACE);
-
-        // timestamps are stored only once for all the tss, since they are identical.
-        assert_identical_timestamps(tss, ec.step)?;
 
         let size = estimate_size(tss);
         if self.max_marshaled_size > 0 && size > self.max_marshaled_size as usize {
@@ -372,7 +371,7 @@ impl RollupResultCache {
         let mut result_buf = get_pooled_buffer(size);
         // todo: should we handle error here and consider it a cache miss ?
 
-        compress_series(tss, &mut result_buf)?;
+        compress_series_slice(tss, &mut result_buf)?;
 
         if is_tracing {
             let start_string = start.to_rfc3339();
@@ -450,31 +449,68 @@ impl RollupResultCache {
 /// Increment this value every time the format of the cache changes.
 const ROLLUP_RESULT_CACHE_VERSION: u8 = 8;
 
+const ROLLUP_TYPE_TIMESERIES: u8 = 0;
+const ROLLUP_TYPE_INSTANT_VALUES: u8 = 1;
+
+fn marshal_rollup_result_cache_key_internal(
+    hasher: &mut Xxh3,
+    expr: &Expr,
+    window: i64,
+    step: i64,
+    etfs: &Option<Matchers>,
+    cache_type: u8,
+) -> u64 {
+    hasher.reset();
+
+    let prefix: u64 = get_rollup_result_cache_key_prefix();
+    hasher.write_u8(ROLLUP_RESULT_CACHE_VERSION);
+    hasher.write_u64(prefix);
+    hasher.write_u8(cache_type);
+    hasher.write_i64(window);
+    hasher.write_i64(step);
+    hasher.write(format!("{}", expr).as_bytes());
+
+    if let Some(etfs) = etfs {
+        for etf in etfs.iter() {
+            for f in etf.iter() {
+                hasher.write(f.label.as_bytes());
+                hasher.write(f.op.as_str().as_bytes());
+                hasher.write(f.value.as_bytes());
+            }
+        }
+    }
+
+    hasher.digest()
+}
+
 fn marshal_rollup_result_cache_key(
     hasher: &mut Xxh3,
     expr: &Expr,
     window: i64,
     step: i64,
-    etfs: &[Matchers],
+    etfs: &Option<Matchers>,
 ) -> u64 {
-    hasher.reset();
+    marshal_rollup_result_cache_key_internal(hasher, expr, window, step, etfs, ROLLUP_TYPE_TIMESERIES)
+}
 
-    let prefix: u64 = get_rollup_result_cache_key_prefix();
-    hasher.write_u64(prefix);
-    hasher.write_u8(ROLLUP_RESULT_CACHE_VERSION);
-    hasher.write_i64(window);
-    hasher.write_i64(step);
-    hasher.write(format!("{}", expr).as_bytes());
+fn marshal_rollup_result_cache_key_for_instant_values(
+    hasher: &mut Xxh3,
+    expr: &Expr,
+    window: i64,
+    step: i64,
+    etfs: &Option<Matchers>
+) -> u64 {
+    marshal_rollup_result_cache_key_internal(hasher, expr, window, step, etfs, ROLLUP_TYPE_INSTANT_VALUES)
+}
 
-    for etf in etfs.iter() {
-        for f in etf.iter() {
-            hasher.write(f.label.as_bytes());
-            hasher.write(f.op.as_str().as_bytes());
-            hasher.write(f.value.as_bytes());
-        }
-    }
-
-    hasher.digest()
+fn marshal_rollup_result_cache_key_for_series(
+    hasher: &mut Xxh3,
+    expr: &Expr,
+    window: i64,
+    step: i64,
+    etfs: &Option<Matchers>
+) -> u64 {
+    marshal_rollup_result_cache_key_internal(hasher, expr, window, step, etfs, ROLLUP_TYPE_TIMESERIES)
 }
 
 /// merge_timeseries concatenates b with a and returns the result.
@@ -664,7 +700,6 @@ impl RollupResultCacheMetaInfo {
 
     fn add_key(&mut self, key: RollupResultCacheKey, start: i64, end: i64) -> RuntimeResult<()> {
         if start > end {
-            // todo: return Result
             return Err(RuntimeError::ArgumentError(format!(
                 "BUG: start cannot exceed end; got {} vs {}",
                 start, end
@@ -772,4 +807,19 @@ impl RollupResultCacheKey {
 
         Ok((RollupResultCacheKey { prefix, suffix }, tail))
     }
+}
+
+fn estimate_size(tss: &[SeriesSlice]) -> usize {
+    if tss.is_empty() {
+        return 0;
+    }
+    // estimate size of labels
+    let labels_size = tss
+        .iter()
+        .fold(0, |acc, ts| acc + ts.metric_name.serialized_size());
+    let value_size = tss.iter().fold(0, |acc, ts| acc + ts.values.len() * 8);
+    let timestamp_size = 8 * tss[0].timestamps.len();
+
+    // Calculate the required size for marshaled tss.
+    labels_size + value_size + timestamp_size
 }

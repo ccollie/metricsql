@@ -582,7 +582,7 @@ fn get_scrape_interval(timestamps: &[Timestamp]) -> i64 {
     scrape_interval
 }
 
-fn get_max_prev_interval(scrape_interval: i64) -> i64 {
+const fn get_max_prev_interval(scrape_interval: i64) -> i64 {
     // Increase scrape_interval more for smaller scrape intervals in order to hide possible gaps
     // when high jitter is present.
     // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/139 .

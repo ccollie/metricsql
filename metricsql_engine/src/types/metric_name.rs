@@ -8,8 +8,6 @@ use std::str::FromStr;
 use ahash::{AHashMap, AHashSet};
 use enquote::enquote;
 use serde::{Deserialize, Serialize};
-use xxhash_rust::xxh3::Xxh3;
-
 use metricsql_parser::label::LabelFilterOp;
 use metricsql_parser::prelude::{AggregateModifier, VectorMatchModifier};
 
@@ -58,11 +56,13 @@ impl Tag {
         self.value = value;
         Ok(src)
     }
+}
 
-    pub(crate) fn update_hash(&self, h: &mut Xxh3) {
-        h.update(self.key.as_bytes());
-        h.write_u8(SEP);
-        h.update(self.value.as_bytes());
+impl Hash for Tag {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(self.key.as_bytes());
+        state.write_u8(SEP);
+        state.write(self.value.as_bytes());
     }
 }
 

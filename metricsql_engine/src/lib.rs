@@ -15,22 +15,17 @@ extern crate q_compress;
 extern crate rand_distr;
 extern crate rayon;
 extern crate regex;
-#[cfg(test)]
-extern crate rs_unit;
 #[macro_use(defer)]
 extern crate scopeguard;
 #[macro_use]
 extern crate tinyvec;
 extern crate topologic;
-#[cfg(feature = "xxh64")]
 extern crate xxhash_rust;
 
 pub use cache::*;
 pub use provider::*;
 pub use query_stats::*;
 pub use runtime_error::*;
-#[cfg(test)]
-pub use tests::utils::*;
 pub use types::*;
 
 pub mod cache;
@@ -44,8 +39,13 @@ pub mod runtime_error;
 mod types;
 
 mod common;
+
+#[cfg(test)]
+extern crate rs_unit;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+pub use tests::utils::*;
 
 pub mod prelude {
     pub use metricsql_common::async_runtime::*;

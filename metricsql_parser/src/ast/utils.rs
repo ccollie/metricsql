@@ -20,6 +20,8 @@
 use ahash::AHashSet;
 
 use crate::ast::{BinaryExpr, Expr, MetricExpr, NumberLiteral, Operator, ParensExpr};
+use crate::ast::visitor::{ExprVisitor, walk_expr};
+use crate::functions::{BuiltinFunction, get_rollup_arg_idx};
 
 /// Create a selector expression based on a qualified or unqualified column name
 ///
@@ -134,7 +136,7 @@ pub fn expr_equals(expr1: &Expr, expr2: &Expr) -> bool {
             println!("p1: {:?}, p2: {:?}", p1, p2);
             p1 == p2
         }
-        // special case: (x) == x. I don't know if i like this
+        // special case: (x) == x. I don't know if I like this
         (Parens(p), e) => p.len() == 1 && compare_parens(p, e),
         (e, Parens(p)) => p.len() == 1 && compare_parens(p, e),
         (a, b) => a == b,
@@ -149,9 +151,75 @@ pub(super) fn string_vecs_equal_unordered(a: &[String], b: &[String]) -> bool {
     b.iter().all(|x| hash_a.contains(x))
 }
 
+struct InvalidExprVisitor {
+    has_implicit_conversion: bool,
+}
+
+impl ExprVisitor for InvalidExprVisitor {
+    type Error = ();
+
+    fn pre_visit(&mut self, expr: &Expr) -> Result<bool, Self::Error> {
+        if self.has_implicit_conversion {
+            return Ok(true);
+        }
+        if let Expr::Function(f) = expr {
+            if let BuiltinFunction::Rollup(rollup) = f.function {
+                let idx = get_rollup_arg_idx(&rollup, f.args.len());
+                if idx < 0 {
+                    return Ok(true);
+                }
+                let arg = &f.args[idx as usize];
+                match arg {
+                    Expr::Rollup(re) => {
+                        if re.window.is_none() {
+                            self.has_implicit_conversion = true;
+                        }
+                    },
+                    Expr::MetricExpression(_) => {},
+                    _ => {
+                        self.has_implicit_conversion = true;
+                    }
+                }
+            }
+        }
+        Ok(true)
+    }
+}
+
+
+/// is_likely_invalid returns true if an expression contains tricky implicit conversions, which is invalid most of the time.
+///
+/// Examples of invalid expressions:
+///
+///	* rate(sum(foo))
+///	* rate(abs(foo))
+///	* rate(foo + bar)
+///	* rate(foo > 10)
+///
+/// These expressions are implicitly converted into another expressions, which returns unexpected results most of the time:
+///
+///	* rate(default_rollup(sum(foo))[1i:1i])
+///	* rate(default_rollup(abs(foo))[1i:1i])
+///	* rate(default_rollup(foo + bar)[1i:1i])
+///	* rate(default_rollup(foo > 10)[1i:1i])
+///
+/// See https://docs.victoriametrics.com/metricsql/#implicit-query-conversions
+///
+/// Note that rate(foo) is valid expression, since it returns the expected results most of the time, e.g. rate(foo[1i]).
+pub fn is_likely_invalid(e: &Expr) -> bool {
+    let mut visitor = InvalidExprVisitor {
+        has_implicit_conversion: false,
+    };
+    // unwrap is fine since the visitor doesn't error
+    walk_expr(&mut visitor, e).unwrap();
+    visitor.has_implicit_conversion
+}
+
 #[cfg(test)]
 pub mod tests {
     use crate::ast::utils::{conjunction, disjunction, selector};
+    use crate::parser::parse;
+    use crate::prelude::utils::is_likely_invalid;
 
     #[test]
     fn test_conjunction_empty() {
@@ -169,7 +237,7 @@ pub mod tests {
             Some(selector("a").and(selector("b")).and(selector("c")))
         );
 
-        // which is different than `A AND (B AND C)`
+        // which is different from `A AND (B AND C)`
         assert_ne!(
             expr,
             Some(selector("a").and(selector("b").and(selector("c"))))
@@ -192,10 +260,59 @@ pub mod tests {
             Some(selector("a").or(selector("b")).or(selector("c")))
         );
 
-        // which is different than `A OR (B OR C)`
+        // which is different from `A OR (B OR C)`
         assert_ne!(
             expr,
             Some(selector("a").or(selector("b").or(selector("c"))))
         );
+    }
+
+    #[test]
+    fn test_is_likely_invalid() {
+        fn f(q: &str, result_expected: bool) {
+
+            let expr = parse(q).unwrap();
+            let result = is_likely_invalid(&expr);
+            assert_eq!(result, result_expected , "unexpected result for is_likely_invalid({}); got {}; want {}", q, result,
+                result_expected)
+        }
+
+        f("1", false);
+        f(r#"foo{bar="baz"}"#, false);
+
+        // This should be OK, since it is easy to reason about
+        f("rate(foo)", false);
+        f("foo[5m]", false);
+        f("1 + foo[5m]", false);
+
+        f("rate(foo[5s])", false);
+        f(r#"rate(foo{bar=~"baz"}[5s])"#, false);
+        f(r#"rate(foo{bar=~"baz"}[5s] offset 1h)"#, false);
+
+        // Explicit subqueries are allowed
+        f("sum_over_time((up > 0)[5m:1s])", false);
+        f("rate(sum(foo)[5m])", false);
+        f("rate(sum(foo)[5m:3s])", false);
+
+        // Implicit step in the subquery is OK
+        f("sum_over_time((up > 0)[5m])", false);
+
+        // This is OK, since it is supported by Prometheus
+        f(r#"rate(foo{bar=~"baz"}[5m:1s])"#, false);
+        f(r#"rate(foo{bar=~"baz"}[5m:1s] offset 1h)"#, false);
+
+        f("sum(foo)", false);
+        f("sum(rate(foo))", false);
+        f("abs(foo)", false);
+        f("sum(abs(foo))", false);
+
+        // This isn't OK, since these queries work unexpectedly most of the time
+        f("rate(sum(foo))", true);
+        f("rate(abs(foo))", true);
+        f("rate(1)", true);
+        f("rate(foo + bar)", true);
+        f("rate(rate(foo))", true);
+        f("rate(sum(foo) offset 5m)", true);
+        f(r#"1 + rate(label_set(foo, "bar", "baz"))"#, true);
     }
 }

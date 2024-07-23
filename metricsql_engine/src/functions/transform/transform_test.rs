@@ -34,14 +34,11 @@ mod tests {
         check_broken_buckets(&[], &[]);
         check_broken_buckets(&[1.0], &[1.0]);
         check_broken_buckets(&[1.0, 2.0], &[1.0, 2.0]);
-        check_broken_buckets(&[2.0, 1.0], &[1.0, 1.0]);
+        check_broken_buckets(&[2.0, 1.0], &[2.0, 2.0]);
         check_broken_buckets(&[1.0, 2.0, 3.0, NAN, NAN], &[1.0, 2.0, 3.0, 3.0, 3.0]);
-        check_broken_buckets(&[5.0, 1.0, 2.0, 3.0, NAN], &[1.0, 1.0, 2.0, 3.0, 3.0]);
-        check_broken_buckets(
-            &[1.0, 5.0, 2.0, NAN, 6.0, 3.0],
-            &[1.0, 2.0, 2.0, 3.0, 3.0, 3.0],
-        );
-        check_broken_buckets(&[5.0, 10.0, 4.0, 3.0], &[3.0, 3.0, 3.0, 3.0]);
+        check_broken_buckets(&[5.0, 1.0, 2.0, 3.0, NAN], &[5.0, 5.0, 5.0, 5.0, 5.0]);
+        check_broken_buckets(&[1.0, 5.0, 2.0, NAN, 6.0, 3.0], &[1.0, 5.0, 5.0, 5.0, 6.0, 6.0]);
+        check_broken_buckets(&[5.0, 10.0, 4.0, 3.0], &[5.0, 10.0, 10.0, 10.0]);
     }
 
     fn check_vmrange_buckets_to_le(buckets: &str, buckets_expected: &str) {

@@ -47,6 +47,8 @@ impl ExecutableNode for VectorScalarBinaryNode {
             // convert scalar to vector and execute vector-vector binary op
             let left = std::mem::take(&mut self.left);
             let right = eval_number(ec, self.right)?;
+            // todo: can we not just execute vector-scalar binary op (for simple non-logical ops)
+            // rather than allocating ?
             return exec_vector_vector(ctx, left, right, self.op, &self.modifier);
         }
         let bool_modifier = if let Some(modifier) = &self.modifier {

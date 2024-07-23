@@ -1,7 +1,6 @@
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 
-use xxhash_rust::xxh3::Xxh3;
 use metricsql_common::hash::FastHasher;
 
 use crate::{MetricName, Tag};
@@ -39,7 +38,7 @@ impl Signature {
     }
 
     pub fn with_name_and_labels<'a>(name: &str, iter: impl Iterator<Item = &'a Tag>) -> Self {
-        let mut hasher = FastHasher::new();
+        let mut hasher = FastHasher::default();
         let mut has_tags = false;
 
         if !name.is_empty() {
@@ -48,13 +47,13 @@ impl Signature {
             hasher.write_u64(EMPTY_NAME_VALUE);
         }
         for tag in iter {
-            tag.update_hash(&mut hasher);
+            tag.hash(&mut hasher);
             has_tags = true;
         }
         if !has_tags {
             hasher.write_u64(EMPTY_LIST_SIGNATURE);
         }
-        let sig = hasher.digest();
+        let sig = hasher.finish();
         Signature(sig)
     }
 }

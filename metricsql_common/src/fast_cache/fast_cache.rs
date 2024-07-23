@@ -130,8 +130,8 @@ pub struct BigStats {
     /// too_big_key_errors is the number of calls to SetBig with too big key.
     pub too_big_key_errors: AtomicU64,
 
-    /// invalid_metavalue_errors is the number of calls to GetBig resulting
-    /// to invalid metavalue.
+    /// invalid_meta_value_errors is the number of calls to GetBig resulting
+    /// to invalid meta value.
     pub invalid_meta_value_errors: AtomicU64,
 
     /// invalid_value_len_errors is the number of calls to GetBig resulting
@@ -263,7 +263,7 @@ impl FastCache {
             self.set(&meta_buf, chunk);
         }
 
-        // Write metavalue, which consists of value_hash and value_len.
+        // Write meta value, which consists of value_hash and value_len.
         marshal_meta(&mut meta_buf, value_hash, value_len);
         self.set(k, &meta_buf)
     }
@@ -484,7 +484,7 @@ impl BucketInner {
         let b_idx = self.idx;
 
         // todo: use with_capacity
-        let mut to_remove: FastHashSet<u64> = FastHashSet::new();
+        let mut to_remove: FastHashSet<u64> = FastHashSet::with_capacity(16);
         for (k, v) in self.hash_idx_map.iter() {
             let gen = (*v >> BUCKET_SIZE_BITS) as u64;
             let idx = *v & ((1 << BUCKET_SIZE_BITS) - 1);
@@ -1169,7 +1169,7 @@ mod tests {
         // _very large_ generation value and appears to be from the future
         get_val(&mut c, &KEY2, &big_val2);
 
-        // This Set creates an index where `(b.gen << bucketSizeBits)>>bucketSizeBits)==0`
+        // This Set creates an index where `(b.gen << bucketSizeBits)>>bucketSizeBits==0`
         // The value is in the cache but is unreadable by Get
         c.set(&KEY2, &big_val2);
 

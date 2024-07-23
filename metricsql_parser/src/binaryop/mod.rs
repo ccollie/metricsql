@@ -128,13 +128,13 @@ pub fn op_unless(left: f64, right: f64) -> f64 {
     left
 }
 
-fn return_left(left: f64, _right: f64) -> f64 {
+const fn return_left(left: f64, _right: f64) -> f64 {
     left
 }
 
 /// convert true to x, false to NaN.
 #[inline]
-pub fn to_comparison_value(b: bool, x: f64) -> f64 {
+pub const fn to_comparison_value(b: bool, x: f64) -> f64 {
     if b {
         x
     } else {

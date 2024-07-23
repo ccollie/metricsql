@@ -42,7 +42,7 @@ impl ExecutableNode for ScalarVectorBinaryNode {
 
     fn execute(&mut self, ctx: &Context, ec: &EvalConfig) -> RuntimeResult<QueryValue> {
         if self.op.is_logical_op() {
-            // convert scalar to vector and execute vector vector binary op
+            // convert scalar to vector and execute vector-vector binary op
             let right = std::mem::take(&mut self.right);
             let left = eval_number(ec, self.left)?;
             return exec_vector_vector(ctx, left, right, self.op, &self.modifier);

@@ -482,7 +482,7 @@ fn get_optimized_re_match_func_ext(
             FULL_MATCH_COST,
         ));
     }
-    if is_dot_star(sre) {
+    if is_dot_plus(sre) {
         // '.+'
         return Some((
             StringMatchHandler::dot_plus(),

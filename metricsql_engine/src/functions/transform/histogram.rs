@@ -756,37 +756,17 @@ pub(super) fn fix_broken_buckets(i: usize, xss: &mut Vec<LeTimeseries>) {
     if xss.len() < 2 {
         return;
     }
-    let mut j = xss.len() - 1;
-    loop {
-        let v = xss[j].ts.values[i];
-        if !v.is_nan() {
-            j += 1;
-            while j < xss.len() {
-                xss[j].ts.values[i] = v;
-                j += 1;
-            }
-            break;
-        }
-        if i == 0 || j == 0 {
-            break;
-        }
-        j -= 1;
-    }
 
-    let mut v_next = xss[xss.len() - 1].ts.values[i];
-
-    let mut j = xss.len() - 2;
-    loop {
+    // Substitute upper bucket values with lower bucket values if the upper values are NaN
+    // or are bigger than the lower bucket values.
+    let mut v_next = xss[0].ts.values[0];
+    for j in 1..xss.len() {
         let v = xss[j].ts.values[i];
-        if v.is_nan() || v > v_next {
-            xss[j].ts.values[i] = v_next
+        if v.is_nan() || v_next > v {
+            xss[j].ts.values[i] = v_next;
         } else {
             v_next = v;
         }
-        if j == 0 {
-            break;
-        }
-        j -= 1;
     }
 }
 

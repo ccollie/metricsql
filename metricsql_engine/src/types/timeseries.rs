@@ -63,6 +63,53 @@ impl Timeseries {
     }
 }
 
+pub(crate) struct SeriesSlice<'a> {
+    pub metric_name: &'a MetricName,
+    pub timestamps: &'a [i64],
+    pub values: &'a [f64],
+}
+
+impl SeriesSlice<'_> {
+
+    pub fn new(metric_name: &'_ MetricName, timestamps: &'_ [i64], values: &'_ [f64]) -> Self {
+        SeriesSlice {
+            metric_name,
+            timestamps,
+            values,
+        }
+    }
+
+    pub fn from_timeseries(ts: &'_ Timeseries, range: Some((usize, usize))) -> Self {
+        if let Some((start, end)) = range {
+            SeriesSlice {
+                metric_name: &ts.metric_name,
+                timestamps: &ts.timestamps[start..end],
+                values: &ts.values[start..end],
+            }
+        } else {
+            SeriesSlice {
+                metric_name: &ts.metric_name,
+                timestamps: &ts.timestamps,
+                values: &ts.values,
+            }
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.timestamps.len()
+    }
+}
+
+impl From<Timeseries> for SeriesSlice<'_> {
+    fn from(ts: Timeseries) -> Self {
+        SeriesSlice {
+            metric_name: &ts.metric_name,
+            timestamps: &ts.timestamps,
+            values: &ts.values,
+        }
+    }
+}
+
 pub(crate) fn assert_identical_timestamps(tss: &[Timeseries], step: i64) -> RuntimeResult<()> {
     if tss.is_empty() {
         return Ok(());
@@ -122,6 +169,71 @@ pub(crate) fn assert_identical_timestamps(tss: &[Timeseries], step: i64) -> Runt
             }
         }
     }
+    Ok(())
+}
+
+fn assert_identical_timestamps_internal<'a>(
+    ts_iter: &mut impl Iterator<Item = &'a [i64]>,
+    values_iter: &mut impl Iterator<Item = &'a [f64]>,
+    step: i64
+) -> RuntimeResult<()> {
+    let ts_golden = ts_iter.next().unwrap_or_default();
+    let values_golden = values_iter.next().unwrap_or_default();
+    if values_golden.len() != ts_golden.len() {
+        let msg = format!(
+            "BUG: ts_golden.values.len() must match ts_golden.timestamps.len(); got {} vs {}",
+            values_golden.len(),
+            ts_golden.len()
+        );
+        return Err(RuntimeError::from(msg));
+    }
+    if ts_golden.len() > 0 {
+        let mut prev_timestamp = ts_golden[0];
+        for timestamp in ts_golden.iter() {
+            if timestamp - prev_timestamp != step {
+                let msg = format!(
+                    "BUG: invalid step between timestamps; got {}; want {};",
+                    timestamp - prev_timestamp,
+                    step
+                );
+                return Err(RuntimeError::from(msg));
+            }
+            prev_timestamp = *timestamp
+        }
+    }
+    for (ts, values) in ts_iter.zip(values_iter) {
+        if values.len() != values_golden.len() {
+            let msg = format!(
+                "BUG: unexpected ts.values.len(); got {}; want {}; ts.values={}",
+                values.len(),
+                values_golden.len(),
+                values.len()
+            );
+            return Err(RuntimeError::from(msg));
+        }
+        if ts.len() != ts_golden.len() {
+            let msg = format!(
+                "BUG: unexpected ts.timestamps.len(); got {}; want {};",
+                ts.len(),
+                ts_golden.len()
+            );
+            return Err(RuntimeError::from(msg));
+        }
+        if ts.len() == 0 {
+            continue;
+        }
+        if ts[0] == ts_golden[0] {
+            // Fast path - shared timestamps.
+            continue;
+        }
+        for (ts, golden) in ts.iter().zip(ts_golden.iter()) {
+            if ts != golden {
+                let msg = format!("BUG: timestamps mismatch; got {}; want {};", ts, golden);
+                return Err(RuntimeError::from(msg));
+            }
+        }
+    }
+
     Ok(())
 }
 

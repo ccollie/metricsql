@@ -24,7 +24,7 @@ use crate::functions::aggregate::IncrementalAggrFuncContext;
 use crate::functions::rollup::{
     eval_prefuncs, get_rollup_configs, RollupConfig, RollupHandler, MAX_SILENCE_INTERVAL,
 };
-use crate::provider::{join_matchers_vec, QueryResults, SearchQuery};
+use crate::provider::{QueryResults, SearchQuery};
 use crate::rayon::iter::IndexedParallelIterator;
 use crate::rayon::iter::ParallelIterator;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
@@ -239,8 +239,8 @@ impl RollupNode {
         } else {
             min_timestamp -= ec.step
         }
-        let filters = tfss.to_vec();
-        let sq = SearchQuery::new(min_timestamp, ec.end, filters, ec.max_series);
+
+        let sq = SearchQuery::new(min_timestamp, ec.end, &tfss, ec.max_series);
         let mut rss = ctx.search(sq, ec.deadline)?;
 
         if rss.is_empty() {

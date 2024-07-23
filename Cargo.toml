@@ -30,6 +30,7 @@ gxhash = "3.1"
 integer-encoding = "4.0"
 itertools = "0.13.0"
 num-traits = "0.2"
+pco = "0.3"
 pretty_assertions = "1.4"
 q_compress = "0.11"
 rand = "0.8"
@@ -47,7 +48,7 @@ strum = { version = "0.26", features = ["derive"] }
 strum_macros = { version = "0.26" }
 test-case = "3"
 tinyvec = { version = "1.6", features = ["alloc", "rustc_1_57"] }
-tracing = "0.1.40"
+tracing = "0.1"
 phf = { version = "0.11", features = ["macros"] }
 thiserror = "1"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }

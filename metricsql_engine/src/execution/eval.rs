@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::sync::RwLock;
 
-use metricsql_parser::label::LabelFilter;
+use metricsql_parser::label::Matchers;
 
 use crate::execution::context::Context;
 use crate::provider::Deadline;
@@ -80,6 +80,12 @@ pub struct EvalConfig {
     pub end: Timestamp,
     pub step: i64, // todo: Duration
 
+    /// real_start contains the original start of the interval when executed in subqueries (because Start can be changed  for subqueries)
+    pub real_start: i64,
+
+    /// real_end contains the original end of the interval when executed in subqueries (because End can be changed for subqueries)
+    pub real_end: i64,
+
     /// `max_series` is the maximum number of time series which can be scanned by the query.
     /// Zero means 'no limit'
     pub max_series: usize,
@@ -97,7 +103,7 @@ pub struct EvalConfig {
     pub round_digits: u8,
 
     /// `enforced_tag_filters` may contain additional label filters to use in the query.
-    pub enforced_tag_filters: Vec<Vec<LabelFilter>>,
+    pub enforced_tag_filters: Option<Matchers>,
 
     /// Set this flag to true if the data doesn't contain Prometheus stale markers, so there is
     /// no need in spending additional CPU time on its handling. Staleness markers may exist only in
@@ -109,6 +115,11 @@ pub struct EvalConfig {
 
     /// Whether to disable response caching. This may be useful during data back-filling
     pub disable_cache: bool,
+
+    /// Whether to return an error for queries that rely on implicit subquery conversions,
+    // 	see https://docs.victoriametrics.com/metricsql/#subqueries for details.
+    // 		"See also -search.logImplicitConversion.")
+    pub disable_implicit_conversion: bool,
 
     /// The timestamps for the query.
     /// Note: investigate using https://docs.rs/arc-swap/latest/arc_swap/
@@ -133,6 +144,8 @@ impl EvalConfig {
             start: self.start,
             end: self.end,
             step: self.step,
+            real_start: self.real_start,
+            real_end: self.real_end,
             deadline: self.deadline,
             max_series: self.max_series,
             quoted_remote_addr: self.quoted_remote_addr.clone(),
@@ -145,6 +158,7 @@ impl EvalConfig {
             no_stale_markers: self.no_stale_markers,
             max_points_per_series: self.max_points_per_series,
             disable_cache: self.disable_cache,
+            disable_implicit_conversion: self.disable_implicit_conversion,
         }
     }
 
@@ -206,7 +220,7 @@ impl EvalConfig {
         if write_locked.len() > 0 {
             return Ok(Arc::clone(&write_locked));
         }
-        let ts = crate::execution::get_timestamps(
+        let ts = get_timestamps(
             self.start,
             self.end,
             self.step,
@@ -236,16 +250,19 @@ impl Default for EvalConfig {
             start: 0,
             end: 0,
             step: 0,
+            real_start: 0,
+            real_end: 0,
             max_series: 0,
             quoted_remote_addr: None,
             deadline: Deadline::default(),
             _may_cache: false,
             lookback_delta: 0,
             round_digits: 100,
-            enforced_tag_filters: vec![],
+            enforced_tag_filters: None,
             no_stale_markers: true,
             max_points_per_series: 0,
             disable_cache: false,
+            disable_implicit_conversion: false,
             _timestamps: RwLock::new(Arc::new(vec![])),
         }
     }
@@ -254,10 +271,11 @@ impl Default for EvalConfig {
 impl Clone for EvalConfig {
     fn clone(&self) -> Self {
         let timestamps = self.get_timestamps().unwrap_or_else(|_| Arc::new(vec![]));
-        Self {
+        let mut ec = Self {
             start: self.start,
             end: self.end,
             step: self.step,
+            real_start: self.real_start,
             deadline: self.deadline,
             max_series: self.max_series,
             quoted_remote_addr: self.quoted_remote_addr.clone(),
@@ -269,7 +287,20 @@ impl Clone for EvalConfig {
             no_stale_markers: self.no_stale_markers,
             max_points_per_series: self.max_points_per_series,
             disable_cache: self.disable_cache,
+            real_end: self.real_end,
+            disable_implicit_conversion: self.disable_implicit_conversion,
+        };
+        if ec.real_start > 0 {
+            ec.real_start = self.real_start
+        } else {
+            ec.real_start = self.start
         }
+        if ec.real_end > 0 {
+            ec.real_end = self.real_end
+        } else {
+            ec.real_end = self.end
+        }
+        ec
     }
 }
 

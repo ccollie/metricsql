@@ -34,7 +34,7 @@ fn transform_range_impl(
     running_fn: impl TransformFn,
 ) -> RuntimeResult<Vec<Timeseries>> {
     let mut rvs = running_fn(tfa)?;
-    set_last_values(&mut rvs);
+    set_last_values(tfa, &mut rvs);
     Ok(rvs)
 }
 
@@ -45,6 +45,7 @@ pub(crate) fn transform_range_quantile(
 
     let mut series = get_series_arg(&tfa.args, 1, tfa.ec)?;
     range_quantile(phi, &mut series);
+    set_last_values(tfa, &mut series);
     Ok(series)
 }
 
@@ -72,8 +73,6 @@ pub(crate) fn range_quantile(phi: f64, series: &mut Vec<Timeseries>) {
             ts.values[last_idx] = quantile_sorted(phi, &values)
         }
     }
-
-    set_last_values(series);
 }
 
 pub(crate) fn range_first(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
@@ -98,17 +97,32 @@ pub(crate) fn range_first(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Times
 
 pub(crate) fn range_last(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
-    set_last_values(&mut series);
+    set_last_values(tfa, &mut series);
     Ok(series)
 }
 
-fn set_last_values(tss: &mut Vec<Timeseries>) {
+pub(super) fn set_last_values(tfa: &mut TransformFuncArg, tss: &mut Vec<Timeseries>) {
     for ts in tss {
         let last = get_last_non_nan_index(&ts.values);
         if last == 0 {
             continue;
         }
-        let v_last = ts.values[last];
+        let mut v_last = ts.values[last];
+
+        if tfa.ec.real_end > 0 {
+            let values = &ts.values[0..last];
+            let timestamps = &ts.timestamps[0..last];
+            for (v, ts) in values.iter().rev().zip(timestamps.iter().rev()) {
+                if v.is_nan() {
+                    continue;
+                }
+                if *ts > tfa.ec.real_end {
+                    continue;
+                }
+                v_last = *v;
+            }
+        }
+
         for v in ts.values[0..last].iter_mut() {
             if !v.is_nan() {
                 *v = v_last;

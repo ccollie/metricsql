@@ -50,15 +50,15 @@ impl MetricStorage for NullMetricStorage {
 pub type QueryableFunc = fn(ctx: &Context, sq: &SearchQuery) -> RuntimeResult<QueryResults>;
 
 /// SearchQuery is used for sending provider queries to external data sources.
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
-pub struct SearchQuery {
+#[derive(Debug, Clone)]
+pub struct SearchQuery<'a> {
     /// The time range for searching time series
     /// TODO: use TimestampRange
     pub start: Timestamp,
     pub end: Timestamp,
 
     /// Tag filters for the provider query
-    pub matchers: Matchers,
+    pub matchers: &'a Matchers,
 
     /// The maximum number of time series the provider query can return.
     pub max_metrics: usize,
@@ -69,7 +69,7 @@ impl SearchQuery {
     pub fn new(
         start: Timestamp,
         end: Timestamp,
-        tag_filter_list: Matchers,
+        tag_filter_list: &Matchers,
         max_metrics: usize,
     ) -> Self {
         let mut max = max_metrics;
@@ -90,21 +90,24 @@ impl SearchQuery {
     }
 }
 
+impl Default for SearchQuery<'_> {
+    fn default() -> Self {
+        SearchQuery {
+            start: Timestamp::from(0),
+            end: Timestamp::from(0),
+            matchers: &Matchers::default(),
+            max_metrics: 0,
+        }
+    }
+}
+
 impl Display for SearchQuery {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut a: Vec<String> = Vec::with_capacity(self.matchers.len());
-        for tfs in &self.matchers {
-            a.push(format!("{tfs}"))
-        }
         let start = self.start.to_string_millis();
         let end = self.end.to_string_millis();
         write!(
             f,
-            "filters={}, timeRange=[{}..{}], max={}",
-            a.join(","),
-            start,
-            end,
-            self.max_metrics
+            "filters={}, timeRange=[{}..{}], max={}", self.matchers, start, end, self.max_metrics
         )?;
 
         Ok(())

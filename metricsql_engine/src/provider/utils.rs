@@ -8,29 +8,23 @@ use crate::runtime_error::{RuntimeError, RuntimeResult};
 
 pub(crate) fn join_matchers_with_extra_filters<'a>(
     src: &'a Matchers,
-    etfs: &'a Vec<Vec<LabelFilter>>,
+    etfs: &'a Option<Matchers>,
 ) -> Cow<'a, Matchers> {
     if src.is_empty() {
-        return Cow::Owned::<'a>(Matchers::with_or_matchers(etfs.clone()));
-    }
-    if etfs.is_empty() {
+        if let Some(etfs) = etfs {
+            return Cow::Borrowed::<'a>(etfs);
+        }
         return Cow::Borrowed::<'a>(src);
     }
 
-    let src_len = get_matcher_list_len(src);
-    let mut filters: Vec<Vec<LabelFilter>> = Vec::with_capacity(src_len);
-    for tf in src.iter() {
-        for etf in etfs.iter() {
-            let mut tfs = tf.clone();
-            for filter in etf.iter() {
-                tfs.push(filter.clone())
-            }
-            filters.push(tfs)
+    if let Some(etfs) = etfs {
+        if etfs.is_empty() {
+            return Cow::Borrowed::<'a>(src);
         }
+        let dst = src.clone().merge(etfs);
+        return Cow::Owned::<'a>(dst);
     }
-
-    let dst = Matchers::with_or_matchers(filters);
-    Cow::Owned::<'a>(dst)
+    Cow::Borrowed::<'a>(src)
 }
 
 fn get_matcher_list_len(matchers: &Matchers) -> usize {

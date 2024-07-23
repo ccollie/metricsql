@@ -22,7 +22,7 @@ use crate::prelude::{can_accept_multiple_args_for_aggr_func, VectorMatchCardinal
 pub fn push_down_filters(expr: &Expr) -> Cow<Expr> {
     if can_pushdown_filters(expr) {
         let mut clone = expr.clone();
-        optimize_label_filters_in_place(&mut clone);
+        optimize_in_place(&mut clone);
         Cow::Owned(clone)
     } else {
         Cow::Borrowed(expr)
@@ -49,60 +49,33 @@ pub fn can_pushdown_filters(expr: &Expr) -> bool {
     }
 }
 
-pub(crate) fn optimize_label_filters_in_place(expr: &mut Expr) {
+pub(crate) fn optimize_in_place(expr: &mut Expr) {
     use Expr::*;
 
     match expr {
         Rollup(re) => {
-            optimize_label_filters_in_place(&mut re.expr);
+            optimize_in_place(&mut re.expr);
             if let Some(ref mut at) = re.at {
-                optimize_label_filters_in_place(at.as_mut());
+                optimize_in_place(at.as_mut());
             }
         }
         Function(f) => {
             for arg in f.args.iter_mut() {
-                optimize_label_filters_in_place(arg);
+                optimize_in_place(arg);
             }
         }
         Aggregation(agg) => {
             for arg in agg.args.iter_mut() {
-                optimize_label_filters_in_place(arg);
+                optimize_in_place(arg);
             }
         }
         BinaryOperator(be) => {
-            optimize_label_filters_in_place(&mut be.left);
-            optimize_label_filters_in_place(&mut be.right);
+            optimize_in_place(&mut be.left);
+            optimize_in_place(&mut be.right);
             let mut lfs = get_common_label_filters(expr);
             push_down_binary_op_filters_in_place(expr, &mut lfs);
         }
         _ => {}
-    }
-}
-
-fn optimize_in_place(e: &mut Expr) {
-    use Expr::*;
-    match e {
-        Rollup(r) => {
-            optimize_in_place(&mut r.expr);
-            if let Some(at) = &mut r.at {
-                optimize_in_place(at);
-            }
-        }
-        Function(f) => optimize_args_in_place(&mut f.args),
-        Aggregation(a) => optimize_args_in_place(&mut a.args),
-        BinaryOperator(b) => {
-            optimize_in_place(&mut b.left);
-            optimize_in_place(&mut b.right);
-            let mut lfs = get_common_label_filters(e);
-            push_down_binary_op_filters_in_place(e, &mut lfs);
-        }
-        _ => {}
-    }
-}
-
-fn optimize_args_in_place(args: &mut Vec<Expr>) {
-    for arg in args.iter_mut() {
-        optimize_in_place(arg)
     }
 }
 

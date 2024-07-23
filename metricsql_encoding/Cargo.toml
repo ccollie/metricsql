@@ -13,12 +13,16 @@ readme.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-integer-encoding = { workspace = true }
-snafu = "0.8"
+integer-encoding.workspace = true
+snafu.workspace = true
 snap = "1.1.0"
-q_compress = "0.11.7"
+q_compress.workspace = true
+pco.workspace = true
 
 [dev-dependencies]
 flate2 = "1.0"
 hex = "0.4.3"
 rand = { workspace = true }
+
+[target.'cfg(target_arch = "x86_64")']
+rustflags = ["-C", "target-feature=+bmi1,+bmi2,+avx2"]

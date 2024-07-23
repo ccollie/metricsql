@@ -4,7 +4,7 @@ use std::vec;
 use ahash::AHashSet;
 use chrono::Utc;
 use tracing::{field, info, trace_span, Span};
-
+use metricsql_parser::ast::Expr;
 use crate::common::math::round_to_decimal_digits;
 use crate::execution::context::Context;
 use crate::execution::parser_cache::{ParseCacheResult, ParseCacheValue};
@@ -224,4 +224,83 @@ pub(crate) fn remove_empty_series(tss: &mut Vec<Timeseries>) {
 #[inline]
 pub(crate) fn sort_series_by_metric_name(result: &mut Vec<QueryResult>) {
     result.sort_by(|a, b| a.metric.partial_cmp(&b.metric).unwrap());
+}
+
+fn expr_is_rollup_fn(expr: &Expr) -> bool {
+    match expr {
+        Expr::Function(f) => f.is_rollup(),
+        _ => false,
+    }
+}
+
+/// no_implicit_conversion_required checks if expr requires implicit conversion
+fn no_implicit_conversion_required(e: &Expr, is_sub_expr: bool) -> bool {
+    let mut is_sub_expr = is_sub_expr;
+    match e {
+        Expr::Function(f) => {
+            if is_sub_expr {
+                return false;
+            }
+            let is_rollup_fn = f.is_rollup();
+            for arg in &f.args {
+                let is_rollup_expr = expr_is_rollup_fn(arg);
+                if (is_rollup_expr && !is_rollup_fn) || (!is_rollup_expr && is_rollup_fn) {
+                    return false
+                }
+                if is_rollup_fn {
+                    is_sub_expr = true
+                }
+                if !no_implicit_conversion_required(arg, is_sub_expr) {
+                    return false
+                }
+            }
+            true
+        },
+        Expr::Rollup(re) => {
+            match &re.expr {
+                Some(Expr::MetricExpression(me)) => {
+                    return re.step.is_none();
+                },
+                _ => {}
+            }
+            // exp.step is optional in subqueries
+            if re.window.is_none() {
+                return false;
+            }
+            no_implicit_conversion_required(&re.expr, false)
+        },
+        Expr::Aggregation(aggr) => {
+            if is_sub_expr {
+                return false;
+            }
+            for arg in &aggr.args {
+                match arg {
+                    Expr::Rollup(re) => {
+                        if re.window.is_none() {
+                            return false;
+                        }
+                    },
+                    _ => {}
+                }
+                if !no_implicit_conversion_required(arg, false) {
+                    return false
+                }
+            }
+            true
+        },
+        Expr::BinaryOperator(op) => {
+            if is_sub_expr {
+                return false;
+            }
+            if !no_implicit_conversion_required(&op.left, false) {
+                return false
+            }
+            if !no_implicit_conversion_required(&op.right, false) {
+                return false
+            }
+            true
+        },
+        Expr::MetricExpression(_) => true,
+        _ => true
+    }
 }
