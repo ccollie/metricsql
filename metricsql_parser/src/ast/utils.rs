@@ -174,8 +174,8 @@ impl ExprVisitor for InvalidExprVisitor {
                         if re.window.is_none() {
                             self.has_implicit_conversion = true;
                         }
-                    },
-                    Expr::MetricExpression(_) => {},
+                    }
+                    Expr::MetricExpression(_) => {}
                     _ => {
                         self.has_implicit_conversion = true;
                     }
@@ -185,7 +185,6 @@ impl ExprVisitor for InvalidExprVisitor {
         Ok(true)
     }
 }
-
 
 /// is_likely_invalid returns true if an expression contains tricky implicit conversions, which is invalid most of the time.
 ///
@@ -270,11 +269,13 @@ pub mod tests {
     #[test]
     fn test_is_likely_invalid() {
         fn f(q: &str, result_expected: bool) {
-
             let expr = parse(q).unwrap();
             let result = is_likely_invalid(&expr);
-            assert_eq!(result, result_expected , "unexpected result for is_likely_invalid({}); got {}; want {}", q, result,
-                result_expected)
+            assert_eq!(
+                result, result_expected,
+                "unexpected result for is_likely_invalid({}); got {}; want {}",
+                q, result, result_expected
+            )
         }
 
         f("1", false);
