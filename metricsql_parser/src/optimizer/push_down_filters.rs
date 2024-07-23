@@ -2,8 +2,7 @@ use std::borrow::Cow;
 use std::iter::FromIterator;
 use std::vec::Vec;
 
-use ahash::AHashSet;
-
+use metricsql_common::hash::{FastHashSet, HashSetExt};
 use crate::ast::{
     AggregateModifier, AggregationExpr, BinaryExpr, Expr, Operator, RollupExpr, VectorMatchModifier
 };
@@ -275,7 +274,7 @@ fn get_common_label_filters_for_label_copy(args: &[Expr]) -> Vec<LabelFilter> {
     }
     let mut lfs = get_common_label_filters(&args[0]);
     let args = &args[1..];
-    let mut label_names: AHashSet<&str> = AHashSet::with_capacity(args.len() / 2);
+    let mut label_names: FastHashSet<&str> = FastHashSet::with_capacity(args.len() / 2);
     for i in (0..args.len()).step_by(2) {
         if i + 1 >= args.len() {
             return vec![];
@@ -347,7 +346,7 @@ fn get_expr_as_string(expr: &Expr) -> Option<&str> {
     }
 }
 
-fn trim_filters_by_aggr_modifier(lfs: &mut Vec<LabelFilter>, afe: &AggregationExpr) {
+fn trim_filters_by_aggr_modifier(lfs: &mut [LabelFilter], afe: &AggregationExpr) {
     match &afe.modifier {
         None => lfs.clear(),
         Some(modifier) => match modifier {
@@ -364,7 +363,7 @@ fn trim_filters_by_aggr_modifier(lfs: &mut Vec<LabelFilter>, afe: &AggregationEx
 /// - It returns only filters specified in on()
 /// - It drops filters specified inside ignoring()
 pub fn trim_filters_by_match_modifier(
-    lfs: &mut Vec<LabelFilter>,
+    lfs: &mut [LabelFilter],
     group_modifier: &Option<VectorMatchModifier>,
 ) {
     match group_modifier {
@@ -445,7 +444,7 @@ pub fn can_pushdown_op_filters(expr: &Expr) -> bool {
     )
 }
 
-pub fn push_down_binary_op_filters_in_place(e: &mut Expr, common_filters: &mut Vec<LabelFilter>) {
+pub fn push_down_binary_op_filters_in_place(e: &mut Expr, common_filters: &mut [LabelFilter]) {
     use Expr::*;
 
     if common_filters.is_empty() {
@@ -529,13 +528,13 @@ pub fn push_down_binary_op_filters_in_place(e: &mut Expr, common_filters: &mut V
     }
 }
 
-fn pushdown_label_filters_for_all_args(lfs: &mut Vec<LabelFilter>, args: &mut [Expr]) {
+fn pushdown_label_filters_for_all_args(lfs: &mut [LabelFilter], args: &mut [Expr]) {
     for arg in args {
         push_down_binary_op_filters_in_place(arg, lfs)
     }
 }
 
-fn pushdown_label_filters_for_count_values_over_time(args: &mut [Expr], lfs: &mut Vec<LabelFilter>) {
+fn pushdown_label_filters_for_count_values_over_time(args: &mut [Expr], lfs: &mut [LabelFilter]) {
     if args.len() != 2 {
         return
     }
@@ -543,7 +542,7 @@ fn pushdown_label_filters_for_count_values_over_time(args: &mut [Expr], lfs: &mu
     push_down_binary_op_filters_in_place( &mut args[1], lfs);
 }
 
-fn pushdown_label_filters_for_label_keep(args: &mut [Expr], lfs: &mut Vec<LabelFilter>) {
+fn pushdown_label_filters_for_label_keep(args: &mut [Expr], lfs: &mut [LabelFilter]) {
     if args.is_empty() {
         return;
     }
@@ -552,7 +551,7 @@ fn pushdown_label_filters_for_label_keep(args: &mut [Expr], lfs: &mut Vec<LabelF
     push_down_binary_op_filters_in_place(arg, lfs)
 }
 
-fn pushdown_label_filters_for_label_del(args: &mut [Expr], lfs: &mut Vec<LabelFilter>) {
+fn pushdown_label_filters_for_label_del(args: &mut [Expr], lfs: &mut [LabelFilter]) {
     if args.is_empty() {
         return;
     }
@@ -561,11 +560,11 @@ fn pushdown_label_filters_for_label_del(args: &mut [Expr], lfs: &mut Vec<LabelFi
     push_down_binary_op_filters_in_place(arg, lfs)
 }
 
-fn pushdown_label_filters_for_label_copy(args: &mut [Expr], lfs: &mut Vec<LabelFilter>) {
+fn pushdown_label_filters_for_label_copy(args: &mut [Expr], lfs: &mut [LabelFilter]) {
     if args.is_empty() {
         return;
     }
-    let mut label_names: AHashSet<&str> = AHashSet::with_capacity(args.len());
+    let mut label_names: FastHashSet<&str> = FastHashSet::with_capacity(args.len());
     for i in (1..args.len()).step_by(2) {
         if i + 1 >= args.len() {
             return;
@@ -581,7 +580,7 @@ fn pushdown_label_filters_for_label_copy(args: &mut [Expr], lfs: &mut Vec<LabelF
     push_down_binary_op_filters_in_place(arg, lfs)
 }
 
-fn pushdown_label_filters_for_label_replace(args: &mut [Expr], lfs: &mut Vec<LabelFilter>) {
+fn pushdown_label_filters_for_label_replace(args: &mut [Expr], lfs: &mut [LabelFilter]) {
     if args.len() < 2 {
         return;
     }
@@ -590,11 +589,13 @@ fn pushdown_label_filters_for_label_replace(args: &mut [Expr], lfs: &mut Vec<Lab
     push_down_binary_op_filters_in_place(arg, lfs)
 }
 
-fn pushdown_label_filters_for_label_set(args: &mut [Expr], lfs: &mut Vec<LabelFilter>) {
+fn pushdown_label_filters_for_label_set(args: &mut [Expr], lfs: &mut [LabelFilter]) {
     if args.is_empty() {
         return;
     }
-    let mut label_names: AHashSet<&str> = AHashSet::with_capacity(args.len() / 2);
+
+    let mut label_names: FastHashSet<&str> = FastHashSet::with_capacity(args.len() / 2);
+
     for i in (1..args.len()).step_by(2) {
         if let Some(v) = get_expr_as_string(args.get(i).unwrap()) {
             label_names.insert(v);
@@ -608,12 +609,12 @@ fn pushdown_label_filters_for_label_set(args: &mut [Expr], lfs: &mut Vec<LabelFi
 }
 
 #[inline]
-fn get_label_filters_map(filters: &[LabelFilter]) -> AHashSet<String> {
-    let set: AHashSet<String> = AHashSet::from_iter(filters.iter().map(|x| x.to_string()));
+fn get_label_filters_map(filters: &[LabelFilter]) -> FastHashSet<String> {
+    let set: FastHashSet<String> = FastHashSet::from_iter(filters.iter().map(|x| x.to_string()));
     set
 }
 
-fn intersect_label_filters(first: &mut Vec<LabelFilter>, second: &[LabelFilter]) {
+fn intersect_label_filters(first: &mut [LabelFilter], second: &[LabelFilter]) {
     if first.is_empty() || second.is_empty() {
         return;
     }
@@ -621,10 +622,10 @@ fn intersect_label_filters(first: &mut Vec<LabelFilter>, second: &[LabelFilter])
     first.retain(|x| set.contains(&x.to_string()));
 }
 
-fn union_label_filters(a: &mut Vec<LabelFilter>, b: &Vec<LabelFilter>) {
+fn union_label_filters(a: &mut [LabelFilter], b: &[LabelFilter]) {
     // todo (perf) do we need to clone, or can we drain ?
     if a.is_empty() && !b.is_empty() {
-        a.append(&mut b.clone());
+        a.append(&mut b.to_owned());
         return;
     }
     if b.is_empty() {
@@ -639,8 +640,8 @@ fn union_label_filters(a: &mut Vec<LabelFilter>, b: &Vec<LabelFilter>) {
         }
     }
 }
-fn keep_label_filters_for_label_names(lfs: &mut Vec<LabelFilter>, label_names: &[Expr]) {
-    let mut names_set: AHashSet<&str> = AHashSet::with_capacity(label_names.len());
+fn keep_label_filters_for_label_names(lfs: &mut [LabelFilter], label_names: &[Expr]) {
+    let mut names_set: FastHashSet<&str> = FastHashSet::with_capacity(label_names.len());
     for label_name in label_names {
         if let Expr::StringLiteral(se_label_name) = label_name {
             names_set.insert(se_label_name.as_str());
@@ -651,8 +652,8 @@ fn keep_label_filters_for_label_names(lfs: &mut Vec<LabelFilter>, label_names: &
     lfs.retain(|x| names_set.contains(x.label.as_str()))
 }
 
-fn drop_label_filters_for_label_names(lfs: &mut Vec<LabelFilter>, label_names: &[Expr]) {
-    let mut names_set: AHashSet<&str> = AHashSet::with_capacity(label_names.len());
+fn drop_label_filters_for_label_names(lfs: &mut [LabelFilter], label_names: &[Expr]) {
+    let mut names_set: FastHashSet<&str> = FastHashSet::with_capacity(label_names.len());
     for label_name in label_names {
         if let Expr::StringLiteral(se_label_name) = label_name {
             names_set.insert(se_label_name.as_str());
@@ -663,7 +664,7 @@ fn drop_label_filters_for_label_names(lfs: &mut Vec<LabelFilter>, label_names: &
     lfs.retain(|x| !names_set.contains(x.label.as_str()))
 }
 
-fn drop_label_filters_for_label_name(lfs: &mut Vec<LabelFilter>, label_name: &Expr) {
+fn drop_label_filters_for_label_name(lfs: &mut [LabelFilter], label_name: &Expr) {
     let name = if let Some(v) = get_expr_as_string(label_name) {
         v
     } else {
@@ -672,18 +673,18 @@ fn drop_label_filters_for_label_name(lfs: &mut Vec<LabelFilter>, label_name: &Ex
     lfs.retain(|x| !x.label.eq(name))
 }
 
-fn filter_label_filters_on(lfs: &mut Vec<LabelFilter>, args: &[String]) {
+fn filter_label_filters_on(lfs: &mut [LabelFilter], args: &[String]) {
     if !args.is_empty() {
-        let m: AHashSet<&String> = AHashSet::from_iter(args.iter());
+        let m: FastHashSet<&String> = FastHashSet::from_iter(args.iter());
         lfs.retain(|x| m.contains(&x.label))
     } else {
         lfs.clear()
     }
 }
 
-fn filter_label_filters_ignoring(lfs: &mut Vec<LabelFilter>, args: &[String]) {
+fn filter_label_filters_ignoring(lfs: &mut [LabelFilter], args: &[String]) {
     if !args.is_empty() {
-        let m: AHashSet<&String> = AHashSet::from_iter(args.iter());
+        let m: FastHashSet<&String> = FastHashSet::from_iter(args.iter());
         lfs.retain(|x| !m.contains(&x.label))
     }
 }

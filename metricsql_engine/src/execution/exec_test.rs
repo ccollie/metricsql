@@ -3,7 +3,6 @@ mod tests {
     use std::sync::Arc;
 
     use chrono::Duration;
-    use metricsql_parser::parser;
     use metricsql_parser::parser::parse;
     use metricsql_parser::prelude::utils::is_likely_invalid;
     use crate::execution::exec;
