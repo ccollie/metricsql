@@ -259,12 +259,6 @@ impl LabelFilter {
     }
 }
 
-impl PartialEq<LabelFilter> for LabelFilter {
-    fn eq(&self, other: &Self) -> bool {
-        self.op.eq(&other.op) && self.label.eq(&other.label) && self.value.eq(&other.value)
-    }
-}
-
 impl PartialOrd for LabelFilter {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
