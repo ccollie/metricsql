@@ -28,7 +28,7 @@ pub fn push_down_filters(expr: &Expr) -> Cow<Expr> {
     }
 }
 
-pub fn can_pushdown_filters(expr: &Expr) -> bool {
+pub(crate) fn can_pushdown_filters(expr: &Expr) -> bool {
     use Expr::*;
 
     match expr {
@@ -346,7 +346,7 @@ fn get_expr_as_string(expr: &Expr) -> Option<&str> {
     }
 }
 
-fn trim_filters_by_aggr_modifier(lfs: &mut [LabelFilter], afe: &AggregationExpr) {
+fn trim_filters_by_aggr_modifier(lfs: &mut Vec<LabelFilter>, afe: &AggregationExpr) {
     match &afe.modifier {
         None => lfs.clear(),
         Some(modifier) => match modifier {
@@ -363,7 +363,7 @@ fn trim_filters_by_aggr_modifier(lfs: &mut [LabelFilter], afe: &AggregationExpr)
 /// - It returns only filters specified in on()
 /// - It drops filters specified inside ignoring()
 pub fn trim_filters_by_match_modifier(
-    lfs: &mut [LabelFilter],
+    lfs: &mut Vec<LabelFilter>,
     group_modifier: &Option<VectorMatchModifier>,
 ) {
     match group_modifier {
@@ -430,7 +430,7 @@ pub fn pushdown_binary_op_filters<'a>(
     Cow::Owned(copy)
 }
 
-pub fn can_pushdown_op_filters(expr: &Expr) -> bool {
+fn can_pushdown_op_filters(expr: &Expr) -> bool {
     use Expr::*;
     // these are the types handled below in pushdown_binary_op_filters_in_place
     matches!(
@@ -444,7 +444,7 @@ pub fn can_pushdown_op_filters(expr: &Expr) -> bool {
     )
 }
 
-pub fn push_down_binary_op_filters_in_place(e: &mut Expr, common_filters: &mut [LabelFilter]) {
+pub fn push_down_binary_op_filters_in_place(e: &mut Expr, common_filters: &mut Vec<LabelFilter>) {
     use Expr::*;
 
     if common_filters.is_empty() {
@@ -528,13 +528,13 @@ pub fn push_down_binary_op_filters_in_place(e: &mut Expr, common_filters: &mut [
     }
 }
 
-fn pushdown_label_filters_for_all_args(lfs: &mut [LabelFilter], args: &mut [Expr]) {
+fn pushdown_label_filters_for_all_args(lfs: &mut Vec<LabelFilter>, args: &mut [Expr]) {
     for arg in args {
         push_down_binary_op_filters_in_place(arg, lfs)
     }
 }
 
-fn pushdown_label_filters_for_count_values_over_time(args: &mut [Expr], lfs: &mut [LabelFilter]) {
+fn pushdown_label_filters_for_count_values_over_time(args: &mut [Expr], lfs: &mut Vec<LabelFilter>) {
     if args.len() != 2 {
         return
     }
@@ -542,7 +542,7 @@ fn pushdown_label_filters_for_count_values_over_time(args: &mut [Expr], lfs: &mu
     push_down_binary_op_filters_in_place( &mut args[1], lfs);
 }
 
-fn pushdown_label_filters_for_label_keep(args: &mut [Expr], lfs: &mut [LabelFilter]) {
+fn pushdown_label_filters_for_label_keep(args: &mut [Expr], lfs: &mut Vec<LabelFilter>) {
     if args.is_empty() {
         return;
     }
@@ -551,7 +551,7 @@ fn pushdown_label_filters_for_label_keep(args: &mut [Expr], lfs: &mut [LabelFilt
     push_down_binary_op_filters_in_place(arg, lfs)
 }
 
-fn pushdown_label_filters_for_label_del(args: &mut [Expr], lfs: &mut [LabelFilter]) {
+fn pushdown_label_filters_for_label_del(args: &mut [Expr], lfs: &mut Vec<LabelFilter>) {
     if args.is_empty() {
         return;
     }
@@ -560,7 +560,7 @@ fn pushdown_label_filters_for_label_del(args: &mut [Expr], lfs: &mut [LabelFilte
     push_down_binary_op_filters_in_place(arg, lfs)
 }
 
-fn pushdown_label_filters_for_label_copy(args: &mut [Expr], lfs: &mut [LabelFilter]) {
+fn pushdown_label_filters_for_label_copy(args: &mut [Expr], lfs: &mut Vec<LabelFilter>) {
     if args.is_empty() {
         return;
     }
@@ -580,7 +580,7 @@ fn pushdown_label_filters_for_label_copy(args: &mut [Expr], lfs: &mut [LabelFilt
     push_down_binary_op_filters_in_place(arg, lfs)
 }
 
-fn pushdown_label_filters_for_label_replace(args: &mut [Expr], lfs: &mut [LabelFilter]) {
+fn pushdown_label_filters_for_label_replace(args: &mut [Expr], lfs: &mut Vec<LabelFilter>) {
     if args.len() < 2 {
         return;
     }
@@ -589,7 +589,7 @@ fn pushdown_label_filters_for_label_replace(args: &mut [Expr], lfs: &mut [LabelF
     push_down_binary_op_filters_in_place(arg, lfs)
 }
 
-fn pushdown_label_filters_for_label_set(args: &mut [Expr], lfs: &mut [LabelFilter]) {
+fn pushdown_label_filters_for_label_set(args: &mut [Expr], lfs: &mut Vec<LabelFilter>) {
     if args.is_empty() {
         return;
     }
@@ -673,7 +673,7 @@ fn drop_label_filters_for_label_name(lfs: &mut [LabelFilter], label_name: &Expr)
     lfs.retain(|x| !x.label.eq(name))
 }
 
-fn filter_label_filters_on(lfs: &mut [LabelFilter], args: &[String]) {
+fn filter_label_filters_on(lfs: &mut Vec<LabelFilter>, args: &[String]) {
     if !args.is_empty() {
         let m: FastHashSet<&String> = FastHashSet::from_iter(args.iter());
         lfs.retain(|x| m.contains(&x.label))
@@ -682,7 +682,7 @@ fn filter_label_filters_on(lfs: &mut [LabelFilter], args: &[String]) {
     }
 }
 
-fn filter_label_filters_ignoring(lfs: &mut [LabelFilter], args: &[String]) {
+fn filter_label_filters_ignoring(lfs: &mut Vec<LabelFilter>, args: &[String]) {
     if !args.is_empty() {
         let m: FastHashSet<&String> = FastHashSet::from_iter(args.iter());
         lfs.retain(|x| !m.contains(&x.label))
