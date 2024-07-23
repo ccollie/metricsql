@@ -614,7 +614,7 @@ fn get_label_filters_map(filters: &[LabelFilter]) -> FastHashSet<String> {
     set
 }
 
-fn intersect_label_filters(first: &mut [LabelFilter], second: &[LabelFilter]) {
+fn intersect_label_filters(first: &mut Vec<LabelFilter>, second: &[LabelFilter]) {
     if first.is_empty() || second.is_empty() {
         return;
     }

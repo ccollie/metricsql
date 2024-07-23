@@ -84,7 +84,7 @@ mod tests {
             222.12,
             f64::from_bits(0x7ff8000000000001), // Go representation of signalling NaN
             45.324,
-            std::f64::NAN,
+            f64::NAN,
             2453.023,
             -1234.235312132,
             f64::INFINITY,
