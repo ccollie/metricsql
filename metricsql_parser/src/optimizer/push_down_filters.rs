@@ -622,7 +622,7 @@ fn intersect_label_filters(first: &mut [LabelFilter], second: &[LabelFilter]) {
     first.retain(|x| set.contains(&x.to_string()));
 }
 
-fn union_label_filters(a: &mut [LabelFilter], b: &[LabelFilter]) {
+fn union_label_filters(a: &mut Vec<LabelFilter>, b: &[LabelFilter]) {
     // todo (perf) do we need to clone, or can we drain ?
     if a.is_empty() && !b.is_empty() {
         a.append(&mut b.to_owned());
@@ -640,7 +640,7 @@ fn union_label_filters(a: &mut [LabelFilter], b: &[LabelFilter]) {
         }
     }
 }
-fn keep_label_filters_for_label_names(lfs: &mut [LabelFilter], label_names: &[Expr]) {
+fn keep_label_filters_for_label_names(lfs: &mut Vec<LabelFilter>, label_names: &[Expr]) {
     let mut names_set: FastHashSet<&str> = FastHashSet::with_capacity(label_names.len());
     for label_name in label_names {
         if let Expr::StringLiteral(se_label_name) = label_name {
@@ -652,7 +652,7 @@ fn keep_label_filters_for_label_names(lfs: &mut [LabelFilter], label_names: &[Ex
     lfs.retain(|x| names_set.contains(x.label.as_str()))
 }
 
-fn drop_label_filters_for_label_names(lfs: &mut [LabelFilter], label_names: &[Expr]) {
+fn drop_label_filters_for_label_names(lfs: &mut Vec<LabelFilter>, label_names: &[Expr]) {
     let mut names_set: FastHashSet<&str> = FastHashSet::with_capacity(label_names.len());
     for label_name in label_names {
         if let Expr::StringLiteral(se_label_name) = label_name {
@@ -664,7 +664,7 @@ fn drop_label_filters_for_label_names(lfs: &mut [LabelFilter], label_names: &[Ex
     lfs.retain(|x| !names_set.contains(x.label.as_str()))
 }
 
-fn drop_label_filters_for_label_name(lfs: &mut [LabelFilter], label_name: &Expr) {
+fn drop_label_filters_for_label_name(lfs: &mut Vec<LabelFilter>, label_name: &Expr) {
     let name = if let Some(v) = get_expr_as_string(label_name) {
         v
     } else {
