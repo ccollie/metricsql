@@ -90,11 +90,8 @@ pub fn get_common_label_filters(e: &Expr) -> Vec<LabelFilter> {
             use RollupFunction::*;
 
             match fe.function {
-                BuiltinFunction::Rollup(rf) => match rf {
-                    CountValuesOverTime => {
-                        return get_common_label_filters_for_count_values_over_time(&fe.args)
-                    }
-                    _=> {}
+                BuiltinFunction::Rollup(rf) => if rf == CountValuesOverTime {
+                    return get_common_label_filters_for_count_values_over_time(&fe.args)
                 }
                 Transform(tf) => match tf {
                     LabelSet => {
@@ -133,7 +130,7 @@ pub fn get_common_label_filters(e: &Expr) -> Vec<LabelFilter> {
                 }
                 let mut lfs = get_common_label_filters(&agg.args[1]);
                 drop_label_filters_for_label_name(&mut lfs, &agg.args[0]);
-                trim_filters_by_aggr_modifier(&mut lfs, &agg);
+                trim_filters_by_aggr_modifier(&mut lfs, agg);
                 return lfs;
             }
             if can_accept_multiple_args_for_aggr_func(agg.function) {
@@ -255,7 +252,7 @@ fn get_common_label_filters_for_count_values_over_time(args: &[Expr]) -> Vec<Lab
 
 
 fn get_common_label_filters_for_label_keep(args: &[Expr]) -> Vec<LabelFilter> {
-    if args.len() == 0 {
+    if args.is_empty() {
         return vec![];
     }
     let mut lfs = get_common_label_filters(&args[0]);
@@ -264,7 +261,7 @@ fn get_common_label_filters_for_label_keep(args: &[Expr]) -> Vec<LabelFilter> {
 }
 
 fn get_common_label_filters_for_label_del(args: &[Expr]) -> Vec<LabelFilter> {
-    if args.len() == 0 {
+    if args.is_empty() {
         return vec![];
     }
     let mut lfs = get_common_label_filters(&args[0]);
@@ -273,7 +270,7 @@ fn get_common_label_filters_for_label_del(args: &[Expr]) -> Vec<LabelFilter> {
 }
 
 fn get_common_label_filters_for_label_copy(args: &[Expr]) -> Vec<LabelFilter> {
-    if args.len() == 0 {
+    if args.is_empty() {
         return vec![];
     }
     let mut lfs = get_common_label_filters(&args[0]);
@@ -332,7 +329,7 @@ fn get_common_label_filters_for_label_set(args: &[Expr]) -> Vec<LabelFilter> {
             continue;
         }
 
-        drop_label_filters_for_label_name(&mut lfs, &label_name);
+        drop_label_filters_for_label_name(&mut lfs, label_name);
         // LabelFilter::new() errors only in the case where operator is regex eq/ne, so the following unwrap() is safe
         lfs.push(LabelFilter::new(
             LabelFilterOp::Equal,
@@ -468,11 +465,8 @@ pub fn push_down_binary_op_filters_in_place(e: &mut Expr, common_filters: &mut V
             use TransformFunction::*;
 
             match fe.function {
-                BuiltinFunction::Rollup(rf) => match rf {
-                    RollupFunction::CountValuesOverTime => {
-                        return pushdown_label_filters_for_count_values_over_time(&mut fe.args, common_filters)
-                    }
-                    _ => {}
+                BuiltinFunction::Rollup(rf) => if rf == RollupFunction::CountValuesOverTime {
+                    return pushdown_label_filters_for_count_values_over_time(&mut fe.args, common_filters)
                 }
                 Transform(tf) => match tf {
                     LabelSet => {
@@ -535,13 +529,13 @@ pub fn push_down_binary_op_filters_in_place(e: &mut Expr, common_filters: &mut V
     }
 }
 
-fn pushdown_label_filters_for_all_args(lfs: &mut Vec<LabelFilter>, args: &mut Vec<Expr>) {
+fn pushdown_label_filters_for_all_args(lfs: &mut Vec<LabelFilter>, args: &mut [Expr]) {
     for arg in args {
         push_down_binary_op_filters_in_place(arg, lfs)
     }
 }
 
-fn pushdown_label_filters_for_count_values_over_time(args: &mut Vec<Expr>, lfs: &mut Vec<LabelFilter>) {
+fn pushdown_label_filters_for_count_values_over_time(args: &mut [Expr], lfs: &mut Vec<LabelFilter>) {
     if args.len() != 2 {
         return
     }
@@ -549,7 +543,7 @@ fn pushdown_label_filters_for_count_values_over_time(args: &mut Vec<Expr>, lfs: 
     push_down_binary_op_filters_in_place( &mut args[1], lfs);
 }
 
-fn pushdown_label_filters_for_label_keep(args: &mut Vec<Expr>, lfs: &mut Vec<LabelFilter>) {
+fn pushdown_label_filters_for_label_keep(args: &mut [Expr], lfs: &mut Vec<LabelFilter>) {
     if args.is_empty() {
         return;
     }
@@ -558,7 +552,7 @@ fn pushdown_label_filters_for_label_keep(args: &mut Vec<Expr>, lfs: &mut Vec<Lab
     push_down_binary_op_filters_in_place(arg, lfs)
 }
 
-fn pushdown_label_filters_for_label_del(args: &mut Vec<Expr>, lfs: &mut Vec<LabelFilter>) {
+fn pushdown_label_filters_for_label_del(args: &mut [Expr], lfs: &mut Vec<LabelFilter>) {
     if args.is_empty() {
         return;
     }
@@ -567,11 +561,11 @@ fn pushdown_label_filters_for_label_del(args: &mut Vec<Expr>, lfs: &mut Vec<Labe
     push_down_binary_op_filters_in_place(arg, lfs)
 }
 
-fn pushdown_label_filters_for_label_copy(args: &mut Vec<Expr>, lfs: &mut Vec<LabelFilter>) {
+fn pushdown_label_filters_for_label_copy(args: &mut [Expr], lfs: &mut Vec<LabelFilter>) {
     if args.is_empty() {
         return;
     }
-    let mut label_names: AHashSet<&str> = AHashSet::with_capacity(&args.len() - 1 / 2);
+    let mut label_names: AHashSet<&str> = AHashSet::with_capacity(args.len());
     for i in (1..args.len()).step_by(2) {
         if i + 1 >= args.len() {
             return;
@@ -587,7 +581,7 @@ fn pushdown_label_filters_for_label_copy(args: &mut Vec<Expr>, lfs: &mut Vec<Lab
     push_down_binary_op_filters_in_place(arg, lfs)
 }
 
-fn pushdown_label_filters_for_label_replace(args: &mut Vec<Expr>, lfs: &mut Vec<LabelFilter>) {
+fn pushdown_label_filters_for_label_replace(args: &mut [Expr], lfs: &mut Vec<LabelFilter>) {
     if args.len() < 2 {
         return;
     }
@@ -596,7 +590,7 @@ fn pushdown_label_filters_for_label_replace(args: &mut Vec<Expr>, lfs: &mut Vec<
     push_down_binary_op_filters_in_place(arg, lfs)
 }
 
-fn pushdown_label_filters_for_label_set(args: &mut Vec<Expr>, lfs: &mut Vec<LabelFilter>) {
+fn pushdown_label_filters_for_label_set(args: &mut [Expr], lfs: &mut Vec<LabelFilter>) {
     if args.is_empty() {
         return;
     }
@@ -727,7 +721,7 @@ fn get_aggr_arg_idx_for_optimization(
     use AggregateFunction::*;
     match func {
         CountValues => {
-            return Err(ParseError::ArgumentError(
+            Err(ParseError::ArgumentError(
                 "BUG: count_values must be already handled".to_string(),
             ))
         }
@@ -751,7 +745,7 @@ fn get_rollup_arg_idx_for_optimization(
 ) -> ParseResult<Option<usize>> {
     use RollupFunction::*;
     // This must be kept in sync with GetRollupArgIdx()
-    return match func_name {
+    match func_name {
         CountValuesOverTime => Err(ParseError::ArgumentError(
             "BUG: count_values_over_time must be already handled".to_string(),
         )),
@@ -759,7 +753,7 @@ fn get_rollup_arg_idx_for_optimization(
         QuantileOverTime | AggrOverTime | HoeffdingBoundLower | HoeffdingBoundUpper => Ok(Some(1)),
         QuantilesOverTime => Ok(Some(args.len() - 1)),
         _ => Ok(Some(0)),
-    };
+    }
 }
 
 fn get_transform_arg_idx_for_optimization(
@@ -767,7 +761,7 @@ fn get_transform_arg_idx_for_optimization(
     args: &[Expr],
 ) -> ParseResult<Option<usize>> {
     use TransformFunction::*;
-    return match func_name {
+    match func_name {
         LabelCopy | LabelDel | LabelJoin | LabelKeep | LabelLowercase | LabelMap | LabelMatch
         | LabelMismatch | LabelMove | LabelReplace | LabelSet | LabelTransform | LabelUppercase
         | LabelsEqual | RangeNormalize | Union => {
@@ -783,5 +777,5 @@ fn get_transform_arg_idx_for_optimization(
         | RangeTrimSpikes | RangeTrimZScore => Ok(Some(1)),
         HistogramQuantiles => Ok(Some(args.len() - 1)),
         _ => Ok(Some(0)),
-    };
+    }
 }

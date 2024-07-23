@@ -129,7 +129,7 @@ impl StringMatchHandler {
     #[allow(dead_code)]
     pub fn matches(&self, s: &str) -> bool {
         match self {
-            StringMatchHandler::Alternates(alts) => matches_alternates(&alts, s),
+            StringMatchHandler::Alternates(alts) => matches_alternates(alts, s),
             StringMatchHandler::Fsm(fsm) => fsm.matches(s),
             StringMatchHandler::MatchFn(m) => m.matches(s),
             StringMatchHandler::FastRegex(r) => r.matches(s),

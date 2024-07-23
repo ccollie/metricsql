@@ -263,8 +263,7 @@ impl FromStr for TransformFunction {
                 let lower = s.to_ascii_lowercase();
                 REVERSE_MAP.get(lower.as_str())
             })
-            .ok_or_else(|| ParseError::InvalidFunction(s.to_string()))
-            .map(|x| *x)
+            .ok_or_else(|| ParseError::InvalidFunction(s.to_string())).copied()
     }
 }
 

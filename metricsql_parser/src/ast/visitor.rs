@@ -109,8 +109,7 @@ mod tests {
     fn vector_selector_includes_namespace(namespace: &str, vector_selector: &MetricExpr) -> bool {
         vector_selector.matchers.find_matchers("namespace")
             .iter()
-            .find(|x| x.op == LabelFilterOp::Equal && x.value.eq(namespace))
-            .is_some()
+            .any(|x| x.op == LabelFilterOp::Equal && x.value.eq(namespace))
     }
 
     impl ExprVisitor for NamespaceVisitor {
@@ -121,7 +120,7 @@ mod tests {
                 Expr::MetricExpression(matrix_selector) => {
                     let included = vector_selector_includes_namespace(
                         self.namespace.as_str(),
-                        &matrix_selector,
+                        matrix_selector,
                     );
                     return Ok(included);
                 }

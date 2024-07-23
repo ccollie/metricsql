@@ -79,7 +79,7 @@ impl SeriesSlice<'_> {
         }
     }
 
-    pub fn from_timeseries(ts: &'_ Timeseries, range: Some((usize, usize))) -> Self {
+    pub fn from_timeseries(ts: &'_ Timeseries, range: Option<(usize, usize)>) -> Self {
         if let Some((start, end)) = range {
             SeriesSlice {
                 metric_name: &ts.metric_name,

@@ -298,7 +298,7 @@ pub fn get_local_tz() -> Option<Tz> {
 
 #[cfg(test)]
 mod tests {
-    use chrono::{DateTime, NaiveDateTime};
+    use chrono::DateTime;
 
     use crate::prelude::{
         timestamp_ms_to_datetime, timestamp_ns_to_datetime, timestamp_us_to_datetime, NANOSECONDS,

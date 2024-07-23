@@ -226,7 +226,7 @@ mod tests {
         f("123s", 42, 123 * 1000);
         f("-123s", 42, -123 * 1000);
         f("123m", 42, 123 * MINUTE);
-        f("1h", 42, 1 * HOUR);
+        f("1h", 42, HOUR);
         f("2d", 42, 2 * DAY);
         f("3w", 42, 3 * WEEK);
         f("4y", 42, 4 * YEAR);
@@ -273,11 +273,8 @@ mod tests {
     #[test]
     fn test_duration_error() {
         fn f(s: &str) {
-            match parse_duration_value(s, 42) {
-                Ok(d) => {
-                    panic!("Expected error, got {} for expr {}", d, s)
-                }
-                _ => {}
+            if let Ok(d) = parse_duration_value(s, 42) {
+                panic!("Expected error, got {} for expr {}", d, s)
             }
         }
 
@@ -302,10 +299,7 @@ mod tests {
     #[test]
     fn test_positive_duration_error() {
         fn f(s: &str) {
-            match positive_duration_value(s, 42) {
-                Ok(_) => panic!("Expecting an error for duration {}", s),
-                _ => {}
-            }
+            if let Ok(_) = positive_duration_value(s, 42) { panic!("Expecting an error for duration {}", s) }
         }
         f("");
         f("foo");

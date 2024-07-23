@@ -9,7 +9,7 @@ mod tests {
     use crate::prelude::Operator;
 
     fn parse_or_panic(s: &str) -> Expr {
-        parse(s).expect(format!("Error parsing expression {s}").as_str())
+        parse(s).unwrap_or_else(|_| panic!("Error parsing expression {s}"))
     }
 
     fn another(s: &str, expected: &str) {
@@ -765,7 +765,7 @@ mod tests {
             if !op.is_valid_string_op() {
                 let expr = format!(r#""foo" {op} "bar""#);
                 let expected_msg = "not allowed in string string operations";
-                assert_invalid_ex(&expr, Some(&expected_msg))
+                assert_invalid_ex(&expr, Some(expected_msg))
             }
         }
     }

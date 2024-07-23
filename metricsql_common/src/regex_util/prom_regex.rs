@@ -80,7 +80,7 @@ mod test {
 
             // Make sure the result is the same for regular regexp
             let expr_anchored = "^(?:".to_owned() + expr + ")$";
-            let re = Regex::new(&*expr_anchored).expect("unexpected failure");
+            let re = Regex::new(&expr_anchored).expect("unexpected failure");
             let result = re.is_match(s);
             assert_eq!(
                 result, result_expected,

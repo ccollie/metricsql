@@ -11,7 +11,7 @@ mod tests {
         if q == "{}" {
             return Expr::MetricExpression(MetricExpr::default());
         }
-        parse(q).expect(format!("unexpected error in parse({})", q).as_str())
+        parse(q).unwrap_or_else(|_| panic!("unexpected error in parse({})", q))
     }
 
     #[test]
@@ -132,7 +132,7 @@ mod tests {
     fn test_get_common_label_filters() {
         let get_filters = |q: &str| -> String {
             let e = parse_selector(q);
-            let expr = optimize(e).expect(format!("unexpected error in optimize({})", q).as_str());
+            let expr = optimize(e).unwrap_or_else(|_| panic!("unexpected error in optimize({})", q));
             let lfs = get_common_label_filters(&expr);
             let mut me = MetricExpr::with_filters(lfs);
             me.sort_filters();

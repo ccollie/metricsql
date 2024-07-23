@@ -28,7 +28,7 @@ mod tests {
             for _ in 0..3 {
                 let expanded = expand_with_exprs(q)
                     .unwrap_or_else(|_| panic!("unexpected error when expanding {}", q));
-                if expanded != "" {
+                if !expanded.is_empty() {
                     panic!("unexpected non-empty expanded={}", expanded)
                 }
             }

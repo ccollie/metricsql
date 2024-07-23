@@ -644,7 +644,7 @@ mod tests {
         let mut lexer = Token::lexer(src);
         if let Some(first) = lexer.next() {
             let token = first.unwrap();
-            if let Some(_) = lexer.next() {
+            if lexer.next().is_some() {
                 panic!("unexpected token after {:?} : {}", token, lexer.slice());
             }
             return token;

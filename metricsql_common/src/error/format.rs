@@ -27,10 +27,10 @@ mod tests {
     use std::any::Any;
 
     use snafu::prelude::*;
-    use snafu::{GenerateImplicitData, Location};
+    use snafu::Location;
     use crate::error::ext::{ErrorExt, StackError};
 
-    use super::*;
+    
 
     #[derive(Debug, Snafu)]
     #[snafu(display("This is a leaf error"))]

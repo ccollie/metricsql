@@ -318,7 +318,7 @@ fn handle_scalar_fn(arg: &Expr) -> Option<f64> {
         // Verify whether the arg is a string.
         // Then try converting the string to number.
         Expr::StringLiteral(s) => {
-            let n = parse_number(s).map_or_else(|_| f64::NAN, |n| n);
+            let n = parse_number(s).unwrap_or(f64::NAN);
             Some(n)
         }
         Expr::NumberLiteral(n) => Some(n.value),

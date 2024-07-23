@@ -421,7 +421,7 @@ impl Matchers {
                 lfs.len() <= 1
             });
         }
-        return true;
+        true
     }
 
     pub fn metric_name(&self) -> Option<&str> {

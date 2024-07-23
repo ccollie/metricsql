@@ -68,7 +68,7 @@ impl ErrorExt for Error {
 
 pub fn get_runtime() -> &'static AsyncRuntime {
     static RUNTIME: OnceLock<AsyncRuntime> = OnceLock::new();
-    RUNTIME.get_or_init(|| AsyncRuntime::new())
+    RUNTIME.get_or_init(AsyncRuntime::new)
 }
 
 pub fn runtime() -> &'static impl Runtime {

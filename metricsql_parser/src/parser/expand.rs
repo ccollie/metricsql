@@ -324,7 +324,7 @@ fn expand_with_selector_expression(
     match expanded {
         Expr::Rollup(mut re) => {
             re.expr = Box::new(Expr::MetricExpression(me));
-            return Ok(Expr::Rollup(re));
+            Ok(Expr::Rollup(re))
         },
         _ => Ok(Expr::MetricExpression(me))
     }

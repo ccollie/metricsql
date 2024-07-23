@@ -10,7 +10,7 @@ const CACHE_EXPIRE_DURATION: Duration = Duration::from_secs(5 * 60);
 fn is_skip_cache(s: &str) -> bool {
     // Skip caching for short strings, since they are usually used only once.
     // This reduces memory usage.
-    return s.len() < 16;
+    s.len() < 16
 }
 
 /// StringTransformCache implements fast transformer for strings.
