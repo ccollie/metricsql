@@ -69,9 +69,9 @@ pub(crate) struct SeriesSlice<'a> {
     pub values: &'a [f64],
 }
 
-impl SeriesSlice<'_> {
+impl<'a> SeriesSlice<'a> {
 
-    pub fn new(metric_name: &'_ MetricName, timestamps: &'_ [i64], values: &'_ [f64]) -> Self {
+    pub fn new(metric_name: &'a MetricName, timestamps: &'a [i64], values: &'a [f64]) -> Self {
         SeriesSlice {
             metric_name,
             timestamps,
@@ -79,7 +79,7 @@ impl SeriesSlice<'_> {
         }
     }
 
-    pub fn from_timeseries(ts: &'_ Timeseries, range: Option<(usize, usize)>) -> Self {
+    pub fn from_timeseries(ts: &'a Timeseries, range: Option<(usize, usize)>) -> Self {
         if let Some((start, end)) = range {
             SeriesSlice {
                 metric_name: &ts.metric_name,
@@ -97,16 +97,6 @@ impl SeriesSlice<'_> {
 
     pub fn len(&self) -> usize {
         self.timestamps.len()
-    }
-}
-
-impl From<Timeseries> for SeriesSlice<'_> {
-    fn from(ts: Timeseries) -> Self {
-        SeriesSlice {
-            metric_name: &ts.metric_name,
-            timestamps: &ts.timestamps,
-            values: &ts.values,
-        }
     }
 }
 

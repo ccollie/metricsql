@@ -71,6 +71,7 @@ impl StringMatchHandler {
         ))
     }
 
+    #[allow(dead_code)]
     pub fn not_prefix<T: Into<String>>(prefix: T, is_dot_star: bool) -> Self {
         Self::MatchFn(MatchFnHandler::new(
             prefix,
@@ -82,6 +83,7 @@ impl StringMatchHandler {
         ))
     }
 
+    #[allow(dead_code)]
     pub fn suffix<T: Into<String>>(suffix: T, is_dot_star: bool) -> Self {
         Self::MatchFn(MatchFnHandler::new(
             suffix,
@@ -93,6 +95,7 @@ impl StringMatchHandler {
         ))
     }
 
+    #[allow(dead_code)]
     pub fn not_suffix<T: Into<String>>(suffix: T, is_dot_star: bool) -> Self {
         Self::MatchFn(MatchFnHandler::new(
             suffix,

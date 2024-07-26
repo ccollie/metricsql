@@ -39,7 +39,7 @@ pub enum AggregateFunction {
     Quantiles,
     /// calculate sum over dimensions
     Sum,
-    // PromQL extension funcs
+    // PromQL extension functions
     /// any(q) by (group_labels) returns a single series per group_labels out of time series returned by q.
     /// See also group.
     Any,
@@ -167,7 +167,7 @@ static FUNCTION_MAP: phf::Map<&'static str, AggregateFunction> = phf_map! {
     "sum" =>           AggregateFunction::Sum,
     "topk" =>          AggregateFunction::Topk,
 
-    // PromQL extension funcs
+    // PromQL extension functions
     "any" =>             AggregateFunction::Any,
     "bottomk_min" =>     AggregateFunction::BottomkMin,
     "bottomk_max" =>     AggregateFunction::BottomkMax,

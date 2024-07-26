@@ -1,13 +1,16 @@
 use std::io::Write;
 use std::mem::size_of;
 use std::sync::Arc;
+
 use pco::{ChunkConfig, PagingSpec};
 use pco::data_types::NumberLike;
 use pco::errors::PcoError;
 use pco::standalone::{simple_compress, simple_decompress_into};
+
 use crate::{MetricName, RuntimeError, RuntimeResult, Timeseries, Timestamp};
-use crate::common::encoding::{marshal_var_i64};
+use crate::common::encoding::marshal_var_i64;
 use crate::types::SeriesSlice;
+
 // todo: move elsewhere
 
 pub(crate) fn compress_series(series: &[Timeseries], buf: &mut Vec<u8>) -> RuntimeResult<()> {

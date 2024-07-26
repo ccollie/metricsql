@@ -59,7 +59,7 @@ pub(crate) type RollupFunc = fn(rfa: &RollupFuncArg) -> f64;
 pub trait RollupFn: Fn(&RollupFuncArg) -> f64 + Send + Sync {}
 
 /// implement `Rollup` on any type that implements `Fn(&RollupFuncArg) -> f64`.
-impl<T> RollupFn for T where T: Fn(&RollupFuncArg) -> f64 + Send + Sync {}
+impl<T> RollupFn for T where T: Fn(&RollupFuncArg) -> f64 + Send + Sync + std::clone::Clone {}
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct GenericRollupHandler<T, F>

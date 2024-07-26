@@ -637,7 +637,7 @@ fn hir_to_string(sre: &Hir) -> String {
             s
         }
         HirKind::Alternation(alternate) => {
-            // avoid extra allocation if its all literal
+            // avoid extra allocation if it's all literal
             if alternate.iter().all(is_literal) {
                 return alternate
                     .iter()
@@ -862,6 +862,7 @@ fn remove_anchors(v: &Vec<Hir>) -> Cow<'_, Vec<Hir>> {
 }
 
 // todo: COW
+// todo: needs tests
 fn coalesce_alternation(first: &Hir, second: &Hir) -> Option<Hir> {
     fn build_alternation(alts: Vec<&str>, prefix: Option<String>, suffix: Option<String>) -> Hir {
         // todo: could be more efficient
@@ -900,7 +901,7 @@ fn coalesce_alternation(first: &Hir, second: &Hir) -> Option<Hir> {
             return Some(Hir::concat(vec![first.clone(), second.clone()]));
         }
         (HirKind::Literal(_), HirKind::Capture(_)) => {
-            // we possibly have something like 'foo(bar|baz)'. Convert to Alternatipm
+            // we possibly have something like 'foo(bar|baz)'. Convert to Alternation
             // (foobar | foobaz)
             // get alternates from capture, if applicable
             if let Some(alts) = get_captured_alternates(second) {
@@ -908,7 +909,7 @@ fn coalesce_alternation(first: &Hir, second: &Hir) -> Option<Hir> {
             }
         }
         (HirKind::Capture(_), HirKind::Literal(_)) => {
-            // we possibly have something like '(bar|baz)foo'. Convert to Alternatipm
+            // we possibly have something like '(bar|baz)foo'. Convert to Alternation
             // (barfoo | bazfoo)
             // get alternates from capture, if applicable
             if let Some(alts) = get_captured_alternates(second) {
@@ -916,7 +917,7 @@ fn coalesce_alternation(first: &Hir, second: &Hir) -> Option<Hir> {
             }
         }
         (HirKind::Capture(_), HirKind::Capture(_)) => {
-            // we possibly have something like '(bar|baz)(foo|qux)'. Convert to Alternatipm
+            // we possibly have something like '(bar|baz)(foo|qux)'. Convert to Alternation
             // (barfoo | barqux | bazfoo | bazqux)
             // get alternates from capture, if applicable
             if let (Some(left_alts), Some(right_alts)) = (

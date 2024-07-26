@@ -194,7 +194,6 @@ pub(crate) fn timeseries_to_result(
                 metric: ts.metric_name.clone(), // todo(perf) into vs clone/take
                 values: ts.values.clone(),      // perf) .into vs clone/take
                 timestamps: ts.timestamps.as_ref().clone(), // todo(perf): declare field as Rc<Vec<i64>>
-                rows_processed: 0,
             };
 
             result.push(res);
@@ -257,8 +256,8 @@ fn no_implicit_conversion_required(e: &Expr, is_sub_expr: bool) -> bool {
             true
         },
         Expr::Rollup(re) => {
-            match &re.expr {
-                Some(Expr::MetricExpression(me)) => {
+            match re.expr.as_ref() {
+                Expr::MetricExpression(_) => {
                     return re.step.is_none();
                 },
                 _ => {}

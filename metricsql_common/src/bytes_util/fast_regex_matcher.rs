@@ -26,7 +26,7 @@ impl FastRegexMatcher {
         }
     }
 
-    // Match applies match_func to s and returns the result.
+    /// Applies match_func to s and returns the result.
     pub fn matches(&self, s: &str) -> bool {
         let key = s.to_string();
         self.matches_string(&key)

@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use metricsql_parser::ast::Expr;
-use metricsql_parser::label::{LabelFilter, Matchers};
+use metricsql_parser::label::Matchers;
 use metricsql_parser::parser::parse;
 
 use crate::runtime_error::{RuntimeError, RuntimeResult};
@@ -21,7 +21,22 @@ pub(crate) fn join_matchers_with_extra_filters<'a>(
         if etfs.is_empty() {
             return Cow::Borrowed::<'a>(src);
         }
-        let dst = src.clone().merge(etfs);
+        let mut dst = src.clone();
+
+        if !etfs.or_matchers.is_empty() {
+            if !dst.matchers.is_empty() {
+                dst.or_matchers.push(std::mem::take(&mut dst.matchers));
+            }
+            etfs.or_matchers.iter().for_each(|m| {
+                dst.or_matchers.push(m.clone());
+            });
+        }
+        if !etfs.matchers.is_empty() {
+            if !dst.matchers.is_empty() {
+                dst.or_matchers.push(std::mem::take(&mut dst.matchers));
+            }
+            dst.or_matchers.push(etfs.matchers.clone());
+        }
         return Cow::Owned::<'a>(dst);
     }
     Cow::Borrowed::<'a>(src)

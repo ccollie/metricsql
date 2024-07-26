@@ -4,7 +4,6 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 
 use metricsql_parser::label::{LabelFilter, Matchers};
 
@@ -18,13 +17,13 @@ pub type TimeRange = Range<Timestamp>;
 
 // todo: async_executor ???. Add context ?
 pub trait MetricDataProvider: Sync + Send {
-    fn search(&self, sq: &SearchQuery, deadline: &Deadline) -> RuntimeResult<QueryResults>;
+    fn search(&self, sq: SearchQuery, deadline: &Deadline) -> RuntimeResult<QueryResults>;
 }
 
 pub struct NullMetricDataProvider {}
 
 impl MetricDataProvider for NullMetricDataProvider {
-    fn search(&self, _sq: &SearchQuery, _deadline: &Deadline) -> RuntimeResult<QueryResults> {
+    fn search(&self, _sq: SearchQuery, _deadline: &Deadline) -> RuntimeResult<QueryResults> {
         let qr = QueryResults::default();
         Ok(qr)
     }
@@ -32,14 +31,14 @@ impl MetricDataProvider for NullMetricDataProvider {
 
 #[async_trait]
 pub trait MetricStorage: Sync + Send {
-    async fn search(&self, sq: &SearchQuery, deadline: Deadline) -> RuntimeResult<QueryResults>;
+    async fn search(&self, sq: SearchQuery, deadline: Deadline) -> RuntimeResult<QueryResults>;
 }
 
 pub struct NullMetricStorage {}
 
 #[async_trait]
 impl MetricStorage for NullMetricStorage {
-    async fn search(&self, _sq: &SearchQuery, _deadline: Deadline) -> RuntimeResult<QueryResults> {
+    async fn search(&self, _sq: SearchQuery, _deadline: Deadline) -> RuntimeResult<QueryResults> {
         let qr = QueryResults::default();
         Ok(qr)
     }
@@ -47,7 +46,7 @@ impl MetricStorage for NullMetricStorage {
 
 /// QueryableFunc is an adapter to allow the use of ordinary functions as
 /// MetricDataProvider. It follows the idea of http.HandlerFunc.
-pub type QueryableFunc = fn(ctx: &Context, sq: &SearchQuery) -> RuntimeResult<QueryResults>;
+pub type QueryableFunc = fn(ctx: &Context, sq: SearchQuery) -> RuntimeResult<QueryResults>;
 
 /// SearchQuery is used for sending provider queries to external data sources.
 #[derive(Debug, Clone)]
@@ -64,12 +63,12 @@ pub struct SearchQuery<'a> {
     pub max_metrics: usize,
 }
 
-impl SearchQuery {
+impl<'a> SearchQuery<'a> {
     /// Create a new provider query for the given args.
     pub fn new(
         start: Timestamp,
         end: Timestamp,
-        tag_filter_list: &Matchers,
+        matchers: &'a Matchers,
         max_metrics: usize,
     ) -> Self {
         let mut max = max_metrics;
@@ -84,24 +83,13 @@ impl SearchQuery {
         SearchQuery {
             start,
             end,
-            matchers: tag_filter_list,
+            matchers,
             max_metrics: max,
         }
     }
 }
 
-impl Default for SearchQuery<'_> {
-    fn default() -> Self {
-        SearchQuery {
-            start: Timestamp::from(0),
-            end: Timestamp::from(0),
-            matchers: &Matchers::default(),
-            max_metrics: 0,
-        }
-    }
-}
-
-impl Display for SearchQuery {
+impl<'a> Display for SearchQuery<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let start = self.start.to_string_millis();
         let end = self.end.to_string_millis();
@@ -124,6 +112,26 @@ fn filters_to_string(tfs: &[LabelFilter]) -> String {
     a.join(",")
 }
 
+/// InstantQuery is used for returning instant query results from external data sources.
+#[derive(Debug, Clone)]
+pub struct InstantQueryResult {
+    pub metrics: Vec<MetricName>,
+    pub timestamp: i64,
+    pub values: Vec<f64>,
+}
+
+/// RangeQueryResult is a single timeseries result returned from a range query.
+///
+/// ProcessSearchQuery returns QueryResult slices.
+#[derive(Default, Debug, Clone, PartialEq)]
+pub struct RangeQueryResult {
+    /// The name of the metric.
+    pub metric: MetricName,
+    /// Values are sorted by Timestamps.
+    pub values: Vec<f64>,
+    pub timestamps: Vec<i64>,
+}
+
 /// QueryResult is a single timeseries result.
 ///
 /// ProcessSearchQuery returns QueryResult slices.
@@ -134,7 +142,6 @@ pub struct QueryResult {
     /// Values are sorted by Timestamps.
     pub values: Vec<f64>,
     pub timestamps: Vec<i64>,
-    pub(crate) rows_processed: usize,
 }
 
 impl QueryResult {
@@ -143,7 +150,6 @@ impl QueryResult {
             metric,
             values,
             timestamps,
-            rows_processed: 0,
         }
     }
 
@@ -152,7 +158,6 @@ impl QueryResult {
             metric: MetricName::default(),
             values: Vec::with_capacity(cap),
             timestamps: Vec::with_capacity(cap),
-            rows_processed: 0,
         }
     }
 

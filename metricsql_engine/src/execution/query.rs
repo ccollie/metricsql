@@ -193,7 +193,7 @@ struct CommonParams<'a> {
     filters: Cow<'a, Matchers>,
 }
 
-impl CommonParams {
+impl<'a> CommonParams<'a> {
     pub fn is_default_time_range(&self) -> bool {
         self.start == 0 && self.current_timestamp - self.end < 1000
     }

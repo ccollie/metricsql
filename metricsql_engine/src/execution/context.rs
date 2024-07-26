@@ -34,19 +34,28 @@ impl Context {
         self
     }
 
-    pub fn search(&self, sq: &SearchQuery, deadline: Deadline) -> RuntimeResult<QueryResults> {
+    pub fn search(&self, sq: SearchQuery, deadline: Deadline) -> RuntimeResult<QueryResults> {
         use metricsql_common::async_runtime::*;
 
         let storage = self.storage.clone();
         // todo: use std::time::Duration for deadline
         let timeout_ms = deadline.timeout.num_milliseconds() as u64;
         let duration = std::time::Duration::from_millis(timeout_ms);
+
+        fn handle_error(err: Error) -> RuntimeError {
+            match err {
+                Error::Join { msg } => RuntimeError::General(msg),
+                Error::Timeout { .. } => RuntimeError::DeadlineExceededError("search timeout".to_string()),
+                Error::Execution { source } => RuntimeError::ExecutionError(source.to_string()),
+            }
+        }
+
         let res= block_sync(async move {
             if duration.is_zero() {
-                storage.search(&sq, deadline).await
+                storage.search(sq, deadline).await
             } else {
                 let res = timeout(duration, async move {
-                    storage.search(&sq, deadline).await
+                    storage.search(sq, deadline).await
                 }).await;
                 match res {
                     Ok(res) => res,

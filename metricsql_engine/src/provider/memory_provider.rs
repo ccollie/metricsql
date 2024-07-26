@@ -104,7 +104,6 @@ impl Storage {
                     metric: metric_name,
                     values,
                     timestamps,
-                    rows_processed: 0,
                 });
             }
         }
@@ -163,14 +162,14 @@ impl MemoryMetricProvider {
 }
 
 impl MetricDataProvider for MemoryMetricProvider {
-    fn search(&self, sq: &SearchQuery, _deadline: &Deadline) -> RuntimeResult<QueryResults> {
+    fn search(&self, sq: SearchQuery, _deadline: &Deadline) -> RuntimeResult<QueryResults> {
         self.search(sq.start, sq.end, &sq.matchers)
     }
 }
 
 #[async_trait]
 impl MetricStorage for MemoryMetricProvider {
-    async fn search(&self, sq: &SearchQuery, _deadline: Deadline) -> RuntimeResult<QueryResults> {
+    async fn search(&self, sq: SearchQuery, _deadline: Deadline) -> RuntimeResult<QueryResults> {
         self.search_internal(sq.start, sq.end, &sq.matchers)
     }
 }

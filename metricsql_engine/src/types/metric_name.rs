@@ -30,7 +30,7 @@ const SEP: u8 = 0xff;
 const SET_SEARCH_MIN_THRESHOLD: usize = 16;
 
 /// Tag represents a (key, value) tag for metric.
-#[derive(Debug, Default, PartialEq, Eq, Clone, Hash, Serialize, Deserialize)]
+#[derive(Debug, Default, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Tag {
     pub key: String,
     pub value: String,
