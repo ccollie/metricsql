@@ -9,7 +9,7 @@ mod tests {
     use crate::prelude::Operator;
 
     fn parse_or_panic(s: &str) -> Expr {
-        parse(s).unwrap_or_else(|_| panic!("Error parsing expression {s}"))
+        parse(s).unwrap_or_else(|e| panic!("Error parsing expression {s}: {:?}", e))
     }
 
     fn another(s: &str, expected: &str) {
@@ -97,8 +97,8 @@ mod tests {
 
     #[test]
     fn test_parse_metric_expr() {
-        same("foo{}");
         same(r#"{foo="bar"}[5m]"#);
+        same("foo{}");
         same("foo[5m:]");
         same("bar[:]");
         another("some_metric[: ]", "some_metric[:]");

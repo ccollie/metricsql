@@ -132,7 +132,7 @@ mod tests {
     fn test_get_common_label_filters() {
         let get_filters = |q: &str| -> String {
             let e = parse_selector(q);
-            let expr = optimize(e).unwrap_or_else(|_| panic!("unexpected error in optimize({})", q));
+            let expr = optimize(e).unwrap_or_else(|e| panic!("unexpected error in optimize({}): {}", q, e));
             let lfs = get_common_label_filters(&expr);
             let mut me = MetricExpr::with_filters(lfs);
             me.sort_filters();

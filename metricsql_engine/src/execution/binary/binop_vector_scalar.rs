@@ -39,7 +39,7 @@ pub(crate) fn eval_vector_scalar_binop(
             v.metric_name.reset_metric_group();
         }
 
-        // special case `unless` operator. If the vector has labels, then By definition we have mismatched
+        // special case `unless` operator. If the vector has labels, then by definition we have mismatched
         // labels, since rhs is a scalar. In that case, return the vector as is.
         if is_unless && !v.metric_name.is_empty() {
             continue;

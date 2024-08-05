@@ -12,7 +12,7 @@ path="src/lib.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-agnostic = {  version = "0.3" }
+agnostic-lite = {  version = "0.3", features = ["time"] }
 ahash.workspace = true
 cfg-if = "1.0"
 chrono.workspace = true
@@ -37,6 +37,6 @@ test-case.workspace = true
 
 [features]
 default = ["tokio"]
-tokio = ["agnostic/tokio"]
-async-std = ["agnostic/async-std"]
-smol = ["agnostic/smol"]
+tokio = ["agnostic-lite/tokio"]
+async-std = ["agnostic-lite/async-std"]
+smol = ["agnostic-lite/smol"]

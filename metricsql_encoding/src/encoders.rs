@@ -1,7 +1,6 @@
 pub mod boolean;
 pub mod float;
 pub mod integer;
-pub mod qcompress;
 mod simple8b;
 pub mod string;
 pub mod timestamp;

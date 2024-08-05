@@ -167,10 +167,8 @@ pub(crate) fn deserialize_series_between(
             break;
         }
 
-        if size != page_t.capacity() {
-            page_v.resize(size, 0.0);
-            page_t.resize(size, 0);
-        }
+        page_v.resize(size, 0.0);
+        page_t.resize(size, 0);
 
         let mut ts = read_timestamp(&mut compressed)?;
 
@@ -298,6 +296,15 @@ fn write_timestamp(dest: &mut Vec<u8>, ts: i64) {
 
 fn write_usize(slice: &mut Vec<u8>, size: usize) {
     slice.extend_from_slice(&size.to_le_bytes());
+}
+
+pub(super) fn write_usize_in_place(vec: &mut Vec<u8>, index: usize, value: usize) {
+    let bytes = value.to_le_bytes();
+    let end = index + bytes.len();
+    if end > vec.len() {
+        panic!("Index out of bounds");
+    }
+    vec[index..end].copy_from_slice(&bytes);
 }
 
 fn read_usize<'a>(input: &mut &'a [u8], field: &str) -> RuntimeResult<usize> {

@@ -742,7 +742,7 @@ fn try_get_arg_rollup_func_with_metric_expr(
 #[cfg(test)]
 mod tests {
     use metricsql_parser::ast::MetricExpr;
-    use metricsql_parser::label::LabelFilter;
+    use metricsql_parser::label::{LabelFilter, Matchers};
     use metricsql_parser::prelude::{DurationExpr, Expr};
 
     use crate::execution::dag::duration_node::DurationNode;
@@ -839,7 +839,8 @@ mod tests {
             assert_eq!(r.expr, expr_clone);
             assert_eq!(r.metric_expr, MetricExpr::with_filters(filters.clone()));
             if let Expr::MetricExpression(MetricExpr { matchers, .. }) = &r.expr {
-                assert_eq!(&filters, matchers.matchers);
+                let comparand = Matchers::new(filters);
+                assert_eq!(&comparand, matchers);
             } else {
                 panic!("Expected Expr::MetricExpression(_)");
             }

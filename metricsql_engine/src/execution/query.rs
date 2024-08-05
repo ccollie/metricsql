@@ -12,7 +12,7 @@ use crate::execution::{
     adjust_start_end, exec, parse_promql_internal, validate_max_points_per_timeseries,
 };
 use crate::execution::{Context, EvalConfig};
-use crate::provider::join_matchers_with_extra_filters;
+use crate::prelude::{is_empty_extra_matchers, join_matchers_with_extra_filters_owned};
 use crate::types::{Timestamp, TimestampTrait};
 
 /// Default step used if not set.
@@ -185,15 +185,15 @@ impl QueryBuilder {
 
 /// CommonParams contains common parameters for all /api/v1/* handlers
 #[derive(Debug, Default)]
-struct CommonParams<'a> {
+struct CommonParams {
     deadline: Deadline,
     start: Timestamp,
     end: Timestamp,
     current_timestamp: i64,
-    filters: Cow<'a, Matchers>,
+    filters: Matchers,
 }
 
-impl<'a> CommonParams<'a> {
+impl CommonParams {
     pub fn is_default_time_range(&self) -> bool {
         self.start == 0 && self.current_timestamp - self.end < 1000
     }
@@ -240,14 +240,24 @@ pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<Query
             }
 
             // Fetch the remaining part of the result.
-            let tfs_list = join_matchers_with_extra_filters(&filters, &params.required_tag_filters);
 
-            let cp = CommonParams {
-                deadline: params.deadline,
-                start,
-                end,
-                current_timestamp: ct,
-                filters: tfs_list,
+            let cp = if is_empty_extra_matchers(&params.required_tag_filters){
+                CommonParams {
+                    deadline: params.deadline,
+                    start,
+                    end,
+                    current_timestamp: ct,
+                    filters: filters.clone(),
+                }
+            } else {
+                let tfs_list = join_matchers_with_extra_filters_owned(&filters, &params.required_tag_filters);
+                CommonParams {
+                    deadline: params.deadline,
+                    start,
+                    end,
+                    current_timestamp: ct,
+                    filters: tfs_list,
+                }
             };
 
             return match export_handler(context, cp) {
@@ -331,7 +341,8 @@ pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<Query
 
 fn export_handler(ctx: &Context, cp: CommonParams) -> RuntimeResult<QueryResults> {
     let max_series = &ctx.config.max_unique_timeseries;
-    let sq = SearchQuery::new(cp.start, cp.end, &cp.filters, *max_series);
+    let CommonParams { start, end, filters, .. } = cp;
+    let sq = SearchQuery::new(start, end, filters, *max_series);
     ctx.search(sq, cp.deadline)
 }
 

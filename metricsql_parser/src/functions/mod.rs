@@ -37,11 +37,24 @@ pub enum BuiltinFunctionType {
 }
 
 impl BuiltinFunctionType {
-    pub fn to_str(&self) -> &'static str {
+    pub const fn to_str(&self) -> &'static str {
         match self {
             BuiltinFunctionType::Aggregate => "aggregate",
             BuiltinFunctionType::Rollup => "rollup",
             BuiltinFunctionType::Transform => "transform",
+        }
+    }
+}
+
+impl FromStr for BuiltinFunctionType {
+    type Err = ParseError;
+
+    fn from_str(s: &str) -> Result<Self, ParseError> {
+        match s {
+            s if s.eq_ignore_ascii_case("aggregate") => Ok(BuiltinFunctionType::Aggregate),
+            s if s.eq_ignore_ascii_case("rollup") => Ok(BuiltinFunctionType::Rollup),
+            s if s.eq_ignore_ascii_case("transform") => Ok(BuiltinFunctionType::Transform),
+            _ => Err(ParseError::InvalidFunction(s.to_string())),
         }
     }
 }

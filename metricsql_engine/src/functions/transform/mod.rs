@@ -111,7 +111,7 @@ pub(crate) trait TransformValuesFn: FnMut(&mut [f64]) {}
 
 impl<T> TransformValuesFn for T where T: FnMut(&mut [f64]) {}
 
-fn get_transform_func(f: TransformFunction) -> TransformFuncHandler {
+const fn get_transform_func(f: TransformFunction) -> TransformFuncHandler {
     use TransformFunction::*;
     match f {
         Abs => abs,

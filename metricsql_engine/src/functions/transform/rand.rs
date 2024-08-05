@@ -7,10 +7,6 @@ use crate::execution::eval_number;
 use crate::functions::transform::TransformFuncArg;
 use crate::{RuntimeError, RuntimeResult, Timeseries};
 
-pub(crate) trait RandFunc: FnMut() -> f64 {}
-
-impl<T> RandFunc for T where T: FnMut() -> f64 {}
-
 fn create_rng(tfa: &mut TransformFuncArg) -> RuntimeResult<StdRng> {
     if tfa.args.len() == 1 {
         return match tfa.args[0].get_int() {

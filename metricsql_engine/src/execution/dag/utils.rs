@@ -14,7 +14,7 @@ use crate::functions::rollup::{get_rollup_function_handler, RollupHandler};
 use crate::functions::transform::extract_labels;
 use crate::{InstantVector, QueryValue, RuntimeError, RuntimeResult, Timeseries};
 
-pub(crate) fn resolve_value(index: usize, value: &mut QueryValue, computed: &mut [QueryValue]) {
+pub(super) fn resolve_value(index: usize, value: &mut QueryValue, computed: &mut [QueryValue]) {
     // Note: we return values in this particular way because of an optimization in the evaluator.
     // Consider a call like
     //
@@ -36,7 +36,7 @@ pub(crate) fn resolve_value(index: usize, value: &mut QueryValue, computed: &mut
     }
 }
 
-pub(crate) fn resolve_node_args(
+pub(super) fn resolve_node_args(
     node_args: &[NodeArg],
     args: &mut Vec<QueryValue>,
     computed: &mut [QueryValue],
@@ -49,7 +49,7 @@ pub(crate) fn resolve_node_args(
     }
 }
 
-pub(crate) fn resolve_vector(
+pub(super) fn resolve_vector(
     index: usize,
     computed: &mut [QueryValue],
 ) -> RuntimeResult<InstantVector> {
@@ -107,7 +107,7 @@ pub(super) fn get_at_value(value: &QueryValue) -> RuntimeResult<i64> {
     Ok((v * 1000_f64) as i64)
 }
 
-pub(crate) fn exec_vector_vector(
+pub(super) fn exec_vector_vector(
     ctx: &Context,
     left: InstantVector,
     right: InstantVector,

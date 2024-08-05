@@ -66,15 +66,8 @@ impl Context {
                 }
             }
         });
-        res.unwrap_or_else(|err| {
-            match err {
-                Error::Join { msg } => Err(RuntimeError::General(msg)), // todo: better error
-                Error::Timeout { .. } => Err(RuntimeError::DeadlineExceededError("search timeout".to_string())),
-                Error::Execution { source } => {
-                    // todo: check is source is RuntimeError
-                    Err(RuntimeError::ExecutionError(source.to_string()))
-                },
-            }
+        res.unwrap_or_else(|e| {
+            Err(handle_error(e))
         })
     }
 

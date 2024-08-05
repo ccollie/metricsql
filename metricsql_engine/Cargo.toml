@@ -16,7 +16,7 @@ include = [
 rs_unit = { workspace = true }
 
 [dependencies]
-agnostik = { version = "0.2", default-features = false }
+agnostic-lite = {  version = "0.3", default-features = false, features = ["time"] }
 ahash.workspace = true
 async-std = { version = "1.12", optional = true }
 async-trait = "0.1"
@@ -36,7 +36,6 @@ num-traits.workspace = true
 phf.workspace = true
 prometheus-parse = "0.2"
 pco.workspace = true
-q_compress.workspace = true
 rand.workspace = true
 rand_distr.workspace = true
 rayon.workspace = true
@@ -45,7 +44,7 @@ serde.workspace = true
 thiserror.workspace = true
 tinyvec.workspace = true
 topologic = "1.1"
-tokio = { version = "1.37", optional = true }
+tokio = { version = "1.38", optional = true }
 scopeguard.workspace = true
 tracing.workspace = true
 xxhash-rust.workspace = true
@@ -55,8 +54,8 @@ matchers = { version = "0.2.0", features = [] }
 
 [features]
 default = ["tokio"]
-tokio = ["dep:tokio", "agnostik/runtime_tokio"]
-async-std = ["dep:async-std", "agnostik/runtime_asyncstd"]
+tokio = ["dep:tokio", "agnostic-lite/tokio"]
+async-std = ["dep:async-std", "agnostic-lite/async-std"]
 
 [target.'cfg(target_arch = "x86_64")']
 rustflags = ["-C", "target-feature=+bmi1,+bmi2,+avx2"]

@@ -2,26 +2,25 @@ use cfg_if::cfg_if;
 use std::any::Any;
 use std::future::Future;
 use std::sync::OnceLock;
-use agnostic::{AsyncBlockingSpawner, AsyncSpawner, Runtime};
+use agnostic_lite::{AsyncBlockingSpawner, AsyncSpawner, RuntimeLite};
 use std::time::Duration;
 use snafu::Snafu;
 use crate::error::{ErrorExt, StatusCode};
-use agnostic::RuntimeLite;
 
 cfg_if! {
     if #[cfg(feature = "tokio")] {
-        use agnostic::tokio::TokioRuntime;
+        use agnostic_lite::tokio::TokioRuntime;
         pub type AsyncRuntime = TokioRuntime;
         pub type JoinHandle<T> = <<TokioRuntime as RuntimeLite>::Spawner as AsyncSpawner>::JoinHandle<T>;
         pub type BlockingJoinHandle<T> = <<TokioRuntime as RuntimeLite>::BlockingSpawner as AsyncBlockingSpawner>::JoinHandle<T>;
      } else if #[cfg(feature = "async-std")] {
-        use agnostic::async_std::AsyncStdRuntime;
-        pub type AsyncRuntime = agnostic::async_std::SmolRuntime;
+        use agnostic_lite::async_std::AsyncStdRuntime;
+        pub type AsyncRuntime = agnostic_lite::async_std::SmolRuntime;
         pub type JoinHandle<T> = <AsyncStdRuntime as RuntimeLite>::Spawner as AsyncSpawner>::JoinHandle<T>;
         pub type BlockingJoinHandle<T> = <<AsyncStdRuntime as RuntimeLite>::BlockingSpawner as AsyncBlockingSpawner>::JoinHandle<T>;
      } else if #[cfg(feature = "smol")] {
-        use agnostic::smol::SmolRuntime;
-        pub type AsyncRuntime = agnostic::smol::SmolRuntime;
+        use agnostic_lite::smol::SmolRuntime;
+        pub type AsyncRuntime = agnostic_lite::smol::SmolRuntime;
         pub type JoinHandle<T> = <<SmolRuntime as RuntimeLite>::Spawner as AsyncSpawner>::JoinHandle<T>;
         pub type BlockingJoinHandle<T> = <<SmolRuntime as RuntimeLite>::BlockingSpawner as AsyncBlockingSpawner>::JoinHandle<T>;
      } else {
@@ -71,7 +70,7 @@ pub fn get_runtime() -> &'static AsyncRuntime {
     RUNTIME.get_or_init(AsyncRuntime::new)
 }
 
-pub fn runtime() -> &'static impl Runtime {
+pub fn runtime() -> &'static impl RuntimeLite {
     get_runtime()
 }
 

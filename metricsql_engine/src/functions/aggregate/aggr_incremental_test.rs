@@ -108,10 +108,12 @@ mod tests {
         tss_expected: &[Timeseries],
     ) -> RuntimeResult<()> {
         let worker_id: AtomicU64 = AtomicU64::new(1);
-        tss_src.par_iter_mut().for_each(|ts| {
-            let id = worker_id.fetch_add(1, Ordering::SeqCst);
-            iafc.update_timeseries(ts, id);
-        });
+        tss_src
+            .par_iter_mut()
+            .for_each(|ts| {
+                let id = worker_id.fetch_add(1, Ordering::SeqCst);
+                iafc.update_single_timeseries(ts, id);
+            });
         let tss_actual = iafc.finalize();
 
         match expect_timeseries_equal(&tss_actual, tss_expected) {

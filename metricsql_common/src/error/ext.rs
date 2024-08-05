@@ -70,9 +70,9 @@ impl std::fmt::Debug for BoxedError {
 }
 
 impl Display for BoxedError {
-    fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        //write!(f, "{}", self.inner)
-        todo!("BoxedError::Display")
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Ok(write!(f, "{:?}", self.inner)?)
+        todo!("BoxedError::Debug")
     }
 }
 

@@ -24,7 +24,7 @@ use crate::functions::aggregate::IncrementalAggrFuncContext;
 use crate::functions::rollup::{
     eval_prefuncs, get_rollup_configs, MAX_SILENCE_INTERVAL, RollupConfig, RollupHandler,
 };
-use crate::prelude::join_matchers_with_extra_filters;
+use crate::prelude::{is_empty_extra_matchers, join_matchers_with_extra_filters_owned};
 use crate::provider::{QueryResults, SearchQuery};
 use crate::QueryValue;
 use crate::rayon::iter::IndexedParallelIterator;
@@ -34,10 +34,10 @@ use crate::runtime_error::{RuntimeError, RuntimeResult};
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct RollupNode {
     /// Source expression
-    pub(crate) expr: Expr,
-    pub(crate) func: RollupFunction,
+    pub expr: Expr,
+    pub func: RollupFunction,
     pub(crate) func_handler: RollupHandler,
-    pub(crate) keep_metric_names: bool,
+    pub keep_metric_names: bool,
     pub metric_expr: MetricExpr,
     /// `window` contains optional window value from square brackets. Equivalent to `range` in
     /// prometheus terminology
@@ -133,10 +133,10 @@ impl RollupNode {
         Ok(node)
     }
 
-    fn eval_without_at(&self, ctx: &Context, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
+    fn eval_without_at(&mut self, ctx: &Context, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
         let (offset, ec_new) = adjust_eval_range(&self.func, &self.offset, ec)?;
 
-        let mut rvs = self.eval_metric_expr(ctx, &ec_new, &self.metric_expr)?;
+        let mut rvs = self.eval_metric_expr(ctx, &ec_new)?;
 
         if self.func == RollupFunction::AbsentOverTime {
             rvs = handle_aggregate_absent_over_time(ec, &rvs, Some(&self.metric_expr))?;
@@ -147,11 +147,11 @@ impl RollupNode {
     }
 
     fn eval_metric_expr(
-        &self,
+        &mut self,
         ctx: &Context,
         ec: &EvalConfig,
-        me: &MetricExpr,
     ) -> RuntimeResult<Vec<Timeseries>> {
+        let me = &self.metric_expr;
         let window = duration_value(&self.window, ec.step);
 
         let span = {
@@ -226,7 +226,6 @@ impl RollupNode {
         };
 
         // Fetch the remaining part of the result.
-        let tfss = join_matchers_with_extra_filters(&me.matchers, &ec.enforced_tag_filters);
         let mut min_timestamp = start;
 
         if self.func.need_silence_interval() {
@@ -239,8 +238,17 @@ impl RollupNode {
             min_timestamp -= ec.step
         }
 
-        let sq = SearchQuery::new(min_timestamp, ec.end, &tfss, ec.max_series);
-        let mut rss = ctx.search(sq, ec.deadline)?;
+        // if we don't have additional filters, borrow the existing matchers instead of cloning
+        let mut rss = if is_empty_extra_matchers(&ec.enforced_tag_filters) {
+            // i hate to clone, but
+            let matchers = self.metric_expr.matchers.clone();
+            let sq = SearchQuery::new(min_timestamp, ec.end, matchers, ec.max_series);
+            ctx.search(sq, ec.deadline)?
+        } else {
+            let tfss = join_matchers_with_extra_filters_owned(&me.matchers, &ec.enforced_tag_filters);
+            let sq = SearchQuery::new(min_timestamp, ec.end, tfss, ec.max_series);
+            ctx.search(sq, ec.deadline)?
+        };
 
         if rss.is_empty() {
             let dst: Vec<Timeseries> = vec![];

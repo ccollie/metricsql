@@ -29,7 +29,7 @@ mod tests {
         ec.max_points_per_series = 1e4 as usize;
         ec.set_caching(true);
 
-        let mut me = MetricExpr::default().append(
+        let me = MetricExpr::default().append(
             LabelFilter::new(LabelFilterOp::Equal, "aaa", "xxx").unwrap()
         );
 

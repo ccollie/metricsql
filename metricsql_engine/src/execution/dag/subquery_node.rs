@@ -34,7 +34,7 @@ pub struct SubqueryNode {
     pub step: Option<DurationExpr>,
     pub offset: Option<DurationExpr>,
     pub window: Option<DurationExpr>,
-    pub(super) at: Option<i64>,
+    pub at: Option<i64>,
     pub at_arg: Option<NodeArg>,
     pub args: Vec<NodeArg>,
     pre_exec_called: bool,

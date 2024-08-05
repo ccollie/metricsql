@@ -16,7 +16,6 @@ readme.workspace = true
 integer-encoding.workspace = true
 snafu.workspace = true
 snap = "1.1.0"
-q_compress.workspace = true
 pco.workspace = true
 
 [dev-dependencies]

@@ -50,25 +50,25 @@ pub type QueryableFunc = fn(ctx: &Context, sq: SearchQuery) -> RuntimeResult<Que
 
 /// SearchQuery is used for sending provider queries to external data sources.
 #[derive(Debug, Clone)]
-pub struct SearchQuery<'a> {
+pub struct SearchQuery {
     /// The time range for searching time series
     /// TODO: use TimestampRange
     pub start: Timestamp,
     pub end: Timestamp,
 
     /// Tag filters for the provider query
-    pub matchers: &'a Matchers,
+    pub matchers: Matchers,
 
     /// The maximum number of time series the provider query can return.
     pub max_metrics: usize,
 }
 
-impl<'a> SearchQuery<'a> {
+impl SearchQuery {
     /// Create a new provider query for the given args.
     pub fn new(
         start: Timestamp,
         end: Timestamp,
-        matchers: &'a Matchers,
+        matchers: Matchers,
         max_metrics: usize,
     ) -> Self {
         let mut max = max_metrics;
@@ -89,7 +89,7 @@ impl<'a> SearchQuery<'a> {
     }
 }
 
-impl<'a> Display for SearchQuery<'a> {
+impl Display for SearchQuery {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let start = self.start.to_string_millis();
         let end = self.end.to_string_millis();

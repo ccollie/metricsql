@@ -44,7 +44,7 @@ pub fn get_pooled_vec_f64(size: usize) -> PooledVecF64 {
     v
 }
 
-/// get_pooled_vec_f64_filled returns an f64 slice with the given size and filled with the given value.
+/// get_pooled_vec_f64_filled returns a f64 slice with the given size and filled with the given value.
 pub fn get_pooled_vec_f64_filled(size: usize, value: f64) -> PooledVecF64 {
     let mut v = get_pooled_vec_f64(size);
     v.resize_with(size, || value);

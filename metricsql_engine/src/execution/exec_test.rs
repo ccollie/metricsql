@@ -34,7 +34,6 @@ mod tests {
             metric: MetricName::default(),
             values: vals,
             timestamps,
-            rows_processed: 0,
         }
     }
 
@@ -1335,7 +1334,7 @@ mod tests {
     fn label_join_dst_label_equals_src_label() {
         let q = r#"label_join(label_join(time(), "bar", "sep1", "a", "b"), "bar", "sep2", "a", "bar")"#;
         let mut r = make_result(&[1000.0, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
-        r.set_tag("bar", "sep2sep1");
+        r.metric.set_tag("bar", "sep2sep1");
         test_query(q, vec![r])
     }
 

@@ -41,6 +41,7 @@ pub(super) fn new_rollup_quantile(args: &[QueryValue]) -> RuntimeResult<RollupHa
     Ok(RollupHandler::FloatArg(rf))
 }
 
+#[inline]
 fn quantiles_impl(rfa: &RollupFuncArg, label: &str, phis: &[f64], phi_labels: &[String]) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.

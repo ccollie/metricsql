@@ -426,6 +426,7 @@ impl RollupConfig {
                 let mut iter = func_args.iter();
                 let first = iter.next().unwrap();
                 let second = iter.next().unwrap();
+                // todo: only use join if the number of items passes a given threshold
                 let (first_val, second_val) = rayon::join(
                     || (self.handler).eval(first),
                     || (self.handler).eval(second),
@@ -434,6 +435,7 @@ impl RollupConfig {
                 dst_values.push(second_val);
             }
             _ => {
+                // todo: only use rayon if the number of items passes a given threshold
                 func_args
                     .par_iter()
                     .map(|rfa| (self.handler).eval(rfa))
@@ -605,7 +607,7 @@ const fn get_max_prev_interval(scrape_interval: i64) -> i64 {
 }
 
 // todo: use tinyvec for return values
-pub(crate) fn get_rollup_function_handler_meta(
+fn get_rollup_function_handler_meta(
     expr: &Expr,
     func: RollupFunction,
     rf: Option<&RollupHandler>,

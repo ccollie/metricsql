@@ -31,9 +31,14 @@ pub fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expr> {
         }
 
         if filters.len() == 1 {
-            let converted = filters[0].iter().map(|x| x.to_label_filter()).collect::<ParseResult<Vec<_>>>()?;
-            me.matchers.matchers = converted;
-            me.sort_filters();
+            if let Some(first) = filters.first() {
+                if first.is_empty() {
+                    return Ok(Expr::MetricExpression(me));
+                }
+                let converted = first.iter().map(|x| x.to_label_filter()).collect::<ParseResult<Vec<_>>>()?;
+                me.matchers.matchers = converted;
+                me.sort_filters();
+            }
             return Ok(Expr::MetricExpression(me));
         }
 
@@ -107,7 +112,7 @@ fn parse_label_filters(p: &mut Parser) -> ParseResult<Vec<Vec<LabelFilterExpr>>>
             }
         }
 
-        if filters.is_empty() {
+        if !filters.is_empty() {
             result.push(filters);
         }
 

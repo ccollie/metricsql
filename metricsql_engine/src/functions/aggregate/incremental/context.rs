@@ -86,10 +86,9 @@ pub trait IncrementalAggrHandler {
 
 type ContextHash = AHashMap<u64, AHashMap<Signature, IncrementalAggrContext>>;
 
-pub struct IncrementalAggrFuncContext<'a> {
+pub(crate) struct IncrementalAggrFuncContext<'a> {
     ae: &'a AggregationExpr,
     limit: usize,
-    // todo: use Rc/Arc based on cfg
     context_map: RwLock<ContextHash>,
     handler: IncrementalAggregationHandler,
 }
@@ -119,7 +118,13 @@ impl<'a> IncrementalAggrFuncContext<'a> {
         }
     }
 
-    pub fn update_timeseries_internal(
+    pub fn update_single_timeseries(&self, ts_orig: &mut Timeseries, worker_id: u64) {
+        let mut im = self.context_map.write().unwrap();
+        let m = im.entry(worker_id).or_default();
+        self.update_timeseries_internal(m, ts_orig);
+    }
+
+    pub(crate) fn update_timeseries_internal(
         &self,
         m: &mut AHashMap<Signature, IncrementalAggrContext>,
         ts_orig: &mut Timeseries,

@@ -185,7 +185,7 @@ pub(crate) fn get_rollup_function_handler(
     factory(args)
 }
 
-pub(crate) fn get_rollup_function_factory(func: RollupFunction) -> RollupHandlerFactory {
+pub(crate) const fn get_rollup_function_factory(func: RollupFunction) -> RollupHandlerFactory {
     use RollupFunction::*;
     match func {
         AbsentOverTime => new_rollup_absent_over_time,

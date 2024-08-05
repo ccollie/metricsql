@@ -77,7 +77,7 @@ pub fn compare_str_alphanumeric<A: AsRef<str>, B: AsRef<str>>(a: A, b: B) -> Ord
                 return ordering;
             } else {
                 match dc.cmp(&0) {
-                    Ordering::Equal => (),
+                    Ordering::Equal => {},
                     Ordering::Greater => return Ordering::Greater,
                     Ordering::Less => return Ordering::Less,
                 }
