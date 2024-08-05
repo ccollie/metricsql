@@ -6,7 +6,7 @@ mod tests {
     use std::ops::Deref;
 
     fn show_aggregate(ae: AggregationExpr) {
-        let arg = ae.args.get(0).expect("ae.args[0] should not be None");
+        let arg = ae.args.first().expect("ae.args[0] should not be None");
         println!(
             "aggr func: name={}, arg={}, modifier={}",
             ae.name,
@@ -20,7 +20,7 @@ mod tests {
     }
 
     fn show_func_expr(fe: &FunctionExpr) {
-        let arg = fe.args.get(0).expect("fe.args[0] should not be None");
+        let arg = fe.args.first().expect("fe.args[0] should not be None");
         println!("func: name={}, arg={}\n", fe.function, arg);
         match arg {
             Expr::Rollup(re) => show_rollup(re),
@@ -46,8 +46,7 @@ mod tests {
 
     fn show_metric_expr(me: &MetricExpr) {
         println!(
-            "metric: labelFilter1={}, labelFilter2={}",
-            me.label_filters[0], me.label_filters[1]
+            "metric: {me}",
         );
     }
 

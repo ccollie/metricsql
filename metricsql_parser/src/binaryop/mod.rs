@@ -102,7 +102,7 @@ fn op_default(left: f64, right: f64) -> f64 {
     left
 }
 
-/// If returns left if right is not NaN. Otherwise NaN is returned.
+/// If returns left if right is not NaN. Otherwise, NaN is returned.
 #[inline]
 fn op_if(left: f64, right: f64) -> f64 {
     if right.is_nan() {
@@ -111,7 +111,7 @@ fn op_if(left: f64, right: f64) -> f64 {
     left
 }
 
-/// if_not returns left if right is NaN. Otherwise NaN is returned.
+/// if_not returns left if right is NaN. Otherwise, NaN is returned.
 #[inline]
 pub fn op_if_not(left: f64, right: f64) -> f64 {
     if right.is_nan() {
@@ -128,13 +128,13 @@ pub fn op_unless(left: f64, right: f64) -> f64 {
     left
 }
 
-fn return_left(left: f64, _right: f64) -> f64 {
+const fn return_left(left: f64, _right: f64) -> f64 {
     left
 }
 
 /// convert true to x, false to NaN.
 #[inline]
-pub fn to_comparison_value(b: bool, x: f64) -> f64 {
+pub const fn to_comparison_value(b: bool, x: f64) -> f64 {
     if b {
         x
     } else {
@@ -229,29 +229,23 @@ pub fn eval_binary_op(left: f64, right: f64, op: Operator, is_bool: bool) -> f64
 
 pub fn string_compare(a: &str, b: &str, op: Operator, is_bool: bool) -> ParseResult<f64> {
     let res = match op {
-        Operator::Eql => Ok(a == b),
-        Operator::NotEq => Ok(a != b),
-        Operator::Lt => Ok(a < b),
-        Operator::Gt => Ok(a > b),
-        Operator::Lte => Ok(a <= b),
-        Operator::Gte => Ok(a >= b),
-        _ => Err(ParseError::Unsupported(format!(
+        Operator::Eql => a == b,
+        Operator::NotEq => a != b,
+        Operator::Lt => a < b,
+        Operator::Gt => a > b,
+        Operator::Lte => a <= b,
+        Operator::Gte => a >= b,
+        _ => return Err(ParseError::Unsupported(format!(
             "unexpected operator {op} in string comparison"
         ))),
     };
-    match res {
-        Ok(b) => {
-            let result = if b {
-                1_f64
-            } else if is_bool {
-                0_f64
-            } else {
-                f64::NAN
-            };
-            Ok(result)
-        }
-        Err(e) => Err(e),
-    }
+    Ok(if res {
+        1_f64
+    } else if is_bool {
+        0_f64
+    } else {
+        f64::NAN
+    })
 }
 
 /// Supported operation between two float type values.

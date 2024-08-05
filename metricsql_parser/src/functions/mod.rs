@@ -1,10 +1,11 @@
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
-
+use std::sync::OnceLock;
 use serde::{Deserialize, Serialize};
-
+use strum::IntoEnumIterator;
 pub use aggregate::*;
+use metricsql_common::hash::FastHashMap;
 pub use rollup::*;
 pub use signature::*;
 pub use transform::*;
@@ -37,11 +38,24 @@ pub enum BuiltinFunctionType {
 }
 
 impl BuiltinFunctionType {
-    pub fn to_str(&self) -> &'static str {
+    pub const fn to_str(&self) -> &'static str {
         match self {
             BuiltinFunctionType::Aggregate => "aggregate",
             BuiltinFunctionType::Rollup => "rollup",
             BuiltinFunctionType::Transform => "transform",
+        }
+    }
+}
+
+impl FromStr for BuiltinFunctionType {
+    type Err = ParseError;
+
+    fn from_str(s: &str) -> Result<Self, ParseError> {
+        match s {
+            s if s.eq_ignore_ascii_case("aggregate") => Ok(BuiltinFunctionType::Aggregate),
+            s if s.eq_ignore_ascii_case("rollup") => Ok(BuiltinFunctionType::Rollup),
+            s if s.eq_ignore_ascii_case("transform") => Ok(BuiltinFunctionType::Transform),
+            _ => Err(ParseError::InvalidFunction(s.to_string())),
         }
     }
 }
@@ -53,20 +67,109 @@ impl Display for BuiltinFunctionType {
     }
 }
 
+
+#[derive(Debug, Clone)]
+pub struct FunctionMeta {
+    pub name: &'static str,
+    pub function: BuiltinFunction,
+    pub signature: Signature
+}
+
+impl FunctionMeta {
+    pub fn lookup(name: &str) -> Option<&'static FunctionMeta> {
+        get_registry()
+            .get(name)
+            .or_else(|| get_registry().get(name.to_lowercase().as_str()))
+    }
+
+    pub fn get_rollup_function(name: &str) -> ParseResult<&'static FunctionMeta> {
+        if let Some(meta) = FunctionMeta::lookup(name) {
+            if let BuiltinFunction::Rollup(rf) = &meta.function {
+                return Ok(meta);
+            }
+        }
+        Err(ParseError::InvalidFunction(format!("rollup::{name}")))
+    }
+
+    pub fn get_aggregate_function(name: &str) -> ParseResult<&'static FunctionMeta> {
+        if let Some(meta) = FunctionMeta::lookup(name) {
+            if let BuiltinFunction::Aggregate(af) = &meta.function {
+                return Ok(meta);
+            }
+        }
+        Err(ParseError::InvalidFunction(format!("aggregate::{name}")))
+    }
+
+    pub fn get_type(&self) -> BuiltinFunctionType {
+        self.function.get_type()
+    }
+
+    pub fn validate_arg_count(&self, name: &str, arg_len: usize) -> ParseResult<()> {
+        self.signature.validate_arg_count(name, arg_len)
+    }
+
+    pub fn validate_args(&self, args: &[Expr]) -> ParseResult<()> {
+        validate_function_args(&self.function, args)
+    }
+
+    pub fn is_aggregation(&self) -> bool {
+        matches!(self.function, BuiltinFunction::Aggregate(_))
+    }
+
+    pub fn is_scalar(&self) -> bool {
+        match self.function {
+            BuiltinFunction::Transform(func) => func.return_type() == ValueType::Scalar,
+            _ => false,
+        }
+    }
+
+    pub fn is_rollup_function(&self, func: RollupFunction) -> bool {
+        match &self.function {
+            BuiltinFunction::Rollup(rf) => rf == &func,
+            _ => false,
+        }
+    }
+}
+
+type FunctionRegistry = FastHashMap<&'static str, FunctionMeta>;
+static REGISTRY: OnceLock<FunctionRegistry> = OnceLock::new();
+
+pub fn get_registry() -> &'static FunctionRegistry {
+    REGISTRY.get_or_init(init_registry)
+}
+
+fn init_registry() -> FunctionRegistry {
+    let mut registry = FunctionRegistry::default();
+
+    for af in AggregateFunction::iter() {
+        let name = af.name();
+        let function = BuiltinFunction::Aggregate(af);
+        let signature = af.signature();
+        registry.insert(name, FunctionMeta { name, function, signature });
+    }
+
+    for rf in RollupFunction::iter() {
+        let name = rf.name();
+        let function = BuiltinFunction::Rollup(rf);
+        let signature = rf.signature();
+        registry.insert(name, FunctionMeta { name, function, signature });
+    }
+
+    for tf in TransformFunction::iter() {
+        let name = tf.name();
+        let function = BuiltinFunction::Transform(tf);
+        let signature = tf.signature();
+        registry.insert(name, FunctionMeta { name, function, signature });
+    }
+
+    registry
+}
+
 impl BuiltinFunction {
     pub fn new(name: &str) -> ParseResult<Self> {
-        if let Ok(func) = TransformFunction::from_str(name) {
-            return Ok(BuiltinFunction::Transform(func));
+        if let Some(meta) = FunctionMeta::lookup(name) {
+            return Ok(meta.function.clone());
         }
-
-        if let Ok(af) = AggregateFunction::from_str(name) {
-            return Ok(BuiltinFunction::Aggregate(af));
-        }
-
-        if let Ok(rf) = RollupFunction::from_str(name) {
-            return Ok(BuiltinFunction::Rollup(rf));
-        }
-
         Err(ParseError::InvalidFunction(format!("built-in::{name}")))
     }
 
@@ -92,16 +195,8 @@ impl BuiltinFunction {
         }
     }
 
-    pub fn validate_arg_count(&self, name: &str, arg_len: usize) -> ParseResult<()> {
-        self.signature().validate_arg_count(name, arg_len)
-    }
-
     pub fn validate_args(&self, args: &[Expr]) -> ParseResult<()> {
         validate_function_args(self, args)
-    }
-
-    pub fn volatility(&self) -> Volatility {
-        self.signature().volatility
     }
 
     pub fn type_name(&self) -> &'static str {
@@ -122,7 +217,10 @@ impl BuiltinFunction {
     }
 
     pub fn is_aggregate_func(name: &str) -> bool {
-        AggregateFunction::from_str(name).is_ok()
+        if let Some(meta) = FunctionMeta::lookup(name) {
+            return meta.is_aggregation()
+        }
+        false
     }
 
     pub fn is_aggregation(&self) -> bool {
@@ -233,6 +331,7 @@ impl TryFrom<&str> for BuiltinFunction {
         Self::new(value)
     }
 }
+
 
 #[cfg(test)]
 mod tests {

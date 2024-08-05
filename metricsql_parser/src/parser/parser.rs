@@ -44,7 +44,7 @@ impl<'source> TokenWithLocation<'source> {
 pub struct Parser<'a> {
     tokens: Vec<TokenWithLocation<'a>>,
     symbol_provider: SymbolProviderRef,
-    pub(super) cursor: usize,
+    pub(crate) cursor: usize,
     pub(super) needs_expansion: bool,
     pub(super) with_stack: Vec<Vec<WithArgExpr>>,
 }

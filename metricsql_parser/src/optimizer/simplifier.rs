@@ -24,7 +24,7 @@ use crate::ast::utils::{expr_contains, is_null, is_one, is_op_with, is_zero};
 use crate::ast::{BinaryExpr, Expr, Operator};
 use crate::common::{RewriteRecursion, TreeNode, TreeNodeRewriter};
 use crate::optimizer::const_evaluator::ConstEvaluator;
-use crate::optimizer::push_down_filters::{can_pushdown_filters, optimize_label_filters_inplace};
+use crate::optimizer::push_down_filters::{can_pushdown_filters, optimize_in_place};
 use crate::optimizer::remove_parens_expr;
 use crate::parser::{ParseError, ParseResult};
 use crate::prelude::BuiltinFunction;
@@ -70,10 +70,10 @@ impl ExprSimplifier {
     /// `b > 2`
     ///
     /// ``` rust
-    /// use crate::metricsql_parser::prelude::{selector, number, Expr, Simplifier};
+    /// use crate::metricsql_parser::prelude::{selector, number, Expr, ExprSimplifier};
     ///
     /// // Create the simplifier
-    /// let simplifier = Simplifier::new();
+    /// let simplifier = ExprSimplifier::new();
     ///
     /// // b < 2
     /// let b_lt_2 = selector("b").lt(number(2.0));
@@ -103,7 +103,7 @@ impl ExprSimplifier {
             .rewrite(&mut simplifier)?;
 
         // push down filters
-        optimize_label_filters_inplace(&mut result);
+        optimize_in_place(&mut result);
         Ok(result)
     }
 }
@@ -141,7 +141,7 @@ impl PushDownFilterRewriter {
 
     fn push_down_filters(expr: Expr) -> ParseResult<Expr> {
         let mut expr = expr;
-        optimize_label_filters_inplace(&mut expr);
+        optimize_in_place(&mut expr);
         Ok(expr)
     }
 }
@@ -228,12 +228,12 @@ impl TreeNodeRewriter for Simplifier {
 
                     // A + 0 --> A
                     // Valid only for NumberLiteral, since MetricExpression, Rollup, Aggregation,
-                    // etc. can return vectors contain NaN
+                    // etc. can return vectors containing NaN
                     Add if is_zero(&right) && Expr::is_number(&left) => *left,
 
                     // 0 + A --> A
                     // Valid only for NumberLiteral, since MetricExpression, Rollup, Aggregation,
-                    // etc. can return vectors contain NaN
+                    // etc. can return vectors containing NaN
                     Add if is_zero(&left) && Expr::is_number(&right) => *right,
 
                     // A + A --> A * 2

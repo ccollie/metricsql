@@ -1,28 +1,34 @@
+use cfg_if::cfg_if;
 use std::any::Any;
 use std::future::Future;
 use std::sync::OnceLock;
-use agnostic::Runtime;
+use agnostic_lite::{AsyncBlockingSpawner, AsyncSpawner, RuntimeLite};
 use std::time::Duration;
 use snafu::Snafu;
 use crate::error::{ErrorExt, StatusCode};
 
-pub use futures::future::join_all;
-pub use futures::future::try_join_all;
-
 cfg_if! {
     if #[cfg(feature = "tokio")] {
-        pub type AsyncRuntime = agnostic::tokio::TokioRuntime;
+        use agnostic_lite::tokio::TokioRuntime;
+        pub type AsyncRuntime = TokioRuntime;
+        pub type JoinHandle<T> = <<TokioRuntime as RuntimeLite>::Spawner as AsyncSpawner>::JoinHandle<T>;
+        pub type BlockingJoinHandle<T> = <<TokioRuntime as RuntimeLite>::BlockingSpawner as AsyncBlockingSpawner>::JoinHandle<T>;
      } else if #[cfg(feature = "async-std")] {
-        pub type AsyncRuntime = agnostic::async_std::SmolRuntime;
+        use agnostic_lite::async_std::AsyncStdRuntime;
+        pub type AsyncRuntime = agnostic_lite::async_std::SmolRuntime;
+        pub type JoinHandle<T> = <AsyncStdRuntime as RuntimeLite>::Spawner as AsyncSpawner>::JoinHandle<T>;
+        pub type BlockingJoinHandle<T> = <<AsyncStdRuntime as RuntimeLite>::BlockingSpawner as AsyncBlockingSpawner>::JoinHandle<T>;
      } else if #[cfg(feature = "smol")] {
-        pub type AsyncRuntime = agnostic::smol::SmolRuntime;
+        use agnostic_lite::smol::SmolRuntime;
+        pub type AsyncRuntime = agnostic_lite::smol::SmolRuntime;
+        pub type JoinHandle<T> = <<SmolRuntime as RuntimeLite>::Spawner as AsyncSpawner>::JoinHandle<T>;
+        pub type BlockingJoinHandle<T> = <<SmolRuntime as RuntimeLite>::BlockingSpawner as AsyncBlockingSpawner>::JoinHandle<T>;
      } else {
         unimplemented!("No async runtime feature enabled");
      }
 }
 
-pub type JoinHandle<T> = <AsyncRuntime as Runtime>::JoinHandle<T>;
-pub type Timeout<F> = <AsyncRuntime as Runtime>::Timeout<F>;
+pub type Timeout<F> = <AsyncRuntime as RuntimeLite>::Timeout<F>;
 
 pub type Result<T> = std::result::Result<T, Error>;
 pub type AsyncRuntimeResult<T> = std::result::Result<T, Error>;
@@ -61,10 +67,10 @@ impl ErrorExt for Error {
 
 pub fn get_runtime() -> &'static AsyncRuntime {
     static RUNTIME: OnceLock<AsyncRuntime> = OnceLock::new();
-    RUNTIME.get_or_init(|| AsyncRuntime::new())
+    RUNTIME.get_or_init(AsyncRuntime::new)
 }
 
-pub fn runtime() -> &'static impl Runtime {
+pub fn runtime() -> &'static impl RuntimeLite {
     get_runtime()
 }
 
@@ -97,7 +103,7 @@ pub fn spawn<F>(future: F) -> JoinHandle<F::Output>
     AsyncRuntime::spawn(future)
 }
 
-pub fn spawn_blocking<F, R>(f: F) -> JoinHandle<R>
+pub fn spawn_blocking<F, R>(f: F) -> BlockingJoinHandle<R>
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static {

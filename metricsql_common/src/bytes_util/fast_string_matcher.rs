@@ -21,7 +21,7 @@ impl FastStringMatcher {
 
     // Match applies match_func to s and returns the result.
     pub fn matches(&self, s: &str) -> bool {
-        return self.inner.transform(s);
+        self.inner.transform(s)
     }
 }
 

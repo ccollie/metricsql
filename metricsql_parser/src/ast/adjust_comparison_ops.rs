@@ -1,6 +1,6 @@
 use crate::ast::Expr;
 
-/// Convert 'num cmpOp query' expression to `query reverseCmpOp num` expression
+/// Convert `num cmpOp query` expression to `query reverseCmpOp num` expression
 /// like Prometheus does. For instance, `0.5 < foo` must be converted to `foo > 0.5`
 /// in order to return valid values for `foo` that are bigger than 0.5.
 pub fn adjust_comparison_ops(expr: &mut Expr) {

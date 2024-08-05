@@ -94,7 +94,7 @@ pub fn marshal_bytes(b: &[u8], dst: &mut Vec<u8>) {
 /// returns (bytes, remaining tail from src).
 pub fn unmarshal_bytes(src: &[u8]) -> EncodingResult<(&[u8], &[u8])> {
     let (len, n) = u64::decode_var(&src[0..]).ok_or_else(|| EncodingError {
-        description: "unable to decode timestamp".into(),
+        description: "unable to decode".into(),
     })?;
     let byte_len = src.len();
     let tail = &src[n..];

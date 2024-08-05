@@ -3,20 +3,13 @@ mod tests {
     use pretty_assertions::assert_eq;
     use strum::IntoEnumIterator;
 
-    use crate::ast::{expr_equals, Expr};
+    use crate::ast::Expr;
     use crate::optimizer::optimize;
     use crate::parser::parse;
     use crate::prelude::Operator;
 
     fn parse_or_panic(s: &str) -> Expr {
-        parse(s).expect(format!("Error parsing expression {s}").as_str())
-    }
-
-    fn assert_eq_expr(expected: &Expr, actual: &Expr) {
-        assert!(
-            expr_equals(expected, actual),
-            "expected\n{expected}\nactual\n{actual}",
-        );
+        parse(s).unwrap_or_else(|e| panic!("Error parsing expression {s}: {:?}", e))
     }
 
     fn another(s: &str, expected: &str) {
@@ -104,8 +97,8 @@ mod tests {
 
     #[test]
     fn test_parse_metric_expr() {
-        same("foo{}");
         same(r#"{foo="bar"}[5m]"#);
+        same("foo{}");
         same("foo[5m:]");
         same("bar[:]");
         another("some_metric[: ]", "some_metric[:]");
@@ -157,6 +150,21 @@ mod tests {
             r#"  metric  {  foo  = "bar"  }  [  2d ]   offset   10h  "#,
             r#"metric{foo="bar"}[2d] offset 10h"#,
         );
+    }
+
+    #[test]
+    fn test_parse_metric_expr_with_or() {
+        // metricExpr with 'or'
+        same(r#"metric{foo="bar" or baz="a"}"#);
+        same(r#"metric{foo="bar",x="y" or baz="a",z="q" or a="b"}"#);
+        same(r#"{foo="bar",x="y" or baz="a",z="q" or a="b"}"#);
+        another(r#"metric{foo="bar" OR baz="a"}"#, r#"metric{foo="bar" or baz="a"}"#);
+        another(r#"{foo="bar" OR baz="a"}"#, r#"{foo="bar" or baz="a"}"#);
+
+        another(r#"{__name__="a",bar="baz" or __name__="a"}"#, r#"a{bar="baz"}"#);
+        another(r#"{__name__="a",bar="baz" or __name__="a" or __name__="a"}"#, r#"a{bar="baz"}"#);
+        another(r#"{__name__="a",bar="baz" or __name__="a",bar="abc"}"#, r#"{bar="baz" or bar="abc"}"#);
+        another(r#"{__name__="a" or __name__="a",bar="abc",x!="y"}"#, r#"a{bar="abc",x!="y"}"#);
     }
 
     #[test]
@@ -757,7 +765,7 @@ mod tests {
             if !op.is_valid_string_op() {
                 let expr = format!(r#""foo" {op} "bar""#);
                 let expected_msg = "not allowed in string string operations";
-                assert_invalid_ex(&expr, Some(&expected_msg))
+                assert_invalid_ex(&expr, Some(expected_msg))
             }
         }
     }

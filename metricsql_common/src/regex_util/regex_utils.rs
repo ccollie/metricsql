@@ -13,7 +13,7 @@ const MAX_OR_VALUES: usize = 16;
 
 /// remove_start_end_anchors removes '^' at the start of expr and '$' at the end of the expr.
 pub fn remove_start_end_anchors(expr: &str) -> &str {
-    let mut cursor = &expr[..];
+    let mut cursor = expr;
     while let Some(t) = cursor.strip_prefix('^') {
         cursor = t;
     }
@@ -150,7 +150,7 @@ fn get_or_values_ext(sre: &Hir) -> Option<Vec<String>> {
             }
 
             let mut a = Vec::with_capacity(32);
-            return match class {
+            match class {
                 Unicode(uni) => {
                     for urange in uni.iter() {
                         let start = urange.start();
@@ -179,7 +179,7 @@ fn get_or_values_ext(sre: &Hir) -> Option<Vec<String>> {
                     }
                     Some(a)
                 }
-            };
+            }
         }
         Repetition(rep) => {
             // note that the only case that makes sense in this context is when min == 0 and max == 1
@@ -259,7 +259,7 @@ pub fn simplify(expr: &str) -> Result<(String, String), RegexError> {
 
     let mut s = hir_to_string(&sre);
 
-    if let Err(_) = Regex::new(&s) {
+    if Regex::new(&s).is_err() {
         // Cannot compile the regexp. Return it all as prefix.
         return Ok((expr.to_string(), "".to_string()));
     }
@@ -316,14 +316,11 @@ fn simplify_regexp_ext(sre: &Hir, has_prefix: bool, has_suffix: bool) -> Hir {
             if is_empty_regexp(&sub) {
                 return Hir::empty();
             }
-            match sub.kind() {
-                HirKind::Concat(concat) => {
-                    if concat.len() == 1 {
-                        return simplify_regexp_ext(&concat[0], has_prefix, has_suffix);
-                    }
-                    return Hir::concat(simplify_vec(concat, true));
+            if let HirKind::Concat(concat) = sub.kind() {
+                if concat.len() == 1 {
+                    return simplify_regexp_ext(&concat[0], has_prefix, has_suffix);
                 }
-                _ => {}
+                return Hir::concat(simplify_vec(concat, true));
             }
             sub.clone()
         }
@@ -332,7 +329,7 @@ fn simplify_regexp_ext(sre: &Hir, has_prefix: bool, has_suffix: bool) -> Hir {
             for (i, hir) in concat.iter().enumerate() {
                 let simple = simplify_regexp_ext(
                     hir,
-                    has_prefix || values.len() > 0,
+                    has_prefix || !values.is_empty(),
                     (i + 1) < concat.len(),
                 );
                 if !is_empty_regexp(&simple) {
@@ -482,7 +479,7 @@ fn get_optimized_re_match_func_ext(
             FULL_MATCH_COST,
         ));
     }
-    if is_dot_star(sre) {
+    if is_dot_plus(sre) {
         // '.+'
         return Some((
             StringMatchHandler::dot_plus(),
@@ -492,7 +489,7 @@ fn get_optimized_re_match_func_ext(
     }
     match sre.kind() {
         HirKind::Alternation(alts) => {
-            let all_literal = alts.iter().all(|hir| is_literal(hir));
+            let all_literal = alts.iter().all(is_literal);
             if all_literal {
                 let mut or_values = Vec::with_capacity(alts.len());
                 for hir in alts.iter() {
@@ -514,7 +511,7 @@ fn get_optimized_re_match_func_ext(
             if !is_literal(sre) {
                 return None;
             }
-            let s = literal_to_string(&sre);
+            let s = literal_to_string(sre);
             // Literal match
             return Some((StringMatchHandler::literal(&s), s, LITERAL_MATCH_COST));
         }
@@ -640,11 +637,11 @@ fn hir_to_string(sre: &Hir) -> String {
             s
         }
         HirKind::Alternation(alternate) => {
-            // avoid extra allocation if its all literal
-            if alternate.iter().all(|hir| is_literal(hir)) {
+            // avoid extra allocation if it's all literal
+            if alternate.iter().all(is_literal) {
                 return alternate
                     .iter()
-                    .map(|hir| hir_to_string(hir))
+                    .map(hir_to_string)
                     .collect::<Vec<_>>()
                     .join("|");
             }
@@ -730,12 +727,12 @@ fn is_empty_regexp(sre: &Hir) -> bool {
 fn is_dot_star(sre: &Hir) -> bool {
     match sre.kind() {
         HirKind::Capture(cap) => is_dot_star(cap.sub.as_ref()),
-        HirKind::Alternation(alternate) => alternate.iter().any(|re_sub| is_dot_star(re_sub)),
+        HirKind::Alternation(alternate) => alternate.iter().any(is_dot_star),
         HirKind::Repetition(repetition) => {
             if let HirKind::Class(clazz) = repetition.sub.kind() {
                 repetition.min == 0
                     && repetition.max.is_none()
-                    && repetition.greedy == true
+                    && repetition.greedy
                     && is_empty_class(clazz)
             } else {
                 false
@@ -752,7 +749,7 @@ fn is_dot_plus(sre: &Hir) -> bool {
             if let HirKind::Class(clazz) = repetition.sub.kind() {
                 repetition.min == 1
                     && repetition.max.is_none()
-                    && repetition.greedy == true
+                    && repetition.greedy
                     && is_empty_class(clazz)
             } else {
                 false
@@ -846,7 +843,7 @@ fn str_from_literal(l: &Literal) -> Option<&str> {
 }
 
 /// removes start and end anchors.
-fn remove_anchors<'a>(v: &'a Vec<Hir>) -> Cow<'a, Vec<Hir>> {
+fn remove_anchors(v: &Vec<Hir>) -> Cow<'_, Vec<Hir>> {
     if v.len() < 2
         || !matches!(
             (v.first().unwrap().kind(), v.last().unwrap().kind()),
@@ -865,6 +862,7 @@ fn remove_anchors<'a>(v: &'a Vec<Hir>) -> Cow<'a, Vec<Hir>> {
 }
 
 // todo: COW
+// todo: needs tests
 fn coalesce_alternation(first: &Hir, second: &Hir) -> Option<Hir> {
     fn build_alternation(alts: Vec<&str>, prefix: Option<String>, suffix: Option<String>) -> Hir {
         // todo: could be more efficient
@@ -903,7 +901,7 @@ fn coalesce_alternation(first: &Hir, second: &Hir) -> Option<Hir> {
             return Some(Hir::concat(vec![first.clone(), second.clone()]));
         }
         (HirKind::Literal(_), HirKind::Capture(_)) => {
-            // we possibly have something like 'foo(bar|baz)'. Convert to Alternatipm
+            // we possibly have something like 'foo(bar|baz)'. Convert to Alternation
             // (foobar | foobaz)
             // get alternates from capture, if applicable
             if let Some(alts) = get_captured_alternates(second) {
@@ -911,7 +909,7 @@ fn coalesce_alternation(first: &Hir, second: &Hir) -> Option<Hir> {
             }
         }
         (HirKind::Capture(_), HirKind::Literal(_)) => {
-            // we possibly have something like '(bar|baz)foo'. Convert to Alternatipm
+            // we possibly have something like '(bar|baz)foo'. Convert to Alternation
             // (barfoo | bazfoo)
             // get alternates from capture, if applicable
             if let Some(alts) = get_captured_alternates(second) {
@@ -919,29 +917,26 @@ fn coalesce_alternation(first: &Hir, second: &Hir) -> Option<Hir> {
             }
         }
         (HirKind::Capture(_), HirKind::Capture(_)) => {
-            // we possibly have something like '(bar|baz)(foo|qux)'. Convert to Alternatipm
+            // we possibly have something like '(bar|baz)(foo|qux)'. Convert to Alternation
             // (barfoo | barqux | bazfoo | bazqux)
             // get alternates from capture, if applicable
-            match (
+            if let (Some(left_alts), Some(right_alts)) = (
                 get_captured_alternates(first),
                 get_captured_alternates(second),
             ) {
-                (Some(left_alts), Some(right_alts)) => {
-                    let size = left_alts.len() * right_alts.len();
-                    if size <= MAX_OR_VALUES {
-                        let mut alts = Vec::with_capacity(size);
-                        for left_alt in left_alts {
-                            for right_alt in right_alts.iter() {
-                                let mut alt = String::new();
-                                alt.push_str(left_alt);
-                                alt.push_str(right_alt);
-                                alts.push(Hir::literal(alt.into_bytes()));
-                            }
+                let size = left_alts.len() * right_alts.len();
+                if size <= MAX_OR_VALUES {
+                    let mut alts = Vec::with_capacity(size);
+                    for left_alt in left_alts {
+                        for right_alt in right_alts.iter() {
+                            let mut alt = String::new();
+                            alt.push_str(left_alt);
+                            alt.push_str(right_alt);
+                            alts.push(Hir::literal(alt.into_bytes()));
                         }
-                        return Some(Hir::alternation(alts));
                     }
+                    return Some(Hir::alternation(alts));
                 }
-                _ => {}
             }
         }
         _ => {}

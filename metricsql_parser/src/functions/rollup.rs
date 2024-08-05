@@ -8,7 +8,6 @@ use strum_macros::EnumIter;
 use crate::common::ValueType;
 use crate::functions::signature::{Signature, Volatility};
 use crate::functions::MAX_ARG_COUNT;
-use crate::functions::RollupFunction::CountValuesOverTime;
 use crate::parser::ParseError;
 
 /// Built-in Rollup Functions
@@ -201,12 +200,14 @@ impl RollupFunction {
         // note: the physical expression must accept the type returned by this function or the execution panics.
         match self {
             CountEqOverTime | CountLeOverTime | CountNeOverTime | CountGtOverTime
-            | DurationOverTime | PredictLinear
-            | ShareEqOverTime | ShareGtOverTime | ShareLeOverTime
-            | SumEqOverTime | SumGtOverTime | SumLeOverTime
-            | TFirstOverTime | TLastChangeOverTime | TLastOverTime
-            => Signature::exact(vec![RangeVector, Scalar], Volatility::Immutable),
-            CountValuesOverTime => Signature::exact(vec![String, RangeVector], Volatility::Immutable),
+            | DurationOverTime | PredictLinear | ShareEqOverTime | ShareGtOverTime
+            | ShareLeOverTime | SumEqOverTime | SumGtOverTime | SumLeOverTime | TFirstOverTime
+            | TLastChangeOverTime | TLastOverTime => {
+                Signature::exact(vec![RangeVector, Scalar], Volatility::Immutable)
+            }
+            CountValuesOverTime => {
+                Signature::exact(vec![String, RangeVector], Volatility::Immutable)
+            }
             HoeffdingBoundLower | HoeffdingBoundUpper => {
                 Signature::exact(vec![Scalar, RangeVector], Volatility::Immutable)
             }
@@ -335,43 +336,36 @@ impl RollupFunction {
         use RollupFunction::*;
         !matches!(
             self,
-            AbsentOverTime
-                | AvgOverTime
-                | CountEqOverTime
-                | CountGtOverTime
-                | CountLeOverTime
-                | CountNeOverTime
-                | CountOverTime
+            AscentOverTime
+                | Changes
+                | DecreasesOverTime
+            // The default_rollup implicitly relies on the previous samples in order to fill gaps.
+	        // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/5388
                 | DefaultRollup
-                | FirstOverTime
-                | HistogramOverTime
-                | HoeffdingBoundLower
-                | HoeffdingBoundUpper
-                | LastOverTime
-                | MadOverTime
-                | MaxOverTime
-                | MedianOverTime
-                | MinOverTime
-                | PredictLinear
-                | PresentOverTime
-                | QuantileOverTime
-                | QuantilesOverTime
-                | RangeOverTime
-                | ShareGtOverTime
-                | ShareLeOverTime
-                | ShareEqOverTime
-                | StaleSamplesOverTime
-                | StddevOverTime
-                | StdvarOverTime
-                | SumOverTime
-                | TFirstOverTime
-                | Timestamp
-                | TimestampWithName
-                | TLastOverTime
-                | TMaxOverTime
-                | TMinOverTime
-                | ZScoreOverTime
-        )
+                | Delta
+                | DerivFast
+                | DescentOverTime
+                | IDelta
+                | IDeriv
+                | Increase
+                | IncreasePure
+                | IncreasesOverTime
+                | Integrate
+                | IRate
+                | Lag
+                | Lifetime
+                | Rate
+                | Resets
+                | Rollup
+                | RollupCandlestick
+                | RollupDelta
+                | RollupDeriv
+                | RollupIncrease
+                | RollupRate
+                | RollupScrapeInterval
+                | ScrapeInterval
+                | TLastChangeOverTime
+            )
     }
 }
 
@@ -413,6 +407,7 @@ static FUNCTION_MAP: phf::Map<&'static str, RollupFunction> = phf_map! {
     "count_le_over_time" => RollupFunction::CountLeOverTime,
     "count_ne_over_time" => RollupFunction::CountNeOverTime,
     "count_over_time" => RollupFunction::CountOverTime,
+    "count_values_over_time" => RollupFunction::CountValuesOverTime,
     "decreases_over_time" => RollupFunction::DecreasesOverTime,
     "default_rollup" => RollupFunction::DefaultRollup,
     "delta" => RollupFunction::Delta,
@@ -467,6 +462,9 @@ static FUNCTION_MAP: phf::Map<&'static str, RollupFunction> = phf_map! {
     "stale_samples_over_time" => RollupFunction::StaleSamplesOverTime,
     "stddev_over_time" => RollupFunction::StddevOverTime,
     "stdvar_over_time" => RollupFunction::StdvarOverTime,
+    "sum_eq_over_time" => RollupFunction::SumEqOverTime,
+    "sum_gt_over_time" => RollupFunction::SumGtOverTime,
+    "sum_le_over_time" => RollupFunction::SumLeOverTime,
     "sum_over_time" => RollupFunction::SumOverTime,
     "sum2_over_time" => RollupFunction::Sum2OverTime,
     "tfirst_over_time" => RollupFunction::TFirstOverTime,
@@ -488,13 +486,8 @@ impl FromStr for RollupFunction {
                 let lower = s.to_ascii_lowercase();
                 FUNCTION_MAP.get(lower.as_str())
             })
-            .ok_or_else(|| ParseError::InvalidFunction(s.to_string()))
-            .map(|x| *x)
+            .ok_or_else(|| ParseError::InvalidFunction(s.to_string())).copied()
     }
-}
-
-pub fn is_rollup_func(func: &str) -> bool {
-    RollupFunction::from_str(func).is_ok()
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Hash, EnumIter, Serialize, Deserialize)]
@@ -567,7 +560,9 @@ pub fn is_rollup_aggregation_over_time(func: RollupFunction) -> bool {
         return true;
     }
 
-    matches!(func, |Delta| DeltaPrometheus
+    matches!(func,
+        | Delta
+        | DeltaPrometheus
         | Deriv
         | DerivFast
         | IDelta

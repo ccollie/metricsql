@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 use strum_macros::EnumIter;
 
 use crate::common::ValueType;
-use crate::functions::signature::{Signature, Volatility};
 use crate::functions::MAX_ARG_COUNT;
+use crate::functions::signature::{Signature, Volatility};
 use crate::parser::ParseError;
 
 /// Aggregation AggregateFunctions
@@ -39,7 +39,7 @@ pub enum AggregateFunction {
     Quantiles,
     /// calculate sum over dimensions
     Sum,
-    // PromQL extension funcs
+    // PromQL extension functions
     /// any(q) by (group_labels) returns a single series per group_labels out of time series returned by q.
     /// See also group.
     Any,
@@ -139,6 +139,10 @@ impl AggregateFunction {
     pub fn return_type(&self) -> ValueType {
         ValueType::InstantVector
     }
+
+    pub fn can_accept_multiple_args(&self) -> bool {
+        can_accept_multiple_args_for_aggr_func(*self)
+    }
 }
 
 impl Display for AggregateFunction {
@@ -163,7 +167,7 @@ static FUNCTION_MAP: phf::Map<&'static str, AggregateFunction> = phf_map! {
     "sum" =>           AggregateFunction::Sum,
     "topk" =>          AggregateFunction::Topk,
 
-    // PromQL extension funcs
+    // PromQL extension functions
     "any" =>             AggregateFunction::Any,
     "bottomk_min" =>     AggregateFunction::BottomkMin,
     "bottomk_max" =>     AggregateFunction::BottomkMax,
@@ -189,10 +193,6 @@ static FUNCTION_MAP: phf::Map<&'static str, AggregateFunction> = phf_map! {
     "zscore" =>          AggregateFunction::ZScore,
 };
 
-pub fn is_aggr_func(func: &str) -> bool {
-    AggregateFunction::from_str(func).is_ok()
-}
-
 impl FromStr for AggregateFunction {
     type Err = ParseError;
 
@@ -204,7 +204,7 @@ impl FromStr for AggregateFunction {
                 FUNCTION_MAP.get(lower.as_str())
             })
             .ok_or_else(|| ParseError::InvalidFunction(s.to_string()))
-            .map(|x| *x)
+            .copied()
     }
 }
 
@@ -265,16 +265,31 @@ pub fn get_aggregate_arg_idx_for_optimization(
         | TopkMin => Some(1),
         CountValues => None,
         Quantiles => Some(arg_count - 1),
-        _ => Some(0)
+        _ => Some(0),
     }
 }
 
 // todo: use signature
 pub(crate) fn can_accept_multiple_args_for_aggr_func(func: AggregateFunction) -> bool {
     use AggregateFunction::*;
-    match func {
-        Any | Avg | Count | Distinct | GeoMean | Group | Histogram | MAD | Max | Median | Min |
-        Mode | Share | StdDev | StdVar | Sum | Sum2 | ZScore  => true,
-        _ => false,
-    }
+    matches!(
+        func,
+        Any | Avg
+            | Count
+            | Distinct
+            | GeoMean
+            | Group
+            | Histogram
+            | MAD
+            | Max
+            | Median
+            | Min
+            | Mode
+            | Share
+            | StdDev
+            | StdVar
+            | Sum
+            | Sum2
+            | ZScore
+    )
 }

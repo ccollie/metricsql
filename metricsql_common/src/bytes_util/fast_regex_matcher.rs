@@ -20,13 +20,13 @@ impl FastRegexMatcher {
     /// match_func must return the same result for the same input.
     #[allow(unused)]
     pub fn new(regex: Regex) -> Self {
-        return Self {
+        Self {
             regex,
             cache: DynamicCache::new(DEFAULT_CACHE_SIZE),
-        };
+        }
     }
 
-    // Match applies match_func to s and returns the result.
+    /// Applies match_func to s and returns the result.
     pub fn matches(&self, s: &str) -> bool {
         let key = s.to_string();
         self.matches_string(&key)

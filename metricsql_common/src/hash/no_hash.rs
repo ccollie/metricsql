@@ -245,6 +245,10 @@ impl<T: IsEnabled> Hasher for NoHashHasher<T> {
 
 #[cfg(debug_assertions)]
 impl<T: IsEnabled> Hasher for NoHashHasher<T> {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
     fn write(&mut self, _: &[u8]) {
         panic!("Invalid use of NoHashHasher")
     }
@@ -307,10 +311,6 @@ impl<T: IsEnabled> Hasher for NoHashHasher<T> {
         assert!(!self.1, "NoHashHasher: second write attempt detected.");
         self.0 = n as u64;
         self.1 = true
-    }
-
-    fn finish(&self) -> u64 {
-        self.0
     }
 }
 

@@ -99,6 +99,10 @@ impl Labels {
     pub fn iter(&self) -> std::slice::Iter<String> {
         self.0.iter()
     }
+
+    pub fn get_label(&self, key: &str) -> Option<&String> {
+        self.0.iter().find(|l| *l == key)
+    }
 }
 
 impl PartialEq<Labels> for Labels {

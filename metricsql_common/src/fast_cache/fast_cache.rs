@@ -1,11 +1,9 @@
 use std::mem::size_of;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::RwLock;
+use gxhash::HashSetExt;
 
-use ahash::AHashSet;
-use xxhash_rust::xxh3::xxh3_64;
-
-use crate::hash::IntMap;
+use crate::hash::{fast_hash64, FastHashSet, IntMap};
 use crate::pool::get_pooled_buffer;
 
 const U64_SIZE: usize = 8;
@@ -132,8 +130,8 @@ pub struct BigStats {
     /// too_big_key_errors is the number of calls to SetBig with too big key.
     pub too_big_key_errors: AtomicU64,
 
-    /// invalid_metavalue_errors is the number of calls to GetBig resulting
-    /// to invalid metavalue.
+    /// invalid_meta_value_errors is the number of calls to GetBig resulting
+    /// to invalid meta value.
     pub invalid_meta_value_errors: AtomicU64,
 
     /// invalid_value_len_errors is the number of calls to GetBig resulting
@@ -167,8 +165,7 @@ impl BigStats {
     }
 }
 
-/// FastCache is a fast thread-safe in-memory cache optimized for big number
-/// of entries.
+/// FastCache is a fast thread-safe in-memory cache optimized for big number of entries.
 ///
 /// It has much lower impact on alloc/fragmentation comparing to a simple `HashMap<str,[u8]>`.
 ///
@@ -231,7 +228,7 @@ impl FastCache {
     ///
     /// k and v contents may be modified after returning from Set.
     pub fn set(&self, k: &[u8], v: &[u8]) {
-        let h = xxh3_64(k);
+        let h = fast_hash64(k);
         let bucket = self._get_bucket(h);
         bucket.set(k, v, h)
     }
@@ -257,7 +254,7 @@ impl FastCache {
             return;
         }
         let value_len = v.len();
-        let value_hash = xxh3_64(v);
+        let value_hash = fast_hash64(v);
 
         let mut meta_buf: [u8; METADATA_SIZE] = [0; METADATA_SIZE];
 
@@ -266,7 +263,7 @@ impl FastCache {
             self.set(&meta_buf, chunk);
         }
 
-        // Write metavalue, which consists of value_hash and value_len.
+        // Write meta value, which consists of value_hash and value_len.
         marshal_meta(&mut meta_buf, value_hash, value_len);
         self.set(k, &meta_buf)
     }
@@ -275,7 +272,7 @@ impl FastCache {
     ///
     /// get returns only values stored via `set`.
     pub fn get(&self, k: &[u8], dst: &mut Vec<u8>) -> bool {
-        let h = xxh3_64(k);
+        let h = fast_hash64(k);
         let bucket = self._get_bucket(h);
         bucket.get(k, h, dst)
     }
@@ -336,7 +333,7 @@ impl FastCache {
             return false;
         }
 
-        let h = xxh3_64(v);
+        let h = fast_hash64(v);
         if h != value_hash {
             self.big_stats
                 .invalid_value_hash_errors
@@ -349,7 +346,7 @@ impl FastCache {
 
     /// has returns true if entry for the given key k exists in the cache.
     pub fn has(&self, k: &[u8]) -> bool {
-        let h = xxh3_64(k);
+        let h = fast_hash64(k);
         let bucket = self._get_bucket(h);
         bucket.has(k, h)
     }
@@ -390,7 +387,7 @@ impl FastCache {
 
     // del deletes value for the given k from the cache.
     pub fn del(&self, k: &[u8]) {
-        let h = xxh3_64(k);
+        let h = fast_hash64(k);
         let bucket = self._get_bucket(h);
         bucket.del(h)
     }
@@ -452,7 +449,7 @@ struct BucketInner {
 }
 
 impl BucketInner {
-    pub fn new(chunk_count: usize) -> Self {
+    fn new(chunk_count: usize) -> Self {
         let chunks: Vec<Vec<u8>> = Vec::with_capacity(chunk_count);
 
         Self {
@@ -468,7 +465,7 @@ impl BucketInner {
         }
     }
 
-    pub fn reset(&mut self) {
+    fn reset(&mut self) {
         for chunk in self.chunks.iter_mut() {
             chunk.clear();
         }
@@ -486,7 +483,8 @@ impl BucketInner {
         let b_gen = self.gen & GEN_BIT_MASK;
         let b_idx = self.idx;
 
-        let mut to_remove: AHashSet<u64> = AHashSet::with_capacity(16);
+        // todo: use with_capacity
+        let mut to_remove: FastHashSet<u64> = FastHashSet::with_capacity(16);
         for (k, v) in self.hash_idx_map.iter() {
             let gen = (*v >> BUCKET_SIZE_BITS) as u64;
             let idx = *v & ((1 << BUCKET_SIZE_BITS) - 1);
@@ -502,7 +500,7 @@ impl BucketInner {
             .retain(|key, _size| !to_remove.contains(key));
     }
 
-    pub fn set(&mut self, k: &[u8], v: &[u8], h: u64) {
+    fn set(&mut self, k: &[u8], v: &[u8], h: u64) {
         self.set_calls += 1;
         if k.len() >= (1 << 16) || v.len() >= (1 << 16) {
             // Too big key or value - its length cannot be encoded
@@ -648,7 +646,7 @@ impl Bucket {
         inner.clean_locked();
     }
 
-    pub fn set(&self, k: &[u8], v: &[u8], h: u64) {
+    fn set(&self, k: &[u8], v: &[u8], h: u64) {
         let mut inner = self.inner.write().unwrap();
         inner.set(k, v, h);
     }
@@ -1171,7 +1169,7 @@ mod tests {
         // _very large_ generation value and appears to be from the future
         get_val(&mut c, &KEY2, &big_val2);
 
-        // This Set creates an index where `(b.gen << bucketSizeBits)>>bucketSizeBits)==0`
+        // This Set creates an index where `(b.gen << bucketSizeBits)>>bucketSizeBits==0`
         // The value is in the cache but is unreadable by Get
         c.set(&KEY2, &big_val2);
 

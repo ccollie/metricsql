@@ -44,7 +44,7 @@ pub fn walk_expr<V: ExprVisitor>(visitor: &mut V, expr: &Expr) -> Result<bool, V
     let recurse = match expr {
         Expr::UnaryOperator(u) => walk_expr(visitor, &u.expr)?,
         Expr::BinaryOperator(BinaryExpr { left, right, .. }) => {
-            walk_expr(visitor, left)? || walk_expr(visitor, right)?
+            walk_expr(visitor, left)? && walk_expr(visitor, right)?
         }
         Expr::Parens(ParensExpr { expressions }) => {
             for expr in expressions {
@@ -107,17 +107,9 @@ mod tests {
     }
 
     fn vector_selector_includes_namespace(namespace: &str, vector_selector: &MetricExpr) -> bool {
-        let mut includes_namespace = false;
-        for filters in &vector_selector.label_filters {
-            if filters.label.eq("namespace")
-                && filters.value.eq(namespace)
-                && filters.op == LabelFilterOp::Equal
-            {
-                includes_namespace = true;
-                break;
-            }
-        }
-        includes_namespace
+        vector_selector.matchers.find_matchers("namespace")
+            .iter()
+            .any(|x| x.op == LabelFilterOp::Equal && x.value.eq(namespace))
     }
 
     impl ExprVisitor for NamespaceVisitor {
@@ -128,7 +120,7 @@ mod tests {
                 Expr::MetricExpression(matrix_selector) => {
                     let included = vector_selector_includes_namespace(
                         self.namespace.as_str(),
-                        &matrix_selector,
+                        matrix_selector,
                     );
                     return Ok(included);
                 }
@@ -194,4 +186,34 @@ mod tests {
         let ast = parser::parse(r#""1""#).unwrap();
         assert!(!walk_expr(&mut visitor, &ast).unwrap());
     }
+
+    #[test]
+    fn test_binary_expr() {
+        let mut visitor = NamespaceVisitor {
+            namespace: "sample".to_string(),
+        };
+
+        let ast = parser::parse(
+            "pg_stat_activity_count{namespace=\"sample\"} + pg_stat_activity_count{}",
+        ).unwrap();
+        assert!(!walk_expr(&mut visitor, &ast).unwrap());
+
+        let ast = parser::parse(
+            "pg_stat_activity_count{} - pg_stat_activity_count{namespace=\"sample\"}",
+        ).unwrap();
+        assert!(!walk_expr(&mut visitor, &ast).unwrap());
+
+        let ast = parser::parse("pg_stat_activity_count{} * pg_stat_activity_count{}").unwrap();
+        assert!(!walk_expr(&mut visitor, &ast).unwrap());
+
+        let ast = parser::parse("pg_stat_activity_count{namespace=\"sample\"} / 1").unwrap();
+        assert!(!walk_expr(&mut visitor, &ast).unwrap());
+
+        let ast = parser::parse("1 % pg_stat_activity_count{namespace=\"sample\"}").unwrap();
+        assert!(!walk_expr(&mut visitor, &ast).unwrap());
+
+        let ast = parser::parse("pg_stat_activity_count{namespace=\"sample\"} ^ pg_stat_activity_count{namespace=\"sample\"}").unwrap();
+        assert!(walk_expr(&mut visitor, &ast).unwrap());
+    }
 }
+

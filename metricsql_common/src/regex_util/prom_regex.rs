@@ -12,7 +12,7 @@ use super::regex_utils::{get_prefix_matcher, get_suffix_matcher, simplify};
 /// - prefix match such as "foo.*" or "foo.+"
 /// - substring match such as ".*foo.*" or ".+bar.+"
 ///
-/// The rest of regexps are also optimized by returning cached match results for the same input strings.
+/// The rest of regexes are also optimized by returning cached match results for the same input strings.
 pub struct PromRegex {
     /// prefix contains literal prefix for regex.
     /// For example, prefix="foo" for regex="foo(a|b)"
@@ -80,7 +80,7 @@ mod test {
 
             // Make sure the result is the same for regular regexp
             let expr_anchored = "^(?:".to_owned() + expr + ")$";
-            let re = Regex::new(&*expr_anchored).expect("unexpected failure");
+            let re = Regex::new(&expr_anchored).expect("unexpected failure");
             let result = re.is_match(s);
             assert_eq!(
                 result, result_expected,

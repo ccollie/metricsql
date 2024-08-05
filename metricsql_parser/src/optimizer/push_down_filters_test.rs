@@ -9,12 +9,9 @@ mod tests {
         // check_ast raises hell if we construct a MetricExpr with an empty filter set.
         // This is a workaround to avoid that for testing purposes.
         if q == "{}" {
-            return Expr::MetricExpression(MetricExpr {
-                label_filters: vec![],
-                ..Default::default()
-            });
+            return Expr::MetricExpression(MetricExpr::default());
         }
-        parse(q).expect(format!("unexpected error in parse({})", q).as_str())
+        parse(q).unwrap_or_else(|_| panic!("unexpected error in parse({})", q))
     }
 
     #[test]
@@ -24,8 +21,17 @@ mod tests {
             let orig = expr.to_string();
             let filters_expr = parse_selector(filters);
             match filters_expr {
-                Expr::MetricExpression(mut me) => {
-                    let result_expr = pushdown_binary_op_filters(&expr, &mut me.label_filters);
+                Expr::MetricExpression(me) => {
+                    if me.matchers.or_matchers.len() > 1 {
+                        panic!("filters={} mustn't contain 'or'", filters)
+                    }
+
+                    let mut lfs= vec![];
+                    if me.matchers.matchers.len() == 1 {
+                        lfs = me.matchers.matchers;
+                    }
+
+                    let result_expr = pushdown_binary_op_filters(&expr, &mut lfs);
                     let expected_expr = parse(result_expected).expect("parse error in test");
                     let result = result_expr.to_string();
                     assert!(
@@ -104,7 +110,12 @@ mod tests {
             r#"{a="b"}"#,
             r#"scalar(foo) + bar{a="b"}"#,
         );
+
         f("vector(foo)", r#"{a="b"}"#, "vector(foo)");
+
+        // f(r#"vector(foo{x="y"} + a) + bar{a="b"}"#,
+        //   r#"vector(foo{a="b",x="y"} + a{a="b",x="y"}) + bar{a="b",x="y"}"#);
+
         f(
             r#"{a="b"} + on() group_left() {c="d"}"#,
             r#"{a="b"}"#,
@@ -121,7 +132,7 @@ mod tests {
     fn test_get_common_label_filters() {
         let get_filters = |q: &str| -> String {
             let e = parse_selector(q);
-            let expr = optimize(e).expect(format!("unexpected error in optimize({})", q).as_str());
+            let expr = optimize(e).unwrap_or_else(|e| panic!("unexpected error in optimize({}): {}", q, e));
             let lfs = get_common_label_filters(&expr);
             let mut me = MetricExpr::with_filters(lfs);
             me.sort_filters();
@@ -447,6 +458,12 @@ mod tests {
             r#"count_values("foo", bar{baz="a"}) by (bar, b) + a{b="c"}"#,
         );
 
+        // count_values
+        validate_optimized(r#"count_values("foo", bar{a="b",c="d"}) by (a,x,y) + baz{foo="c",x="q",z="r"}"#, r#"count_values("foo", bar{a="b",c="d",x="q"}) by(a,x,y) + baz{a="b",foo="c",x="q",z="r"}"#);
+        validate_optimized(r#"count_values("foo", bar{a="b",c="d"}) by (a) + baz{foo="c",x="q",z="r"}"#, r#"count_values("foo", bar{a="b",c="d"}) by(a) + baz{a="b",foo="c",x="q",z="r"}"#);
+        validate_optimized(r#"count_values("foo", bar{a="b",c="d"}) + baz{foo="c",x="q",z="r"}"#, r#"count_values("foo", bar{a="b",c="d"}) + baz{foo="c",x="q",z="r"}"#);
+
+
         validate_optimized(
             r#"sum(
                 avg(foo{bar="one"}) by (bar),
@@ -539,6 +556,16 @@ mod tests {
             r#"vector(foo{x="y"} + a) + bar{a="b"}"#,
             r#"vector(foo{x="y"} + a{x="y"}) + bar{a="b"}"#,
         );
+
+        // range_normalize
+        validate_optimized(r#"range_normalize(foo{a="b",c="d"},bar{a="b",x="y"}) + baz{z="w"}"#,
+                           r#"range_normalize(foo{a="b",c="d",z="w"}, bar{a="b",x="y",z="w"}) + baz{a="b",z="w"}"#);
+
+        // union
+        validate_optimized(r#"union(foo{a="b",c="d"},bar{a="b",x="y"}) + baz{z="w"}"#,
+                           r#"union(foo{a="b",c="d",z="w"}, bar{a="b",x="y",z="w"}) + baz{a="b",z="w"}"#);
+        validate_optimized(r#"(foo{a="b",c="d"},bar{a="b",x="y"}) + baz{z="w"}"#,
+                           r#"(foo{a="b",c="d",z="w"}, bar{a="b",x="y",z="w"}) + baz{a="b",z="w"}"#);
     }
 
     #[test]
@@ -605,6 +632,10 @@ mod tests {
             r#"quantiles_over_time("quantile", 0.1, 0.9, foo{x="y"}[5m] offset 4h) + bar{a!="b"}"#,
             r#"quantiles_over_time("quantile", 0.1, 0.9, foo{a!="b", x="y"}[5m] offset 4h) + bar{a!="b", x="y"}"#,
         );
+
+        // count_values_over_time
+        validate_optimized(r#"count_values_over_time("a", foo{a="x",b="c"}[5m]) + bar{a="y",d="e"}"#,
+          r#"count_values_over_time("a", foo{a="x",b="c",d="e"}[5m]) + bar{a="y",b="c",d="e"}"#);
     }
 
     #[test]
