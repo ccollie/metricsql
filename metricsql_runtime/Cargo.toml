@@ -1,5 +1,5 @@
 [package]
-name = "metricsql_engine"
+name = "metricsql_runtime"
 description = "A promql execution engine"
 resolver = "2"
 version.workspace = true
@@ -23,7 +23,7 @@ async-trait = "0.1"
 enquote.workspace = true
 byte-slice-cast = "1.2"
 byte-pool.workspace = true
-clone_dyn = "0.22.0"
+clone_dyn = "0.22"
 chrono.workspace = true
 chrono-tz.workspace = true
 effective-limits = "0.5"

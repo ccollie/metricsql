@@ -15,7 +15,7 @@ use crate::ast::{
 };
 use crate::ast::utils::string_vecs_equal_unordered;
 use crate::common::{hash_f64, join_vector, Value, ValueType, write_comma_separated, write_number};
-use crate::functions::{AggregateFunction, BuiltinFunction, TransformFunction};
+use crate::functions::{AggregateFunction, BuiltinFunction, FunctionMeta, TransformFunction};
 use crate::label::{LabelFilter, LabelFilterOp, Labels, Matchers, NAME_LABEL};
 use crate::parser::{escape_ident, ParseError, ParseResult};
 use crate::prelude::{
@@ -960,8 +960,12 @@ impl AggregationExpr {
     }
 
     pub fn from_name(name: &str) -> ParseResult<Self> {
-        let function = AggregateFunction::from_str(name)?;
-        Ok(Self::new(function, vec![]))
+        if let Some(meta) = FunctionMeta::lookup(name) {
+            if let BuiltinFunction::Aggregate(af) = meta.function {
+                return Ok(Self::new(af, vec![]));
+            }
+        }
+        Err(ParseError::InvalidFunction(name.to_string()))
     }
 
     pub fn with_modifier(mut self, modifier: AggregateModifier) -> Self {

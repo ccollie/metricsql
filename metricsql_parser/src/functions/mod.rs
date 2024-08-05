@@ -76,16 +76,28 @@ pub struct FunctionMeta {
 }
 
 impl FunctionMeta {
-    pub fn get(name: &str) -> Option<&'static FunctionMeta> {
-        let mut meta = get_registry()
-            .get(name);
-        if meta.is_none() {
-            let lower = name.to_lowercase();
-            get_registry().get(lower.as_str())
-        } else {
-            meta
-        }
+    pub fn lookup(name: &str) -> Option<&'static FunctionMeta> {
+        get_registry()
+            .get(name)
+            .or_else(|| get_registry().get(name.to_lowercase().as_str()))
+    }
 
+    pub fn get_rollup_function(name: &str) -> ParseResult<&'static FunctionMeta> {
+        if let Some(meta) = FunctionMeta::lookup(name) {
+            if let BuiltinFunction::Rollup(rf) = &meta.function {
+                return Ok(meta);
+            }
+        }
+        Err(ParseError::InvalidFunction(format!("rollup::{name}")))
+    }
+
+    pub fn get_aggregate_function(name: &str) -> ParseResult<&'static FunctionMeta> {
+        if let Some(meta) = FunctionMeta::lookup(name) {
+            if let BuiltinFunction::Aggregate(af) = &meta.function {
+                return Ok(meta);
+            }
+        }
+        Err(ParseError::InvalidFunction(format!("aggregate::{name}")))
     }
 
     pub fn get_type(&self) -> BuiltinFunctionType {
@@ -155,18 +167,9 @@ fn init_registry() -> FunctionRegistry {
 
 impl BuiltinFunction {
     pub fn new(name: &str) -> ParseResult<Self> {
-        if let Ok(func) = TransformFunction::from_str(name) {
-            return Ok(BuiltinFunction::Transform(func));
+        if let Some(meta) = FunctionMeta::lookup(name) {
+            return Ok(meta.function.clone());
         }
-
-        if let Ok(af) = AggregateFunction::from_str(name) {
-            return Ok(BuiltinFunction::Aggregate(af));
-        }
-
-        if let Ok(rf) = RollupFunction::from_str(name) {
-            return Ok(BuiltinFunction::Rollup(rf));
-        }
-
         Err(ParseError::InvalidFunction(format!("built-in::{name}")))
     }
 
@@ -192,16 +195,8 @@ impl BuiltinFunction {
         }
     }
 
-    pub fn validate_arg_count(&self, name: &str, arg_len: usize) -> ParseResult<()> {
-        self.signature().validate_arg_count(name, arg_len)
-    }
-
     pub fn validate_args(&self, args: &[Expr]) -> ParseResult<()> {
         validate_function_args(self, args)
-    }
-
-    pub fn volatility(&self) -> Volatility {
-        self.signature().volatility
     }
 
     pub fn type_name(&self) -> &'static str {
@@ -222,7 +217,10 @@ impl BuiltinFunction {
     }
 
     pub fn is_aggregate_func(name: &str) -> bool {
-        AggregateFunction::from_str(name).is_ok()
+        if let Some(meta) = FunctionMeta::lookup(name) {
+            return meta.is_aggregation()
+        }
+        false
     }
 
     pub fn is_aggregation(&self) -> bool {

@@ -1,13 +1,11 @@
-use std::str::FromStr;
-
 use metricsql_common::pool::get_pooled_vec_f64;
 use metricsql_parser::functions::RollupFunction;
+use metricsql_parser::prelude::{BuiltinFunction, FunctionMeta};
 
 use crate::common::math::{
     is_stale_nan, linear_regression, mad, mode_no_nans, quantile, stddev, stdvar,
 };
 use crate::functions::arg_parse::get_scalar_param_value;
-use crate::functions::rollup::types::RollupHandlerFactory;
 use crate::functions::rollup::{
     counts::{
         new_rollup_count_eq, new_rollup_count_gt, new_rollup_count_le, new_rollup_count_ne,
@@ -31,8 +29,9 @@ use crate::functions::rollup::{
 };
 use crate::functions::rollup::{RollupFunc, RollupFuncArg, RollupHandler};
 use crate::functions::rollup::counts::{new_rollup_count_values, new_rollup_sum_eq, new_rollup_sum_gt, new_rollup_sum_le};
-use crate::runtime_error::{RuntimeError, RuntimeResult};
+use crate::functions::rollup::types::RollupHandlerFactory;
 use crate::QueryValue;
+use crate::runtime_error::{RuntimeError, RuntimeResult};
 
 // https://github.com/VictoriaMetrics/VictoriaMetrics/blob/master/app/vmselect/promql/rollup.go
 
@@ -104,10 +103,13 @@ pub(super) fn get_rollup_fn(f: &RollupFunction) -> RuntimeResult<RollupFunc> {
 }
 
 pub(crate) fn get_rollup_func_by_name(name: &str) -> RuntimeResult<RollupFunction> {
-    match RollupFunction::from_str(name) {
-        Err(_) => Err(RuntimeError::UnknownFunction(name.to_string())),
-        Ok(func) => Ok(func),
+    if let Some(meta) = FunctionMeta::lookup(name) {
+        match meta.function {
+            BuiltinFunction::Rollup(f) => return Ok(f),
+            _ => {},
+        }
     }
+    Err(RuntimeError::UnknownFunction(name.to_string()))
 }
 
 macro_rules! make_factory {

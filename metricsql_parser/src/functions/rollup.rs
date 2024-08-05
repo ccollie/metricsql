@@ -490,10 +490,6 @@ impl FromStr for RollupFunction {
     }
 }
 
-pub fn is_rollup_func(func: &str) -> bool {
-    RollupFunction::from_str(func).is_ok()
-}
-
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Hash, EnumIter, Serialize, Deserialize)]
 pub enum RollupTag {
     Min,

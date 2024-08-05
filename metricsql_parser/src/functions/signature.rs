@@ -119,6 +119,8 @@ pub struct Signature {
     pub type_signature: TypeSignature,
     /// volatility - The volatility of the function. See [Volatility] for more information.
     pub volatility: Volatility,
+
+    pub return_type: ValueType,
 }
 
 impl Signature {
@@ -127,6 +129,7 @@ impl Signature {
         Signature {
             type_signature,
             volatility,
+            return_type: ValueType::InstantVector,
         }
     }
 
@@ -135,6 +138,7 @@ impl Signature {
         Self {
             type_signature: TypeSignature::Variadic(common_types, 0),
             volatility,
+            return_type: ValueType::InstantVector,
         }
     }
 
@@ -143,6 +147,7 @@ impl Signature {
         Self {
             type_signature: TypeSignature::Variadic(common_types, min),
             volatility,
+            return_type: ValueType::InstantVector,
         }
     }
 
@@ -151,6 +156,7 @@ impl Signature {
         Self {
             type_signature: TypeSignature::VariadicEqual(valid_type, min),
             volatility,
+            return_type: ValueType::InstantVector,
         }
     }
 
@@ -159,6 +165,7 @@ impl Signature {
         Self {
             type_signature: TypeSignature::Uniform(arg_count, valid_type),
             volatility,
+            return_type: ValueType::InstantVector,
         }
     }
 
@@ -167,6 +174,7 @@ impl Signature {
         Signature {
             type_signature: TypeSignature::Exact(exact_types, None),
             volatility,
+            return_type: ValueType::InstantVector,
         }
     }
 
@@ -182,6 +190,7 @@ impl Signature {
         Signature {
             type_signature: TypeSignature::Exact(exact_types, Some(min_arg)),
             volatility,
+            return_type: ValueType::InstantVector,
         }
     }
 
@@ -190,6 +199,7 @@ impl Signature {
         Signature {
             type_signature: TypeSignature::Any(arg_count),
             volatility,
+            return_type: ValueType::InstantVector,
         }
     }
 
@@ -198,6 +208,7 @@ impl Signature {
         Signature {
             type_signature: TypeSignature::VariadicAny(min_arg_count),
             volatility,
+            return_type: ValueType::InstantVector,
         }
     }
 

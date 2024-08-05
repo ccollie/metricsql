@@ -1,10 +1,8 @@
-use std::str::FromStr;
-
 use crate::ast::{AggregateModifier, AggregationExpr, Expr};
-use crate::functions::{AggregateFunction, BuiltinFunction};
+use crate::functions::{AggregateFunction, BuiltinFunction, FunctionMeta};
+use crate::parser::{ParseError, Parser, ParseResult};
 use crate::parser::function::validate_function_args;
 use crate::parser::tokens::Token;
-use crate::parser::{ParseResult, Parser};
 
 /// parse_aggr_func_expr parses an aggregation Expr.
 ///
@@ -14,7 +12,7 @@ use crate::parser::{ParseResult, Parser};
 pub(super) fn parse_aggr_func_expr(p: &mut Parser) -> ParseResult<Expr> {
     let tok = p.expect_identifier()?;
 
-    let func = AggregateFunction::from_str(&tok)?;
+    let func = get_aggregation_function(&tok)?;
 
     fn handle_prefix(p: &mut Parser, func: AggregateFunction) -> ParseResult<Expr> {
         let modifier = Some(parse_aggregate_modifier(p)?);
@@ -78,4 +76,13 @@ fn parse_limit(p: &mut Parser) -> ParseResult<usize> {
         return Err(p.syntax_error(&msg));
     }
     Ok(v as usize)
+}
+
+fn get_aggregation_function(name: &str) -> ParseResult<AggregateFunction> {
+    if let Some(meta) = FunctionMeta::lookup(name) {
+        if let BuiltinFunction::Aggregate(af) = meta.function {
+            return Ok(af);
+        }
+    }
+    Err(ParseError::InvalidFunction(format!("aggregation::{name}")))
 }

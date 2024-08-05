@@ -193,10 +193,6 @@ static FUNCTION_MAP: phf::Map<&'static str, AggregateFunction> = phf_map! {
     "zscore" =>          AggregateFunction::ZScore,
 };
 
-pub fn is_aggr_func(func: &str) -> bool {
-    AggregateFunction::from_str(func).is_ok()
-}
-
 impl FromStr for AggregateFunction {
     type Err = ParseError;
 

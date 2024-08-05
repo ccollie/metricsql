@@ -14,10 +14,7 @@ mod tests {
         rollup_max, rollup_min, rollup_mode_over_time, rollup_rate_over_sum, rollup_resets,
         rollup_scrape_interval, rollup_stddev, rollup_sum, rollup_zscore_over_time,
     };
-    use crate::functions::rollup::{
-        get_rollup_function_factory, get_rollup_function_handler, RollupConfig, RollupFuncArg,
-        RollupHandler, RollupHandlerFactory,
-    };
+    use crate::functions::rollup::{get_rollup_func_by_name, get_rollup_function_factory, get_rollup_function_handler, RollupConfig, RollupFuncArg, RollupHandler, RollupHandlerFactory};
     use crate::{
         compare_floats, compare_values, test_rows_equal, QueryValue, RuntimeError, RuntimeResult,
         Timeseries,
@@ -33,10 +30,8 @@ mod tests {
     const TEST_TIMESTAMPS: [i64; 12] = [5, 15, 24, 36, 49, 60, 78, 80, 97, 115, 120, 130];
 
     fn get_rollup_function_factory_by_name(name: &str) -> RuntimeResult<RollupHandlerFactory> {
-        match RollupFunction::from_str(name) {
-            Ok(func) => Ok(get_rollup_function_factory(func)),
-            Err(_) => Err(RuntimeError::UnknownFunction(String::from(name))),
-        }
+        let func = get_rollup_func_by_name(name)?;
+        Ok(get_rollup_function_factory(func))
     }
 
     #[test]
@@ -298,7 +293,7 @@ mod tests {
     }
 
     fn test_rollup_func(func_name: &str, args: Vec<QueryValue>, expected: f64) {
-        let func = RollupFunction::from_str(func_name).unwrap();
+        let func = get_rollup_func_by_name(func_name).unwrap();
 
         let rf = get_rollup_function_handler(func, &args).unwrap();
         let mut rfa = RollupFuncArg::default();

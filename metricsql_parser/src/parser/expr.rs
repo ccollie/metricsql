@@ -5,7 +5,7 @@ use crate::ast::{
     VectorMatchModifier,
 };
 use crate::common::ValueType;
-use crate::functions::AggregateFunction;
+use crate::functions::{AggregateFunction, FunctionMeta};
 use crate::label::Labels;
 use crate::parser::function::parse_func_expr;
 use crate::parser::parse_error::unexpected;
@@ -310,5 +310,8 @@ fn parse_ident_expr(p: &mut Parser) -> ParseResult<Expr> {
 }
 
 fn is_aggr_func(name: &str) -> bool {
-    AggregateFunction::from_str(name).is_ok()
+    if let Some(meta) = FunctionMeta::lookup(name) {
+        return meta.is_aggregation();
+    }
+    false
 }
