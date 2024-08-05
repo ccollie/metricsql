@@ -1,10 +1,11 @@
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
-
+use std::sync::OnceLock;
 use serde::{Deserialize, Serialize};
-
+use strum::IntoEnumIterator;
 pub use aggregate::*;
+use metricsql_common::hash::FastHashMap;
 pub use rollup::*;
 pub use signature::*;
 pub use transform::*;
@@ -64,6 +65,92 @@ impl Display for BuiltinFunctionType {
         write!(f, "{}", self.to_str())?;
         Ok(())
     }
+}
+
+
+#[derive(Debug, Clone)]
+pub struct FunctionMeta {
+    pub name: &'static str,
+    pub function: BuiltinFunction,
+    pub signature: Signature
+}
+
+impl FunctionMeta {
+    pub fn get(name: &str) -> Option<&'static FunctionMeta> {
+        let mut meta = get_registry()
+            .get(name);
+        if meta.is_none() {
+            let lower = name.to_lowercase();
+            get_registry().get(lower.as_str())
+        } else {
+            meta
+        }
+
+    }
+
+    pub fn get_type(&self) -> BuiltinFunctionType {
+        self.function.get_type()
+    }
+
+    pub fn validate_arg_count(&self, name: &str, arg_len: usize) -> ParseResult<()> {
+        self.signature.validate_arg_count(name, arg_len)
+    }
+
+    pub fn validate_args(&self, args: &[Expr]) -> ParseResult<()> {
+        validate_function_args(&self.function, args)
+    }
+
+    pub fn is_aggregation(&self) -> bool {
+        matches!(self.function, BuiltinFunction::Aggregate(_))
+    }
+
+    pub fn is_scalar(&self) -> bool {
+        match self.function {
+            BuiltinFunction::Transform(func) => func.return_type() == ValueType::Scalar,
+            _ => false,
+        }
+    }
+
+    pub fn is_rollup_function(&self, func: RollupFunction) -> bool {
+        match &self.function {
+            BuiltinFunction::Rollup(rf) => rf == &func,
+            _ => false,
+        }
+    }
+}
+
+type FunctionRegistry = FastHashMap<&'static str, FunctionMeta>;
+static REGISTRY: OnceLock<FunctionRegistry> = OnceLock::new();
+
+pub fn get_registry() -> &'static FunctionRegistry {
+    REGISTRY.get_or_init(init_registry)
+}
+
+fn init_registry() -> FunctionRegistry {
+    let mut registry = FunctionRegistry::default();
+
+    for af in AggregateFunction::iter() {
+        let name = af.name();
+        let function = BuiltinFunction::Aggregate(af);
+        let signature = af.signature();
+        registry.insert(name, FunctionMeta { name, function, signature });
+    }
+
+    for rf in RollupFunction::iter() {
+        let name = rf.name();
+        let function = BuiltinFunction::Rollup(rf);
+        let signature = rf.signature();
+        registry.insert(name, FunctionMeta { name, function, signature });
+    }
+
+    for tf in TransformFunction::iter() {
+        let name = tf.name();
+        let function = BuiltinFunction::Transform(tf);
+        let signature = tf.signature();
+        registry.insert(name, FunctionMeta { name, function, signature });
+    }
+
+    registry
 }
 
 impl BuiltinFunction {
@@ -246,6 +333,7 @@ impl TryFrom<&str> for BuiltinFunction {
         Self::new(value)
     }
 }
+
 
 #[cfg(test)]
 mod tests {
