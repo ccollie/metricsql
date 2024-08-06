@@ -3,12 +3,11 @@
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
-use phf::phf_map;
 use serde::{Deserialize, Serialize};
 use strum_macros::EnumIter;
 
 use crate::common::ValueType;
-use crate::functions::MAX_ARG_COUNT;
+use crate::functions::{BuiltinFunction, FunctionMeta, MAX_ARG_COUNT};
 use crate::functions::signature::{Signature, Volatility};
 use crate::parser::ParseError;
 
@@ -151,60 +150,16 @@ impl Display for AggregateFunction {
     }
 }
 
-static FUNCTION_MAP: phf::Map<&'static str, AggregateFunction> = phf_map! {
-    "avg" =>           AggregateFunction::Avg,
-    "bottomk" =>       AggregateFunction::Bottomk,
-    "bottomk_last" =>  AggregateFunction::BottomkLast,
-    "count" =>         AggregateFunction::Count,
-    "count_values" =>  AggregateFunction::CountValues,
-    "group" =>         AggregateFunction::Group,
-    "max" =>           AggregateFunction::Max,
-    "min" =>           AggregateFunction::Min,
-    "quantile" =>      AggregateFunction::Quantile,
-    "quantiles" =>     AggregateFunction::Quantiles,
-    "stddev" =>        AggregateFunction::StdDev,
-    "stdvar" =>        AggregateFunction::StdVar,
-    "sum" =>           AggregateFunction::Sum,
-    "topk" =>          AggregateFunction::Topk,
-
-    // PromQL extension functions
-    "any" =>             AggregateFunction::Any,
-    "bottomk_min" =>     AggregateFunction::BottomkMin,
-    "bottomk_max" =>     AggregateFunction::BottomkMax,
-    "bottomk_avg" =>     AggregateFunction::BottomkAvg,
-    "bottomk_median" =>  AggregateFunction::BottomkMedian,
-    "distinct" =>        AggregateFunction::Distinct,
-    "geomean" =>         AggregateFunction::GeoMean,
-    "histogram" =>       AggregateFunction::Histogram,
-    "limitk" =>          AggregateFunction::Limitk,
-    "mad" =>             AggregateFunction::MAD,
-    "median" =>          AggregateFunction::Median,
-    "mode" =>            AggregateFunction::Mode,
-    "outliers_iqr" =>    AggregateFunction::OutliersIQR,
-    "outliersk" =>       AggregateFunction::Outliersk,
-    "outliers_mad" =>    AggregateFunction::OutliersMAD,
-    "share" =>           AggregateFunction::Share,
-    "sum2" =>            AggregateFunction::Sum2,
-    "topk_min" =>        AggregateFunction::TopkMin,
-    "topk_max" =>        AggregateFunction::TopkMax,
-    "topk_avg" =>        AggregateFunction::TopkAvg,
-    "topk_last" =>       AggregateFunction::TopkLast,
-    "topk_median" =>     AggregateFunction::TopkMedian,
-    "zscore" =>          AggregateFunction::ZScore,
-};
-
 impl FromStr for AggregateFunction {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        FUNCTION_MAP
-            .get(s)
-            .or_else(|| {
-                let lower = s.to_ascii_lowercase();
-                FUNCTION_MAP.get(lower.as_str())
-            })
-            .ok_or_else(|| ParseError::InvalidFunction(s.to_string()))
-            .copied()
+        if let Some(meta) = FunctionMeta::lookup(s) {
+            if let BuiltinFunction::Aggregate(ag) = &meta.function {
+                return Ok(*ag);
+            }
+        }
+        Err(ParseError::InvalidFunction(s.to_string()))
     }
 }
 

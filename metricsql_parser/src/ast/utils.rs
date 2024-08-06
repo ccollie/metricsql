@@ -186,7 +186,7 @@ impl ExprVisitor for InvalidExprVisitor {
     }
 }
 
-/// is_likely_invalid returns true if an expression contains tricky implicit conversions, which is invalid most of the time.
+/// is_likely_invalid returns true if an expression contains tricky implicit conversions which is invalid most of the time.
 ///
 /// Examples of invalid expressions:
 ///

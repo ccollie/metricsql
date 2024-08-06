@@ -33,10 +33,6 @@ pub struct AggrFuncArg<'a> {
     pub limit: usize,
 }
 
-pub trait AggrFn: Fn(&mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> + Send + Sync {}
-
-impl<T> AggrFn for T where T: Fn(&mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> + Send + Sync {}
-
 macro_rules! make_aggr_fn {
     ($name:ident, $f:expr) => {
         fn $name(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {

@@ -63,7 +63,7 @@ pub fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expr> {
             return Ok(Expr::MetricExpression(me));
         }
 
-        name = Some(token);
+        name = Some(token.to_string());
     }
 
     let filters = parse_label_filters(p)?;

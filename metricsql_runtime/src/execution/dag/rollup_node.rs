@@ -520,25 +520,6 @@ impl RollupNode {
     }
 }
 
-
-fn has_duplicate_series(tss: &[Timeseries]) -> bool {
-    if tss.len() <= 1 {
-        return false
-    }
-
-    let mut m: AHashSet<String> = AHashSet::with_capacity(tss.len());
-    // todo: use buffer pools to avoid memory allocations
-
-    for ts in tss {
-        let name = ts.metric_name.to_string();
-        if m.contains(&name) {
-            return true
-        }
-        m.insert(name);
-    }
-    return false
-}
-
 fn mul_no_overflow(a: i64, b: i64) -> i64 {
     a.saturating_mul(b)
 }

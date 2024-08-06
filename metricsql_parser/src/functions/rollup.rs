@@ -1,13 +1,12 @@
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
-use phf::phf_map;
 use serde::{Deserialize, Serialize};
 use strum_macros::EnumIter;
 
 use crate::common::ValueType;
+use crate::functions::{BuiltinFunction, FunctionMeta, MAX_ARG_COUNT};
 use crate::functions::signature::{Signature, Volatility};
-use crate::functions::MAX_ARG_COUNT;
 use crate::parser::ParseError;
 
 /// Built-in Rollup Functions
@@ -395,98 +394,16 @@ pub const fn can_adjust_window(func: RollupFunction) -> bool {
     )
 }
 
-static FUNCTION_MAP: phf::Map<&'static str, RollupFunction> = phf_map! {
-    "absent_over_time" => RollupFunction::AbsentOverTime,
-    "aggr_over_time" => RollupFunction::AggrOverTime,
-    "ascent_over_time" => RollupFunction::AscentOverTime,
-    "avg_over_time" => RollupFunction::AvgOverTime,
-    "changes" => RollupFunction::Changes,
-    "changes_prometheus" => RollupFunction::ChangesPrometheus,
-    "count_eq_over_time" => RollupFunction::CountEqOverTime,
-    "count_gt_over_time" => RollupFunction::CountGtOverTime,
-    "count_le_over_time" => RollupFunction::CountLeOverTime,
-    "count_ne_over_time" => RollupFunction::CountNeOverTime,
-    "count_over_time" => RollupFunction::CountOverTime,
-    "count_values_over_time" => RollupFunction::CountValuesOverTime,
-    "decreases_over_time" => RollupFunction::DecreasesOverTime,
-    "default_rollup" => RollupFunction::DefaultRollup,
-    "delta" => RollupFunction::Delta,
-    "delta_prometheus" => RollupFunction::DeltaPrometheus,
-    "deriv" => RollupFunction::Deriv,
-    "deriv_fast" => RollupFunction::DerivFast,
-    "descent_over_time" => RollupFunction::DescentOverTime,
-    "distinct_over_time" => RollupFunction::DistinctOverTime,
-    "duration_over_time" => RollupFunction::DurationOverTime,
-    "first_over_time" => RollupFunction::FirstOverTime,
-    "geomean_over_time" => RollupFunction::GeomeanOverTime,
-    "histogram_over_time" => RollupFunction::HistogramOverTime,
-    "hoeffding_bound_lower" => RollupFunction::HoeffdingBoundLower,
-    "hoeffding_bound_upper" => RollupFunction::HoeffdingBoundUpper,
-    "holt_winters" => RollupFunction::HoltWinters,
-    "idelta" => RollupFunction::IDelta,
-    "ideriv" => RollupFunction::IDeriv,
-    "increase" => RollupFunction::Increase,
-    "increase_prometheus" => RollupFunction::IncreasePrometheus,
-    "increase_pure" => RollupFunction::IncreasePure,
-    "increases_over_time" => RollupFunction::IncreasesOverTime,
-    "integrate" => RollupFunction::Integrate,
-    "irate" => RollupFunction::IRate,
-    "lag" => RollupFunction::Lag,
-    "last_over_time" => RollupFunction::LastOverTime,
-    "lifetime" => RollupFunction::Lifetime,
-    "mad_over_time" => RollupFunction::MadOverTime,
-    "max_over_time" => RollupFunction::MaxOverTime,
-    "median_over_time" => RollupFunction::MedianOverTime,
-    "min_over_time" => RollupFunction::MinOverTime,
-    "mode_over_time" => RollupFunction::ModeOverTime,
-    "outlier_iqr_over_time" => RollupFunction::OutlierIQROverTime,
-    "predict_linear" => RollupFunction::PredictLinear,
-    "present_over_time" => RollupFunction::PresentOverTime,
-    "quantile_over_time" => RollupFunction::QuantileOverTime,
-    "quantiles_over_time" => RollupFunction::QuantilesOverTime,
-    "range_over_time" => RollupFunction::RangeOverTime,
-    "rate" => RollupFunction::Rate,
-    "rate_over_sum" => RollupFunction::RateOverSum,
-    "resets" => RollupFunction::Resets,
-    "rollup" => RollupFunction::Rollup,
-    "rollup_candlestick" => RollupFunction::RollupCandlestick,
-    "rollup_delta" => RollupFunction::RollupDelta,
-    "rollup_deriv" => RollupFunction::RollupDeriv,
-    "rollup_increase" => RollupFunction::RollupIncrease,
-    "rollup_rate" => RollupFunction::RollupRate,
-    "rollup_scrape_interval" => RollupFunction::RollupScrapeInterval,
-    "scrape_interval" => RollupFunction::ScrapeInterval,
-    "share_eq_over_time" => RollupFunction::ShareEqOverTime,
-    "share_gt_over_time" => RollupFunction::ShareGtOverTime,
-    "share_le_over_time" => RollupFunction::ShareLeOverTime,
-    "stale_samples_over_time" => RollupFunction::StaleSamplesOverTime,
-    "stddev_over_time" => RollupFunction::StddevOverTime,
-    "stdvar_over_time" => RollupFunction::StdvarOverTime,
-    "sum_eq_over_time" => RollupFunction::SumEqOverTime,
-    "sum_gt_over_time" => RollupFunction::SumGtOverTime,
-    "sum_le_over_time" => RollupFunction::SumLeOverTime,
-    "sum_over_time" => RollupFunction::SumOverTime,
-    "sum2_over_time" => RollupFunction::Sum2OverTime,
-    "tfirst_over_time" => RollupFunction::TFirstOverTime,
-    "timestamp" => RollupFunction::Timestamp,
-    "timestamp_with_name" => RollupFunction::TimestampWithName,
-    "tlast_change_over_time" => RollupFunction::TLastChangeOverTime,
-    "tlast_over_time" => RollupFunction::TLastOverTime,
-    "tmax_over_time" => RollupFunction::TMaxOverTime,
-    "tmin_over_time" => RollupFunction::TMinOverTime,
-    "zscore_over_time" => RollupFunction::ZScoreOverTime,
-};
-
 impl FromStr for RollupFunction {
     type Err = ParseError;
+
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        FUNCTION_MAP
-            .get(s)
-            .or_else(|| {
-                let lower = s.to_ascii_lowercase();
-                FUNCTION_MAP.get(lower.as_str())
-            })
-            .ok_or_else(|| ParseError::InvalidFunction(s.to_string())).copied()
+        if let Some(meta) = FunctionMeta::lookup(s) {
+            if let BuiltinFunction::Rollup(rf) = &meta.function {
+                return Ok(*rf);
+            }
+        }
+        Err(ParseError::InvalidFunction(s.to_string()))
     }
 }
 

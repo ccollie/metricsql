@@ -1,13 +1,12 @@
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
-use phf::phf_map;
 use serde::{Deserialize, Serialize};
 use strum_macros::EnumIter;
 
 use crate::common::ValueType;
+use crate::functions::{BuiltinFunction, FunctionMeta, MAX_ARG_COUNT};
 use crate::functions::signature::{Signature, Volatility};
-use crate::functions::MAX_ARG_COUNT;
 use crate::parser::ParseError;
 
 // TODO: ttf
@@ -136,134 +135,17 @@ impl Display for TransformFunction {
     }
 }
 
-static REVERSE_MAP: phf::Map<&'static str, TransformFunction> = phf_map! {
-""=> TransformFunction::Union, // empty func is a synonym to union
-"abs"=>  TransformFunction::Abs,
-"absent"=> TransformFunction::Absent,
-"acos"=>  TransformFunction::Acos,
-"acosh"=>  TransformFunction::Acosh,
-"alias"=>  TransformFunction::Alias,
-"asin"=>  TransformFunction::Asin,
-"asinh" => TransformFunction::Asinh,
-"atan" => TransformFunction::Atan,
-"atanh" => TransformFunction::Atanh,
-"bitmap_and"=> TransformFunction::BitmapAnd,
-"bitmap_or"=> TransformFunction::BitmapOr,
-"bitmap_xor"=> TransformFunction::BitmapXor,
-"buckets_limit"=> TransformFunction::BucketsLimit,
-"ceil" => TransformFunction::Ceil,
-"clamp" => TransformFunction::Clamp,
-"clamp_max" => TransformFunction::ClampMax,
-"clamp_min" => TransformFunction::ClampMin,
-"cos" => TransformFunction::Cos,
-"cosh" => TransformFunction::Cosh,
-"day_of_month"=> TransformFunction::DayOfMonth,
-"day_of_week"=> TransformFunction::DayOfWeek,
-"day_of_year"=> TransformFunction::DayOfYear,
-"days_in_month"=> TransformFunction::DaysInMonth,
-"deg"=> TransformFunction::Deg,
-"drop_common_labels"=> TransformFunction::DropCommonLabels,
-"drop_empty_series" => TransformFunction::DropEmptySeries,
-"end" => TransformFunction::End,
-"exp" => TransformFunction::Exp,
-"floor" => TransformFunction::Floor,
-"histogram_avg" => TransformFunction::HistogramAvg,
-"histogram_quantile" => TransformFunction::HistogramQuantile,
-"histogram_quantiles" => TransformFunction::HistogramQuantiles,
-"histogram_share" => TransformFunction::HistogramShare,
-"histogram_stddev" => TransformFunction::HistogramStddev,
-"histogram_stdvar" => TransformFunction::HistogramStdvar,
-"hour" => TransformFunction::Hour,
-"interpolate" => TransformFunction::Interpolate,
-"keep_last_value" => TransformFunction::KeepLastValue,
-"keep_next_value" => TransformFunction::KeepNextValue,
-"label_copy" => TransformFunction::LabelCopy,
-"label_del" =>  TransformFunction::LabelDel,
-"label_graphite_group" => TransformFunction::LabelGraphiteGroup,
-"label_join" => TransformFunction::LabelJoin,
-"label_keep" => TransformFunction::LabelKeep,
-"label_lowercase" => TransformFunction::LabelLowercase,
-"label_map" => TransformFunction::LabelMap,
-"label_match" => TransformFunction::LabelMatch,
-"label_mismatch" => TransformFunction::LabelMismatch,
-"label_move" => TransformFunction::LabelMove,
-"label_replace" => TransformFunction::LabelReplace,
-"label_set" => TransformFunction::LabelSet,
-"label_transform" => TransformFunction::LabelTransform,
-"label_uppercase" => TransformFunction::LabelUppercase,
-"label_value" => TransformFunction::LabelValue,
-"labels_equal" => TransformFunction::LabelsEqual,
-"limit_offset" => TransformFunction::LimitOffset,
-"ln" => TransformFunction::Ln,
-"log2" => TransformFunction::Log2,
-"log10" => TransformFunction::Log10,
-"minute" => TransformFunction::Minute,
-"month" => TransformFunction::Month,
-"now" => TransformFunction::Now,
-"pi" => TransformFunction::Pi,
-"prometheus_buckets" => TransformFunction::PrometheusBuckets,
-"rad" => TransformFunction::Rad,
-"rand" => TransformFunction::Random,
-"rand_exponential" => TransformFunction::RandExponential,
-"rand_normal" => TransformFunction::RandNormal,
-"range_avg" => TransformFunction::RangeAvg,
-"range_first" => TransformFunction::RangeFirst,
-"range_linear_regression" => TransformFunction::RangeLinearRegression,
-"range_last" => TransformFunction::RangeLast,
-"range_max" => TransformFunction::RangeMax,
-"range_median" => TransformFunction::RangeMedian,
-"range_min" => TransformFunction::RangeMin,
-"range_normalize" => TransformFunction::RangeNormalize,
-"range_quantile" => TransformFunction::RangeQuantile,
-"range_stddev" => TransformFunction::RangeStdDev,
-"range_stdvar" => TransformFunction::RangeStdVar,
-"range_sum" => TransformFunction::RangeSum,
-"range_trim_outliers" => TransformFunction::RangeTrimOutliers,
-"range_trim_spikes" => TransformFunction::RangeTrimSpikes,
-"range_trim_zscore" => TransformFunction::RangeTrimZScore,
-"range_zscore" => TransformFunction::RangeZScore,
-"remove_resets" => TransformFunction::RemoveResets,
-"round" => TransformFunction::Round,
-"ru" => TransformFunction::Ru,
-"running_avg" => TransformFunction::RunningAvg,
-"running_max" => TransformFunction::RunningMax,
-"running_min" => TransformFunction::RunningMin,
-"running_sum" => TransformFunction::RunningSum,
-"scalar" => TransformFunction::Scalar,
-"sgn" => TransformFunction::Sgn,
-"sin" => TransformFunction::Sin,
-"sinh" => TransformFunction::Sinh,
-"smooth_exponential" => TransformFunction::SmoothExponential,
-"sort" => TransformFunction::Sort,
-"sort_by_label" => TransformFunction::SortByLabel,
-"sort_by_label_desc" => TransformFunction::SortByLabelDesc,
-"sort_by_label_numeric" => TransformFunction::SortByLabelNumeric,
-"sort_by_label_numeric_desc" => TransformFunction::SortByLabelNumericDesc,
-"sort_desc" => TransformFunction::SortDesc,
-"sqrt" => TransformFunction::Sqrt,
-"start" => TransformFunction::Start,
-"step" => TransformFunction::Step,
-"tan" => TransformFunction::Tan,
-"tanh" => TransformFunction::Tanh,
-"time" => TransformFunction::Time,
-// "timestamp" has been moved to rollup funcs. See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/415
-"timezone_offset" => TransformFunction::TimezoneOffset,
-"union" => TransformFunction::Union,
-"vector" => TransformFunction::Vector,
-"year" => TransformFunction::Year
-};
 
 impl FromStr for TransformFunction {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        REVERSE_MAP
-            .get(s)
-            .or_else(|| {
-                let lower = s.to_ascii_lowercase();
-                REVERSE_MAP.get(lower.as_str())
-            })
-            .ok_or_else(|| ParseError::InvalidFunction(s.to_string())).copied()
+        if let Some(meta) = FunctionMeta::lookup(s) {
+            if let BuiltinFunction::Transform(tf) = &meta.function {
+                return Ok(*tf);
+            }
+        }
+        Err(ParseError::InvalidFunction(s.to_string()))
     }
 }
 

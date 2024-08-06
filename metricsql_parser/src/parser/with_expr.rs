@@ -71,7 +71,7 @@ fn parse_with_arg_expr(p: &mut Parser) -> ParseResult<WithArgExpr> {
                 let msg = format!("withArgExpr: duplicate arg name: {ident}");
                 return Err(parser.syntax_error(&msg));
             } else {
-                m.insert(ident.clone());
+                m.insert(ident.to_string());
             }
             Ok(ident)
         })?

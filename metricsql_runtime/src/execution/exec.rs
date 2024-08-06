@@ -225,13 +225,6 @@ pub(crate) fn sort_series_by_metric_name(result: &mut Vec<QueryResult>) {
     result.sort_by(|a, b| a.metric.partial_cmp(&b.metric).unwrap());
 }
 
-fn expr_is_rollup_fn(expr: &Expr) -> bool {
-    match expr {
-        Expr::Function(f) => f.is_rollup(),
-        _ => false,
-    }
-}
-
 /// no_implicit_conversion_required checks if expr requires implicit conversion
 fn no_implicit_conversion_required(e: &Expr, is_sub_expr: bool) -> bool {
     let mut is_sub_expr = is_sub_expr;
@@ -242,7 +235,7 @@ fn no_implicit_conversion_required(e: &Expr, is_sub_expr: bool) -> bool {
             }
             let is_rollup_fn = f.is_rollup();
             for arg in &f.args {
-                let is_rollup_expr = expr_is_rollup_fn(arg);
+                let is_rollup_expr = arg.is_rollup();
                 if (is_rollup_expr && !is_rollup_fn) || (!is_rollup_expr && is_rollup_fn) {
                     return false
                 }

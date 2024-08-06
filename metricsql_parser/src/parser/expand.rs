@@ -389,8 +389,9 @@ fn expand_aggregation(
     ae: AggregationExpr,
 ) -> ParseResult<Expr> {
     let mut ae = ae;
+    let name = ae.name();
     let args = expand_with_args(symbols, was, ae.args)?;
-    if let Some(wa) = get_with_arg_expr(symbols, was, &ae.name) {
+    if let Some(wa) = get_with_arg_expr(symbols, was, name) {
         // TODO:: if were in this method at all, Its a confirmed aggregate, so we should ensure
         // new name is also an aggregate
         return expand_with_expr_ext(symbols, was, wa, args);

@@ -69,7 +69,6 @@ pub fn remove_parens_expr(e: Expr) -> Expr {
             expr: Box::new(remove_parens_expr(*ue.expr)),
         }),
         Expr::Aggregation(ae) => Expr::Aggregation(AggregationExpr {
-            name: ae.name,
             function: ae.function,
             args: ae.args.into_iter().map(remove_parens_expr).collect(),
             modifier: ae.modifier,

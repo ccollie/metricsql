@@ -44,13 +44,6 @@ impl<'a> BinaryOpFuncArg<'a> {
 
 pub type BinaryOpFuncResult = RuntimeResult<Vec<Timeseries>>;
 
-pub(crate) trait BinaryOpFn:
-    Fn(&mut BinaryOpFuncArg) -> BinaryOpFuncResult + Send + Sync
-{
-}
-
-impl<T> BinaryOpFn for T where T: Fn(&mut BinaryOpFuncArg) -> BinaryOpFuncResult + Send + Sync {}
-
 macro_rules! make_binary_func {
     ($name: ident, $op: expr) => {
         fn $name(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {

@@ -84,7 +84,7 @@ impl FunctionMeta {
 
     pub fn get_rollup_function(name: &str) -> ParseResult<&'static FunctionMeta> {
         if let Some(meta) = FunctionMeta::lookup(name) {
-            if let BuiltinFunction::Rollup(rf) = &meta.function {
+            if let BuiltinFunction::Rollup(_) = &meta.function {
                 return Ok(meta);
             }
         }
@@ -93,7 +93,7 @@ impl FunctionMeta {
 
     pub fn get_aggregate_function(name: &str) -> ParseResult<&'static FunctionMeta> {
         if let Some(meta) = FunctionMeta::lookup(name) {
-            if let BuiltinFunction::Aggregate(af) = &meta.function {
+            if let BuiltinFunction::Aggregate(_) = &meta.function {
                 return Ok(meta);
             }
         }
@@ -129,8 +129,22 @@ impl FunctionMeta {
             _ => false,
         }
     }
+
+    pub fn is_variadic(&self) -> bool {
+        self.signature.is_variadic()
+    }
 }
 
+impl Display for FunctionMeta {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}(", self.name)?;
+        let mut first = true;
+        let min = self.signature.min_args();
+
+
+        write!(f, ")")
+    }
+}
 type FunctionRegistry = FastHashMap<&'static str, FunctionMeta>;
 static REGISTRY: OnceLock<FunctionRegistry> = OnceLock::new();
 

@@ -84,14 +84,12 @@ impl TreeNode for Expr {
         // recurse into all sub expressions(and cover all expression types)
         let expr = match self {
             Expr::Aggregation(AggregationExpr {
-                name,
                 function,
                 args,
                 modifier,
                 limit,
                 keep_metric_names,
             }) => Expr::Aggregation(AggregationExpr {
-                name,
                 function,
                 args: transform_vec(args, &mut transform)?,
                 modifier,

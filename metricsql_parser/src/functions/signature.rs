@@ -17,6 +17,8 @@
 
 //! Signature module contains foundational types that are used to represent signatures, types,
 //! and return types of functions.
+
+use std::fmt::Display;
 use serde::{Deserialize, Serialize};
 
 use crate::common::ValueType;
@@ -53,7 +55,7 @@ pub enum TypeSignature {
     VariadicAny(usize),
     /// fixed number of arguments of an arbitrary type out of a list of valid types
     /// A function of one argument of f64 is `Uniform(1, ValueType::Scalar)`
-    Uniform(usize, ValueType),
+    Uniform(ValueType, usize),
     /// arguments of an exact type with an optional minimum
     Exact(Vec<ValueType>, Option<usize>),
     /// fixed number of arguments of arbitrary types
@@ -95,7 +97,7 @@ impl TypeSignature {
                 expect_arg_count(name, arg_len, max)
             }
             TypeSignature::Any(min)
-            | TypeSignature::Uniform(min, _)
+            | TypeSignature::Uniform(_, min)
             | TypeSignature::VariadicEqual(_, min)
             | TypeSignature::Variadic(_, min)
             | TypeSignature::VariadicAny(min) => expect_min_args(name, arg_len, *min),
@@ -163,7 +165,7 @@ impl Signature {
     /// uniform - Creates a signature with a fixed number of arguments of the same type, which must be from valid_types.
     pub fn uniform(arg_count: usize, valid_type: ValueType, volatility: Volatility) -> Self {
         Self {
-            type_signature: TypeSignature::Uniform(arg_count, valid_type),
+            type_signature: TypeSignature::Uniform(valid_type, arg_count),
             volatility,
             return_type: ValueType::InstantVector,
         }
@@ -222,7 +224,7 @@ impl Signature {
         match &self.type_signature {
             TypeSignature::Variadic(types, min) => (types.clone(), *min),
             TypeSignature::VariadicEqual(data_type, min) => (vec![*data_type; MAX_ARG_COUNT], *min),
-            TypeSignature::Uniform(count, data_type) => (vec![*data_type; MAX_ARG_COUNT], *count),
+            TypeSignature::Uniform(data_type, count) => (vec![*data_type; MAX_ARG_COUNT], *count),
             TypeSignature::Exact(types, min) => (types.clone(), min.unwrap_or(types.len())),
             TypeSignature::VariadicAny(min) => {
                 (vec![ValueType::InstantVector; MAX_ARG_COUNT], *min)
@@ -235,6 +237,28 @@ impl Signature {
 
     pub fn types(&self) -> TypeIterator<'_> {
         TypeIterator::new(self)
+    }
+
+    pub fn min_args(&self) -> usize {
+        match &self.type_signature {
+            TypeSignature::Exact(_, min) => min.unwrap_or(0),
+            TypeSignature::Any(count) => *count,
+            TypeSignature::Uniform(_, count) => *count,
+            TypeSignature::Variadic(_, min) => *min,
+            TypeSignature::VariadicEqual(_, min) => *min,
+            TypeSignature::VariadicAny(min) => *min,
+        }
+    }
+
+    pub fn is_variadic(&self) -> bool {
+        self.type_signature.is_variadic()
+    }
+}
+
+impl Display for Signature {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let (types, min) = self.expand_types();
+        write!(f, "Signature({:?}, min: {})", types, min)
     }
 }
 
@@ -258,8 +282,15 @@ impl<'a> Iterator for TypeIterator<'a> {
                     Some(types[types.len() - 1])
                 }
             }
-            VariadicEqual(data_type, _) => Some(*data_type),
-            Uniform(count, data_type) => {
+            VariadicEqual(data_type, _) => {
+                if self.arg_index < MAX_ARG_COUNT {
+                    self.arg_index += 1;
+                    Some(*data_type)
+                } else {
+                    None
+                }
+            },
+            Uniform(data_type, count) => {
                 if self.arg_index < *count {
                     self.arg_index += 1;
                     Some(*data_type)

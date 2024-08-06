@@ -73,7 +73,7 @@ pub type Precedence = usize;
 
 impl Operator {
     #[inline]
-    pub const fn precedence(self) -> Precedence {
+    pub const fn precedence(&self) -> Precedence {
         use Operator::*;
 
         match self {
@@ -90,7 +90,7 @@ impl Operator {
     }
 
     #[inline]
-    pub const fn kind(self) -> BinaryOpKind {
+    pub const fn kind(&self) -> BinaryOpKind {
         use BinaryOpKind::*;
         use Operator::*;
 
@@ -106,28 +106,19 @@ impl Operator {
         matches!(self, Operator::Pow)
     }
 
+    pub const fn is_arithmetic_op(&self) -> bool {
+        use Operator::*;
+        matches!(self, Add | Sub | Mul | Div | Mod | Pow | Atan2)
+    }
+
     pub const fn is_logical_op(&self) -> bool {
-        matches!(
-            self,
-            Operator::And
-                | Operator::Or
-                | Operator::Unless
-                | Operator::If
-                | Operator::IfNot
-                | Operator::Default
-        )
+        use Operator::*;
+        matches!(self, And | Or | Unless | If | IfNot | Default)
     }
 
     pub const fn is_comparison(&self) -> bool {
-        matches!(
-            self,
-            Operator::Eql
-                | Operator::Gte
-                | Operator::Gt
-                | Operator::Lt
-                | Operator::Lte
-                | Operator::NotEq
-        )
+        use Operator::*;
+        matches!(self, Eql | Gte | Gt | Lt | Lte | NotEq)
     }
 
     pub const fn is_valid_string_op(&self) -> bool {
@@ -191,10 +182,10 @@ impl TryFrom<&str> for Operator {
 
     fn try_from(op: &str) -> Result<Self, Self::Error> {
         if let Some(ch) = op.chars().next() {
-            // slight optimization - don't lowercase if not needed (save allocation)
             let value = if !ch.is_alphabetic() {
                 BINARY_OPS_MAP.get(op)
             } else {
+                // slight optimization - don't lowercase if not needed (save allocation)
                 BINARY_OPS_MAP.get(op).or_else(|| {
                     let lower = op.to_ascii_lowercase();
                     BINARY_OPS_MAP.get(&lower)

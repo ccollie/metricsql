@@ -40,21 +40,8 @@ pub fn validate_func_args(func: &BuiltinFunction, args: &[Expr]) -> Result<(), S
 }
 
 fn check_ast_for_aggregate_expr(ex: AggregationExpr) -> Result<Expr, String> {
-    let func = BuiltinFunction::new(&ex.name);
-    if let Ok(func) = func {
-        if !func.is_aggregation() {
-            return Err(format!(
-                "aggregation function expected: got '{}'",
-                ex.function
-            ));
-        }
-        validate_func_args(&func, &ex.args)?;
-    } else {
-        return Err(format!(
-            "aggregation function expected: got '{}'",
-            ex.function
-        ));
-    }
+    let func = BuiltinFunction::Aggregate(ex.function);
+    validate_func_args(&func, &ex.args)?;
     Ok(Expr::Aggregation(ex))
 }
 

@@ -4,6 +4,7 @@ use std::fmt::{Display, Formatter, Write};
 use std::hash::{Hash, Hasher};
 use std::ops::{Deref, Neg, Range};
 use std::str::FromStr;
+use std::time::{Duration, SystemTime};
 
 use enquote::enquote;
 use serde::{Deserialize, Serialize};
@@ -15,7 +16,7 @@ use crate::ast::{
 };
 use crate::ast::utils::string_vecs_equal_unordered;
 use crate::common::{hash_f64, join_vector, Value, ValueType, write_comma_separated, write_number};
-use crate::functions::{AggregateFunction, BuiltinFunction, FunctionMeta, TransformFunction};
+use crate::functions::{AggregateFunction, BuiltinFunction, TransformFunction};
 use crate::label::{LabelFilter, LabelFilterOp, Labels, Matchers, NAME_LABEL};
 use crate::parser::{escape_ident, ParseError, ParseResult};
 use crate::prelude::{
@@ -553,6 +554,10 @@ pub enum DurationExpr {
 }
 
 impl DurationExpr {
+    pub fn from_secs(secs: i64) -> Self {
+        Self::Millis(secs * 1000)
+    }
+
     pub fn new(millis: i64) -> Self {
         Self::Millis(millis)
     }
@@ -604,6 +609,53 @@ impl Display for DurationExpr {
         }
     }
 }
+
+impl TryFrom<NumberLiteral> for DurationExpr {
+    type Error = String;
+
+    fn try_from(num: NumberLiteral) -> Result<Self, Self::Error> {
+        DurationExpr::try_from(num.value)
+    }
+}
+
+impl TryFrom<Expr> for DurationExpr {
+    type Error = String;
+
+    fn try_from(ex: Expr) -> Result<Self, Self::Error> {
+        match ex {
+            Expr::NumberLiteral(nl) => DurationExpr::try_from(nl),
+            _ => Err("invalid float value after @ modifier".into()),
+        }
+    }
+}
+
+impl TryFrom<f64> for DurationExpr {
+    type Error = String;
+
+    fn try_from(secs: f64) -> Result<Self, Self::Error> {
+        let err_info = format!("timestamp out of bounds for @ modifier: {secs}");
+
+        if secs.is_nan() || secs.is_infinite() || secs >= f64::MAX || secs <= f64::MIN {
+            return Err(err_info);
+        }
+        let milli = (secs * 1000f64).round().abs() as u64;
+
+        let duration = Duration::from_millis(milli);
+        let mut st = Some(SystemTime::UNIX_EPOCH);
+        if secs.is_sign_positive() {
+            st = SystemTime::UNIX_EPOCH.checked_add(duration);
+        }
+        if secs.is_sign_negative() {
+            st = SystemTime::UNIX_EPOCH.checked_sub(duration);
+        }
+        if let Some(st) = st {
+            let millis = st.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis() as i64;
+            return Ok(DurationExpr::Millis(millis));
+        }
+        Err(err_info)
+    }
+}
+
 
 impl PartialEq<DurationExpr> for DurationExpr {
     fn eq(&self, other: &Self) -> bool {
@@ -920,9 +972,6 @@ impl Prettier for FunctionExpr {
 /// AggregationExpr represents aggregate function such as `sum(...) by (...)`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AggregationExpr {
-    /// name is the aggregation function name.
-    pub name: String,
-
     /// function is the aggregation function.
     pub function: AggregateFunction,
 
@@ -947,7 +996,6 @@ pub struct AggregationExpr {
 impl AggregationExpr {
     pub fn new(function: AggregateFunction, args: Vec<Expr>) -> AggregationExpr {
         let mut ae = AggregationExpr {
-            name: function.to_string(),
             args,
             modifier: None,
             limit: 0,
@@ -959,13 +1007,14 @@ impl AggregationExpr {
         ae
     }
 
+    /// the aggregation function name.
+    pub fn name(&self) -> &'static str {
+        self.function.name()
+    }
+
     pub fn from_name(name: &str) -> ParseResult<Self> {
-        if let Some(meta) = FunctionMeta::lookup(name) {
-            if let BuiltinFunction::Aggregate(af) = meta.function {
-                return Ok(Self::new(af, vec![]));
-            }
-        }
-        Err(ParseError::InvalidFunction(name.to_string()))
+        let function = AggregateFunction::from_str(name)?;
+        Ok(Self::new(function, vec![]))
     }
 
     pub fn with_modifier(mut self, modifier: AggregateModifier) -> Self {
@@ -1944,6 +1993,10 @@ impl Expr {
 
     pub fn is_binary_op(&self) -> bool {
         matches!(self, Expr::BinaryOperator(_))
+    }
+
+    pub fn is_rollup(&self) -> bool {
+        matches!(self, Expr::Rollup(_))
     }
 
     /// returns a scalar expression
