@@ -7,11 +7,11 @@ use enquote::{enquote, unescape};
 use crate::parser::{ParseError, ParseResult};
 
 #[inline]
-fn is_first_ident_char(ch: &char) -> bool {
+const fn is_first_ident_char(ch: &char) -> bool {
     matches!(ch, 'A'..='Z' | 'a'..='z' | '_' | ':')
 }
 
-fn is_ident_char(ch: char) -> bool {
+const fn is_ident_char(ch: char) -> bool {
     matches!(ch, 'A'..='Z' | 'a'..='z' | '0'..='9' | '_' | ':' | '.')
 }
 

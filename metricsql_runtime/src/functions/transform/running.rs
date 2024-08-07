@@ -1,6 +1,5 @@
 use crate::{RuntimeResult, Timeseries};
 use crate::functions::arg_parse::get_series_arg;
-use crate::functions::transform::range::set_last_values;
 use crate::functions::transform::TransformFuncArg;
 
 pub(crate) fn running_avg(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
@@ -66,16 +65,12 @@ fn running_func_impl(
         start += 1;
 
         for (i, (v, ts)) in ts.values[start..].iter_mut().zip(ts.timestamps[start..].iter()).enumerate() {
-            if tfa.ec.real_end > 0 && *ts > tfa.ec.real_end {
-                break
-            }
-            if *ts > tfa.ec.real_start && !v.is_nan() {
+            if !v.is_nan() {
                 prev_value = rf(prev_value, *v, i + 1);
             }
             *v = prev_value;
         }
     }
 
-    set_last_values(tfa, &mut res);
     Ok(res)
 }

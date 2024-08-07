@@ -253,6 +253,10 @@ impl Signature {
     pub fn is_variadic(&self) -> bool {
         self.type_signature.is_variadic()
     }
+
+    pub fn args_iter(&self) -> TypeIterator<'_> {
+        TypeIterator::new(self)
+    }
 }
 
 impl Display for Signature {

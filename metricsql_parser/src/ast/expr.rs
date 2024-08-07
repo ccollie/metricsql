@@ -702,7 +702,11 @@ pub struct MetricExpr {
 
 impl MetricExpr {
     pub fn new<S: Into<String>>(name: S) -> MetricExpr {
-        let name_filter = LabelFilter::new(LabelFilterOp::Equal, NAME_LABEL, name.into()).unwrap();
+        let name_filter = LabelFilter {
+            op: LabelFilterOp::Equal,
+            label: NAME_LABEL.to_string(),
+            value: name.into()
+        };
         MetricExpr {
             matchers: Matchers::default().append(name_filter),
         }
@@ -835,8 +839,6 @@ impl Prettier for MetricExpr {
 /// FuncExpr represents MetricsQL function such as `rate(...)`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FunctionExpr {
-    pub name: String,
-
     pub function: BuiltinFunction,
 
     /// Args contains function args.
@@ -853,11 +855,14 @@ impl FunctionExpr {
         let function = BuiltinFunction::new(func_name)?;
 
         Ok(Self {
-            name: name.to_string(),
             args,
             keep_metric_names: false,
             function,
         })
+    }
+
+    pub fn name(&self) -> &'static str {
+        self.function.name()
     }
 
     pub fn return_type(&self) -> ValueType {
@@ -958,7 +963,7 @@ impl Prettier for FunctionExpr {
         let spaces = indent(level);
         format!(
             "{spaces}{}(\n{}\n{spaces}{})",
-            self.name,
+            self.name(),
             prettify_args(&self.args, level + 1, max),
             if self.keep_metric_names {
                 " keep_metric_names"
@@ -1593,7 +1598,6 @@ impl ParensExpr {
         let func = BuiltinFunction::from_str(name).unwrap(); // if union is not defined, we have a fatal issue
 
         FunctionExpr {
-            name: name.to_string(),
             args: self.expressions,
             keep_metric_names: false,
             function: func,
@@ -2058,6 +2062,16 @@ impl Expr {
     pub fn call(func: &str, args: Vec<Expr>) -> ParseResult<Expr> {
         let expr = FunctionExpr::new(func, args)?;
         Ok(Expr::Function(expr))
+    }
+
+    pub fn new_vector_selector<S: Into<String>>(name: Option<S>, matchers: Matchers) -> Expr {
+        let mut selector = if let Some(name) = name {
+            MetricExpr::new(name)
+        } else {
+            MetricExpr::default()
+        };
+        selector.matchers = matchers;
+        Expr::MetricExpression(selector)
     }
 
     pub fn new_binary_expr(

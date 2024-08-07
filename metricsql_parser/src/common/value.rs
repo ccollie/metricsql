@@ -17,7 +17,7 @@ pub enum ValueType {
 impl ValueType {
     /// Returns true if this `ValueType` is a valid sub-expression of an
     /// operator, false if not.
-    pub fn is_operator_valid(&self) -> bool {
+    pub const fn is_operator_valid(&self) -> bool {
         match self {
             ValueType::Scalar |
             ValueType::String |
@@ -26,23 +26,23 @@ impl ValueType {
         }
     }
 
-    pub fn is_scalar(&self) -> bool {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            ValueType::Scalar => "Scalar",
+            ValueType::String => "String",
+            ValueType::InstantVector => "InstantVector",
+            ValueType::RangeVector => "RangeVector",
+        }
+    }
+
+    pub const fn is_scalar(&self) -> bool {
         matches!(self, ValueType::Scalar)
     }
 }
 
 impl Display for ValueType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        use ValueType::*;
-
-        let name = match self {
-            Scalar => "Scalar",
-            String => "String",
-            InstantVector => "InstantVector",
-            RangeVector => "RangeVector",
-        };
-        write!(f, "{}", name)?;
-        Ok(())
+        write!(f, "{}", self.as_str())
     }
 }
 

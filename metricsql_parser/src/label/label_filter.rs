@@ -165,12 +165,20 @@ impl LabelFilter {
         })
     }
 
-    pub fn equal<S: Into<String>>(key: S, value: S) -> Result<LabelFilter, ParseError> {
-        LabelFilter::new(LabelFilterOp::Equal, key, value)
+    pub fn equal<S: Into<String>>(key: S, value: S) -> Self {
+        LabelFilter {
+            op: LabelFilterOp::Equal,
+            label: key.into(),
+            value: value.into(),
+        }
     }
 
-    pub fn not_equal<S: Into<String>>(key: S, value: S) -> Result<LabelFilter, ParseError> {
-        LabelFilter::new(LabelFilterOp::NotEqual, key, value)
+    pub fn not_equal<S: Into<String>>(key: S, value: S) -> Self {
+        LabelFilter {
+            op: LabelFilterOp::NotEqual,
+            label: key.into(),
+            value: value.into(),
+        }
     }
 
     pub fn regex_equal<S: Into<String>>(key: S, value: S) -> Result<LabelFilter, ParseError> {
@@ -296,6 +304,9 @@ impl fmt::Display for LabelFilter {
         Ok(())
     }
 }
+
+
+pub type Matcher = LabelFilter;
 
 #[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Matchers {
@@ -664,17 +675,17 @@ mod tests {
     #[test]
     fn test_eq_matcher_equality() {
         assert_eq!(
-            LabelFilter::new(LabelFilterOp::Equal, "code", "200"),
-            LabelFilter::new(LabelFilterOp::Equal, "code", "200")
+            LabelFilter::equal("code", "200"),
+            LabelFilter::equal("code", "200")
         );
 
         assert_ne!(
-            LabelFilter::new(LabelFilterOp::Equal, "code", "200"),
-            LabelFilter::new(LabelFilterOp::Equal, "code", "201")
+            LabelFilter::equal("code", "200"),
+            LabelFilter::equal("code", "201")
         );
 
         assert_ne!(
-            LabelFilter::new(LabelFilterOp::Equal, "code", "200"),
+            LabelFilter::equal("code", "200"),
             LabelFilter::not_equal("code", "200")
         );
     }
@@ -693,7 +704,7 @@ mod tests {
 
         assert_ne!(
             LabelFilter::not_equal("code", "200"),
-            LabelFilter::new(LabelFilterOp::Equal, "code", "200")
+            LabelFilter::equal( "code", "200")
         );
     }
 
@@ -729,7 +740,7 @@ mod tests {
 
         assert_ne!(
             LabelFilter::regex_equal("code", "2??").unwrap(),
-            LabelFilter::equal("code", "2??").unwrap()
+            LabelFilter::equal("code", "2??")
         );
     }
 
@@ -737,32 +748,32 @@ mod tests {
     fn test_matchers_equality() {
         assert_eq!(
             Matchers::empty()
-                .append(LabelFilter::equal("name1", "val1").unwrap())
-                .append(LabelFilter::equal("name2", "val2").unwrap()),
+                .append(LabelFilter::equal("name1", "val1"))
+                .append(LabelFilter::equal("name2", "val2")),
             Matchers::empty()
-                .append(LabelFilter::equal("name1", "val1").unwrap())
-                .append(LabelFilter::equal("name2", "val2").unwrap())
+                .append(LabelFilter::equal("name1", "val1"))
+                .append(LabelFilter::equal("name2", "val2"))
         );
 
         assert_ne!(
-            Matchers::empty().append(LabelFilter::equal("name1", "val1").unwrap()),
-            Matchers::empty().append(LabelFilter::equal( "name2", "val2").unwrap())
+            Matchers::empty().append(LabelFilter::equal("name1", "val1")),
+            Matchers::empty().append(LabelFilter::equal( "name2", "val2"))
         );
 
         assert_ne!(
-            Matchers::empty().append(LabelFilter::equal("name1", "val1").unwrap()),
-            Matchers::empty().append(LabelFilter::not_equal("name1", "val1").unwrap())
+            Matchers::empty().append(LabelFilter::equal("name1", "val1")),
+            Matchers::empty().append(LabelFilter::not_equal("name1", "val1"))
         );
 
         assert_eq!(
             Matchers::empty()
-                .append(LabelFilter::equal("name1", "val1").unwrap())
-                .append(LabelFilter::not_equal("name2", "val2").unwrap())
+                .append(LabelFilter::equal("name1", "val1"))
+                .append(LabelFilter::not_equal("name2", "val2"))
                 .append(LabelFilter::regex_equal("name2", "\\d+").unwrap())
                 .append(LabelFilter::regex_notequal("name2", "\\d+").unwrap()),
             Matchers::empty()
-                .append(LabelFilter::equal("name1", "val1").unwrap())
-                .append(LabelFilter::not_equal("name2", "val2").unwrap())
+                .append(LabelFilter::equal("name1", "val1"))
+                .append(LabelFilter::not_equal("name2", "val2"))
                 .append(LabelFilter::regex_equal("name2", "\\d+").unwrap())
                 .append(LabelFilter::regex_notequal("name2", "\\d+").unwrap())
         );
@@ -771,10 +782,10 @@ mod tests {
     #[test]
     fn test_find_matchers() {
         let matchers = Matchers::empty()
-            .append(LabelFilter::equal("foo", "bar").unwrap())
-            .append(LabelFilter::not_equal("foo", "bar").unwrap())
-            .append(LabelFilter::equal("FOO", "bar").unwrap())
-            .append(LabelFilter::not_equal( "bar", "bar").unwrap());
+            .append(LabelFilter::equal("foo", "bar"))
+            .append(LabelFilter::not_equal("foo", "bar"))
+            .append(LabelFilter::equal("FOO", "bar"))
+            .append(LabelFilter::not_equal( "bar", "bar"));
 
         let ms = matchers.find_matchers("foo");
         assert_eq!(4, ms.len());

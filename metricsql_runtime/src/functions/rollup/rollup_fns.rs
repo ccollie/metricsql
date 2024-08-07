@@ -273,7 +273,7 @@ pub(crate) const fn get_rollup_function_factory(func: RollupFunction) -> RollupH
     }
 }
 
-pub(crate) fn rollup_func_requires_config(f: &RollupFunction) -> bool {
+pub(crate) const fn rollup_func_requires_config(f: &RollupFunction) -> bool {
     use RollupFunction::*;
 
     matches!(

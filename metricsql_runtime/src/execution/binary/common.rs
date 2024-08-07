@@ -47,7 +47,7 @@ pub(crate) fn get_common_label_filters(tss: &[Timeseries]) -> Vec<LabelFilter> {
         let vals: Vec<&String> = values.iter().collect::<Vec<_>>();
 
         let lf = if values.len() == 1 {
-            LabelFilter::equal(key, vals[0].into()).unwrap()
+            LabelFilter::equal(key, vals[0].into())
         } else {
             let str_value = join_regexp_values(&vals);
             LabelFilter::regex_equal(key, str_value).unwrap()

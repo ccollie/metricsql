@@ -18,7 +18,7 @@ mod tests {
 
         f("1", "1");
         f("foobar", "foobar");
-        f("with (x = 1) x+x", "2");
+        f("with (x = 1) x+x", "1 + 1");
         f("with (f(x) = x*x) 3+f(2)+2", "9")
     }
 

@@ -2,7 +2,7 @@ use crate::ast::{
     AggregationExpr, BinaryExpr, Expr, FunctionExpr, ParensExpr, RollupExpr, UnaryExpr,
     WithArgExpr, WithExpr,
 };
-use crate::common::TreeNodeRewriter;
+use crate::common::{RewriteRecursion, TreeNodeRewriter};
 use crate::parser::ParseResult;
 
 #[allow(rustdoc::private_intra_doc_links)]
@@ -16,6 +16,17 @@ impl TreeNodeRewriter for ParensRemover {
     fn mutate(&mut self, node: Self::N) -> ParseResult<Self::N> {
         Ok(remove_parens_expr(node))
     }
+
+    /// Invoked before (Preorder) any children of `node` are rewritten /
+    /// visited. Default implementation returns `Ok(Recursion::Continue)`
+    fn pre_visit(&mut self, node: &Self::N) -> ParseResult<RewriteRecursion> {
+        if !should_remove_parens(node) {
+            Ok(RewriteRecursion::Stop)
+        } else {
+            Ok(RewriteRecursion::Continue)
+        }
+    }
+
 }
 
 impl Default for ParensRemover {
@@ -50,10 +61,13 @@ fn remove_parens_args(args: Vec<Expr>) -> Vec<Expr> {
 
 /// remove_parens_expr removes parensExpr for (Expr) case.
 pub fn remove_parens_expr(e: Expr) -> Expr {
+    if !should_remove_parens(&e) {
+        return e;
+    }
     match e {
         Expr::Rollup(re) => Expr::Rollup(RollupExpr {
             expr: Box::new(remove_parens_expr(*re.expr)),
-            at: re.at.map(|at| Box::new(remove_parens_expr(*at))),
+            at: re.at.map(|at| Box::new(crate::optimizer::remove_parens_expr(*at))),
             window: re.window,
             step: re.step,
             offset: re.offset,
@@ -76,7 +90,6 @@ pub fn remove_parens_expr(e: Expr) -> Expr {
             keep_metric_names: ae.keep_metric_names,
         }),
         Expr::Function(fe) => Expr::Function(FunctionExpr {
-            name: fe.name,
             args: remove_parens_args(fe.args),
             keep_metric_names: fe.keep_metric_names,
             function: fe.function,
@@ -99,12 +112,41 @@ pub fn remove_parens_expr(e: Expr) -> Expr {
                 .map(|wa| WithArgExpr {
                     name: wa.name,
                     args: vec![],
-                    expr: remove_parens_expr(wa.expr),
+                    expr: crate::optimizer::remove_parens_expr(wa.expr),
                     token_range: Default::default(),
                 })
                 .collect(),
         }),
         _ => e,
+    }
+}
+
+
+pub fn should_remove_parens(e: &Expr) -> bool {
+    match e {
+        Expr::Rollup(re) => {
+            let mut should_remove = should_remove_parens(&re.expr);
+            if let Some(at) = &re.at {
+                should_remove |= should_remove_parens(at);
+            }
+            should_remove
+        },
+        Expr::BinaryOperator(be) => {
+            should_remove_parens(&be.left) || should_remove_parens(&be.right)
+        },
+        Expr::UnaryOperator(ue) => should_remove_parens(&ue.expr),
+        Expr::Aggregation(ae) => {
+            ae.args.iter().any(should_remove_parens)
+        },
+        Expr::Function(fe) => {
+            fe.args.iter().any(should_remove_parens)
+        },
+        Expr::Parens(_) => true,
+        Expr::With(with) => {
+            should_remove_parens(&with.expr) ||
+                with.was.iter().any(|wa| should_remove_parens(&wa.expr))
+        },
+        _ => false,
     }
 }
 

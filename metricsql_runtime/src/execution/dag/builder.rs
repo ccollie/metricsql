@@ -709,7 +709,7 @@ fn try_get_arg_rollup_func_with_metric_expr(
                 BuiltinFunction::Rollup(_) => {
                     return if let Some(arg) = fe.arg_for_optimization() {
                         match arg {
-                            Expr::MetricExpression(me) => create_func(me, expr, &fe.name, false),
+                            Expr::MetricExpression(me) => create_func(me, expr, &fe.name(), false),
                             Expr::Rollup(re) => {
                                 if let Expr::MetricExpression(me) = &*re.expr {
                                     return if me.is_empty() || re.for_subquery() {
@@ -829,8 +829,8 @@ mod tests {
     #[test]
     fn test_create_node_from_selector() {
         let filters = vec![
-            LabelFilter::equal("foo", "bar").unwrap(),
-            LabelFilter::equal("baz", "qux").unwrap(),
+            LabelFilter::equal("foo", "bar"),
+            LabelFilter::equal("baz", "qux"),
         ];
         let expr = Expr::MetricExpression(MetricExpr::with_filters(filters.clone()));
         let expr_clone = expr.clone();

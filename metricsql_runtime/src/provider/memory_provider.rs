@@ -237,7 +237,7 @@ mod tests {
         provider.append(labels.clone(), 1, 1.0).unwrap();
 
         let matchers = Matchers::new(vec![
-            LabelFilter::equal("foo", "bar").unwrap()
+            LabelFilter::equal("foo", "bar")
         ]);
         let results = provider.search(0, 2, &matchers).unwrap();
 
@@ -252,7 +252,7 @@ mod tests {
         provider.append(labels.clone(), 1, 1.0).unwrap();
 
         let matchers = Matchers::new(vec![
-            LabelFilter::equal("foo", "baz").unwrap()
+            LabelFilter::equal("foo", "baz")
         ]);
         let results = provider.search(0, 2, &matchers).unwrap();
 

@@ -1,10 +1,8 @@
 use num_traits::FloatConst;
 
-use metricsql_common::prelude::{datetime_part, timestamp_secs_to_utc_datetime, DateTimePart};
+use metricsql_common::prelude::{datetime_part, DateTimePart, timestamp_secs_to_utc_datetime};
 
-use crate::ast::{
-    BinaryExpr, DurationExpr, Expr, FunctionExpr, NumberLiteral, Operator, UnaryExpr,
-};
+use crate::ast::{AggregationExpr, BinaryExpr, DurationExpr, Expr, FunctionExpr, NumberLiteral, Operator, ParensExpr, RollupExpr, UnaryExpr, WithArgExpr, WithExpr};
 use crate::binaryop::{scalar_binary_operation, string_compare};
 use crate::common::{RewriteRecursion, TreeNodeRewriter};
 use crate::functions::{BuiltinFunction, TransformFunction};
@@ -43,7 +41,7 @@ impl TreeNodeRewriter for ConstEvaluator {
         // stack as not ok (as all parents have at least one child or
         // descendant that can not be evaluated
 
-        if !Self::can_evaluate(expr) {
+        if !can_evaluate(expr) {
             // walk back up stack, marking first parent that is not mutable
             let parent_iter = self.can_evaluate.iter_mut().rev();
             for p in parent_iter {
@@ -64,7 +62,7 @@ impl TreeNodeRewriter for ConstEvaluator {
 
     fn mutate(&mut self, expr: Expr) -> ParseResult<Expr> {
         match self.can_evaluate.pop() {
-            Some(true) => self.evaluate_to_scalar(expr),
+            Some(true) => evaluate_to_scalar(expr),
             Some(false) => Ok(expr),
             // todo: specific optimize error
             _ => Err(ParseError::General(
@@ -83,76 +81,94 @@ impl ConstEvaluator {
             can_evaluate: vec![],
         }
     }
+}
 
-    /// Can the expression be evaluated at plan time, (assuming all of
-    /// its children can also be evaluated)?
-    fn can_evaluate(expr: &Expr) -> bool {
-        // check for reasons we can't evaluate this node
-        //
-        // NOTE all expr types are listed here so when new ones are
-        // added they can be checked for their ability to be evaluated
-        // at plan time
-        match expr {
-            Expr::Aggregation(_) | Expr::MetricExpression(_) | Expr::Rollup(_) => false,
-            Expr::Parens(_) => true,
-            // only handle immutable scalar functions
-            Expr::Function(_) => true,
-            Expr::NumberLiteral(_)
-            | Expr::Duration(_)
-            | Expr::StringLiteral(_)
-            | Expr::UnaryOperator(_)
-            | Expr::BinaryOperator(_) => true,
-            Expr::StringExpr(se) => !se.is_expanded(),
-            Expr::With(_) => false,
-            Expr::WithSelector(_) => false,
-        }
+/// Can the expression be evaluated at plan time, (assuming all of
+/// its children can also be evaluated)?
+pub(super) fn can_evaluate(expr: &Expr) -> bool {
+    // check for reasons we can't evaluate this node
+    //
+    // NOTE all expr types are listed here so when new ones are
+    // added they can be checked for their ability to be evaluated
+    // at plan time
+    match expr {
+        Expr::Aggregation(_) | Expr::Rollup(_) => false,
+        Expr::Parens(_) => true,
+        // only handle immutable scalar functions
+        Expr::Function(_) => true,
+        Expr::NumberLiteral(_)
+        | Expr::Duration(_)
+        | Expr::StringLiteral(_)
+        | Expr::UnaryOperator(_)
+        | Expr::BinaryOperator(_) => true,
+        Expr::StringExpr(se) => !se.is_expanded(),
+        Expr::With(_) => false,
+        Expr::WithSelector(_) => false,
+        Expr::MetricExpression(_) => false,
     }
+}
 
-    /// Internal helper to evaluate an Expr
-    fn evaluate_to_scalar(&mut self, expr: Expr) -> ParseResult<Expr> {
-        match expr {
-            Expr::UnaryOperator(ue) => Self::handle_unary_expr(ue),
-            Expr::BinaryOperator(be) => Self::handle_binary_expr(be),
-            Expr::Function(fe) => Self::handle_function_expr(fe),
-            _ => Ok(expr),
+pub fn const_simplify(expr: Expr) -> ParseResult<Expr> {
+    match expr {
+        Expr::UnaryOperator(uo) => handle_unary_expr(uo),
+        Expr::BinaryOperator(be) => handle_binary_expr(be),
+        Expr::Function(fe) => handle_function_expr(fe),
+        Expr::With(we) => handle_with_expr(we),
+        Expr::Aggregation(ae) => handle_aggregation_expr(ae),
+        Expr::Rollup(re) => handle_rollup_expr(re),
+        Expr::Parens(p) => {
+            let expressions = handle_expr_vecs(p.expressions)?;
+            Ok(Expr::Parens(ParensExpr { expressions }))
         }
+        _=> Ok(expr),
     }
+}
 
-    fn handle_unary_expr(ue: UnaryExpr) -> ParseResult<Expr> {
-        let mut ue = ue;
-        match ue.expr.as_mut() {
-            Expr::NumberLiteral(n) => {
-                return Ok(Expr::from(n.value * -1.0));
-            }
-            Expr::Duration(d) => {
-                return match d {
-                    DurationExpr::Millis(left_val) => {
-                        let dur = DurationExpr::new(*left_val * -1);
-                        Ok(Expr::Duration(dur))
-                    }
-                    DurationExpr::StepValue(left_val) => {
-                        let n = *left_val * -1.0;
-                        let dur = DurationExpr::new_step(n);
-                        Ok(Expr::Duration(dur))
-                    }
+/// Internal helper to evaluate an Expr
+fn evaluate_to_scalar(expr: Expr) -> ParseResult<Expr> {
+    match expr {
+        Expr::UnaryOperator(ue) => handle_unary_expr(ue),
+        Expr::BinaryOperator(be) => handle_binary_expr(be),
+        Expr::Function(fe) => handle_function_expr(fe),
+        _ => Ok(expr),
+    }
+}
+
+fn handle_unary_expr(ue: UnaryExpr) -> ParseResult<Expr> {
+    let mut ue = ue;
+    match ue.expr.as_mut() {
+        Expr::NumberLiteral(n) => {
+            return Ok(Expr::from(n.value * -1.0));
+        }
+        Expr::Duration(d) => {
+            return match d {
+                DurationExpr::Millis(left_val) => {
+                    let dur = DurationExpr::new(*left_val * -1);
+                    Ok(Expr::Duration(dur))
+                }
+                DurationExpr::StepValue(left_val) => {
+                    let n = *left_val * -1.0;
+                    let dur = DurationExpr::new_step(n);
+                    Ok(Expr::Duration(dur))
                 }
             }
-            Expr::UnaryOperator(ue2) => {
-                return Ok(std::mem::take(&mut ue2.expr));
-            }
-            _ => {}
         }
-        Ok(Expr::UnaryOperator(ue))
+        Expr::UnaryOperator(ue2) => {
+            return Ok(std::mem::take(&mut ue2.expr));
+        }
+        _ => {}
     }
+    Ok(Expr::UnaryOperator(ue))
+}
 
-    fn handle_binary_expr(be: BinaryExpr) -> ParseResult<Expr> {
-        let is_bool = be.returns_bool();
-        // let temp = format!("{} {} {}", be.left, be.op, be.right);
-        // println!("{}", temp);
+fn handle_binary_expr(be: BinaryExpr) -> ParseResult<Expr> {
+    let is_bool = be.returns_bool();
+    // let temp = format!("{} {} {}", be.left, be.op, be.right);
+    // println!("{}", temp);
 
-        match (be.left.as_ref(), be.right.as_ref(), be.op) {
-            (Expr::Duration(ln), Expr::Duration(rn), op)
-                if op == Operator::Add || op == Operator::Sub =>
+    match (be.left.as_ref(), be.right.as_ref(), be.op) {
+        (Expr::Duration(ln), Expr::Duration(rn), op)
+        if op == Operator::Add || op == Operator::Sub =>
             {
                 match (ln, rn) {
                     (DurationExpr::Millis(left_val), DurationExpr::Millis(right_val)) => {
@@ -173,19 +189,19 @@ impl ConstEvaluator {
                     _ => {}
                 }
             }
-            // add/subtract number as secs to duration
-            (Expr::Duration(ln), Expr::NumberLiteral(NumberLiteral { value }), op)
-                if !ln.requires_step() && (op == Operator::Add || op == Operator::Sub) =>
+        // add/subtract number as secs to duration
+        (Expr::Duration(ln), Expr::NumberLiteral(NumberLiteral { value }), op)
+        if !ln.requires_step() && (op == Operator::Add || op == Operator::Sub) =>
             {
                 let secs = *value * 1e3_f64;
                 let n = scalar_binary_operation(ln.value(1) as f64, secs, op, is_bool)? as i64;
                 let dur = DurationExpr::new(n);
                 return Ok(Expr::Duration(dur));
             }
-            // handle something like 2.5i * 2. Note that we don't handle + and - because meaning would be
-            // ambiguous (e.g. 2.5i + 2 could be 2.5i + 2.0 or 2.5 + 2.0 secs)
-            (Expr::Duration(ln), Expr::NumberLiteral(NumberLiteral { value }), op)
-                if ln.requires_step() && (op == Operator::Mul || op == Operator::Div) =>
+        // handle something like 2.5i * 2. Note that we don't handle + and - because meaning would be
+        // ambiguous (e.g. 2.5i + 2 could be 2.5i + 2.0 or 2.5 + 2.0 secs)
+        (Expr::Duration(ln), Expr::NumberLiteral(NumberLiteral { value }), op)
+        if ln.requires_step() && (op == Operator::Mul || op == Operator::Div) =>
             {
                 if let DurationExpr::StepValue(step_value) = ln {
                     let n = scalar_binary_operation(*step_value, *value, op, is_bool)?;
@@ -193,111 +209,110 @@ impl ConstEvaluator {
                     return Ok(Expr::Duration(dur));
                 }
             }
-            (Expr::NumberLiteral(ln), Expr::NumberLiteral(rn), op) => {
-                let n = scalar_binary_operation(ln.value, rn.value, op, is_bool)?;
+        (Expr::NumberLiteral(ln), Expr::NumberLiteral(rn), op) => {
+            let n = scalar_binary_operation(ln.value, rn.value, op, is_bool)?;
+            return Ok(Expr::from(n));
+        }
+        (Expr::StringLiteral(left), Expr::StringLiteral(right), op) => {
+            if op == Operator::Add {
+                let mut res = String::with_capacity(left.len() + right.len());
+                res += left;
+                res += right;
+                return Ok(Expr::from(res));
+            }
+            if op.is_comparison() {
+                let n = string_compare(left, right, op, is_bool)?;
                 return Ok(Expr::from(n));
             }
-            (Expr::StringLiteral(left), Expr::StringLiteral(right), op) => {
-                if op == Operator::Add {
-                    let mut res = String::with_capacity(left.len() + right.len());
-                    res += left;
-                    res += right;
-                    return Ok(Expr::from(res));
-                }
-                if op.is_comparison() {
-                    let n = string_compare(left, right, op, is_bool)?;
-                    return Ok(Expr::from(n));
-                }
-            }
-            _ => {}
         }
-        Ok(Expr::BinaryOperator(be))
+        _ => {}
     }
+    Ok(Expr::BinaryOperator(be))
+}
 
-    fn get_single_scalar_arg(fe: &FunctionExpr) -> Option<f64> {
-        if fe.args.len() == 1 {
-            if let Expr::NumberLiteral(val) = &fe.args[0] {
-                return Some(val.value);
-            }
+fn get_single_scalar_arg(fe: &FunctionExpr) -> Option<f64> {
+    if fe.args.len() == 1 {
+        if let Expr::NumberLiteral(val) = &fe.args[0] {
+            return Some(val.value);
         }
-        None
     }
+    None
+}
 
-    fn handle_function_expr(fe: FunctionExpr) -> ParseResult<Expr> {
-        let arg_count = fe.args.len();
-        match fe.function {
-            BuiltinFunction::Transform(func)
-                if arg_count == 1 && func == TransformFunction::Scalar =>
+fn handle_function_expr(fe: FunctionExpr) -> ParseResult<Expr> {
+    let arg_count = fe.args.len();
+    match fe.function {
+        BuiltinFunction::Transform(func)
+        if arg_count == 1 && func == TransformFunction::Scalar =>
             {
                 if let Some(value) = handle_scalar_fn(&fe.args[0]) {
                     return Ok(Expr::from(value));
                 }
                 Ok(Expr::Function(fe))
             }
-            BuiltinFunction::Transform(func)
-                if arg_count == 1 && func == TransformFunction::Vector =>
+        BuiltinFunction::Transform(func)
+        if arg_count == 1 && func == TransformFunction::Vector =>
             {
                 let mut fe = fe;
                 let arg = fe.args.remove(0);
                 Ok(arg)
             }
-            BuiltinFunction::Transform(func) => {
-                use TransformFunction::*;
+        BuiltinFunction::Transform(func) => {
+            use TransformFunction::*;
 
-                if func == Pi && arg_count == 0 {
-                    return Ok(Expr::from(f64::PI()));
-                }
-                let arg = Self::get_single_scalar_arg(&fe);
-                if arg.is_none() {
-                    return Ok(Expr::Function(fe));
-                }
-                let arg = arg.unwrap();
-                let mut valid = true;
-                let value = match func {
-                    Abs => arg.abs(),
-                    Acos => arg.acos(),
-                    Acosh => arg.acosh(),
-                    Asin => arg.asin(),
-                    Asinh => arg.asinh(),
-                    Atan => arg.atan(),
-                    Atanh => arg.atanh(),
-                    Ceil => arg.ceil(),
-                    Cos => arg.cos(),
-                    Cosh => arg.cosh(),
-                    DayOfMonth => extract_datetime_part(arg, DateTimePart::DayOfMonth),
-                    DayOfWeek => extract_datetime_part(arg, DateTimePart::DayOfWeek),
-                    DayOfYear => extract_datetime_part(arg, DateTimePart::DayOfYear),
-                    DaysInMonth => extract_datetime_part(arg, DateTimePart::DaysInMonth),
-                    Deg => arg.to_degrees(),
-                    Exp => arg.exp(),
-                    Floor => arg.floor(),
-                    Hour => extract_datetime_part(arg, DateTimePart::Hour),
-                    Ln => arg.ln(),
-                    Log2 => arg.log2(),
-                    Log10 => arg.log10(),
-                    Minute => extract_datetime_part(arg, DateTimePart::Minute),
-                    Month => extract_datetime_part(arg, DateTimePart::Month),
-                    Rad => arg.to_radians(),
-                    Sgn => arg.signum(),
-                    Sin => arg.sin(),
-                    Sinh => arg.sinh(),
-                    Sqrt => arg.sqrt(),
-                    Tan => arg.tan(),
-                    Tanh => arg.tanh(),
-                    Year => extract_datetime_part(arg, DateTimePart::Year),
-                    _ => {
-                        valid = false;
-                        f64::NAN
-                    }
-                };
-                if valid {
-                    Ok(Expr::from(value))
-                } else {
-                    Ok(Expr::Function(fe.clone()))
-                }
+            if func == Pi && arg_count == 0 {
+                return Ok(Expr::from(f64::PI()));
             }
-            _ => Ok(Expr::Function(fe)),
+            let arg = get_single_scalar_arg(&fe);
+            if arg.is_none() {
+                return Ok(Expr::Function(fe));
+            }
+            let arg = arg.unwrap();
+            let mut valid = true;
+            let value = match func {
+                Abs => arg.abs(),
+                Acos => arg.acos(),
+                Acosh => arg.acosh(),
+                Asin => arg.asin(),
+                Asinh => arg.asinh(),
+                Atan => arg.atan(),
+                Atanh => arg.atanh(),
+                Ceil => arg.ceil(),
+                Cos => arg.cos(),
+                Cosh => arg.cosh(),
+                DayOfMonth => extract_datetime_part(arg, DateTimePart::DayOfMonth),
+                DayOfWeek => extract_datetime_part(arg, DateTimePart::DayOfWeek),
+                DayOfYear => extract_datetime_part(arg, DateTimePart::DayOfYear),
+                DaysInMonth => extract_datetime_part(arg, DateTimePart::DaysInMonth),
+                Deg => arg.to_degrees(),
+                Exp => arg.exp(),
+                Floor => arg.floor(),
+                Hour => extract_datetime_part(arg, DateTimePart::Hour),
+                Ln => arg.ln(),
+                Log2 => arg.log2(),
+                Log10 => arg.log10(),
+                Minute => extract_datetime_part(arg, DateTimePart::Minute),
+                Month => extract_datetime_part(arg, DateTimePart::Month),
+                Rad => arg.to_radians(),
+                Sgn => arg.signum(),
+                Sin => arg.sin(),
+                Sinh => arg.sinh(),
+                Sqrt => arg.sqrt(),
+                Tan => arg.tan(),
+                Tanh => arg.tanh(),
+                Year => extract_datetime_part(arg, DateTimePart::Year),
+                _ => {
+                    valid = false;
+                    f64::NAN
+                }
+            };
+            if valid {
+                Ok(Expr::from(value))
+            } else {
+                Ok(Expr::Function(fe.clone()))
+            }
         }
+        _ => Ok(Expr::Function(fe)),
     }
 }
 
@@ -326,6 +341,51 @@ fn handle_scalar_fn(arg: &Expr) -> Option<f64> {
     }
 }
 
+fn handle_aggregation_expr(ae: AggregationExpr) -> ParseResult<Expr> {
+    let args = handle_expr_vecs(ae.args)?;
+    let new_aggregation = AggregationExpr { args, ..ae };
+    Ok(Expr::Aggregation(new_aggregation))
+}
+
+fn handle_rollup_expr(re: RollupExpr) -> ParseResult<Expr> {
+    let expr = const_simplify(*re.expr)?;
+    let at = if let Some(at) = re.at {
+        if can_evaluate(&at) {
+            let simplified = const_simplify(*at)?;
+            Some(Box::new(simplified))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let new_expr = RollupExpr { expr: Box::new(expr), at, ..re };
+    Ok(Expr::Rollup(new_expr))
+}
+
+fn handle_with_expr(we: WithExpr) -> ParseResult<Expr> {
+    let expr = const_simplify(*we.expr)?;
+    let was = we
+        .was
+        .into_iter()
+        .map(|wa| {
+            Ok(WithArgExpr {
+                name: wa.name,
+                args: wa.args,
+                expr: const_simplify(wa.expr)?,
+                token_range: wa.token_range
+            })
+        })
+        .collect::<ParseResult<Vec<WithArgExpr>>>()?;
+    Ok(Expr::With(WithExpr { expr: Box::new(expr), was }))
+}
+
+fn handle_expr_vecs(args: Vec<Expr>) -> ParseResult<Vec<Expr>> {
+    args.into_iter()
+        .map(const_simplify)
+        .collect::<ParseResult<Vec<Expr>>>()
+}
+
 #[cfg(test)]
 mod tests {
     use chrono::Utc;
@@ -333,9 +393,7 @@ mod tests {
     use crate::ast::binary_expr;
     use crate::ast::utils::{expr_equals, lit, number, selector};
     use crate::common::TreeNode;
-    use crate::functions::Volatility;
     use crate::parser::parse;
-    use crate::prelude::TransformFunction;
 
     use super::*;
 
@@ -418,10 +476,6 @@ mod tests {
 
     #[test]
     fn test_const_evaluator_scalar_functions() {
-        // volatile / stable functions should not be evaluated
-        // rand() + (1 + 2) --> rand() + 3
-        let fun = TransformFunction::Random;
-        // assert_eq!(fun.signature().volatility, Volatility::Volatile);
         let rand = Expr::call("rand", vec![]).expect("invalid function call");
         let expr = rand.clone() + (number(1.0) + number(2.0));
         let expected = rand + number(3.0);

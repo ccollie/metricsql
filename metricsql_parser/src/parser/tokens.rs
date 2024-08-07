@@ -194,7 +194,7 @@ pub enum Token {
 }
 
 impl Token {
-    pub fn is_operator(&self) -> bool {
+    pub const fn is_operator(&self) -> bool {
         use Token::*;
 
         matches!(
@@ -222,7 +222,7 @@ impl Token {
     }
 
     #[inline]
-    pub fn is_comparison_op(&self) -> bool {
+    pub const fn is_comparison_op(&self) -> bool {
         use Token::*;
         matches!(
             self,
@@ -236,31 +236,31 @@ impl Token {
     }
 
     #[inline]
-    pub fn is_rollup_start(&self) -> bool {
+    pub const fn is_rollup_start(&self) -> bool {
         use Token::*;
         matches!(self, Offset | At | LeftBracket)
     }
 
     #[inline]
-    pub fn is_group_modifier(&self) -> bool {
+    pub const fn is_group_modifier(&self) -> bool {
         use Token::*;
         matches!(self, On | Ignoring)
     }
 
     #[inline]
-    pub fn is_join_modifier(&self) -> bool {
+    pub const fn is_join_modifier(&self) -> bool {
         use Token::*;
         matches!(self, GroupLeft | GroupRight)
     }
 
-    pub fn is_aggregate_modifier(&self) -> bool {
+    pub const fn is_aggregate_modifier(&self) -> bool {
         use Token::*;
         matches!(self, By | Without)
     }
 
     /// tokens that can function as identifiers in certain constructions (functions/metric names)
     /// not a good idea, but we're matching the original
-    pub fn is_ident_like(&self) -> bool {
+    pub const fn is_ident_like(&self) -> bool {
         use Token::*;
         // keywords
         matches!(
@@ -285,7 +285,7 @@ impl Token {
         )
     }
 
-    pub fn as_str(&self) -> &'static str {
+    pub const fn as_str(&self) -> &'static str {
         match self {
             // keywords
             Self::By => "by",

@@ -370,12 +370,12 @@ fn expand_function(
     was: &Vec<WithArgExpr>,
     func: FunctionExpr,
 ) -> ParseResult<Expr> {
+    let name = func.name();
     let args = expand_with_args(symbols, was, func.args)?;
-    if let Some(wa) = get_with_arg_expr(symbols, was, &func.name) {
+    if let Some(wa) = get_with_arg_expr(symbols, was, name) {
         return expand_with_expr_ext(symbols, was, wa, args);
     }
     let res = FunctionExpr {
-        name: func.name,
         args,
         keep_metric_names: func.keep_metric_names,
         function: func.function,

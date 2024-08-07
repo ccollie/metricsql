@@ -133,14 +133,41 @@ impl FunctionMeta {
     pub fn is_variadic(&self) -> bool {
         self.signature.is_variadic()
     }
+
+    pub fn args_iter(&self) -> TypeIterator<'_> {
+        self.signature.args_iter()
+    }
 }
 
 impl Display for FunctionMeta {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}(", self.name)?;
-        let mut first = true;
-        let min = self.signature.min_args();
+        let mut min = self.signature.min_args();
+        if min == 0 {
+            min = MAX_ARG_COUNT;
+        }
+        let is_variadic = self.is_variadic();
+        let mut bracket_written = false;
+        for (i, arg) in self.args_iter().enumerate() {
+            if i > 0 {
+                if i == min {
+                    if is_variadic {
+                        write!(f, ", ...")?;
+                        break;
+                    }
+                    if !bracket_written {
+                        bracket_written = true;
+                        write!(f, "[")?;
+                    }
+                }
+                write!(f, ", ")?;
+            }
+            write!(f, "{}", arg)?;
+        }
 
+        if bracket_written {
+            write!(f, "]")?;
+        }
 
         write!(f, ")")
     }

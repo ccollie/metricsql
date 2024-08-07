@@ -208,7 +208,7 @@ pub fn aggregate_function_signature(fun: &AggregateFunction) -> Signature {
     }
 }
 
-pub fn get_aggregate_arg_idx_for_optimization(
+pub const fn get_aggregate_arg_idx_for_optimization(
     func: AggregateFunction,
     arg_count: usize,
 ) -> Option<usize> {
@@ -225,7 +225,7 @@ pub fn get_aggregate_arg_idx_for_optimization(
 }
 
 // todo: use signature
-pub(crate) fn can_accept_multiple_args_for_aggr_func(func: AggregateFunction) -> bool {
+pub(crate) const fn can_accept_multiple_args_for_aggr_func(func: AggregateFunction) -> bool {
     use AggregateFunction::*;
     matches!(
         func,

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator};
+use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
 use metricsql_parser::ast::Expr;
 use metricsql_parser::functions::{can_adjust_window, RollupFunction};
@@ -15,7 +15,6 @@ use crate::functions::rollup::candlestick::{rollup_close, rollup_high, rollup_lo
 use crate::functions::rollup::delta::delta_values;
 use crate::functions::rollup::deriv::deriv_values;
 use crate::functions::rollup::rollup_fns::{get_rollup_fn, remove_counter_resets, rollup_avg, rollup_max, rollup_min};
-use crate::rayon::iter::ParallelIterator;
 use crate::types::get_timeseries;
 
 /// The maximum interval without previous rows.
@@ -729,7 +728,7 @@ fn get_rollup_tag(expr: &Expr) -> RuntimeResult<Option<&String>> {
         if fe.args.len() != 2 {
             let msg = format!(
                 "unexpected number of args for rollup function {}; got {:?}; want 2",
-                fe.name, fe.args
+                fe.name(), fe.args
             );
             return Err(RuntimeError::ArgumentError(msg));
         }
@@ -791,10 +790,10 @@ fn get_rollup_aggr_functions(expr: &Expr) -> RuntimeResult<Vec<RollupFunction>> 
     };
 
     if let Expr::Function(fe) = expr {
-        if fe.name != "aggr_over_time" {
+        if !fe.is_rollup_function(RollupFunction::AggrOverTime) {
             let msg = format!(
-                "BUG: unexpected function name: {}; want `aggr_over_time`",
-                fe.name
+                "BUG: unexpected function {}; want `aggr_over_time`",
+                fe.name()
             );
             return Err(RuntimeError::ArgumentError(msg));
         }

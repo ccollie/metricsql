@@ -112,12 +112,10 @@ impl TreeNode for Expr {
             }),
             Expr::Duration(_) => self.clone(),
             Expr::Function(FunctionExpr {
-                name,
                 args,
                 keep_metric_names,
                 function,
             }) => Expr::Function(FunctionExpr {
-                name,
                 args: transform_vec(args, &mut transform)?,
                 keep_metric_names,
                 function,

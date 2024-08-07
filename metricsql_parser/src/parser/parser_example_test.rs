@@ -9,7 +9,7 @@ mod tests {
         let arg = ae.args.first().expect("ae.args[0] should not be None");
         println!(
             "aggr func: name={}, arg={}, modifier={}",
-            ae.name,
+            ae.name(),
             arg,
             option_to_string(&ae.modifier)
         );

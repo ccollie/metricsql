@@ -78,7 +78,7 @@ pub fn is_null(expr: &Expr) -> bool {
 }
 
 /// returns true if `haystack` looks like (needle OP X) or (X OP needle)
-pub fn is_op_with(target_op: Operator, haystack: &Expr, needle: &Expr) -> bool {
+pub(crate) fn is_op_with(target_op: Operator, haystack: &Expr, needle: &Expr) -> bool {
     matches!(haystack, Expr::BinaryOperator(BinaryExpr { left, op, right, .. })
         if op == &target_op && (needle == left.as_ref() || needle == right.as_ref()))
 }
@@ -133,7 +133,7 @@ pub fn expr_equals(expr1: &Expr, expr2: &Expr) -> bool {
 
     match (expr1, expr2) {
         (Parens(p1), Parens(p2)) => {
-            println!("p1: {:?}, p2: {:?}", p1, p2);
+            // println!("p1: {:?}, p2: {:?}", p1, p2);
             p1 == p2
         }
         // special case: (x) == x. I don't know if I like this
