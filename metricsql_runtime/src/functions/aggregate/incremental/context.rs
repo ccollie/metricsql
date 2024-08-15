@@ -27,15 +27,15 @@ impl TryFrom<&str> for IncrementalAggrFuncKind {
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
-            "count" => Ok(IncrementalAggrFuncKind::Count),
-            "geomean" => Ok(IncrementalAggrFuncKind::Geomean),
-            "min" => Ok(IncrementalAggrFuncKind::Min),
-            "max" => Ok(IncrementalAggrFuncKind::Max),
-            "avg" => Ok(IncrementalAggrFuncKind::Avg),
-            "sum" => Ok(IncrementalAggrFuncKind::Sum),
-            "sum2" => Ok(IncrementalAggrFuncKind::Sum2),
-            "any" => Ok(IncrementalAggrFuncKind::Any),
-            "group" => Ok(IncrementalAggrFuncKind::Group),
+            value if value.eq_ignore_ascii_case("count") => Ok(IncrementalAggrFuncKind::Count),
+            value if value.eq_ignore_ascii_case("geomean") => Ok(IncrementalAggrFuncKind::Geomean),
+            value if value.eq_ignore_ascii_case("min") => Ok(IncrementalAggrFuncKind::Min),
+            value if value.eq_ignore_ascii_case("max") => Ok(IncrementalAggrFuncKind::Max),
+            value if value.eq_ignore_ascii_case("avg") => Ok(IncrementalAggrFuncKind::Avg),
+            value if value.eq_ignore_ascii_case("sum") => Ok(IncrementalAggrFuncKind::Sum),
+            value if value.eq_ignore_ascii_case("sum2") => Ok(IncrementalAggrFuncKind::Sum2),
+            value if value.eq_ignore_ascii_case("any") => Ok(IncrementalAggrFuncKind::Any),
+            value if value.eq_ignore_ascii_case("group") => Ok(IncrementalAggrFuncKind::Group),
             _ => Err(format!("unknown incremental aggregate function: {}", value)),
         }
     }

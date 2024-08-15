@@ -747,7 +747,7 @@ fn group_le_timeseries(tss: &mut [Timeseries]) -> AHashMap<Signature, Vec<LeTime
     m
 }
 
-pub(super) fn fix_broken_buckets(i: usize, xss: &mut Vec<LeTimeseries>) {
+pub(super) fn fix_broken_buckets(i: usize, xss: &mut [LeTimeseries]) {
     // Buckets are already sorted by le, so their values must be in ascending order,
     // since the next bucket includes all the previous buckets.
     // If the next bucket has lower value than the current bucket,
@@ -770,7 +770,7 @@ pub(super) fn fix_broken_buckets(i: usize, xss: &mut Vec<LeTimeseries>) {
     }
 }
 
-fn merge_same_le(xss: &mut Vec<LeTimeseries>) -> Vec<LeTimeseries> {
+fn merge_same_le(xss: &mut [LeTimeseries]) -> Vec<LeTimeseries> {
     // Merge buckets with identical le values.
     // See https://github.com/VictoriaMetrics/VictoriaMetrics/pull/3225
     let mut prev_le = xss[0].le;

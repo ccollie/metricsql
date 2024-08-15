@@ -1,13 +1,11 @@
-use std::borrow::Cow;
-
 use regex::{Error as RegexError, Regex};
 use regex_syntax::hir::Class::{Bytes, Unicode};
 use regex_syntax::hir::{Capture, Class, Hir, HirKind, Literal, Look};
 use regex_syntax::{escape as escape_regex, parse as parse_regex};
+use std::borrow::Cow;
 
+use super::match_handlers::{ContainsAnyOfHandler, OrStringMatcher, StringMatchHandler};
 use crate::bytes_util::FastRegexMatcher;
-
-use super::match_handlers::StringMatchHandler;
 
 const MAX_OR_VALUES: usize = 16;
 
@@ -299,9 +297,9 @@ fn simplify_regexp_ext(sre: &Hir, has_prefix: bool, has_suffix: bool) -> Hir {
         sub
     };
 
-    return match sre.kind() {
+    match sre.kind() {
         HirKind::Look(Look::Start) | HirKind::Look(Look::End) => {
-            return Hir::empty();
+            Hir::empty()
         }
         HirKind::Alternation(alternate) => {
             // avoid clone if its all literal
@@ -381,7 +379,7 @@ fn simplify_regexp_ext(sre: &Hir, has_prefix: bool, has_suffix: bool) -> Hir {
                 return values.remove(0);
             }
 
-            return Hir::concat(values);
+            Hir::concat(values)
         }
         HirKind::Repetition(rep) => {
             let mut repetition = rep.clone();
@@ -393,19 +391,19 @@ fn simplify_regexp_ext(sre: &Hir, has_prefix: bool, has_suffix: bool) -> Hir {
             Hir::repetition(repetition)
         }
         _ => sre.clone(),
-    };
+    }
 }
 
 /// These cost values are used for sorting tag filters in ascending order or the required CPU
 /// time for execution.
 ///
 /// These values are obtained from BenchmarkOptimizedRematch_cost benchmark.
-pub(super) const FULL_MATCH_COST: usize = 1;
-pub(super) const PREFIX_MATCH_COST: usize = 2;
-pub(super) const LITERAL_MATCH_COST: usize = 3;
-pub(super) const SUFFIX_MATCH_COST: usize = 4;
-pub(super) const MIDDLE_MATCH_COST: usize = 6;
-pub(super) const RE_MATCH_COST: usize = 100;
+pub const FULL_MATCH_COST: usize = 1;
+pub const PREFIX_MATCH_COST: usize = 2;
+pub const LITERAL_MATCH_COST: usize = 3;
+pub const SUFFIX_MATCH_COST: usize = 4;
+pub const MIDDLE_MATCH_COST: usize = 6;
+pub const RE_MATCH_COST: usize = 100;
 
 /// get_optimized_re_match_func tries returning optimized function for matching the given expr.
 ///
@@ -426,7 +424,7 @@ pub(super) const RE_MATCH_COST: usize = 100;
 /// It returns re_match if it cannot find optimized function.
 ///
 /// It also returns literal suffix from the expr.
-pub(crate) fn get_optimized_re_match_func(
+pub fn get_optimized_re_match_func(
     re_match: StringMatchHandler,
     expr: &str,
 ) -> (StringMatchHandler, String, usize) {
@@ -617,6 +615,31 @@ fn get_optimized_re_match_func_ext(
                     }
                 }
             }
+            // Verify that the string matches all the literals found in the regexp
+            // before applying the regexp.
+            // This should optimize the case when the regexp doesn't match the string.
+            let mut literals = subs.iter()
+                .filter(|x| is_literal(x))
+                .map(literal_to_string)
+                .collect::<Vec<_>>();
+
+            let suffix: String = if is_literal(&subs[subs.len() - 1]) {
+                literals.pop().unwrap_or("".to_string())
+            } else {
+                "".to_string()
+            };
+
+            let left = StringMatchHandler::ContainsAnyOf(ContainsAnyOfHandler{
+                literals,
+                suffix: suffix.clone(),
+            });
+
+            let matcher = StringMatchHandler::Or(OrStringMatcher {
+                left: Box::new(left),
+                right: Box::new(re_match),
+            });
+
+            return Some((matcher, suffix, MIDDLE_MATCH_COST));
         }
         _ => {
             // todo!()
@@ -693,7 +716,7 @@ pub(super) fn get_prefix_matcher(prefix: &str) -> StringMatchHandler {
     StringMatchHandler::starts_with(prefix)
 }
 
-pub(super) fn get_suffix_matcher(suffix: &str) -> Result<StringMatchHandler, RegexError> {
+pub fn get_suffix_matcher(suffix: &str) -> Result<StringMatchHandler, RegexError> {
     if !suffix.is_empty() {
         if suffix == ".*" {
             return Ok(StringMatchHandler::dot_star());

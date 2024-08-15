@@ -8,3 +8,4 @@ pub(crate) mod rollup;
 pub(crate) mod transform;
 pub(crate) mod types;
 mod utils;
+mod handler;

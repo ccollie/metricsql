@@ -145,7 +145,7 @@ pub(super) fn parse_expression(p: &mut Parser) -> ParseResult<Expr> {
 }
 
 fn balance_binary_op(mut be: BinaryExpr) -> Expr {
-    return match be.left.as_ref() {
+    match be.left.as_ref() {
         Expr::BinaryOperator(left) => {
             let rp = be.op.precedence();
             let lp = left.op.precedence();
@@ -161,7 +161,7 @@ fn balance_binary_op(mut be: BinaryExpr) -> Expr {
             Expr::BinaryOperator(bel)
         }
         _ => Expr::BinaryOperator(be),
-    };
+    }
 }
 
 fn parse_vector_match_modifier(p: &mut Parser, modifier: &mut BinModifier) -> ParseResult<()> {

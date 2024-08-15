@@ -125,7 +125,7 @@ impl fmt::Display for LabelFilterOp {
 }
 
 /// LabelFilter represents MetricsQL label filter like `foo="bar"`.
-#[derive(Default, Debug, Clone, Eq, Hash, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct LabelFilter {
     pub op: LabelFilterOp,
 
@@ -279,6 +279,8 @@ impl PartialOrd for LabelFilter {
     }
 }
 
+impl Eq for LabelFilter {}
+
 impl Ord for LabelFilter {
     fn cmp(&self, other: &Self) -> Ordering {
         let mut cmp = self.label.cmp(&other.label);
@@ -305,6 +307,13 @@ impl fmt::Display for LabelFilter {
     }
 }
 
+impl Hash for LabelFilter {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.op.hash(state);
+        self.label.hash(state);
+        self.value.hash(state);
+    }
+}
 
 pub type Matcher = LabelFilter;
 
@@ -343,8 +352,7 @@ impl Matchers {
     pub fn append(mut self, matcher: LabelFilter) -> Self {
         // Check the latest or_matcher group. If it is not empty,
         // we need to add the current matcher to this group.
-        let last_or_matcher = self.or_matchers.last_mut();
-        if let Some(last_or_matcher) = last_or_matcher {
+        if let Some(last_or_matcher) = self.or_matchers.last_mut() {
             last_or_matcher.push(matcher);
         } else {
             self.matchers.push(matcher);
@@ -393,12 +401,12 @@ impl Matchers {
     /// find the matcher's value whose name equals the specified name. This function
     /// is designed to prepare error message of invalid promql expression.
     #[allow(dead_code)]
-    pub(crate) fn find_matcher_value(&self, name: &str) -> Option<String> {
+    pub(crate) fn find_matcher_value(&self, name: &str) -> Option<&String> {
         self.matchers
             .iter()
             .chain(self.or_matchers.iter().flatten())
             .find(|m| m.label.eq(name))
-            .map(|m| m.value.clone())
+            .map(|m| &m.value)
     }
 
     /// find matchers whose name equals the specified name
@@ -482,7 +490,7 @@ impl Matchers {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &Vec<LabelFilter>> {
-        return OrIter::new(&self.matchers, &self.or_matchers);
+        OrIter::new(&self.matchers, &self.or_matchers)
     }
 
     pub fn filter_iter(&self) -> impl Iterator<Item = &LabelFilter> {

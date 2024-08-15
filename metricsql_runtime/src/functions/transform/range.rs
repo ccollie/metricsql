@@ -55,7 +55,7 @@ pub(crate) fn range_median(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Time
     Ok(series)
 }
 
-pub(crate) fn range_quantile(phi: f64, series: &mut Vec<Timeseries>) {
+pub(crate) fn range_quantile(phi: f64, series: &mut [Timeseries]) {
     let mut values = get_pooled_vec_f64(series.len()).to_vec();
 
     for ts in series.iter_mut() {

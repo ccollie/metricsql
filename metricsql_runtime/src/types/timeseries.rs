@@ -177,7 +177,7 @@ fn assert_identical_timestamps_internal<'a>(
         );
         return Err(RuntimeError::from(msg));
     }
-    if ts_golden.len() > 0 {
+    if !ts_golden.is_empty() {
         let mut prev_timestamp = ts_golden[0];
         for timestamp in ts_golden.iter() {
             if timestamp - prev_timestamp != step {
@@ -209,7 +209,7 @@ fn assert_identical_timestamps_internal<'a>(
             );
             return Err(RuntimeError::from(msg));
         }
-        if ts.len() == 0 {
+        if ts.is_empty() {
             continue;
         }
         if ts[0] == ts_golden[0] {

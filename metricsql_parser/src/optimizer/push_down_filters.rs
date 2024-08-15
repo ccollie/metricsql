@@ -399,11 +399,11 @@ fn get_common_label_filters_without_metric_name(matchers: &Matchers) -> Vec<Labe
 
 // todo: use lifetimes instead of cloning
 fn get_label_filters_without_metric_name(lfs: &[LabelFilter]) -> Vec<LabelFilter> {
-    return lfs
+    lfs
         .iter()
         .filter(|x| x.label != NAME_LABEL)
         .cloned()
-        .collect::<Vec<_>>();
+        .collect::<Vec<_>>()
 }
 
 /// Pushes down the given common_filters to `expr` if possible.

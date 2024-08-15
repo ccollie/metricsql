@@ -17,9 +17,6 @@
 
 //! Manages all available memory during query execution
 use std::sync::{Arc, Mutex};
-
-pub use pool::*;
-
 use crate::{RuntimeError, RuntimeResult};
 
 mod pool;
@@ -222,7 +219,7 @@ const GB: u64 = 1 << 30;
 const MB: u64 = 1 << 20;
 const KB: u64 = 1 << 10;
 
-/// Present size in human readable form
+/// Present size in human-readable form
 pub fn human_readable_size(size: usize) -> String {
     let size = size as u64;
     let (value, unit) = {
@@ -243,6 +240,7 @@ pub fn human_readable_size(size: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+    use crate::memory_pool::pool::GreedyMemoryPool;
     use super::*;
 
     #[test]

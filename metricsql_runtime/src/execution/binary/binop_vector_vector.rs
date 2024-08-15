@@ -301,7 +301,7 @@ fn group_join(
     reset_metric_group: bool,
     rvs_left: &mut Vec<Timeseries>,
     rvs_right: &mut Vec<Timeseries>,
-    tss_left: &mut Vec<Timeseries>,
+    tss_left: &mut [Timeseries],
     tss_right: &mut Vec<Timeseries>,
 ) -> RuntimeResult<()> {
     let empty_prefix = "";

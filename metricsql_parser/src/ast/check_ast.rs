@@ -201,6 +201,10 @@ fn check_ast_for_rollup(mut ex: RollupExpr) -> Result<Expr, String> {
 fn check_ast_for_vector_selector(ex: MetricExpr) -> Result<Expr, String> {
     match ex.metric_name() {
         Some(_) => {
+            // make sure metric name is not set twice (to different values)
+            // with OR matching, __name__ can appear multiple times]
+            // ex: {__name__="foo" OR __name__="bar"}
+            // {__name__="a",bar="baz" or __name__="a"}
             let mut du = ex.find_matchers(NAME_LABEL);
             if du.len() >= 2 {
                 // this is to ensure that the err information can be predicted with fixed order

@@ -1,16 +1,121 @@
+use std::fmt::{Display, Formatter};
+use predicates::Predicate;
+use predicates::reflection::PredicateReflection;
 use crate::bytes_util::{FastRegexMatcher, FastStringMatcher};
 
 use super::regex_utils::{skip_first_and_last_char, skip_first_char, skip_last_char};
 
 pub type MatchFn = fn(pattern: &str, candidate: &str) -> bool;
 
+
 #[derive(Clone, Debug)]
-pub(crate) enum StringMatchHandler {
+pub struct AlternateMatchHandler(pub Vec<String>);
+
+impl PredicateReflection for AlternateMatchHandler {}
+
+impl Display for AlternateMatchHandler {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "value in [{:?}]", self.0)
+    }
+}
+
+impl Predicate<str> for AlternateMatchHandler {
+    fn eval(&self, variable: &str) -> bool {
+        matches_alternates(&self.0, variable)
+    }
+}
+
+/// Important! this is constructed from a regex
+/// so the literals MUST be ordered by their order
+/// in the regex pattern
+#[derive(Clone, Debug)]
+pub struct ContainsAnyOfHandler{
+    pub literals: Vec<String>,
+    pub suffix: String,
+}
+
+impl PredicateReflection for ContainsAnyOfHandler {}
+
+impl Display for ContainsAnyOfHandler {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "value contains one of [{:?}]", self.literals)
+    }
+}
+
+impl Predicate<str> for ContainsAnyOfHandler {
+    fn eval(&self, variable: &str) -> bool {
+        if !self.suffix.is_empty() {
+            if !variable.ends_with(&self.suffix) {
+                return false;
+            }
+        }
+        let mut n = 0;
+        let mut cursor = &variable[0..];
+        while let Some(pos) = cursor.find(&self.literals[n]) {
+            n += 1;
+            if n == self.literals.len() {
+                return true;
+            }
+            cursor = &cursor[pos + 1..];
+        }
+        true
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IncludesAnyOfMatcher(pub Vec<String>);
+
+impl PredicateReflection for IncludesAnyOfMatcher {}
+
+impl Display for IncludesAnyOfMatcher {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "value includes one of [{:?}]", self.0)
+    }
+}
+
+impl Predicate<str> for IncludesAnyOfMatcher {
+    fn eval(&self, variable: &str) -> bool {
+        self.0.iter().any(|v| variable.contains(v))
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct OrStringMatcher {
+    pub left: Box<StringMatchHandler>,
+    pub right: Box<StringMatchHandler>,
+}
+
+impl OrStringMatcher {
+    pub fn new(left: StringMatchHandler, right: StringMatchHandler) -> Self {
+        Self {
+            left: Box::new(left),
+            right: Box::new(right),
+        }
+    }
+}
+
+impl Display for OrStringMatcher {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({} or {})", self.left, self.right)
+    }
+}
+
+impl PredicateReflection for OrStringMatcher {}
+impl Predicate<str> for OrStringMatcher {
+    fn eval(&self, variable: &str) -> bool {
+        self.left.eval(variable) || self.right.eval(variable)
+    }
+}
+
+
+#[derive(Debug, Clone)]
+pub enum StringMatchHandler {
     Fsm(FastStringMatcher),
     FastRegex(FastRegexMatcher),
     Alternates(Vec<String>),
+    ContainsAnyOf(ContainsAnyOfHandler),
     MatchFn(MatchFnHandler),
-    MultiMatch(Vec<StringMatchHandler>),
+    Or(OrStringMatcher),
 }
 
 impl Default for StringMatchHandler {
@@ -136,8 +241,15 @@ impl StringMatchHandler {
             StringMatchHandler::Fsm(fsm) => fsm.matches(s),
             StringMatchHandler::MatchFn(m) => m.matches(s),
             StringMatchHandler::FastRegex(r) => r.matches(s),
-            StringMatchHandler::MultiMatch(m) => m.iter().all(|h| h.matches(s)),
+            StringMatchHandler::ContainsAnyOf(m) => m.eval(s),
+            StringMatchHandler::Or(p) => p.eval(s),
         }
+    }
+}
+
+impl Predicate<str> for StringMatchHandler {
+    fn eval(&self, variable: &str) -> bool {
+        self.matches(variable)
     }
 }
 
@@ -158,6 +270,20 @@ impl MatchFnHandler {
     #[allow(dead_code)]
     pub(super) fn matches(&self, s: &str) -> bool {
         (self.match_fn)(&self.pattern, s)
+    }
+}
+
+impl PredicateReflection for StringMatchHandler {}
+
+impl Display for StringMatchHandler {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl Predicate<&str> for StringMatchHandler {
+    fn eval(&self, variable: &&str) -> bool {
+        self.matches(variable)
     }
 }
 

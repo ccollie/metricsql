@@ -682,21 +682,22 @@ impl Prettier for DurationExpr {
 ///
 /// Curly braces may contain or-delimited list of filters. For example:
 ///
-///	`x{job="foo",instance="bar" or job="x",instance="baz"}`
+/// `x{job="foo",instance="bar" or job="x",instance="baz"}`
 ///
 /// In this case the filter returns all the series, which match at least one of the following filters:
 ///
-///	`x{job="foo",instance="bar"}`
-///	`x{job="x",instance="baz"}`
+/// `x{job="foo",instance="bar"}`
+/// `x{job="x",instance="baz"}`
 ///
 /// This allows using or-delimited list of filters inside rollup functions. For example,
 /// the following query calculates rate per each matching series for the given or-delimited filters:
 ///
-///	`rate(x{job="foo",instance="bar" or job="x",instance="baz"}[5m])`
+/// `rate(x{job="foo",instance="bar" or job="x",instance="baz"}[5m])`
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MetricExpr {
+    /// name is the metric name.
+    pub name: Option<String>,
     /// matchers contains a list of label filters from curly braces.
-    /// Filter or metric name must be the first if present.
     pub matchers: Matchers,
 }
 
@@ -708,18 +709,22 @@ impl MetricExpr {
             value: name.into()
         };
         MetricExpr {
+            // name: Some(name.into()),
+            name: None,
             matchers: Matchers::default().append(name_filter),
         }
     }
 
     pub fn with_filters(filters: Vec<LabelFilter>) -> Self {
         MetricExpr {
+            name: None,
             matchers: Matchers::new(filters),
         }
     }
 
     pub fn with_or_filters(filters: Vec<Vec<LabelFilter>>) -> Self {
         MetricExpr {
+            name: None,
             matchers: Matchers::with_or_matchers(filters),
         }
     }
@@ -806,6 +811,29 @@ impl Display for MetricExpr {
         }
         write!(f, "}}")?;
         Ok(())
+    }
+}
+
+/// directly create an instant vector with only METRIC_NAME matcher.
+///
+/// # Examples
+///
+/// Basic usage:
+///
+/// ``` rust
+/// use metricsql_parser::ast::MetricExpr;
+/// use metricsql_parser::label::Matchers;
+///
+/// let vs = MetricExpr {
+///     name: Some(String::from("foo")),
+///     matchers: Matchers::empty(),
+/// };
+///
+/// assert_eq!(MetricExpr::from("foo"), vs);
+/// ```
+impl From<&str> for MetricExpr {
+    fn from(name: &str) -> Self {
+        MetricExpr::from(name.to_string())
     }
 }
 
@@ -1094,19 +1122,19 @@ impl AggregationExpr {
         }
 
         let first = &self.args[0];
-        return match first {
+        match first {
             Expr::Function(fe) => match fe.function {
                 BuiltinFunction::Rollup(_) => {
-                    return if let Some(arg) = fe.arg_for_optimization() {
+                    if let Some(arg) = fe.arg_for_optimization() {
                         validate_expr(arg)
                     } else {
                         false
-                    };
+                    }
                 }
                 _ => false,
             },
             _ => validate_expr(first),
-        };
+        }
     }
 
     pub fn is_non_grouping(&self) -> bool {
@@ -1610,7 +1638,7 @@ impl ParensExpr {
         match self.len() {
             0 => None,
             1 => {
-                return match &self.expressions[0] {
+                match &self.expressions[0] {
                     Expr::Parens(pe2) => pe2.innermost_expr(),
                     expr => Some(expr),
                 }

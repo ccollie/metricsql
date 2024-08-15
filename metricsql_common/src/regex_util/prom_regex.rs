@@ -1,3 +1,6 @@
+use std::fmt::{Display, Formatter};
+use predicates::Predicate;
+use predicates::reflection::PredicateReflection;
 use regex::Error as RegexError;
 
 use super::match_handlers::StringMatchHandler;
@@ -13,6 +16,7 @@ use super::regex_utils::{get_prefix_matcher, get_suffix_matcher, simplify};
 /// - substring match such as ".*foo.*" or ".+bar.+"
 ///
 /// The rest of regexes are also optimized by returning cached match results for the same input strings.
+#[derive(Clone, Debug)]
 pub struct PromRegex {
     /// prefix contains literal prefix for regex.
     /// For example, prefix="foo" for regex="foo(a|b)"
@@ -49,6 +53,20 @@ impl PromRegex {
             }
         }
         false
+    }
+}
+
+impl PredicateReflection for PromRegex {}
+
+impl Display for PromRegex {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "PromRegex({})", self.prefix)
+    }
+}
+
+impl Predicate<&str> for PromRegex {
+    fn eval(&self, variable: &&str) -> bool {
+        self.match_string(variable)
     }
 }
 

@@ -36,7 +36,7 @@ pub fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expr> {
                     return Ok(Expr::MetricExpression(me));
                 }
                 let converted = first.iter().map(|x| x.to_label_filter()).collect::<ParseResult<Vec<_>>>()?;
-                me.matchers.matchers = converted;
+                me.matchers.matchers.extend(converted);
                 me.sort_filters();
             }
             return Ok(Expr::MetricExpression(me));
@@ -63,7 +63,7 @@ pub fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expr> {
             return Ok(Expr::MetricExpression(me));
         }
 
-        name = Some(token.to_string());
+        name = Some(token);
     }
 
     let filters = parse_label_filters(p)?;
@@ -88,40 +88,82 @@ pub fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expr> {
 
 /// parse_label_filters parses a set of label matchers.
 ///
-/// '{' [ <label_name> <match_op> <match_string>, ... ] '}'
+/// '{' [ <label_name> <match_op> <match_string>, ... [or <label_name> <match_op> <match_string>, ...] '}'
 ///
 fn parse_label_filters(p: &mut Parser) -> ParseResult<Vec<Vec<LabelFilterExpr>>> {
     use Token::*;
 
     p.expect(&LeftBrace)?;
+
+    if p.at(&RightBrace) {
+        p.bump();
+        return Ok(vec![]);
+    }
+
     let mut result: Vec<Vec<LabelFilterExpr>> = Vec::with_capacity(2);
-
     loop {
-        let filters = p.parse_comma_separated(&[RightBrace, OpOr], parse_label_filter)?;
-        if !p.can_lookup() {
-            // if we're not parsing a WITH statement, we need to make sure we have no unresolved identifiers
-            for filter in &filters {
-                if filter.is_variable() {
-                    return Err(unexpected(
-                        "label filter",
-                        &filter.label,
-                        "unresolved identifier",
-                        None,
-                    ));
-                }
-            }
-        }
-
+        let filters = parse_label_filters_internal(p)?;
         if !filters.is_empty() {
             result.push(filters);
         }
 
-        if !p.at(&OpOr) {
-            break;
+        let tok = p.current_token()?;
+        match tok.kind {
+            RightBrace => {
+                p.bump();
+                break
+            },
+            OpOr => p.bump(),
+            _ => return Err(unexpected("label filter", tok.text, "OR or }", None)),
         }
     }
 
     Ok(result)
+}
+
+/// parse_label_filters parses a set of label matchers.
+///
+/// [ <label_name> <match_op> <match_string>, ... ]
+///
+fn parse_label_filters_internal(p: &mut Parser) -> ParseResult<Vec<LabelFilterExpr>> {
+    use Token::*;
+
+    let mut filters = Vec::with_capacity(4);
+    loop {
+        let filter = parse_label_filter(p)?;
+        filters.push(filter);
+
+        let tok = p.current_token()?;
+        match tok.kind {
+            Comma => {
+                p.bump();
+                if p.at(&RightBrace) {
+                    break;
+                }
+                continue;
+            }
+            RightBrace | OpOr => {
+                break;
+            },
+            _ => return Err(unexpected("label filter", tok.text, "OR or }", None)),
+        }
+    }
+
+    if !p.can_lookup() {
+        // if we're not parsing a WITH statement, we need to make sure we have no unresolved identifiers
+        for filter in &filters {
+            if filter.is_variable() {
+                return Err(unexpected(
+                    "label filter",
+                    &filter.label,
+                    "unresolved identifier",
+                    None,
+                ));
+            }
+        }
+    }
+
+    Ok(filters)
 }
 
 /// parse_label_filter parses a single label matcher.

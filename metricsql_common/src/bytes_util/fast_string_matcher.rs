@@ -1,3 +1,6 @@
+use std::fmt::{Display, Formatter};
+use predicates::Predicate;
+use predicates::reflection::PredicateReflection;
 use super::string_transform_cacher::StringTransformCache;
 
 /// FastStringMatcher implements fast matcher for strings.
@@ -22,6 +25,20 @@ impl FastStringMatcher {
     // Match applies match_func to s and returns the result.
     pub fn matches(&self, s: &str) -> bool {
         self.inner.transform(s)
+    }
+}
+
+impl PredicateReflection for FastStringMatcher {}
+
+impl Display for FastStringMatcher {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+       write!(f, "FastStringMatcher(value)")
+    }
+}
+
+impl Predicate<str> for FastStringMatcher {
+    fn eval(&self, variable: &str) -> bool {
+        self.matches(variable)
     }
 }
 

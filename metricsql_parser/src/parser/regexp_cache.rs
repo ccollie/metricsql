@@ -18,10 +18,3 @@ pub fn is_empty_regex(re: &str) -> bool {
         },
     }
 }
-
-pub(crate) fn is_regex_match(re: &str, s: &str) -> bool {
-    match compile_regexp(re) {
-        Err(_) => false,
-        Ok(regex) => regex.is_match(s),
-    }
-}

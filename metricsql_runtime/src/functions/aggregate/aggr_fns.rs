@@ -812,7 +812,7 @@ fn get_range_topk_timeseries<F>(
 }
 
 fn get_remaining_sum_timeseries(
-    tss: &Vec<Timeseries>,
+    tss: &[Timeseries],
     modifier: &Option<AggregateModifier>,
     ks: &[f64],
     remaining_sum_tag_name: &str,
@@ -855,7 +855,7 @@ fn get_remaining_sum_timeseries(
     Some(dst)
 }
 
-fn fill_nans_at_idx(idx: usize, k: f64, tss: &mut Vec<Timeseries>) {
+fn fill_nans_at_idx(idx: usize, k: f64, tss: &mut [Timeseries]) {
     let kn = get_int_k(k, tss.len());
 
     let len = tss.len() - kn;
@@ -1139,7 +1139,7 @@ fn aggr_func_outliers_mad(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries
     aggr_func_ext(afe, &mut series, afa.modifier, afa.limit, true)
 }
 
-fn get_per_point_medians(tss: &mut Vec<Timeseries>) -> Vec<f64> {
+fn get_per_point_medians(tss: &mut [Timeseries]) -> Vec<f64> {
     if tss.is_empty() {
         // todo: handle this case
         // panic!("BUG: expecting non-empty tss")

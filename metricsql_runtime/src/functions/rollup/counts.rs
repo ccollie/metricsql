@@ -168,7 +168,7 @@ pub(super) fn new_rollup_count_values(args: &[QueryValue]) -> RuntimeResult<Roll
                 if count.is_nan() {
                     count = 1.0;
                 } else {
-                    count = count + 1.0;
+                    count += 1.0;
                 }
                 ts.values[idx] = count;
             });
@@ -179,5 +179,5 @@ pub(super) fn new_rollup_count_values(args: &[QueryValue]) -> RuntimeResult<Roll
     };
 
     let handler = RollupHandler::General(Box::new(f));
-    return Ok(handler)
+    Ok(handler)
 }

@@ -1,5 +1,6 @@
-
-mod match_handlers;
+pub mod match_handlers;
 mod prom_regex;
-mod regex_utils;
+pub mod regex_utils;
 
+pub use regex_utils::*;
+pub use prom_regex::PromRegex;

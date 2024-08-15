@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use metricsql_parser::label::{LabelFilter, Matchers};
+use metricsql_parser::label::Matchers;
 
 use crate::execution::Context;
 use crate::functions::remove_nan_values_in_place;
@@ -15,19 +15,6 @@ use crate::types::{MetricName, Timeseries, Timestamp, TimestampTrait};
 
 pub type TimeRange = Range<Timestamp>;
 
-// todo: async_executor ???. Add context ?
-pub trait MetricDataProvider: Sync + Send {
-    fn search(&self, sq: SearchQuery, deadline: &Deadline) -> RuntimeResult<QueryResults>;
-}
-
-pub struct NullMetricDataProvider {}
-
-impl MetricDataProvider for NullMetricDataProvider {
-    fn search(&self, _sq: SearchQuery, _deadline: &Deadline) -> RuntimeResult<QueryResults> {
-        let qr = QueryResults::default();
-        Ok(qr)
-    }
-}
 
 #[async_trait]
 pub trait MetricStorage: Sync + Send {
@@ -100,16 +87,6 @@ impl Display for SearchQuery {
 
         Ok(())
     }
-}
-
-fn filters_to_string(tfs: &[LabelFilter]) -> String {
-    let mut a: Vec<String> = Vec::with_capacity(tfs.len() + 2);
-    a.push("{{".to_string());
-    for tf in tfs {
-        a.push(format!("{}", tf))
-    }
-    a.push("}}".to_string());
-    a.join(",")
 }
 
 /// InstantQuery is used for returning instant query results from external data sources.

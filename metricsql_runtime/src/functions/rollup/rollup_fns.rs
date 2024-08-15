@@ -104,10 +104,7 @@ pub(super) fn get_rollup_fn(f: &RollupFunction) -> RuntimeResult<RollupFunc> {
 
 pub(crate) fn get_rollup_func_by_name(name: &str) -> RuntimeResult<RollupFunction> {
     if let Some(meta) = FunctionMeta::lookup(name) {
-        match meta.function {
-            BuiltinFunction::Rollup(f) => return Ok(f),
-            _ => {},
-        }
+        if let BuiltinFunction::Rollup(f) = meta.function { return Ok(f) }
     }
     Err(RuntimeError::UnknownFunction(name.to_string()))
 }

@@ -60,7 +60,7 @@ pub(crate) fn get_common_label_filters(tss: &[Timeseries]) -> Vec<LabelFilter> {
     lfs
 }
 
-fn join_regexp_values(a: &Vec<&String>) -> String {
+fn join_regexp_values(a: &[&String]) -> String {
     let init_size = a.iter().fold(0, |res, x| res + x.len() + 3);
     let mut res = String::with_capacity(init_size);
     for (i, s) in a.iter().enumerate() {

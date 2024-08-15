@@ -693,8 +693,8 @@ fn try_get_arg_rollup_func_with_metric_expr(
         }
     }
 
-    return match expr {
-        Expr::MetricExpression(me) => return create_func(me, expr, "", false),
+    match expr {
+        Expr::MetricExpression(me) => create_func(me, expr, "", false),
         Expr::Rollup(re) => {
             match re.expr.deref() {
                 Expr::MetricExpression(me) => {
@@ -707,18 +707,18 @@ fn try_get_arg_rollup_func_with_metric_expr(
         Expr::Function(fe) => {
             match fe.function {
                 BuiltinFunction::Rollup(_) => {
-                    return if let Some(arg) = fe.arg_for_optimization() {
+                    if let Some(arg) = fe.arg_for_optimization() {
                         match arg {
                             Expr::MetricExpression(me) => create_func(me, expr, &fe.name(), false),
                             Expr::Rollup(re) => {
                                 if let Expr::MetricExpression(me) = &*re.expr {
-                                    return if me.is_empty() || re.for_subquery() {
+                                    if me.is_empty() || re.for_subquery() {
                                         Ok(None)
                                     } else {
                                         // e = RollupFunc(metricExpr[d])
                                         // todo: use COW to avoid clone
                                         Ok(Some(fe.clone()))
-                                    };
+                                    }
                                 } else {
                                     Ok(None)
                                 }
@@ -730,13 +730,13 @@ fn try_get_arg_rollup_func_with_metric_expr(
                         // TODO: this should be an error
                         // all rollup functions should have a value for this
                         Ok(None)
-                    };
+                    }
                 }
                 _ => Ok(None),
             }
         }
         _ => Ok(None),
-    };
+    }
 }
 
 #[cfg(test)]

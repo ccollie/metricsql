@@ -178,7 +178,7 @@ fn scan_single_duration(s: &str, can_be_negative: bool) -> i32 {
             return -1;
         }
     }
-    return match curr {
+    match curr {
         'm' => {
             if i + 1 < s.len() {
                 cursor = &s[i..];
@@ -189,11 +189,11 @@ fn scan_single_duration(s: &str, can_be_negative: bool) -> i32 {
                 }
             }
             // duration in minutes
-            return (i + 1) as i32;
+            (i + 1) as i32
         }
         's' | 'h' | 'd' | 'w' | 'y' | 'i' => (i + 1) as i32,
         _ => -1,
-    };
+    }
 }
 
 #[cfg(test)]

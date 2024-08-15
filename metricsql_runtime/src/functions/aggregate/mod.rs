@@ -3,7 +3,6 @@ pub(crate) use incremental::*;
 
 mod aggr_fns;
 mod incremental;
-
 #[cfg(test)]
 mod aggr_incremental_test;
 #[cfg(test)]

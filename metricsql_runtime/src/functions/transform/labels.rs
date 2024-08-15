@@ -447,7 +447,7 @@ pub(crate) fn labels_equal(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Time
     Ok(rvs)
 }
 
-fn has_identical_label_values(mn: &mut MetricName, label_names: &Vec<Cow<String>>) -> bool {
+fn has_identical_label_values(mn: &mut MetricName, label_names: &[Cow<String>]) -> bool {
     if label_names.len() < 2 {
         return true;
     }

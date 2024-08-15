@@ -1,4 +1,3 @@
-use std::io::Write;
 use std::mem::size_of;
 use std::sync::Arc;
 
@@ -253,8 +252,8 @@ fn write_data<T: NumberLike>(
     Ok(buf.len())
 }
 
-fn read_timestamp_page<'a>(
-    compressed: &mut &'a [u8],
+fn read_timestamp_page(
+    compressed: &mut &[u8],
     dst: &mut [i64],
 ) -> RuntimeResult<usize> {
     let size = read_usize(compressed, "timestamp data size")?;
@@ -266,8 +265,8 @@ fn read_timestamp_page<'a>(
     Ok(progress.n_processed)
 }
 
-fn read_values_page<'a>(
-    compressed: &mut &'a [u8],
+fn read_values_page(
+    compressed: &mut &[u8],
     dst: &mut [f64],
 ) -> RuntimeResult<usize> {
     let size= read_usize(compressed, "value data size")?;
@@ -298,7 +297,7 @@ fn write_usize(slice: &mut Vec<u8>, size: usize) {
     slice.extend_from_slice(&size.to_le_bytes());
 }
 
-pub(super) fn write_usize_in_place(vec: &mut Vec<u8>, index: usize, value: usize) {
+pub(super) fn write_usize_in_place(vec: &mut [u8], index: usize, value: usize) {
     let bytes = value.to_le_bytes();
     let end = index + bytes.len();
     if end > vec.len() {
@@ -307,7 +306,7 @@ pub(super) fn write_usize_in_place(vec: &mut Vec<u8>, index: usize, value: usize
     vec[index..end].copy_from_slice(&bytes);
 }
 
-fn read_usize<'a>(input: &mut &'a [u8], field: &str) -> RuntimeResult<usize> {
+fn read_usize(input: &mut &[u8], field: &str) -> RuntimeResult<usize> {
     let (int_bytes, rest) = input.split_at(size_of::<usize>());
     let buf = int_bytes
         .try_into()

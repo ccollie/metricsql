@@ -506,10 +506,10 @@ fn get_rollup(expr: &Expr) -> Option<DeconstructedRollup> {
 }
 
 fn get_duration_expr(offset: &Option<DurationExpr>) -> Cow<DurationExpr> {
-    return match &offset {
+    match &offset {
         Some(ofs) => Cow::Borrowed(ofs),
         None => Cow::Owned(DurationExpr::default()),
-    };
+    }
 }
 
 fn get_latency_offset_milliseconds(ctx: &Context) -> i64 {

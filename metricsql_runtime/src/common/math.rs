@@ -25,7 +25,7 @@ pub static IQR_PHIS: [f64; 2] = [0.25, 0.75];
 /// The function modifies contents for a, so the caller must prepare it accordingly.
 ///
 /// See https://en.wikipedia.org/wiki/Mode_(statistics)
-pub fn mode_no_nans(prev_value: f64, a: &mut Vec<f64>) -> f64 {
+pub fn mode_no_nans(prev_value: f64, a: &mut [f64]) -> f64 {
     let mut prev_value = prev_value;
     if a.is_empty() {
         return prev_value;

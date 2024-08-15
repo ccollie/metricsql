@@ -2,6 +2,7 @@ extern crate byte_pool;
 extern crate chrono_tz;
 extern crate core;
 extern crate lockfree_object_pool;
+extern crate predicates;
 extern crate rand;
 extern crate xxhash_rust;
 
@@ -11,7 +12,7 @@ pub mod duration;
 pub mod fast_cache;
 pub mod hash;
 pub mod pool;
-mod regex_util;
+pub mod regex_util;
 pub mod time;
 pub mod async_runtime;
 pub mod error;
@@ -20,6 +21,7 @@ pub mod prelude {
     pub use crate::async_runtime::*;
     pub use crate::atomic_counter::*;
     pub use crate::bytes_util::*;
+    pub use crate::regex_util::*;
     pub use crate::duration::*;
     pub use crate::time;
     pub use crate::fast_cache::*;

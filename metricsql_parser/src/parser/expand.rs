@@ -156,7 +156,7 @@ fn expand_with_selector_expression(
     if me.is_resolved() {
         // Already expanded.
         let matchers = me.to_matchers()?;
-        let res = MetricExpr { matchers };
+        let res = MetricExpr { name: None, matchers };
         return Ok(Expr::MetricExpression(res));
     }
 

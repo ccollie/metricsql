@@ -215,7 +215,7 @@ impl QueryStatsTracker {
                 });
 
                 ks.count += 1;
-                ks.sum = ks.sum + r.duration;
+                ks.sum += r.duration;
             }
         });
 
@@ -259,7 +259,7 @@ impl QueryStatsTracker {
                     sum: Duration::milliseconds(0),
                 });
                 kd.count += 1;
-                kd.sum = kd.sum + r.duration;
+                kd.sum += r.duration;
             }
         });
 

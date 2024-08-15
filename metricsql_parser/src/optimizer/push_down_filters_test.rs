@@ -576,7 +576,7 @@ mod tests {
             r#"labels_equal(foo{q="w",x="y"}, "a", "b") + label_match(bar{q="w",x="y"}, "foo", "bar")"#,
         );
 
-        // Label manipulation functions which change labels for the input series, shouldn't be optimized.
+        // Label manipulation functions which change labels for the input series shouldn't be optimized.
         validate_optimized(
             r#"label_set(foo{x="y"}, "a", "b") + bar{q="w"}"#,
             r#"label_set(foo{x="y"}, "a", "b") + bar{q="w"}"#,

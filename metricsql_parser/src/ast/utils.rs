@@ -190,17 +190,17 @@ impl ExprVisitor for InvalidExprVisitor {
 ///
 /// Examples of invalid expressions:
 ///
-///	* rate(sum(foo))
-///	* rate(abs(foo))
-///	* rate(foo + bar)
-///	* rate(foo > 10)
+/// * rate(sum(foo))
+/// * rate(abs(foo))
+/// * rate(foo + bar)
+/// * rate(foo > 10)
 ///
 /// These expressions are implicitly converted into another expressions, which returns unexpected results most of the time:
 ///
-///	* rate(default_rollup(sum(foo))[1i:1i])
-///	* rate(default_rollup(abs(foo))[1i:1i])
-///	* rate(default_rollup(foo + bar)[1i:1i])
-///	* rate(default_rollup(foo > 10)[1i:1i])
+/// * rate(default_rollup(sum(foo))[1i:1i])
+/// * rate(default_rollup(abs(foo))[1i:1i])
+/// * rate(default_rollup(foo + bar)[1i:1i])
+/// * rate(default_rollup(foo > 10)[1i:1i])
 ///
 /// See https://docs.victoriametrics.com/metricsql/#implicit-query-conversions
 ///

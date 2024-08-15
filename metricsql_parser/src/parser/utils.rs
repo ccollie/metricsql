@@ -90,7 +90,7 @@ pub fn unescape_ident(s: &str) -> ParseResult<Cow<str>> {
     Ok(Cow::Owned(unescaped))
 }
 
-/// extract_string_value interprets token as a single-quoted, double-quoted, or backquoted
+/// interprets token as a single-quoted, double-quoted, or backquoted
 /// Prometheus query language string literal, returning the string value that s
 /// quotes.
 ///
@@ -160,7 +160,7 @@ pub fn extract_string_value(token: &str) -> ParseResult<Cow<str>> {
     }
 
     let res = handle_unquote(s, quote_ch)?;
-    return Ok(Cow::Owned(res));
+    Ok(Cow::Owned(res))
 }
 
 #[inline]

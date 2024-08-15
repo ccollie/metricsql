@@ -64,7 +64,7 @@ fn running_func_impl(
         let mut prev_value = ts.values[start];
         start += 1;
 
-        for (i, (v, ts)) in ts.values[start..].iter_mut().zip(ts.timestamps[start..].iter()).enumerate() {
+        for (i, v) in ts.values[start..].iter_mut().enumerate() {
             if !v.is_nan() {
                 prev_value = rf(prev_value, *v, i + 1);
             }
