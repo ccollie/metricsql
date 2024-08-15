@@ -1,6 +1,7 @@
 use std::fmt::{Display, Formatter};
 use predicates::Predicate;
 use predicates::reflection::PredicateReflection;
+use regex::Regex;
 use crate::bytes_util::{FastRegexMatcher, FastStringMatcher};
 
 use super::regex_utils::{skip_first_and_last_char, skip_first_char, skip_last_char};
@@ -116,6 +117,7 @@ pub enum StringMatchHandler {
     ContainsAnyOf(ContainsAnyOfHandler),
     MatchFn(MatchFnHandler),
     Or(OrStringMatcher),
+    Regex(Regex),
 }
 
 impl Default for StringMatchHandler {
@@ -243,6 +245,7 @@ impl StringMatchHandler {
             StringMatchHandler::FastRegex(r) => r.matches(s),
             StringMatchHandler::ContainsAnyOf(m) => m.eval(s),
             StringMatchHandler::Or(p) => p.eval(s),
+            StringMatchHandler::Regex(r) => r.is_match(s),
         }
     }
 }

@@ -70,7 +70,7 @@ pub fn get_or_values(expr: &str) -> Vec<String> {
     }
 }
 
-pub(crate) fn get_match_func_for_or_suffixes(or_values: Vec<String>) -> StringMatchHandler {
+pub fn get_match_func_for_or_suffixes(or_values: Vec<String>) -> StringMatchHandler {
     if or_values.len() == 1 {
         let mut or_values = or_values;
         let v = or_values.remove(0);
