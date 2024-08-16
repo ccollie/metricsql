@@ -30,8 +30,6 @@ mod tests {
     use snafu::Location;
     use crate::error::ext::{ErrorExt, StackError};
 
-    
-
     #[derive(Debug, Snafu)]
     #[snafu(display("This is a leaf error"))]
     struct Leaf;

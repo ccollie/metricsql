@@ -45,10 +45,8 @@ impl Display for ContainsAnyOfHandler {
 
 impl Predicate<str> for ContainsAnyOfHandler {
     fn eval(&self, variable: &str) -> bool {
-        if !self.suffix.is_empty() {
-            if !variable.ends_with(&self.suffix) {
-                return false;
-            }
+        if !self.suffix.is_empty() && !variable.ends_with(&self.suffix) {
+            return false;
         }
         let mut n = 0;
         let mut cursor = &variable[0..];

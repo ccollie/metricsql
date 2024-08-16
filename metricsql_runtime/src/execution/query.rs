@@ -169,14 +169,14 @@ impl QueryBuilder {
             .timeout
             .unwrap_or_else(|| Duration::milliseconds(TWO_DAYS_MSECS));
 
-        q.query = self.query.clone();
+        q.query.clone_from(&self.query);
         q.start = start;
         q.end = end;
         q.may_cache = !self.no_cache;
         q.step = self
             .step
             .unwrap_or_else(|| Duration::milliseconds(DEFAULT_STEP));
-        q.required_tag_filters = self.extra_tag_filters.clone(); // todo: use take to avoid clone
+        q.required_tag_filters.clone_from(&self.extra_tag_filters);
         q.round_digits = self.round_digits;
         q.deadline = get_deadline_for_query(context, q.start, Some(timeout))?;
         Ok(q)
@@ -310,7 +310,7 @@ pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<Query
     let mut ec = EvalConfig::new(start, end, step);
 
     if ec.enforced_tag_filters.is_some() {
-        ec.enforced_tag_filters = params.required_tag_filters.clone(); // todo: .into()?
+        ec.enforced_tag_filters.clone_from(&params.required_tag_filters);
     }
 
     ec.deadline = params.deadline;
@@ -398,7 +398,7 @@ fn query_range_handler(
     let mut ec = EvalConfig::new(start, end, step);
     ec.deadline = params.deadline;
     ec.set_caching(params.may_cache);
-    ec.enforced_tag_filters = params.required_tag_filters.clone(); // todo: how to avoid this clone ??
+    ec.enforced_tag_filters.clone_from(&params.required_tag_filters);
     ec.round_digits = params.round_digits;
     ec.lookback_delta = lookback_delta;
     ec.update_from_context(ctx);

@@ -213,11 +213,6 @@ impl<C> StepResult<C> {
         }
     }
 
-    /// Determine if this result indicates that the handler has more work to do.
-    pub fn is_cont(&self) -> bool {
-        matches!(self, StepResult::Continue { .. })
-    }
-
     /// Transform the result of this result (if it has one).
     pub fn map<F, D>(self, f: F) -> StepResult<D>
     where

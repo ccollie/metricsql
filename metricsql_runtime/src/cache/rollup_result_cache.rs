@@ -256,7 +256,7 @@ impl RollupResultCache {
         ec: &EvalConfig,
         expr: &Expr,
         window: i64,
-        tss: &Vec<Timeseries>,
+        tss: &[Timeseries],
     ) -> RuntimeResult<()> {
         let is_tracing = span_enabled!(Level::TRACE);
         let span = if is_tracing {

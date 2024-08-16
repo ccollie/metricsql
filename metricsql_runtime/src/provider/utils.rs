@@ -85,16 +85,6 @@ pub(crate) fn join_matchers_with_extra_filters_owned(
     src.clone()
 }
 
-fn get_matcher_list_len(matchers: &Matchers) -> usize {
-    let mut len = 0;
-    if !matchers.matchers.is_empty() {
-        len += 1;
-    }
-    len += matchers.or_matchers.len();
-    len
-}
-
-
 /// parse_metric_selector parses s containing PromQL metric selector and returns the corresponding
 /// LabelFilters.
 pub fn parse_metric_selector(s: &str) -> RuntimeResult<Matchers> {

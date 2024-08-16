@@ -246,7 +246,7 @@ fn write_data<T: NumberLike>(
     values: &[T],
     config: &ChunkConfig,
 ) -> RuntimeResult<usize> {
-    let buf = simple_compress(values, &config).map_err(map_err)?;
+    let buf = simple_compress(values, config).map_err(map_err)?;
     write_usize(dest, buf.len());
     dest.extend(&buf);
     Ok(buf.len())
@@ -283,7 +283,7 @@ fn map_err(e: PcoError) -> RuntimeError {
     RuntimeError::SerializationError(e.to_string())
 }
 
-fn read_timestamp<'a>(compressed: &mut &'a [u8]) -> RuntimeResult<i64> {
+fn read_timestamp(compressed: &mut &[u8]) -> RuntimeResult<i64> {
     let (remaining, value) = crate::common::encoding::read_i64(compressed, "timestamp")?;
     *compressed = remaining;
     Ok(value)

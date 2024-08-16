@@ -233,7 +233,7 @@ pub fn simplify(expr: &str) -> Result<(String, String), RegexError> {
         let first_literal = is_literal(head);
         if first_literal {
             let lit = literal_to_string(head);
-            prefix = lit.clone();
+            prefix.clone_from(&lit);
             match concat.len() {
                 1 => return Ok((prefix, "".to_string())),
                 2 => sre_new = Some(concat[1].clone()),
@@ -685,20 +685,6 @@ fn hir_to_string(sre: &Hir) -> String {
         _ => sre.to_string(),
     }
 }
-
-fn hir_kind_string(kind: &HirKind) -> &'static str {
-    match kind {
-        HirKind::Empty => "Empty",
-        HirKind::Literal(_) => "Literal",
-        HirKind::Class(_) => "Class",
-        HirKind::Concat(_) => "Concat",
-        HirKind::Alternation(_) => "Alternation",
-        HirKind::Repetition(_) => "Repetition",
-        HirKind::Look(_) => "Look",
-        HirKind::Capture(_) => "Capture",
-    }
-}
-
 fn literal_to_string(sre: &Hir) -> String {
     if let HirKind::Literal(lit) = sre.kind() {
         return String::from_utf8(lit.0.to_vec()).unwrap_or_default();
@@ -809,22 +795,6 @@ fn is_empty_class(class: &Class) -> bool {
         }
     }
     false
-}
-
-fn is_captured_alternates(v: &Hir) -> bool {
-    if let HirKind::Capture(cap, ..) = v.kind() {
-        let Capture { sub, .. } = cap;
-        if let HirKind::Alternation(alters) = sub.kind() {
-            let has_non_literal = alters
-                .iter()
-                .any(|v| !matches!(v.kind(), &HirKind::Literal(_)));
-            if has_non_literal {
-                return false;
-            }
-        }
-    }
-
-    true
 }
 
 fn get_captured_alternates(v: &Hir) -> Option<Vec<&str>> {

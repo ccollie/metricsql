@@ -63,7 +63,7 @@ impl BoxedError {
 impl std::fmt::Debug for BoxedError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Use the pretty debug format of inner error for opaque error.
-        let debug_format = super::format::DebugFormat::new(&*self.inner);
+        let _debug_format = super::format::DebugFormat::new(&*self.inner);
         // debug_format.fmt(f)
         todo!("BoxedError::Debug")
     }

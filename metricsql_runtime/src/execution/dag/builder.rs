@@ -709,7 +709,7 @@ fn try_get_arg_rollup_func_with_metric_expr(
                 BuiltinFunction::Rollup(_) => {
                     if let Some(arg) = fe.arg_for_optimization() {
                         match arg {
-                            Expr::MetricExpression(me) => create_func(me, expr, &fe.name(), false),
+                            Expr::MetricExpression(me) => create_func(me, expr, fe.name(), false),
                             Expr::Rollup(re) => {
                                 if let Expr::MetricExpression(me) = &*re.expr {
                                     if me.is_empty() || re.for_subquery() {

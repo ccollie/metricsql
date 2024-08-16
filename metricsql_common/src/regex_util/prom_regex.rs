@@ -60,7 +60,7 @@ impl PredicateReflection for PromRegex {}
 
 impl Display for PromRegex {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "PromRegex({})", self.prefix)
+        write!(f, "PromRegex({}, {})", self.prefix_matcher, self.suffix_matcher)
     }
 }
 

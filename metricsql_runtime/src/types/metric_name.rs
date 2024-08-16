@@ -141,8 +141,8 @@ impl MetricName {
     }
 
     pub fn copy_from(&mut self, other: &MetricName) {
-        self.metric_group = other.metric_group.clone();
-        self.tags = other.tags.clone();
+        self.metric_group.clone_from(&other.metric_group);
+        self.tags.clone_from(&other.tags);
     }
 
     /// Reset resets the mn.

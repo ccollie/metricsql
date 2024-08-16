@@ -249,11 +249,8 @@ fn no_implicit_conversion_required(e: &Expr, is_sub_expr: bool) -> bool {
             true
         },
         Expr::Rollup(re) => {
-            match re.expr.as_ref() {
-                Expr::MetricExpression(_) => {
-                    return re.step.is_none();
-                },
-                _ => {}
+            if let Expr::MetricExpression(_) = re.expr.as_ref() {
+                return re.step.is_none();
             }
             // exp.step is optional in subqueries
             if re.window.is_none() {
@@ -266,13 +263,10 @@ fn no_implicit_conversion_required(e: &Expr, is_sub_expr: bool) -> bool {
                 return false;
             }
             for arg in &aggr.args {
-                match arg {
-                    Expr::Rollup(re) => {
-                        if re.window.is_none() {
-                            return false;
-                        }
-                    },
-                    _ => {}
+                if let Expr::Rollup(re) = arg {
+                    if re.window.is_none() {
+                        return false;
+                    }
                 }
                 if !no_implicit_conversion_required(arg, false) {
                     return false
