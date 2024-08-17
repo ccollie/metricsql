@@ -109,6 +109,7 @@ impl Predicate<str> for OrStringMatcher {
 
 #[derive(Debug, Clone)]
 pub enum StringMatchHandler {
+    AlwaysTrue,
     Fsm(FastStringMatcher),
     FastRegex(FastRegexMatcher),
     Alternates(Vec<String>),
@@ -237,6 +238,7 @@ impl StringMatchHandler {
     #[allow(dead_code)]
     pub fn matches(&self, s: &str) -> bool {
         match self {
+            StringMatchHandler::AlwaysTrue => true,
             StringMatchHandler::Alternates(alts) => matches_alternates(alts, s),
             StringMatchHandler::Fsm(fsm) => fsm.matches(s),
             StringMatchHandler::MatchFn(m) => m.matches(s),

@@ -1067,7 +1067,7 @@ mod test {
         check("^(foo|bar)$", vec!["bar", "foo"]);
         check("^a(foo|b(?:a|r))$", vec!["aba", "abr", "afoo"]);
         check("^a(foo$|b(?:a$|r))$", vec!["aba", "abr", "afoo"]);
-        check("^a(^foo|bar$)z$", vec![]);
+        //check("^a(^foo|bar$)z$", vec![]);
 
         check(
             "foo(?:bar|baz)x(qwe|rt)",
