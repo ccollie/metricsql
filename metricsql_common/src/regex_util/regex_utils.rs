@@ -905,8 +905,8 @@ fn coalesce_alternation(first: &Hir, second: &Hir) -> Option<Hir> {
             // we possibly have something like '(bar|baz)foo'. Convert to Alternation
             // (barfoo | bazfoo)
             // get alternates from capture, if applicable
-            if let Some(alts) = get_captured_alternates(second) {
-                return reduce_suffixed(alts, literal_to_string(first));
+            if let Some(alts) = get_captured_alternates(first) {
+                return reduce_suffixed(alts, literal_to_string(second));
             }
         }
         (HirKind::Capture(_), HirKind::Capture(_)) => {
@@ -1044,7 +1044,7 @@ mod test {
         check("z|x|c", vec!["c", "x", "z"]);
         check("foo|bar", vec!["bar", "foo"]);
         check("(foo|bar)", vec!["bar", "foo"]);
-        // check("(foo|bar)baz", vec!["barbaz", "foobaz"]);
+        check("(foo|bar)baz", vec!["barbaz", "foobaz"]);
         check("[a-z][a-z]", vec![]);
         check("[a-d]", vec!["a", "b", "c", "d"]);
         check("x[a-d]we", vec!["xawe", "xbwe", "xcwe", "xdwe"]);

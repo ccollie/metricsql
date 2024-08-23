@@ -1,16 +1,15 @@
-use std::sync::OnceLock;
+use std::sync::{LazyLock, OnceLock};
 
 use byte_pool::{Block, BytePool};
 
-static BYTE_POOL: OnceLock<BytePool<Vec<u8>>> = OnceLock::new();
+static BYTE_POOL: LazyLock<BytePool<Vec<u8>>> = LazyLock::new(BytePool::new);
 
 pub type PooledBuffer = Block<'static, Vec<u8>>;
 pub type PooledVecI64 = Block<'static, Vec<i64>>;
 pub type PooledVecF64 = Block<'static, Vec<f64>>;
 
 pub fn get_pooled_buffer(size: usize) -> PooledBuffer {
-    let pool = BYTE_POOL.get_or_init(BytePool::new);
-    let mut buf = pool.alloc(size);
+    let mut buf = BYTE_POOL.alloc(size);
     buf.clear();
     buf
 }

@@ -1,3 +1,4 @@
+#![feature(lazy_cell)]
 extern crate byte_pool;
 extern crate chrono_tz;
 extern crate core;
@@ -16,6 +17,8 @@ pub mod regex_util;
 pub mod time;
 pub mod async_runtime;
 pub mod error;
+pub mod decimal;
+pub mod histogram;
 
 pub mod prelude {
     pub use crate::async_runtime::*;
@@ -28,4 +31,6 @@ pub mod prelude {
     pub use crate::hash::*;
     pub use crate::pool::*;
     pub use crate::time::*;
+    pub use crate::histogram::*;
+    pub use crate::decimal::*;
 }
