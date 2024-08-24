@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use strum_macros::EnumIter;
 
 use crate::common::ValueType;
-use crate::functions::{BuiltinFunction, FunctionMeta, MAX_ARG_COUNT};
 use crate::functions::signature::{Signature, Volatility};
+use crate::functions::{BuiltinFunction, FunctionMeta, MAX_ARG_COUNT};
 use crate::parser::ParseError;
 
 // TODO: ttf
@@ -134,7 +134,6 @@ impl Display for TransformFunction {
         write!(f, "{}", self.name())
     }
 }
-
 
 impl FromStr for TransformFunction {
     type Err = ParseError;

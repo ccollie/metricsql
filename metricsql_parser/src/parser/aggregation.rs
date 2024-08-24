@@ -1,8 +1,8 @@
 use crate::ast::{AggregateModifier, AggregationExpr, Expr};
 use crate::functions::{AggregateFunction, BuiltinFunction, FunctionMeta};
-use crate::parser::{ParseError, Parser, ParseResult};
 use crate::parser::function::validate_function_args;
 use crate::parser::tokens::Token;
+use crate::parser::{ParseError, ParseResult, Parser};
 
 /// parse_aggr_func_expr parses an aggregation Expr.
 ///

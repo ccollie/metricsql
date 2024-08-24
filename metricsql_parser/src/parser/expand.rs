@@ -8,8 +8,8 @@ use crate::ast::{
     WithArgExpr, WithExpr,
 };
 use crate::label::{LabelFilter, Labels};
-use crate::parser::{ParseError, ParseResult, syntax_error};
 use crate::parser::symbol_provider::SymbolProviderRef;
+use crate::parser::{syntax_error, ParseError, ParseResult};
 use crate::prelude::InterpolatedSelector;
 
 pub(super) fn expand_with_expr(
@@ -146,17 +146,18 @@ fn expand_binary_operator(
     Ok(Expr::BinaryOperator(be))
 }
 
-
 fn expand_with_selector_expression(
     symbols: &SymbolProviderRef,
     was: &Vec<WithArgExpr>,
     me: InterpolatedSelector,
 ) -> ParseResult<Expr> {
-
     if me.is_resolved() {
         // Already expanded.
         let matchers = me.to_matchers()?;
-        let res = MetricExpr { name: None, matchers };
+        let res = MetricExpr {
+            name: None,
+            matchers,
+        };
         return Ok(Expr::MetricExpression(res));
     }
 
@@ -187,9 +188,8 @@ fn expand_with_selector_expression(
                     _ => None,
                 };
                 if wme.is_none() || has_non_empty_metric_group {
-                    let msg = format!(
-                        "WITH template {label} inside {me} must be {{...}}; got {e_new}"
-                    );
+                    let msg =
+                        format!("WITH template {label} inside {me} must be {{...}}; got {e_new}");
                     return Err(ParseError::General(msg));
                 }
 
@@ -275,7 +275,6 @@ fn expand_with_selector_expression(
     let lfss_src: Vec<_> = wme.matchers.iter().collect();
     let mut or_matchers: Vec<Vec<LabelFilter>> = vec![];
     if lfss_src.len() != 1 {
-
         // template_name{filters} where template_name is {... or ...}
         if is_only_metric_name {
             // {filters} is empty. Return {... or ...}
@@ -325,8 +324,8 @@ fn expand_with_selector_expression(
         Expr::Rollup(mut re) => {
             re.expr = Box::new(Expr::MetricExpression(me));
             Ok(Expr::Rollup(re))
-        },
-        _ => Ok(Expr::MetricExpression(me))
+        }
+        _ => Ok(Expr::MetricExpression(me)),
     }
 }
 

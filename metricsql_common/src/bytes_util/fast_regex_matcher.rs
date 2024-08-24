@@ -1,8 +1,8 @@
 use std::fmt::{Debug, Display};
 
 use dynamic_lru_cache::DynamicCache;
-use predicates::Predicate;
 use predicates::reflection::PredicateReflection;
+use predicates::Predicate;
 use regex::Regex;
 
 const DEFAULT_CACHE_SIZE: usize = 100;

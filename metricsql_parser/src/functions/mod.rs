@@ -1,13 +1,13 @@
+pub use aggregate::*;
+use metricsql_common::hash::FastHashMap;
+pub use rollup::*;
+use serde::{Deserialize, Serialize};
+pub use signature::*;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use std::sync::OnceLock;
-use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
-pub use aggregate::*;
-use metricsql_common::hash::FastHashMap;
-pub use rollup::*;
-pub use signature::*;
 pub use transform::*;
 
 use crate::ast::Expr;
@@ -67,12 +67,11 @@ impl Display for BuiltinFunctionType {
     }
 }
 
-
 #[derive(Debug, Clone)]
 pub struct FunctionMeta {
     pub name: &'static str,
     pub function: BuiltinFunction,
-    pub signature: Signature
+    pub signature: Signature,
 }
 
 impl FunctionMeta {
@@ -186,21 +185,42 @@ fn init_registry() -> FunctionRegistry {
         let name = af.name();
         let function = BuiltinFunction::Aggregate(af);
         let signature = af.signature();
-        registry.insert(name, FunctionMeta { name, function, signature });
+        registry.insert(
+            name,
+            FunctionMeta {
+                name,
+                function,
+                signature,
+            },
+        );
     }
 
     for rf in RollupFunction::iter() {
         let name = rf.name();
         let function = BuiltinFunction::Rollup(rf);
         let signature = rf.signature();
-        registry.insert(name, FunctionMeta { name, function, signature });
+        registry.insert(
+            name,
+            FunctionMeta {
+                name,
+                function,
+                signature,
+            },
+        );
     }
 
     for tf in TransformFunction::iter() {
         let name = tf.name();
         let function = BuiltinFunction::Transform(tf);
         let signature = tf.signature();
-        registry.insert(name, FunctionMeta { name, function, signature });
+        registry.insert(
+            name,
+            FunctionMeta {
+                name,
+                function,
+                signature,
+            },
+        );
     }
 
     registry
@@ -259,7 +279,7 @@ impl BuiltinFunction {
 
     pub fn is_aggregate_func(name: &str) -> bool {
         if let Some(meta) = FunctionMeta::lookup(name) {
-            return meta.is_aggregation()
+            return meta.is_aggregation();
         }
         false
     }
@@ -372,7 +392,6 @@ impl TryFrom<&str> for BuiltinFunction {
         Self::new(value)
     }
 }
-
 
 #[cfg(test)]
 mod tests {

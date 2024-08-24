@@ -14,7 +14,7 @@ use crate::{RuntimeError, RuntimeResult, Timeseries};
 
 pub type Labels = Vec<Label>;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Label {
     pub name: String,
     pub value: String,

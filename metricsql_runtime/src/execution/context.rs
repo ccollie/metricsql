@@ -1,14 +1,14 @@
-use std::sync::Arc;
 use chrono::Duration;
+use std::sync::Arc;
 use tracing::{span_enabled, Level};
 
-use crate::{MetricStorage, NullMetricStorage};
 use crate::cache::rollup_result_cache::RollupResultCache;
 use crate::execution::active_queries::{ActiveQueries, ActiveQueryEntry};
 use crate::execution::parser_cache::{ParseCache, ParseCacheResult, ParseCacheValue};
 use crate::provider::{Deadline, QueryResults, SearchQuery};
 use crate::query_stats::QueryStatsTracker;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
+use crate::{MetricStorage, NullMetricStorage};
 
 const DEFAULT_MAX_QUERY_LEN: usize = 16 * 1024;
 const DEFAULT_MAX_UNIQUE_TIMESERIES: usize = 1000;
@@ -45,18 +45,19 @@ impl Context {
         fn handle_error(err: Error) -> RuntimeError {
             match err {
                 Error::Join { msg } => RuntimeError::General(msg),
-                Error::Timeout { .. } => RuntimeError::DeadlineExceededError("search timeout".to_string()),
+                Error::Timeout { .. } => {
+                    RuntimeError::DeadlineExceededError("search timeout".to_string())
+                }
                 Error::Execution { source } => RuntimeError::ExecutionError(source.to_string()),
             }
         }
 
-        let res= block_sync(async move {
+        let res = block_sync(async move {
             if duration.is_zero() {
                 storage.search(sq, deadline).await
             } else {
-                let res = timeout(duration, async move {
-                    storage.search(sq, deadline).await
-                }).await;
+                let res =
+                    timeout(duration, async move { storage.search(sq, deadline).await }).await;
                 match res {
                     Ok(res) => res,
                     Err(_elapsed) => {
@@ -66,9 +67,7 @@ impl Context {
                 }
             }
         });
-        res.unwrap_or_else(|e| {
-            Err(handle_error(e))
-        })
+        res.unwrap_or_else(|e| Err(handle_error(e)))
     }
 
     // todo: pass in tracer

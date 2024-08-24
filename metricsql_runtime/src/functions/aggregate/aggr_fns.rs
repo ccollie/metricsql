@@ -10,18 +10,21 @@ use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_f64_filled};
 use metricsql_parser::ast::AggregateModifier;
 use metricsql_parser::functions::AggregateFunction;
 
-use crate::{QueryValue, Timeseries};
-use crate::common::math::{IQR_PHIS, mode_no_nans, quantile, quantiles};
-use crate::execution::{eval_number, EvalConfig, remove_empty_series};
+use crate::common::math::{mode_no_nans, quantile, quantiles, IQR_PHIS};
+use crate::execution::{eval_number, remove_empty_series, EvalConfig};
 use crate::functions::arg_parse::{
     get_float_arg, get_int_arg, get_scalar_arg_as_vec, get_series_arg, get_string_arg,
 };
 use crate::functions::skip_trailing_nans;
 use crate::functions::transform::vmrange_buckets_to_le;
-use crate::functions::utils::{float_cmp_with_nans, float_cmp_with_nans_desc, float_to_int_bounded, max_with_nans, min_with_nans};
+use crate::functions::utils::{
+    float_cmp_with_nans, float_cmp_with_nans_desc, float_to_int_bounded, max_with_nans,
+    min_with_nans,
+};
 use crate::histogram::{get_pooled_histogram, Histogram, NonZeroBucket};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::signature::Signature;
+use crate::{QueryValue, Timeseries};
 
 const MAX_SERIES_PER_AGGR_FUNC: usize = 100000;
 
@@ -771,8 +774,8 @@ fn get_range_topk_timeseries<F>(
     f: F,
     is_reverse: bool,
 ) -> Vec<Timeseries>
-    where
-        F: Fn(&[f64]) -> f64,
+where
+    F: Fn(&[f64]) -> f64,
 {
     struct TsWithValue {
         ts: Timeseries,

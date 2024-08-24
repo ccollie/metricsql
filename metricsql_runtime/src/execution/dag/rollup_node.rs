@@ -1,33 +1,33 @@
-use std::sync::{Arc, Mutex};
 use rayon::iter::IntoParallelRefMutIterator;
-use tracing::{field, Span, trace_span};
+use std::sync::{Arc, Mutex};
+use tracing::{field, trace_span, Span};
 
 use metricsql_common::atomic_counter::{AtomicCounter, RelaxedU64Counter};
 use metricsql_parser::ast::*;
 use metricsql_parser::functions::RollupFunction;
 
-use crate::{Timeseries, Timestamp};
 use crate::cache::rollup_result_cache::merge_timeseries;
-use crate::execution::{EvalConfig, get_timestamps};
 use crate::execution::context::Context;
-use crate::execution::dag::{ExecutableNode, NodeArg};
 use crate::execution::dag::aggregate_node::get_timeseries_limit;
 use crate::execution::dag::utils::{
     adjust_series_by_offset, expand_single_value, handle_aggregate_absent_over_time,
     resolve_at_value, resolve_rollup_handler,
 };
+use crate::execution::dag::{ExecutableNode, NodeArg};
 use crate::execution::eval_number;
 use crate::execution::utils::{adjust_eval_range, drop_stale_nans, duration_value};
+use crate::execution::{get_timestamps, EvalConfig};
 use crate::functions::aggregate::IncrementalAggrFuncContext;
 use crate::functions::rollup::{
-    eval_prefuncs, get_rollup_configs, MAX_SILENCE_INTERVAL, RollupConfig, RollupHandler,
+    eval_prefuncs, get_rollup_configs, RollupConfig, RollupHandler, MAX_SILENCE_INTERVAL,
 };
 use crate::prelude::{is_empty_extra_matchers, join_matchers_with_extra_filters_owned};
 use crate::provider::{QueryResults, SearchQuery};
-use crate::QueryValue;
 use crate::rayon::iter::IndexedParallelIterator;
 use crate::rayon::iter::ParallelIterator;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
+use crate::QueryValue;
+use crate::{Timeseries, Timestamp};
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct RollupNode {
@@ -131,7 +131,11 @@ impl RollupNode {
         Ok(node)
     }
 
-    fn eval_without_at(&mut self, ctx: &Context, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
+    fn eval_without_at(
+        &mut self,
+        ctx: &Context,
+        ec: &EvalConfig,
+    ) -> RuntimeResult<Vec<Timeseries>> {
         let (offset, ec_new) = adjust_eval_range(&self.func, &self.offset, ec)?;
 
         let mut rvs = self.eval_metric_expr(ctx, &ec_new)?;
@@ -243,7 +247,8 @@ impl RollupNode {
             let sq = SearchQuery::new(min_timestamp, ec.end, matchers, ec.max_series);
             ctx.search(sq, ec.deadline)?
         } else {
-            let tfss = join_matchers_with_extra_filters_owned(&me.matchers, &ec.enforced_tag_filters);
+            let tfss =
+                join_matchers_with_extra_filters_owned(&me.matchers, &ec.enforced_tag_filters);
             let sq = SearchQuery::new(min_timestamp, ec.end, tfss, ec.max_series);
             ctx.search(sq, ec.deadline)?
         };

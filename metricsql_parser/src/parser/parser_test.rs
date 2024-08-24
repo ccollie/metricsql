@@ -39,7 +39,9 @@ mod tests {
         fn new_fail_cases(cases: Vec<(&str, &str)>) -> Vec<Case> {
             cases
                 .into_iter()
-                .map(|(input, expected)| Case::new(input, Err(ParseError::General(expected.to_string()))))
+                .map(|(input, expected)| {
+                    Case::new(input, Err(ParseError::General(expected.to_string())))
+                })
                 .collect()
         }
     }
@@ -200,13 +202,28 @@ mod tests {
         same(r#"metric{foo="bar" or baz="a"}"#);
         same(r#"metric{foo="bar",x="y" or baz="a",z="q" or a="b"}"#);
         same(r#"{foo="bar",x="y" or baz="a",z="q" or a="b"}"#);
-        another(r#"metric{foo="bar" OR baz="a"}"#, r#"metric{foo="bar" or baz="a"}"#);
+        another(
+            r#"metric{foo="bar" OR baz="a"}"#,
+            r#"metric{foo="bar" or baz="a"}"#,
+        );
         another(r#"{foo="bar" OR baz="a"}"#, r#"{foo="bar" or baz="a"}"#);
 
-        another(r#"{__name__="a",bar="baz" or __name__="a"}"#, r#"a{bar="baz"}"#);
-        another(r#"{__name__="a",bar="baz" or __name__="a" or __name__="a"}"#, r#"a{bar="baz"}"#);
-        another(r#"{__name__="a",bar="baz" or __name__="a",bar="abc"}"#, r#"{bar="baz" or bar="abc"}"#);
-        another(r#"{__name__="a" or __name__="a",bar="abc",x!="y"}"#, r#"a{bar="abc",x!="y"}"#);
+        another(
+            r#"{__name__="a",bar="baz" or __name__="a"}"#,
+            r#"a{bar="baz"}"#,
+        );
+        another(
+            r#"{__name__="a",bar="baz" or __name__="a" or __name__="a"}"#,
+            r#"a{bar="baz"}"#,
+        );
+        another(
+            r#"{__name__="a",bar="baz" or __name__="a",bar="abc"}"#,
+            r#"{bar="baz" or bar="abc"}"#,
+        );
+        another(
+            r#"{__name__="a" or __name__="a",bar="abc",x!="y"}"#,
+            r#"a{bar="abc",x!="y"}"#,
+        );
     }
 
     #[test]
@@ -448,13 +465,12 @@ mod tests {
         another("-1 ^ 0.5", "-1");
     }
 
-
     #[test]
     fn test_or_filters() {
         let cases = vec![
             (r#"foo{label1="1" or label1="2"}"#, {
                 let matchers = Matchers::with_or_matchers(vec![
-                    vec![Matcher::equal( "label1", "1")],
+                    vec![Matcher::equal("label1", "1")],
                     vec![Matcher::equal("label1", "2")],
                 ]);
                 Expr::new_vector_selector(Some(String::from("foo")), matchers)
@@ -505,10 +521,7 @@ mod tests {
                     let matchers = Matchers::with_or_matchers(vec![
                         vec![Matcher::equal("label1", "1")],
                         vec![Matcher::equal("label1", "2")],
-                        vec![
-                            Matcher::equal("label1", "3"),
-                            Matcher::equal("label2", "4"),
-                        ],
+                        vec![Matcher::equal("label1", "3"), Matcher::equal("label2", "4")],
                     ]);
                     Expr::new_vector_selector(Some(String::from("foo")), matchers)
                 },
@@ -517,10 +530,7 @@ mod tests {
                 r#"foo{label1="1", label2="2" or label1="3" or label1="4"}"#,
                 {
                     let matchers = Matchers::with_or_matchers(vec![
-                        vec![
-                            Matcher::equal("label1", "1"),
-                            Matcher::equal("label2", "2"),
-                        ],
+                        vec![Matcher::equal("label1", "1"), Matcher::equal("label2", "2")],
                         vec![Matcher::equal("label1", "3")],
                         vec![Matcher::equal("label1", "4")],
                     ]);

@@ -47,11 +47,11 @@ mod tests;
 pub use tests::utils::*;
 
 pub mod prelude {
-    pub use metricsql_common::async_runtime::*;
     pub use crate::cache::*;
     pub use crate::execution::*;
     pub use crate::provider::*;
     pub use crate::query_stats::*;
     pub use crate::runtime_error::*;
     pub use crate::types::*;
+    pub use metricsql_common::async_runtime::*;
 }

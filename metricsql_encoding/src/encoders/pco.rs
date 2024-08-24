@@ -1,8 +1,8 @@
-use std::error::Error;
-use pco::DEFAULT_COMPRESSION_LEVEL;
-use pco::{ChunkConfig};
 use pco::data_types::NumberLike;
 use pco::standalone::{simple_compress, simple_decompress};
+use pco::ChunkConfig;
+use pco::DEFAULT_COMPRESSION_LEVEL;
+use std::error::Error;
 
 // mirror ChunkConfig here so downstream users don't need to import pco
 #[derive(Clone, Debug)]

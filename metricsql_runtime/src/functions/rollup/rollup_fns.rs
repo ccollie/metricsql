@@ -6,6 +6,10 @@ use crate::common::math::{
     is_stale_nan, linear_regression, mad, mode_no_nans, quantile, stddev, stdvar,
 };
 use crate::functions::arg_parse::get_scalar_param_value;
+use crate::functions::rollup::counts::{
+    new_rollup_count_values, new_rollup_sum_eq, new_rollup_sum_gt, new_rollup_sum_le,
+};
+use crate::functions::rollup::types::RollupHandlerFactory;
 use crate::functions::rollup::{
     counts::{
         new_rollup_count_eq, new_rollup_count_gt, new_rollup_count_le, new_rollup_count_ne,
@@ -28,10 +32,8 @@ use crate::functions::rollup::{
     RollupHandlerFloatArg,
 };
 use crate::functions::rollup::{RollupFunc, RollupFuncArg, RollupHandler};
-use crate::functions::rollup::counts::{new_rollup_count_values, new_rollup_sum_eq, new_rollup_sum_gt, new_rollup_sum_le};
-use crate::functions::rollup::types::RollupHandlerFactory;
-use crate::QueryValue;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
+use crate::QueryValue;
 
 // https://github.com/VictoriaMetrics/VictoriaMetrics/blob/master/app/vmselect/promql/rollup.go
 
@@ -104,7 +106,9 @@ pub(super) fn get_rollup_fn(f: &RollupFunction) -> RuntimeResult<RollupFunc> {
 
 pub(crate) fn get_rollup_func_by_name(name: &str) -> RuntimeResult<RollupFunction> {
     if let Some(meta) = FunctionMeta::lookup(name) {
-        if let BuiltinFunction::Rollup(f) = meta.function { return Ok(f) }
+        if let BuiltinFunction::Rollup(f) = meta.function {
+            return Ok(f);
+        }
     }
     Err(RuntimeError::UnknownFunction(name.to_string()))
 }
@@ -388,7 +392,6 @@ pub(crate) fn rollup_mad(rfa: &RollupFuncArg) -> f64 {
     // before calling rollup funcs.
     mad(rfa.values)
 }
-
 
 pub(super) fn rollup_max(rfa: &RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
@@ -683,7 +686,6 @@ fn change_below_tolerance(v: f64, prev_value: f64) -> bool {
     (v - prev_value).abs() < tolerance
 }
 
-
 pub(super) fn rollup_changes_prometheus(rfa: &RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
@@ -699,7 +701,7 @@ pub(super) fn rollup_changes_prometheus(rfa: &RollupFuncArg) -> f64 {
         if *v != prev_value {
             if change_below_tolerance(*v, prev_value) {
                 // This may be precision error. See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/767#issuecomment-1650932203
-                continue
+                continue;
             }
             n += 1;
             prev_value = *v;

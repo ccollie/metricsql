@@ -1,8 +1,11 @@
 use num_traits::FloatConst;
 
-use metricsql_common::prelude::{datetime_part, DateTimePart, timestamp_secs_to_utc_datetime};
+use metricsql_common::prelude::{datetime_part, timestamp_secs_to_utc_datetime, DateTimePart};
 
-use crate::ast::{AggregationExpr, BinaryExpr, DurationExpr, Expr, FunctionExpr, NumberLiteral, Operator, ParensExpr, RollupExpr, UnaryExpr, WithArgExpr, WithExpr};
+use crate::ast::{
+    AggregationExpr, BinaryExpr, DurationExpr, Expr, FunctionExpr, NumberLiteral, Operator,
+    ParensExpr, RollupExpr, UnaryExpr, WithArgExpr, WithExpr,
+};
 use crate::binaryop::{scalar_binary_operation, string_compare};
 use crate::common::{RewriteRecursion, TreeNodeRewriter};
 use crate::functions::{BuiltinFunction, TransformFunction};
@@ -120,7 +123,7 @@ pub fn const_simplify(expr: Expr) -> ParseResult<Expr> {
             let expressions = handle_expr_vecs(p.expressions)?;
             Ok(Expr::Parens(ParensExpr { expressions }))
         }
-        _=> Ok(expr),
+        _ => Ok(expr),
     }
 }
 
@@ -168,47 +171,44 @@ fn handle_binary_expr(be: BinaryExpr) -> ParseResult<Expr> {
 
     match (be.left.as_ref(), be.right.as_ref(), be.op) {
         (Expr::Duration(ln), Expr::Duration(rn), op)
-        if op == Operator::Add || op == Operator::Sub =>
-            {
-                match (ln, rn) {
-                    (DurationExpr::Millis(left_val), DurationExpr::Millis(right_val)) => {
-                        let n = scalar_binary_operation(
-                            *left_val as f64,
-                            *right_val as f64,
-                            op,
-                            is_bool,
-                        )? as i64;
-                        let dur = DurationExpr::new(n);
-                        return Ok(Expr::Duration(dur));
-                    }
-                    (DurationExpr::StepValue(left_val), DurationExpr::StepValue(right_val)) => {
-                        let n = scalar_binary_operation(*left_val, *right_val, op, is_bool)?;
-                        let dur = DurationExpr::new_step(n);
-                        return Ok(Expr::Duration(dur));
-                    }
-                    _ => {}
+            if op == Operator::Add || op == Operator::Sub =>
+        {
+            match (ln, rn) {
+                (DurationExpr::Millis(left_val), DurationExpr::Millis(right_val)) => {
+                    let n =
+                        scalar_binary_operation(*left_val as f64, *right_val as f64, op, is_bool)?
+                            as i64;
+                    let dur = DurationExpr::new(n);
+                    return Ok(Expr::Duration(dur));
                 }
-            }
-        // add/subtract number as secs to duration
-        (Expr::Duration(ln), Expr::NumberLiteral(NumberLiteral { value }), op)
-        if !ln.requires_step() && (op == Operator::Add || op == Operator::Sub) =>
-            {
-                let secs = *value * 1e3_f64;
-                let n = scalar_binary_operation(ln.value(1) as f64, secs, op, is_bool)? as i64;
-                let dur = DurationExpr::new(n);
-                return Ok(Expr::Duration(dur));
-            }
-        // handle something like 2.5i * 2. Note that we don't handle + and - because meaning would be
-        // ambiguous (e.g. 2.5i + 2 could be 2.5i + 2.0 or 2.5 + 2.0 secs)
-        (Expr::Duration(ln), Expr::NumberLiteral(NumberLiteral { value }), op)
-        if ln.requires_step() && (op == Operator::Mul || op == Operator::Div) =>
-            {
-                if let DurationExpr::StepValue(step_value) = ln {
-                    let n = scalar_binary_operation(*step_value, *value, op, is_bool)?;
+                (DurationExpr::StepValue(left_val), DurationExpr::StepValue(right_val)) => {
+                    let n = scalar_binary_operation(*left_val, *right_val, op, is_bool)?;
                     let dur = DurationExpr::new_step(n);
                     return Ok(Expr::Duration(dur));
                 }
+                _ => {}
             }
+        }
+        // add/subtract number as secs to duration
+        (Expr::Duration(ln), Expr::NumberLiteral(NumberLiteral { value }), op)
+            if !ln.requires_step() && (op == Operator::Add || op == Operator::Sub) =>
+        {
+            let secs = *value * 1e3_f64;
+            let n = scalar_binary_operation(ln.value(1) as f64, secs, op, is_bool)? as i64;
+            let dur = DurationExpr::new(n);
+            return Ok(Expr::Duration(dur));
+        }
+        // handle something like 2.5i * 2. Note that we don't handle + and - because meaning would be
+        // ambiguous (e.g. 2.5i + 2 could be 2.5i + 2.0 or 2.5 + 2.0 secs)
+        (Expr::Duration(ln), Expr::NumberLiteral(NumberLiteral { value }), op)
+            if ln.requires_step() && (op == Operator::Mul || op == Operator::Div) =>
+        {
+            if let DurationExpr::StepValue(step_value) = ln {
+                let n = scalar_binary_operation(*step_value, *value, op, is_bool)?;
+                let dur = DurationExpr::new_step(n);
+                return Ok(Expr::Duration(dur));
+            }
+        }
         (Expr::NumberLiteral(ln), Expr::NumberLiteral(rn), op) => {
             let n = scalar_binary_operation(ln.value, rn.value, op, is_bool)?;
             return Ok(Expr::from(n));
@@ -242,21 +242,17 @@ fn get_single_scalar_arg(fe: &FunctionExpr) -> Option<f64> {
 fn handle_function_expr(fe: FunctionExpr) -> ParseResult<Expr> {
     let arg_count = fe.args.len();
     match fe.function {
-        BuiltinFunction::Transform(func)
-        if arg_count == 1 && func == TransformFunction::Scalar =>
-            {
-                if let Some(value) = handle_scalar_fn(&fe.args[0]) {
-                    return Ok(Expr::from(value));
-                }
-                Ok(Expr::Function(fe))
+        BuiltinFunction::Transform(func) if arg_count == 1 && func == TransformFunction::Scalar => {
+            if let Some(value) = handle_scalar_fn(&fe.args[0]) {
+                return Ok(Expr::from(value));
             }
-        BuiltinFunction::Transform(func)
-        if arg_count == 1 && func == TransformFunction::Vector =>
-            {
-                let mut fe = fe;
-                let arg = fe.args.remove(0);
-                Ok(arg)
-            }
+            Ok(Expr::Function(fe))
+        }
+        BuiltinFunction::Transform(func) if arg_count == 1 && func == TransformFunction::Vector => {
+            let mut fe = fe;
+            let arg = fe.args.remove(0);
+            Ok(arg)
+        }
         BuiltinFunction::Transform(func) => {
             use TransformFunction::*;
 
@@ -359,7 +355,11 @@ fn handle_rollup_expr(re: RollupExpr) -> ParseResult<Expr> {
     } else {
         None
     };
-    let new_expr = RollupExpr { expr: Box::new(expr), at, ..re };
+    let new_expr = RollupExpr {
+        expr: Box::new(expr),
+        at,
+        ..re
+    };
     Ok(Expr::Rollup(new_expr))
 }
 
@@ -373,11 +373,14 @@ fn handle_with_expr(we: WithExpr) -> ParseResult<Expr> {
                 name: wa.name,
                 args: wa.args,
                 expr: const_simplify(wa.expr)?,
-                token_range: wa.token_range
+                token_range: wa.token_range,
             })
         })
         .collect::<ParseResult<Vec<WithArgExpr>>>()?;
-    Ok(Expr::With(WithExpr { expr: Box::new(expr), was }))
+    Ok(Expr::With(WithExpr {
+        expr: Box::new(expr),
+        was,
+    }))
 }
 
 fn handle_expr_vecs(args: Vec<Expr>) -> ParseResult<Vec<Expr>> {
@@ -436,7 +439,9 @@ mod tests {
         );
         // (foo != foo) OR (c = 1) --> false OR (c = 1)
         test_const_simplify(
-            lit("foo").not_eq(lit("foo")).or(selector("c").eq(number(1.0))),
+            lit("foo")
+                .not_eq(lit("foo"))
+                .or(selector("c").eq(number(1.0))),
             number(0.0).or(selector("c").eq(number(1.0))),
         );
     }

@@ -1,13 +1,12 @@
-use std::fmt::{Display, Formatter};
-use predicates::Predicate;
-use predicates::reflection::PredicateReflection;
-use regex::Regex;
 use crate::bytes_util::{FastRegexMatcher, FastStringMatcher};
+use predicates::reflection::PredicateReflection;
+use predicates::Predicate;
+use regex::Regex;
+use std::fmt::{Display, Formatter};
 
 use super::regex_utils::{skip_first_and_last_char, skip_first_char, skip_last_char};
 
 pub type MatchFn = fn(pattern: &str, candidate: &str) -> bool;
-
 
 #[derive(Clone, Debug)]
 pub struct AlternateMatchHandler(pub Vec<String>);
@@ -30,7 +29,7 @@ impl Predicate<str> for AlternateMatchHandler {
 /// so the literals MUST be ordered by their order
 /// in the regex pattern
 #[derive(Clone, Debug)]
-pub struct ContainsAnyOfHandler{
+pub struct ContainsAnyOfHandler {
     pub literals: Vec<String>,
     pub suffix: String,
 }
@@ -105,7 +104,6 @@ impl Predicate<str> for OrStringMatcher {
         self.left.eval(variable) || self.right.eval(variable)
     }
 }
-
 
 #[derive(Debug, Clone)]
 pub enum StringMatchHandler {

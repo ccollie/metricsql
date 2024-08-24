@@ -1,11 +1,11 @@
+use crate::error::{ErrorExt, StatusCode};
+use agnostic_lite::{AsyncBlockingSpawner, AsyncSpawner, RuntimeLite};
 use cfg_if::cfg_if;
+use snafu::Snafu;
 use std::any::Any;
 use std::future::Future;
 use std::sync::OnceLock;
-use agnostic_lite::{AsyncBlockingSpawner, AsyncSpawner, RuntimeLite};
 use std::time::Duration;
-use snafu::Snafu;
-use crate::error::{ErrorExt, StatusCode};
 
 cfg_if! {
     if #[cfg(feature = "tokio")] {
@@ -38,13 +38,9 @@ pub type AsyncRuntimeResult<T> = std::result::Result<T, Error>;
 #[snafu(visibility(pub))]
 pub enum Error {
     #[snafu(display("Join error: {}", msg))]
-    Join {
-        msg: String,
-    },
+    Join { msg: String },
     #[snafu(display("Async operation timed out after {:?}", duration))]
-    Timeout {
-        duration: Duration
-    },
+    Timeout { duration: Duration },
     #[snafu(display("Unexpected error"))]
     Execution {
         source: Box<dyn std::error::Error + Send + Sync + 'static>,
@@ -56,7 +52,7 @@ impl ErrorExt for Error {
         match self {
             Join { .. } => StatusCode::Internal,
             Timeout { .. } => StatusCode::TimedOut,
-            Execution { .. } => StatusCode::Unexpected
+            Execution { .. } => StatusCode::Unexpected,
         }
     }
 
@@ -78,17 +74,14 @@ pub fn block_on<F: Future>(future: F) -> F::Output {
     AsyncRuntime::block_on(future)
 }
 
-
 // Call an async function from a sync context
 // see https://greptime.com/blogs/2023-03-09-bridging-async-and-sync-rust#solve-the-problem
 pub fn block_sync<F>(future: F) -> Result<F::Output>
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
+where
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
 {
-    let res = futures::executor::block_on(async {
-        spawn(future).await
-    });
+    let res = futures::executor::block_on(async { spawn(future).await });
     match res {
         Ok(v) => Ok(v),
         Err(e) => Err(Error::Join { msg: e.to_string() }),
@@ -96,24 +89,24 @@ pub fn block_sync<F>(future: F) -> Result<F::Output>
 }
 
 pub fn spawn<F>(future: F) -> JoinHandle<F::Output>
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
+where
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
 {
     AsyncRuntime::spawn(future)
 }
 
 pub fn spawn_blocking<F, R>(f: F) -> BlockingJoinHandle<R>
-    where
-        F: FnOnce() -> R + Send + 'static,
-        R: Send + 'static {
-
+where
+    F: FnOnce() -> R + Send + 'static,
+    R: Send + 'static,
+{
     AsyncRuntime::spawn_blocking(f)
 }
 
 pub fn timeout<F>(duration: Duration, future: F) -> Timeout<F>
-    where
-        F: Future + Send
+where
+    F: Future + Send,
 {
     AsyncRuntime::timeout(duration, future)
 }

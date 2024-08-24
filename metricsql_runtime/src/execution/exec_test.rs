@@ -2,14 +2,14 @@
 mod tests {
     use std::sync::Arc;
 
-    use chrono::Duration;
-    use metricsql_parser::parser::parse;
-    use metricsql_parser::prelude::utils::is_likely_invalid;
     use crate::execution::exec;
     use crate::execution::{Context, EvalConfig};
     use crate::functions::parse_timezone;
     use crate::functions::transform::get_timezone_offset;
     use crate::{test_results_equal, Deadline, MetricName, QueryResult, Tag};
+    use chrono::Duration;
+    use metricsql_parser::parser::parse;
+    use metricsql_parser::prelude::utils::is_likely_invalid;
 
     const NAN: f64 = f64::NAN;
     const INF: f64 = f64::INFINITY;
@@ -1332,7 +1332,8 @@ mod tests {
 
     #[test]
     fn label_join_dst_label_equals_src_label() {
-        let q = r#"label_join(label_join(time(), "bar", "sep1", "a", "b"), "bar", "sep2", "a", "bar")"#;
+        let q =
+            r#"label_join(label_join(time(), "bar", "sep1", "a", "b"), "bar", "sep2", "a", "bar")"#;
         let mut r = make_result(&[1000.0, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric.set_tag("bar", "sep2sep1");
         test_query(q, vec![r])
@@ -5117,7 +5118,11 @@ label_set(time()+200, "__name__", "bar", "a", "x"),
     fn test_metricsql_is_likely_invalid_false() {
         fn f(q: &str) {
             let expr = parse(q).unwrap();
-            assert!(!is_likely_invalid(&expr), "unexpected result for is_likely_invalid({}); got true; want false", q);
+            assert!(
+                !is_likely_invalid(&expr),
+                "unexpected result for is_likely_invalid({}); got true; want false",
+                q
+            );
         }
 
         f("http_total[5m]");
@@ -5201,7 +5206,11 @@ label_set(time()+200, "__name__", "bar", "a", "x"),
     fn test_metricsql_is_likely_invalid_true() {
         fn f(q: &str) {
             let expr = parse(q).unwrap();
-            assert!(is_likely_invalid(&expr), "unexpected result for is_likely_invalid({}); got false; want true", q);
+            assert!(
+                is_likely_invalid(&expr),
+                "unexpected result for is_likely_invalid({}); got false; want true",
+                q
+            );
         }
 
         f("rate(sum(http_total))");

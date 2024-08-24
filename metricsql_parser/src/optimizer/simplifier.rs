@@ -661,7 +661,9 @@ mod tests {
     #[test]
     fn test_simplify_simple_and() {
         // (c > 5) AND (c > 5)
-        let expr = selector("c2").gt(number(5.0)).and(selector("c2").gt(number(5.0)));
+        let expr = selector("c2")
+            .gt(number(5.0))
+            .and(selector("c2").gt(number(5.0)));
         let expected = selector("c2").gt(number(5.0));
         let actual = simplify(expr);
         assert_expr_eq(&expected, &actual);

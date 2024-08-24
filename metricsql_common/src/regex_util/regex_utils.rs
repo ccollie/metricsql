@@ -144,7 +144,7 @@ fn get_or_values_ext(sre: &Hir) -> Option<Vec<String>> {
                     Some(vec![s])
                 } else {
                     None
-                }
+                };
             }
 
             let mut a = Vec::with_capacity(32);
@@ -298,9 +298,7 @@ fn simplify_regexp_ext(sre: &Hir, has_prefix: bool, has_suffix: bool) -> Hir {
     };
 
     match sre.kind() {
-        HirKind::Look(Look::Start) | HirKind::Look(Look::End) => {
-            Hir::empty()
-        }
+        HirKind::Look(Look::Start) | HirKind::Look(Look::End) => Hir::empty(),
         HirKind::Alternation(alternate) => {
             // avoid clone if its all literal
             if alternate.iter().all(is_literal) {
@@ -618,7 +616,8 @@ fn get_optimized_re_match_func_ext(
             // Verify that the string matches all the literals found in the regexp
             // before applying the regexp.
             // This should optimize the case when the regexp doesn't match the string.
-            let mut literals = subs.iter()
+            let mut literals = subs
+                .iter()
                 .filter(|x| is_literal(x))
                 .map(literal_to_string)
                 .collect::<Vec<_>>();
@@ -629,7 +628,7 @@ fn get_optimized_re_match_func_ext(
                 "".to_string()
             };
 
-            let left = StringMatchHandler::ContainsAnyOf(ContainsAnyOfHandler{
+            let left = StringMatchHandler::ContainsAnyOf(ContainsAnyOfHandler {
                 literals,
                 suffix: suffix.clone(),
             });

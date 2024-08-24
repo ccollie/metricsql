@@ -45,9 +45,7 @@ mod tests {
     }
 
     fn show_metric_expr(me: &MetricExpr) {
-        println!(
-            "metric: {me}",
-        );
+        println!("metric: {me}",);
     }
 
     fn option_to_string<T: Display>(val: &Option<T>) -> String {

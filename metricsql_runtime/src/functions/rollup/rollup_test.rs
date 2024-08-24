@@ -10,11 +10,14 @@ mod tests {
     use crate::functions::rollup::outlier_iqr::rollup_outlier_iqr;
     use crate::functions::rollup::rollup_fns::{
         remove_counter_resets, rollup_avg, rollup_changes, rollup_changes_prometheus, rollup_count,
-        rollup_default, rollup_distinct, rollup_first, rollup_lag, ROLLUP_LAST, rollup_lifetime,
-        rollup_max, rollup_min, rollup_mode_over_time, rollup_rate_over_sum, rollup_resets,
-        rollup_scrape_interval, rollup_stddev, rollup_sum, rollup_zscore_over_time,
+        rollup_default, rollup_distinct, rollup_first, rollup_lag, rollup_lifetime, rollup_max,
+        rollup_min, rollup_mode_over_time, rollup_rate_over_sum, rollup_resets,
+        rollup_scrape_interval, rollup_stddev, rollup_sum, rollup_zscore_over_time, ROLLUP_LAST,
     };
-    use crate::functions::rollup::{get_rollup_func_by_name, get_rollup_function_factory, get_rollup_function_handler, RollupConfig, RollupFuncArg, RollupHandler, RollupHandlerFactory};
+    use crate::functions::rollup::{
+        get_rollup_func_by_name, get_rollup_function_factory, get_rollup_function_handler,
+        RollupConfig, RollupFuncArg, RollupHandler, RollupHandlerFactory,
+    };
     use crate::{
         compare_floats, compare_values, test_rows_equal, QueryValue, RuntimeError, RuntimeResult,
         Timeseries,
@@ -168,7 +171,10 @@ mod tests {
         );
 
         // verify results always increase monotonically with possible float operations precision error
-        let mut values = [34.094223, 2.7518, 2.140669, 0.044878, 1.887095, 2.546569, 2.490149, 0.045, 0.035684, 0.062454, 0.058296];
+        let mut values = [
+            34.094223, 2.7518, 2.140669, 0.044878, 1.887095, 2.546569, 2.490149, 0.045, 0.035684,
+            0.062454, 0.058296,
+        ];
         remove_counter_resets(&mut values);
 
         let mut prev: f64 = values[0];

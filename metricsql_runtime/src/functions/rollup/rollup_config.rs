@@ -5,17 +5,19 @@ use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIter
 use metricsql_parser::ast::Expr;
 use metricsql_parser::functions::{can_adjust_window, RollupFunction};
 
-use crate::{MetricName, RuntimeError, RuntimeResult, Timeseries, Timestamp};
 use crate::common::math::quantile;
 use crate::execution::{get_timestamps, validate_max_points_per_timeseries};
-use crate::functions::rollup::{
-    get_rollup_func_by_name, RollupFuncArg, RollupHandler, TimeSeriesMap,
-};
 use crate::functions::rollup::candlestick::{rollup_close, rollup_high, rollup_low, rollup_open};
 use crate::functions::rollup::delta::delta_values;
 use crate::functions::rollup::deriv::deriv_values;
-use crate::functions::rollup::rollup_fns::{get_rollup_fn, remove_counter_resets, rollup_avg, rollup_max, rollup_min};
+use crate::functions::rollup::rollup_fns::{
+    get_rollup_fn, remove_counter_resets, rollup_avg, rollup_max, rollup_min,
+};
+use crate::functions::rollup::{
+    get_rollup_func_by_name, RollupFuncArg, RollupHandler, TimeSeriesMap,
+};
 use crate::types::get_timeseries;
+use crate::{MetricName, RuntimeError, RuntimeResult, Timeseries, Timestamp};
 
 /// The maximum interval without previous rows.
 pub const MAX_SILENCE_INTERVAL: i64 = 5 * 60 * 1000;
@@ -728,7 +730,8 @@ fn get_rollup_tag(expr: &Expr) -> RuntimeResult<Option<&String>> {
         if fe.args.len() != 2 {
             let msg = format!(
                 "unexpected number of args for rollup function {}; got {:?}; want 2",
-                fe.name(), fe.args
+                fe.name(),
+                fe.args
             );
             return Err(RuntimeError::ArgumentError(msg));
         }

@@ -4,8 +4,8 @@ pub(crate) use utils::{remove_nan_values_in_place, skip_trailing_nans};
 
 pub(crate) mod aggregate;
 mod arg_parse;
+mod handler;
 pub(crate) mod rollup;
 pub(crate) mod transform;
 pub(crate) mod types;
 mod utils;
-mod handler;

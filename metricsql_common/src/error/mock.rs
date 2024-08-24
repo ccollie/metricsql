@@ -14,10 +14,10 @@
 
 //! Utils for mock.
 
-use std::any::Any;
-use std::fmt;
 use super::ext::ErrorExt;
 use super::status_code::StatusCode;
+use std::any::Any;
+use std::fmt;
 
 /// A mock error mainly for test.
 #[derive(Debug)]

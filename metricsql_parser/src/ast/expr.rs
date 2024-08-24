@@ -1,26 +1,26 @@
-use std::{fmt, iter, ops};
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter, Write};
 use std::hash::{Hash, Hasher};
 use std::ops::{Deref, Neg, Range};
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
+use std::{fmt, iter, ops};
 
 use enquote::enquote;
 use serde::{Deserialize, Serialize};
 
 use metricsql_common::duration::fmt_duration_ms;
 
-use crate::ast::{
-    expr_equals, indent, MAX_CHARACTERS_PER_LINE, Operator, Prettier, prettify_args, StringExpr,
-};
 use crate::ast::utils::string_vecs_equal_unordered;
-use crate::common::{hash_f64, join_vector, Value, ValueType, write_comma_separated, write_number};
+use crate::ast::{
+    expr_equals, indent, prettify_args, Operator, Prettier, StringExpr, MAX_CHARACTERS_PER_LINE,
+};
+use crate::common::{hash_f64, join_vector, write_comma_separated, write_number, Value, ValueType};
 use crate::functions::{AggregateFunction, BuiltinFunction, TransformFunction};
 use crate::label::{LabelFilter, LabelFilterOp, Labels, Matchers, NAME_LABEL};
 use crate::parser::{escape_ident, ParseError, ParseResult};
 use crate::prelude::{
-    BuiltinFunctionType, get_aggregate_arg_idx_for_optimization, InterpolatedSelector,
+    get_aggregate_arg_idx_for_optimization, BuiltinFunctionType, InterpolatedSelector,
     RollupFunction,
 };
 
@@ -341,8 +341,8 @@ impl VectorMatchCardinality {
 
     pub fn labels(&self) -> Option<&Labels> {
         match self {
-            VectorMatchCardinality::ManyToOne(labels) |
-            VectorMatchCardinality::OneToMany(labels) => Some(labels),
+            VectorMatchCardinality::ManyToOne(labels)
+            | VectorMatchCardinality::OneToMany(labels) => Some(labels),
             _ => None,
         }
     }
@@ -649,13 +649,15 @@ impl TryFrom<f64> for DurationExpr {
             st = SystemTime::UNIX_EPOCH.checked_sub(duration);
         }
         if let Some(st) = st {
-            let millis = st.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis() as i64;
+            let millis = st
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as i64;
             return Ok(DurationExpr::Millis(millis));
         }
         Err(err_info)
     }
 }
-
 
 impl PartialEq<DurationExpr> for DurationExpr {
     fn eq(&self, other: &Self) -> bool {
@@ -706,7 +708,7 @@ impl MetricExpr {
         let name_filter = LabelFilter {
             op: LabelFilterOp::Equal,
             label: NAME_LABEL.to_string(),
-            value: name.into()
+            value: name.into(),
         };
         MetricExpr {
             // name: Some(name.into()),
@@ -800,7 +802,7 @@ impl Display for MetricExpr {
         let mut count = 0;
         for lfs in self.matchers.iter() {
             if lfs.len() < offset {
-                continue
+                continue;
             }
             if count > 0 {
                 write!(f, " or ")?;
@@ -906,9 +908,7 @@ impl FunctionExpr {
     pub fn arg_idx_for_optimization(&self) -> Option<usize> {
         match self.function {
             BuiltinFunction::Aggregate(aggr_fn) => self.get_aggr_arg_idx_for_optimization(aggr_fn),
-            _ => {
-                self.function.get_arg_idx_for_optimization(self.args.len())
-            }
+            _ => self.function.get_arg_idx_for_optimization(self.args.len()),
         }
     }
 
@@ -924,9 +924,9 @@ impl FunctionExpr {
         use AggregateFunction::*;
         // todo: just examine the signature and return the position containing a vector
         match func {
-            Bottomk | BottomkAvg | BottomkMax | BottomkMedian | BottomkLast | BottomkMin | Limitk
-            | Outliersk | OutliersMAD | Quantile | Topk | TopkAvg | TopkMax | TopkMedian | TopkLast
-            | TopkMin => Some(1),
+            Bottomk | BottomkAvg | BottomkMax | BottomkMedian | BottomkLast | BottomkMin
+            | Limitk | Outliersk | OutliersMAD | Quantile | Topk | TopkAvg | TopkMax
+            | TopkMedian | TopkLast | TopkMin => Some(1),
             CountValues => None,
             Quantiles => Some(arg_count - 1),
             _ => {
@@ -936,7 +936,7 @@ impl FunctionExpr {
                     }
                 }
                 Some(0)
-            },
+            }
         }
     }
 
@@ -1637,12 +1637,10 @@ impl ParensExpr {
     pub fn innermost_expr(&self) -> Option<&Expr> {
         match self.len() {
             0 => None,
-            1 => {
-                match &self.expressions[0] {
-                    Expr::Parens(pe2) => pe2.innermost_expr(),
-                    expr => Some(expr),
-                }
-            }
+            1 => match &self.expressions[0] {
+                Expr::Parens(pe2) => pe2.innermost_expr(),
+                expr => Some(expr),
+            },
             _ => None,
         }
     }

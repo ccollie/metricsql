@@ -299,7 +299,9 @@ mod tests {
     #[test]
     fn test_positive_duration_error() {
         fn f(s: &str) {
-            if positive_duration_value(s, 42).is_ok() { panic!("Expecting an error for duration {}", s) }
+            if positive_duration_value(s, 42).is_ok() {
+                panic!("Expecting an error for duration {}", s)
+            }
         }
         f("");
         f("foo");

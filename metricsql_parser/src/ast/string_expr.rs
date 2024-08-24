@@ -1,6 +1,6 @@
-use std::{fmt, ops};
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
+use std::{fmt, ops};
 
 use serde::{Deserialize, Serialize};
 

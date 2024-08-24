@@ -1,8 +1,8 @@
-use std::io::Write;
-use std::io::Cursor;
 use crate::functions::arg_parse::get_float_arg;
 use crate::functions::rollup::{RollupFuncArg, RollupHandler, RollupHandlerFloatArg};
 use crate::{QueryValue, RuntimeError, RuntimeResult};
+use std::io::Cursor;
+use std::io::Write;
 
 #[inline]
 fn less_or_equal(x: f64, y: f64) -> bool {
@@ -101,7 +101,6 @@ make_share_fn!(
 make_share_fn!(new_rollup_share_gt, "share_gt_over_time", "gt", greater);
 make_share_fn!(new_rollup_share_eq, "share_eq_over_time", "eq", equal);
 
-
 macro_rules! make_sum_fn {
     ( $name: ident, $func_name: tt, $param_name: tt, $predicate_fn: expr ) => {
         pub(super) fn $name(args: &[QueryValue]) -> RuntimeResult<RollupHandler> {
@@ -114,7 +113,6 @@ macro_rules! make_sum_fn {
         }
     };
 }
-
 
 make_sum_fn!(new_rollup_sum_eq, "sum_eq_over_time", "eq", equal);
 make_sum_fn!(new_rollup_sum_gt, "sum_gt_over_time", "gt", greater);
@@ -131,7 +129,8 @@ pub(super) fn new_rollup_count_values(args: &[QueryValue]) -> RuntimeResult<Roll
         QueryValue::RangeVector(ref tss) => tss,
         _ => {
             return Err(RuntimeError::ArgumentError(
-                "expecting instant vector as the second arg to count_values_over_time()".to_string(),
+                "expecting instant vector as the second arg to count_values_over_time()"
+                    .to_string(),
             ));
         }
     };

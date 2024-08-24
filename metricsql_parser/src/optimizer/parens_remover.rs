@@ -26,7 +26,6 @@ impl TreeNodeRewriter for ParensRemover {
             Ok(RewriteRecursion::Continue)
         }
     }
-
 }
 
 impl Default for ParensRemover {
@@ -67,7 +66,9 @@ pub fn remove_parens_expr(e: Expr) -> Expr {
     match e {
         Expr::Rollup(re) => Expr::Rollup(RollupExpr {
             expr: Box::new(remove_parens_expr(*re.expr)),
-            at: re.at.map(|at| Box::new(crate::optimizer::remove_parens_expr(*at))),
+            at: re
+                .at
+                .map(|at| Box::new(crate::optimizer::remove_parens_expr(*at))),
             window: re.window,
             step: re.step,
             offset: re.offset,
@@ -121,7 +122,6 @@ pub fn remove_parens_expr(e: Expr) -> Expr {
     }
 }
 
-
 pub fn should_remove_parens(e: &Expr) -> bool {
     match e {
         Expr::Rollup(re) => {
@@ -130,22 +130,18 @@ pub fn should_remove_parens(e: &Expr) -> bool {
                 should_remove |= should_remove_parens(at);
             }
             should_remove
-        },
+        }
         Expr::BinaryOperator(be) => {
             should_remove_parens(&be.left) || should_remove_parens(&be.right)
-        },
+        }
         Expr::UnaryOperator(ue) => should_remove_parens(&ue.expr),
-        Expr::Aggregation(ae) => {
-            ae.args.iter().any(should_remove_parens)
-        },
-        Expr::Function(fe) => {
-            fe.args.iter().any(should_remove_parens)
-        },
+        Expr::Aggregation(ae) => ae.args.iter().any(should_remove_parens),
+        Expr::Function(fe) => fe.args.iter().any(should_remove_parens),
         Expr::Parens(_) => true,
         Expr::With(with) => {
-            should_remove_parens(&with.expr) ||
-                with.was.iter().any(|wa| should_remove_parens(&wa.expr))
-        },
+            should_remove_parens(&with.expr)
+                || with.was.iter().any(|wa| should_remove_parens(&wa.expr))
+        }
         _ => false,
     }
 }

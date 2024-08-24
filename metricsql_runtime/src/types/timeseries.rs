@@ -70,7 +70,6 @@ pub(crate) struct SeriesSlice<'a> {
 }
 
 impl<'a> SeriesSlice<'a> {
-
     pub fn new(metric_name: &'a MetricName, timestamps: &'a [i64], values: &'a [f64]) -> Self {
         SeriesSlice {
             metric_name,
@@ -165,7 +164,7 @@ pub(crate) fn assert_identical_timestamps(tss: &[Timeseries], step: i64) -> Runt
 fn assert_identical_timestamps_internal<'a>(
     ts_iter: &mut impl Iterator<Item = &'a [i64]>,
     values_iter: &mut impl Iterator<Item = &'a [f64]>,
-    step: i64
+    step: i64,
 ) -> RuntimeResult<()> {
     let ts_golden = ts_iter.next().unwrap_or_default();
     let values_golden = values_iter.next().unwrap_or_default();

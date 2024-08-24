@@ -10,8 +10,7 @@ use metricsql_parser::prelude::{LabelFilter, Matchers};
 
 use crate::signature::Signature;
 use crate::{
-    Deadline, MetricName, MetricStorage, QueryResult, QueryResults,
-    RuntimeResult, SearchQuery,
+    Deadline, MetricName, MetricStorage, QueryResult, QueryResults, RuntimeResult, SearchQuery,
 };
 
 #[derive(Debug, Clone)]
@@ -56,12 +55,7 @@ impl Storage {
         Ok(())
     }
 
-    pub fn search(
-        &self,
-        start: i64,
-        end: i64,
-        filters: &Matchers,
-    ) -> RuntimeResult<QueryResults> {
+    pub fn search(&self, start: i64, end: i64, filters: &Matchers) -> RuntimeResult<QueryResults> {
         let mut results: Vec<QueryResult> = vec![];
         for (k, labels) in &self.labels_hash {
             for matchers in filters.iter() {
@@ -151,12 +145,7 @@ impl MemoryMetricProvider {
         inner.search(start, end, filters)
     }
 
-    pub fn search(
-        &self,
-        start: i64,
-        end: i64,
-        filters: &Matchers,
-    ) -> RuntimeResult<QueryResults> {
+    pub fn search(&self, start: i64, end: i64, filters: &Matchers) -> RuntimeResult<QueryResults> {
         self.search_internal(start, end, filters)
     }
 }
@@ -230,9 +219,7 @@ mod tests {
         labels.add_tag("foo", "bar");
         provider.append(labels.clone(), 1, 1.0).unwrap();
 
-        let matchers = Matchers::new(vec![
-            LabelFilter::equal("foo", "bar")
-        ]);
+        let matchers = Matchers::new(vec![LabelFilter::equal("foo", "bar")]);
         let results = provider.search(0, 2, &matchers).unwrap();
 
         assert_eq!(results.len(), 1);
@@ -245,9 +232,7 @@ mod tests {
         labels.add_tag("foo", "bar");
         provider.append(labels.clone(), 1, 1.0).unwrap();
 
-        let matchers = Matchers::new(vec![
-            LabelFilter::equal("foo", "baz")
-        ]);
+        let matchers = Matchers::new(vec![LabelFilter::equal("foo", "baz")]);
         let results = provider.search(0, 2, &matchers).unwrap();
 
         assert_eq!(results.len(), 0);

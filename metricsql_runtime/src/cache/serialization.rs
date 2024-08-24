@@ -1,28 +1,34 @@
 use std::mem::size_of;
 use std::sync::Arc;
 
-use pco::{ChunkConfig, PagingSpec};
 use pco::data_types::NumberLike;
 use pco::errors::PcoError;
 use pco::standalone::{simple_compress, simple_decompress_into};
+use pco::{ChunkConfig, PagingSpec};
 
-use crate::{MetricName, RuntimeError, RuntimeResult, Timeseries, Timestamp};
 use crate::common::encoding::marshal_var_i64;
 use crate::types::SeriesSlice;
+use crate::{MetricName, RuntimeError, RuntimeResult, Timeseries, Timestamp};
 
 // todo: move elsewhere
 
 pub(crate) fn compress_series(series: &[Timeseries], buf: &mut Vec<u8>) -> RuntimeResult<()> {
-    let series_slices: Vec<SeriesSlice> = series.iter().map(|s| SeriesSlice {
-        metric_name: &s.metric_name,
-        timestamps: &s.timestamps,
-        values: &s.values,
-    }).collect();
+    let series_slices: Vec<SeriesSlice> = series
+        .iter()
+        .map(|s| SeriesSlice {
+            metric_name: &s.metric_name,
+            timestamps: &s.timestamps,
+            values: &s.values,
+        })
+        .collect();
 
     compress_series_slice(&series_slices, buf)
 }
 
-pub(crate) fn compress_series_slice(series: &[SeriesSlice], buf: &mut Vec<u8>) -> RuntimeResult<()> {
+pub(crate) fn compress_series_slice(
+    series: &[SeriesSlice],
+    buf: &mut Vec<u8>,
+) -> RuntimeResult<()> {
     const DATA_PAGE_SIZE: usize = 3000;
 
     let series_count = series.len();
@@ -48,9 +54,9 @@ pub(crate) fn compress_series_slice(series: &[SeriesSlice], buf: &mut Vec<u8>) -
         count -= page_size;
     }
 
-
     // todo: avoid clone
-    let config = ChunkConfig::default().with_paging_spec(PagingSpec::Exact(data_page_sizes.clone()));
+    let config =
+        ChunkConfig::default().with_paging_spec(PagingSpec::Exact(data_page_sizes.clone()));
 
     // the caller ensures that timestamps are equally spaced, so we can use delta encoding
     let ts_config = ChunkConfig::default().with_delta_encoding_order(Some(2));
@@ -114,7 +120,8 @@ pub(crate) fn compress_series_slice(series: &[SeriesSlice], buf: &mut Vec<u8>) -
 
         // patch in the data size
         let data_size = buf.len() - data_size_offset;
-        buf[placeholder_offset..placeholder_offset + size_of::<usize>()].copy_from_slice(&data_size.to_le_bytes());
+        buf[placeholder_offset..placeholder_offset + size_of::<usize>()]
+            .copy_from_slice(&data_size.to_le_bytes());
 
         write_usize(buf, data_size);
 
@@ -160,7 +167,7 @@ pub(crate) fn deserialize_series_between(
     let mut page_v: Vec<f64> = Vec::new();
 
     while !compressed.is_empty() {
-        let size= read_usize(&mut compressed, "data length")?;
+        let size = read_usize(&mut compressed, "data length")?;
 
         if size == 0 {
             break;
@@ -178,7 +185,7 @@ pub(crate) fn deserialize_series_between(
         ts = read_timestamp(&mut compressed)?;
 
         // size of data segment (timestamps and values)
-        let size= read_usize(&mut compressed, "data segment length")?;
+        let size = read_usize(&mut compressed, "data segment length")?;
         let data_size = size;
 
         if ts < t0 {
@@ -188,7 +195,9 @@ pub(crate) fn deserialize_series_between(
             // we need to filter and append this data
             let count = read_timestamp_page(&mut compressed, &mut page_t)?;
             if count != size {
-                return Err(RuntimeError::SerializationError("incomplete timestamp page".to_string()));
+                return Err(RuntimeError::SerializationError(
+                    "incomplete timestamp page".to_string(),
+                ));
             }
 
             if page_t.is_empty() {
@@ -204,10 +213,12 @@ pub(crate) fn deserialize_series_between(
             timestamps.extend_from_slice(&page_t[ts_start_index..=ts_end_index]);
 
             for series in res.iter_mut() {
-                let count= read_values_page(&mut compressed, &mut page_v)?;
+                let count = read_values_page(&mut compressed, &mut page_v)?;
 
                 if count != size {
-                    return Err(RuntimeError::SerializationError("incomplete data page".to_string()));
+                    return Err(RuntimeError::SerializationError(
+                        "incomplete data page".to_string(),
+                    ));
                 }
 
                 series
@@ -235,8 +246,12 @@ pub(crate) fn get_timestamp_index_bounds(
     start_ts: Timestamp,
     end_ts: Timestamp,
 ) -> (usize, usize) {
-    let start_idx = timestamps.binary_search(&start_ts).unwrap_or_else(|idx| idx);
-    let end_idx = timestamps.binary_search(&end_ts).unwrap_or_else(|idx| idx - 1);
+    let start_idx = timestamps
+        .binary_search(&start_ts)
+        .unwrap_or_else(|idx| idx);
+    let end_idx = timestamps
+        .binary_search(&end_ts)
+        .unwrap_or_else(|idx| idx - 1);
     (start_idx, end_idx)
 }
 
@@ -252,27 +267,25 @@ fn write_data<T: NumberLike>(
     Ok(buf.len())
 }
 
-fn read_timestamp_page(
-    compressed: &mut &[u8],
-    dst: &mut [i64],
-) -> RuntimeResult<usize> {
+fn read_timestamp_page(compressed: &mut &[u8], dst: &mut [i64]) -> RuntimeResult<usize> {
     let size = read_usize(compressed, "timestamp data size")?;
     let progress = simple_decompress_into(compressed, dst).map_err(map_err)?;
     if !progress.finished {
-        return Err(RuntimeError::SerializationError("incomplete timestamp data".to_string()));
+        return Err(RuntimeError::SerializationError(
+            "incomplete timestamp data".to_string(),
+        ));
     }
     *compressed = &compressed[size..];
     Ok(progress.n_processed)
 }
 
-fn read_values_page(
-    compressed: &mut &[u8],
-    dst: &mut [f64],
-) -> RuntimeResult<usize> {
-    let size= read_usize(compressed, "value data size")?;
+fn read_values_page(compressed: &mut &[u8], dst: &mut [f64]) -> RuntimeResult<usize> {
+    let size = read_usize(compressed, "value data size")?;
     let progress = simple_decompress_into(compressed, dst).map_err(map_err)?;
     if !progress.finished {
-        return Err(RuntimeError::SerializationError("incomplete value data".to_string()));
+        return Err(RuntimeError::SerializationError(
+            "incomplete value data".to_string(),
+        ));
     }
 
     *compressed = &compressed[size..];
@@ -308,10 +321,9 @@ pub(super) fn write_usize_in_place(vec: &mut [u8], index: usize, value: usize) {
 
 fn read_usize(input: &mut &[u8], field: &str) -> RuntimeResult<usize> {
     let (int_bytes, rest) = input.split_at(size_of::<usize>());
-    let buf = int_bytes
-        .try_into()
-        .map_err(|_| RuntimeError::SerializationError(
-            format!("invalid usize reading {}", field).to_string()))?;
+    let buf = int_bytes.try_into().map_err(|_| {
+        RuntimeError::SerializationError(format!("invalid usize reading {}", field).to_string())
+    })?;
 
     *input = rest;
     Ok(usize::from_le_bytes(buf))

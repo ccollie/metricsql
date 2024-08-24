@@ -22,6 +22,6 @@ pub const GREPTIME_ERROR_MSG: &str = "x-greptime-err-msg";
 
 pub use snafu;
 
-pub use status_code::*;
 pub use ext::*;
 pub use snafu::ResultExt;
+pub use status_code::*;

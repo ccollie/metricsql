@@ -490,7 +490,14 @@ fn marshal_rollup_result_cache_key(
     step: i64,
     etfs: &Option<Matchers>,
 ) -> u64 {
-    marshal_rollup_result_cache_key_internal(hasher, expr, window, step, etfs, ROLLUP_TYPE_TIMESERIES)
+    marshal_rollup_result_cache_key_internal(
+        hasher,
+        expr,
+        window,
+        step,
+        etfs,
+        ROLLUP_TYPE_TIMESERIES,
+    )
 }
 
 fn marshal_rollup_result_cache_key_for_instant_values(
@@ -498,9 +505,16 @@ fn marshal_rollup_result_cache_key_for_instant_values(
     expr: &Expr,
     window: i64,
     step: i64,
-    etfs: &Option<Matchers>
+    etfs: &Option<Matchers>,
 ) -> u64 {
-    marshal_rollup_result_cache_key_internal(hasher, expr, window, step, etfs, ROLLUP_TYPE_INSTANT_VALUES)
+    marshal_rollup_result_cache_key_internal(
+        hasher,
+        expr,
+        window,
+        step,
+        etfs,
+        ROLLUP_TYPE_INSTANT_VALUES,
+    )
 }
 
 fn marshal_rollup_result_cache_key_for_series(
@@ -508,9 +522,16 @@ fn marshal_rollup_result_cache_key_for_series(
     expr: &Expr,
     window: i64,
     step: i64,
-    etfs: &Option<Matchers>
+    etfs: &Option<Matchers>,
 ) -> u64 {
-    marshal_rollup_result_cache_key_internal(hasher, expr, window, step, etfs, ROLLUP_TYPE_TIMESERIES)
+    marshal_rollup_result_cache_key_internal(
+        hasher,
+        expr,
+        window,
+        step,
+        etfs,
+        ROLLUP_TYPE_TIMESERIES,
+    )
 }
 
 /// merge_timeseries concatenates b with a and returns the result.

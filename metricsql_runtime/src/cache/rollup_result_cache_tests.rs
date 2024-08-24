@@ -29,9 +29,8 @@ mod tests {
         ec.max_points_per_series = 1e4 as usize;
         ec.set_caching(true);
 
-        let me = MetricExpr::default().append(
-            LabelFilter::new(LabelFilterOp::Equal, "aaa", "xxx").unwrap()
-        );
+        let me = MetricExpr::default()
+            .append(LabelFilter::new(LabelFilterOp::Equal, "aaa", "xxx").unwrap());
 
         let fe = FunctionExpr::from_single_arg("avg", Expr::MetricExpression(me)).unwrap();
 

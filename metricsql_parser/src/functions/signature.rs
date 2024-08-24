@@ -18,8 +18,8 @@
 //! Signature module contains foundational types that are used to represent signatures, types,
 //! and return types of functions.
 
-use std::fmt::Display;
 use serde::{Deserialize, Serialize};
+use std::fmt::Display;
 
 use crate::common::ValueType;
 use crate::functions::MAX_ARG_COUNT;
@@ -293,7 +293,7 @@ impl<'a> Iterator for TypeIterator<'a> {
                 } else {
                     None
                 }
-            },
+            }
             Uniform(data_type, count) => {
                 if self.arg_index < *count {
                     self.arg_index += 1;

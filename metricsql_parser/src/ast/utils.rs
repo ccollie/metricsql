@@ -19,9 +19,9 @@
 
 use ahash::AHashSet;
 
+use crate::ast::visitor::{walk_expr, ExprVisitor};
 use crate::ast::{BinaryExpr, Expr, MetricExpr, NumberLiteral, Operator, ParensExpr};
-use crate::ast::visitor::{ExprVisitor, walk_expr};
-use crate::functions::{BuiltinFunction, get_rollup_arg_idx};
+use crate::functions::{get_rollup_arg_idx, BuiltinFunction};
 
 /// Create a selector expression based on a qualified or unqualified column name
 ///

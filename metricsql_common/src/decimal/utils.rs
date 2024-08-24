@@ -48,7 +48,6 @@ pub fn modf(x: f64) -> (f64, f64) {
     (x - rv2, rv2)
 }
 
-
 pub fn frexp(x: f64) -> (f64, i32) {
     let mut y = x.to_bits();
     let ee = ((y >> 52) & 0x7ff) as i32;

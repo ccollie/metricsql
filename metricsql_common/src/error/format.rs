@@ -26,9 +26,9 @@ impl<'a, E: ?Sized> DebugFormat<'a, E> {
 mod tests {
     use std::any::Any;
 
+    use crate::error::ext::{ErrorExt, StackError};
     use snafu::prelude::*;
     use snafu::Location;
-    use crate::error::ext::{ErrorExt, StackError};
 
     #[derive(Debug, Snafu)]
     #[snafu(display("This is a leaf error"))]

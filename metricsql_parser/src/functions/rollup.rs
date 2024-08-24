@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use strum_macros::EnumIter;
 
 use crate::common::ValueType;
-use crate::functions::{BuiltinFunction, FunctionMeta, MAX_ARG_COUNT};
 use crate::functions::signature::{Signature, Volatility};
+use crate::functions::{BuiltinFunction, FunctionMeta, MAX_ARG_COUNT};
 use crate::parser::ParseError;
 
 /// Built-in Rollup Functions
@@ -364,7 +364,7 @@ impl RollupFunction {
                 | RollupScrapeInterval
                 | ScrapeInterval
                 | TLastChangeOverTime
-            )
+        )
     }
 }
 
@@ -477,9 +477,7 @@ pub fn is_rollup_aggregation_over_time(func: RollupFunction) -> bool {
         return true;
     }
 
-    matches!(func,
-        | Delta
-        | DeltaPrometheus
+    matches!(func, |Delta| DeltaPrometheus
         | Deriv
         | DerivFast
         | IDelta

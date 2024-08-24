@@ -23,7 +23,7 @@ async-trait = "0.1"
 enquote.workspace = true
 byte-slice-cast = "1.2"
 byte-pool.workspace = true
-clone_dyn = "0.22"
+clone_dyn = "0.23"
 chrono.workspace = true
 chrono-tz.workspace = true
 effective-limits = "0.5"
@@ -44,7 +44,7 @@ serde.workspace = true
 thiserror.workspace = true
 tinyvec.workspace = true
 topologic = "1.1"
-tokio = { version = "1.38", optional = true }
+tokio = { version = "1.39", optional = true }
 scopeguard.workspace = true
 tracing.workspace = true
 xxhash-rust.workspace = true

@@ -25,7 +25,9 @@ pub(super) fn expect_transform_args_num(
     if arg_count == expected {
         return Ok(());
     }
-    Err(RuntimeError::ArgumentError(format!("unexpected number of args; got {arg_count}; want {expected}")))
+    Err(RuntimeError::ArgumentError(format!(
+        "unexpected number of args; got {arg_count}; want {expected}"
+    )))
 }
 
 // Todo: test this, making sure to account for dst
@@ -61,7 +63,8 @@ pub fn extract_labels_from_expr(arg: &Expr) -> Option<Labels> {
 }
 
 pub fn extract_labels(expr: &MetricExpr) -> Labels {
-    expr.matchers.matchers
+    expr.matchers
+        .matchers
         .iter()
         .chain(expr.matchers.or_matchers.iter().flatten())
         .filter(|tf| !tf.label.is_empty() && !tf.is_regexp() && !tf.is_negative())

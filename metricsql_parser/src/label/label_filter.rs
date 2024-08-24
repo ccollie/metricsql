@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::Xxh3;
 
 use crate::common::join_vector;
-use crate::parser::{compile_regexp, escape_ident, is_empty_regex, ParseError, quote};
+use crate::parser::{compile_regexp, escape_ident, is_empty_regex, quote, ParseError};
 
 pub const NAME_LABEL: &str = "__name__";
 pub type LabelName = String;
@@ -113,7 +113,9 @@ impl TryFrom<&str> for LabelFilterOp {
             "!=" => Ok(LabelFilterOp::NotEqual),
             "=~" => Ok(LabelFilterOp::RegexEqual),
             "!~" => Ok(LabelFilterOp::RegexNotEqual),
-            _ => Err(ParseError::General(format!("Unexpected match op literal: {op}"))),
+            _ => Err(ParseError::General(format!(
+                "Unexpected match op literal: {op}"
+            ))),
         }
     }
 }
@@ -392,10 +394,10 @@ impl Matchers {
     pub fn is_empty_matchers(&self) -> bool {
         (self.matchers.is_empty() && self.or_matchers.is_empty())
             || self
-            .matchers
-            .iter()
-            .chain(self.or_matchers.iter().flatten())
-            .all(|m| m.is_match(""))
+                .matchers
+                .iter()
+                .chain(self.or_matchers.iter().flatten())
+                .all(|m| m.is_match(""))
     }
 
     /// find the matcher's value whose name equals the specified name. This function
@@ -437,16 +439,15 @@ impl Matchers {
             if self.metric_name().is_none() {
                 return false;
             }
-            return self.or_matchers.iter().all(|lfs| {
-                lfs.len() <= 1
-            });
+            return self.or_matchers.iter().all(|lfs| lfs.len() <= 1);
         }
         true
     }
 
     pub fn metric_name(&self) -> Option<&str> {
         if !self.matchers.is_empty() {
-            let found = self.matchers
+            let found = self
+                .matchers
                 .iter()
                 .find(|m| m.is_metric_name_filter())
                 .map(|m| m.value.as_str());
@@ -494,9 +495,10 @@ impl Matchers {
     }
 
     pub fn filter_iter(&self) -> impl Iterator<Item = &LabelFilter> {
-        self.matchers.iter().chain(self.or_matchers.iter().flatten())
+        self.matchers
+            .iter()
+            .chain(self.or_matchers.iter().flatten())
     }
-
 }
 
 fn hash_filters(hasher: &mut impl Hasher, filters: &[LabelFilter]) {
@@ -539,7 +541,7 @@ struct OrIter<'a> {
     matchers: &'a Vec<LabelFilter>,
     or_matchers: &'a Vec<Vec<LabelFilter>>,
     index: usize,
-    first: bool
+    first: bool,
 }
 
 impl<'a> OrIter<'a> {
@@ -712,7 +714,7 @@ mod tests {
 
         assert_ne!(
             LabelFilter::not_equal("code", "200"),
-            LabelFilter::equal( "code", "200")
+            LabelFilter::equal("code", "200")
         );
     }
 
@@ -765,7 +767,7 @@ mod tests {
 
         assert_ne!(
             Matchers::empty().append(LabelFilter::equal("name1", "val1")),
-            Matchers::empty().append(LabelFilter::equal( "name2", "val2"))
+            Matchers::empty().append(LabelFilter::equal("name2", "val2"))
         );
 
         assert_ne!(
@@ -793,7 +795,7 @@ mod tests {
             .append(LabelFilter::equal("foo", "bar"))
             .append(LabelFilter::not_equal("foo", "bar"))
             .append(LabelFilter::equal("FOO", "bar"))
-            .append(LabelFilter::not_equal( "bar", "bar"));
+            .append(LabelFilter::not_equal("bar", "bar"));
 
         let ms = matchers.find_matchers("foo");
         assert_eq!(4, ms.len());

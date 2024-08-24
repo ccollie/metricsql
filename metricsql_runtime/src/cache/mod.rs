@@ -5,4 +5,3 @@ pub mod rollup_result_cache;
 mod rollup_result_cache_tests;
 mod serialization;
 mod traits;
-

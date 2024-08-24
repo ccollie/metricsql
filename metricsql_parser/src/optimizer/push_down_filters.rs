@@ -2,15 +2,15 @@ use std::borrow::Cow;
 use std::iter::FromIterator;
 use std::vec::Vec;
 
-use metricsql_common::hash::{FastHashSet, HashSetExt};
 use crate::ast::{
-    AggregateModifier, AggregationExpr, BinaryExpr, Expr, Operator, RollupExpr, VectorMatchModifier
+    AggregateModifier, AggregationExpr, BinaryExpr, Expr, Operator, RollupExpr, VectorMatchModifier,
 };
 use crate::functions::BuiltinFunction::Transform;
 use crate::functions::{AggregateFunction, BuiltinFunction, RollupFunction, TransformFunction};
 use crate::label::{LabelFilter, LabelFilterOp, Matchers, NAME_LABEL};
 use crate::parser::{ParseError, ParseResult};
 use crate::prelude::{can_accept_multiple_args_for_aggr_func, VectorMatchCardinality};
+use metricsql_common::hash::{FastHashSet, HashSetExt};
 
 /// push_down_filters optimizes e in order to improve its performance.
 ///
@@ -85,18 +85,19 @@ pub fn get_common_label_filters(e: &Expr) -> Vec<LabelFilter> {
         MetricExpression(m) => get_common_label_filters_without_metric_name(&m.matchers),
         Rollup(r) => get_common_label_filters(&r.expr),
         Function(fe) => {
-            use TransformFunction::*;
             use RollupFunction::*;
+            use TransformFunction::*;
 
             match fe.function {
-                BuiltinFunction::Rollup(rf) => if rf == CountValuesOverTime {
-                    return get_common_label_filters_for_count_values_over_time(&fe.args)
+                BuiltinFunction::Rollup(rf) => {
+                    if rf == CountValuesOverTime {
+                        return get_common_label_filters_for_count_values_over_time(&fe.args);
+                    }
                 }
                 Transform(tf) => match tf {
-                    LabelSet => {
-                        return get_common_label_filters_for_label_set(&fe.args)
-                    }
-                    LabelMap | LabelJoin | LabelMatch | LabelMismatch | LabelReplace | LabelTransform => {
+                    LabelSet => return get_common_label_filters_for_label_set(&fe.args),
+                    LabelMap | LabelJoin | LabelMatch | LabelMismatch | LabelReplace
+                    | LabelTransform => {
                         return get_common_label_filters_for_label_replace(&fe.args)
                     }
                     LabelCopy | LabelMove => {
@@ -105,9 +106,7 @@ pub fn get_common_label_filters(e: &Expr) -> Vec<LabelFilter> {
                     LabelDel | LabelsEqual | LabelLowercase | LabelUppercase => {
                         return get_common_label_filters_for_label_del(&fe.args)
                     }
-                    LabelKeep => {
-                        return get_common_label_filters_for_label_keep(&fe.args)
-                    }
+                    LabelKeep => return get_common_label_filters_for_label_keep(&fe.args),
                     RangeNormalize | Union => {
                         return intersect_label_filters_for_all_args(&fe.args)
                     }
@@ -249,7 +248,6 @@ fn get_common_label_filters_for_count_values_over_time(args: &[Expr]) -> Vec<Lab
     lfs
 }
 
-
 fn get_common_label_filters_for_label_keep(args: &[Expr]) -> Vec<LabelFilter> {
     if args.is_empty() {
         return vec![];
@@ -330,11 +328,7 @@ fn get_common_label_filters_for_label_set(args: &[Expr]) -> Vec<LabelFilter> {
 
         drop_label_filters_for_label_name(&mut lfs, label_name);
         // LabelFilter::new() errors only in the case where operator is regex eq/ne, so the following unwrap() is safe
-        lfs.push(LabelFilter::new(
-            LabelFilterOp::Equal,
-            se_label_name,
-            se_label_value,
-        ).unwrap());
+        lfs.push(LabelFilter::new(LabelFilterOp::Equal, se_label_name, se_label_value).unwrap());
     }
     lfs
 }
@@ -389,18 +383,17 @@ fn get_common_label_filters_without_metric_name(matchers: &Matchers) -> Vec<Labe
             let lfs_b = get_label_filters_without_metric_name(lfs);
             intersect_label_filters(&mut lfs_a, &lfs_b);
         }
-        return lfs_a
+        return lfs_a;
     }
     if !matchers.matchers.is_empty() {
-        return get_label_filters_without_metric_name(&matchers.matchers)
+        return get_label_filters_without_metric_name(&matchers.matchers);
     }
     vec![]
 }
 
 // todo: use lifetimes instead of cloning
 fn get_label_filters_without_metric_name(lfs: &[LabelFilter]) -> Vec<LabelFilter> {
-    lfs
-        .iter()
+    lfs.iter()
         .filter(|x| x.label != NAME_LABEL)
         .cloned()
         .collect::<Vec<_>>()
@@ -464,8 +457,13 @@ pub fn push_down_binary_op_filters_in_place(e: &mut Expr, common_filters: &mut V
             use TransformFunction::*;
 
             match fe.function {
-                BuiltinFunction::Rollup(rf) => if rf == RollupFunction::CountValuesOverTime {
-                    return pushdown_label_filters_for_count_values_over_time(&mut fe.args, common_filters)
+                BuiltinFunction::Rollup(rf) => {
+                    if rf == RollupFunction::CountValuesOverTime {
+                        return pushdown_label_filters_for_count_values_over_time(
+                            &mut fe.args,
+                            common_filters,
+                        );
+                    }
                 }
                 Transform(tf) => match tf {
                     LabelSet => {
@@ -534,12 +532,15 @@ fn pushdown_label_filters_for_all_args(lfs: &mut Vec<LabelFilter>, args: &mut [E
     }
 }
 
-fn pushdown_label_filters_for_count_values_over_time(args: &mut [Expr], lfs: &mut Vec<LabelFilter>) {
+fn pushdown_label_filters_for_count_values_over_time(
+    args: &mut [Expr],
+    lfs: &mut Vec<LabelFilter>,
+) {
     if args.len() != 2 {
-        return
+        return;
     }
     drop_label_filters_for_label_name(lfs, &args[0]);
-    push_down_binary_op_filters_in_place( &mut args[1], lfs);
+    push_down_binary_op_filters_in_place(&mut args[1], lfs);
 }
 
 fn pushdown_label_filters_for_label_keep(args: &mut [Expr], lfs: &mut Vec<LabelFilter>) {
@@ -721,14 +722,12 @@ fn get_aggr_arg_idx_for_optimization(
 ) -> ParseResult<Option<usize>> {
     use AggregateFunction::*;
     match func {
-        CountValues => {
-            Err(ParseError::ArgumentError(
-                "BUG: count_values must be already handled".to_string(),
-            ))
-        }
-        Bottomk | BottomkAvg | BottomkLast | BottomkMax | BottomkMedian | BottomkMin
-        | Limitk | Outliersk | OutliersMAD | Quantile | Topk | TopkAvg | TopkLast
-        | TopkMax | TopkMin | TopkMedian => Ok(Some(1)),
+        CountValues => Err(ParseError::ArgumentError(
+            "BUG: count_values must be already handled".to_string(),
+        )),
+        Bottomk | BottomkAvg | BottomkLast | BottomkMax | BottomkMedian | BottomkMin | Limitk
+        | Outliersk | OutliersMAD | Quantile | Topk | TopkAvg | TopkLast | TopkMax | TopkMin
+        | TopkMedian => Ok(Some(1)),
         Quantiles => Ok(Some(args.len() - 1)),
         _ => {
             if func.can_accept_multiple_args() {

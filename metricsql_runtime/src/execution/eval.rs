@@ -6,8 +6,8 @@ use metricsql_parser::label::Matchers;
 use crate::execution::context::Context;
 use crate::provider::Deadline;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::TimestampTrait;
 use crate::types::{Timeseries, Timestamp};
+use crate::TimestampTrait;
 
 /// validate_max_points_per_timeseries checks the maximum number of points that
 /// may be returned per each time series.
@@ -220,12 +220,7 @@ impl EvalConfig {
         if write_locked.len() > 0 {
             return Ok(Arc::clone(&write_locked));
         }
-        let ts = get_timestamps(
-            self.start,
-            self.end,
-            self.step,
-            self.max_points_per_series,
-        )?;
+        let ts = get_timestamps(self.start, self.end, self.step, self.max_points_per_series)?;
 
         let timestamps = Arc::new(ts);
         let res = timestamps.clone();

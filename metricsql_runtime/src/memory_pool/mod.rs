@@ -16,8 +16,8 @@
 // under the License.
 
 //! Manages all available memory during query execution
-use std::sync::{Arc, Mutex};
 use crate::{RuntimeError, RuntimeResult};
+use std::sync::{Arc, Mutex};
 
 mod pool;
 pub mod proxy;
@@ -240,8 +240,8 @@ pub fn human_readable_size(size: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::memory_pool::pool::GreedyMemoryPool;
     use super::*;
+    use crate::memory_pool::pool::GreedyMemoryPool;
 
     #[test]
     fn test_memory_pool_underflow() {

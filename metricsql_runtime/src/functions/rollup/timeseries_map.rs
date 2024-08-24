@@ -131,11 +131,16 @@ impl TimeSeriesMap {
 
     pub fn is_valid_function(func: RollupFunction) -> bool {
         use RollupFunction::*;
-        matches!(func, HistogramOverTime | QuantilesOverTime | CountValuesOverTime)
+        matches!(
+            func,
+            HistogramOverTime | QuantilesOverTime | CountValuesOverTime
+        )
     }
 
     pub fn with_series<F>(&self, label_name: &str, label_value: &str, cb: F)
-    where F: Fn(&mut Timeseries) {
+    where
+        F: Fn(&mut Timeseries),
+    {
         let mut inner = self.inner.write().unwrap();
         let ts = inner.get_or_create_series(label_name, label_value);
         cb(ts);

@@ -235,9 +235,11 @@ pub fn string_compare(a: &str, b: &str, op: Operator, is_bool: bool) -> ParseRes
         Operator::Gt => a > b,
         Operator::Lte => a <= b,
         Operator::Gte => a >= b,
-        _ => return Err(ParseError::Unsupported(format!(
-            "unexpected operator {op} in string comparison"
-        ))),
+        _ => {
+            return Err(ParseError::Unsupported(format!(
+                "unexpected operator {op} in string comparison"
+            )))
+        }
     };
     Ok(if res {
         1_f64

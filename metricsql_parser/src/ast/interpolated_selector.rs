@@ -25,7 +25,9 @@ impl InterpolatedSelector {
     }
 
     pub fn with_filters(filters: Vec<LabelFilterExpr>) -> Self {
-        InterpolatedSelector { matchers: vec![filters] }
+        InterpolatedSelector {
+            matchers: vec![filters],
+        }
     }
 
     pub fn with_or_filters(filters: Vec<Vec<LabelFilterExpr>>) -> Self {
@@ -37,12 +39,11 @@ impl InterpolatedSelector {
     }
 
     pub fn is_resolved(&self) -> bool {
-        self.matchers.is_empty() ||
-            self.matchers
+        self.matchers.is_empty()
+            || self
+                .matchers
                 .iter()
-                .all(
-                    |x| x.iter().all(|label| label.is_resolved())
-                )
+                .all(|x| x.iter().all(|label| label.is_resolved()))
     }
 
     pub fn metric_name(&self) -> Option<&str> {
@@ -54,7 +55,7 @@ impl InterpolatedSelector {
         fn get_name(lf: &LabelFilterExpr) -> Option<&str> {
             if lf.is_metric_name_filter() {
                 if let Some(literal) = lf.value.get_literal().unwrap_or(None) {
-                    return Some(literal.as_str())
+                    return Some(literal.as_str());
                 }
             }
             None
@@ -104,12 +105,11 @@ impl InterpolatedSelector {
     }
 
     pub fn is_empty_matchers(&self) -> bool {
-        self.matchers.is_empty() ||
-            self.matchers
+        self.matchers.is_empty()
+            || self
+                .matchers
                 .iter()
-                .all(|x|
-                    x.iter().all(|y| y.is_empty_matcher())
-                )
+                .all(|x| x.iter().all(|y| y.is_empty_matcher()))
     }
 
     /// find all the matchers whose name equals the specified name.

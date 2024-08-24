@@ -1,8 +1,8 @@
 use crate::ast::{Expr, InterpolatedSelector, MetricExpr};
 use crate::label::{LabelFilterExpr, LabelFilterOp};
-use crate::parser::{Parser, ParseResult};
 use crate::parser::expr::parse_string_expr;
 use crate::parser::parse_error::unexpected;
+use crate::parser::{ParseResult, Parser};
 
 use super::tokens::Token;
 
@@ -19,7 +19,6 @@ pub fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expr> {
         name: Option<String>,
         filters: Vec<Vec<LabelFilterExpr>>,
     ) -> ParseResult<Expr> {
-
         let mut me = if let Some(name) = name {
             MetricExpr::new(name)
         } else {
@@ -35,7 +34,10 @@ pub fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expr> {
                 if first.is_empty() {
                     return Ok(Expr::MetricExpression(me));
                 }
-                let converted = first.iter().map(|x| x.to_label_filter()).collect::<ParseResult<Vec<_>>>()?;
+                let converted = first
+                    .iter()
+                    .map(|x| x.to_label_filter())
+                    .collect::<ParseResult<Vec<_>>>()?;
                 me.matchers.matchers.extend(converted);
                 me.sort_filters();
             }
@@ -44,7 +46,8 @@ pub fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expr> {
 
         let mut or_matchers = vec![];
         for filter in filters {
-            let converted = filter.iter()
+            let converted = filter
+                .iter()
                 .map(|x| x.to_label_filter())
                 .collect::<ParseResult<Vec<_>>>()?;
             or_matchers.push(converted);
@@ -72,7 +75,10 @@ pub fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expr> {
         create_metric_expr(name, filters)
     } else {
         // no identifiers in the label filters, create a MetricExpr
-        if filters.iter().all(|x| x.iter().all(|filter| filter.is_resolved())) {
+        if filters
+            .iter()
+            .all(|x| x.iter().all(|filter| filter.is_resolved()))
+        {
             return create_metric_expr(name, filters);
         }
         p.needs_expansion = true;
@@ -111,8 +117,8 @@ fn parse_label_filters(p: &mut Parser) -> ParseResult<Vec<Vec<LabelFilterExpr>>>
         match tok.kind {
             RightBrace => {
                 p.bump();
-                break
-            },
+                break;
+            }
             OpOr => p.bump(),
             _ => return Err(unexpected("label filter", tok.text, "OR or }", None)),
         }
@@ -144,7 +150,7 @@ fn parse_label_filters_internal(p: &mut Parser) -> ParseResult<Vec<LabelFilterEx
             }
             RightBrace | OpOr => {
                 break;
-            },
+            }
             _ => return Err(unexpected("label filter", tok.text, "OR or }", None)),
         }
     }

@@ -7,9 +7,9 @@ use std::str::FromStr;
 
 use ahash::{AHashMap, AHashSet};
 use enquote::enquote;
-use serde::{Deserialize, Serialize};
 use metricsql_parser::label::LabelFilterOp;
 use metricsql_parser::prelude::{AggregateModifier, VectorMatchModifier};
+use serde::{Deserialize, Serialize};
 
 use crate::common::encoding::{read_string, read_usize, write_string, write_usize};
 use crate::parse_metric_selector;

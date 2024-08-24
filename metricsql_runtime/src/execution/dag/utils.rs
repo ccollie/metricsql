@@ -188,15 +188,20 @@ pub(super) fn handle_aggregate_absent_over_time(
     Ok(rvs)
 }
 
-
 fn assert_instant_values(tss: Vec<Timeseries>) -> RuntimeResult<()> {
     for ts in tss {
         if ts.values.len() != 1 {
-            let msg = format!("BUG: instant series must contain a single value; got {} values", ts.values.len());
+            let msg = format!(
+                "BUG: instant series must contain a single value; got {} values",
+                ts.values.len()
+            );
             return Err(RuntimeError::Internal(msg));
         }
         if ts.timestamps.len() != 1 {
-            let msg = format!("BUG: instant series must contain a single timestamp; got {} timestamps", ts.timestamps.len());
+            let msg = format!(
+                "BUG: instant series must contain a single timestamp; got {} timestamps",
+                ts.timestamps.len()
+            );
             return Err(RuntimeError::Internal(msg));
         }
     }

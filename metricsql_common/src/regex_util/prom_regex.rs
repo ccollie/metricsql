@@ -1,7 +1,7 @@
-use std::fmt::{Display, Formatter};
-use predicates::Predicate;
 use predicates::reflection::PredicateReflection;
+use predicates::Predicate;
 use regex::Error as RegexError;
+use std::fmt::{Display, Formatter};
 
 use super::match_handlers::StringMatchHandler;
 use super::regex_utils::{get_prefix_matcher, get_suffix_matcher, simplify};
@@ -60,7 +60,11 @@ impl PredicateReflection for PromRegex {}
 
 impl Display for PromRegex {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "PromRegex({}, {})", self.prefix_matcher, self.suffix_matcher)
+        write!(
+            f,
+            "PromRegex({}, {})",
+            self.prefix_matcher, self.suffix_matcher
+        )
     }
 }
 

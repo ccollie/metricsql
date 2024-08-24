@@ -10,6 +10,6 @@ mod traits;
 
 #[cfg(test)]
 mod metric_name_test;
+pub mod signature;
 #[cfg(test)]
 mod timeseries_test;
-pub mod signature;

@@ -37,7 +37,10 @@ mod tests {
         check_broken_buckets(&[2.0, 1.0], &[2.0, 2.0]);
         check_broken_buckets(&[1.0, 2.0, 3.0, NAN, NAN], &[1.0, 2.0, 3.0, 3.0, 3.0]);
         check_broken_buckets(&[5.0, 1.0, 2.0, 3.0, NAN], &[5.0, 5.0, 5.0, 5.0, 5.0]);
-        check_broken_buckets(&[1.0, 5.0, 2.0, NAN, 6.0, 3.0], &[1.0, 5.0, 5.0, 5.0, 6.0, 6.0]);
+        check_broken_buckets(
+            &[1.0, 5.0, 2.0, NAN, 6.0, 3.0],
+            &[1.0, 5.0, 5.0, 5.0, 6.0, 6.0],
+        );
         check_broken_buckets(&[5.0, 10.0, 4.0, 3.0], &[5.0, 10.0, 10.0, 10.0]);
     }
 
@@ -51,19 +54,20 @@ mod tests {
                     timestamps.push(1000 + i as i64);
                 }
                 let ts = Timeseries::new(timestamps, v.clone());
-                xss.push( LeTimeseries{
-                    le: 0.0,
-                    ts,
-                });
+                xss.push(LeTimeseries { le: 0.0, ts });
             }
-            for i  in 0 .. values.len() {
+            for i in 0..values.len() {
                 fix_broken_buckets(i, &mut xss)
             }
             let mut result: Vec<Vec<f64>> = Vec::with_capacity(values.len());
             for xs in xss.into_iter() {
                 result.push(xs.ts.values)
             }
-            assert_eq!(result, expected_result, "unexpected result for values={:?}\ngot\n{:?}\nwant\n{:?}", values, result, expected_result);
+            assert_eq!(
+                result, expected_result,
+                "unexpected result for values={:?}\ngot\n{:?}\nwant\n{:?}",
+                values, result, expected_result
+            );
         }
 
         let values = vec![vec![10.0, 1.0], vec![11.0, 2.0], vec![13.0, 3.0]];

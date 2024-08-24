@@ -17,8 +17,8 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::{RuntimeError, RuntimeResult};
 use crate::memory_pool::{MemoryPool, MemoryReservation};
+use crate::{RuntimeError, RuntimeResult};
 
 /// A [`MemoryPool`] that enforces no limit
 #[derive(Debug, Default)]

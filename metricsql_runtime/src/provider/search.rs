@@ -15,7 +15,6 @@ use crate::types::{MetricName, Timeseries, Timestamp, TimestampTrait};
 
 pub type TimeRange = Range<Timestamp>;
 
-
 #[async_trait]
 pub trait MetricStorage: Sync + Send {
     async fn search(&self, sq: SearchQuery, deadline: Deadline) -> RuntimeResult<QueryResults>;
@@ -52,21 +51,12 @@ pub struct SearchQuery {
 
 impl SearchQuery {
     /// Create a new provider query for the given args.
-    pub fn new(
-        start: Timestamp,
-        end: Timestamp,
-        matchers: Matchers,
-        max_metrics: usize,
-    ) -> Self {
+    pub fn new(start: Timestamp, end: Timestamp, matchers: Matchers, max_metrics: usize) -> Self {
         let mut max = max_metrics;
         if max_metrics == 0 {
             max = 2e9 as usize
         }
-        let start = if start < 0 {
-            0
-        } else {
-            start
-        };
+        let start = if start < 0 { 0 } else { start };
         SearchQuery {
             start,
             end,
@@ -82,7 +72,8 @@ impl Display for SearchQuery {
         let end = self.end.to_string_millis();
         write!(
             f,
-            "filters={}, timeRange=[{}..{}], max={}", self.matchers, start, end, self.max_metrics
+            "filters={}, timeRange=[{}..{}], max={}",
+            self.matchers, start, end, self.max_metrics
         )?;
 
         Ok(())

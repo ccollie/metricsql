@@ -26,7 +26,7 @@ mod tests {
                         panic!("filters={} mustn't contain 'or'", filters)
                     }
 
-                    let mut lfs= vec![];
+                    let mut lfs = vec![];
                     if me.matchers.matchers.len() == 1 {
                         lfs = me.matchers.matchers;
                     }
@@ -132,7 +132,8 @@ mod tests {
     fn test_get_common_label_filters() {
         let get_filters = |q: &str| -> String {
             let e = parse_selector(q);
-            let expr = optimize(e).unwrap_or_else(|e| panic!("unexpected error in optimize({}): {}", q, e));
+            let expr = optimize(e)
+                .unwrap_or_else(|e| panic!("unexpected error in optimize({}): {}", q, e));
             let lfs = get_common_label_filters(&expr);
             let mut me = MetricExpr::with_filters(lfs);
             me.sort_filters();
@@ -459,10 +460,18 @@ mod tests {
         );
 
         // count_values
-        validate_optimized(r#"count_values("foo", bar{a="b",c="d"}) by (a,x,y) + baz{foo="c",x="q",z="r"}"#, r#"count_values("foo", bar{a="b",c="d",x="q"}) by(a,x,y) + baz{a="b",foo="c",x="q",z="r"}"#);
-        validate_optimized(r#"count_values("foo", bar{a="b",c="d"}) by (a) + baz{foo="c",x="q",z="r"}"#, r#"count_values("foo", bar{a="b",c="d"}) by(a) + baz{a="b",foo="c",x="q",z="r"}"#);
-        validate_optimized(r#"count_values("foo", bar{a="b",c="d"}) + baz{foo="c",x="q",z="r"}"#, r#"count_values("foo", bar{a="b",c="d"}) + baz{foo="c",x="q",z="r"}"#);
-
+        validate_optimized(
+            r#"count_values("foo", bar{a="b",c="d"}) by (a,x,y) + baz{foo="c",x="q",z="r"}"#,
+            r#"count_values("foo", bar{a="b",c="d",x="q"}) by(a,x,y) + baz{a="b",foo="c",x="q",z="r"}"#,
+        );
+        validate_optimized(
+            r#"count_values("foo", bar{a="b",c="d"}) by (a) + baz{foo="c",x="q",z="r"}"#,
+            r#"count_values("foo", bar{a="b",c="d"}) by(a) + baz{a="b",foo="c",x="q",z="r"}"#,
+        );
+        validate_optimized(
+            r#"count_values("foo", bar{a="b",c="d"}) + baz{foo="c",x="q",z="r"}"#,
+            r#"count_values("foo", bar{a="b",c="d"}) + baz{foo="c",x="q",z="r"}"#,
+        );
 
         validate_optimized(
             r#"sum(
@@ -558,14 +567,20 @@ mod tests {
         );
 
         // range_normalize
-        validate_optimized(r#"range_normalize(foo{a="b",c="d"},bar{a="b",x="y"}) + baz{z="w"}"#,
-                           r#"range_normalize(foo{a="b",c="d",z="w"}, bar{a="b",x="y",z="w"}) + baz{a="b",z="w"}"#);
+        validate_optimized(
+            r#"range_normalize(foo{a="b",c="d"},bar{a="b",x="y"}) + baz{z="w"}"#,
+            r#"range_normalize(foo{a="b",c="d",z="w"}, bar{a="b",x="y",z="w"}) + baz{a="b",z="w"}"#,
+        );
 
         // union
-        validate_optimized(r#"union(foo{a="b",c="d"},bar{a="b",x="y"}) + baz{z="w"}"#,
-                           r#"union(foo{a="b",c="d",z="w"}, bar{a="b",x="y",z="w"}) + baz{a="b",z="w"}"#);
-        validate_optimized(r#"(foo{a="b",c="d"},bar{a="b",x="y"}) + baz{z="w"}"#,
-                           r#"(foo{a="b",c="d",z="w"}, bar{a="b",x="y",z="w"}) + baz{a="b",z="w"}"#);
+        validate_optimized(
+            r#"union(foo{a="b",c="d"},bar{a="b",x="y"}) + baz{z="w"}"#,
+            r#"union(foo{a="b",c="d",z="w"}, bar{a="b",x="y",z="w"}) + baz{a="b",z="w"}"#,
+        );
+        validate_optimized(
+            r#"(foo{a="b",c="d"},bar{a="b",x="y"}) + baz{z="w"}"#,
+            r#"(foo{a="b",c="d",z="w"}, bar{a="b",x="y",z="w"}) + baz{a="b",z="w"}"#,
+        );
     }
 
     #[test]
@@ -634,8 +649,10 @@ mod tests {
         );
 
         // count_values_over_time
-        validate_optimized(r#"count_values_over_time("a", foo{a="x",b="c"}[5m]) + bar{a="y",d="e"}"#,
-          r#"count_values_over_time("a", foo{a="x",b="c",d="e"}[5m]) + bar{a="y",b="c",d="e"}"#);
+        validate_optimized(
+            r#"count_values_over_time("a", foo{a="x",b="c"}[5m]) + bar{a="y",d="e"}"#,
+            r#"count_values_over_time("a", foo{a="x",b="c",d="e"}[5m]) + bar{a="y",b="c",d="e"}"#,
+        );
     }
 
     #[test]

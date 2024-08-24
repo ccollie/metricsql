@@ -74,15 +74,12 @@ pub struct ActionContext<'a, Context> {
 }
 
 impl<'a, Context> ActionContext<'a, Context> {
-    pub fn new(
-        agent_context: &'a Context,
-    ) -> Self {
+    pub fn new(agent_context: &'a Context) -> Self {
         ActionContext {
             data: agent_context,
         }
     }
 }
-
 
 /// Trait to describe an action to be taken, within the context of an agent, when an event occurs.
 /// This could be expressed using generators from the standard library after this feature is stabilized.
@@ -178,9 +175,7 @@ pub struct Modification {
 
 impl Modification {
     pub(crate) fn trigger_only(item_id: u64) -> Self {
-        Modification {
-            item_id,
-        }
+        Modification { item_id }
     }
 }
 
@@ -231,7 +226,6 @@ impl<C> StepResult<C> {
         }
     }
 }
-
 
 /// Type that is returned by the `map` method on the [`HandlerActionExt`] trait.
 pub struct Map<H, F>(Option<(H, F)>);

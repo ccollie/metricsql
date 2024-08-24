@@ -4,16 +4,16 @@ use chrono::Duration;
 
 use metricsql_parser::prelude::{DurationExpr, Expr, Matchers};
 
-use crate::{
-    Deadline, MAX_DURATION_MSECS, QueryResult, QueryResults, remove_empty_values_and_timeseries,
-    RuntimeError, RuntimeResult, SearchQuery,
-};
 use crate::execution::{
     adjust_start_end, exec, parse_promql_internal, validate_max_points_per_timeseries,
 };
 use crate::execution::{Context, EvalConfig};
 use crate::prelude::{is_empty_extra_matchers, join_matchers_with_extra_filters_owned};
 use crate::types::{Timestamp, TimestampTrait};
+use crate::{
+    remove_empty_values_and_timeseries, Deadline, QueryResult, QueryResults, RuntimeError,
+    RuntimeResult, SearchQuery, MAX_DURATION_MSECS,
+};
 
 /// Default step used if not set.
 const DEFAULT_STEP: i64 = 5 * 60 * 1000;
@@ -199,7 +199,6 @@ impl CommonParams {
     }
 }
 
-
 /// Query handler for `Instant Queries`
 ///
 /// See https://prometheus.io/docs/prometheus/latest/querying/api/#instant-queries
@@ -241,7 +240,7 @@ pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<Query
 
             // Fetch the remaining part of the result.
 
-            let cp = if is_empty_extra_matchers(&params.required_tag_filters){
+            let cp = if is_empty_extra_matchers(&params.required_tag_filters) {
                 CommonParams {
                     deadline: params.deadline,
                     start,
@@ -250,7 +249,8 @@ pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<Query
                     filters: filters.clone(),
                 }
             } else {
-                let tfs_list = join_matchers_with_extra_filters_owned(&filters, &params.required_tag_filters);
+                let tfs_list =
+                    join_matchers_with_extra_filters_owned(&filters, &params.required_tag_filters);
                 CommonParams {
                     deadline: params.deadline,
                     start,
@@ -310,7 +310,8 @@ pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<Query
     let mut ec = EvalConfig::new(start, end, step);
 
     if ec.enforced_tag_filters.is_some() {
-        ec.enforced_tag_filters.clone_from(&params.required_tag_filters);
+        ec.enforced_tag_filters
+            .clone_from(&params.required_tag_filters);
     }
 
     ec.deadline = params.deadline;
@@ -341,7 +342,12 @@ pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<Query
 
 fn export_handler(ctx: &Context, cp: CommonParams) -> RuntimeResult<QueryResults> {
     let max_series = &ctx.config.max_unique_timeseries;
-    let CommonParams { start, end, filters, .. } = cp;
+    let CommonParams {
+        start,
+        end,
+        filters,
+        ..
+    } = cp;
     let sq = SearchQuery::new(start, end, filters, *max_series);
     ctx.search(sq, cp.deadline)
 }
@@ -398,7 +404,8 @@ fn query_range_handler(
     let mut ec = EvalConfig::new(start, end, step);
     ec.deadline = params.deadline;
     ec.set_caching(params.may_cache);
-    ec.enforced_tag_filters.clone_from(&params.required_tag_filters);
+    ec.enforced_tag_filters
+        .clone_from(&params.required_tag_filters);
     ec.round_digits = params.round_digits;
     ec.lookback_delta = lookback_delta;
     ec.update_from_context(ctx);

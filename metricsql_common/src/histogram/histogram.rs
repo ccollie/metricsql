@@ -6,11 +6,13 @@ const BUCKETS_PER_DECIMAL: usize = 18;
 const DECIMAL_BUCKETS_COUNT: usize = (E10_MAX - E10_MIN) as usize;
 const BUCKETS_COUNT: usize = DECIMAL_BUCKETS_COUNT * BUCKETS_PER_DECIMAL;
 
-
 static BUCKET_RANGES: LazyLock<Box<[String; BUCKETS_COUNT]>> = LazyLock::new(init_bucket_ranges);
-static BUCKET_MULTIPLIER: LazyLock<f64> = LazyLock::new(|| 10_f64.powf(1.0 / BUCKETS_PER_DECIMAL as f64));
-static UPPER_BUCKET_RANGE: LazyLock<String> = LazyLock::new(|| format!("{:.3e}...+Inf", 10_f64.powi(E10_MAX)));
-static LOWER_BUCKET_RANGE: LazyLock<String> = LazyLock::new(|| format!("0...{:.3e}", 10_f64.powi(E10_MIN)));
+static BUCKET_MULTIPLIER: LazyLock<f64> =
+    LazyLock::new(|| 10_f64.powf(1.0 / BUCKETS_PER_DECIMAL as f64));
+static UPPER_BUCKET_RANGE: LazyLock<String> =
+    LazyLock::new(|| format!("{:.3e}...+Inf", 10_f64.powi(E10_MAX)));
+static LOWER_BUCKET_RANGE: LazyLock<String> =
+    LazyLock::new(|| format!("0...{:.3e}", 10_f64.powi(E10_MIN)));
 
 struct Inner {
     decimal_buckets: [Option<[u64; BUCKETS_PER_DECIMAL]>; DECIMAL_BUCKETS_COUNT],
@@ -53,7 +55,8 @@ impl Histogram {
         if v.is_nan() || v < 0.0 {
             return;
         }
-        let bucket_idx = ((v.log10() - E10_MIN as f64) * BUCKETS_PER_DECIMAL as f64).floor() as isize;
+        let bucket_idx =
+            ((v.log10() - E10_MIN as f64) * BUCKETS_PER_DECIMAL as f64).floor() as isize;
 
         let mut inner = self.inner.write().unwrap();
         inner.sum += v;
@@ -65,9 +68,8 @@ impl Histogram {
             let idx = bucket_idx as usize;
             let decimal_bucket_idx = idx / BUCKETS_PER_DECIMAL;
             let offset = idx % BUCKETS_PER_DECIMAL;
-            let db = inner.decimal_buckets[decimal_bucket_idx].get_or_insert_with(|| {
-                [0; BUCKETS_PER_DECIMAL]
-            });
+            let db = inner.decimal_buckets[decimal_bucket_idx]
+                .get_or_insert_with(|| [0; BUCKETS_PER_DECIMAL]);
             db[offset] = 1;
         }
     }
@@ -81,9 +83,8 @@ impl Histogram {
 
         for (i, db_src) in src_inner.decimal_buckets.iter().enumerate() {
             if let Some(db_src) = db_src {
-                let db_dst = inner.decimal_buckets[i].get_or_insert_with(|| {
-                    [0; BUCKETS_PER_DECIMAL]
-                });
+                let db_dst =
+                    inner.decimal_buckets[i].get_or_insert_with(|| [0; BUCKETS_PER_DECIMAL]);
                 for (j, c) in db_src.iter().enumerate() {
                     db_dst[j] = *c;
                 }

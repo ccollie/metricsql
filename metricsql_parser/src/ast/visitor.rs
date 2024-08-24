@@ -107,7 +107,9 @@ mod tests {
     }
 
     fn vector_selector_includes_namespace(namespace: &str, vector_selector: &MetricExpr) -> bool {
-        vector_selector.matchers.find_matchers("namespace")
+        vector_selector
+            .matchers
+            .find_matchers("namespace")
             .iter()
             .any(|x| x.op == LabelFilterOp::Equal && x.value.eq(namespace))
     }
@@ -195,12 +197,14 @@ mod tests {
 
         let ast = parser::parse(
             "pg_stat_activity_count{namespace=\"sample\"} + pg_stat_activity_count{}",
-        ).unwrap();
+        )
+        .unwrap();
         assert!(!walk_expr(&mut visitor, &ast).unwrap());
 
         let ast = parser::parse(
             "pg_stat_activity_count{} - pg_stat_activity_count{namespace=\"sample\"}",
-        ).unwrap();
+        )
+        .unwrap();
         assert!(!walk_expr(&mut visitor, &ast).unwrap());
 
         let ast = parser::parse("pg_stat_activity_count{} * pg_stat_activity_count{}").unwrap();
@@ -216,4 +220,3 @@ mod tests {
         assert!(walk_expr(&mut visitor, &ast).unwrap());
     }
 }
-

@@ -1,5 +1,5 @@
-use std::fmt;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 use crate::ast::StringExpr;
 use crate::label::{LabelFilter, LabelFilterOp, LabelName, NAME_LABEL};
