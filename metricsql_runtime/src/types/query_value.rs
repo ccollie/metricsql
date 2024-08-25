@@ -3,6 +3,7 @@ use metricsql_parser::common::{Value, ValueType};
 use serde::ser::{SerializeSeq, SerializeStruct};
 use serde::{Deserialize, Serialize, Serializer};
 use std::borrow::Cow;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -18,6 +19,30 @@ pub type Labels = Vec<Label>;
 pub struct Label {
     pub name: String,
     pub value: String,
+}
+
+impl Label {
+    pub fn new<S: Into<String>>(key: S, value: String) -> Self {
+        Self {
+            name: key.into(),
+            value,
+        }
+    }
+}
+
+impl PartialOrd for Label {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        if self.name == other.name {
+            return Some(self.value.cmp(&other.value));
+        }
+        Some(self.name.cmp(&other.name))
+    }
+}
+
+impl Ord for Label {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.partial_cmp(other).unwrap()
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -44,6 +69,36 @@ impl Sample {
         Self { timestamp, value }
     }
 }
+
+impl PartialEq for Sample {
+    #[inline]
+    fn eq(&self, other: &Sample) -> bool {
+        // Two data points are equal if their times are equal, and their values are either equal or are NaN.
+        if self.timestamp == other.timestamp {
+            return if self.value.is_nan() {
+                other.value.is_nan()
+            } else {
+                self.value == other.value
+            }
+        }
+        false
+    }
+}
+
+impl Eq for Sample {}
+
+impl Ord for Sample {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.timestamp.cmp(&other.timestamp)
+    }
+}
+
+impl PartialOrd for Sample {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 
 pub type InstantVector = Vec<Timeseries>; // todo: Vec<(label, Sample)> or somesuch
 
