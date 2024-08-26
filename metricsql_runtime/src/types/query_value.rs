@@ -427,3 +427,26 @@ impl Iterator for ScalarIterator {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sample_ordering_test() {
+        let dp_1 = Sample::new(20, 2.0);
+        let dp_2 = Sample::new(10, 3.0);
+        let dp_3 = Sample::new(10, 3.0);
+
+        // The ordering of data points is based on time, so dp_2 will be less than dp_1.
+        assert!(dp_2 < dp_1);
+
+        // Data points are equal if their time and values are equal.
+        assert!(dp_2 == dp_3 && dp_1 != dp_2);
+
+        // Data points with NaN values are equal if their times are equal.
+        let dp_4 = Sample::new(10, f64::NAN);
+        let dp_5 = Sample::new(10, f64::NAN);
+        assert_eq!(dp_4, dp_5);
+    }
+}
