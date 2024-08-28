@@ -48,8 +48,8 @@ tokio = { version = "1.39", optional = true }
 scopeguard.workspace = true
 tracing.workspace = true
 xxhash-rust.workspace = true
-metricsql_common={ path = "../metricsql_common" }
-metricsql_parser={ path = "../metricsql_parser" }
+metricsql_common={ path = "../common" }
+metricsql_parser={ path = "../parser" }
 matchers = { version = "0.2.0", features = [] }
 static_assertions = "1.1.0"
 

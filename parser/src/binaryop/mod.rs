@@ -156,7 +156,7 @@ macro_rules! make_comparison_func_bool {
             if left.is_nan() {
                 return f64::NAN;
             }
-            return if $func(left, right) { 1_f64 } else { 0_f64 };
+            if $func(left, right) { 1_f64 } else { 0_f64 }
         }
     };
 }

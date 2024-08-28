@@ -22,7 +22,7 @@ strum_macros.workspace = true
 thiserror.workspace = true
 tinyvec.workspace = true
 xxhash-rust.workspace = true
-metricsql_common = { path = "../metricsql_common" }
+metricsql_common = { path = "../common" }
 
 [dev-dependencies]
 test-case.workspace = true

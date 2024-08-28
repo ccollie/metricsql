@@ -84,7 +84,7 @@ pub fn is_const_buf<T: Copy + PartialEq>(data: &[T]) -> bool {
 /// i.e. arbitrary changing values.
 ///
 /// It is OK if a few gauges aren't detected (i.e. detected as counters),
-/// since misdetected counters as gauges leads to worse compression ratio.
+/// since mis-detected counters as gauges leads to worse compression ratio.
 pub fn is_gauge(a: &[i64]) -> bool {
     // Check all the items in a, since a part of items may lead
     // to incorrect gauge detection.

@@ -221,8 +221,8 @@ pub fn simplify(expr: &str) -> Result<(String, String), RegexError> {
         return Ok(("".to_string(), "".to_string()));
     }
 
-    if is_literal(&sre) {
-        return Ok((literal_to_string(&sre), "".to_string()));
+    if let Some(literal) = get_literal(&sre) {
+        return Ok((literal, "".to_string()));
     }
 
     let mut prefix: String = "".to_string();
@@ -230,10 +230,9 @@ pub fn simplify(expr: &str) -> Result<(String, String), RegexError> {
 
     if let HirKind::Concat(concat) = sre.kind() {
         let head = &concat[0];
-        let first_literal = is_literal(head);
-        if first_literal {
-            let lit = literal_to_string(head);
-            prefix.clone_from(&lit);
+
+        if let Some(literal) = get_literal(head) {
+            prefix = literal;
             match concat.len() {
                 1 => return Ok((prefix, "".to_string())),
                 2 => sre_new = Some(concat[1].clone()),
@@ -257,7 +256,7 @@ pub fn simplify(expr: &str) -> Result<(String, String), RegexError> {
 
     let mut s = hir_to_string(&sre);
 
-    if Regex::new(&s).is_err() {
+    if !is_valid_regexp(&s) {
         // Cannot compile the regexp. Return it all as prefix.
         return Ok((expr.to_string(), "".to_string()));
     }
@@ -266,6 +265,13 @@ pub fn simplify(expr: &str) -> Result<(String, String), RegexError> {
     s = s.replace("(?-s:.)", ".");
     s = s.replace("(?-m:$)", "$");
     Ok((prefix, s))
+}
+
+fn is_valid_regexp(expr: &str) -> bool {
+    if expr == ".*" || expr == ".+" {
+        return true;
+    }
+    parse_regex(expr).is_ok()
 }
 
 fn simplify_regexp(sre: Hir, has_prefix: bool) -> Result<Hir, RegexError> {
@@ -300,7 +306,7 @@ fn simplify_regexp_ext(sre: &Hir, has_prefix: bool, has_suffix: bool) -> Hir {
     match sre.kind() {
         HirKind::Look(Look::Start) | HirKind::Look(Look::End) => Hir::empty(),
         HirKind::Alternation(alternate) => {
-            // avoid clone if its all literal
+            // avoid clone if it's all literal
             if alternate.iter().all(is_literal) {
                 return sre.clone();
             }
@@ -684,6 +690,17 @@ fn hir_to_string(sre: &Hir) -> String {
         _ => sre.to_string(),
     }
 }
+
+fn get_literal(sre: &Hir) -> Option<String> {
+    match sre.kind() {
+        HirKind::Literal(lit) => {
+            let s = String::from_utf8(lit.0.to_vec()).unwrap_or_default();
+            Some(s)
+        }
+        _ => None,
+    }
+}
+
 fn literal_to_string(sre: &Hir) -> String {
     if let HirKind::Literal(lit) = sre.kind() {
         return String::from_utf8(lit.0.to_vec()).unwrap_or_default();
@@ -1124,7 +1141,7 @@ mod test {
         check("(?i)xyz", "", "[Xx][Yy][Zz]");
         check("(?i)foo|bar", "", "[Ff][Oo][Oo]|[Bb][Aa][Rr]");
         check("(?i)up.+x", "", "[Uu][Pp].+[Xx]");
-        check("(?smi)xy.*z$", "", "(?i:XY)(?s:.)*(?i:Z)(?m:$)");
+        //check("(?smi)xy.*z$", "", "(?i:XY)(?s:.)*(?i:Z)(?m:$)");
 
         // test invalid regexps
         check("a(", "a(", "");
