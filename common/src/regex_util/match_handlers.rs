@@ -25,8 +25,7 @@ impl Predicate<str> for AlternateMatchHandler {
     }
 }
 
-/// Important! this is constructed from a regex
-/// so the literals MUST be ordered by their order
+/// Important! this is constructed from a regex so the literals MUST be ordered by their order
 /// in the regex pattern
 #[derive(Clone, Debug)]
 pub struct ContainsAnyOfHandler {
@@ -108,6 +107,7 @@ impl Predicate<str> for OrStringMatcher {
 #[derive(Debug, Clone)]
 pub enum StringMatchHandler {
     AlwaysTrue,
+    AlwaysFalse,
     Fsm(FastStringMatcher),
     FastRegex(FastRegexMatcher),
     Alternates(Vec<String>),
@@ -237,6 +237,7 @@ impl StringMatchHandler {
     pub fn matches(&self, s: &str) -> bool {
         match self {
             StringMatchHandler::AlwaysTrue => true,
+            StringMatchHandler::AlwaysFalse => false,
             StringMatchHandler::Alternates(alts) => matches_alternates(alts, s),
             StringMatchHandler::Fsm(fsm) => fsm.matches(s),
             StringMatchHandler::MatchFn(m) => m.matches(s),

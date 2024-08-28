@@ -212,7 +212,8 @@ pub fn simplify(expr: &str) -> Result<(String, String), RegexError> {
 
     let hir = match build_hir(expr) {
         Ok(hir) => hir,
-        Err(_) => return Ok(("".to_string(), "".to_string())),
+        // Cannot parse the regexp. Return it all as prefix.
+        Err(_) => return Ok((expr.to_string(), "".to_string())),
     };
 
     let mut sre = simplify_regexp(hir, false)?;
@@ -261,9 +262,10 @@ pub fn simplify(expr: &str) -> Result<(String, String), RegexError> {
         return Ok((expr.to_string(), "".to_string()));
     }
 
-    s = s.replace("(?:)", "");
-    s = s.replace("(?-s:.)", ".");
-    s = s.replace("(?-m:$)", "$");
+    s = s.replace("(?:)", "")
+        .replace("(?-s:.)", ".")
+        .replace("(?-m:$)", "$");
+
     Ok((prefix, s))
 }
 
@@ -458,7 +460,6 @@ pub fn get_optimized_re_match_func(
     };
 
     // Prepare fast string matcher for re_match.
-
     if let Some((match_func, literal_suffix, re_cost)) =
         get_optimized_re_match_func_ext(re_match.clone(), &sre)
     {
@@ -1131,7 +1132,8 @@ mod test {
         check("foo[a-z]*", "foo", "[a-z]*");
         check("foo[x]*", "foo", "x*");
         check("foo[x]+", "foo", "x+");
-        // check("foo[^x]+", "foo", "[^x]+");
+
+        check("foo[^x]+", "foo", "[^x]+");
         // check("foo[^x]*", "foo", "[^x]*");
         check("foo[x]*bar", "foo", "x*bar");
         check("fo\\Bo[x]*bar?", "fo", "\\Box*bar?");
