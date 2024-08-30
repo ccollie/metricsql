@@ -106,13 +106,6 @@ pub trait HandlerAction<Context> {
     ) -> StepResult<Self::Completion>;
 }
 
-/// A [`HandlerAction`] that does not produce a result.
-pub trait EventHandler<Context>: HandlerAction<Context, Completion = ()> {}
-
-assert_obj_safe!(EventHandler<()>);
-
-impl<Context, H> EventHandler<Context> for H where H: HandlerAction<Context, Completion = ()> {}
-
 impl<'a, H, Context> HandlerAction<Context> for &'a mut H
 where
     H: HandlerAction<Context>,

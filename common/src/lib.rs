@@ -10,7 +10,6 @@ extern crate xxhash_rust;
 pub mod async_runtime;
 pub mod atomic_counter;
 pub mod bytes_util;
-pub mod decimal;
 pub mod duration;
 pub mod error;
 pub mod fast_cache;
@@ -24,7 +23,6 @@ pub mod prelude {
     pub use crate::async_runtime::*;
     pub use crate::atomic_counter::*;
     pub use crate::bytes_util::*;
-    pub use crate::decimal::*;
     pub use crate::duration::*;
     pub use crate::fast_cache::*;
     pub use crate::hash::*;
