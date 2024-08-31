@@ -63,7 +63,7 @@ pub(crate) fn float_to_int_bounded(f: f64) -> i64 {
     (f as i64).clamp(i64::MIN, i64::MAX)
 }
 
-// todo: move to common common
+// todo: move to common
 pub(crate) fn parse_timezone(tz_name: &str) -> RuntimeResult<Tz> {
     if tz_name.is_empty() || tz_name.eq_ignore_ascii_case("local") {
         return if let Some(tz) = get_local_tz() {

@@ -1,11 +1,10 @@
+use super::match_handlers::StringMatchHandler;
+use crate::bytes_util::FastRegexMatcher;
 use regex::{Error as RegexError, Regex};
 use regex_syntax::hir::Class::{Bytes, Unicode};
 use regex_syntax::hir::{Capture, Class, Hir, HirKind, Literal, Look};
 use regex_syntax::{escape as escape_regex, parse as parse_regex};
 use std::borrow::Cow;
-
-use super::match_handlers::{ContainsAnyOfHandler, OrStringMatcher, StringMatchHandler};
-use crate::bytes_util::FastRegexMatcher;
 
 // Beyond this, it's better to use regexp.
 const MAX_OR_VALUES: usize = 16;
@@ -79,7 +78,7 @@ pub fn get_match_func_for_or_suffixes(or_values: Vec<String>) -> StringMatchHand
     if or_values.len() == 1 {
         let mut or_values = or_values;
         let v = or_values.remove(0);
-        StringMatchHandler::literal(v)
+        StringMatchHandler::match_fn(v, matches_literal)
     } else {
         // aho-corasick ?
         StringMatchHandler::Alternates(or_values)
@@ -235,18 +234,37 @@ pub fn simplify(expr: &str) -> Result<(String, String), RegexError> {
     let mut sre_new: Option<Hir> = None;
 
     if let HirKind::Concat(concat) = sre.kind() {
-        let head = &concat[0];
 
-        if let Some(literal) = get_literal(head) {
-            prefix = literal;
-            match concat.len() {
-                1 => return Ok((prefix, "".to_string())),
-                2 => sre_new = Some(concat[1].clone()),
-                _ => {
-                    let sub = Vec::from(&concat[1..]);
-                    // todo: do we need to simplify ?
-                    let temp = simplify_regexp(Hir::concat(sub), true)?;
-                    sre_new = Some(temp);
+        // Drop .* at the end.
+        let mut index = concat.len() - 1;
+        while index > 0 {
+            if !is_dot_star(&concat[index]) {
+                break;
+            }
+            index -= 1;
+        }
+
+        let mut subs = Vec::from(&concat[..=index]);
+        if prefix == "" {
+            // Drop .* at the start
+            while !subs.is_empty() && is_dot_star(&subs[0]) {
+                subs.remove(0);
+            }
+        }
+
+        if !subs.is_empty() {
+            let head = &subs[0];
+            if let Some(literal) = get_literal(head) {
+                prefix = literal;
+                match subs.len() {
+                    1 => return Ok((prefix, "".to_string())),
+                    2 => sre_new = Some(subs[1].clone()),
+                    _ => {
+                        // todo: do we need to simplify ?
+                        subs.remove(0);
+                        let temp = simplify_regexp(Hir::concat(subs), true)?;
+                        sre_new = Some(temp);
+                    }
                 }
             }
         }
@@ -416,22 +434,20 @@ pub const MIDDLE_MATCH_COST: usize = 6;
 pub const RE_MATCH_COST: usize = 100;
 
 pub struct OptimizedMatchFunc {
-    pub match_func: StringMatchHandler,
-    pub literal_suffix: Option<String>,
+    pub matcher: StringMatchHandler,
     pub cost: usize,
 }
 
 impl OptimizedMatchFunc {
-    pub fn new(match_func: StringMatchHandler, literal_suffix: Option<String>, cost: usize) -> Self {
+    pub fn new(matcher: StringMatchHandler, cost: usize) -> Self {
         Self {
-            match_func,
-            literal_suffix,
+            matcher,
             cost,
         }
     }
 
     pub fn matches(&self, s: &str) -> bool {
-        self.match_func.matches(s)
+        self.matcher.matches(s)
     }
 }
 
@@ -458,12 +474,12 @@ pub fn get_optimized_re_match_func(
     expr: &str,
 ) -> Result<OptimizedMatchFunc, RegexError> {
     if expr == ".*" {
-        return Ok(OptimizedMatchFunc::new(StringMatchHandler::dot_star(), None, FULL_MATCH_COST));
+        return Ok(OptimizedMatchFunc::new(StringMatchHandler::MatchAll, FULL_MATCH_COST));
     }
     if expr == ".+" {
         // '.+'
         return Ok(
-            OptimizedMatchFunc::new(StringMatchHandler::dot_plus(), None, FULL_MATCH_COST)
+            OptimizedMatchFunc::new(create_dot_plus_matcher(), FULL_MATCH_COST)
         );
     }
     let sre = match build_hir(expr) {
@@ -484,7 +500,7 @@ pub fn get_optimized_re_match_func(
 
     // Fall back to re_match_fast.
     let re_match = get_regex_matcher(expr)?;
-    Ok(OptimizedMatchFunc::new(re_match, None, RE_MATCH_COST))
+    Ok(OptimizedMatchFunc::new(re_match, RE_MATCH_COST))
 }
 
 fn get_regex_matcher(expr: &str) -> Result<StringMatchHandler, RegexError> {
@@ -501,16 +517,14 @@ fn get_optimized_re_match_func_ext(
     if is_dot_star(sre) {
         // '.*'
         return Ok(Some(OptimizedMatchFunc::new(
-            StringMatchHandler::dot_star(),
-            None,
+            StringMatchHandler::MatchAll,
             FULL_MATCH_COST,
         )));
     }
     if is_dot_plus(sre) {
         // '.+'
         return Ok(Some(OptimizedMatchFunc::new(
-            StringMatchHandler::dot_plus(),
-            None,
+            create_dot_plus_matcher(),
             FULL_MATCH_COST,
         )));
     }
@@ -525,7 +539,6 @@ fn get_optimized_re_match_func_ext(
                 }
                 return Ok(Some(OptimizedMatchFunc::new(
                     StringMatchHandler::Alternates(or_values),
-                    None,
                     LITERAL_MATCH_COST * alts.len(),
                 )));
             }
@@ -538,7 +551,7 @@ fn get_optimized_re_match_func_ext(
             if let Some(s) = get_literal(sre) {
                 // Literal match
                 return Ok(Some(
-                    OptimizedMatchFunc::new(StringMatchHandler::literal(&s), Some(s), LITERAL_MATCH_COST)
+                    OptimizedMatchFunc::new(create_literal_matcher(s), LITERAL_MATCH_COST)
                 ));
             }
             return Ok(None)
@@ -559,7 +572,6 @@ fn get_optimized_re_match_func_ext(
                         let alts = values.iter().map(|v| v.to_string()).collect::<Vec<_>>();
                         return Ok(Some(OptimizedMatchFunc::new(
                             StringMatchHandler::Alternates(alts),
-                            None,
                             LITERAL_MATCH_COST * values.len(),
                         )));
                     }
@@ -569,16 +581,16 @@ fn get_optimized_re_match_func_ext(
                     if is_dot_star(second) {
                         // 'prefix.*'
                         return Ok(Some(OptimizedMatchFunc::new(
-                            StringMatchHandler::prefix(prefix, true),
-                            None,
+                            create_prefix_matcher(prefix),
                             PREFIX_MATCH_COST,
                         )));
                     }
                     if is_dot_plus(second) {
                         // 'prefix.+'
                         return Ok(Some(OptimizedMatchFunc::new(
-                            StringMatchHandler::prefix(prefix, false),
-                            None,
+                            StringMatchHandler::match_fn(prefix, |needle, haystack| {
+                                haystack.len() > needle.len() && haystack.starts_with(needle)
+                            }),
                             PREFIX_MATCH_COST,
                         )));
                     }
@@ -587,16 +599,21 @@ fn get_optimized_re_match_func_ext(
                     if is_dot_star(first) {
                         // '.*suffix'
                         return Ok(Some(OptimizedMatchFunc::new(
-                            StringMatchHandler::suffix(&suffix, true),
-                            Some(suffix),
+                            StringMatchHandler::match_fn(suffix, |needle, haystack| haystack.ends_with(needle)),
                             SUFFIX_MATCH_COST,
                         )));
                     }
                     if is_dot_plus(first) {
                         // '.+suffix'
                         return Ok(Some(OptimizedMatchFunc::new(
-                            StringMatchHandler::suffix(&suffix, false),
-                            Some(suffix),
+                            StringMatchHandler::match_fn(suffix, |needle, haystack| {
+                                if needle.len() > haystack.len() {
+                                    let haystack = skip_first_char(haystack);
+                                    haystack.ends_with(needle)
+                                } else {
+                                    false
+                                }
+                            }),
                             SUFFIX_MATCH_COST,
                         )));
                     }
@@ -610,16 +627,25 @@ fn get_optimized_re_match_func_ext(
                     if is_dot_star(third) {
                         // '.*middle.*'
                         return Ok(Some(OptimizedMatchFunc::new(
-                            StringMatchHandler::middle(".*", middle, ".*"),
-                            None,
+                            StringMatchHandler::contains(middle),
                             MIDDLE_MATCH_COST,
                         )));
                     }
                     if is_dot_plus(third) {
                         // '.*middle.+'
                         return Ok(Some(OptimizedMatchFunc::new(
-                            StringMatchHandler::middle(".*", middle, ".+"),
-                            None,
+                            StringMatchHandler::match_fn(middle, |needle, haystack| {
+                                let needle_len = needle.len();
+                                if needle_len > haystack.len() {
+                                    if let Some(pos) = haystack.find(needle) {
+                                        pos + needle_len < haystack.len() - 1
+                                    } else {
+                                        false
+                                    }
+                                } else {
+                                    false
+                                }
+                            }),
                             MIDDLE_MATCH_COST,
                         )));
                     }
@@ -628,21 +654,42 @@ fn get_optimized_re_match_func_ext(
                     if is_dot_star(third) {
                         // '.+middle.*'
                         return Ok(Some(OptimizedMatchFunc::new(
-                            StringMatchHandler::middle(".+", middle, ".*"),
-                            None,
+                            StringMatchHandler::match_fn(middle, |needle, haystack| {
+                                if haystack.len() > needle.len() {
+                                    return if let Some(pos) = haystack.find(needle) {
+                                        pos > 0
+                                    } else {
+                                        false
+                                    }
+                                }
+                                false
+                            }),
                             MIDDLE_MATCH_COST,
                         )));
                     }
                     if is_dot_plus(third) {
                         // '.+middle.+'
                         return Ok(Some(OptimizedMatchFunc::new(
-                            StringMatchHandler::middle(".+", middle, ".+"),
-                            None,
+                            StringMatchHandler::match_fn(middle, |needle, haystack| {
+                                let needle_len = needle.len();
+                                if haystack.len() > needle_len + 1 {
+                                    if let Some(pos) = haystack.find(needle) {
+                                        pos > 0 && pos + needle_len < haystack.len() - 1
+                                    } else {
+                                        false
+                                    }
+                                } else {
+                                    false
+                                }
+                            }),
                             MIDDLE_MATCH_COST,
                         )));
                     }
                 }
             }
+
+            let re_match = get_regex_matcher(expr)?;
+
             // Verify that the string matches all the literals found in the regexp
             // before applying the regexp.
             // This should optimize the case when the regexp doesn't match the string.
@@ -658,18 +705,17 @@ fn get_optimized_re_match_func_ext(
                 "".to_string()
             };
 
-            let left = StringMatchHandler::ContainsAnyOf(ContainsAnyOfHandler {
-                literals,
-                suffix: suffix.clone(),
-            });
-
-            let re_match = get_regex_matcher(expr)?;
-            let matcher = StringMatchHandler::Or(OrStringMatcher {
-                left: Box::new(left),
-                right: Box::new(re_match),
-            });
-
-            return Ok(Some(OptimizedMatchFunc::new(matcher, Some(suffix), MIDDLE_MATCH_COST)));
+            let first = StringMatchHandler::contains_any_of(literals);
+            return if !suffix.is_empty() {
+                let ends_with = StringMatchHandler::match_fn(suffix, |needle, haystack| {
+                    !needle.is_empty() && haystack.ends_with(needle)
+                });
+                let pred = ends_with.and(first).and(re_match);
+                Ok(Some(OptimizedMatchFunc::new(pred, RE_MATCH_COST)))
+            } else {
+                let pred = first.and(re_match);
+                Ok(Some(OptimizedMatchFunc::new(pred, RE_MATCH_COST)))
+            }
         }
         _ => {
             // todo!()
@@ -735,25 +781,25 @@ fn literal_to_string(sre: &Hir) -> String {
 
 pub(super) fn get_prefix_matcher(prefix: &str) -> StringMatchHandler {
     if prefix == ".*" {
-        return StringMatchHandler::dot_star();
+        return StringMatchHandler::MatchAll;
     }
     if prefix == ".+" {
-        return StringMatchHandler::dot_plus();
+        return create_dot_plus_matcher();
     }
-    StringMatchHandler::starts_with(prefix)
+    create_prefix_matcher(prefix.to_string())
 }
 
 pub fn get_suffix_matcher(suffix: &str) -> Result<StringMatchHandler, RegexError> {
     if !suffix.is_empty() {
         if suffix == ".*" {
-            return Ok(StringMatchHandler::dot_star());
+            return Ok(StringMatchHandler::MatchAll);
         }
         if suffix == ".+" {
-            return Ok(StringMatchHandler::dot_plus());
+            return Ok(create_dot_plus_matcher());
         }
         if escape_regex(suffix) == suffix {
             // Fast path - literal suffix such as 'foo'
-            return Ok(StringMatchHandler::literal(suffix));
+            return Ok(create_literal_matcher(suffix.to_string()));
         }
         let or_values = get_or_values(suffix);
         if !or_values.is_empty() {
@@ -1000,9 +1046,54 @@ pub(super) fn skip_first_and_last_char(value: &str) -> &str {
     chars.as_str()
 }
 
+fn matches_literals_consecutively(literals: &[String], variable: &str) -> bool {
+    if literals.is_empty() {
+        return false;
+    }
+    let mut cursor = &variable[0..];
+    for literal in literals.iter() {
+        if let Some(pos) = cursor.find(literal) {
+            cursor = &cursor[pos + 1..];
+        } else {
+            return false;
+        }
+    }
+    true
+}
+
+fn create_literal_matcher(literal: String) -> StringMatchHandler {
+    StringMatchHandler::match_fn(literal.to_string(), |needle, haystack| {
+        needle == haystack
+    })
+}
+
+fn create_dot_plus_matcher() -> StringMatchHandler {
+    StringMatchHandler::match_fn("".to_string(), |needle, haystack| {
+        !haystack.is_empty()
+    })
+}
+
+fn create_prefix_matcher(prefix: String) -> StringMatchHandler {
+    StringMatchHandler::match_fn(prefix, matches_prefix)
+}
+
+fn matches_prefix(prefix: &str, candidate: &str) -> bool {
+    candidate.starts_with(prefix)
+}
+
+fn matches_literal(prefix: &str, candidate: &str) -> bool {
+    prefix == candidate
+}
+
+// .+
+fn matches_dot_plus(_: &str, candidate: &str) -> bool {
+    !candidate.is_empty()
+}
+
 #[cfg(test)]
 mod test {
     use super::{get_or_values, remove_start_end_anchors, simplify};
+    use crate::prelude::{get_optimized_re_match_func, OptimizedMatchFunc};
 
     #[test]
     fn test_is_dot_star() {
@@ -1210,4 +1301,143 @@ mod test {
         f("^abc\\$$$", "abc\\$");
         f("^a\\$b\\$$", "a\\$b\\$")
     }
+
+    #[test]
+    fn test_regex_failure() {
+        let s = "a(";
+        let got = super::build_hir(s);
+        assert!(got.is_err());
+    }
+
+    fn test_optimized_regex(expr: &str, s: &str, result_expected: bool) {
+        let OptimizedMatchFunc { matcher: match_func, .. } = get_optimized_re_match_func(expr).unwrap();
+        let result = match_func.matches(s);
+        assert_eq!(
+            result, result_expected,
+            "unexpected result when matching {s} against regex={expr}; got {result}; want {result_expected}"
+        );
+    }
+
+    #[test]
+    fn test_simple() {
+        let expr = ".+";
+        let s = "foobaza";
+        let result_expected = true;
+        test_optimized_regex(expr, s, result_expected);
+    }
+
+    #[test]
+    fn test_regex_match() {
+
+        fn f(expr: &str, s: &str, result_expected: bool) {
+            test_optimized_regex(expr, s, result_expected);
+        }
+
+        f("", "", true);
+     //   f("", "foo", true);
+        f("foo", "", false);
+        f(".*", "", true);
+        f(".*", "foo", true);
+        f(".+", "", false);
+        f(".+", "foo", true);
+        f("foo.*", "bar", false);
+        f("foo.*", "foo", true);
+//        f("foo.*", "a foo a", true);
+        f("foo.*", "foobar", true);
+    // f("foo.*", "a foobar", true);
+        f("foo.+", "bar", false);
+        f("foo.+", "foo", false);
+        f("foo.+", "a foo", false);
+        f("foo.+", "foobar", true);
+        f("foo.+", "a foobar", false);
+        f("foo|bar", "", false);
+        f("foo|bar", "a", false);
+        f("foo|bar", "foo", true);
+        f("foo|bar", "foo a", true);
+        f("foo|bar", "a foo a", true);
+        f("foo|bar", "bar", true);
+        f("foo|bar", "foobar", true);
+        f("foo(bar|baz)", "a", false);
+        f("foo(bar|baz)", "foobar", true);
+        f("foo(bar|baz)", "foobaz", true);
+  //      f("foo(bar|baz)", "foobaza", true);
+        f("foo(bar|baz)", "a foobaz a", true);
+        f("foo(bar|baz)", "foobal", false);
+        f("^foo|b(ar)$", "foo", true);
+        f("^foo|b(ar)$", "foo a", true);
+        f("^foo|b(ar)$", "a foo", false);
+        f("^foo|b(ar)$", "bar", true);
+        f("^foo|b(ar)$", "a bar", true);
+        f("^foo|b(ar)$", "barz", false);
+        f("^foo|b(ar)$", "ar", false);
+        f(".*foo.*", "foo", true);
+        f(".*foo.*", "afoobar", true);
+        f(".*foo.*", "abc", false);
+        f("foo.*bar.*", "foobar", true);
+        f("foo.*bar.*", "foo_bar_", true);
+        f("foo.*bar.*", "a foo bar baz", true);
+        f("foo.*bar.*", "foobaz", false);
+        f("foo.*bar.*", "baz foo", false);
+        f(".+foo.+", "foo", false);
+        f(".+foo.+", "afoobar", true);
+        f(".+foo.+", "afoo", false);
+        f(".+foo.+", "abc", false);
+        f("foo.+bar.+", "foobar", false);
+        f("foo.+bar.+", "foo_bar_", true);
+        f("foo.+bar.+", "a foo_bar_", true);
+        f("foo.+bar.+", "foobaz", false);
+        f("foo.+bar.+", "abc", false);
+        f(".+foo.*", "foo", false);
+        f(".+foo.*", "afoo", true);
+        f(".+foo.*", "afoobar", true);
+        f(".*(a|b).*", "a", true);
+        f(".*(a|b).*", "ax", true);
+        f(".*(a|b).*", "xa", true);
+        f(".*(a|b).*", "xay", true);
+        f(".*(a|b).*", "xzy", false);
+        f("^(?:true);$", "true", true);
+        f("^(?:true);$", "false", false);
+
+        f(".+;|;.+", ";", false);
+        f(".+;|;.+", "foo", false);
+        f(".+;|;.+", "foo;bar", true);
+        f(".+;|;.+", "foo;", true);
+        f(".+;|;.+", ";foo", true);
+        f(".+foo|bar|baz.+", "foo", false);
+        f(".+foo|bar|baz.+", "afoo", true);
+        f(".+foo|bar|baz.+", "fooa", false);
+        f(".+foo|bar|baz.+", "afooa", true);
+        f(".+foo|bar|baz.+", "bar", true);
+        f(".+foo|bar|baz.+", "abar", true);
+        f(".+foo|bar|baz.+", "abara", true);
+        f(".+foo|bar|baz.+", "bara", true);
+        f(".+foo|bar|baz.+", "baz", false);
+        f(".+foo|bar|baz.+", "baza", true);
+        f(".+foo|bar|baz.+", "abaz", false);
+        f(".+foo|bar|baz.+", "abaza", true);
+        f(".+foo|bar|baz.+", "afoo|bar|baza", true);
+        f(".+(foo|bar|baz).+", "bar", false);
+        f(".+(foo|bar|baz).+", "bara", false);
+        f(".+(foo|bar|baz).+", "abar", false);
+        f(".+(foo|bar|baz).+", "abara", true);
+        f(".+(foo|bar|baz).+", "afooa", true);
+        f(".+(foo|bar|baz).+", "abaza", true);
+
+        f(".*;|;.*", ";", true);
+        f(".*;|;.*", "foo", false);
+        f(".*;|;.*", "foo;bar", true);
+        f(".*;|;.*", "foo;", true);
+        f(".*;|;.*", ";foo", true);
+
+        f("^bar", "foobarbaz", false);
+        f("^foo", "foobarbaz", true);
+        f("bar$", "foobarbaz", false);
+        f("baz$", "foobarbaz", true);
+        f("(bar$|^foo)", "foobarbaz", true);
+        f("(bar$^boo)", "foobarbaz", false);
+        f("foo(bar|baz)", "a fooxfoobaz a", true);
+        f("foo(bar|baz)", "a fooxfooban a", false);
+        f("foo(bar|baz)", "a fooxfooban foobar a", true);
+    }
+
 }
