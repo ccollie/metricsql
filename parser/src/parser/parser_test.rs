@@ -380,7 +380,16 @@ mod tests {
         same("m + on (foo) n");
         same("m + ignoring (a, b) n");
         another("1 or 2", "1");
+        another("1 or NaN", "1");
+        another("NaN or 1", "1");
+        another("(1 > 0) or 2", "1");
+        another("(1 < 0) or 2", "2");
+        another("(1 < 0) or (2 < 0)", "NaN");
+        another("NaN or NaN", "NaN");
         another("1 and 2", "1");
+        another("1 and (1 > 0)", "1");
+        another("1 and (1 < 0)","NaN");
+        another("1 and NaN", "NaN");
         another("1 unless 2", "NaN");
         another("1 default 2", "1");
         another("1 default NaN", "1");

@@ -26,6 +26,24 @@ fn op_neq(left: f64, right: f64) -> bool {
     left != right
 }
 
+fn op_and(left: f64, right: f64) -> f64 {
+    if left.is_nan() || right.is_nan() {
+        f64::NAN
+    } else {
+        left
+    }
+}
+
+// return the first non-NaN item. If both left and right are NaN, it returns NaN.
+fn op_or(left: f64, right: f64) -> f64 {
+    if !left.is_nan() {
+        return left
+    } else if !right.is_nan() {
+        return right
+    }
+    f64::NAN
+}
+
 /// gt returns true of left > right
 #[inline]
 fn op_gt(left: f64, right: f64) -> bool {
@@ -128,10 +146,6 @@ pub fn op_unless(left: f64, right: f64) -> f64 {
     left
 }
 
-const fn return_left(left: f64, _right: f64) -> f64 {
-    left
-}
-
 /// convert true to x, false to NaN.
 #[inline]
 pub const fn to_comparison_value(b: bool, x: f64) -> f64 {
@@ -212,7 +226,8 @@ pub const fn get_scalar_binop_handler(op: Operator, is_bool: bool) -> BinopFunc 
         Operator::If => op_if,
         Operator::IfNot => op_if_not,
         Operator::Unless => op_unless,
-        Operator::And | Operator::Or => return_left,
+        Operator::And => op_and,
+        Operator::Or => op_or,
         Operator::Eql => get_scalar_comparison_handler(Operator::Eql, is_bool),
         Operator::NotEq => get_scalar_comparison_handler(Operator::NotEq, is_bool),
         Operator::Gt => get_scalar_comparison_handler(Operator::Gt, is_bool),
@@ -297,7 +312,8 @@ pub fn scalar_binary_operation(
             Default => op_default(lhs, rhs),
             If => op_if(lhs, rhs),
             IfNot => op_if_not(lhs, rhs),
-            And | Or => lhs,
+            And => op_and(lhs, rhs),
+            Or => op_or(lhs, rhs),
             Unless => f64::NAN,
             _ => {
                 return Err(ParseError::Unsupported(format!(

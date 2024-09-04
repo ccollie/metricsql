@@ -4,6 +4,7 @@ pub mod encoders;
 pub mod marshal;
 pub mod utils;
 
+// https://github.com/influxdata/influxdb/tree/b745a180a40fc62418e719ce531bc3a356503e0b/tsm/src
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EncodingError {
     pub description: String,

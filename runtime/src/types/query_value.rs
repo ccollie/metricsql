@@ -31,12 +31,7 @@ impl Label {
 }
 
 impl PartialOrd for Label {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        if self.name == other.name {
-            return Some(self.value.cmp(&other.value));
-        }
-        Some(self.name.cmp(&other.name))
-    }
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(self.cmp(other)) }
 }
 
 impl Ord for Label {
