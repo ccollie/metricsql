@@ -3,69 +3,9 @@ use predicates::reflection::PredicateReflection;
 use predicates::Predicate;
 use regex::Regex;
 use std::fmt::{Display, Formatter};
-
-use super::regex_utils::{skip_first_and_last_char, skip_first_char, skip_last_char};
+use crate::prelude::regex_utils::skip_first_char;
 
 pub type MatchFn = fn(pattern: &str, candidate: &str) -> bool;
-
-#[derive(Clone, Debug)]
-pub struct AlternateMatchHandler(pub Vec<String>);
-
-impl PredicateReflection for AlternateMatchHandler {}
-
-impl Display for AlternateMatchHandler {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "value in [{:?}]", self.0)
-    }
-}
-
-impl Predicate<str> for AlternateMatchHandler {
-    fn eval(&self, variable: &str) -> bool {
-        matches_alternates(&self.0, variable)
-    }
-}
-
-/// Important! this is constructed from a regex so the literals MUST be ordered by their order
-/// in the regex pattern
-#[derive(Clone, Debug)]
-pub struct ContainsAnyOfPredicate {
-    pub literals: Vec<String>,
-}
-
-impl ContainsAnyOfPredicate {
-    pub fn new(literals: Vec<String>) -> Self {
-        Self { literals }
-    }
-
-    pub fn is_match(&self, variable: &str) -> bool {
-        if self.literals.is_empty() {
-            return false;
-        }
-        let mut cursor = &variable[0..];
-        for literal in self.literals.iter() {
-            if let Some(pos) = cursor.find(literal) {
-                cursor = &cursor[pos + 1..];
-            } else {
-                return false;
-            }
-        }
-        true
-    }
-}
-
-impl PredicateReflection for ContainsAnyOfPredicate {}
-
-impl Display for ContainsAnyOfPredicate {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "value contains one of [{:?}]", self.literals)
-    }
-}
-
-impl Predicate<str> for ContainsAnyOfPredicate {
-    fn eval(&self, variable: &str) -> bool {
-        self.is_match(variable)
-    }
-}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct IncludesAnyOfMatcher(pub Vec<String>);
@@ -84,14 +24,27 @@ impl Predicate<str> for IncludesAnyOfMatcher {
     }
 }
 
+pub struct AlterMatchOptions {
+    pub anchor_end: bool,
+    pub anchor_start: bool,
+    pub prefix_dot_plus: bool,
+    pub suffix_dot_plus: bool,
+}
+
 #[derive(Clone, Debug)]
 pub enum StringMatchHandler {
     MatchAll,
     MatchNone,
+    Empty,
+    NotEmpty,
+    Literal(String),
+    Contains(String),
+    StartsWith(String),
+    EndsWith(String),
     Fsm(FastStringMatcher),
     FastRegex(FastRegexMatcher),
-    Alternates(Vec<String>),
-    ContainsAnyOf(ContainsAnyOfPredicate),
+    Alternates(Vec<String>, bool),
+    OrderedAlternates(Vec<String>),
     MatchFn(MatchFnHandler),
     And(Box<StringMatchHandler>, Box<StringMatchHandler>),
     Regex(Regex),
@@ -105,24 +58,12 @@ impl Default for StringMatchHandler {
 
 impl StringMatchHandler {
     #[allow(dead_code)]
-    pub fn alternates(alts: Vec<String>) -> Self {
-        Self::Alternates(alts)
-    }
-
-    #[allow(dead_code)]
     pub fn match_fn(pattern: String, match_fn: MatchFn) -> Self {
         Self::MatchFn(MatchFnHandler::new(pattern, match_fn))
     }
 
-    #[allow(dead_code)]
-    pub fn contains<T: Into<String>>(needle: T) -> Self {
-        Self::MatchFn(MatchFnHandler::new(needle.into(), |needle, haystack| {
-            haystack.contains(needle)
-        }))
-    }
-
-    pub fn contains_any_of(literals: Vec<String>) -> Self {
-        Self::ContainsAnyOf(ContainsAnyOfPredicate::new(literals))
+    pub fn fast_regex(regex: Regex) -> Self {
+        Self::FastRegex(FastRegexMatcher::new(regex))
     }
 
     pub fn and(self, b: StringMatchHandler) -> Self {
@@ -134,13 +75,19 @@ impl StringMatchHandler {
         match self {
             StringMatchHandler::MatchAll => true,
             StringMatchHandler::MatchNone => false,
-            StringMatchHandler::Alternates(alts) => matches_alternates(alts, s),
+            StringMatchHandler::Alternates(alts, match_end) => matches_alternates(alts, s, *match_end),
             StringMatchHandler::Fsm(fsm) => fsm.matches(s),
             StringMatchHandler::MatchFn(m) => m.matches(s),
             StringMatchHandler::FastRegex(r) => r.matches(s),
-            StringMatchHandler::ContainsAnyOf(m) => m.eval(s),
+            StringMatchHandler::OrderedAlternates(m) => match_ordered_alternates(&m, s),
             StringMatchHandler::Regex(r) => r.is_match(s),
             StringMatchHandler::And(a, b) => a.matches(s) && b.matches(s),
+            StringMatchHandler::Contains(value) => s.contains(value),
+            StringMatchHandler::StartsWith(prefix) => s.starts_with(prefix),
+            StringMatchHandler::EndsWith(suffix) => s.ends_with(suffix),
+            StringMatchHandler::Literal(val) => s == val,
+            StringMatchHandler::Empty => s.is_empty(),
+            StringMatchHandler::NotEmpty => !s.is_empty(),
         }
     }
 }
@@ -185,80 +132,106 @@ impl Predicate<&str> for StringMatchHandler {
     }
 }
 
-#[allow(dead_code)]
-fn matches_alternates(or_values: &[String], s: &str) -> bool {
-    or_values.iter().any(|v| s.contains(v))
+fn matches_alternates(or_values: &[String], s: &str, match_end: bool) -> bool {
+    if match_end {
+        for needle in or_values.iter() {
+            if let Some(pos) = s.find(needle) {
+                let found = pos + needle.len() < s.len() - 1;
+                if found {
+                    return true;
+                }
+            }
+        }
+        false
+    } else {
+        or_values.iter().any(|v| s.contains(v))
+    }
 }
 
-// prefix + '.*'
-#[allow(dead_code)]
-pub(super) fn match_prefix_dot_star(prefix: &str, candidate: &str) -> bool {
-    // Fast path - the pr contains "prefix.*"
-    candidate.starts_with(prefix)
+fn match_alternates_exact(or_values: &[String], haystack: &str, options: AlterMatchOptions) -> bool {
+    let mut haystack = &haystack[0..];
+    if options.anchor_start && options.anchor_end {
+        return match (options.prefix_dot_plus, options.suffix_dot_plus) {
+            (true, true) => {
+                // ^.+(foo|bar).+$
+                or_values.iter().any(|v| match_prefix_dot_plus(v, haystack))
+            }
+            (true, false) => {
+                // ^.+(foo|bar)$
+                or_values.iter().any(|v| match_prefix_dot_plus(v, haystack))
+            }
+            (false, true) => {
+                // ^(foo|bar).+$
+                or_values.iter().any(|v| haystack.starts_with(v))
+            }
+            _ => {
+                // ^(foo|bar)$
+                or_values.iter().any(|v| haystack == v)
+            }
+        }
+    } else if options.anchor_end {
+        // (foo|bar)$
+        return match (options.prefix_dot_plus, options.suffix_dot_plus) {
+            (true, true) => {
+                // .+(foo|bar)$
+                if !haystack.is_empty() {
+                    haystack = skip_first_char(haystack);
+                }
+                or_values.iter().any(|v| haystack.ends_with(v))
+            }
+            (true, false) => {
+                // .+(foo|bar)$
+                if !haystack.is_empty() {
+                    haystack = skip_first_char(haystack);
+                }
+                or_values.iter().any(|v| match_prefix_dot_plus(v, haystack))
+            }
+            (false, true) => {
+                // (foo|bar).+$
+                or_values.iter().any(|v| haystack.contains(v))
+            }
+            _ => {
+                // (foo|bar)$
+                or_values.iter().any(|v| haystack.ends_with(v))
+            }
+        }
+    } else  if options.anchor_start {
+        return or_values.iter().any(|v| haystack.starts_with(v));
+    }
+    or_values.iter().any(|v| haystack == v)
+}
+
+fn match_ordered_alternates(or_values: &[String], s: &str) -> bool {
+    if or_values.is_empty() {
+        return false;
+    }
+    let mut cursor = &s[0..];
+    for literal in or_values.iter() {
+        if let Some(pos) = cursor.find(literal) {
+            cursor = &cursor[pos + 1..];
+        } else {
+            return false;
+        }
+    }
+    true
+}
+
+fn match_literal(value: &str, candidate: &str, anchor_start: bool, anchor_end: bool) -> bool {
+    if anchor_start && anchor_end {
+        candidate == value
+    } else if anchor_start {
+        candidate.starts_with(value)
+    } else if anchor_end {
+        candidate.ends_with(value)
+    } else {
+        candidate.contains(value)
+    }
 }
 
 // prefix.+'
-#[allow(dead_code)]
 pub(super) fn match_prefix_dot_plus(prefix: &str, candidate: &str) -> bool {
     // dot plus
     candidate.len() > prefix.len() && candidate.starts_with(prefix)
-}
-
-// suffix.*'
-#[allow(dead_code)]
-fn suffix_dot_star(suffix: &str, candidate: &str) -> bool {
-    // Fast path - the pr contains "prefix.*"
-    candidate.ends_with(suffix)
-}
-
-// suffix.+'
-#[allow(dead_code)]
-fn suffix_dot_plus(suffix: &str, candidate: &str) -> bool {
-    // dot plus
-    if candidate.len() > suffix.len() {
-        let temp = skip_last_char(candidate);
-        temp == suffix
-    } else {
-        false
-    }
-}
-
-#[allow(dead_code)]
-fn dot_star_dot_star(pattern: &str, candidate: &str) -> bool {
-    candidate.contains(pattern)
-}
-
-// '.+middle.*'
-#[allow(dead_code)]
-fn dot_plus_dot_star(pattern: &str, candidate: &str) -> bool {
-    if candidate.len() > pattern.len() {
-        let temp = skip_first_char(candidate);
-        temp.contains(pattern)
-    } else {
-        false
-    }
-}
-
-// '.*middle.+'
-#[allow(dead_code)]
-fn dot_star_dot_plus(pattern: &str, candidate: &str) -> bool {
-    if candidate.len() > pattern.len() {
-        let temp = skip_last_char(candidate);
-        temp.contains(pattern)
-    } else {
-        false
-    }
-}
-
-// '.+middle.+'
-#[allow(dead_code)]
-fn dot_plus_dot_plus(pattern: &str, candidate: &str) -> bool {
-    if candidate.len() > pattern.len() + 1 {
-        let sub = skip_first_and_last_char(candidate);
-        sub.contains(pattern)
-    } else {
-        false
-    }
 }
 
 #[cfg(test)]
@@ -267,7 +240,7 @@ mod tests {
 
     #[test]
     fn test_alternates() {
-        let handler = StringMatchHandler::alternates(vec!["a".to_string(), "b".to_string()]);
+        let handler = StringMatchHandler::Alternates(vec!["a".to_string(), "b".to_string()], false);
         assert!(handler.matches("a"));
         assert!(handler.matches("b"));
         assert!(!handler.matches("c"));
@@ -275,7 +248,7 @@ mod tests {
 
     #[test]
     fn test_contains() {
-        let handler = StringMatchHandler::contains("a");
+        let handler = StringMatchHandler::Contains("a".to_string());
         assert!(handler.matches("a"));
         assert!(handler.matches("ba"));
         assert!(!handler.matches("b"));
