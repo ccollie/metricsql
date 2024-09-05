@@ -760,12 +760,13 @@ pub(super) fn fix_broken_buckets(i: usize, xss: &mut [LeTimeseries]) {
     // Substitute upper bucket values with lower bucket values if the upper values are NaN
     // or are bigger than the lower bucket values.
     let mut v_next = xss[0].ts.values[i]; // todo: check i to avoid panic
-    for j in 1..xss.len() {
-        let v = xss[j].ts.values[i];
-        if v.is_nan() || v_next > v {
-            xss[j].ts.values[i] = v_next;
-        } else {
-            v_next = v;
+    for lts in xss.iter_mut().skip(1) {
+        if let Some(v) = lts.ts.values.get_mut(i) {
+            if v.is_nan() || v_next > *v {
+                *v = v_next;
+            } else {
+                v_next = *v;
+            }
         }
     }
 }

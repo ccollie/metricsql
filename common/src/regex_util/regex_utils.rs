@@ -1,10 +1,8 @@
 use super::match_handlers::{StringMatchHandler, StringMatchOptions};
-use crate::bytes_util::FastRegexMatcher;
 use regex::{Error as RegexError, Regex};
 use regex_syntax::hir::Class::{Bytes, Unicode};
-use regex_syntax::hir::{Class, Hir, HirKind, Look};
+use regex_syntax::hir::{Class, Hir, HirKind};
 use regex_syntax::parse as parse_regex;
-use std::borrow::Cow;
 
 // Beyond this, it's better to use regexp.
 const MAX_OR_VALUES: usize = 16;
@@ -147,7 +145,7 @@ fn is_literal(sre: &Hir) -> bool {
     }
 }
 
-fn is_valid_regexp(expr: &str) -> bool {
+pub fn is_valid_regexp(expr: &str) -> bool {
     if expr == ".*" || expr == ".+" {
         return true;
     }
@@ -191,7 +189,7 @@ pub fn get_optimized_re_match_func(
 ) -> Result<(StringMatchHandler, usize), RegexError> {
 
     fn create_re_match_fn(expr: &str) -> Result<(StringMatchHandler, usize), RegexError> {
-        let re = Regex::new(&expr)?;
+        let re = Regex::new(expr)?;
         let re_match = StringMatchHandler::fast_regex(re);
         Ok((re_match, RE_MATCH_COST))
     }
@@ -270,13 +268,6 @@ pub fn get_optimized_re_match_func(
     create_re_match_fn(expr)
 }
 
-fn get_regex_matcher(expr: &str) -> Result<StringMatchHandler, RegexError> {
-    let expr_str = format!("^(?:{expr})$");
-    let re = Regex::new(&expr_str)?;
-    Ok(StringMatchHandler::FastRegex(FastRegexMatcher::new(re)))
-}
-
-
 fn get_optimized_re_match_func_ext(
     expr: &str,
     sre: &Hir,
@@ -341,12 +332,11 @@ fn get_optimized_re_match_func_ext(
             let suffix = &items[len - 1];
 
             let prefix_dot_plus = is_dot_plus(prefix);
-            let mut suffix_dot_plus = false;
 
             if len >= 2 {
                 // possible .+foo|bar|baz|quux.+  or  .+foo|bar|baz|quux  or  foo|bar|baz|quux.+
                 // Note: at this point, .* has been removed from both ends of the regexp.
-                suffix_dot_plus = is_dot_plus(suffix);
+                let suffix_dot_plus = is_dot_plus(suffix);
                 if prefix_dot_plus {
                     items = &items[1..];
                 }
@@ -416,10 +406,8 @@ fn get_optimized_re_match_func_ext(
                     if let Some(res) = handle_alternates(first, prefix_dot_plus, suffix_dot_plus, anchor_start, anchor_end) {
                         return Ok(Some(res));
                     }
-                } else {
-                    if let Some(res) = handle_alternates(sre, false, false, anchor_start, anchor_end) {
-                        return Ok(Some(res));
-                    }
+                } else if let Some(res) = handle_alternates(sre, false, false, anchor_start, anchor_end) {
+                    return Ok(Some(res));
                 }
             }
 
@@ -470,7 +458,7 @@ fn get_optimized_re_match_func_ext(
                 }
             }
 
-            let re = Regex::new(&expr)?;
+            let re = Regex::new(expr)?;
             let re_match = StringMatchHandler::fast_regex(re);
 
             // Verify that the string matches all the literals found in the regexp
@@ -581,10 +569,6 @@ fn literal_to_string(sre: &Hir) -> String {
     "".to_string()
 }
 
-fn is_empty_regexp(sre: &Hir) -> bool {
-    matches!(sre.kind(), HirKind::Empty)
-}
-
 fn is_dot_star(sre: &Hir) -> bool {
     match sre.kind() {
         HirKind::Capture(cap) => is_dot_star(cap.sub.as_ref()),
@@ -649,26 +633,6 @@ fn is_empty_class(class: &Class) -> bool {
     false
 }
 
-/// removes start and end anchors.
-fn remove_anchors(v: &Vec<Hir>) -> Cow<'_, Vec<Hir>> {
-    if v.len() < 2
-        || !matches!(
-            (v.first().unwrap().kind(), v.last().unwrap().kind()),
-            (&HirKind::Look(Look::Start), &HirKind::Look(Look::End))
-        )
-    {
-        return Cow::Borrowed(v);
-    }
-
-    if v.len() == 2 {
-        return Cow::Owned(Vec::new());
-    }
-
-    let arr = v[1..v.len() - 1].to_vec();
-    Cow::Owned(arr)
-}
-
-
 fn build_hir(pattern: &str) -> Result<Hir, RegexError> {
     parse_regex(pattern).map_err(|err| RegexError::Syntax(err.to_string()))
 }
@@ -676,7 +640,7 @@ fn build_hir(pattern: &str) -> Result<Hir, RegexError> {
 
 #[cfg(test)]
 mod test {
-    use super::{remove_start_end_anchors};
+    use super::remove_start_end_anchors;
     use crate::prelude::get_optimized_re_match_func;
 
     #[test]

@@ -257,10 +257,10 @@ fn get_alternate_match_fn(options: &StringMatchOptions) -> AlternatesMatchFn {
             }
         }
         (false, true) => {
-            // foo.$
+            // foo.+$
             match (prefix_dot_plus, suffix_dot_plus) {
                 (true, true) => {
-                    // .+foo.+
+                    // .+foo.+$
                     dot_plus_dot_plus
                 }
                 (true, false) => {
@@ -268,12 +268,12 @@ fn get_alternate_match_fn(options: &StringMatchOptions) -> AlternatesMatchFn {
                     dot_plus_ends_with
                 }
                 (false, true) => {
-                    // foo.+
+                    // foo.+$
                     prefix_dot_plus_
                 }
                 _ => {
-                    // foo.+$
-                    prefix_dot_plus_
+                    // foo$
+                    ends_with
                 }
             }
         }
@@ -318,11 +318,11 @@ fn get_literal_match_fn(options: &StringMatchOptions) -> MatchFn {
                     dot_plus_dot_plus_fn
                 }
                 (true, false) => {
-                    // ^.+foo$
+                    // ^.+foo
                     dot_plus_ends_with_fn
                 }
                 (false, true) => {
-                    // ^foobar.+$
+                    // foobar.+$
                     starts_with_fn
                 }
                 _ => {
@@ -372,9 +372,26 @@ fn get_literal_match_fn(options: &StringMatchOptions) -> MatchFn {
             }
         }
         _ => {
-            // no anchors not .+
             // match foobar
-            contains_fn
+            match (anchor_start, anchor_end) {
+                (true, true) => {
+                    // ^foobar$
+                    equals_fn
+                }
+                (true, false) => {
+                    // ^foobar
+                    starts_with_fn
+                }
+                (false, true) => {
+                    // foobar$
+                    ends_with_fn
+                }
+                _ => {
+                    // foobar
+                    contains_fn
+                }
+            }
+
         }
     }
 }
@@ -422,8 +439,7 @@ fn dot_plus_ends_with_fn(needle: &str, haystack: &str) -> bool {
 // ^.+(foo|bar).+
 fn dot_plus_dot_plus_fn(needle: &str, haystack: &str) -> bool {
     if let Some(pos) = haystack.find(needle) {
-        let found = pos > 0 && pos + needle.len() < haystack.len();
-        found
+        pos > 0 && pos + needle.len() < haystack.len()
     } else {
         false
     }
@@ -444,23 +460,6 @@ fn match_ordered_alternates(or_values: &[String], s: &str) -> bool {
     true
 }
 
-fn match_literal(value: &str, candidate: &str, anchor_start: bool, anchor_end: bool) -> bool {
-    if anchor_start && anchor_end {
-        candidate == value
-    } else if anchor_start {
-        candidate.starts_with(value)
-    } else if anchor_end {
-        candidate.ends_with(value)
-    } else {
-        candidate.contains(value)
-    }
-}
-
-// prefix.+'
-pub(super) fn match_prefix_dot_plus(prefix: &str, candidate: &str) -> bool {
-    // dot plus
-    candidate.len() > prefix.len() && candidate.starts_with(prefix)
-}
 
 #[cfg(test)]
 mod tests {
