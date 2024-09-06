@@ -1,8 +1,6 @@
 use std::fmt::{Debug, Display};
 
 use dynamic_lru_cache::DynamicCache;
-use predicates::reflection::PredicateReflection;
-use predicates::Predicate;
 use regex::Regex;
 
 const DEFAULT_CACHE_SIZE: usize = 100;
@@ -65,13 +63,5 @@ impl Display for FastRegexMatcher {
 impl Debug for FastRegexMatcher {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "/{}/", self.regex)
-    }
-}
-
-impl PredicateReflection for FastRegexMatcher {}
-
-impl Predicate<&str> for FastRegexMatcher {
-    fn eval(&self, variable: &&str) -> bool {
-        self.matches(variable)
     }
 }

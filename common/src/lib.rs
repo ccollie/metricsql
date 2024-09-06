@@ -3,7 +3,6 @@ extern crate byte_pool;
 extern crate chrono_tz;
 extern crate core;
 extern crate lockfree_object_pool;
-extern crate predicates;
 extern crate rand;
 extern crate xxhash_rust;
 
