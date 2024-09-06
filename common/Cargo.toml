@@ -22,7 +22,6 @@ byte-pool = "0.2"
 futures.workspace = true
 gxhash.workspace = true
 lockfree-object-pool = "0.1"
-predicates.workspace = true
 rand.workspace = true
 rand_distr.workspace = true
 regex.workspace = true

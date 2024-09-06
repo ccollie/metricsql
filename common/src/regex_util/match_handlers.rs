@@ -1,28 +1,9 @@
 use crate::bytes_util::{FastRegexMatcher, FastStringMatcher};
-use predicates::reflection::PredicateReflection;
-use predicates::Predicate;
 use regex::Regex;
 use std::fmt::{Display, Formatter};
 
 pub type MatchFn = fn(pattern: &str, candidate: &str) -> bool;
 pub type AlternatesMatchFn = fn(or_values: &[String], haystack: &str) -> bool;
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct IncludesAnyOfMatcher(pub Vec<String>);
-
-impl PredicateReflection for IncludesAnyOfMatcher {}
-
-impl Display for IncludesAnyOfMatcher {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "value includes one of [{:?}]", self.0)
-    }
-}
-
-impl Predicate<str> for IncludesAnyOfMatcher {
-    fn eval(&self, variable: &str) -> bool {
-        self.0.iter().any(|v| variable.contains(v))
-    }
-}
 
 pub struct StringMatchOptions {
     pub anchor_end: bool,
@@ -117,11 +98,6 @@ impl StringMatchHandler {
     }
 }
 
-impl Predicate<str> for StringMatchHandler {
-    fn eval(&self, variable: &str) -> bool {
-        self.matches(variable)
-    }
-}
 
 #[derive(Clone, Debug)]
 pub struct MatchFnHandler {
@@ -143,19 +119,12 @@ impl MatchFnHandler {
     }
 }
 
-impl PredicateReflection for StringMatchHandler {}
-
 impl Display for StringMatchHandler {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self)
     }
 }
 
-impl Predicate<&str> for StringMatchHandler {
-    fn eval(&self, variable: &&str) -> bool {
-        self.matches(variable)
-    }
-}
 
 fn matches_alternates(or_values: &[String], s: &str, match_end: bool) -> bool {
     if match_end {
