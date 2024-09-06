@@ -25,6 +25,12 @@ pub struct Histogram {
     inner: RwLock<Inner>,
 }
 
+impl Default for Histogram {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Histogram {
     pub fn new() -> Self {
         Self {
@@ -39,7 +45,7 @@ impl Histogram {
 
     pub fn reset(&self) {
         let mut inner = self.inner.write().unwrap();
-        for db in &mut inner.decimal_buckets {
+        for db in inner.decimal_buckets.iter_mut() {
             if let Some(b) = db {
                 for c in b {
                     *c = 0;
@@ -69,7 +75,7 @@ impl Histogram {
             let decimal_bucket_idx = idx / BUCKETS_PER_DECIMAL;
             let offset = idx % BUCKETS_PER_DECIMAL;
             let db = inner.decimal_buckets[decimal_bucket_idx]
-                .get_or_insert_with(|| [0; BUCKETS_PER_DECIMAL]);
+                .get_or_insert([0; BUCKETS_PER_DECIMAL]);
             db[offset] = 1;
         }
     }
@@ -84,7 +90,7 @@ impl Histogram {
         for (i, db_src) in src_inner.decimal_buckets.iter().enumerate() {
             if let Some(db_src) = db_src {
                 let db_dst =
-                    inner.decimal_buckets[i].get_or_insert_with(|| [0; BUCKETS_PER_DECIMAL]);
+                    inner.decimal_buckets[i].get_or_insert([0; BUCKETS_PER_DECIMAL]);
                 for (j, c) in db_src.iter().enumerate() {
                     db_dst[j] = *c;
                 }
@@ -98,7 +104,7 @@ impl Histogram {
     {
         let inner = self.inner.read().unwrap();
         if inner.lower > 0 {
-            f(&LOWER_BUCKET_RANGE.as_str(), inner.lower);
+            f(LOWER_BUCKET_RANGE.as_str(), inner.lower);
         }
         for (decimal_bucket_idx, db) in inner.decimal_buckets.iter().enumerate() {
             if let Some(db) = db {
@@ -112,7 +118,7 @@ impl Histogram {
             }
         }
         if inner.upper > 0 {
-            f(&UPPER_BUCKET_RANGE.as_str(), inner.upper);
+            f(UPPER_BUCKET_RANGE.as_str(), inner.upper);
         }
     }
 

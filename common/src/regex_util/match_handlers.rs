@@ -85,7 +85,7 @@ impl StringMatchHandler {
             StringMatchHandler::Fsm(fsm) => fsm.matches(s),
             StringMatchHandler::MatchFn(m) => m.matches(s),
             StringMatchHandler::FastRegex(r) => r.matches(s),
-            StringMatchHandler::OrderedAlternates(m) => match_ordered_alternates(&m, s),
+            StringMatchHandler::OrderedAlternates(m) => match_ordered_alternates(m, s),
             StringMatchHandler::Regex(r) => r.is_match(s),
             StringMatchHandler::And(a, b) => a.matches(s) && b.matches(s),
             StringMatchHandler::Contains(value) => s.contains(value),
@@ -177,7 +177,7 @@ fn get_alternate_match_fn(options: &StringMatchOptions) -> AlternatesMatchFn {
     }
 
     fn prefix_dot_plus_(alternates: &[String], haystack: &str) -> bool {
-        alternates.iter().any(|v| prefix_dot_plus_fn(&v, haystack))
+        alternates.iter().any(|v| prefix_dot_plus_fn(v, haystack))
     }
 
     let StringMatchOptions { anchor_start, anchor_end, prefix_dot_plus, suffix_dot_plus } = *options;

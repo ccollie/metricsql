@@ -250,7 +250,7 @@ pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<Query
                 }
             } else {
                 let tfs_list =
-                    join_matchers_with_extra_filters_owned(&filters, &params.required_tag_filters);
+                    join_matchers_with_extra_filters_owned(filters, &params.required_tag_filters);
                 CommonParams {
                     deadline: params.deadline,
                     start,

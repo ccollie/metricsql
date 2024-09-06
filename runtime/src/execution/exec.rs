@@ -12,7 +12,6 @@ use crate::types::Timeseries;
 use crate::QueryValue;
 use ahash::AHashSet;
 use chrono::Utc;
-use metricsql_parser::ast::Expr;
 use tracing::{field, info, trace_span, Span};
 
 pub(crate) fn parse_promql_internal(
@@ -223,70 +222,4 @@ pub(crate) fn remove_empty_series(tss: &mut Vec<Timeseries>) {
 #[inline]
 pub(crate) fn sort_series_by_metric_name(result: &mut Vec<QueryResult>) {
     result.sort_by(|a, b| a.metric.partial_cmp(&b.metric).unwrap());
-}
-
-/// no_implicit_conversion_required checks if expr requires implicit conversion
-fn no_implicit_conversion_required(e: &Expr, is_sub_expr: bool) -> bool {
-    let mut is_sub_expr = is_sub_expr;
-    match e {
-        Expr::Function(f) => {
-            if is_sub_expr {
-                return false;
-            }
-            let is_rollup_fn = f.is_rollup();
-            for arg in &f.args {
-                let is_rollup_expr = arg.is_rollup();
-                if (is_rollup_expr && !is_rollup_fn) || (!is_rollup_expr && is_rollup_fn) {
-                    return false;
-                }
-                if is_rollup_fn {
-                    is_sub_expr = true
-                }
-                if !no_implicit_conversion_required(arg, is_sub_expr) {
-                    return false;
-                }
-            }
-            true
-        }
-        Expr::Rollup(re) => {
-            if let Expr::MetricExpression(_) = re.expr.as_ref() {
-                return re.step.is_none();
-            }
-            // exp.step is optional in subqueries
-            if re.window.is_none() {
-                return false;
-            }
-            no_implicit_conversion_required(&re.expr, false)
-        }
-        Expr::Aggregation(aggr) => {
-            if is_sub_expr {
-                return false;
-            }
-            for arg in &aggr.args {
-                if let Expr::Rollup(re) = arg {
-                    if re.window.is_none() {
-                        return false;
-                    }
-                }
-                if !no_implicit_conversion_required(arg, false) {
-                    return false;
-                }
-            }
-            true
-        }
-        Expr::BinaryOperator(op) => {
-            if is_sub_expr {
-                return false;
-            }
-            if !no_implicit_conversion_required(&op.left, false) {
-                return false;
-            }
-            if !no_implicit_conversion_required(&op.right, false) {
-                return false;
-            }
-            true
-        }
-        Expr::MetricExpression(_) => true,
-        _ => true,
-    }
 }

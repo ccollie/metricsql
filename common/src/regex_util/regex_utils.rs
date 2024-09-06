@@ -373,10 +373,8 @@ fn get_optimized_re_match_func_ext(
         HirKind::Literal(_lit) => {
             if let Some(s) = get_literal(sre) {
                 // Literal match
-                let matcher = get_literal_matcher(s, anchor_start, anchor_end);
-                return Ok(Some(
-                    (matcher, LITERAL_MATCH_COST)
-                ));
+                let res = handle_literal(s, false, false, anchor_start, anchor_end);
+                return Ok(res);
             }
             Ok(None)
         }
@@ -502,16 +500,6 @@ fn get_optimized_re_match_func_ext(
             // todo!()
             Ok(None)
         }
-    }
-}
-
-pub(super) fn get_literal_matcher(lit: String, anchor_start: bool, anchor_end: bool) -> StringMatchHandler {
-    // Literal match
-    match (anchor_start, anchor_end) {
-        (true, true) => StringMatchHandler::Literal(lit),
-        (true, false) => StringMatchHandler::StartsWith(lit),
-        (false, true) => StringMatchHandler::EndsWith(lit),
-        _ => StringMatchHandler::Contains(lit),
     }
 }
 

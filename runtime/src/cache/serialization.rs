@@ -310,15 +310,6 @@ fn write_usize(slice: &mut Vec<u8>, size: usize) {
     slice.extend_from_slice(&size.to_le_bytes());
 }
 
-pub(super) fn write_usize_in_place(vec: &mut [u8], index: usize, value: usize) {
-    let bytes = value.to_le_bytes();
-    let end = index + bytes.len();
-    if end > vec.len() {
-        panic!("Index out of bounds");
-    }
-    vec[index..end].copy_from_slice(&bytes);
-}
-
 fn read_usize(input: &mut &[u8], field: &str) -> RuntimeResult<usize> {
     let (int_bytes, rest) = input.split_at(size_of::<usize>());
     let buf = int_bytes.try_into().map_err(|_| {

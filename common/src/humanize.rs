@@ -74,3 +74,27 @@ pub fn humanize_bytes(size: f64) -> String {
     }
     format!("{:.4}{suffix}", size)
 }
+
+const TB: u64 = 1 << 40;
+const GB: u64 = 1 << 30;
+const MB: u64 = 1 << 20;
+const KB: u64 = 1 << 10;
+
+/// Present size in human-readable form
+pub fn human_readable_size(size: usize) -> String {
+    let size = size as u64;
+    let (value, unit) = {
+        if size >= 2 * TB {
+            (size as f64 / TB as f64, "TB")
+        } else if size >= 2 * GB {
+            (size as f64 / GB as f64, "GB")
+        } else if size >= 2 * MB {
+            (size as f64 / MB as f64, "MB")
+        } else if size >= 2 * KB {
+            (size as f64 / KB as f64, "KB")
+        } else {
+            (size as f64, "B")
+        }
+    };
+    format!("{value:.1} {unit}")
+}

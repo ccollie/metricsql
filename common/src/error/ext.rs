@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use super::status_code::StatusCode;
 
-/// Extension to [`Error`](std::error::Error) in std.
+/// Extension to [`Error`](Error) in std.
 pub trait ErrorExt {
     /// Map this error to [StatusCode].
     fn status_code(&self) -> StatusCode {
@@ -44,62 +44,6 @@ impl<T: ?Sized + StackError> StackError for Arc<T> {
 impl<T: StackError> StackError for Box<T> {
     fn debug_fmt(&self, layer: usize, buf: &mut Vec<String>) {
         self.as_ref().debug_fmt(layer, buf)
-    }
-}
-
-/// An opaque boxed error based on errors that implement [ErrorExt] trait.
-pub struct BoxedError {
-    inner: Box<dyn ErrorExt + Send + Sync>,
-}
-
-impl BoxedError {
-    pub fn new<E: ErrorExt + Send + Sync + Display + 'static>(err: E) -> Self {
-        Self {
-            inner: Box::new(err),
-        }
-    }
-}
-
-impl std::fmt::Debug for BoxedError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Use the pretty debug format of inner error for opaque error.
-        let _debug_format = super::format::DebugFormat::new(&*self.inner);
-        // debug_format.fmt(f)
-        todo!("BoxedError::Debug")
-    }
-}
-
-impl Display for BoxedError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Ok(write!(f, "{:?}", self.inner)?)
-        todo!("BoxedError::Debug")
-    }
-}
-
-impl ErrorExt for BoxedError {
-    fn status_code(&self) -> StatusCode {
-        self.inner.status_code()
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self.inner.as_any()
-    }
-}
-
-// Implement ErrorCompat for this opaque error so the backtrace is also available
-// via `ErrorCompat::backtrace()`.
-impl snafu::ErrorCompat for BoxedError {
-    fn backtrace(&self) -> Option<&snafu::Backtrace> {
-        None
-    }
-}
-
-impl Error for BoxedError {}
-
-impl StackError for BoxedError {
-    fn debug_fmt(&self, layer: usize, buf: &mut Vec<String>) {
-        // self.inner.debug_fmt(layer, buf)
-        todo!("BoxedError::debug_fmt")
     }
 }
 
