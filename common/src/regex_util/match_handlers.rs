@@ -3,13 +3,20 @@ use regex::Regex;
 use std::fmt::{Display, Formatter};
 
 pub type MatchFn = fn(pattern: &str, candidate: &str) -> bool;
-pub type AlternatesMatchFn = fn(or_values: &[String], haystack: &str) -> bool;
 
+#[derive(Copy, Clone)]
+pub enum Quantifier {
+//  ZeroOrOne, // ?
+    ZeroOrMore, // *
+    OneOrMore, // +
+}
+
+#[derive(Default)]
 pub struct StringMatchOptions {
     pub anchor_end: bool,
     pub anchor_start: bool,
-    pub prefix_dot_plus: bool,
-    pub suffix_dot_plus: bool,
+    pub prefix_quantifier: Option<Quantifier>,
+    pub suffix_quantifier: Option<Quantifier>
 }
 
 #[derive(Clone, Debug)]
@@ -24,10 +31,9 @@ pub enum StringMatchHandler {
     EndsWith(String),
     Fsm(FastStringMatcher),
     FastRegex(FastRegexMatcher),
-    Alternates(Vec<String>, bool),
     OrderedAlternates(Vec<String>),
     MatchFn(MatchFnHandler),
-    AlternatesFn(Vec<String>, AlternatesMatchFn),
+    Alternates(Vec<String>, MatchFn),
     And(Box<StringMatchHandler>, Box<StringMatchHandler>),
     Regex(Regex),
 }
@@ -49,26 +55,24 @@ impl StringMatchHandler {
     }
 
     pub fn alternates(alts: Vec<String>, options: &StringMatchOptions) -> Self {
+        let match_fn = get_literal_match_fn(options);
         if alts.len() == 1 {
             let mut alts = alts;
             let pattern = alts.pop().unwrap();
-            let match_fn = get_literal_match_fn(options);
             return Self::MatchFn(MatchFnHandler{
                 pattern,
                 match_fn
             });
         }
-        let match_fn = get_alternate_match_fn(options);
-        Self::AlternatesFn(alts, match_fn)
+        Self::Alternates(alts, match_fn)
     }
 
     pub fn literal(value: String, options: &StringMatchOptions) -> Self {
-        let match_fn = get_literal_match_fn(options);
-        Self::MatchFn(MatchFnHandler::new(value, match_fn))
+        get_optimized_literal_matcher(value, options)
     }
 
     pub fn equals(value: String) -> Self {
-        Self::MatchFn(MatchFnHandler::new(value, equals_fn))
+        StringMatchHandler::Literal(value)
     }
 
     pub fn and(self, b: StringMatchHandler) -> Self {
@@ -80,8 +84,7 @@ impl StringMatchHandler {
         match self {
             StringMatchHandler::MatchAll => true,
             StringMatchHandler::MatchNone => false,
-            StringMatchHandler::Alternates(alts, match_end) => matches_alternates(alts, s, *match_end),
-            StringMatchHandler::AlternatesFn(alternates, handler) => handler(alternates, s),
+            StringMatchHandler::Alternates(alts, match_fn) => matches_alternates(alts, s, match_fn),
             StringMatchHandler::Fsm(fsm) => fsm.matches(s),
             StringMatchHandler::MatchFn(m) => m.matches(s),
             StringMatchHandler::FastRegex(r) => r.matches(s),
@@ -125,245 +128,311 @@ impl Display for StringMatchHandler {
     }
 }
 
-
-fn matches_alternates(or_values: &[String], s: &str, match_end: bool) -> bool {
-    if match_end {
-        for needle in or_values.iter() {
-            if let Some(pos) = s.find(needle) {
-                let found = pos + needle.len() < s.len() - 1;
-                if found {
-                    return true;
-                }
-            }
-        }
-        false
-    } else {
-        or_values.iter().any(|v| s.contains(v))
-    }
+#[inline]
+fn matches_alternates(alternates: &[String], haystack: &str, match_fn: &MatchFn) -> bool {
+    alternates.iter().any(|v| match_fn(v, haystack))
 }
 
-fn get_alternate_match_fn(options: &StringMatchOptions) -> AlternatesMatchFn {
+const fn get_literal_match_fn(options: &StringMatchOptions) -> MatchFn {
 
-    fn contains(alternates: &[String], haystack: &str) -> bool {
-        alternates.iter().any(|v| haystack.contains(v))
-    }
-
-    fn starts_with(alternates: &[String], haystack: &str) -> bool {
-        alternates.iter().any(|v| haystack.starts_with(v))
-    }
-
-    fn starts_with_dot_plus(alternates: &[String], haystack: &str) -> bool {
-        alternates.iter().any(|v| haystack.len() > v.len() && haystack.starts_with(v))
-    }
-
-    fn ends_with(alternates: &[String], haystack: &str) -> bool {
-        alternates.iter().any(|v| haystack.ends_with(v))
-    }
-
-    fn equals(alternates: &[String], haystack: &str) -> bool {
-        alternates.iter().any(|v| haystack == v)
-    }
-
-    fn dot_plus_dot_plus(alternates: &[String], haystack: &str) -> bool {
-        if haystack.len() < 2 {
-            return false;
-        }
-        alternates.iter().any(|needle| dot_plus_dot_plus_fn(needle, haystack))
-    }
-
-    // ^.+(foo|bar)$ / .+(foo|bar)$
-    fn dot_plus_ends_with(alternates: &[String], haystack: &str) -> bool {
-        alternates.iter().any(|v| dot_plus_ends_with_fn(v, haystack))
-    }
-
-    fn prefix_dot_plus_(alternates: &[String], haystack: &str) -> bool {
-        alternates.iter().any(|v| prefix_dot_plus_fn(v, haystack))
-    }
-
-    let StringMatchOptions { anchor_start, anchor_end, prefix_dot_plus, suffix_dot_plus } = *options;
-
-    match (anchor_start, anchor_end) {
-        (true, true) => {
-            // ^.+foo.+$
-            match (prefix_dot_plus, suffix_dot_plus) {
-                (true, true) => {
-                    // ^.+foo.+$
-                    dot_plus_dot_plus
-                }
-                (true, false) => {
-                    // ^.+foo$
-                    dot_plus_ends_with
-                }
-                (false, true) => {
-                    // ^foo.+$
-                    starts_with_dot_plus
-                }
-                _ => {
-                    // ^foo$
-                    equals
-                }
-            }
-        }
-        (true, false) => {
-            // ^.+foo
-            match (prefix_dot_plus, suffix_dot_plus) {
-                (true, true) => {
-                    // ^.+foo.+$
-                    dot_plus_dot_plus
-                }
-                (true, false) => {
-                    // ^.+foo$
-                    dot_plus_ends_with
-                }
-                (false, true) => {
-                    // ^foo.+$
-                    starts_with
-                }
-                _ => {
-                    // ^foo$
-                    equals
-                }
-            }
-        }
-        (false, true) => {
-            // foo.+$
-            match (prefix_dot_plus, suffix_dot_plus) {
-                (true, true) => {
-                    // .+foo.+$
-                    dot_plus_dot_plus
-                }
-                (true, false) => {
-                    // .+foo$
-                    dot_plus_ends_with
-                }
-                (false, true) => {
-                    // foo.+$
-                    prefix_dot_plus_
-                }
-                _ => {
-                    // foo$
-                    ends_with
-                }
-            }
-        }
-        _ => {
-            // foo
-            match (prefix_dot_plus, suffix_dot_plus) {
-                (true, true) => {
-                    // .+foo.+
-                    dot_plus_dot_plus
-                }
-                (true, false) => {
-                    // .+foo$
-                    dot_plus_ends_with
-                }
-                (false, true) => {
-                    // foo.+
-                    prefix_dot_plus_
-                }
-                _ => {
-                    // foo
-                    contains
-                }
-            }
-        }
-    }
-}
-
-fn get_literal_match_fn(options: &StringMatchOptions) -> MatchFn {
-
-    let StringMatchOptions { prefix_dot_plus, suffix_dot_plus, anchor_start, anchor_end } = *options;
+    let StringMatchOptions {
+        anchor_start,
+        anchor_end,
+        prefix_quantifier,
+        suffix_quantifier,
+    } = options;
 
     // ^foobar.+
     fn start_with_dot_plus_fn(needle: &str, haystack: &str) -> bool {
         haystack.len() > needle.len() && haystack.starts_with(needle)
     }
 
-    match (prefix_dot_plus, suffix_dot_plus) {
-        (true, true) => {
-            match (anchor_start, anchor_end) {
-                (true, true) => {
-                    // ^.+foo.+$
-                    dot_plus_dot_plus_fn
-                }
-                (true, false) => {
-                    // ^.+foo
-                    dot_plus_ends_with_fn
-                }
-                (false, true) => {
-                    // foobar.+$
-                    starts_with_fn
-                }
-                _ => {
-                    // .+foobar.+
-                    dot_plus_dot_plus_fn
-                }
-            }
-        }
-        (true, false) => {
-            match (anchor_start, anchor_end) {
-                (true, true) => {
-                    // ^.+foo.+$
-                    dot_plus_dot_plus_fn
-                }
-                (true, false) => {
-                    // ^.+foo
-                    dot_plus_contains_fn
-                }
-                (false, true) => {
-                    // .+foo$
-                    dot_plus_ends_with_fn
-                }
-                _ => {
-                    // .+foobar
-                    dot_plus_contains_fn
-                }
-            }
-        }
-        (false, true) => {
-            match (anchor_start, anchor_end) {
-                (true, true) => {
-                    // ^foo.+$
-                    start_with_dot_plus_fn
-                }
-                (true, false) => {
-                    // ^foo.+
-                    start_with_dot_plus_fn
-                }
-                (false, true) => {
-                    // foo.+$
-                    prefix_dot_plus_fn
-                }
-                _ => {
-                    // foo.+
-                    prefix_dot_plus_fn
-                }
-            }
-        }
-        _ => {
-            // match foobar
-            match (anchor_start, anchor_end) {
-                (true, true) => {
-                    // ^foobar$
-                    equals_fn
-                }
-                (true, false) => {
-                    // ^foobar
-                    starts_with_fn
-                }
-                (false, true) => {
-                    // foobar$
-                    ends_with_fn
-                }
-                _ => {
-                    // foobar
-                    contains_fn
-                }
-            }
-
+    // something like .*foo.+$
+    fn contains_dot_plus_fn(needle: &str, haystack: &str) -> bool {
+        if let Some(pos) = haystack.find(needle) {
+            let end = pos + needle.len();
+            let found = end < haystack.len();
+            found
+        } else {
+            false
         }
     }
+
+    fn dot_plus_fn(needle: &str, haystack: &str) -> bool {
+        if let Some(pos) = haystack.find(needle) {
+            pos > 0
+        } else {
+            false
+        }
+    }
+
+    if *anchor_start && *anchor_end {
+        match (prefix_quantifier, suffix_quantifier) {
+            (Some(Quantifier::ZeroOrMore), Some(Quantifier::ZeroOrMore)) => {
+                // ^.*foo.*$
+                contains_fn
+            }
+            (Some(Quantifier::ZeroOrMore), Some(Quantifier::OneOrMore)) => {
+                // ^.*foo.+$
+                contains_dot_plus_fn
+            }
+            (Some(Quantifier::OneOrMore), Some(Quantifier::ZeroOrMore)) => {
+                // ^.+foo.*$
+                dot_plus_fn
+            }
+            (Some(Quantifier::OneOrMore), Some(Quantifier::OneOrMore)) => {
+                // ^.+foo.+$
+                dot_plus_dot_plus_fn
+            }
+            (Some(Quantifier::ZeroOrMore), None) => {
+                // ^.*foo$
+                ends_with_fn
+            }
+            (None, Some(Quantifier::ZeroOrMore)) => {
+                // ^foo.*$
+                starts_with_fn
+            }
+            (Some(Quantifier::OneOrMore), None) => {
+                // ^.+foo$
+                dot_plus_ends_with_fn
+            }
+            (None, Some(Quantifier::OneOrMore)) => {
+                // ^foo.+$
+                start_with_dot_plus_fn
+            }
+            _ => {
+                // ^foobar$
+                equals_fn
+            }
+        }
+    } else if *anchor_start {
+        return match (prefix_quantifier, suffix_quantifier) {
+            (Some(Quantifier::ZeroOrMore), Some(Quantifier::ZeroOrMore)) => {
+                // ^.*foo.*
+                contains_fn
+            }
+            (Some(Quantifier::ZeroOrMore), Some(Quantifier::OneOrMore)) => {
+                // ^.*foo.+
+                contains_dot_plus_fn
+            }
+            (Some(Quantifier::OneOrMore), Some(Quantifier::ZeroOrMore)) => {
+                // ^.+foo.*
+                dot_plus_fn
+            }
+            (Some(Quantifier::OneOrMore), Some(Quantifier::OneOrMore)) => {
+                // ^.+foo.+
+                dot_plus_dot_plus_fn
+            }
+            (Some(Quantifier::ZeroOrMore), None) => {
+                // ^.*foo
+                contains_fn
+            }
+            (None, Some(Quantifier::ZeroOrMore)) => {
+                // ^foo.*
+                starts_with_fn
+            }
+            (Some(Quantifier::OneOrMore), None) => {
+                // ^.+foo
+                dot_plus_ends_with_fn
+            }
+            (None, Some(Quantifier::OneOrMore)) => {
+                // ^foo.+
+                start_with_dot_plus_fn
+            }
+            _ => {
+                // ^foobar
+                starts_with_fn
+            }
+        };
+    } else if *anchor_end {
+        return match (prefix_quantifier, suffix_quantifier) {
+            (Some(Quantifier::ZeroOrMore), Some(Quantifier::ZeroOrMore)) => {
+                // .*foo.*$
+                contains_fn
+            }
+            (Some(Quantifier::ZeroOrMore), Some(Quantifier::OneOrMore)) => {
+                // .*foo.+$
+                contains_dot_plus_fn
+            }
+            (Some(Quantifier::OneOrMore), Some(Quantifier::ZeroOrMore)) => {
+                // .+foo.*$
+                dot_plus_fn
+            }
+            (Some(Quantifier::OneOrMore), Some(Quantifier::OneOrMore)) => {
+                // .+foo.+$
+                dot_plus_dot_plus_fn
+            }
+            (Some(Quantifier::ZeroOrMore), None) => {
+                // .*foo$
+                ends_with_fn
+            }
+            (None, Some(Quantifier::ZeroOrMore)) => {
+                // foo.*$
+                contains_fn
+            }
+            (Some(Quantifier::OneOrMore), None) => {
+                // .+foo$
+                dot_plus_ends_with_fn
+            }
+            (None, Some(Quantifier::OneOrMore)) => {
+                // foo.+$
+                prefix_dot_plus_fn
+            }
+            _ => {
+                // foobar$
+                ends_with_fn
+            }
+        }
+    } else {
+        // no anchors
+        return match(prefix_quantifier, suffix_quantifier) {
+            (Some(Quantifier::ZeroOrMore), Some(Quantifier::ZeroOrMore)) => {
+                // .*foo.*
+                contains_fn
+            }
+            (Some(Quantifier::ZeroOrMore), Some(Quantifier::OneOrMore)) => {
+                // .*foo.+
+                contains_dot_plus_fn
+            }
+            (Some(Quantifier::OneOrMore), Some(Quantifier::ZeroOrMore)) => {
+                // .+foo.*
+                dot_plus_fn
+            }
+            (Some(Quantifier::OneOrMore), Some(Quantifier::OneOrMore)) => {
+                // .+foo.+
+                dot_plus_dot_plus_fn
+            }
+            (Some(Quantifier::ZeroOrMore), None) => {
+                // .*foo
+                contains_fn
+            }
+            (None, Some(Quantifier::ZeroOrMore)) => {
+                // foo.*
+                contains_fn
+            }
+            (Some(Quantifier::OneOrMore), None) => {
+                // .+foo
+                dot_plus_fn
+            }
+            (None, Some(Quantifier::OneOrMore)) => {
+                // foo.+
+                contains_dot_plus_fn
+            }
+            _ => {
+                // foobar
+                contains_fn
+            }
+        };
+    }
 }
+
+fn get_optimized_literal_matcher(value: String, options: &StringMatchOptions) -> StringMatchHandler {
+    let StringMatchOptions {
+        anchor_start,
+        anchor_end,
+        prefix_quantifier,
+        suffix_quantifier,
+    } = options;
+
+    fn handle_default(options: &StringMatchOptions, value: String) -> StringMatchHandler {
+        let match_fn = get_literal_match_fn(options);
+        StringMatchHandler::MatchFn(MatchFnHandler::new(value, match_fn))
+    }
+
+    if *anchor_start && *anchor_end {
+        match (prefix_quantifier, suffix_quantifier) {
+            (Some(Quantifier::ZeroOrMore), Some(Quantifier::ZeroOrMore)) => {
+                // ^.*foo.*$
+                StringMatchHandler::Contains(value)
+            }
+            (Some(Quantifier::ZeroOrMore), None) => {
+                // ^.*foo$
+                StringMatchHandler::EndsWith(value)
+            }
+            (None, Some(Quantifier::ZeroOrMore)) => {
+                // ^foo.*$
+                StringMatchHandler::StartsWith(value)
+            }
+            (None, None) => {
+                // ^foobar$
+                StringMatchHandler::Literal(value)
+            }
+            _ => {
+                handle_default(options, value)
+            }
+        }
+    } else if *anchor_start {
+        return match (prefix_quantifier, suffix_quantifier) {
+            (Some(Quantifier::ZeroOrMore), Some(Quantifier::ZeroOrMore)) => {
+                // ^.*foo.*
+                StringMatchHandler::Contains(value)
+            }
+            (Some(Quantifier::ZeroOrMore), None) => {
+                // ^.*foo
+                StringMatchHandler::Contains(value)
+            }
+            (None, Some(Quantifier::ZeroOrMore)) => {
+                // ^foo.*
+                StringMatchHandler::StartsWith(value)
+            }
+            (None, None) => {
+                // ^foobar
+                StringMatchHandler::StartsWith(value)
+            }
+            _ => {
+                handle_default(options, value)
+            }
+        };
+    } else if *anchor_end {
+        return match (prefix_quantifier, suffix_quantifier) {
+            (Some(Quantifier::ZeroOrMore), Some(Quantifier::ZeroOrMore)) => {
+                // .*foo.*$
+                StringMatchHandler::Contains(value)
+            }
+            (Some(Quantifier::ZeroOrMore), None) => {
+                // .*foo$
+                StringMatchHandler::EndsWith(value)
+            }
+            (None, Some(Quantifier::ZeroOrMore)) => {
+                // foo.*$
+                StringMatchHandler::Contains(value)
+            }
+            (None, None) => {
+                // foobar$
+                StringMatchHandler::EndsWith(value)
+            }
+            _ => {
+                // foobar$
+                handle_default(options, value)
+            }
+        }
+    } else {
+        // no anchors
+        return match(prefix_quantifier, suffix_quantifier) {
+            (Some(Quantifier::ZeroOrMore), Some(Quantifier::ZeroOrMore)) => {
+                // .*foo.*
+                StringMatchHandler::Contains(value)
+            }
+            (Some(Quantifier::ZeroOrMore), None) => {
+                // .*foo
+                StringMatchHandler::Contains(value)
+            }
+            (None, Some(Quantifier::ZeroOrMore)) => {
+                // foo.*
+                StringMatchHandler::Contains(value)
+            }
+            (None, None) => {
+                // foobar
+                StringMatchHandler::Contains(value)
+            }
+            _ => {
+                // foobar
+                handle_default(options, value)
+            }
+        };
+    }
+}
+
 
 fn equals_fn(needle: &str, haystack: &str) -> bool {
     haystack == needle
@@ -433,14 +502,6 @@ fn match_ordered_alternates(or_values: &[String], s: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_alternates() {
-        let handler = StringMatchHandler::Alternates(vec!["a".to_string(), "b".to_string()], false);
-        assert!(handler.matches("a"));
-        assert!(handler.matches("b"));
-        assert!(!handler.matches("c"));
-    }
 
     #[test]
     fn test_contains() {

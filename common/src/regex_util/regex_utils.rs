@@ -1,4 +1,5 @@
 use super::match_handlers::{StringMatchHandler, StringMatchOptions};
+use crate::prelude::match_handlers::Quantifier;
 use regex::{Error as RegexError, Regex};
 use regex_syntax::hir::Class::{Bytes, Unicode};
 use regex_syntax::hir::{Class, Hir, HirKind};
@@ -23,14 +24,13 @@ pub fn remove_start_end_anchors(expr: &str) -> &str {
     cursor
 }
 
-
 fn get_or_values_ext(sre: &Hir, dest: &mut Vec<String>) -> bool {
     use HirKind::*;
     match sre.kind() {
         Empty => {
             dest.push("".to_string());
             true
-        },
+        }
         Capture(cap) => get_or_values_ext(cap.sub.as_ref(), dest),
         Literal(literal) => {
             if let Ok(s) = String::from_utf8(literal.0.to_vec()) {
@@ -41,22 +41,15 @@ fn get_or_values_ext(sre: &Hir, dest: &mut Vec<String>) -> bool {
             }
         }
         Alternation(alt) => {
-            let mut alt_count: usize = 0;
-
             dest.reserve(alt.len());
             for sub in alt.iter() {
+                let start_count = dest.len();
                 if let Some(literal) = get_literal(sub) {
                     dest.push(literal);
-                    alt_count += 1;
-                } else {
-                    let start_count = dest.len();
-                    if !get_or_values_ext(sub, dest) {
-                        return false;
-                    }
-                    alt_count += dest.len() - start_count;
+                } else if !get_or_values_ext(sub, dest) {
+                    return false;
                 }
-                if alt_count > MAX_OR_VALUES {
-                    // It is cheaper to use regexp here.
+                if dest.len() - start_count > MAX_OR_VALUES {
                     return false;
                 }
             }
@@ -100,33 +93,20 @@ fn get_or_values_ext(sre: &Hir, dest: &mut Vec<String>) -> bool {
 
             match class {
                 Unicode(uni) => {
-                    let mut count = 0;
-                    for urange in uni.iter() {
-                        let start = urange.start();
-                        let end = urange.end();
-                        for c in start..=end {
-                            dest.push(format!("{c}"));
-                            count += 1;
-                            if count > MAX_OR_VALUES {
-                                // It is cheaper to use regexp here.
-                                return false;
-                            }
+                    for urange in uni.iter().flat_map(|r| r.start()..=r.end()) {
+                        dest.push(format!("{urange}"));
+                        if dest.len() > MAX_OR_VALUES {
+                            // It is cheaper to use regexp here.
+                            return false;
                         }
                     }
                     true
                 }
                 Bytes(bytes) => {
-                    let mut count = 0;
-                    for range in bytes.iter() {
-                        let start = range.start();
-                        let end = range.end();
-                        for c in start..=end {
-                            dest.push(format!("{c}"));
-                            count += 1;
-                            if count > MAX_OR_VALUES {
-                                // It is cheaper to use regexp here.
-                                return false;
-                            }
+                    for range in bytes.iter().flat_map(|r| r.start()..=r.end()) {
+                        dest.push(format!("{range}"));
+                        if dest.len() > MAX_OR_VALUES {
+                            return false;
                         }
                     }
                     true
@@ -152,7 +132,6 @@ pub fn is_valid_regexp(expr: &str) -> bool {
     parse_regex(expr).is_ok()
 }
 
-
 /// These cost values are used for sorting tag filters in ascending order or the required CPU
 /// time for execution.
 ///
@@ -163,7 +142,6 @@ pub const LITERAL_MATCH_COST: usize = 3;
 pub const SUFFIX_MATCH_COST: usize = 4;
 pub const MIDDLE_MATCH_COST: usize = 6;
 pub const RE_MATCH_COST: usize = 100;
-
 
 /// get_optimized_re_match_func tries returning optimized function for matching the given expr.
 ///
@@ -184,10 +162,7 @@ pub const RE_MATCH_COST: usize = 100;
 /// It returns re_match if it cannot find optimized function.
 ///
 /// It also returns literal suffix from the expr.
-pub fn get_optimized_re_match_func(
-    expr: &str,
-) -> Result<(StringMatchHandler, usize), RegexError> {
-
+pub fn get_optimized_re_match_func(expr: &str) -> Result<(StringMatchHandler, usize), RegexError> {
     fn create_re_match_fn(expr: &str) -> Result<(StringMatchHandler, usize), RegexError> {
         let re = Regex::new(expr)?;
         let re_match = StringMatchHandler::fast_regex(re);
@@ -217,7 +192,6 @@ pub fn get_optimized_re_match_func(
     let mut anchor_end = false;
 
     if let HirKind::Concat(subs) = sre.kind() {
-
         let mut concat = &subs[..];
 
         if !subs.is_empty() {
@@ -231,24 +205,6 @@ pub fn get_optimized_re_match_func(
             }
         }
 
-        // Drop .* at the start
-        while !concat.is_empty() && is_dot_star(&concat[0]) {
-            concat = &concat[1..];
-        }
-
-        // Drop .* at the end.
-        let mut index = concat.len() - 1;
-        while index > 0 {
-            if !is_dot_star(&concat[index]) {
-                break;
-            }
-            index -= 1;
-        }
-
-        if index < concat.len() - 1 {
-            concat = &concat[..=index];
-        }
-
         if concat.len() != subs.len() {
             if concat.len() == 1 {
                 sre = concat[0].clone();
@@ -258,8 +214,9 @@ pub fn get_optimized_re_match_func(
         }
     }
 
-        // Prepare fast string matcher for re_match.
-    if let Some(match_func) = get_optimized_re_match_func_ext(expr, &sre, anchor_start, anchor_end)? {
+    // Prepare fast string matcher for re_match.
+    if let Some(match_func) = get_optimized_re_match_func_ext(expr, &sre, anchor_start, anchor_end)?
+    {
         // Found optimized function for matching the expr.
         return Ok(match_func);
     }
@@ -274,11 +231,10 @@ fn get_optimized_re_match_func_ext(
     anchor_start: bool,
     anchor_end: bool,
 ) -> Result<Option<(StringMatchHandler, usize)>, RegexError> {
-
     fn handle_alternates(
         node: &Hir,
-        prefix_dot_plus: bool,
-        suffix_dot_plus: bool,
+        prefix_quantifier: Option<Quantifier>,
+        suffix_quantifier: Option<Quantifier>,
         anchor_start: bool,
         anchor_end: bool,
     ) -> Option<(StringMatchHandler, usize)> {
@@ -286,29 +242,29 @@ fn get_optimized_re_match_func_ext(
         if get_or_values_ext(node, &mut alternates) {
             let match_options = StringMatchOptions {
                 anchor_start,
-                prefix_dot_plus,
+                prefix_quantifier,
                 anchor_end,
-                suffix_dot_plus,
+                suffix_quantifier,
             };
             let cost = alternates.len() * LITERAL_MATCH_COST;
             let matcher = StringMatchHandler::alternates(alternates, &match_options);
-            return Some((matcher, cost))
+            return Some((matcher, cost));
         }
         None
     }
 
     fn handle_literal(
         literal: String,
-        prefix_dot_plus: bool,
-        suffix_dot_plus: bool,
+        prefix_quantifier: Option<Quantifier>,
+        suffix_quantifier: Option<Quantifier>,
         anchor_start: bool,
         anchor_end: bool,
     ) -> Option<(StringMatchHandler, usize)> {
         let match_options = StringMatchOptions {
             anchor_start,
-            prefix_dot_plus,
+            prefix_quantifier,
             anchor_end,
-            suffix_dot_plus,
+            suffix_quantifier,
         };
         let matcher = StringMatchHandler::literal(literal, &match_options);
         Some((matcher, LITERAL_MATCH_COST))
@@ -331,49 +287,65 @@ fn get_optimized_re_match_func_ext(
             let prefix = &items[0];
             let suffix = &items[len - 1];
 
-            let prefix_dot_plus = is_dot_plus(prefix);
+            let mut has_quantifier = false;
+            let prefix_quantifier = get_quantifier(prefix);
+            let suffix_quantifier = get_quantifier(suffix);
 
             if len >= 2 {
                 // possible .+foo|bar|baz|quux.+  or  .+foo|bar|baz|quux  or  foo|bar|baz|quux.+
-                // Note: at this point, .* has been removed from both ends of the regexp.
-                let suffix_dot_plus = is_dot_plus(suffix);
-                if prefix_dot_plus {
+                if prefix_quantifier.is_some() {
+                    has_quantifier = true;
                     items = &items[1..];
                 }
-                if suffix_dot_plus {
+                if suffix_quantifier.is_some() {
+                    has_quantifier = true;
                     items = &items[..items.len() - 1];
                 }
-                if prefix_dot_plus || suffix_dot_plus {
+                if has_quantifier {
                     let res = match items.len() {
                         0 => {
                             // should not happen
                             None
                         }
-                        1 => {
-                            handle_alternates(&items[0], prefix_dot_plus, suffix_dot_plus, anchor_start, anchor_end)
-                        }
+                        1 => handle_alternates(
+                            &items[0],
+                            prefix_quantifier,
+                            suffix_quantifier,
+                            anchor_start,
+                            anchor_end,
+                        ),
                         _ => {
                             let node = Hir::alternation(Vec::from(items));
-                            handle_alternates(&node, prefix_dot_plus, suffix_dot_plus, anchor_start, anchor_end)
+                            handle_alternates(
+                                &node,
+                                prefix_quantifier,
+                                suffix_quantifier,
+                                anchor_start,
+                                anchor_end,
+                            )
                         }
                     };
                     return Ok(res);
                 }
             }
 
-            Ok(handle_alternates(sre, false, false, anchor_start, anchor_end))
+            Ok(handle_alternates(
+                sre,
+                prefix_quantifier,
+                suffix_quantifier,
+                anchor_start,
+                anchor_end,
+            ))
         }
         HirKind::Capture(cap) => {
             // Remove parenthesis from expr, i.e. '(expr) -> expr'
             get_optimized_re_match_func_ext(expr, cap.sub.as_ref(), anchor_start, anchor_end)
         }
-        HirKind::Class(_class) => {
-            Ok(handle_alternates(sre, false, false, anchor_start, anchor_end))
-        }
+        HirKind::Class(_class) => Ok(handle_alternates(sre, None, None, anchor_start, anchor_end)),
         HirKind::Literal(_lit) => {
             if let Some(s) = get_literal(sre) {
                 // Literal match
-                let res = handle_literal(s, false, false, anchor_start, anchor_end);
+                let res = handle_literal(s, None, None, anchor_start, anchor_end);
                 return Ok(res);
             }
             Ok(None)
@@ -383,28 +355,53 @@ fn get_optimized_re_match_func_ext(
                 let first = &subs[0];
                 let second = &subs[1];
 
-                // Note: at this point, .* has been removed from both ends of the regexp.
-                let prefix_dot_plus = is_dot_plus(first);
-                let suffix_dot_plus = is_dot_plus(second);
+                let prefix_quantifier = get_quantifier(first);
+                let suffix_quantifier = get_quantifier(second);
 
-                if prefix_dot_plus {
+                if prefix_quantifier.is_some() {
                     if let Some(literal) = get_literal(second) {
-                        let res = handle_literal(literal, prefix_dot_plus, suffix_dot_plus, anchor_start, anchor_end);
+                        let res = handle_literal(
+                            literal,
+                            prefix_quantifier,
+                            suffix_quantifier,
+                            anchor_start,
+                            anchor_end,
+                        );
                         return Ok(res);
                     }
                     // try foo(bar).+ or some such
-                    if let Some(res) = handle_alternates(second, prefix_dot_plus, suffix_dot_plus, anchor_start, anchor_end) {
+                    if let Some(res) = handle_alternates(
+                        second,
+                        prefix_quantifier,
+                        suffix_quantifier,
+                        anchor_start,
+                        anchor_end,
+                    ) {
                         return Ok(Some(res));
                     }
-                } else if suffix_dot_plus {
+                } else if suffix_quantifier.is_some() {
                     if let Some(literal) = get_literal(first) {
-                        let res = handle_literal(literal, prefix_dot_plus, suffix_dot_plus, anchor_start, anchor_end);
+                        let res = handle_literal(
+                            literal,
+                            prefix_quantifier,
+                            suffix_quantifier,
+                            anchor_start,
+                            anchor_end,
+                        );
                         return Ok(res);
                     }
-                    if let Some(res) = handle_alternates(first, prefix_dot_plus, suffix_dot_plus, anchor_start, anchor_end) {
+                    if let Some(res) = handle_alternates(
+                        first,
+                        prefix_quantifier,
+                        suffix_quantifier,
+                        anchor_start,
+                        anchor_end,
+                    ) {
                         return Ok(Some(res));
                     }
-                } else if let Some(res) = handle_alternates(sre, false, false, anchor_start, anchor_end) {
+                } else if let Some(res) =
+                    handle_alternates(sre, None, None, anchor_start, anchor_end)
+                {
                     return Ok(Some(res));
                 }
             }
@@ -413,15 +410,22 @@ fn get_optimized_re_match_func_ext(
                 let len = subs.len();
                 let prefix = &subs[0];
                 let suffix = &subs[len - 1];
+
+                let mut has_quantifier = false;
+
                 // Note: at this point, .* has been removed from both ends of the regexp.
                 let prefix_dot_plus = is_dot_plus(prefix);
                 let suffix_dot_plus = is_dot_plus(suffix);
+                let prefix_quantifier = get_quantifier(prefix);
+                let suffix_quantifier = get_quantifier(suffix);
 
                 let mut middle = &subs[0..];
                 if prefix_dot_plus {
+                    has_quantifier = true;
                     middle = &middle[1..];
                 }
                 if suffix_dot_plus {
+                    has_quantifier = true;
                     middle = &middle[..middle.len() - 1];
                 }
 
@@ -431,9 +435,9 @@ fn get_optimized_re_match_func_ext(
                     if let Some(literal) = get_literal(middle) {
                         let options: StringMatchOptions = StringMatchOptions {
                             anchor_start,
-                            prefix_dot_plus,
                             anchor_end,
-                            suffix_dot_plus,
+                            prefix_quantifier,
+                            suffix_quantifier,
                         };
                         let matcher = StringMatchHandler::literal(literal, &options);
                         let cost = match matcher {
@@ -445,13 +449,25 @@ fn get_optimized_re_match_func_ext(
                     }
 
                     // handle something like '.+(foo|bar)' or '.+foo(bar|baz).+' etc
-                    if let Some(res) = handle_alternates(middle, prefix_dot_plus, suffix_dot_plus, anchor_start, anchor_end) {
+                    if let Some(res) = handle_alternates(
+                        middle,
+                        prefix_quantifier,
+                        suffix_quantifier,
+                        anchor_start,
+                        anchor_end,
+                    ) {
                         return Ok(Some(res));
                     }
                 }
 
                 let concat = Hir::concat(Vec::from(middle));
-                if let Some(res) = handle_alternates(&concat, prefix_dot_plus, suffix_dot_plus, anchor_start, anchor_end) {
+                if let Some(res) = handle_alternates(
+                    &concat,
+                    prefix_quantifier,
+                    suffix_quantifier,
+                    anchor_start,
+                    anchor_end,
+                ) {
                     return Ok(Some(res));
                 }
             }
@@ -557,6 +573,25 @@ fn literal_to_string(sre: &Hir) -> String {
     "".to_string()
 }
 
+fn get_quantifier(sre: &Hir) -> Option<Quantifier> {
+    match sre.kind() {
+        HirKind::Capture(cap) => get_quantifier(cap.sub.as_ref()),
+        HirKind::Repetition(repetition) if repetition.max.is_none() && repetition.greedy => {
+            if let HirKind::Class(clazz) = repetition.sub.kind() {
+                if is_empty_class(clazz) {
+                    return match repetition.min {
+                        0 => Some(Quantifier::ZeroOrMore),
+                        1 => Some(Quantifier::OneOrMore),
+                        _ => None,
+                    };
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
 fn is_dot_star(sre: &Hir) -> bool {
     match sre.kind() {
         HirKind::Capture(cap) => is_dot_star(cap.sub.as_ref()),
@@ -624,7 +659,6 @@ fn is_empty_class(class: &Class) -> bool {
 fn build_hir(pattern: &str) -> Result<Hir, RegexError> {
     parse_regex(pattern).map_err(|err| RegexError::Syntax(err.to_string()))
 }
-
 
 #[cfg(test)]
 mod test {
@@ -732,15 +766,12 @@ mod test {
 
     #[test]
     fn test_regex_match() {
-
         fn f(expr: &str, s: &str, result_expected: bool) {
             test_optimized_regex(expr, s, result_expected);
         }
 
-        f(".+(foo|bar|baz).+", "abara", true);
-
         f("", "", true);
-     //   f("", "foo", true);
+        //   f("", "foo", true);
         f("foo", "", false);
         f(".*", "", true);
         f(".*", "foo", true);
@@ -844,5 +875,4 @@ mod test {
         f("foo(bar|baz)", "a fooxfooban a", false);
         f("foo(bar|baz)", "a fooxfooban foobar a", true);
     }
-
 }

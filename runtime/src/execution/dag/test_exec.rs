@@ -11,7 +11,6 @@ mod tests {
     const START: i64 = 1000000_i64;
     const END: i64 = 2000000_i64;
     const STEP: i64 = 200000_i64;
-
     const TEST_ITERATIONS: usize = 3;
 
     fn run_query(q: &str) -> QueryValue {

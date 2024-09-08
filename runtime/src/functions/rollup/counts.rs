@@ -4,6 +4,8 @@ use crate::{QueryValue, RuntimeError, RuntimeResult};
 use std::io::Cursor;
 use std::io::Write;
 
+type FloatPredicate = fn(f64, f64) -> bool;
+
 #[inline]
 fn less_or_equal(x: f64, y: f64) -> bool {
     x.le(&y)
@@ -24,7 +26,7 @@ fn not_equal(x: f64, y: f64) -> bool {
     x != y
 }
 
-fn count_filtered(values: &[f64], limit: f64, pred: fn(f64, f64) -> bool) -> f64 {
+fn count_filtered(values: &[f64], limit: f64, pred: FloatPredicate) -> f64 {
     if values.is_empty() {
         return f64::NAN;
     }
@@ -32,7 +34,7 @@ fn count_filtered(values: &[f64], limit: f64, pred: fn(f64, f64) -> bool) -> f64
     res
 }
 
-fn share_filtered(values: &[f64], limit: f64, pred: fn(f64, f64) -> bool) -> f64 {
+fn share_filtered(values: &[f64], limit: f64, pred: FloatPredicate) -> f64 {
     if values.is_empty() {
         return f64::NAN;
     }
@@ -41,7 +43,7 @@ fn share_filtered(values: &[f64], limit: f64, pred: fn(f64, f64) -> bool) -> f64
     n / len as f64
 }
 
-fn sum_filtered(values: &[f64], limit: f64, pred: fn(f64, f64) -> bool) -> f64 {
+fn sum_filtered(values: &[f64], limit: f64, pred: FloatPredicate) -> f64 {
     if values.is_empty() {
         return f64::NAN;
     }
@@ -69,12 +71,7 @@ macro_rules! make_count_fn {
     };
 }
 
-make_count_fn!(
-    new_rollup_count_le,
-    "count_le_over_time",
-    "le",
-    less_or_equal
-);
+make_count_fn!(new_rollup_count_le, "count_le_over_time", "le", less_or_equal);
 make_count_fn!(new_rollup_count_gt, "count_gt_over_time", "gt", greater);
 make_count_fn!(new_rollup_count_eq, "count_eq_over_time", "eq", equal);
 make_count_fn!(new_rollup_count_ne, "count_ne_over_time", "ne", not_equal);
@@ -157,6 +154,7 @@ pub(super) fn new_rollup_count_values(args: &[QueryValue]) -> RuntimeResult<Roll
         // if the number of unique values in rfa.values is big.
         let mut label_value = String::with_capacity(40);
         for v in rfa.values {
+            // Note: write! does not panic, so unwrap is safe here
             write!(buf, "{v}").unwrap();
             let pos = cursor.position() as usize;
             let buffer = &cursor.get_ref()[..pos];
