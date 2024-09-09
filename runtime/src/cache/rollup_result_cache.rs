@@ -450,7 +450,6 @@ impl RollupResultCache {
 const ROLLUP_RESULT_CACHE_VERSION: u8 = 8;
 
 const ROLLUP_TYPE_TIMESERIES: u8 = 0;
-const ROLLUP_TYPE_INSTANT_VALUES: u8 = 1;
 
 fn marshal_rollup_result_cache_key_internal(
     hasher: &mut Xxh3,
@@ -497,23 +496,6 @@ fn marshal_rollup_result_cache_key(
         step,
         etfs,
         ROLLUP_TYPE_TIMESERIES,
-    )
-}
-
-fn marshal_rollup_result_cache_key_for_instant_values(
-    hasher: &mut Xxh3,
-    expr: &Expr,
-    window: i64,
-    step: i64,
-    etfs: &Option<Matchers>,
-) -> u64 {
-    marshal_rollup_result_cache_key_internal(
-        hasher,
-        expr,
-        window,
-        step,
-        etfs,
-        ROLLUP_TYPE_INSTANT_VALUES,
     )
 }
 

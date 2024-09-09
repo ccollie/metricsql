@@ -90,7 +90,7 @@ impl ParseCache {
     }
 
     // todo: pass options
-    fn parse_internal(q: &str) -> ParseCacheValue {
+    pub(super) fn parse_internal(q: &str) -> ParseCacheValue {
         match parser::parse(q) {
             Ok(expr) => {
                 let has_subquery = expr.contains_subquery();

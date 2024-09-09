@@ -411,21 +411,16 @@ fn get_optimized_re_match_func_ext(
                 let prefix = &subs[0];
                 let suffix = &subs[len - 1];
 
-                let mut has_quantifier = false;
 
                 // Note: at this point, .* has been removed from both ends of the regexp.
-                let prefix_dot_plus = is_dot_plus(prefix);
-                let suffix_dot_plus = is_dot_plus(suffix);
                 let prefix_quantifier = get_quantifier(prefix);
                 let suffix_quantifier = get_quantifier(suffix);
 
                 let mut middle = &subs[0..];
-                if prefix_dot_plus {
-                    has_quantifier = true;
+                if prefix_quantifier.is_some() {
                     middle = &middle[1..];
                 }
-                if suffix_dot_plus {
-                    has_quantifier = true;
+                if suffix_quantifier.is_some() {
                     middle = &middle[..middle.len() - 1];
                 }
 

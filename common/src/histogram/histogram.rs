@@ -45,7 +45,7 @@ impl Histogram {
 
     pub fn reset(&self) {
         let mut inner = self.inner.write().unwrap();
-        for db in inner.decimal_buckets.iter_mut() {
+        for db in inner.decimal_buckets.iter_mut().flatten() {
             if let Some(b) = db {
                 for c in b {
                     *c = 0;

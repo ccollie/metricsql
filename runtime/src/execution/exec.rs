@@ -77,6 +77,7 @@ pub(crate) fn exec_internal(
 
             // DAGNodes can be stateful, therefore we need to clone the node before
             // executing it.
+            // todo: possible optimization: if we're not from a cache, we can avoid cloning
             let mut node = eval_node.clone();
 
             let rv = node.execute(context, ec)?;
@@ -217,9 +218,4 @@ pub(crate) fn remove_empty_series(tss: &mut Vec<Timeseries>) {
         return;
     }
     tss.retain(|ts| !ts.is_all_nans());
-}
-
-#[inline]
-pub(crate) fn sort_series_by_metric_name(result: &mut Vec<QueryResult>) {
-    result.sort_by(|a, b| a.metric.partial_cmp(&b.metric).unwrap());
 }

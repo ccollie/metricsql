@@ -123,6 +123,14 @@ impl QueryStatsTracker {
         self.config.last_queries_count > 0
     }
 
+    pub fn get_last_queries_count(&self) -> usize {
+        self.config.last_queries_count
+    }
+
+    pub fn get_min_query_duration(&self) -> Duration {
+        self.config.min_query_duration
+    }
+
     /// Registers the query on the given time_range_msecs, which has been started at start_time.
     ///
     /// register_query must be called when the query is finished.

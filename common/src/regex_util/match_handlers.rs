@@ -151,8 +151,7 @@ const fn get_literal_match_fn(options: &StringMatchOptions) -> MatchFn {
     fn contains_dot_plus_fn(needle: &str, haystack: &str) -> bool {
         if let Some(pos) = haystack.find(needle) {
             let end = pos + needle.len();
-            let found = end < haystack.len();
-            found
+            end < haystack.len()
         } else {
             false
         }
@@ -459,14 +458,6 @@ fn prefix_dot_plus_fn(needle: &str, haystack: &str) -> bool {
     }
 }
 
-// ^.+(foo|bar) / .+(foo|bar)
-fn dot_plus_contains_fn(needle: &str, haystack: &str) -> bool {
-    if let Some(pos) = haystack.find(needle) {
-        pos > 0
-    } else {
-        false
-    }
-}
 
 // ^.+(foo|bar)$ / .+(foo|bar)$
 fn dot_plus_ends_with_fn(needle: &str, haystack: &str) -> bool {

@@ -72,7 +72,12 @@ impl Context {
 
     // todo: pass in tracer
     pub fn parse_promql(&self, q: &str) -> RuntimeResult<(Arc<ParseCacheValue>, ParseCacheResult)> {
-        let (res, cached) = self.parse_cache.parse(q);
+        let (res, cached) = if self.config.disable_cache {
+            let val = ParseCache::parse_internal(q);
+            (Arc::new(val), ParseCacheResult::CacheMiss)
+        } else {
+            self.parse_cache.parse(q)
+        };
         if let Some(err) = &res.err {
             return Err(RuntimeError::ParseError(err.clone()));
         }

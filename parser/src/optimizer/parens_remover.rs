@@ -13,10 +13,6 @@ pub struct ParensRemover {}
 impl TreeNodeRewriter for ParensRemover {
     type N = Expr;
 
-    fn mutate(&mut self, node: Self::N) -> ParseResult<Self::N> {
-        Ok(remove_parens_expr(node))
-    }
-
     /// Invoked before (Preorder) any children of `node` are rewritten /
     /// visited. Default implementation returns `Ok(Recursion::Continue)`
     fn pre_visit(&mut self, node: &Self::N) -> ParseResult<RewriteRecursion> {
@@ -25,6 +21,10 @@ impl TreeNodeRewriter for ParensRemover {
         } else {
             Ok(RewriteRecursion::Continue)
         }
+    }
+
+    fn mutate(&mut self, node: Self::N) -> ParseResult<Self::N> {
+        Ok(remove_parens_expr(node))
     }
 }
 
@@ -68,7 +68,7 @@ pub fn remove_parens_expr(e: Expr) -> Expr {
             expr: Box::new(remove_parens_expr(*re.expr)),
             at: re
                 .at
-                .map(|at| Box::new(crate::optimizer::remove_parens_expr(*at))),
+                .map(|at| Box::new(remove_parens_expr(*at))),
             window: re.window,
             step: re.step,
             offset: re.offset,
