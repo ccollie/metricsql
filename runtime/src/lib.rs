@@ -16,8 +16,6 @@ extern crate rayon;
 extern crate regex;
 #[macro_use(defer)]
 extern crate scopeguard;
-#[macro_use]
-extern crate tinyvec;
 extern crate topologic;
 extern crate xxhash_rust;
 
@@ -31,7 +29,6 @@ pub mod cache;
 pub mod execution;
 mod functions;
 mod histogram;
-mod memory_pool;
 pub mod provider;
 pub mod query_stats;
 pub mod runtime_error;

@@ -1,6 +1,5 @@
 use std::sync::Arc;
-
-use tinyvec::TinyVec;
+use smallvec::SmallVec;
 use tracing::{field, trace_span, Span};
 
 use metricsql_parser::functions::RollupFunction;
@@ -75,7 +74,7 @@ pub(super) fn resolve_rollup_handler(
         let empty = vec![];
         return get_rollup_function_handler(func, &empty);
     }
-    let mut args: TinyVec<[QueryValue; 3]> = TinyVec::with_capacity(arg_nodes.len());
+    let mut args: SmallVec<[QueryValue; 4]> = SmallVec::with_capacity(arg_nodes.len());
     for arg in arg_nodes {
         let mut value = QueryValue::default();
         arg.resolve(&mut value, dependencies);

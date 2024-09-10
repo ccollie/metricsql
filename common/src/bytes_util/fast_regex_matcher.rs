@@ -1,9 +1,12 @@
+use std::borrow::Cow;
 use std::fmt::{Debug, Display};
 
 use dynamic_lru_cache::DynamicCache;
 use regex::Regex;
+use serde::de::Error;
+use serde::{Deserialize, Deserializer, Serialize};
 
-const DEFAULT_CACHE_SIZE: usize = 100;
+const DEFAULT_CACHE_SIZE: usize = 64;
 
 /// FastRegexMatcher implements fast matcher for strings.
 ///
@@ -63,5 +66,34 @@ impl Display for FastRegexMatcher {
 impl Debug for FastRegexMatcher {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "/{}/", self.regex)
+    }
+}
+
+impl Serialize for FastRegexMatcher {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let source = self.regex.as_str();
+        serializer.serialize_str(source)
+    }
+}
+
+impl<'de> Deserialize<'de> for FastRegexMatcher {
+    fn deserialize<D>(d: D) -> Result<FastRegexMatcher, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = <Cow<str>>::deserialize(d)?;
+
+        match Regex::new(&s) {
+            Ok(regex) => {
+                Ok(FastRegexMatcher {
+                    regex,
+                    cache: DynamicCache::new(DEFAULT_CACHE_SIZE),
+                })
+            },
+            Err(err) => Err(Error::custom(err)),
+        }
     }
 }

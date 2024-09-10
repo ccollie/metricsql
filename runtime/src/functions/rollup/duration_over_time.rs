@@ -1,12 +1,12 @@
 use crate::functions::arg_parse::get_scalar_param_value;
-use crate::functions::rollup::{RollupFuncArg, RollupHandler, RollupHandlerFloatArg};
+use crate::functions::rollup::{RollupFuncArg, RollupHandler, RollupHandlerFloat};
 use crate::{QueryValue, RuntimeResult};
 
 pub(super) fn new_rollup_duration_over_time(args: &[QueryValue]) -> RuntimeResult<RollupHandler> {
     let max_interval = get_scalar_param_value(args, 0, "duration_over_time", "max_interval")?;
 
     let handler =
-        RollupHandlerFloatArg::new(max_interval, |rfa: &RollupFuncArg, interval: &f64| -> f64 {
+        RollupHandlerFloat::new(max_interval, |rfa: &RollupFuncArg, interval: &f64| -> f64 {
             // There is no need in handling NaNs here, since they must be cleaned up
             // before calling rollup fns.
             duration_over_time(rfa.timestamps, *interval)

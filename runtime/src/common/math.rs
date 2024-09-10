@@ -1,8 +1,9 @@
+use crate::Timestamp;
 use metricsql_common::pool::get_pooled_vec_f64;
 use num_traits::Pow;
+use smallvec::SmallVec;
 use std::cmp::Ordering;
 use std::ops::DerefMut;
-use tinyvec::TinyVec;
 
 /// STALE_NAN_BITS is bit representation of Prometheus staleness mark (aka stale NaN).
 /// This mark is put by Prometheus at the end of time series for improving staleness detection.
@@ -109,7 +110,7 @@ pub(crate) fn stddev(values: &[f64]) -> f64 {
 /// them to qs and returns the result.
 pub(crate) fn quantiles(qs: &mut [f64], phis: &[f64], origin_values: &[f64]) {
     if origin_values.len() <= 64 {
-        let mut vec = tiny_vec!([f64; 64]);
+        let mut vec = SmallVec::<[f64; 64]>::new();
         prepare_tv_for_quantile_float64(&mut vec, origin_values);
         return quantiles_sorted(qs, phis, &vec);
     }
@@ -135,7 +136,7 @@ fn prepare_for_quantile_float64(dst: &mut Vec<f64>, src: &[f64]) {
 }
 
 /// copies items from src to dst but removes NaNs and sorts the dst
-fn prepare_tv_for_quantile_float64(dst: &mut TinyVec<[f64; 64]>, src: &[f64]) {
+fn prepare_tv_for_quantile_float64(dst: &mut SmallVec<[f64; 64]>, src: &[f64]) {
     for v in src.iter() {
         if v.is_nan() {
             continue;
@@ -196,7 +197,7 @@ pub(crate) fn mad(values: &[f64]) -> f64 {
 
 pub(crate) fn linear_regression(
     values: &[f64],
-    timestamps: &[i64],
+    timestamps: &[Timestamp],
     intercept_time: i64,
 ) -> (f64, f64) {
     let n = values.len();

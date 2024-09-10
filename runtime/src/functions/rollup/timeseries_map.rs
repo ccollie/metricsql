@@ -5,6 +5,7 @@ use ahash::AHashMap;
 use metricsql_parser::functions::RollupFunction;
 
 use crate::histogram::{Histogram, NonZeroBucket};
+use crate::Timestamp;
 use crate::types::{MetricName, Timeseries};
 
 #[derive(Debug)]
@@ -22,7 +23,7 @@ struct MapInner {
 impl MapInner {
     pub fn new(
         keep_metric_names: bool,
-        shared_timestamps: &Arc<Vec<i64>>,
+        shared_timestamps: &Arc<Vec<Timestamp>>,
         mn_src: &MetricName,
     ) -> Self {
         let ts_len = shared_timestamps.len();
@@ -68,7 +69,7 @@ impl MapInner {
 impl TimeSeriesMap {
     pub fn new(
         keep_metric_names: bool,
-        shared_timestamps: &Arc<Vec<i64>>,
+        shared_timestamps: &Arc<Vec<Timestamp>>,
         mn_src: &MetricName,
     ) -> Self {
         let inner = MapInner::new(keep_metric_names, shared_timestamps, mn_src);

@@ -5,7 +5,7 @@ extern crate core;
 extern crate lockfree_object_pool;
 extern crate rand;
 extern crate xxhash_rust;
-
+extern crate serde_regex;
 pub mod async_runtime;
 pub mod atomic_counter;
 pub mod bytes_util;
@@ -17,7 +17,6 @@ pub mod histogram;
 pub mod pool;
 pub mod regex_util;
 pub mod time;
-
 pub mod humanize;
 
 pub mod prelude {

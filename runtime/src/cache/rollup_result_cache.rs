@@ -499,24 +499,7 @@ fn marshal_rollup_result_cache_key(
     )
 }
 
-fn marshal_rollup_result_cache_key_for_series(
-    hasher: &mut Xxh3,
-    expr: &Expr,
-    window: i64,
-    step: i64,
-    etfs: &Option<Matchers>,
-) -> u64 {
-    marshal_rollup_result_cache_key_internal(
-        hasher,
-        expr,
-        window,
-        step,
-        etfs,
-        ROLLUP_TYPE_TIMESERIES,
-    )
-}
-
-/// merge_timeseries concatenates b with a and returns the result.
+/// `merge_timeseries` concatenates b with a and returns the result.
 ///
 /// Preconditions:
 /// - a mustn't intersect with b.
@@ -727,8 +710,8 @@ impl RollupResultCacheMetaInfo {
 
 #[derive(Default, Clone, PartialEq, Hash, Serialize, Deserialize)]
 struct RollupResultCacheMetaInfoEntry {
-    start: i64,
-    end: i64,
+    start: Timestamp,
+    end: Timestamp,
     key: RollupResultCacheKey,
 }
 

@@ -1,16 +1,16 @@
-use tinyvec::TinyVec;
+use smallvec::{smallvec, SmallVec};
 
 use crate::functions::arg_parse::get_scalar_param_value;
-use crate::functions::rollup::{RollupFuncArg, RollupHandler, RollupHandlerVecArg};
+use crate::functions::rollup::{RollupFuncArg, RollupHandler, RollupHandlerVec};
 use crate::{QueryValue, RuntimeResult};
 
 pub(super) fn new_rollup_holt_winters(args: &[QueryValue]) -> RuntimeResult<RollupHandler> {
     let sf = get_scalar_param_value(args, 1, "holt_winters", "sf")?;
     let tf = get_scalar_param_value(args, 2, "holt_winters", "tf")?;
 
-    let handler = RollupHandlerVecArg::new(
-        tiny_vec!(sf, tf),
-        |rfa: &RollupFuncArg, vals: &TinyVec<[f64; 4]>| -> f64 {
+    let handler = RollupHandlerVec::new(
+        smallvec![sf, tf],
+        |rfa: &RollupFuncArg, vals: &SmallVec<[f64; 4]>| -> f64 {
             let sf = vals[0];
             let tf = vals[1];
             holt_winters_internal(rfa, sf, tf)

@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
-
 use metricsql_parser::ast::Expr;
 use metricsql_parser::functions::{can_adjust_window, RollupFunction};
+use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use smallvec::SmallVec;
 
 use crate::common::math::quantile;
 use crate::execution::{get_timestamps, validate_max_points_per_timeseries};
@@ -22,34 +22,27 @@ use crate::{MetricName, RuntimeError, RuntimeResult, Timeseries, Timestamp};
 /// The maximum interval without previous rows.
 pub const MAX_SILENCE_INTERVAL: i64 = 5 * 60 * 1000;
 
-// Pre-allocated handlers for closure to save allocations at runtime
-macro_rules! wrap_rollup_fn {
-    ( $name: ident, $rf: expr ) => {
-        pub(crate) const $name: RollupHandler = RollupHandler::Wrapped($rf);
-    };
-}
-
-pub(crate) type PreFunction = fn(&mut [f64], &[i64]) -> ();
+pub(crate) type PreFunction = fn(&mut [f64], &[Timestamp]) -> ();
 
 #[inline]
-pub(crate) fn eval_prefuncs(fns: &Vec<PreFunction>, values: &mut [f64], timestamps: &[i64]) {
+pub(crate) fn eval_prefuncs(fns: &PreFunctionVec, values: &mut [f64], timestamps: &[Timestamp]) {
     for f in fns {
         f(values, timestamps)
     }
 }
 
 #[inline]
-fn remove_counter_resets_pre_func(values: &mut [f64], _: &[i64]) {
+fn remove_counter_resets_pre_func(values: &mut [f64], _: &[Timestamp]) {
     remove_counter_resets(values);
 }
 
 #[inline]
-fn delta_values_pre_func(values: &mut [f64], _: &[i64]) {
+fn delta_values_pre_func(values: &mut [f64], _: &[Timestamp]) {
     delta_values(values);
 }
 
 /// Calculate intervals in seconds between samples.
-fn calc_sample_intervals_pre_fn(values: &mut [f64], timestamps: &[i64]) {
+fn calc_sample_intervals_pre_fn(values: &mut [f64], timestamps: &[Timestamp]) {
     // Calculate intervals in seconds between samples.
     let mut ts_secs_prev = f64::NAN;
     for (value, ts) in values.iter_mut().zip(timestamps.iter()) {
@@ -66,13 +59,15 @@ fn calc_sample_intervals_pre_fn(values: &mut [f64], timestamps: &[i64]) {
     }
 }
 
-wrap_rollup_fn!(FN_OPEN, rollup_open);
-wrap_rollup_fn!(FN_CLOSE, rollup_close);
-wrap_rollup_fn!(FN_MIN, rollup_min);
-wrap_rollup_fn!(FN_MAX, rollup_max);
-wrap_rollup_fn!(FN_AVG, rollup_avg);
-wrap_rollup_fn!(FN_LOW, rollup_low);
-wrap_rollup_fn!(FN_HIGH, rollup_high);
+// Pre-allocated handlers for closure to save allocations at runtime
+pub(crate) const FN_OPEN: RollupHandler = RollupHandler::Wrapped(rollup_open);
+pub(crate) const FN_CLOSE: RollupHandler = RollupHandler::Wrapped(rollup_close);
+pub(crate) const FN_MIN: RollupHandler = RollupHandler::Wrapped(rollup_min);
+pub(crate) const FN_MAX: RollupHandler = RollupHandler::Wrapped(rollup_max);
+pub(crate) const FN_AVG: RollupHandler = RollupHandler::Wrapped(rollup_avg);
+pub(crate) const FN_LOW: RollupHandler = RollupHandler::Wrapped(rollup_low);
+pub(crate) const FN_HIGH: RollupHandler = RollupHandler::Wrapped(rollup_high);
+
 
 fn get_tag_fn_from_str(name: &str) -> Option<&RollupHandler> {
     match name {
@@ -93,17 +88,19 @@ pub struct TagFunction {
     pub(crate) func: RollupHandler,
 }
 
+pub type PreFunctionVec = SmallVec<[PreFunction;4]>;
+pub type TagFunctionVec = SmallVec<[TagFunction;4]>;
+pub type RollupConfigVec = SmallVec<[RollupConfig;4]>;
+
 #[derive(Clone, Default, Debug)]
 pub struct RollupFunctionHandlerMeta {
     may_adjust_window: bool,
     samples_scanned_per_call: usize,
     is_default_rollup: bool,
-    // todo: TinyVec
-    pre_funcs: Vec<PreFunction>,
-    functions: Vec<TagFunction>,
+    pre_funcs: PreFunctionVec,
+    functions: TagFunctionVec,
 }
 
-// todo: use tinyvec for return values
 pub(crate) fn get_rollup_configs(
     func: RollupFunction,
     rf: &RollupHandler,
@@ -116,8 +113,7 @@ pub(crate) fn get_rollup_configs(
     min_staleness_interval: usize,
     lookback_delta: i64,
     shared_timestamps: &Arc<Vec<i64>>,
-) -> RuntimeResult<(Vec<RollupConfig>, Vec<PreFunction>)> {
-    // todo: use tinyvec
+) -> RuntimeResult<(RollupConfigVec, PreFunctionVec)> {
 
     let meta = get_rollup_function_handler_meta(expr, func, Some(rf))?;
     let rcs = get_rollup_configs_from_meta(
@@ -135,7 +131,6 @@ pub(crate) fn get_rollup_configs(
     Ok((rcs, meta.pre_funcs))
 }
 
-// todo: use tinyvec for return values
 pub(crate) fn get_rollup_configs_from_meta(
     meta: &RollupFunctionHandlerMeta,
     start: Timestamp,
@@ -146,8 +141,7 @@ pub(crate) fn get_rollup_configs_from_meta(
     min_staleness_interval: usize,
     lookback_delta: i64,
     shared_timestamps: &Arc<Vec<i64>>,
-) -> RuntimeResult<Vec<RollupConfig>> {
-    // todo: use tinyvec
+) -> RuntimeResult<RollupConfigVec> {
 
     let new_rollup_config = |rf: &RollupHandler, tag_value: String| -> RollupConfig {
         RollupConfig {
@@ -171,7 +165,7 @@ pub(crate) fn get_rollup_configs_from_meta(
         .functions
         .iter()
         .map(|nf| new_rollup_config(&nf.func, nf.tag_value.clone()))
-        .collect::<Vec<_>>();
+        .collect::<RollupConfigVec>();
 
     Ok(rcs)
 }
@@ -181,8 +175,8 @@ pub(crate) struct RollupConfig {
     /// This tag value must be added to "rollup" tag if non-empty.
     pub tag_value: String,
     pub handler: RollupHandler,
-    pub start: i64,
-    pub end: i64,
+    pub start: Timestamp,
+    pub end: Timestamp,
     pub step: i64,
     pub window: i64,
 
@@ -265,8 +259,8 @@ impl RollupConfig {
         metric: &MetricName,
         keep_metric_names: bool,
         values: &[f64],
-        timestamps: &[i64],
-        shared_timestamps: &Arc<Vec<i64>>,
+        timestamps: &[Timestamp],
+        shared_timestamps: &Arc<Vec<Timestamp>>,
     ) -> RuntimeResult<(u64, Vec<Timeseries>)> {
         let func_keeps_metric_name = func.keep_metric_name();
         if TimeSeriesMap::is_valid_function(func) {
@@ -366,8 +360,7 @@ impl RollupConfig {
         let mut samples_scanned = values.len() as u64;
         let samples_scanned_per_call = self.samples_scanned_per_call as u64;
 
-        // todo(perf): pooled vec or tinyvec
-        let mut func_args: Vec<RollupFuncArg> = Vec::with_capacity(16);
+        let mut func_args = SmallVec::<[RollupFuncArg; 16]>::new();
 
         for (idx, t_end) in self.timestamps.iter().enumerate() {
             let t_start = *t_end - window;
@@ -607,14 +600,13 @@ const fn get_max_prev_interval(scrape_interval: i64) -> i64 {
     scrape_interval + scrape_interval / 8
 }
 
-// todo: use tinyvec for return values
+
 fn get_rollup_function_handler_meta(
     expr: &Expr,
     func: RollupFunction,
     rf: Option<&RollupHandler>,
 ) -> RuntimeResult<RollupFunctionHandlerMeta> {
-    // todo: use tinyvec
-    let mut pre_funcs: Vec<PreFunction> = Vec::with_capacity(3);
+    let mut pre_funcs: PreFunctionVec = PreFunctionVec::new();
 
     if func.should_remove_counter_resets() {
         pre_funcs.push(remove_counter_resets_pre_func);
@@ -628,7 +620,7 @@ fn get_rollup_function_handler_meta(
     };
 
     let new_function_configs =
-        |dst: &mut Vec<TagFunction>, tag: Option<&String>, valid: &[&str]| -> RuntimeResult<()> {
+        |dst: &mut TagFunctionVec, tag: Option<&String>, valid: &[&str]| -> RuntimeResult<()> {
             if let Some(tag_value) = tag {
                 let func = get_tag_fn_from_str(tag_value).ok_or_else(|| {
                     RuntimeError::ArgumentError(format!(
@@ -654,14 +646,13 @@ fn get_rollup_function_handler_meta(
             Ok(())
         };
 
-    let append_stats_function = |dst: &mut Vec<TagFunction>, expr: &Expr| -> RuntimeResult<()> {
+    let append_stats_function = |dst: &mut TagFunctionVec, expr: &Expr| -> RuntimeResult<()> {
         static VALID: [&str; 3] = ["min", "max", "avg"];
         let tag = get_rollup_tag(expr)?;
         new_function_configs(dst, tag, &VALID)
     };
 
-    // todo: tinyvec
-    let mut funcs: Vec<TagFunction> = Vec::with_capacity(4);
+    let mut funcs: TagFunctionVec = TagFunctionVec::new();
     match func {
         RollupFunction::Rollup => {
             append_stats_function(&mut funcs, expr)?;

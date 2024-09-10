@@ -1,1 +1,3 @@
-pub mod histogram;
+mod histogram;
+
+pub use histogram::*;

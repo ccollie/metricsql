@@ -31,7 +31,7 @@ use crate::functions::aggregate::IncrementalAggregationHandler;
 use crate::functions::rollup::{
     get_rollup_function_handler, rollup_default, rollup_func_requires_config, RollupHandler,
 };
-use crate::{QueryValue, RuntimeError, RuntimeResult};
+use crate::{QueryValue, RuntimeError, RuntimeResult, Timestamp};
 
 pub struct DAGBuilder {
     node_map: AHashMap<usize, DAGNode>,
@@ -335,7 +335,7 @@ impl DAGBuilder {
     ) -> RuntimeResult<usize> {
         let parent_idx = self.reserve_node();
 
-        let mut at_value: Option<i64> = None;
+        let mut at_value: Option<Timestamp> = None;
 
         let at_arg = if let Some(at) = &re.at {
             match at.as_ref() {
@@ -750,8 +750,8 @@ mod tests {
 
     use super::*;
 
-    const START: i64 = 1000000_i64;
-    const END: i64 = 2000000_i64;
+    const START: Timestamp = 1000000_i64;
+    const END: Timestamp = 2000000_i64;
     const STEP: i64 = 200000_i64;
 
     #[test]

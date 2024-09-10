@@ -18,9 +18,7 @@ use crate::execution::eval_number;
 use crate::execution::utils::{adjust_eval_range, drop_stale_nans, duration_value};
 use crate::execution::{get_timestamps, EvalConfig};
 use crate::functions::aggregate::IncrementalAggrFuncContext;
-use crate::functions::rollup::{
-    eval_prefuncs, get_rollup_configs, RollupConfig, RollupHandler, MAX_SILENCE_INTERVAL,
-};
+use crate::functions::rollup::{eval_prefuncs, get_rollup_configs, RollupConfigVec, RollupHandler, MAX_SILENCE_INTERVAL};
 use crate::prelude::{is_empty_extra_matchers, join_matchers_with_extra_filters_owned};
 use crate::provider::{QueryResults, SearchQuery};
 use crate::rayon::iter::IndexedParallelIterator;
@@ -223,7 +221,7 @@ impl RollupNode {
             &shared_timestamps,
         )?;
 
-        let pre_func = move |values: &mut [f64], timestamps: &[i64]| {
+        let pre_func = move |values: &mut [f64], timestamps: &[Timestamp]| {
             eval_prefuncs(&pre_funcs, values, timestamps)
         };
 
@@ -308,7 +306,7 @@ impl RollupNode {
         &self,
         ae: &AggregationExpr,
         rss: &mut QueryResults,
-        rcs: Vec<RollupConfig>,
+        rcs: RollupConfigVec,
         pre_func: F,
         shared_timestamps: &Arc<Vec<i64>>,
         ignore_staleness: bool,
@@ -337,8 +335,8 @@ impl RollupNode {
         struct Context<'a> {
             func: RollupFunction,
             iafc: Arc<IncrementalAggrFuncContext<'a>>,
-            rcs: Vec<RollupConfig>,
-            timestamps: Arc<Vec<i64>>,
+            rcs: RollupConfigVec,
+            timestamps: Arc<Vec<Timestamp>>,
             samples_scanned_total: RelaxedU64Counter,
         }
 
@@ -391,7 +389,7 @@ impl RollupNode {
     fn eval_no_incremental_aggregate<F>(
         &self,
         rss: &mut QueryResults,
-        rcs: Vec<RollupConfig>,
+        rcs: RollupConfigVec,
         pre_func: F,
         shared_timestamps: &Arc<Vec<Timestamp>>,
         no_stale_markers: bool,
@@ -422,9 +420,8 @@ impl RollupNode {
         struct TaskCtx<'a> {
             series: Arc<Mutex<Vec<Timeseries>>>,
             func: RollupFunction,
-            // todo: TinyVec
-            rcs: Vec<RollupConfig>,
-            timestamps: &'a Arc<Vec<i64>>,
+            rcs: RollupConfigVec,
+            timestamps: &'a Arc<Vec<Timestamp>>,
             samples_scanned_total: RelaxedU64Counter,
         }
 

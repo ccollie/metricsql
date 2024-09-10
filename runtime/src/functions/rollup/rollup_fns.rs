@@ -29,7 +29,7 @@ use crate::functions::rollup::{
     integrate::{new_rollup_integrate, rollup_integrate},
     outlier_iqr::rollup_outlier_iqr,
     quantiles::{new_rollup_quantile, new_rollup_quantiles},
-    RollupHandlerFloatArg,
+    RollupHandlerFloat,
 };
 use crate::functions::rollup::{RollupFunc, RollupFuncArg, RollupHandler};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
@@ -333,7 +333,7 @@ pub(super) fn remove_counter_resets(values: &mut [f64]) {
 fn new_rollup_predict_linear(args: &[QueryValue]) -> RuntimeResult<RollupHandler> {
     let secs = get_scalar_param_value(args, 1, "predict_linear", "secs")?;
 
-    let handler = RollupHandlerFloatArg::new(secs, |rfa: &RollupFuncArg, secs: &f64| {
+    let handler = RollupHandlerFloat::new(secs, |rfa: &RollupFuncArg, secs: &f64| {
         let secs = *secs;
         let (v, k) = linear_regression(rfa.values, rfa.timestamps, rfa.curr_timestamp);
         if v.is_nan() {

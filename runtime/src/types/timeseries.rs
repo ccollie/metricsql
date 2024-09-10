@@ -8,7 +8,7 @@ use metricsql_parser::ast::VectorMatchModifier;
 
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::signature::Signature;
-
+use crate::Timestamp;
 use super::MetricName;
 
 pub type TimeseriesHashMap = AHashMap<Signature, Vec<Timeseries>>;
@@ -18,11 +18,11 @@ pub type TimeseriesHashMapRef<'a> = AHashMap<Signature, &'a [Timeseries]>;
 pub struct Timeseries {
     pub metric_name: MetricName,
     pub values: Vec<f64>,
-    pub timestamps: Arc<Vec<i64>>, //Arc used vs Rc since Rc is !Send
+    pub timestamps: Arc<Vec<Timestamp>>, //Arc used vs Rc since Rc is !Send
 }
 
 impl Timeseries {
-    pub fn new(timestamps: Vec<i64>, values: Vec<f64>) -> Self {
+    pub fn new(timestamps: Vec<Timestamp>, values: Vec<f64>) -> Self {
         Timeseries {
             metric_name: MetricName::default(),
             values,
@@ -30,7 +30,7 @@ impl Timeseries {
         }
     }
 
-    pub fn with_shared_timestamps(timestamps: &Arc<Vec<i64>>, values: &[f64]) -> Self {
+    pub fn with_shared_timestamps(timestamps: &Arc<Vec<Timestamp>>, values: &[f64]) -> Self {
         Timeseries {
             metric_name: MetricName::default(),
             values: Vec::from(values),
@@ -65,12 +65,12 @@ impl Timeseries {
 
 pub(crate) struct SeriesSlice<'a> {
     pub metric_name: &'a MetricName,
-    pub timestamps: &'a [i64],
+    pub timestamps: &'a [Timestamp],
     pub values: &'a [f64],
 }
 
 impl<'a> SeriesSlice<'a> {
-    pub fn new(metric_name: &'a MetricName, timestamps: &'a [i64], values: &'a [f64]) -> Self {
+    pub fn new(metric_name: &'a MetricName, timestamps: &'a [Timestamp], values: &'a [f64]) -> Self {
         SeriesSlice {
             metric_name,
             timestamps,
@@ -162,7 +162,7 @@ pub(crate) fn assert_identical_timestamps(tss: &[Timeseries], step: i64) -> Runt
 }
 
 fn assert_identical_timestamps_internal<'a>(
-    ts_iter: &mut impl Iterator<Item = &'a [i64]>,
+    ts_iter: &mut impl Iterator<Item = &'a [Timestamp]>,
     values_iter: &mut impl Iterator<Item = &'a [f64]>,
     step: i64,
 ) -> RuntimeResult<()> {

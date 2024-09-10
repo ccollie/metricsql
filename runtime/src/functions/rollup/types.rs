@@ -2,7 +2,7 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use clone_dyn::clone_dyn;
-use tinyvec::TinyVec;
+use smallvec::SmallVec;
 
 use crate::functions::rollup::TimeSeriesMap;
 use crate::types::Timestamp;
@@ -20,7 +20,7 @@ pub struct RollupFuncArg<'a> {
     pub(crate) values: &'a [f64],
 
     /// Timestamps for values.
-    pub(crate) timestamps: &'a [i64],
+    pub(crate) timestamps: &'a [Timestamp],
 
     /// Real value preceding values without restrictions on staleness interval.
     pub(super) real_prev_value: f64,
@@ -85,17 +85,17 @@ where
     }
 }
 
-pub(crate) type RollupHandlerFloatArg = GenericRollupHandler<f64, fn(&RollupFuncArg, &f64) -> f64>;
+pub(crate) type RollupHandlerFloat = GenericRollupHandler<f64, fn(&RollupFuncArg, &f64) -> f64>;
 
-pub(crate) type RollupHandlerVecArg =
-    GenericRollupHandler<TinyVec<[f64; 4]>, fn(&RollupFuncArg, &TinyVec<[f64; 4]>) -> f64>;
+pub(crate) type RollupHandlerVec =
+    GenericRollupHandler<SmallVec<[f64; 4]>, fn(&RollupFuncArg, &SmallVec<[f64; 4]>) -> f64>;
 
 #[derive(Clone, Debug)]
 pub(crate) enum RollupHandler {
     Wrapped(RollupFunc),
     Fake(&'static str),
-    FloatArg(RollupHandlerFloatArg),
-    VecArg(RollupHandlerVecArg),
+    FloatArg(RollupHandlerFloat),
+    VecArg(RollupHandlerVec),
     General(Box<dyn RollupFn<Output = f64>>),
 }
 

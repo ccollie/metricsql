@@ -18,7 +18,7 @@ pub trait HistogramBucketVisitor {
     fn visit(vm_range: &str, count: u64);
 }
 
-/// Histogram is a histogram for non-negative values with automatically created buckets.
+/// `Histogram` is a histogram for non-negative values with automatically created buckets.
 ///
 /// See https://medium.com/@valyala/improving-histogram-usability-for-prometheus-and-grafana-bc7e5df0e350
 ///
@@ -120,6 +120,7 @@ impl Histogram {
         }
     }
 
+    #[allow(dead_code)]
     pub fn marshal_to(&self, prefix: &str, dst: &mut String) {
         let mut count_total = 0;
 

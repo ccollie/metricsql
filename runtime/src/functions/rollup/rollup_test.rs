@@ -18,10 +18,7 @@ mod tests {
         get_rollup_func_by_name, get_rollup_function_factory, get_rollup_function_handler,
         RollupConfig, RollupFuncArg, RollupHandler, RollupHandlerFactory,
     };
-    use crate::{
-        compare_floats, compare_values, test_rows_equal, QueryValue, RuntimeError, RuntimeResult,
-        Timeseries,
-    };
+    use crate::{compare_floats, compare_values, test_rows_equal, QueryValue, RuntimeError, RuntimeResult, Timeseries, Timestamp};
 
     // https://github.com/VictoriaMetrics/VictoriaMetrics/blob/master/app/vmselect/promql/rollup_test.go
 
@@ -564,7 +561,7 @@ mod tests {
 
     #[test]
     fn test_linear_regression() {
-        let f = |values: &[f64], timestamps: &[i64], exp_v: f64, exp_k: f64| {
+        let f = |values: &[f64], timestamps: &[Timestamp], exp_v: f64, exp_k: f64| {
             let ts = &timestamps[0] + 100;
             let (v, k) = linear_regression(values, timestamps, ts);
             compare_values(&[v], &[exp_v]).unwrap();
@@ -1384,7 +1381,7 @@ mod tests {
         rc.max_points_per_series = 10000;
         // rc.ensure_timestamps().unwrap();
         let mut src_values: Vec<f64> = Vec::with_capacity(SRC_VALUES_COUNT as usize);
-        let mut src_timestamps: Vec<i64> = Vec::with_capacity(SRC_VALUES_COUNT as usize);
+        let mut src_timestamps: Vec<Timestamp> = Vec::with_capacity(SRC_VALUES_COUNT as usize);
         for i in 0..SRC_VALUES_COUNT {
             src_values.push(i as f64);
             src_timestamps.push(i / 2)

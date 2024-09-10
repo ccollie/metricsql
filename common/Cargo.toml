@@ -12,9 +12,9 @@ path="src/lib.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-agnostic-lite = {  version = "0.3", features = ["time"] }
+agnostic-lite.workspace = true
 ahash.workspace = true
-cfg-if = "1.0"
+cfg-if.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
 dynamic-lru-cache = "0.2"
@@ -26,8 +26,10 @@ rand.workspace = true
 rand_distr.workspace = true
 regex.workspace = true
 regex-syntax.workspace = true
+serde.workspace = true
+serde_derive.workspace = true
+serde_regex.workspace = true
 snafu.workspace = true
-tinyvec.workspace = true
 xxhash-rust.workspace = true
 strum.workspace = true
 strum_macros.workspace = true

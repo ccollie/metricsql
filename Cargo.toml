@@ -20,10 +20,12 @@ resolver = "2"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [workspace.dependencies]
+agnostic-lite = {  version = "0.3", default-features = false, features = ["time"] }
 ahash = { version = "0.8", features = ["std", "serde"] }
 byte-pool = "0.2"
 chrono = { version = "0.4", features = ["serde"] }
-chrono-tz = "0.9"
+chrono-tz = "0.10.0"
+cfg-if = "1.0.0"
 enquote = "1.1"
 futures = "0.3"
 gxhash = "3.4"
@@ -38,9 +40,12 @@ rayon = "1.10"
 regex = "1.10"
 regex-syntax = "0.8"
 rs_unit = "0.0.2"
-scopeguard = "1.2.0"
 serde = { version = "1", features = ["derive"] }
+serde_derive = "1"
+serde_regex="1.1"
 serde_with = "3"
+scopeguard = "1.2.0"
+smallvec = { version = "1.13.2", features = ["union", "const_generics"] }
 snafu = "0.8"
 snafu-derive = "0.8"
 strum = { version = "0.26", features = ["derive"] }

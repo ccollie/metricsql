@@ -11,7 +11,7 @@ use std::str::FromStr;
 use crate::common::format::format_number;
 use crate::execution::{eval_number, EvalConfig};
 use crate::functions::types::get_single_timeseries;
-use crate::{RuntimeError, RuntimeResult, Timeseries};
+use crate::{RuntimeError, RuntimeResult, Timeseries, Timestamp};
 
 pub type Labels = Vec<Label>;
 
@@ -43,7 +43,7 @@ impl Ord for Label {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Sample {
     /// Time in microseconds
-    pub timestamp: i64,
+    pub timestamp: Timestamp,
     pub value: f64,
 }
 
@@ -60,7 +60,7 @@ impl Serialize for Sample {
 }
 
 impl Sample {
-    pub fn new(timestamp: i64, value: f64) -> Self {
+    pub fn new(timestamp: Timestamp, value: f64) -> Self {
         Self { timestamp, value }
     }
 }

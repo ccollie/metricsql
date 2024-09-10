@@ -6,7 +6,7 @@ mod tests {
     use crate::execution::{Context, EvalConfig};
     use crate::functions::parse_timezone;
     use crate::functions::transform::get_timezone_offset;
-    use crate::{test_results_equal, Deadline, MetricName, QueryResult, Tag};
+    use crate::{test_results_equal, Deadline, MetricName, QueryResult, Tag, Timestamp};
     use chrono::Duration;
     use metricsql_parser::parser::parse;
     use metricsql_parser::prelude::utils::is_likely_invalid;
@@ -15,16 +15,16 @@ mod tests {
     const INF: f64 = f64::INFINITY;
     const NEG_INF: f64 = f64::NEG_INFINITY;
 
-    const START: i64 = 1000000_i64;
-    const END: i64 = 2000000_i64;
+    const START: Timestamp = 1000000_i64;
+    const END: Timestamp = 2000000_i64;
     const STEP: i64 = 200000_i64;
 
-    const TIMESTAMPS_EXPECTED: [i64; 6] = [1000000, 1200000, 1400000, 1600000, 1800000, 2000000];
+    const TIMESTAMPS_EXPECTED: [Timestamp; 6] = [1000000, 1200000, 1400000, 1600000, 1800000, 2000000];
 
     fn make_result(vals: &[f64]) -> QueryResult {
         let mut start = 1000000;
         let vals = Vec::from(vals);
-        let mut timestamps: Vec<i64> = Vec::with_capacity(vals.len());
+        let mut timestamps: Vec<Timestamp> = Vec::with_capacity(vals.len());
         (0..vals.len()).for_each(|_| {
             timestamps.push(start);
             start += 200000;

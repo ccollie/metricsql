@@ -1,4 +1,4 @@
-use crate::bytes_util::{FastRegexMatcher, FastStringMatcher};
+use crate::bytes_util::FastRegexMatcher;
 use regex::Regex;
 use std::fmt::{Display, Formatter};
 
@@ -29,13 +29,11 @@ pub enum StringMatchHandler {
     Contains(String),
     StartsWith(String),
     EndsWith(String),
-    Fsm(FastStringMatcher),
     FastRegex(FastRegexMatcher),
     OrderedAlternates(Vec<String>),
     MatchFn(MatchFnHandler),
     Alternates(Vec<String>, MatchFn),
     And(Box<StringMatchHandler>, Box<StringMatchHandler>),
-    Regex(Regex),
 }
 
 impl Default for StringMatchHandler {
@@ -85,11 +83,9 @@ impl StringMatchHandler {
             StringMatchHandler::MatchAll => true,
             StringMatchHandler::MatchNone => false,
             StringMatchHandler::Alternates(alts, match_fn) => matches_alternates(alts, s, match_fn),
-            StringMatchHandler::Fsm(fsm) => fsm.matches(s),
             StringMatchHandler::MatchFn(m) => m.matches(s),
             StringMatchHandler::FastRegex(r) => r.matches(s),
             StringMatchHandler::OrderedAlternates(m) => match_ordered_alternates(m, s),
-            StringMatchHandler::Regex(r) => r.is_match(s),
             StringMatchHandler::And(a, b) => a.matches(s) && b.matches(s),
             StringMatchHandler::Contains(value) => s.contains(value),
             StringMatchHandler::StartsWith(prefix) => s.starts_with(prefix),
@@ -205,7 +201,7 @@ const fn get_literal_match_fn(options: &StringMatchOptions) -> MatchFn {
             }
         }
     } else if *anchor_start {
-        return match (prefix_quantifier, suffix_quantifier) {
+        match (prefix_quantifier, suffix_quantifier) {
             (Some(Quantifier::ZeroOrMore), Some(Quantifier::ZeroOrMore)) => {
                 // ^.*foo.*
                 contains_fn
@@ -242,9 +238,9 @@ const fn get_literal_match_fn(options: &StringMatchOptions) -> MatchFn {
                 // ^foobar
                 starts_with_fn
             }
-        };
+        }
     } else if *anchor_end {
-        return match (prefix_quantifier, suffix_quantifier) {
+        match (prefix_quantifier, suffix_quantifier) {
             (Some(Quantifier::ZeroOrMore), Some(Quantifier::ZeroOrMore)) => {
                 // .*foo.*$
                 contains_fn
@@ -284,7 +280,7 @@ const fn get_literal_match_fn(options: &StringMatchOptions) -> MatchFn {
         }
     } else {
         // no anchors
-        return match(prefix_quantifier, suffix_quantifier) {
+        match(prefix_quantifier, suffix_quantifier) {
             (Some(Quantifier::ZeroOrMore), Some(Quantifier::ZeroOrMore)) => {
                 // .*foo.*
                 contains_fn
@@ -321,7 +317,7 @@ const fn get_literal_match_fn(options: &StringMatchOptions) -> MatchFn {
                 // foobar
                 contains_fn
             }
-        };
+        }
     }
 }
 
@@ -361,7 +357,7 @@ fn get_optimized_literal_matcher(value: String, options: &StringMatchOptions) ->
             }
         }
     } else if *anchor_start {
-        return match (prefix_quantifier, suffix_quantifier) {
+        match (prefix_quantifier, suffix_quantifier) {
             (Some(Quantifier::ZeroOrMore), Some(Quantifier::ZeroOrMore)) => {
                 // ^.*foo.*
                 StringMatchHandler::Contains(value)
@@ -381,9 +377,9 @@ fn get_optimized_literal_matcher(value: String, options: &StringMatchOptions) ->
             _ => {
                 handle_default(options, value)
             }
-        };
+        }
     } else if *anchor_end {
-        return match (prefix_quantifier, suffix_quantifier) {
+        match (prefix_quantifier, suffix_quantifier) {
             (Some(Quantifier::ZeroOrMore), Some(Quantifier::ZeroOrMore)) => {
                 // .*foo.*$
                 StringMatchHandler::Contains(value)
@@ -407,7 +403,7 @@ fn get_optimized_literal_matcher(value: String, options: &StringMatchOptions) ->
         }
     } else {
         // no anchors
-        return match(prefix_quantifier, suffix_quantifier) {
+        match(prefix_quantifier, suffix_quantifier) {
             (Some(Quantifier::ZeroOrMore), Some(Quantifier::ZeroOrMore)) => {
                 // .*foo.*
                 StringMatchHandler::Contains(value)
@@ -428,7 +424,7 @@ fn get_optimized_literal_matcher(value: String, options: &StringMatchOptions) ->
                 // foobar
                 handle_default(options, value)
             }
-        };
+        }
     }
 }
 

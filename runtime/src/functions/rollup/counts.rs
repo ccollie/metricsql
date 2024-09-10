@@ -1,5 +1,5 @@
 use crate::functions::arg_parse::get_float_arg;
-use crate::functions::rollup::{RollupFuncArg, RollupHandler, RollupHandlerFloatArg};
+use crate::functions::rollup::{RollupFuncArg, RollupHandler, RollupHandlerFloat};
 use crate::{QueryValue, RuntimeError, RuntimeResult};
 use std::io::Cursor;
 use std::io::Write;
@@ -63,7 +63,7 @@ macro_rules! make_count_fn {
         pub(super) fn $name(args: &[QueryValue]) -> RuntimeResult<RollupHandler> {
             let limit = get_limit(args, $func_name, $param_name)?;
             let handler =
-                RollupHandlerFloatArg::new(limit, |rfa: &RollupFuncArg, limit: &f64| -> f64 {
+                RollupHandlerFloat::new(limit, |rfa: &RollupFuncArg, limit: &f64| -> f64 {
                     count_filtered(rfa.values, *limit, $predicate_fn)
                 });
             Ok(RollupHandler::FloatArg(handler))
@@ -81,7 +81,7 @@ macro_rules! make_share_fn {
         pub(super) fn $name(args: &[QueryValue]) -> RuntimeResult<RollupHandler> {
             let limit = get_limit(args, $func_name, $param_name)?;
             let handler =
-                RollupHandlerFloatArg::new(limit, |rfa: &RollupFuncArg, limit: &f64| -> f64 {
+                RollupHandlerFloat::new(limit, |rfa: &RollupFuncArg, limit: &f64| -> f64 {
                     share_filtered(rfa.values, *limit, $predicate_fn)
                 });
             Ok(RollupHandler::FloatArg(handler))
@@ -103,7 +103,7 @@ macro_rules! make_sum_fn {
         pub(super) fn $name(args: &[QueryValue]) -> RuntimeResult<RollupHandler> {
             let limit = get_limit(args, $func_name, $param_name)?;
             let handler =
-                RollupHandlerFloatArg::new(limit, |rfa: &RollupFuncArg, limit: &f64| -> f64 {
+                RollupHandlerFloat::new(limit, |rfa: &RollupFuncArg, limit: &f64| -> f64 {
                     sum_filtered(rfa.values, *limit, $predicate_fn)
                 });
             Ok(RollupHandler::FloatArg(handler))

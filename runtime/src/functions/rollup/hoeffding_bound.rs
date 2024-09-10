@@ -1,5 +1,5 @@
 use crate::functions::arg_parse::get_scalar_param_value;
-use crate::functions::rollup::{RollupFuncArg, RollupHandler, RollupHandlerFloatArg};
+use crate::functions::rollup::{RollupFuncArg, RollupHandler, RollupHandlerFloat};
 use crate::{QueryValue, RuntimeResult};
 
 pub(super) fn new_rollup_hoeffding_bound_lower(
@@ -7,7 +7,7 @@ pub(super) fn new_rollup_hoeffding_bound_lower(
 ) -> RuntimeResult<RollupHandler> {
     let phi = get_scalar_param_value(args, 0, "hoeffding_bound_lower", "phi")?;
 
-    let f = RollupHandlerFloatArg::new(phi, |rfa: &RollupFuncArg, phi: &f64| -> f64 {
+    let f = RollupHandlerFloat::new(phi, |rfa: &RollupFuncArg, phi: &f64| -> f64 {
         let (bound, avg) = hoeffding_bound_internal(rfa.values, *phi);
         avg - bound
     });
@@ -20,8 +20,7 @@ pub(super) fn new_rollup_hoeffding_bound_upper(
 ) -> RuntimeResult<RollupHandler> {
     let phi = get_scalar_param_value(args, 0, "hoeffding_bound_upper", "phi")?;
 
-    // TODO: switch tp RollupHandlerVecArg to avoid boxing
-    let f = RollupHandlerFloatArg::new(phi, move |rfa: &RollupFuncArg, phi: &f64| -> f64 {
+    let f = RollupHandlerFloat::new(phi, move |rfa: &RollupFuncArg, phi: &f64| -> f64 {
         let (bound, avg) = hoeffding_bound_internal(rfa.values, *phi);
         avg + bound
     });

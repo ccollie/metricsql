@@ -9,7 +9,7 @@ use metricsql_parser::functions::RollupFunction;
 use crate::common::math::is_stale_nan;
 use crate::execution::EvalConfig;
 use crate::rayon::iter::ParallelIterator;
-use crate::{QueryValue, RuntimeResult, Timeseries};
+use crate::{QueryValue, RuntimeResult, Timeseries, Timestamp};
 
 pub(crate) fn series_len(val: &QueryValue) -> usize {
     match &val {
@@ -80,7 +80,7 @@ pub(super) fn process_series_in_parallel<F>(
     f: F,
 ) -> RuntimeResult<(Vec<Timeseries>, u64)>
 where
-    F: Fn(&Timeseries, &mut [f64], &[i64]) -> RuntimeResult<(Vec<Timeseries>, u64)> + Send + Sync,
+    F: Fn(&Timeseries, &mut [f64], &[Timestamp]) -> RuntimeResult<(Vec<Timeseries>, u64)> + Send + Sync,
 {
     let handler = |ts: &Timeseries| -> RuntimeResult<(Vec<Timeseries>, u64)> {
         let len = ts.values.len();
