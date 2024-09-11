@@ -1393,7 +1393,7 @@ mod tests {
             "expecting non-zero samples_scanned from rollupConfig.co"
         );
         let values_expected: Vec<f64> = vec![1_f64, 4001.0, 8001.0, 9999.0, NAN, NAN];
-        let timestamps_expected: Vec<i64> = vec![0, 2000, 4000, 6000, 8000, 10000];
+        let timestamps_expected: Vec<Timestamp> = vec![0, 2000, 4000, 6000, 8000, 10000];
         test_rows_equal(
             &values,
             &rc.timestamps,
