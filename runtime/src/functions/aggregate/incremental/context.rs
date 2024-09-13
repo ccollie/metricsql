@@ -7,8 +7,8 @@ use metricsql_parser::ast::AggregationExpr;
 use metricsql_parser::functions::AggregateFunction;
 
 use crate::functions::aggregate::IncrementalAggregationHandler;
-use crate::signature::Signature;
-use crate::{RuntimeError, RuntimeResult, Timeseries};
+use crate::types::{Timeseries, Signature};
+use crate::{RuntimeError, RuntimeResult};
 
 pub enum IncrementalAggrFuncKind {
     Any,

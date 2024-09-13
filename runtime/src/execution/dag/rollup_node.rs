@@ -24,8 +24,7 @@ use crate::provider::{QueryResults, SearchQuery};
 use crate::rayon::iter::IndexedParallelIterator;
 use crate::rayon::iter::ParallelIterator;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::QueryValue;
-use crate::{Timeseries, Timestamp};
+use crate::types::{QueryValue, Timeseries, Timestamp};
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct RollupNode {
@@ -33,7 +32,6 @@ pub struct RollupNode {
     pub expr: Expr,
     pub func: RollupFunction,
     pub(crate) func_handler: RollupHandler,
-    pub keep_metric_names: bool,
     pub metric_expr: MetricExpr,
     /// `window` contains optional window value from square brackets. Equivalent to `range` in
     /// prometheus terminology
@@ -56,7 +54,8 @@ pub struct RollupNode {
     pub at_node: Option<NodeArg>,
     pub(super) args: Vec<NodeArg>,
     pub(crate) is_incr_aggregate: bool,
-    is_tracing: bool,
+    pub is_tracing: bool,
+    pub keep_metric_names: bool,
 }
 
 impl ExecutableNode for RollupNode {

@@ -8,10 +8,10 @@ use itertools::Itertools;
 
 use metricsql_parser::prelude::{LabelFilter, Matchers};
 
-use crate::signature::Signature;
 use crate::{
-    Deadline, MetricName, MetricStorage, QueryResult, QueryResults, RuntimeResult, SearchQuery,
+    Deadline, MetricStorage, QueryResult, QueryResults, RuntimeResult, SearchQuery,
 };
+use crate::types::{MetricName, Signature};
 
 #[derive(Debug, Clone)]
 pub struct Point {
@@ -131,7 +131,7 @@ impl MemoryMetricProvider {
         inner.append(sample.metric, sample.timestamp, sample.value)
     }
 
-    pub fn clear(&mut self) {
+    pub fn clear(&self) {
         let mut inner = self.inner.write().unwrap();
         inner.clear();
     }
@@ -183,13 +183,13 @@ fn find_first_index(range_values: &[Point], ts: i64) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
-    use crate::MetricName;
+    use crate::types::MetricName;
 
     use super::*;
 
     #[test]
     fn append_new_metric_creates_new_entry() {
-        let mut provider = MemoryMetricProvider::new();
+        let provider = MemoryMetricProvider::new();
         let mut labels = MetricName::default();
         labels.add_tag("foo", "bar");
         provider.append(labels.clone(), 1, 1.0).unwrap();
@@ -200,7 +200,7 @@ mod tests {
 
     #[test]
     fn append_existing_metric_adds_point() {
-        let mut provider = MemoryMetricProvider::new();
+        let provider = MemoryMetricProvider::new();
         let mut labels = MetricName::default();
         labels.add_tag("foo", "bar");
         provider.append(labels.clone(), 1, 1.0).unwrap();
@@ -215,7 +215,7 @@ mod tests {
 
     #[test]
     fn search_returns_matching_metrics() {
-        let mut provider = MemoryMetricProvider::new();
+        let provider = MemoryMetricProvider::new();
         let mut labels = MetricName::default();
         labels.add_tag("foo", "bar");
         provider.append(labels.clone(), 1, 1.0).unwrap();
@@ -228,7 +228,7 @@ mod tests {
 
     #[test]
     fn search_returns_empty_for_no_match() {
-        let mut provider = MemoryMetricProvider::new();
+        let provider = MemoryMetricProvider::new();
         let mut labels = MetricName::default();
         labels.add_tag("foo", "bar");
         provider.append(labels.clone(), 1, 1.0).unwrap();

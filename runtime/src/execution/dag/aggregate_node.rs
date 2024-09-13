@@ -8,7 +8,8 @@ use crate::execution::dag::utils::resolve_node_args;
 use crate::execution::dag::{ExecutableNode, NodeArg};
 use crate::execution::EvalConfig;
 use crate::functions::aggregate::{exec_aggregate_fn, AggrFuncArg};
-use crate::{QueryValue, RuntimeResult};
+use crate::{RuntimeResult};
+use crate::types::QueryValue;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AggregateNode {

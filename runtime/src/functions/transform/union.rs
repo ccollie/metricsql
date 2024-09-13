@@ -2,8 +2,8 @@ use ahash::AHashSet;
 
 use crate::execution::{eval_number, EvalConfig};
 use crate::functions::transform::TransformFuncArg;
-use crate::signature::Signature;
-use crate::{QueryValue, RuntimeError, RuntimeResult, Timeseries};
+use crate::{RuntimeError, RuntimeResult};
+use crate::types::{QueryValue, Timeseries, Signature };
 
 pub(crate) fn union(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     // we don't use args after this

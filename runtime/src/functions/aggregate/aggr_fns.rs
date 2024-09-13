@@ -23,8 +23,7 @@ use crate::functions::utils::{
 };
 use crate::histogram::{get_pooled_histogram, Histogram, NonZeroBucket};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::signature::Signature;
-use crate::{QueryValue, Timeseries};
+use crate::types::{QueryValue, Signature, Timeseries};
 
 const MAX_SERIES_PER_AGGR_FUNC: usize = 100000;
 

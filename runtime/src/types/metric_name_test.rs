@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::common::encoding::write_string;
-    use crate::MetricName;
+    use crate::types::MetricName;
 
     #[test]
     fn test_metric_name_string() {

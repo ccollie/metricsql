@@ -1,6 +1,7 @@
 use metricsql_parser::prelude::{string_compare, Operator};
 
-use crate::{QueryValue, RuntimeError, RuntimeResult};
+use crate::{RuntimeError, RuntimeResult};
+use crate::types::QueryValue;
 
 // move to parser binop module ?
 pub(crate) fn eval_string_string_binop(

@@ -5,8 +5,8 @@ use clone_dyn::clone_dyn;
 use smallvec::SmallVec;
 
 use crate::functions::rollup::TimeSeriesMap;
-use crate::types::Timestamp;
-use crate::{QueryValue, RuntimeResult};
+use crate::types::{QueryValue, Timestamp};
+use crate::{RuntimeResult};
 
 #[derive(Default, Clone, Debug)]
 pub struct RollupFuncArg<'a> {

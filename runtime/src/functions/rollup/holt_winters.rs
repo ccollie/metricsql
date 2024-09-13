@@ -2,7 +2,7 @@ use smallvec::{smallvec, SmallVec};
 
 use crate::functions::arg_parse::get_scalar_param_value;
 use crate::functions::rollup::{RollupFuncArg, RollupHandler, RollupHandlerVec};
-use crate::{QueryValue, RuntimeResult};
+use crate::{types::QueryValue, RuntimeResult};
 
 pub(super) fn new_rollup_holt_winters(args: &[QueryValue]) -> RuntimeResult<RollupHandler> {
     let sf = get_scalar_param_value(args, 1, "holt_winters", "sf")?;

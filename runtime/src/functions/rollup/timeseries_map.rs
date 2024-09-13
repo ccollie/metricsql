@@ -5,8 +5,7 @@ use ahash::AHashMap;
 use metricsql_parser::functions::RollupFunction;
 
 use crate::histogram::{Histogram, NonZeroBucket};
-use crate::Timestamp;
-use crate::types::{MetricName, Timeseries};
+use crate::types::{MetricName, Timeseries, Timestamp};
 
 #[derive(Debug)]
 pub(crate) struct TimeSeriesMap {

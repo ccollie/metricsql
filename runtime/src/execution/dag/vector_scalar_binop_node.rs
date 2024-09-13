@@ -6,7 +6,8 @@ use crate::execution::binary::eval_vector_scalar_binop;
 use crate::execution::{Context, EvalConfig};
 use crate::prelude::binary::should_reset_metric_group;
 use crate::prelude::eval_number;
-use crate::{InstantVector, QueryValue, RuntimeResult};
+use crate::RuntimeResult;
+use crate::types::{InstantVector, QueryValue};
 
 use super::utils::{exec_vector_vector, resolve_vector};
 use super::ExecutableNode;

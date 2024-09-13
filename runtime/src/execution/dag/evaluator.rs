@@ -3,7 +3,7 @@ use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator};
 use crate::execution::dag::ExecutableNode;
 use crate::execution::{Context, EvalConfig};
 use crate::rayon::iter::ParallelIterator;
-use crate::{QueryValue, RuntimeResult};
+use crate::{types::QueryValue, RuntimeResult};
 
 use super::DAGNode;
 

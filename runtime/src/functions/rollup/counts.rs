@@ -1,8 +1,9 @@
 use crate::functions::arg_parse::get_float_arg;
 use crate::functions::rollup::{RollupFuncArg, RollupHandler, RollupHandlerFloat};
-use crate::{QueryValue, RuntimeError, RuntimeResult};
+use crate::{RuntimeError, RuntimeResult};
 use std::io::Cursor;
 use std::io::Write;
+use crate::types::QueryValue;
 
 type FloatPredicate = fn(f64, f64) -> bool;
 

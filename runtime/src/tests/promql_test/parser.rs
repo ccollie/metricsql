@@ -22,15 +22,22 @@ use std::error::Error;
 use std::io::BufRead;
 use std::time::{Duration, SystemTime};
 use std::io;
+use std::sync::LazyLock;
 
 // Constants
 pub const TEST_START_TIME: SystemTime = SystemTime::UNIX_EPOCH;
 
 
 // Regex patterns
-static PAT_EVAL_INSTANT: Regex = Regex::new(r"^eval(?:_(fail|warn|ordered))?\s+instant\s+(?:at\s+(.+?))?\s+(.+)$").unwrap();
-static PAT_EVAL_RANGE: Regex = Regex::new(r"^eval(?:_(fail|warn))?\s+range\s+from\s+(.+)\s+to\s+(.+)\s+step\s+(.+?)\s+(.+)$").unwrap();
-static PAT_LOAD: Regex = Regex::new(r"^load(?:_(with_nhcb))?\s+(.+?)$").unwrap();
+static PAT_EVAL_INSTANT: LazyLock<Regex> = LazyLock::new(||
+    Regex::new(r"^eval(?:_(fail|warn|ordered))?\s+instant\s+(?:at\s+(.+?))?\s+(.+)$").unwrap()
+);
+
+static PAT_EVAL_RANGE: LazyLock<Regex> = LazyLock::new(||
+   Regex::new(r"^eval(?:_(fail|warn))?\s+range\s+from\s+(.+)\s+to\s+(.+)\s+step\s+(.+?)\s+(.+)$").unwrap()
+);
+
+static PAT_LOAD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^load(?:_(with_nhcb))?\s+(.+?)$").unwrap());
 
 // Implementation of parse_duration function
 pub(super) fn parse_duration(s: &str) -> Result<Duration, Box<dyn Error>> {
@@ -74,11 +81,11 @@ fn labels_to_metric_name(labels: &Labels) -> MetricName {
 }
 
 // Implementation of parse_series function
-pub(super) fn parse_series(def_line: &str, line: usize) -> Result<(MetricName, Vec<SequenceValue>), Box<dyn Error>> {
+pub(super) fn parse_series(def_line: &str, line: usize) -> Result<(MetricName, Vec<SequenceValue>), ParseErr> {
     let br = io::BufReader::new(def_line.as_bytes());
     let scrape = Scrape::parse(br.lines()).unwrap(); // todo: remove unwrap
 
-    let mut first = scrape.samples.first().unwrap(); // todo: remove unwrap
+    let first = scrape.samples.first().unwrap(); // todo: remove unwrap
 
     match &first.value {
         Value::Counter(v) | Value::Gauge(v) | Value::Untyped(v) => {
@@ -91,16 +98,18 @@ pub(super) fn parse_series(def_line: &str, line: usize) -> Result<(MetricName, V
         }
         Value::Histogram(_) | Value::Summary(_) => {
             let msg = format!("unsupported value type in line {}: {}", line, def_line);
-            Err(msg.into())
+            Err(raise(line, msg))
         }
     }
 }
 
 
 // Implementation of parse_load function
-pub fn parse_load(lines: &[String], i: usize) -> Result<(usize, TestCommand), Box<dyn Error>> {
+pub fn parse_load(lines: &[String], i: usize) -> Result<(usize, TestCommand), ParseErr> {
     if !PAT_LOAD.is_match(&lines[i]) {
-        return Err("invalid load command. (load[_with_nhcb] <step:duration>)".to_string().into());
+        return Err(
+            raise(i, "invalid load command. (load[_with_nhcb] <step:duration>)".to_string())
+            );
     }
     let parts: Vec<&str> = PAT_LOAD.captures(&lines[i]).unwrap()
         .iter()
@@ -110,7 +119,8 @@ pub fn parse_load(lines: &[String], i: usize) -> Result<(usize, TestCommand), Bo
 
     let with_nhcb = parts[1] == "with_nhcb";
     let step = parts[2];
-    let gap_millis = parse_duration_value(step, 1)?;
+    let gap_millis = parse_duration_value(step, 1)
+        .map_err(|e| raise(i, format!("invalid test definition, failed to parse step: {:?}", e)))?;
     let gap = Duration::from_millis(gap_millis as u64);
     let mut cmd = LoadCmd::new(gap, with_nhcb);
     let mut j = i + 1;
@@ -166,7 +176,9 @@ pub fn parse_eval(lines: &[String], mut i: usize) -> Result<(usize, TestCommand)
 
     let mut cmd: EvalCmd = if is_instant {
         let at = parts.get(2).map(|m| m.as_str()).unwrap_or("");
-        let offset = parse_duration(at)?;
+        let offset = parse_duration(at)
+            .map_err(|e| raise(i, format!("invalid test definition, failed to parse offset: {:?}", e)))?;
+
         let ts = TEST_START_TIME + offset;
         EvalCmd::new_instant_eval_cmd(expr.to_string(), ts, i + 1)
     } else {
@@ -174,14 +186,18 @@ pub fn parse_eval(lines: &[String], mut i: usize) -> Result<(usize, TestCommand)
         let to = parts.get(3).unwrap().as_str();
         let step = parts.get(4).unwrap().as_str();
 
-        let parsed_from = parse_duration(from)?;
-        let parsed_to = parse_duration(to)?;
+        let parsed_from = parse_duration(from)
+            .map_err(|e| raise(i, format!("invalid test definition, failed to parse start timestamp: {:?}", e)))?;
+
+        let parsed_to = parse_duration(to)
+            .map_err(|e| raise(i, format!("invalid test definition, failed to parse end timestamp: {:?}", e)))?;
 
         if parsed_to < parsed_from {
             return Err(raise(i,format!("invalid test definition, end timestamp ({}) is before start timestamp ({})", to, from)));
         }
 
-        let parsed_step = parse_duration(step)?;
+        let parsed_step = parse_duration(step)
+            .map_err(|e| raise(i, format!("invalid test definition, failed to parse step: {:?}", e)))?;
 
         EvalCmd::new_range_eval_cmd(expr.to_string(),
                                     TEST_START_TIME + parsed_from,
@@ -222,7 +238,8 @@ pub fn parse_eval(lines: &[String], mut i: usize) -> Result<(usize, TestCommand)
             break;
         }
 
-        let (metric, vals) = parse_series(def_line, i)?;
+        let (metric, vals) = parse_series(def_line, i)
+            .map_err(|_e| raise(i, "error parsing series".to_string()) )?;
 
         if vals.len() > 1 && is_instant {
             return Err(raise(i,"expecting multiple values in instant evaluation not allowed".to_string()));

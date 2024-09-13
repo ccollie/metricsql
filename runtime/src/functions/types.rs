@@ -1,5 +1,5 @@
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::Timeseries;
+use crate::types::Timeseries;
 
 #[inline]
 pub(crate) fn get_single_timeseries(series: &[Timeseries]) -> RuntimeResult<&Timeseries> {

@@ -1,9 +1,9 @@
-use crate::Timestamp;
 use metricsql_common::pool::get_pooled_vec_f64;
 use num_traits::Pow;
 use smallvec::SmallVec;
 use std::cmp::Ordering;
 use std::ops::DerefMut;
+use crate::types::Timestamp;
 
 /// STALE_NAN_BITS is bit representation of Prometheus staleness mark (aka stale NaN).
 /// This mark is put by Prometheus at the end of time series for improving staleness detection.

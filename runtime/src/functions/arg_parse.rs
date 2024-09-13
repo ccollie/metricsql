@@ -2,7 +2,8 @@ use std::borrow::Cow;
 
 use crate::execution::EvalConfig;
 use crate::functions::utils::float_to_int_bounded;
-use crate::{QueryValue, RuntimeError, RuntimeResult, Timeseries};
+use crate::{RuntimeError, RuntimeResult};
+use crate::types::{QueryValue, Timeseries};
 
 pub(crate) fn get_string_arg(args: &[QueryValue], arg_num: usize) -> RuntimeResult<Cow<String>> {
     if arg_num > args.len() - 1 {

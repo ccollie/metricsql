@@ -5,7 +5,8 @@ use metricsql_parser::ast::Expr;
 use crate::execution::dag::{ExecutableNode, NodeArg};
 use crate::execution::{eval_number, Context, EvalConfig};
 use crate::functions::transform::extract_labels_from_expr;
-use crate::{Labels, QueryValue, RuntimeResult, Timeseries};
+use crate::RuntimeResult;
+use crate::types::{Labels, QueryValue, Timeseries};
 
 /// Hack. This is a copy of TransformNode. This exists solely because
 /// `absent` is the only transform function that requires access to the

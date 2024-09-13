@@ -11,9 +11,14 @@ use metricsql_parser::prelude::{BinModifier, Labels};
 
 use crate::execution::utils::remove_empty_series;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::types::signature::Signature;
-use crate::types::Timeseries;
-use crate::{group_series_by_match_modifier, InstantVector, TimeseriesHashMap, METRIC_NAME_LABEL};
+use crate::types::{
+    group_series_by_match_modifier,
+    Signature,
+    Timeseries,
+    InstantVector,
+    TimeseriesHashMap,
+    METRIC_NAME_LABEL
+};
 
 pub(crate) struct BinaryOpFuncArg<'a> {
     op: Operator,

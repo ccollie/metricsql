@@ -21,7 +21,8 @@ use crate::execution::{
 use crate::functions::rollup::{
     eval_prefuncs, get_rollup_configs, RollupHandler, MAX_SILENCE_INTERVAL,
 };
-use crate::{QueryValue, RuntimeError, RuntimeResult, Timeseries, Timestamp};
+use crate::{RuntimeError, RuntimeResult};
+use crate::types::{QueryValue, Timeseries, Timestamp};
 
 /// Node for non-selector sub-queries.
 #[derive(Debug, Clone, Default, PartialEq)]

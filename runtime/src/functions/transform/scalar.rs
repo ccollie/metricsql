@@ -3,7 +3,8 @@ use metricsql_parser::parser::parse_number;
 use crate::execution::eval_number;
 use crate::functions::transform::utils::expect_transform_args_num;
 use crate::functions::transform::TransformFuncArg;
-use crate::{QueryValue, RuntimeResult, Timeseries};
+use crate::{RuntimeResult};
+use crate::types::{QueryValue, Timeseries};
 
 pub(crate) fn scalar(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     expect_transform_args_num(tfa, 1)?;

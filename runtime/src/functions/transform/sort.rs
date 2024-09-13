@@ -3,7 +3,8 @@ use std::cmp::Ordering;
 use crate::common::strings::compare_str_alphanumeric;
 use crate::functions::arg_parse::get_series_arg;
 use crate::functions::transform::TransformFuncArg;
-use crate::{RuntimeError, RuntimeResult, Timeseries};
+use crate::{RuntimeError, RuntimeResult};
+use crate::types::Timeseries;
 
 pub(crate) fn sort(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     transform_sort_impl(tfa, false)

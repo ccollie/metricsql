@@ -6,7 +6,8 @@ use metricsql_common::time::timestamp_ms_to_datetime;
 use metricsql_parser::ast::{Expr, MetricExpr};
 
 use crate::functions::transform::TransformFuncArg;
-use crate::{Label, Labels, RuntimeError, RuntimeResult, Timeseries};
+use crate::{RuntimeError, RuntimeResult};
+use crate::types::{Label, Labels, Timeseries};
 
 /// copy_timeseries returns a copy of tss.
 pub(super) fn copy_timeseries(tss: &[Timeseries]) -> Vec<Timeseries> {

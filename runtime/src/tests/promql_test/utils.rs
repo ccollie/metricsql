@@ -13,6 +13,7 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use chrono::{DateTime, Utc};
 use crate::{QueryValue, RuntimeResult, Timeseries};
+use crate::tests::promql_test::types::TestAssertionError;
 use super::parser::TEST_START_TIME;
 
 // Constants
@@ -46,7 +47,7 @@ pub(super) fn format_series_result(s: &Timeseries) -> String {
             s.len(), float_plural, s.values.iter().map(|v| format!("{:.3}", v)).collect::<Vec<String>>().join(", "))
 }
 
-pub fn assert_matrix_sorted(m: &QueryValue) -> RuntimeResult<()> {
+pub fn assert_matrix_sorted(m: &QueryValue) -> Result<(), TestAssertionError> {
     match m {
         QueryValue::RangeVector(m) => {
             if m.is_empty() {
@@ -58,8 +59,9 @@ pub fn assert_matrix_sorted(m: &QueryValue) -> RuntimeResult<()> {
                 let next_metric = &m[next_index].metric_name;
 
                 if m[i].metric_name > *next_metric {
-                    return Err(format!("matrix results should always be sorted by labels, but matrix is not sorted: series at index {} with labels {} sorts before series at index {} with labels {}",
-                                       next_index, next_metric, i, m[i].metric_name).into());
+                    let msg = format!("matrix results should always be sorted by labels, but matrix is not sorted: series at index {} with labels {} sorts before series at index {} with labels {}",
+                                      next_index, next_metric, i, m[i].metric_name);
+                    return Err(TestAssertionError::new(0, msg));
                 }
             }
         }

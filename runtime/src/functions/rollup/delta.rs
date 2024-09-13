@@ -1,6 +1,6 @@
 use crate::functions::rollup::RollupHandler;
-use crate::{QueryValue, RuntimeResult};
-
+use crate::RuntimeResult;
+use crate::types::QueryValue;
 use super::RollupFuncArg;
 
 pub(super) fn new_rollup_delta(_: &[QueryValue]) -> RuntimeResult<RollupHandler> {

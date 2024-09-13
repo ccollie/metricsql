@@ -5,7 +5,8 @@ use rand_distr::{Exp1, StandardNormal};
 
 use crate::execution::eval_number;
 use crate::functions::transform::TransformFuncArg;
-use crate::{RuntimeError, RuntimeResult, Timeseries};
+use crate::{RuntimeError, RuntimeResult};
+use crate::types::Timeseries;
 
 fn create_rng(tfa: &mut TransformFuncArg) -> RuntimeResult<StdRng> {
     if tfa.args.len() == 1 {

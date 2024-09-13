@@ -5,7 +5,7 @@ use metricsql_parser::prelude::TransformFunction;
 use crate::execution::dag::utils::resolve_node_args;
 use crate::execution::{Context, EvalConfig};
 use crate::functions::transform::{exec_transform_fn, TransformFuncArg};
-use crate::{QueryValue, RuntimeResult};
+use crate::{types::QueryValue, RuntimeResult};
 
 use super::{ExecutableNode, NodeArg};
 

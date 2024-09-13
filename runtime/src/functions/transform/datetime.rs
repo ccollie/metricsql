@@ -6,7 +6,8 @@ use crate::execution::{eval_number, eval_time};
 use crate::functions::arg_parse::{get_series_arg, get_string_arg};
 use crate::functions::transform::{do_transform_values, get_timezone_offset, TransformFuncArg};
 use crate::functions::utils::parse_timezone;
-use crate::{MetricName, RuntimeError, RuntimeResult, Timeseries};
+use crate::{RuntimeError, RuntimeResult};
+use crate::types::{MetricName, Timeseries};
 
 pub(crate) fn hour(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     transform_datetime_impl(tfa, DateTimePart::Hour)

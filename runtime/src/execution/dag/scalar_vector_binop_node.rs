@@ -4,7 +4,8 @@ use metricsql_parser::ast::{BinModifier, BinaryExpr, Operator};
 
 use crate::execution::binary::{eval_scalar_vector_binop, should_reset_metric_group};
 use crate::execution::{eval_number, Context, EvalConfig};
-use crate::{InstantVector, QueryValue, RuntimeResult};
+use crate::RuntimeResult;
+use crate::types::{InstantVector, QueryValue};
 
 use super::utils::{exec_vector_vector, resolve_vector};
 use super::ExecutableNode;

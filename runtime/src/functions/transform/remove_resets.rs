@@ -1,6 +1,6 @@
 use crate::functions::arg_parse::get_series_arg;
 use crate::functions::transform::TransformFuncArg;
-use crate::{RuntimeResult, Timeseries};
+use crate::{RuntimeResult, types::Timeseries};
 
 pub(crate) fn remove_resets(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;

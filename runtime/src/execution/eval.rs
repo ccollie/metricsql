@@ -6,8 +6,7 @@ use metricsql_parser::label::Matchers;
 use crate::execution::context::Context;
 use crate::provider::Deadline;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::types::{Timeseries, Timestamp};
-use crate::TimestampTrait;
+use crate::types::{Timeseries, Timestamp, TimestampTrait};
 
 /// validate_max_points_per_timeseries checks the maximum number of points that
 /// may be returned per each time series.

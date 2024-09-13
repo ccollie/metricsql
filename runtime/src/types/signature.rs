@@ -3,7 +3,7 @@ use std::ops::Deref;
 
 use metricsql_common::hash::FastHasher;
 
-use crate::{MetricName, Tag};
+use crate::types::{MetricName, Tag};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Copy, Ord, PartialOrd)]
 pub struct Signature(u64);
@@ -61,5 +61,11 @@ impl Signature {
 impl From<Signature> for u64 {
     fn from(sig: Signature) -> Self {
         sig.0
+    }
+}
+
+impl From<u64> for Signature {
+    fn from(sig: u64) -> Self {
+        Signature(sig)
     }
 }

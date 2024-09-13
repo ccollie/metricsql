@@ -2,8 +2,8 @@ use metricsql_parser::ast::DurationExpr;
 use serde::{Deserialize, Serialize};
 
 use crate::execution::{Context, EvalConfig};
-use crate::{QueryValue, RuntimeResult};
-
+use crate::{RuntimeResult};
+use crate::types::QueryValue;
 use super::ExecutableNode;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

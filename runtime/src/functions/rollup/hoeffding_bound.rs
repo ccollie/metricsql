@@ -1,6 +1,7 @@
 use crate::functions::arg_parse::get_scalar_param_value;
 use crate::functions::rollup::{RollupFuncArg, RollupHandler, RollupHandlerFloat};
-use crate::{QueryValue, RuntimeResult};
+use crate::{RuntimeResult};
+use crate::types::QueryValue;
 
 pub(super) fn new_rollup_hoeffding_bound_lower(
     args: &[QueryValue],

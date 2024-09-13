@@ -7,7 +7,8 @@ use metricsql_parser::parser::compile_regexp;
 
 use crate::functions::arg_parse::{get_series_arg, get_string_arg};
 use crate::functions::transform::TransformFuncArg;
-use crate::{MetricName, RuntimeError, RuntimeResult, Timeseries, METRIC_NAME_LABEL};
+use crate::{RuntimeError, RuntimeResult};
+use crate::types::{MetricName, Timeseries, METRIC_NAME_LABEL};
 
 const DOT_SEPARATOR: &str = ".";
 

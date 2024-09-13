@@ -11,7 +11,8 @@ use std::str::FromStr;
 use crate::common::format::format_number;
 use crate::execution::{eval_number, EvalConfig};
 use crate::functions::types::get_single_timeseries;
-use crate::{RuntimeError, RuntimeResult, Timeseries, Timestamp};
+use crate::{RuntimeError, RuntimeResult};
+use crate::types::{Timeseries, Timestamp};
 
 pub type Labels = Vec<Label>;
 

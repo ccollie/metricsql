@@ -16,8 +16,8 @@ use crate::functions::rollup::rollup_fns::{
 use crate::functions::rollup::{
     get_rollup_func_by_name, RollupFuncArg, RollupHandler, TimeSeriesMap,
 };
-use crate::types::get_timeseries;
-use crate::{MetricName, RuntimeError, RuntimeResult, Timeseries, Timestamp};
+use crate::types::{get_timeseries, MetricName, Timeseries, Timestamp};
+use crate::{RuntimeError, RuntimeResult};
 
 /// The maximum interval without previous rows.
 pub const MAX_SILENCE_INTERVAL: i64 = 5 * 60 * 1000;

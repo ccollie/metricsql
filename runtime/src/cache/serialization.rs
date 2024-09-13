@@ -7,8 +7,8 @@ use pco::standalone::{simple_compress, simple_decompress_into};
 use pco::{ChunkConfig, PagingSpec};
 
 use crate::common::encoding::marshal_var_i64;
-use crate::types::SeriesSlice;
-use crate::{MetricName, RuntimeError, RuntimeResult, Timeseries, Timestamp};
+use crate::types::{MetricName, SeriesSlice, Timeseries, Timestamp};
+use crate::{RuntimeError, RuntimeResult};
 
 // todo: move elsewhere
 

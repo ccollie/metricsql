@@ -33,7 +33,7 @@ use crate::functions::rollup::{
 };
 use crate::functions::rollup::{RollupFunc, RollupFuncArg, RollupHandler};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::QueryValue;
+use crate::types::QueryValue;
 
 // https://github.com/VictoriaMetrics/VictoriaMetrics/blob/master/app/vmselect/promql/rollup.go
 

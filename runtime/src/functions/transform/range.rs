@@ -1,5 +1,4 @@
 use std::ops::Deref;
-
 use metricsql_common::pool::get_pooled_vec_f64;
 
 use crate::common::math::{
@@ -11,7 +10,8 @@ use crate::functions::transform::running::{running_avg, running_max, running_min
 use crate::functions::transform::utils::{expect_transform_args_num, ru};
 use crate::functions::transform::{TransformFn, TransformFuncArg};
 use crate::functions::utils::{get_first_non_nan_index, get_last_non_nan_index};
-use crate::{QueryValue, RuntimeResult, Timeseries};
+use crate::{RuntimeResult};
+use crate::types::{QueryValue, Timeseries};
 
 pub(crate) fn range_avg(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     transform_range_impl(tfa, running_avg)

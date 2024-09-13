@@ -5,7 +5,8 @@ use metricsql_common::pool::get_pooled_vec_f64_filled;
 use crate::common::math::{quantile, quantiles};
 use crate::functions::arg_parse::{get_scalar_param_value, get_string_param_value};
 use crate::functions::rollup::{RollupFuncArg, RollupHandler, RollupHandlerFloat};
-use crate::{QueryValue, RuntimeResult};
+use crate::{RuntimeResult};
+use crate::types::QueryValue;
 
 pub(super) fn new_rollup_quantiles(args: &[QueryValue]) -> RuntimeResult<RollupHandler> {
     let phi_label = get_string_param_value(args, 0, "quantiles", "phi_label").unwrap();

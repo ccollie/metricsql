@@ -7,9 +7,7 @@ use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use metricsql_parser::ast::VectorMatchModifier;
 
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::signature::Signature;
-use crate::Timestamp;
-use super::MetricName;
+use super::{MetricName, Timestamp, Signature};
 
 pub type TimeseriesHashMap = AHashMap<Signature, Vec<Timeseries>>;
 pub type TimeseriesHashMapRef<'a> = AHashMap<Signature, &'a [Timeseries]>;
@@ -60,6 +58,10 @@ impl Timeseries {
     #[inline]
     pub fn tag_count(&self) -> usize {
         self.metric_name.tags.len()
+    }
+
+    pub fn signature(&self) -> Signature {
+        self.metric_name.signature()
     }
 }
 

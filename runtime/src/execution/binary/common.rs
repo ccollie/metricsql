@@ -3,13 +3,13 @@ use regex::escape;
 
 use metricsql_parser::prelude::{BinaryExpr, Expr, LabelFilter, Operator};
 
-use crate::{Tag, Timeseries};
+use crate::types::{Tag, Timeseries};
 
 pub(crate) fn can_push_down_common_filters(be: &BinaryExpr) -> bool {
     if be.op == Operator::Or || be.op == Operator::Default {
         return false;
     }
-    return match (&be.left.as_ref(), &be.right.as_ref()) {
+    match (&be.left.as_ref(), &be.right.as_ref()) {
         (Expr::Aggregation(left), Expr::Aggregation(right)) => {
             if left.is_non_grouping() || right.is_non_grouping() {
                 return false;
@@ -17,7 +17,7 @@ pub(crate) fn can_push_down_common_filters(be: &BinaryExpr) -> bool {
             true
         }
         _ => true,
-    };
+    }
 }
 
 pub(crate) fn get_common_label_filters(tss: &[Timeseries]) -> Vec<LabelFilter> {

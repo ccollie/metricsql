@@ -9,7 +9,8 @@ use metricsql_parser::functions::RollupFunction;
 use crate::common::math::is_stale_nan;
 use crate::execution::EvalConfig;
 use crate::rayon::iter::ParallelIterator;
-use crate::{QueryValue, RuntimeResult, Timeseries, Timestamp};
+use crate::{RuntimeResult};
+use crate::types::{QueryValue, Timeseries, Timestamp};
 
 pub(crate) fn series_len(val: &QueryValue) -> usize {
     match &val {

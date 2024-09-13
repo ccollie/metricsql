@@ -1,3 +1,4 @@
+#![feature(lazy_cell)]
 extern crate ahash;
 extern crate chrono;
 extern crate chrono_tz;
@@ -23,7 +24,7 @@ pub use cache::*;
 pub use provider::*;
 pub use query_stats::*;
 pub use runtime_error::*;
-pub use types::*;
+//pub use types::*;
 
 pub mod cache;
 pub mod execution;
@@ -32,7 +33,7 @@ mod histogram;
 pub mod provider;
 pub mod query_stats;
 pub mod runtime_error;
-mod types;
+pub mod types;
 
 mod common;
 

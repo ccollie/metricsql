@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use crate::common::encoding::{read_string, read_usize, write_string, write_usize};
 use crate::parse_metric_selector;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::signature::Signature;
+use crate::types::Signature;
 
 /// The maximum length of label name.
 ///

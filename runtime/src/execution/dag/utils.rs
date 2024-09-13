@@ -11,7 +11,8 @@ use crate::execution::utils::series_len;
 use crate::execution::{eval_number, Context, EvalConfig};
 use crate::functions::rollup::{get_rollup_function_handler, RollupHandler};
 use crate::functions::transform::extract_labels;
-use crate::{InstantVector, QueryValue, RuntimeError, RuntimeResult, Timeseries};
+use crate::{RuntimeError, RuntimeResult};
+use crate::types::{InstantVector, QueryValue, Timeseries};
 
 pub(super) fn resolve_value(index: usize, value: &mut QueryValue, computed: &mut [QueryValue]) {
     // Note: we return values in this particular way because of an optimization in the evaluator.
@@ -156,7 +157,7 @@ pub(super) fn adjust_series_by_offset(rvs: &mut [Timeseries], offset: i64) {
     }
 }
 
-/// aggregate_absent_over_time collapses tss to a single time series with 1 and nan values.
+/// `aggregate_absent_over_time` collapses tss to a single time series with 1 and nan values.
 ///
 /// Values for returned series are set to nan if at least a single tss series contains nan at that point.
 /// This means that tss contains a series with non-empty results at that point.

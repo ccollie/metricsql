@@ -7,7 +7,8 @@ use metricsql_parser::prelude::{BinModifier, Expr, Operator};
 
 use crate::execution::binary::get_common_label_filters;
 use crate::execution::{compile_expression, Context, EvalConfig};
-use crate::{InstantVector, QueryValue, RuntimeResult};
+use crate::RuntimeResult;
+use crate::types::{InstantVector, QueryValue};
 
 use super::utils::{exec_vector_vector, resolve_vector};
 use super::ExecutableNode;

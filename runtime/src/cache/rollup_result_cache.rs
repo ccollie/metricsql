@@ -21,8 +21,7 @@ use crate::common::memory::memory_limit;
 use crate::common::memory_limiter::MemoryLimiter;
 use crate::execution::EvalConfig;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::types::{assert_identical_timestamps, SeriesSlice, Timestamp, TimestampTrait};
-use crate::Timeseries;
+use crate::types::{assert_identical_timestamps, SeriesSlice, Timestamp, Timeseries, TimestampTrait};
 
 /// The maximum duration since the current time for response data, which is always queried from the
 /// original raw data, without using the response cache. Increase this value if you see gaps in responses
@@ -30,7 +29,6 @@ use crate::Timeseries;
 /// -provider.disableAutoCacheReset
 /// TODO: move to EvalConfig
 static CACHE_TIMESTAMP_OFFSET: i64 = 5000;
-
 static ROLLUP_RESULT_CACHE_KEY_PREFIX: OnceLock<u64> = OnceLock::new();
 
 fn get_rollup_result_cache_key_prefix() -> u64 {
@@ -526,6 +524,7 @@ pub fn merge_timeseries(
         return Ok(second);
     }
 
+    // todo: use Signature
     let mut map: AHashMap<String, Timeseries> = AHashMap::with_capacity(a.len());
 
     for ts in a.into_iter() {

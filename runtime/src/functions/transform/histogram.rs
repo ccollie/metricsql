@@ -11,8 +11,13 @@ use crate::functions::arg_parse::{
 };
 use crate::functions::transform::utils::{copy_timeseries, is_inf};
 use crate::functions::transform::TransformFuncArg;
-use crate::signature::Signature;
-use crate::{MetricName, QueryValue, RuntimeError, RuntimeResult, Timeseries};
+use crate::{RuntimeError, RuntimeResult};
+use crate::types::{
+    Signature,
+    MetricName,
+    QueryValue,
+    Timeseries
+};
 
 static ELLIPSIS: &str = "...";
 static LE: &str = "le";

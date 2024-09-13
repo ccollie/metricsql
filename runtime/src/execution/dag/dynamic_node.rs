@@ -1,6 +1,6 @@
 use crate::execution::dag::evaluator::DAGEvaluator;
 use crate::execution::{Context, EvalConfig};
-use crate::{QueryValue, RuntimeResult};
+use crate::{types::QueryValue, RuntimeResult};
 
 use super::ExecutableNode;
 

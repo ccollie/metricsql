@@ -10,28 +10,27 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-use std::fs;
-use crate::execution::{exec_internal, Context, EvalConfig};
 use super::parser::{parse_eval, parse_expr, parse_load};
 use super::test_command::{ClearCmd, EvalCmd, TestCommand};
+use super::types::{ParseErr, Sample, TestAssertionError};
 use super::utils::{
     assert_matrix_sorted,
-    timestamp_from_datetime,
     timestamp_from_system_time,
     unix_millis_to_system_time
 };
-use super::types::{ParseErr, Sample};
+use crate::execution::{exec_internal, Context, EvalConfig};
 use crate::{MemoryMetricProvider, QueryValue, RuntimeResult};
-use metricsql_parser::ast::Expr;
-use metricsql_parser::ast::Expr::{Aggregation, BinaryOperator, Function, Rollup};
-use regex::Regex;
-use std::sync::Arc;
-use std::time::SystemTime;
 use glob::glob;
+use metricsql_parser::ast::Expr;
+use metricsql_parser::ast::Expr::Rollup;
+use regex::Regex;
+use std::fs;
+use std::sync::{Arc, LazyLock};
+use std::time::SystemTime;
 
 const ONE_MINUTE_AS_MILLIS: i64 = 60 * 1000;
 
-static PAT_SPACE: Regex = Regex::new(r"[\t ]+").unwrap();
+static PAT_SPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[\t ]+").unwrap());
 
 // LoadedStorage returns storage with generated data using the provided load statements.
 // Non-load statements will cause test errors.
@@ -70,7 +69,7 @@ pub fn run_builtin_tests() {
     }
 }
 
-pub fn run_test(input: &str) -> Result<(), String> {
+pub fn run_test(input: &str) -> Result<(), TestAssertionError> {
     let mut test = Test::new(input);
     for cmd in test.cmds.iter_mut() {
         test.exec(cmd)?;
@@ -105,7 +104,7 @@ impl Test {
 
     // parse the given command sequence and appends it to the test.
     pub fn parse(&mut self, input: &str) -> Result<(), ParseErr> {
-        let mut lines = get_lines(input);
+        let lines = get_lines(input);
         // Scan for steps line by line.
         let mut i: usize = 0;
         while i < lines.len() {
@@ -114,16 +113,16 @@ impl Test {
                 i += 1;
                 continue;
             }
-            let c = PAT_SPACE.split(line).next().unwrap_or_default().to_lower();
-            let cmd = match c {
+            let c = PAT_SPACE.split(line).next().unwrap_or_default().to_lowercase();
+            let cmd = match c.as_str() {
                 "clear" => TestCommand::Clear(ClearCmd{}),
                 _ if c.starts_with("load") => {
-                    let (j, cmd) = parse_load(line, i)?;
+                    let (j, cmd) = parse_load(&lines, i)?;
                     i = j;
                     cmd
                 },
                 _ if c.starts_with("eval") => {
-                    let (j, cmd) = parse_eval(line, i);
+                    let (j, cmd) = parse_eval(&lines, i)?;
                     i = j;
                     cmd
                 },
@@ -145,19 +144,19 @@ impl Test {
     }
 
     // exec processes a single step of the test.
-    pub fn exec(&mut self, tc: &mut TestCommand) -> Result<(), String> {
+    pub fn exec(&mut self, tc: &mut TestCommand) -> Result<(), TestAssertionError> {
         match tc {
             TestCommand::Clear(_) => self.clear(),
             TestCommand::Load(cmd) => {
                 let storage = self.storage.clone();
                 cmd.append(&storage);
             }
-            TestCommand::Eval(cmd) => self.execEval(cmd)
+            TestCommand::Eval(cmd) => self.exec_eval(cmd)?
         }
         Ok(())
     }
 
-    fn exec_eval(&mut self, cmd: &EvalCmd) -> Result<(), String> {
+    fn exec_eval(&mut self, cmd: &EvalCmd) -> Result<(), TestAssertionError> {
         if cmd.is_range {
             return self.exec_range_eval(cmd)
         }
@@ -165,7 +164,7 @@ impl Test {
         self.exec_instant_eval(cmd)
     }
 
-    fn exec_instant_eval(&mut self, cmd: &EvalCmd) -> Result<(), String> {
+    fn exec_instant_eval(&mut self, cmd: &EvalCmd) -> Result<(), TestAssertionError> {
         let mut queries = at_modifier_test_cases(&cmd.expr, &cmd.start);
         queries.insert(0, AtModifierTestCase{
             expr: cmd.expr.clone(),
@@ -177,35 +176,36 @@ impl Test {
         Ok(())
     }
 
-    fn run_instant_query(&mut self, iq: &AtModifierTestCase, cmd: &EvalCmd) -> Result<(), String> {
-        let mut ec = new_instant_query(&iq.eval_time)
-            .map_err(|err| {
-                format!("error creating instant query for {} (line {}): {:?}", cmd.expr, cmd.line, err)
-            })?;
+    fn run_instant_query(&mut self, iq: &AtModifierTestCase, cmd: &EvalCmd) -> Result<(), TestAssertionError> {
+        let start = timestamp_from_system_time(&iq.eval_time);
+        let mut ec = EvalConfig::new(start, start, 0);
 
-        let res = self.exec_internal(&mut ec, &cmd.expr);
+        let res = self.exec_internal(&mut ec, &cmd.expr, cmd.line);
         if let Err(e) = res {
             if cmd.fail {
                 cmd.check_expected_failure(e)?;
             }
-            return Err(format!("error evaluating query {} (line {}): {:?}", iq.expr, cmd.line, e))
+            let msg = format!("error evaluating query {} (line {}): {:?}", iq.expr, cmd.line, e);
+            return Err(TestAssertionError::new(cmd.line, msg));
         } else if cmd.fail {
-            return Err(format!("expected error evaluating query {} (line {}) but got none", iq.expr, cmd.line))
+            let msg = format!("expected error evaluating query {} (line {}) but got none", iq.expr, cmd.line);
+            return Err(TestAssertionError::new(cmd.line, msg));
         }
         let res = res?;
-        let eval_time = timestamp_from_datetime(iq.eval_time);
-        cmd.compare_result(res)
-            .map_err(|err| format!("error in {} {} (line {}): {:?}", cmd, iq.expr, cmd.line, err))?;
+        let eval_time = timestamp_from_system_time(&iq.eval_time);
+        cmd.compare_result(&res)?;
 
         // Check query returns same result in range mode,
         // by checking against the middle step.
         let start = eval_time - ONE_MINUTE_AS_MILLIS;
         let end = eval_time + ONE_MINUTE_AS_MILLIS;
-        let mut ec = new_range_query(start, end, ONE_MINUTE_AS_MILLIS)
-            .map_err(|err| format!("error creating range query for {} (line {}): {:?}", cmd.expr, cmd.line, err))?;
+        let mut ec = EvalConfig::new(start, end, ONE_MINUTE_AS_MILLIS);
 
-        let range_res = self.exec_internal(&mut ec, &cmd.expr)
-            .map_err(|err| format!("error evaluating query {} (line {}) in range mode: {:?}", iq.expr, cmd.line, err))?;
+        let range_res = self.exec_internal(&mut ec, &cmd.expr, cmd.line)
+            .map_err(|err| {
+                let msg = format!("error evaluating query {} (line {}) in range mode: {:?}", iq.expr, cmd.line, err.message);
+                TestAssertionError::new(cmd.line, msg)
+            })?;
 
         if cmd.ordered {
             // Range queries are always sorted by labels, so skip this test case that expects results in a particular order.
@@ -213,26 +213,26 @@ impl Test {
         }
         match range_res {
             QueryValue::Scalar(v) => {
-                cmd.compare_result(&range_res)
-                    .map_err(|err| format!("error in {} {} (line {}) range mode: {:?}", cmd, iq.expr, cmd.line, err))?;
+                cmd.compare_result(&range_res)?;
             }
             QueryValue::RangeVector(mat) => {
-                assert_matrix_sorted(mat)?;
+                assert_matrix_sorted(&range_res)?;
 
                 let mut vec = Vec::with_capacity(mat.len());
                 for series in mat.iter() {
                     for (timestamp, value) in series.timestamps.iter().zip(series.values.iter()) {
-                        if timestamp == eval_time {
+                        if *timestamp == eval_time {
                             vec.push(Sample{
-                                timestamp,
-                                value,
+                                timestamp: *timestamp,
+                                value: *value,
                                 metric: series.metric_name.clone(),
                             });
                             break
                         }
                     }
                 }
-                cmd.compare_result(vec)
+                //let val = QueryValue::InstantVector(vec);
+                cmd.compare_result(&range_res)?;
             }
             QueryValue::InstantVector(vec) => {
                 let mut to_compare = Vec::with_capacity(vec.len());
@@ -247,43 +247,51 @@ impl Test {
                         })
                     }
                 }
-                cmd.compare_result(vec)
+                cmd.compare_result(&range_res)?;
             }
-            _ => return Err(format!("unexpected query result type: {:?}", range_res))
-        }
+            _ => return {
+                let msg = format!("unexpected query result type: {:?}", range_res);
+                Err(
+                    TestAssertionError::new(cmd.line, msg)
+                )
+            }
+        };
 
         Ok(())
 }
 
-    fn exec_range_eval(&self, cmd: &EvalCmd) -> Result<(), String> {
+    fn exec_range_eval(&self, cmd: &EvalCmd) -> Result<(), TestAssertionError> {
         let step = cmd.step.as_millis() as i64;
-        let mut ec = new_range_query(&cmd.start, &cmd.end, step)
-            .map_err(|err| format!("error creating range query for {} (line {}): {:?}", cmd.expr, cmd.line, err))?;
-        let res = self.exec_internal(&mut ec, &cmd.expr);
-        match res {
+        let start = timestamp_from_system_time(&cmd.start);
+        let end = timestamp_from_system_time(&cmd.end);
+        let mut ec = EvalConfig::new(start, end, step);
+
+        let res = self.exec_internal(&mut ec, &cmd.expr, cmd.line);
+        let value = match res {
             Ok(v) => {
                 if cmd.fail {
                     let msg = format!("expected error evaluating query {} (line {}) but got none", cmd.expr, cmd.line);
-                    return Err(msg)
+                    return Err(TestAssertionError::new(cmd.line, msg));
                 }
+                v
             }
             Err(e) => {
                 if cmd.fail {
-                    cmd.checkExpectedFailure(e)?;
+                    cmd.check_expected_failure(e)?;
                 }
                 let msg = format!("error evaluating query {} (line {}): {:?}", cmd.expr, cmd.line, e);
-                return Err(msg)
+                return Err(TestAssertionError::new(cmd.line, msg));
             }
-        }
-        let value = res?;
+        };
         cmd.compare_result(&value)
-            .map_err(|err| format!("error in {} {} (line {}): {:?}", cmd, cmd.expr, cmd.line, err))?;
-
-        Ok(())
     }
 
-    fn exec_internal(&self, ec: &mut EvalConfig, q: &str) -> RuntimeResult<QueryValue> {
-        let (qv, parsed) = exec_internal(&self.context, ec, q)?;
+    fn exec_internal(&self, ec: &mut EvalConfig, q: &str, line: usize) -> Result<QueryValue, TestAssertionError> {
+        let (qv, _parsed) = exec_internal(&self.context, ec, q)
+            .map_err(|e| {
+                let msg = format!("error evaluating query: {:?}", e);
+                TestAssertionError::new(line, msg)
+            })?;
         Ok(qv)
     }
 }
@@ -318,7 +326,7 @@ fn has_at_modifier(expr: &Expr) -> bool {
 
 fn at_modifier_test_cases(expr_str: &str, eval_time: &SystemTime) -> Vec<AtModifierTestCase> {
     let mut expr = parse_expr(expr_str).unwrap();
-    let mut ts = timestamp_from_system_time(eval_time);
+    let ts = timestamp_from_system_time(eval_time);
 
     let mut visitor = AtModifierVisitor{
         eval_time: ts,

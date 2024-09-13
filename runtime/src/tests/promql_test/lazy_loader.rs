@@ -87,8 +87,8 @@ impl LazyLoader {
 
     // appendTill appends the defined time series to the storage till the given timestamp (in milliseconds).
     fn append_till(&mut self, ts: i64) -> Result<(), Box<dyn Error>> {
-        if let Some(mut load_cmd) = &self.load_cmd {
-            for (h, smpls) in &load_cmd.defs {
+        if let Some(load_cmd) = self.load_cmd.as_mut() {
+            for (h, smpls) in load_cmd.defs.iter_mut() {
                 if let Some(m) = load_cmd.metrics.get(h) {
                     for (i, s) in smpls.iter().enumerate() {
                         if s.timestamp > ts {

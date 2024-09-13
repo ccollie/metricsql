@@ -1,7 +1,7 @@
 use crate::execution::remove_empty_series;
 use crate::functions::arg_parse::get_series_arg;
 use crate::functions::transform::TransformFuncArg;
-use crate::{RuntimeError, RuntimeResult, Timeseries};
+use crate::{RuntimeError, RuntimeResult, types::Timeseries};
 
 pub(crate) fn transform_drop_empty_series(
     tfa: &mut TransformFuncArg,

@@ -29,9 +29,13 @@ use crate::execution::dag::NodeArg;
 use crate::execution::DAGNode;
 use crate::functions::aggregate::IncrementalAggregationHandler;
 use crate::functions::rollup::{
-    get_rollup_function_handler, rollup_default, rollup_func_requires_config, RollupHandler,
+    get_rollup_function_handler,
+    rollup_default,
+    rollup_func_requires_config,
+    RollupHandler,
 };
-use crate::{QueryValue, RuntimeError, RuntimeResult, Timestamp};
+use crate::{RuntimeError, RuntimeResult};
+use crate::types::{QueryValue, Timestamp};
 
 pub struct DAGBuilder {
     node_map: AHashMap<usize, DAGNode>,

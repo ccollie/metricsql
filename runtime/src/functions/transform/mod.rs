@@ -52,7 +52,7 @@ use crate::functions::transform::step::step;
 use crate::functions::transform::union::union;
 use crate::functions::transform::vector::vector;
 use crate::runtime_error::RuntimeResult;
-use crate::{QueryValue, Timeseries};
+use crate::types::{QueryValue, Timeseries};
 
 mod absent;
 mod bitmap;

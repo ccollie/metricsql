@@ -1,8 +1,8 @@
 use tracing::{field, trace_span, Span};
 
 use metricsql_parser::prelude::{get_scalar_binop_handler, Operator};
-
-use crate::{InstantVector, QueryValue, RuntimeResult};
+use crate::RuntimeResult;
+use crate::types::{InstantVector, QueryValue};
 
 /// BinaryEvaluatorScalarVector
 /// Ex:
