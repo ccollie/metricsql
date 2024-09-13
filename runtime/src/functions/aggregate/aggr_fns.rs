@@ -28,7 +28,7 @@ use crate::{QueryValue, Timeseries};
 
 const MAX_SERIES_PER_AGGR_FUNC: usize = 100000;
 
-// todo: add lifetime so we dont need to copy modifier
+
 pub struct AggrFuncArg<'a> {
     pub args: Vec<QueryValue>,
     pub ec: &'a EvalConfig,
@@ -400,18 +400,14 @@ fn aggr_func_histogram(tss: &mut Vec<Timeseries>) {
 
 fn aggr_func_min(tss: &mut Vec<Timeseries>) {
     if tss.len() == 1 {
-        // Fast path - nothing to min.
         return;
     }
 
     for i in 0..tss[0].values.len() {
-        let min = tss[0].values[i];
-        for j in 0..tss.len() {
-            let v = tss[j].values[i];
-            if min.is_nan() || v < min {
-                tss[0].values[i] = v;
-            }
-        }
+        tss[0].values[i] = tss.iter()
+            .map(|ts| ts.values[i])
+            .filter(|&v| !v.is_nan())
+            .fold(f64::NAN, f64::min);
     }
 
     tss.truncate(1);

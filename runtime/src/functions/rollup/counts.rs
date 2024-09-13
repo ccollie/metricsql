@@ -80,21 +80,15 @@ macro_rules! make_share_fn {
     ( $name: ident, $func_name: tt, $param_name: tt, $predicate_fn: expr ) => {
         pub(super) fn $name(args: &[QueryValue]) -> RuntimeResult<RollupHandler> {
             let limit = get_limit(args, $func_name, $param_name)?;
-            let handler =
-                RollupHandlerFloat::new(limit, |rfa: &RollupFuncArg, limit: &f64| -> f64 {
-                    share_filtered(rfa.values, *limit, $predicate_fn)
-                });
-            Ok(RollupHandler::FloatArg(handler))
+            let handler = |rfa: &RollupFuncArg, limit: &f64| -> f64 {
+               share_filtered(rfa.values, *limit, $predicate_fn)
+            };
+            Ok(RollupHandler::float_arg(limit, handler))
         }
     };
 }
 
-make_share_fn!(
-    new_rollup_share_le,
-    "share_le_over_time",
-    "le",
-    less_or_equal
-);
+make_share_fn!(new_rollup_share_le, "share_le_over_time", "le",less_or_equal);
 make_share_fn!(new_rollup_share_gt, "share_gt_over_time", "gt", greater);
 make_share_fn!(new_rollup_share_eq, "share_eq_over_time", "eq", equal);
 
@@ -102,11 +96,10 @@ macro_rules! make_sum_fn {
     ( $name: ident, $func_name: tt, $param_name: tt, $predicate_fn: expr ) => {
         pub(super) fn $name(args: &[QueryValue]) -> RuntimeResult<RollupHandler> {
             let limit = get_limit(args, $func_name, $param_name)?;
-            let handler =
-                RollupHandlerFloat::new(limit, |rfa: &RollupFuncArg, limit: &f64| -> f64 {
-                    sum_filtered(rfa.values, *limit, $predicate_fn)
-                });
-            Ok(RollupHandler::FloatArg(handler))
+            let handler = |rfa: &RollupFuncArg, limit: &f64| -> f64 {
+                sum_filtered(rfa.values, *limit, $predicate_fn)
+            };
+            Ok(RollupHandler::float_arg(limit, handler))
         }
     };
 }

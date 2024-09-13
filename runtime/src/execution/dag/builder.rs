@@ -615,7 +615,7 @@ fn is_expr_const(expr: &Expr) -> bool {
 // todo: COW
 /// Normalize the rollup expr to standard form.
 fn get_rollup_expr_arg(arg: &Expr) -> RuntimeResult<RollupExpr> {
-    return match arg {
+    match arg {
         Expr::Rollup(re) => {
             let mut re = re.clone();
             if !re.for_subquery() {
@@ -630,7 +630,7 @@ fn get_rollup_expr_arg(arg: &Expr) -> RuntimeResult<RollupExpr> {
                     let arg = Expr::Rollup(RollupExpr::new(*re.expr.clone()));
 
                     match FunctionExpr::default_rollup(arg) {
-                        Err(e) => return Err(RuntimeError::General(format!("{:?}", e))),
+                        Err(e) => Err(RuntimeError::General(format!("{:?}", e))),
                         Ok(fe) => {
                             re.expr = Box::new(Expr::Function(fe));
                             Ok(re)
@@ -647,7 +647,7 @@ fn get_rollup_expr_arg(arg: &Expr) -> RuntimeResult<RollupExpr> {
             // Wrap non-rollup arg into RollupExpr.
             Ok(RollupExpr::new(arg.clone()))
         }
-    };
+    }
 }
 
 fn try_get_arg_rollup_func_with_metric_expr(

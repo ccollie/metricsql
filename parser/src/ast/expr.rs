@@ -79,7 +79,7 @@ pub struct BinModifier {
     #[serde(default, skip_serializing_if = "is_default")]
     pub matching: Option<VectorMatchModifier>,
 
-    /// If keep_metric_names is set to true, then the operation should keep metric names.
+    /// If `keep_metric_names` is set to true, then the operation should keep metric names.
     #[serde(default, skip_serializing_if = "is_default")]
     pub keep_metric_names: bool,
 
@@ -679,8 +679,8 @@ impl Prettier for DurationExpr {
     }
 }
 
-// todo: MetricExpr => Selector
-/// MetricExpr represents MetricsQL metric with optional filters, i.e. `foo{...}`.
+// todo: MetricExpr => VectorSelector
+/// `MetricExpr` represents MetricsQL metric with optional filters, i.e. `foo{...}`.
 ///
 /// Curly braces may contain or-delimited list of filters. For example:
 ///
@@ -1002,7 +1002,7 @@ impl Prettier for FunctionExpr {
     }
 }
 
-/// AggregationExpr represents aggregate function such as `sum(...) by (...)`
+/// `AggregationExpr` represents aggregate function such as `sum(...) by (...)`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AggregationExpr {
     /// function is the aggregation function.
@@ -1195,7 +1195,7 @@ impl Prettier for AggregationExpr {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-/// RollupExpr represents an MetricsQL expression which contains at least `offset` or `[...]` part.
+/// `RollupExpr` represents an MetricsQL expression which contains at least `offset` or `[...]` part.
 pub struct RollupExpr {
     /// The expression for the rollup. Usually it is MetricExpr, but may be arbitrary expr
     /// if subquery is used. https://prometheus.io/blog/2019/01/28/subquery-support/
@@ -1361,13 +1361,13 @@ impl Prettier for RollupExpr {
 /// BinaryOpExpr represents a binary operation.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct BinaryExpr {
-    /// left contains left arg for the `left op right` expression.
+    /// `left` contains left arg for the `left op right` expression.
     pub left: BExpression,
 
     /// contains right arg for the `left op right` expression.
     pub right: BExpression,
 
-    /// Op is the operation itself, i.e. `+`, `-`, `*`, etc.
+    /// `op` is the operation itself, i.e. `+`, `-`, `*`, etc.
     pub op: Operator,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1621,7 +1621,6 @@ impl ParensExpr {
 
     pub fn to_function(self) -> FunctionExpr {
         // Treat parensExpr as a function with empty name, i.e. union()
-        // todo: how to avoid clone
         let name = "union";
         let func = BuiltinFunction::from_str(name).unwrap(); // if union is not defined, we have a fatal issue
 
@@ -1633,7 +1632,7 @@ impl ParensExpr {
     }
 
     /// Return the innermost expression wrapped by a `ParensExpr` if the `ParensExpr` contains
-    /// exactly one expression. For example : (((x + y))) would return a reef to `x + y`
+    /// exactly one expression. For example : (((x + y))) would return a ref to `x + y`
     pub fn innermost_expr(&self) -> Option<&Expr> {
         match self.len() {
             0 => None,
@@ -1747,7 +1746,7 @@ impl ExpressionNode for WithExpr {
     }
 }
 
-/// WithArgExpr represents a single entry from WITH expression.
+/// `WithArgExpr` represents a single entry from WITH expression.
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct WithArgExpr {
     pub name: String,

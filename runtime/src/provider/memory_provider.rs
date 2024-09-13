@@ -57,6 +57,7 @@ impl Storage {
 
     pub fn search(&self, start: i64, end: i64, filters: &Matchers) -> RuntimeResult<QueryResults> {
         let mut results: Vec<QueryResult> = vec![];
+        // todo: handle or
         for (k, labels) in &self.labels_hash {
             for matchers in filters.iter() {
                 if matches_filters(labels, matchers) {
@@ -120,12 +121,12 @@ impl MemoryMetricProvider {
         }
     }
 
-    pub fn append(&mut self, labels: MetricName, t: i64, v: f64) -> RuntimeResult<()> {
+    pub fn append(&self, labels: MetricName, t: i64, v: f64) -> RuntimeResult<()> {
         let mut inner = self.inner.write().unwrap();
         inner.append(labels, t, v)
     }
 
-    pub fn add_sample(&mut self, sample: Sample) -> RuntimeResult<()> {
+    pub fn add_sample(&self, sample: Sample) -> RuntimeResult<()> {
         let mut inner = self.inner.write().unwrap();
         inner.append(sample.metric, sample.timestamp, sample.value)
     }

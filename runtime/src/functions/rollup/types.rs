@@ -85,6 +85,8 @@ where
     }
 }
 
+pub type RollupFuncFloatArg = fn(&RollupFuncArg, &f64) -> f64;
+
 pub(crate) type RollupHandlerFloat = GenericRollupHandler<f64, fn(&RollupFuncArg, &f64) -> f64>;
 
 pub(crate) type RollupHandlerVec =
@@ -111,6 +113,11 @@ impl RollupHandler {
     }
     pub fn fake(name: &'static str) -> Self {
         RollupHandler::Fake(name)
+    }
+
+    pub fn float_arg(arg: f64, f: RollupFuncFloatArg) -> Self {
+        let handler = RollupHandlerFloat::new(arg, f);
+        RollupHandler::FloatArg(handler)
     }
 
     pub(crate) fn eval(&self, arg: &RollupFuncArg) -> f64 {

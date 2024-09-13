@@ -256,7 +256,7 @@ mod tests {
         //         _=> continue
         //     }
         // }
-        return tss;
+        tss
     }
 
     fn timeseries_to_prom_metrics(tss: &[Timeseries]) -> String {
@@ -268,6 +268,6 @@ mod tests {
                 a.push(line);
             }
         }
-        return a.join("\n");
+        a.join("\n")
     }
 }
