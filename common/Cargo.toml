@@ -21,6 +21,7 @@ dynamic-lru-cache.workspace = true
 byte-pool = "0.2"
 futures.workspace = true
 gxhash.workspace = true
+get-size.workspace = true
 integer-encoding.workspace = true
 lockfree-object-pool = "0.1"
 rand.workspace = true
