@@ -4,7 +4,7 @@ use std::hash::{Hash, Hasher};
 use integer_encoding::VarInt;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Ord, Serialize, Deserialize)]
 pub struct Label {
     pub name: String,
     pub value: String,
