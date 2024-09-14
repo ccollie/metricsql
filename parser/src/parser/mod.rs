@@ -8,6 +8,7 @@ pub use selector::parse_metric_expr;
 pub(crate) use utils::{escape_ident, extract_string_value, quote, unescape_ident};
 
 use crate::ast::{check_ast, Expr};
+use crate::label::Matchers;
 use crate::optimizer::remove_parens_expr;
 use crate::parser::expr::parse_expression;
 
@@ -53,4 +54,25 @@ pub fn parse(input: &str) -> ParseResult<Expr> {
 pub fn expand_with_exprs(q: &str) -> Result<String, ParseError> {
     let e = parse(q)?;
     Ok(format!("{}", e))
+}
+
+/// parse_metric_selector parses s containing PromQL metric selector and returns the corresponding
+/// LabelFilters.
+pub fn parse_metric_selector(s: &str) -> ParseResult<Matchers> {
+    match parse(s) {
+        Ok(expr) => match expr {
+            Expr::MetricExpression(me) => {
+                if me.is_empty() {
+                    let msg = "labelFilters cannot be empty".to_string();
+                    return Err(ParseError::InvalidSelector(msg));
+                }
+                Ok(me.matchers)
+            }
+            _ => {
+                let msg = format!("expecting metric selector; got {}", expr).to_string();
+                Err(ParseError::InvalidSelector(msg))
+            }
+        },
+        Err(err) => Err(err),
+    }
 }

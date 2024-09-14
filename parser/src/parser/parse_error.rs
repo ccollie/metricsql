@@ -35,6 +35,8 @@ pub enum ParseError {
     General(String),
     #[error("Invalid regex: {0}")]
     InvalidRegex(String),
+    #[error("{0}")]
+    InvalidSelector(String),
     #[error("Unknown function {0}")]
     InvalidFunction(String),
     #[error("Division by zero")]
