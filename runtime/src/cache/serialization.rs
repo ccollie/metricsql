@@ -343,9 +343,9 @@ mod tests {
         test_series(&[series]);
 
         let mut series = Timeseries::default();
-        series.metric_name.metric_group = "foobar".to_string();
-        series.metric_name.add_tag("tag1", "value1");
-        series.metric_name.add_tag("tag2", "value2");
+        series.metric_name.measurement = "foobar".to_string();
+        series.metric_name.add_label("tag1", "value1");
+        series.metric_name.add_label("tag2", "value2");
 
         series.values = vec![1.0, 2.0, 3.234];
         series.timestamps = Arc::new(vec![10, 20, 30]);
@@ -355,16 +355,16 @@ mod tests {
     #[test]
     fn multiple_series() {
         let mut series = Timeseries::default();
-        series.metric_name.metric_group = "foobar".to_string();
-        series.metric_name.add_tag("tag1", "value1");
-        series.metric_name.add_tag("tag2", "value2");
+        series.metric_name.measurement = "foobar".to_string();
+        series.metric_name.add_label("tag1", "value1");
+        series.metric_name.add_label("tag2", "value2");
 
         series.values = vec![1.0, 2.34, -33.0];
         series.timestamps = Arc::new(vec![0, 10, 20]);
 
         let mut series2 = Timeseries::default();
-        series2.metric_name.metric_group = "baz".to_string();
-        series2.metric_name.add_tag("tag12", "value13");
+        series2.metric_name.measurement = "baz".to_string();
+        series2.metric_name.add_label("tag12", "value13");
 
         series2.values = vec![4.0, 1.0, -2.34];
         series2.timestamps = Arc::new(vec![0, 10, 20]);

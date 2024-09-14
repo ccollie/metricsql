@@ -1,8 +1,5 @@
 #[cfg(test)]
 mod tests {
-    use metricsql_parser::functions::RollupFunction;
-    use std::str::FromStr;
-
     use crate::common::math::linear_regression;
     use crate::functions::rollup::delta::*;
     use crate::functions::rollup::deriv::*;
@@ -18,8 +15,8 @@ mod tests {
         get_rollup_func_by_name, get_rollup_function_factory, get_rollup_function_handler,
         RollupConfig, RollupFuncArg, RollupHandler, RollupHandlerFactory,
     };
-    use crate::{compare_floats, compare_values, test_rows_equal, QueryValue, RuntimeError, RuntimeResult, Timeseries, Timestamp};
-
+    use crate::types::{QueryValue, Timeseries, Timestamp};
+    use crate::{compare_floats, compare_values, test_rows_equal, RuntimeResult};
     // https://github.com/VictoriaMetrics/VictoriaMetrics/blob/master/app/vmselect/promql/rollup_test.go
 
     const NAN: f64 = f64::NAN;

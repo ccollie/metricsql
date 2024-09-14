@@ -55,7 +55,7 @@ pub(crate) fn buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
     let empty_str = "".to_string();
 
     for ts in tss.into_iter() {
-        let le_str = ts.metric_name.tag_value(LE).unwrap_or(&empty_str);
+        let le_str = ts.metric_name.label_value(LE).unwrap_or(&empty_str);
 
         // Skip time series without `le` tag.
         if le_str.is_empty() {
@@ -64,7 +64,7 @@ pub(crate) fn buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
 
         if let Ok(le) = le_str.parse::<f64>() {
             mn.copy_from(&ts.metric_name);
-            mn.remove_tag(LE);
+            mn.remove_label(LE);
 
             let key = mn.signature();
 
@@ -169,13 +169,13 @@ impl Bucket {
         let src = self.ts.borrow();
         let mut ts: Timeseries = src.clone();
         ts.values.fill(0.0);
-        ts.metric_name.set_tag(LE, le_str);
+        ts.metric_name.set_label_value(LE, le_str);
         Rc::new(RefCell::new(ts))
     }
 
     fn set_le(&mut self, end_str: &str) {
         let mut ts = self.ts.borrow_mut();
-        ts.metric_name.set_tag(LE, end_str);
+        ts.metric_name.set_label_value(LE, end_str);
     }
 
     pub fn pop_timeseries(&mut self) -> Option<Timeseries> {
@@ -202,10 +202,10 @@ pub(crate) fn vmrange_buckets_to_le(tss: Vec<Timeseries>) -> Vec<Timeseries> {
     let values_count = tss[0].values.len();
 
     for ts in tss.into_iter() {
-        let vm_range = ts.metric_name.tag_value("vmrange").unwrap_or(&empty_str);
+        let vm_range = ts.metric_name.label_value("vmrange").unwrap_or(&empty_str);
 
         if vm_range.is_empty() {
-            if let Some(le) = ts.metric_name.tag_value(LE) {
+            if let Some(le) = ts.metric_name.label_value(LE) {
                 if !le.is_empty() {
                     // Keep Prometheus-compatible buckets.
                     rvs.push(ts);
@@ -236,8 +236,8 @@ pub(crate) fn vmrange_buckets_to_le(tss: Vec<Timeseries>) -> Vec<Timeseries> {
         let end_string = end_str.to_string();
 
         let mut _ts = ts;
-        _ts.metric_name.remove_tag(LE);
-        _ts.metric_name.remove_tag("vmrange");
+        _ts.metric_name.remove_label(LE);
+        _ts.metric_name.remove_label("vmrange");
 
         let key = _ts.metric_name.signature();
         // series.push(_ts);
@@ -418,12 +418,12 @@ pub(crate) fn histogram_share(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<T
 
         if !bounds_label.is_empty() {
             ts_lower = xss[0].ts.clone();
-            ts_lower.metric_name.remove_tag(&bounds_label);
-            ts_lower.metric_name.set_tag(&bounds_label, "lower");
+            ts_lower.metric_name.remove_label(&bounds_label);
+            ts_lower.metric_name.set_label_value(&bounds_label, "lower");
 
             ts_upper = xss[0].ts.clone();
-            ts_upper.metric_name.remove_tag(&bounds_label);
-            ts_upper.metric_name.set_tag(&bounds_label, "upper")
+            ts_upper.metric_name.remove_label(&bounds_label);
+            ts_upper.metric_name.set_label_value(&bounds_label, "upper")
         } else {
             ts_lower = Timeseries::default();
             ts_upper = Timeseries::default();
@@ -586,7 +586,7 @@ pub(crate) fn histogram_quantiles(tfa: &mut TransformFuncArg) -> RuntimeResult<V
             Ok(mut tss_tmp) => {
                 for ts in tss_tmp.iter_mut() {
                     // ts.metric_name.remove_tag(&dst_label);
-                    ts.metric_name.set_tag(&dst_label, &phi_str);
+                    ts.metric_name.set_label_value(&dst_label, &phi_str);
                 }
                 rvs.extend(tss_tmp)
             }
@@ -687,10 +687,10 @@ pub(crate) fn histogram_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
 
         if !bounds_label.is_empty() {
             ts_lower = xss[0].ts.clone(); // todo: use take and clone instead of 2 clones ?
-            ts_lower.metric_name.set_tag(&bounds_label, "lower");
+            ts_lower.metric_name.set_label_value(&bounds_label, "lower");
 
             ts_upper = xss[0].ts.clone();
-            ts_upper.metric_name.set_tag(&bounds_label, "upper");
+            ts_upper.metric_name.set_label_value(&bounds_label, "upper");
         } else {
             ts_lower = Timeseries::default();
             ts_upper = Timeseries::default();
@@ -731,14 +731,14 @@ fn group_le_timeseries(tss: &mut [Timeseries]) -> AHashMap<Signature, Vec<LeTime
     let mut m: AHashMap<Signature, Vec<LeTimeseries>> = AHashMap::new();
 
     for ts in tss.iter_mut() {
-        if let Some(tag_value) = ts.metric_name.tag_value(LE) {
+        if let Some(tag_value) = ts.metric_name.label_value(LE) {
             if tag_value.is_empty() {
                 continue;
             }
 
             if let Ok(le) = parse_number(tag_value) {
-                ts.metric_name.reset_metric_group();
-                ts.metric_name.remove_tag("le");
+                ts.metric_name.reset_measurement();
+                ts.metric_name.remove_label("le");
                 let key = ts.metric_name.signature();
 
                 m.entry(key).or_default().push(LeTimeseries {

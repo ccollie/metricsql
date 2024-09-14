@@ -4,7 +4,7 @@ use crate::ast::{
 };
 use crate::common::ValueType;
 use crate::functions::FunctionMeta;
-use crate::label::Labels;
+use crate::label::MatchingLabels;
 use crate::parser::function::parse_func_expr;
 use crate::parser::parse_error::unexpected;
 use crate::parser::tokens::Token;
@@ -185,7 +185,7 @@ fn parse_vector_match_cardinality(p: &mut Parser, modifier: &mut BinModifier) ->
         p.parse_ident_list()?
     };
 
-    let label_set = Labels::from(labels);
+    let label_set = MatchingLabels::from(labels);
 
     modifier.card = match kind {
         Token::GroupLeft => VectorMatchCardinality::ManyToOne(label_set),

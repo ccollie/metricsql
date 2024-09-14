@@ -17,7 +17,7 @@ use crate::ast::{
 };
 use crate::common::{hash_f64, join_vector, write_comma_separated, write_number, Value, ValueType};
 use crate::functions::{AggregateFunction, BuiltinFunction, TransformFunction};
-use crate::label::{LabelFilter, LabelFilterOp, Labels, Matchers, NAME_LABEL};
+use crate::label::{LabelFilter, LabelFilterOp, MatchingLabels, Matchers, NAME_LABEL};
 use crate::parser::{escape_ident, ParseError, ParseResult};
 use crate::prelude::{
     get_aggregate_arg_idx_for_optimization, BuiltinFunctionType, InterpolatedSelector,
@@ -30,8 +30,8 @@ pub type BExpr = Box<Expr>;
 /// Label lists provided to matching keywords will determine how vectors are combined.
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub enum VectorMatchModifier {
-    On(Labels),
-    Ignoring(Labels),
+    On(MatchingLabels),
+    Ignoring(MatchingLabels),
 }
 
 impl Display for VectorMatchModifier {
@@ -47,7 +47,7 @@ impl Display for VectorMatchModifier {
 
 impl VectorMatchModifier {
     pub fn new(labels: Vec<String>, is_on: bool) -> Self {
-        let names = Labels::new_from_iter(labels);
+        let names = MatchingLabels::new_from_iter(labels);
         if is_on {
             VectorMatchModifier::On(names)
         } else {
@@ -55,7 +55,7 @@ impl VectorMatchModifier {
         }
     }
 
-    pub fn labels(&self) -> &Labels {
+    pub fn labels(&self) -> &MatchingLabels {
         match self {
             VectorMatchModifier::On(l) => l,
             VectorMatchModifier::Ignoring(l) => l,
@@ -309,19 +309,19 @@ pub enum GroupType {
 pub enum VectorMatchCardinality {
     OneToOne,
     /// on(labels)/ignoring(labels) GROUP_LEFT
-    ManyToOne(Labels),
+    ManyToOne(MatchingLabels),
     /// on(labels)/ignoring(labels) GROUP_RIGHT
-    OneToMany(Labels),
+    OneToMany(MatchingLabels),
     /// logical/set binary operators
     ManyToMany,
 }
 
 impl VectorMatchCardinality {
-    pub fn group_left(labels: Labels) -> Self {
+    pub fn group_left(labels: MatchingLabels) -> Self {
         VectorMatchCardinality::ManyToOne(labels)
     }
 
-    pub fn group_right(labels: Labels) -> Self {
+    pub fn group_right(labels: MatchingLabels) -> Self {
         VectorMatchCardinality::OneToMany(labels)
     }
     pub fn is_group_left(&self) -> bool {
@@ -339,7 +339,7 @@ impl VectorMatchCardinality {
         )
     }
 
-    pub fn labels(&self) -> Option<&Labels> {
+    pub fn labels(&self) -> Option<&MatchingLabels> {
         match self {
             VectorMatchCardinality::ManyToOne(labels)
             | VectorMatchCardinality::OneToMany(labels) => Some(labels),

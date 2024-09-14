@@ -45,7 +45,7 @@ fn running_func_impl(
 ) -> RuntimeResult<Vec<Timeseries>> {
     let mut res = get_series_arg(&tfa.args, 0, tfa.ec)?;
     for ts in res.iter_mut() {
-        ts.metric_name.reset_metric_group();
+        ts.metric_name.reset_measurement();
 
         // skip leading NaN values
         let mut start = 0;

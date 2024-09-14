@@ -3,7 +3,7 @@ use std::ops::Deref;
 
 use metricsql_common::hash::FastHasher;
 
-use crate::types::{MetricName, Tag};
+use crate::types::{MetricName, Label};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Copy, Ord, PartialOrd)]
 pub struct Signature(u64);
@@ -28,16 +28,16 @@ const EMPTY_NAME_VALUE: u64 = 0x9e3779b97f4a7c16;
 
 impl Signature {
     pub fn new(labels: &MetricName) -> Self {
-        let iter = labels.tags.iter();
-        Self::with_name_and_labels(&labels.metric_group, iter)
+        let iter = labels.labels.iter();
+        Self::with_name_and_labels(&labels.measurement, iter)
     }
 
-    pub fn from_tags(labels: &MetricName) -> Signature {
-        let iter = labels.tags.iter();
+    pub fn from_labels(labels: &MetricName) -> Signature {
+        let iter = labels.labels.iter();
         Self::with_name_and_labels("", iter)
     }
 
-    pub fn with_name_and_labels<'a>(name: &str, iter: impl Iterator<Item = &'a Tag>) -> Self {
+    pub fn with_name_and_labels<'a>(name: &str, iter: impl Iterator<Item = &'a Label>) -> Self {
         let mut hasher = FastHasher::default();
         let mut has_tags = false;
 

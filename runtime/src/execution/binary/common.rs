@@ -3,7 +3,7 @@ use regex::escape;
 
 use metricsql_parser::prelude::{BinaryExpr, Expr, LabelFilter, Operator};
 
-use crate::types::{Tag, Timeseries};
+use crate::types::{Label, Timeseries};
 
 pub(crate) fn can_push_down_common_filters(be: &BinaryExpr) -> bool {
     if be.op == Operator::Or || be.op == Operator::Default {
@@ -23,7 +23,7 @@ pub(crate) fn can_push_down_common_filters(be: &BinaryExpr) -> bool {
 pub(crate) fn get_common_label_filters(tss: &[Timeseries]) -> Vec<LabelFilter> {
     let mut kv_map: AHashMap<String, AHashSet<String>> = AHashMap::new();
     for ts in tss.iter() {
-        for Tag { key: k, value: v } in ts.metric_name.tags.iter() {
+        for Label { name: k, value: v } in ts.metric_name.labels.iter() {
             kv_map
                 .entry(k.to_string())
                 .or_default()

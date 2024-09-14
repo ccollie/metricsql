@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Label matchers and Well-known label names used by Prometheus components.
+//! Label matchers
 
 use std::collections::BTreeSet;
 use std::fmt;
@@ -22,37 +22,27 @@ use std::str::FromStr;
 use ahash::AHashSet;
 use serde::{Deserialize, Serialize};
 
-/// "__name__"
-pub const METRIC_NAME: &str = "__name__";
-/// "alertname"
-pub const ALERT_NAME: &str = "alertname";
-/// "le"
-pub const BUCKET_LABEL: &str = "le";
-/// "instance"
-pub const INSTANCE_NAME: &str = "instance";
-
-pub type Label = String;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Eq)]
-pub struct Labels(pub(crate) Vec<Label>);
+pub struct MatchingLabels(pub(crate) Vec<String>);
 
-impl Labels {
-    pub fn append(mut self, l: Label) -> Self {
+impl MatchingLabels {
+    pub fn append(mut self, l: String) -> Self {
         self.0.push(l);
         self
     }
 
     pub fn new(ls: Vec<&str>) -> Self {
-        let mut labels: Vec<Label> = ls.iter().map(|s| s.to_string()).collect();
+        let mut labels: Vec<String> = ls.iter().map(|s| s.to_string()).collect();
         labels.sort();
         Self(labels)
     }
 
     pub fn new_from_iter<I>(iter: I) -> Self
     where
-        I: IntoIterator<Item = Label>,
+        I: IntoIterator<Item = String>,
     {
-        let mut labels: Vec<Label> = iter.into_iter().collect();
+        let mut labels: Vec<String> = iter.into_iter().collect();
         labels.sort();
         Self(labels)
     }
@@ -65,14 +55,14 @@ impl Labels {
         self.0.is_empty()
     }
 
-    pub fn is_joint(&self, ls: &Labels) -> bool {
+    pub fn is_joint(&self, ls: &MatchingLabels) -> bool {
         let s1: AHashSet<&String> = self.0.iter().collect();
         let s2: AHashSet<&String> = ls.0.iter().collect();
 
         !s1.is_disjoint(&s2)
     }
 
-    pub fn intersect(&self, ls: &Labels) -> Labels {
+    pub fn intersect(&self, ls: &MatchingLabels) -> MatchingLabels {
         let s1: AHashSet<&String> = self.0.iter().collect();
         let s2: AHashSet<&String> = ls.0.iter().collect();
         let labels = s1.intersection(&s2).map(|s| s.to_string()).collect();
@@ -84,7 +74,7 @@ impl Labels {
         self.0.push(l.to_string());
     }
 
-    pub fn push(&mut self, l: Label) {
+    pub fn push(&mut self, l: String) {
         self.0.push(l);
     }
 
@@ -105,13 +95,13 @@ impl Labels {
     }
 }
 
-impl PartialEq<Labels> for Labels {
-    fn eq(&self, other: &Labels) -> bool {
+impl PartialEq<MatchingLabels> for MatchingLabels {
+    fn eq(&self, other: &MatchingLabels) -> bool {
         let len = self.0.len();
         if len != other.0.len() {
             return false;
         }
-        return match len {
+        match len {
             0 => true,
             1 => self.0[0] == other.0[0],
             _ => {
@@ -124,17 +114,17 @@ impl PartialEq<Labels> for Labels {
                 }
                 true
             }
-        };
+        }
     }
 }
 
-impl PartialEq<Vec<String>> for Labels {
+impl PartialEq<Vec<String>> for MatchingLabels {
     fn eq(&self, other: &Vec<String>) -> bool {
         let len = self.0.len();
         if len != other.len() {
             return false;
         }
-        return match len {
+        match len {
             0 => true,
             1 => self.0[0] == other[0],
             _ => {
@@ -147,11 +137,11 @@ impl PartialEq<Vec<String>> for Labels {
                 }
                 true
             }
-        };
+        }
     }
 }
 
-impl Hash for Labels {
+impl Hash for MatchingLabels {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         let len = self.0.len();
         match len {
@@ -165,17 +155,17 @@ impl Hash for Labels {
     }
 }
 
-impl FromStr for Labels {
+impl FromStr for MatchingLabels {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut labels: Vec<Label> = s.split(',').map(|s| s.to_string()).collect();
+        let mut labels: Vec<String> = s.split(',').map(|s| s.to_string()).collect();
         labels.sort();
         Ok(Self(labels))
     }
 }
 
-impl From<Vec<String>> for Labels {
+impl From<Vec<String>> for MatchingLabels {
     fn from(ls: Vec<String>) -> Self {
         let mut labels = ls;
         labels.sort();
@@ -183,13 +173,13 @@ impl From<Vec<String>> for Labels {
     }
 }
 
-impl AsRef<[String]> for Labels {
+impl AsRef<[String]> for MatchingLabels {
     fn as_ref(&self) -> &[String] {
         self.0.as_slice()
     }
 }
 
-impl fmt::Display for Labels {
+impl fmt::Display for MatchingLabels {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.0.join(", "))
     }

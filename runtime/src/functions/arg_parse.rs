@@ -29,7 +29,7 @@ pub(crate) fn get_string_arg(args: &[QueryValue], arg_num: usize) -> RuntimeResu
                 }
             }
             // todo: return reference
-            let res = Cow::Owned(series[0].metric_name.metric_group.clone());
+            let res = Cow::Owned(series[0].metric_name.measurement.clone());
             return Ok(res);
         }
         _ => Err(RuntimeError::ArgumentError(

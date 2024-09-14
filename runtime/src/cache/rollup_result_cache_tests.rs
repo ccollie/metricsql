@@ -8,7 +8,8 @@ mod tests {
 
     use crate::cache::rollup_result_cache::{merge_timeseries, RollupResultCache};
     use crate::execution::EvalConfig;
-    use crate::{test_timeseries_equal, MetricName, Timeseries};
+    use crate::{test_timeseries_equal};
+    use crate::types::{MetricName, Timeseries};
 
     const NAN: f64 = f64::NAN;
 
@@ -497,23 +498,23 @@ mod tests {
     fn merge_non_empty_distinct_metric_names() {
         let mut a = vec![create_ts(&[1000, 1200], &[2_f64, 1_f64])];
 
-        a.get_mut(0).unwrap().metric_name.metric_group = "bar".to_string();
+        a.get_mut(0).unwrap().metric_name.measurement = "bar".to_string();
 
         let mut b = vec![create_ts(
             &[1400, 1600, 1800, 2000],
             &[3_f64, 4_f64, 5_f64, 6_f64],
         )];
 
-        b.get_mut(0).unwrap().metric_name.metric_group = "foo".to_string();
+        b.get_mut(0).unwrap().metric_name.measurement = "foo".to_string();
 
         let MergeTestContext { ec, bstart } = setup_merge();
         let tss = merge_timeseries(a, b, bstart, &ec).expect("unable to merge timeseries");
 
         let mut foo = Timeseries::default();
-        foo.metric_name.metric_group = "foo".to_string();
+        foo.metric_name.measurement = "foo".to_string();
 
         let mut bar = Timeseries::default();
-        bar.metric_name.metric_group = "bar".to_string();
+        bar.metric_name.measurement = "bar".to_string();
 
         let tss_expected = vec![
             foo,

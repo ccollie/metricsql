@@ -42,7 +42,6 @@ impl LazyLoader {
             options: PromqlEngineOpts::default(),
         };
         ll.parse(input)?;
-        ll.clear()?;
         Ok(ll)
     }
 
@@ -74,12 +73,11 @@ impl LazyLoader {
     }
 
     // clear the current test storage of all inserted samples.
-    fn clear(&mut self) -> Result<(), Box<dyn Error>> {
+    fn clear(&mut self) -> Result<(), Box<dyn Error + '_>> {
         self.storage.clear();
         self.options = PromqlEngineOpts {
             max_samples: 10000,
             timeout: Duration::from_secs(100),
-            no_step_subquery_interval_fn: Box::new(|_| self.subquery_interval.as_millis() as i64),
             enable_delayed_name_removal: true,
         };
         Ok(())
@@ -88,16 +86,16 @@ impl LazyLoader {
     // appendTill appends the defined time series to the storage till the given timestamp (in milliseconds).
     fn append_till(&mut self, ts: i64) -> Result<(), Box<dyn Error>> {
         if let Some(load_cmd) = self.load_cmd.as_mut() {
-            for (h, smpls) in load_cmd.defs.iter_mut() {
+            for (h, samples) in load_cmd.defs.iter() {
                 if let Some(m) = load_cmd.metrics.get(h) {
-                    for (i, s) in smpls.iter().enumerate() {
+                    for (i, s) in samples.iter().enumerate() {
                         if s.timestamp > ts {
                             // Removing the already added samples.
                             load_cmd.defs.get_mut(h).unwrap().drain(..i);
                             break;
                         }
                         self.storage.append(m.clone(), s.timestamp, s.value)?;
-                        if i == smpls.len() - 1 {
+                        if i == samples.len() - 1 {
                             load_cmd.defs.get_mut(h).unwrap().clear();
                         }
                     }
@@ -155,7 +153,6 @@ impl Error for NoLoadCommandError {}
 pub struct PromqlEngineOpts {
     max_samples: usize,
     timeout: Duration,
-    no_step_subquery_interval_fn: Box<dyn Fn(i64) -> i64>,
     enable_delayed_name_removal: bool,
 }
 
@@ -164,7 +161,6 @@ impl Default for PromqlEngineOpts {
         PromqlEngineOpts {
             max_samples: 10000,
             timeout: Duration::from_secs(100),
-            no_step_subquery_interval_fn: Box::new(|_| 0),
             enable_delayed_name_removal: false,
         }
     }

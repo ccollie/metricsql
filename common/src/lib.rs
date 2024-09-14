@@ -18,6 +18,7 @@ pub mod pool;
 pub mod regex_util;
 pub mod time;
 pub mod humanize;
+pub mod label;
 
 pub mod prelude {
     pub use crate::async_runtime::*;
@@ -32,4 +33,5 @@ pub mod prelude {
     pub use crate::time;
     pub use crate::time::*;
     pub use crate::humanize::*;
+    pub use crate::label::*;
 }

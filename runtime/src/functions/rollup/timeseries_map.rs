@@ -30,7 +30,7 @@ impl MapInner {
         let mut origin: Timeseries = Timeseries::default();
         origin.metric_name.copy_from(mn_src);
         if !keep_metric_names {
-            origin.metric_name.reset_metric_group()
+            origin.metric_name.reset_measurement()
         }
         origin.timestamps = Arc::clone(shared_timestamps);
         origin.values = vec![f64::NAN; ts_len];
@@ -55,7 +55,7 @@ impl MapInner {
         self.series.entry(value).or_insert_with_key(move |value| {
             let values: Vec<f64> = vec![f64::NAN; timestamps.len()];
             let mut ts = Timeseries::with_shared_timestamps(timestamps, &values);
-            ts.metric_name.set_tag(label_name, value);
+            ts.metric_name.set_label_value(label_name, value);
             ts
         })
     }

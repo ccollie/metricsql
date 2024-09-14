@@ -33,7 +33,7 @@ pub(crate) fn eval_scalar_vector_binop(
 
     for ts in vector.iter_mut() {
         if reset_metric_group {
-            ts.metric_name.reset_metric_group();
+            ts.metric_name.reset_measurement();
         }
 
         for value in ts.values.iter_mut() {

@@ -57,7 +57,7 @@ impl Timeseries {
 
     #[inline]
     pub fn tag_count(&self) -> usize {
-        self.metric_name.tags.len()
+        self.metric_name.labels.len()
     }
 
     pub fn signature(&self) -> Signature {
@@ -262,7 +262,7 @@ pub fn group_series_by_match_modifier(
         }
     } else {
         for ts in series.iter_mut() {
-            ts.metric_name.sort_tags();
+            ts.metric_name.sort_labels();
             let key = if with_metric_name {
                 ts.metric_name.signature_by_match_modifier(modifier)
             } else {

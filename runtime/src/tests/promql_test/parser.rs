@@ -12,7 +12,6 @@
 // limitations under the License.
 use super::test_command::{EvalCmd, LoadCmd, TestCommand};
 use super::types::{raise, ParseErr, SequenceValue};
-use crate::MetricName;
 use metricsql_common::time::current_time_millis;
 use metricsql_parser::ast::Expr;
 use metricsql_parser::parser::parse_duration_value;
@@ -23,6 +22,7 @@ use std::io::BufRead;
 use std::time::{Duration, SystemTime};
 use std::io;
 use std::sync::LazyLock;
+use crate::types::MetricName;
 
 // Constants
 pub const TEST_START_TIME: SystemTime = SystemTime::UNIX_EPOCH;
@@ -74,9 +74,9 @@ fn parse_timestamp(timestamp: Option<&str>) -> Result<i64, Box<dyn Error>> {
 fn labels_to_metric_name(labels: &Labels) -> MetricName {
     let mut metric_name = MetricName::default();
     for (k, v) in labels.iter() {
-        metric_name.set_tag(k, v);
+        metric_name.add_label(k, v);
     }
-    metric_name.sort_tags();
+    metric_name.sort_labels();
     metric_name
 }
 

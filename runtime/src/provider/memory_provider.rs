@@ -159,7 +159,7 @@ impl MetricStorage for MemoryMetricProvider {
 }
 
 fn matches_filter(mn: &MetricName, filter: &LabelFilter) -> bool {
-    if let Some(v) = mn.tag_value(filter.label.as_str()) {
+    if let Some(v) = mn.label_value(filter.label.as_str()) {
         return filter.is_match(v);
     }
     false
@@ -191,7 +191,7 @@ mod tests {
     fn append_new_metric_creates_new_entry() {
         let provider = MemoryMetricProvider::new();
         let mut labels = MetricName::default();
-        labels.add_tag("foo", "bar");
+        labels.add_label("foo", "bar");
         provider.append(labels.clone(), 1, 1.0).unwrap();
 
         let inner = provider.inner.read().unwrap();
@@ -202,7 +202,7 @@ mod tests {
     fn append_existing_metric_adds_point() {
         let provider = MemoryMetricProvider::new();
         let mut labels = MetricName::default();
-        labels.add_tag("foo", "bar");
+        labels.add_label("foo", "bar");
         provider.append(labels.clone(), 1, 1.0).unwrap();
         provider.append(labels.clone(), 2, 2.0).unwrap();
 
@@ -217,7 +217,7 @@ mod tests {
     fn search_returns_matching_metrics() {
         let provider = MemoryMetricProvider::new();
         let mut labels = MetricName::default();
-        labels.add_tag("foo", "bar");
+        labels.add_label("foo", "bar");
         provider.append(labels.clone(), 1, 1.0).unwrap();
 
         let matchers = Matchers::new(vec![LabelFilter::equal("foo", "bar")]);
@@ -230,7 +230,7 @@ mod tests {
     fn search_returns_empty_for_no_match() {
         let provider = MemoryMetricProvider::new();
         let mut labels = MetricName::default();
-        labels.add_tag("foo", "bar");
+        labels.add_label("foo", "bar");
         provider.append(labels.clone(), 1, 1.0).unwrap();
 
         let matchers = Matchers::new(vec![LabelFilter::equal("foo", "baz")]);

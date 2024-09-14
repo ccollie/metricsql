@@ -19,7 +19,7 @@ use super::utils::{
     unix_millis_to_system_time
 };
 use crate::execution::{exec_internal, Context, EvalConfig};
-use crate::{MemoryMetricProvider, QueryValue, RuntimeResult};
+use crate::{MemoryMetricProvider, RuntimeResult};
 use glob::glob;
 use metricsql_parser::ast::Expr;
 use metricsql_parser::ast::Expr::Rollup;
@@ -27,6 +27,7 @@ use regex::Regex;
 use std::fs;
 use std::sync::{Arc, LazyLock};
 use std::time::SystemTime;
+use crate::types::QueryValue;
 
 const ONE_MINUTE_AS_MILLIS: i64 = 60 * 1000;
 
@@ -71,7 +72,9 @@ pub fn run_builtin_tests() {
 
 pub fn run_test(input: &str) -> Result<(), TestAssertionError> {
     let mut test = Test::new(input);
-    for cmd in test.cmds.iter_mut() {
+    // todo: fix this so we dont clone
+    let cmds = test.cmds.clone();
+    for cmd in cmds.iter() {
         test.exec(cmd)?;
         // TODO(fabxc): aggregate command errors, yield diffs for result
     }
@@ -144,7 +147,7 @@ impl Test {
     }
 
     // exec processes a single step of the test.
-    pub fn exec(&mut self, tc: &mut TestCommand) -> Result<(), TestAssertionError> {
+    pub fn exec(&mut self, tc: &TestCommand) -> Result<(), TestAssertionError> {
         match tc {
             TestCommand::Clear(_) => self.clear(),
             TestCommand::Load(cmd) => {
@@ -180,8 +183,8 @@ impl Test {
         let start = timestamp_from_system_time(&iq.eval_time);
         let mut ec = EvalConfig::new(start, start, 0);
 
-        let res = self.exec_internal(&mut ec, &cmd.expr, cmd.line);
-        if let Err(e) = res {
+        let res = self.exec_internal(&mut ec, &cmd.expr);
+        if let Err(e) = &res {
             if cmd.fail {
                 cmd.check_expected_failure(e)?;
             }
@@ -191,7 +194,7 @@ impl Test {
             let msg = format!("expected error evaluating query {} (line {}) but got none", iq.expr, cmd.line);
             return Err(TestAssertionError::new(cmd.line, msg));
         }
-        let res = res?;
+        let res = res.unwrap();
         let eval_time = timestamp_from_system_time(&iq.eval_time);
         cmd.compare_result(&res)?;
 
@@ -201,9 +204,9 @@ impl Test {
         let end = eval_time + ONE_MINUTE_AS_MILLIS;
         let mut ec = EvalConfig::new(start, end, ONE_MINUTE_AS_MILLIS);
 
-        let range_res = self.exec_internal(&mut ec, &cmd.expr, cmd.line)
+        let range_res = self.exec_internal(&mut ec, &cmd.expr)
             .map_err(|err| {
-                let msg = format!("error evaluating query {} (line {}) in range mode: {:?}", iq.expr, cmd.line, err.message);
+                let msg = format!("error evaluating query {} (line {}) in range mode: {:?}", iq.expr, cmd.line, err);
                 TestAssertionError::new(cmd.line, msg)
             })?;
 
@@ -211,8 +214,8 @@ impl Test {
             // Range queries are always sorted by labels, so skip this test case that expects results in a particular order.
             return Ok(())
         }
-        match range_res {
-            QueryValue::Scalar(v) => {
+        match &range_res {
+            QueryValue::Scalar(_v) => {
                 cmd.compare_result(&range_res)?;
             }
             QueryValue::RangeVector(mat) => {
@@ -266,8 +269,8 @@ impl Test {
         let end = timestamp_from_system_time(&cmd.end);
         let mut ec = EvalConfig::new(start, end, step);
 
-        let res = self.exec_internal(&mut ec, &cmd.expr, cmd.line);
-        let value = match res {
+        let res = self.exec_internal(&mut ec, &cmd.expr);
+        let value = match &res {
             Ok(v) => {
                 if cmd.fail {
                     let msg = format!("expected error evaluating query {} (line {}) but got none", cmd.expr, cmd.line);
@@ -286,12 +289,8 @@ impl Test {
         cmd.compare_result(&value)
     }
 
-    fn exec_internal(&self, ec: &mut EvalConfig, q: &str, line: usize) -> Result<QueryValue, TestAssertionError> {
-        let (qv, _parsed) = exec_internal(&self.context, ec, q)
-            .map_err(|e| {
-                let msg = format!("error evaluating query: {:?}", e);
-                TestAssertionError::new(line, msg)
-            })?;
+    fn exec_internal(&self, ec: &mut EvalConfig, q: &str) -> RuntimeResult<QueryValue> {
+        let (qv, _parsed) = exec_internal(&self.context, ec, q)?;
         Ok(qv)
     }
 }

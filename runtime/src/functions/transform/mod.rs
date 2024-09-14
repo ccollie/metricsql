@@ -253,7 +253,7 @@ pub(super) fn do_transform_values(
 ) -> RuntimeResult<Vec<Timeseries>> {
     for ts in arg.iter_mut() {
         if !keep_metric_names {
-            ts.metric_name.reset_metric_group();
+            ts.metric_name.reset_measurement();
         }
         tf(&mut ts.values);
     }

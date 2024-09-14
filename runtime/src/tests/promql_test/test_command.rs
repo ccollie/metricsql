@@ -12,21 +12,19 @@
 // limitations under the License.
 use super::types::{Sample, SequenceValue, TestAssertionError};
 use super::utils::{almost_equal, assert_matrix_sorted, format_series_result, DEFAULT_EPSILON};
-use crate::signature::Signature;
-use crate::{MemoryMetricProvider, MetricName, QueryValue};
+use crate::{MemoryMetricProvider, RuntimeError};
 use ahash::{HashSet, HashSetExt};
 use regex::Regex;
 use std::collections::HashMap;
 use std::convert::Into;
-use std::error::Error;
 use std::fmt;
 use std::fmt::Display;
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
+use crate::types::{MetricName, QueryValue, Signature};
 
 // Clear command
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ClearCmd;
 impl Display for ClearCmd {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -35,7 +33,7 @@ impl Display for ClearCmd {
 }
 
 // Load command
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct LoadCmd {
     pub(super) gap: Duration,
     pub(super) metrics: HashMap<Signature, MetricName>,
@@ -78,7 +76,7 @@ impl LoadCmd {
     }
 
     // append the defined time series to the storage.
-    pub(super) fn append(&mut self, storage: &Arc<MemoryMetricProvider>) {
+    pub(super) fn append(&self, storage: &Arc<MemoryMetricProvider>) {
         for (h, smpls) in self.defs.iter() {
             if let Some(m) = self.metrics.get(h) {
                 for s in smpls.iter() {
@@ -90,7 +88,7 @@ impl LoadCmd {
 }
 
 // Eval command
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct EvalCmd {
     pub expr: String,
     pub start: SystemTime,
@@ -114,7 +112,7 @@ impl Display for EvalCmd {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Entry {
     pos: usize,
     vals: Vec<SequenceValue>,
@@ -309,7 +307,7 @@ impl EvalCmd {
         Ok(())
     }
 
-    pub(super) fn check_expected_failure(&self, actual: Error) -> Result<(), TestAssertionError> {
+    pub(super) fn check_expected_failure(&self, actual: &RuntimeError) -> Result<(), TestAssertionError> {
         let error_msg = actual.to_string();
         if let Some(expected) = &self.expected_fail_message {
             if *expected != error_msg {
@@ -334,7 +332,7 @@ impl EvalCmd {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TestCommand {
     Clear(ClearCmd),
     Eval(EvalCmd),

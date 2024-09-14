@@ -7,7 +7,7 @@ use metricsql_parser::ast::{Operator, VectorMatchCardinality, VectorMatchModifie
 use metricsql_parser::binaryop::{
     get_scalar_binop_handler, get_scalar_comparison_handler, BinopFunc,
 };
-use metricsql_parser::prelude::{BinModifier, Labels};
+use metricsql_parser::prelude::{BinModifier, MatchingLabels};
 
 use crate::execution::utils::remove_empty_series;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
@@ -223,7 +223,7 @@ fn adjust_binary_op_tags(
                         }
                     }
                     Some(VectorMatchModifier::Ignoring(labels)) => Cow::Borrowed(labels),
-                    None => Cow::Owned(Labels::default()),
+                    None => Cow::Owned(MatchingLabels::default()),
                 };
 
                 let mut ts_left = ensure_single_timeseries("left", bfa.op, bfa.modifier, tss_left)?;
@@ -231,14 +231,14 @@ fn adjust_binary_op_tags(
                     ensure_single_timeseries("right", bfa.op, bfa.modifier, &mut tss_right)?;
 
                 if reset_metric_group {
-                    ts_left.metric_name.reset_metric_group();
+                    ts_left.metric_name.reset_measurement();
                 }
 
                 let labels = group_tags.as_ref();
                 if is_on {
-                    ts_left.metric_name.remove_tags_on(labels.as_ref());
+                    ts_left.metric_name.remove_labels_on(labels.as_ref());
                 } else {
-                    ts_left.metric_name.remove_tags_ignoring(labels.as_ref());
+                    ts_left.metric_name.remove_labels_ignoring(labels.as_ref());
                 }
 
                 rvs_left.push(ts_left);
@@ -310,7 +310,7 @@ fn group_join(
     tss_right: &mut Vec<Timeseries>,
 ) -> RuntimeResult<()> {
     let empty_prefix = "";
-    let empty_labels = Labels::default();
+    let empty_labels = MatchingLabels::default();
 
     let (join_tags, skip_tags) = if let Some(modifier) = bfa.modifier {
         let join = match &modifier.card {
@@ -338,13 +338,13 @@ fn group_join(
 
     for ts_left in tss_left.iter_mut() {
         if reset_metric_group {
-            ts_left.metric_name.reset_metric_group();
+            ts_left.metric_name.reset_measurement();
         }
 
         if tss_right.len() == 1 {
             let mut right = tss_right.remove(0);
             // Easy case - right part contains only a single matching time series.
-            ts_left.metric_name.set_tags(
+            ts_left.metric_name.set_labels(
                 empty_prefix,
                 join_tags.as_ref(),
                 skip_tags.as_ref(),
@@ -362,14 +362,14 @@ fn group_join(
 
         for mut ts_right in tss_right.drain(..) {
             let mut ts_copy = ts_left.clone(); // todo: how to avoid clone ?
-            ts_copy.metric_name.set_tags(
+            ts_copy.metric_name.set_labels(
                 empty_prefix,
                 join_tags.as_ref(),
                 skip_tags.as_ref(),
                 &mut ts_right.metric_name,
             );
 
-            let key = ts_copy.metric_name.tags_signature();
+            let key = ts_copy.metric_name.labels_signature();
 
             match map.entry(key) {
                 Entry::Vacant(entry) => {

@@ -282,10 +282,10 @@ impl RollupConfig {
         let mut ts_dst: Timeseries = Timeseries::default();
         ts_dst.metric_name.copy_from(metric);
         if !self.tag_value.is_empty() {
-            ts_dst.metric_name.set_tag("rollup", &self.tag_value)
+            ts_dst.metric_name.set_label_value("rollup", &self.tag_value)
         }
         if !keep_metric_names && !func_keeps_metric_name {
-            ts_dst.metric_name.reset_metric_group();
+            ts_dst.metric_name.reset_measurement();
         }
         let samples_scanned = self.exec(&mut ts_dst.values, values, timestamps)?;
         ts_dst.timestamps = Arc::clone(shared_timestamps);

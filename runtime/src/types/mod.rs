@@ -15,3 +15,5 @@ mod signature;
 mod timeseries_test;
 
 pub use signature::Signature;
+
+pub use metricsql_common::label::Label;

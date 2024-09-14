@@ -12,8 +12,8 @@
 // limitations under the License.
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use chrono::{DateTime, Utc};
-use crate::{QueryValue, RuntimeResult, Timeseries};
 use crate::tests::promql_test::types::TestAssertionError;
+use crate::types::{QueryValue, Timeseries};
 use super::parser::TEST_START_TIME;
 
 // Constants

@@ -5,7 +5,8 @@ mod tests {
     use chrono::Duration;
 
     use crate::execution::{compile_expression, Context, EvalConfig};
-    use crate::{test_query_values_equal, Deadline, MetricName, QueryValue, Timeseries};
+    use crate::{test_query_values_equal, Deadline};
+    use crate::types::{MetricName, QueryValue, Timeseries};
 
     const NAN: f64 = f64::NAN;
     const START: i64 = 1000000_i64;
@@ -225,8 +226,8 @@ mod tests {
         assert_result_eq("absent(NaN)", &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
     }
 
-    fn assert_tag_value(mn: &MetricName, tag: &str, expected: &str) {
-        let tag_value = mn.tag_value(tag.into()).unwrap();
+    fn assert_label_value(mn: &MetricName, tag: &str, expected: &str) {
+        let tag_value = mn.label_value(tag.into()).unwrap();
         assert_eq!(tag_value.as_str(), expected);
     }
 
@@ -239,13 +240,13 @@ mod tests {
             let r2 = &iv[1];
             let r3 = &iv[2];
 
-            assert_tag_value(&r1.metric_name, "rollup", "avg");
+            assert_label_value(&r1.metric_name, "rollup", "avg");
             assert_eq!(&r1.values, &[5_f64, 4.0, 3.0, 2.0, 1.0, 0.0]);
 
-            assert_tag_value(&r2.metric_name, "rollup", "max");
+            assert_label_value(&r2.metric_name, "rollup", "max");
             assert_eq!(&r2.values, &[6_f64, 5.0, 4.0, 3.0, 2.0, 1.0]);
 
-            assert_tag_value(&r3.metric_name, "rollup", "min");
+            assert_label_value(&r3.metric_name, "rollup", "min");
             assert_eq!(&r3.values, &[4_f64, 3.0, 2.0, 1.0, 0.0, -1.0]);
         } else {
             panic!("expected instant vector");

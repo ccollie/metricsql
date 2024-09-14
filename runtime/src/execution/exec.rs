@@ -183,7 +183,7 @@ pub(crate) fn timeseries_to_result(
     let mut m: AHashSet<Signature> = AHashSet::with_capacity(tss.len());
 
     for ts in tss.iter_mut() {
-        ts.metric_name.sort_tags();
+        ts.metric_name.sort_labels();
 
         let key = ts.metric_name.signature();
 

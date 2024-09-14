@@ -1,45 +1,20 @@
 use metricsql_parser::ast::DurationExpr;
 use metricsql_parser::common::{Value, ValueType};
 use serde::ser::{SerializeSeq, SerializeStruct};
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Serialize, Serializer};
 use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
-
 use crate::common::format::format_number;
 use crate::execution::{eval_number, EvalConfig};
 use crate::functions::types::get_single_timeseries;
 use crate::{RuntimeError, RuntimeResult};
-use crate::types::{Timeseries, Timestamp};
+use crate::types::{Label, Timeseries, Timestamp};
 
 pub type Labels = Vec<Label>;
 
-#[derive(Debug, Clone, Hash, Eq, PartialEq, Serialize, Deserialize)]
-pub struct Label {
-    pub name: String,
-    pub value: String,
-}
-
-impl Label {
-    pub fn new<S: Into<String>>(key: S, value: String) -> Self {
-        Self {
-            name: key.into(),
-            value,
-        }
-    }
-}
-
-impl PartialOrd for Label {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(self.cmp(other)) }
-}
-
-impl Ord for Label {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.partial_cmp(other).unwrap()
-    }
-}
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Sample {
@@ -274,7 +249,7 @@ impl QueryValue {
                         return Err(RuntimeError::ArgumentError(msg));
                     }
                 }
-                let res = ts.metric_name.metric_group.clone();
+                let res = ts.metric_name.measurement.clone();
                 // todo: return reference
                 Ok(res)
             }

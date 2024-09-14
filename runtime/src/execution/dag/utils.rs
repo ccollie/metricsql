@@ -171,7 +171,7 @@ pub(super) fn handle_aggregate_absent_over_time(
     if let Some(expr) = expr {
         let labels = extract_labels(expr);
         for label in labels {
-            rvs[0].metric_name.set_tag(&label.name, &label.value);
+            rvs[0].metric_name.set_label_value(&label.name, &label.value);
         }
     }
     if tss.is_empty() {

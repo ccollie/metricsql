@@ -16,7 +16,7 @@ use std::fmt::{Debug, Display, Formatter};
 pub type Sample = crate::provider::Sample;
 
 // SequenceValue struct
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct SequenceValue {
     pub(crate) value: f64,
     pub(crate) omitted: bool,

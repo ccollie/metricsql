@@ -36,7 +36,7 @@ pub(crate) fn eval_vector_scalar_binop(
     let handler = get_scalar_binop_handler(op, bool_modifier);
     for v in vector.iter_mut() {
         if reset_metric_group {
-            v.metric_name.reset_metric_group();
+            v.metric_name.reset_measurement();
         }
 
         // special case `unless` operator. If the vector has labels, then by definition we have mismatched

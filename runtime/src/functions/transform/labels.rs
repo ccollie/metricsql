@@ -21,7 +21,7 @@ pub(crate) fn label_keep(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timese
 
     let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
     for ts in series.iter_mut() {
-        ts.metric_name.retain_tags(&keep_labels)
+        ts.metric_name.retain_labels(&keep_labels)
     }
 
     Ok(series)
@@ -36,7 +36,7 @@ pub(crate) fn label_del(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeser
 
     let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
     for ts in series.iter_mut() {
-        ts.metric_name.remove_tags(&del_labels)
+        ts.metric_name.remove_labels(&del_labels)
     }
 
     Ok(series)
@@ -57,9 +57,9 @@ pub(crate) fn alias(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>
 
     for ts in series.iter_mut() {
         if alias.is_empty() {
-            ts.metric_name.remove_tag(METRIC_NAME_LABEL);
+            ts.metric_name.remove_label(METRIC_NAME_LABEL);
         } else {
-            ts.metric_name.set_tag(METRIC_NAME_LABEL, &alias)
+            ts.metric_name.set_label_value(METRIC_NAME_LABEL, &alias)
         }
     }
 
@@ -74,9 +74,9 @@ pub(crate) fn handle_label_set(
     for ts in series.iter_mut() {
         for (dst_label, value) in dst_labels.iter().zip(dst_values.iter()) {
             if value.is_empty() {
-                ts.metric_name.remove_tag(dst_label);
+                ts.metric_name.remove_label(dst_label);
             } else {
-                ts.metric_name.set_tag(dst_label, value)
+                ts.metric_name.set_label_value(dst_label, value)
             }
         }
     }
@@ -106,9 +106,9 @@ fn transform_label_value_func(
             let transformed = &*f(&dst_value);
 
             if transformed.is_empty() {
-                ts.metric_name.remove_tag(label);
+                ts.metric_name.remove_label(label);
             } else {
-                ts.metric_name.set_tag(label, transformed);
+                ts.metric_name.set_label_value(label, transformed);
             }
         }
     }
@@ -147,13 +147,13 @@ pub(crate) fn label_map(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeser
             None => {
                 if let Some(val) = m.get(empty.as_str()) {
                     if !val.is_empty() {
-                        ts.metric_name.set_tag(&label, val);
+                        ts.metric_name.set_label_value(&label, val);
                     }
                 }
             }
         };
         if should_delete {
-            ts.metric_name.remove_tag(&label);
+            ts.metric_name.remove_label(&label);
         }
     }
 
@@ -181,7 +181,7 @@ pub(crate) fn drop_common_labels(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
                 continue;
             }
             for ts in series.iter_mut() {
-                ts.metric_name.remove_tag(label_name);
+                ts.metric_name.remove_label(label_name);
             }
         }
     }
@@ -206,7 +206,7 @@ fn transform_label_copy_ext(
     let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
     for ts in series.iter_mut() {
         for (src_label, dst_label) in src_labels.iter().zip(dst_labels.iter()) {
-            let value = ts.metric_name.tag_value(src_label);
+            let value = ts.metric_name.label_value(src_label);
             if value.is_none() {
                 continue;
             }
@@ -219,10 +219,10 @@ fn transform_label_copy_ext(
             // this is done because value is a live (owned) ref to data in ts.metric_name
             // because of this, there was an outstanding borrow
             let v = value.clone();
-            ts.metric_name.set_tag(dst_label, &v);
+            ts.metric_name.set_label_value(dst_label, &v);
 
             if remove_src_labels && src_label != dst_label {
-                ts.metric_name.remove_tag(src_label)
+                ts.metric_name.remove_label(src_label)
             }
         }
     }
@@ -249,7 +249,7 @@ pub(crate) fn label_join(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timese
         dst_value.clear(); //??? test this
 
         for (j, src_label) in src_labels.iter().enumerate() {
-            if let Some(src_value) = ts.metric_name.tag_value(src_label) {
+            if let Some(src_value) = ts.metric_name.label_value(src_label) {
                 dst_value.push_str(src_value);
             }
             if j + 1 < src_labels.len() {
@@ -258,9 +258,9 @@ pub(crate) fn label_join(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timese
         }
 
         if dst_value.is_empty() {
-            ts.metric_name.remove_tag(&dst_label);
+            ts.metric_name.remove_label(&dst_label);
         } else {
-            ts.metric_name.set_tag(&dst_label, &dst_value);
+            ts.metric_name.set_label_value(&dst_label, &dst_value);
         }
     }
 
@@ -311,7 +311,7 @@ fn handle_label_replace(
     replacement: &str,
 ) -> RuntimeResult<Vec<Timeseries>> {
     for ts in tss.iter_mut() {
-        let src_value = ts.metric_name.tag_value(src_label);
+        let src_value = ts.metric_name.label_value(src_label);
 
         // note: we can have a match-all regex like `.*` which will match an empty string
         let haystack = if let Some(v) = src_value {
@@ -326,17 +326,17 @@ fn handle_label_replace(
 
         let b = r.replace_all(haystack, replacement);
         if b.len() == 0 {
-            ts.metric_name.remove_tag(dst_label)
+            ts.metric_name.remove_label(dst_label)
         } else {
             // if we have borrowed src_value, we need to clone it to avoid holding
             // a borrowed ref to ts.metric_name
             match b {
                 Cow::Borrowed(_) => {
                     let cloned = b.to_string();
-                    ts.metric_name.set_tag(dst_label, &cloned);
+                    ts.metric_name.set_label_value(dst_label, &cloned);
                 }
                 Cow::Owned(owned) => {
-                    ts.metric_name.set_tag(dst_label, &owned);
+                    ts.metric_name.set_label_value(dst_label, &owned);
                 }
             };
         }
@@ -350,8 +350,8 @@ pub(crate) fn label_value(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Times
 
     let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
     for ts in series.iter_mut() {
-        ts.metric_name.reset_metric_group();
-        let v = match ts.metric_name.tag_value(&label_name) {
+        ts.metric_name.reset_measurement();
+        let v = match ts.metric_name.label_value(&label_name) {
             Some(v) => match v.parse::<f64>() {
                 Ok(v) => v,
                 Err(..) => f64::NAN,
@@ -396,7 +396,7 @@ pub(crate) fn label_match(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Times
     process_anchored_regex(tfa, &label_re, move |tfa, r| {
         let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
         series.retain(|ts| {
-            if let Some(label_value) = ts.metric_name.tag_value(&label_name) {
+            if let Some(label_value) = ts.metric_name.label_value(&label_name) {
                 r.is_match(label_value)
             } else {
                 false
@@ -414,7 +414,7 @@ pub(crate) fn label_mismatch(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Ti
         let label_name = get_label(tfa, "", 1)?;
         let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
         series.retain(|ts| {
-            if let Some(label_value) = ts.metric_name.tag_value(&label_name) {
+            if let Some(label_value) = ts.metric_name.label_value(&label_name) {
                 !r.is_match(label_value)
             } else {
                 false
@@ -485,9 +485,9 @@ pub(crate) fn label_graphite_group(tfa: &mut TransformFuncArg) -> RuntimeResult<
     let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
 
     for ts in series.iter_mut() {
-        let groups: Vec<&str> = ts.metric_name.metric_group.split(DOT_SEPARATOR).collect();
+        let groups: Vec<&str> = ts.metric_name.measurement.split(DOT_SEPARATOR).collect();
         let mut group_name: String =
-            String::with_capacity(ts.metric_name.metric_group.len() + groups.len());
+            String::with_capacity(ts.metric_name.measurement.len() + groups.len());
         for (j, group_id) in group_ids.iter().enumerate() {
             if *group_id >= 0_i64 && *group_id < (groups.len() as i64) {
                 let idx = *group_id as usize;
@@ -497,7 +497,7 @@ pub(crate) fn label_graphite_group(tfa: &mut TransformFuncArg) -> RuntimeResult<
                 group_name.push('.')
             }
         }
-        ts.metric_name.metric_group = group_name
+        ts.metric_name.measurement = group_name
     }
 
     Ok(std::mem::take(&mut series))
@@ -554,7 +554,7 @@ fn get_tag_value_mut<'a>(mn: &'a mut MetricName, dst_label: &str) -> Option<&'a 
 }
 
 fn get_tag_value(mn: &MetricName, dst_label: &str) -> String {
-    match mn.tag_value(dst_label) {
+    match mn.label_value(dst_label) {
         Some(val) => val.to_owned(),
         None => "".to_string(),
     }

@@ -88,8 +88,8 @@ fn sort_by_label_impl(tfa: &mut TransformFuncArg, is_desc: bool) -> RuntimeResul
 
     series.sort_by(|first, second| {
         for label in labels.iter() {
-            let a = first.metric_name.tag_value(label);
-            let b = second.metric_name.tag_value(label);
+            let a = first.metric_name.label_value(label);
+            let b = second.metric_name.label_value(label);
             match (a, b) {
                 (None, None) => continue,
                 (Some(a1), Some(b1)) => {
@@ -146,8 +146,8 @@ fn label_alpha_numeric_sort_impl(
     res.sort_by(|first, second| {
         for label in &labels {
             match (
-                first.metric_name.tag_value(label),
-                second.metric_name.tag_value(label),
+                first.metric_name.label_value(label),
+                second.metric_name.label_value(label),
             ) {
                 (None, None) => continue,
                 (Some(a), Some(b)) => {

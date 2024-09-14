@@ -7,7 +7,7 @@ use crate::ast::{
     RollupExpr, StringExpr, StringSegment, VectorMatchCardinality, VectorMatchModifier,
     WithArgExpr, WithExpr,
 };
-use crate::label::{LabelFilter, Labels};
+use crate::label::{LabelFilter, MatchingLabels};
 use crate::parser::symbol_provider::SymbolProviderRef;
 use crate::parser::{syntax_error, ParseError, ParseResult};
 use crate::prelude::InterpolatedSelector;
@@ -116,13 +116,13 @@ fn expand_binary_operator(
                 VectorMatchModifier::On(labels) => {
                     let new_labels = expand_modifier_args(symbols, was, labels.as_ref())?;
                     if labels != &new_labels {
-                        *labels = Labels::new_from_iter(new_labels);
+                        *labels = MatchingLabels::new_from_iter(new_labels);
                     }
                 }
                 VectorMatchModifier::Ignoring(labels) => {
                     let new_labels = expand_modifier_args(symbols, was, labels.as_ref())?;
                     if labels != &new_labels {
-                        *labels = Labels::new_from_iter(new_labels);
+                        *labels = MatchingLabels::new_from_iter(new_labels);
                     }
                 }
             }
@@ -131,12 +131,12 @@ fn expand_binary_operator(
                 VectorMatchCardinality::ManyToOne(labels) => {
                     let new_labels = expand_modifier_args(symbols, was, labels.as_ref())?;
                     modifier.card =
-                        VectorMatchCardinality::ManyToOne(Labels::new_from_iter(new_labels));
+                        VectorMatchCardinality::ManyToOne(MatchingLabels::new_from_iter(new_labels));
                 }
                 VectorMatchCardinality::OneToMany(labels) => {
                     let new_labels = expand_modifier_args(symbols, was, labels.as_ref())?;
                     modifier.card =
-                        VectorMatchCardinality::ManyToOne(Labels::new_from_iter(new_labels));
+                        VectorMatchCardinality::ManyToOne(MatchingLabels::new_from_iter(new_labels));
                 }
                 _ => {}
             }

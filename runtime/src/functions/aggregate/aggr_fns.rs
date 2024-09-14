@@ -226,10 +226,10 @@ fn aggr_prepare_series(
     for mut ts in arg_orig.drain(0..) {
         let (series, k) = if keep_original {
             let mut mn = ts.metric_name.clone();
-            mn.remove_group_tags(modifier);
+            mn.remove_group_labels(modifier);
             (ts, mn.signature())
         } else {
-            ts.metric_name.remove_group_tags(modifier);
+            ts.metric_name.remove_group_labels(modifier);
             let sig = ts.metric_name.signature();
             (ts, sig)
         };
@@ -379,7 +379,7 @@ fn aggr_func_histogram(tss: &mut Vec<Timeseries>) {
             match m.entry(vm_range.to_string()) {
                 Entry::Vacant(entry) => {
                     let mut ts = tss[0].clone();
-                    ts.metric_name.set_tag("vmrange", vm_range);
+                    ts.metric_name.set_label_value("vmrange", vm_range);
                     ts.values.fill(0.0);
                     ts.values[i] = count as f64;
                     entry.insert(ts);
@@ -673,9 +673,9 @@ fn aggr_func_count_values(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries
         let mut rvs: Vec<Timeseries> = Vec::with_capacity(tss.len());
         for v in values {
             let mut dst: Timeseries = tss[0].clone();
-            dst.metric_name.remove_tag(&dst_label);
+            dst.metric_name.remove_label(&dst_label);
             dst.metric_name
-                .set_tag(&dst_label, format!("{}", v).as_str());
+                .set_label_value(&dst_label, format!("{}", v).as_str());
 
             for (i, dst_value) in dst.values.iter_mut().enumerate() {
                 let mut count = 0;
@@ -819,7 +819,7 @@ fn get_remaining_sum_timeseries(
         return None;
     }
     let mut dst = tss[0].clone();
-    dst.metric_name.remove_group_tags(modifier);
+    dst.metric_name.remove_group_labels(modifier);
 
     let mut tag_value = remaining_sum_tag_name;
     let mut remaining = remaining_sum_tag_name;
@@ -830,7 +830,7 @@ fn get_remaining_sum_timeseries(
     }
 
     // dst.metric_name.remove_tag(remaining);
-    dst.metric_name.set_tag(remaining, tag_value);
+    dst.metric_name.set_label_value(remaining, tag_value);
     for (i, k) in ks.iter().enumerate() {
         let kn = get_int_k(*k, tss.len());
         let mut sum: f64 = 0.0;
@@ -983,7 +983,7 @@ fn aggr_func_quantiles(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> 
         let mut tss_dst: Vec<Timeseries> = Vec::with_capacity(phi_count);
         for phi in phis.iter() {
             let mut ts = tss[0].clone();
-            ts.metric_name.set_tag(&dst_label, &format!("{}", phi));
+            ts.metric_name.set_label_value(&dst_label, &format!("{}", phi));
             tss_dst.push(ts);
         }
 

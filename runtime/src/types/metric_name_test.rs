@@ -16,8 +16,8 @@ mod tests {
 
         f(&MetricName::new("foobar"), "foobar{}");
         let mut mn = MetricName::new("abc");
-        mn.add_tag("foo", "bar");
-        mn.add_tag("baz", "123");
+        mn.add_label("foo", "bar");
+        mn.add_label("baz", "123");
         f(&mn, r#"abc{baz="123",foo="bar"}"#)
     }
 
@@ -44,14 +44,14 @@ mod tests {
             .collect::<Vec<String>>();
         let mut mn = MetricName::default();
         for t in tags.iter() {
-            mn.add_tag(t, "");
+            mn.add_label(t, "");
         }
-        mn.sort_tags();
+        mn.sort_labels();
 
         let result_tags = mn
-            .tags
+            .labels
             .iter()
-            .map(|x| x.key.clone())
+            .map(|x| x.name.clone())
             .collect::<Vec<String>>();
 
         assert_eq!(
@@ -64,21 +64,21 @@ mod tests {
     #[test]
     fn test_metric_name_marshal_duplicate_keys() {
         let mut mn = MetricName::default();
-        mn.metric_group = "xxx".to_string();
-        mn.add_tag("foo", "bar");
-        mn.add_tag("duplicate", "tag1");
-        mn.add_tag("duplicate", "tag2");
-        mn.add_tag("tt", "xx");
-        mn.add_tag("foo", "abc");
-        mn.add_tag("duplicate", "tag3");
+        mn.measurement = "xxx".to_string();
+        mn.add_label("foo", "bar");
+        mn.add_label("duplicate", "tag1");
+        mn.add_label("duplicate", "tag2");
+        mn.add_label("tt", "xx");
+        mn.add_label("foo", "abc");
+        mn.add_label("duplicate", "tag3");
 
         let mut mn_expected = MetricName::default();
-        mn_expected.metric_group = "xxx".to_string();
-        mn_expected.add_tag("duplicate", "tag3");
-        mn_expected.add_tag("foo", "abc");
-        mn_expected.add_tag("tt", "xx");
+        mn_expected.measurement = "xxx".to_string();
+        mn_expected.add_label("duplicate", "tag3");
+        mn_expected.add_label("foo", "abc");
+        mn_expected.add_label("tt", "xx");
 
-        mn.sort_tags();
+        mn.sort_labels();
         let mut data: Vec<u8> = vec![];
         mn.marshal(&mut data);
 
@@ -96,7 +96,7 @@ mod tests {
             for tags_count in 0..10 {
                 let mut mn = MetricName::default();
                 for j in 0..tags_count {
-                    mn.add_tag(
+                    mn.add_label(
                         format!("key_{}_{}_\x00\x01\x02", i, j).as_str(),
                         format!("\x02\x00\x01value_{}_{}", i, j).as_str(),
                     );
@@ -151,18 +151,18 @@ mod tests {
     #[test]
     fn test_metric_name_remove_tags_on() {
         let mut empty_mn = MetricName::new("name");
-        empty_mn.add_tag("key", "value");
-        empty_mn.remove_tags_on(&vec![]);
-        if empty_mn.metric_group.len() != 0 || empty_mn.tags.len() != 0 {
+        empty_mn.add_label("key", "value");
+        empty_mn.remove_labels_on(&vec![]);
+        if empty_mn.measurement.len() != 0 || empty_mn.labels.len() != 0 {
             panic!("expecting empty metric name got {}", &empty_mn)
         }
 
         let mut as_is_mn = MetricName::new("name");
-        as_is_mn.add_tag("key", "value");
-        as_is_mn.remove_tags_on(&vec!["__name__".to_string(), "key".to_string()]);
+        as_is_mn.add_label("key", "value");
+        as_is_mn.remove_labels_on(&vec!["__name__".to_string(), "key".to_string()]);
 
         let mut exp_as_is_mn = MetricName::new("name");
-        exp_as_is_mn.add_tag("key", "value");
+        exp_as_is_mn.add_label("key", "value");
         assert_eq!(
             exp_as_is_mn, as_is_mn,
             "expecting {} got {}",
@@ -171,32 +171,32 @@ mod tests {
 
         let mut mn = MetricName::new("name");
 
-        mn.add_tag("foo", "bar");
-        mn.add_tag("baz", "qux");
-        mn.remove_tags_on(&vec!["baz".to_string()]);
+        mn.add_label("foo", "bar");
+        mn.add_label("baz", "qux");
+        mn.remove_labels_on(&vec!["baz".to_string()]);
 
         let mut exp_mn = MetricName::default();
-        exp_mn.add_tag("baz", "qux");
+        exp_mn.add_label("baz", "qux");
         assert_eq!(exp_mn, mn, "expecting {} got {}", &exp_mn, &mn);
     }
 
     #[test]
     fn test_metric_name_remove_tag() {
         let mut mn = MetricName::default();
-        mn.metric_group = "name".to_string();
-        mn.add_tag("foo", "bar");
-        mn.add_tag("baz", "qux");
-        mn.remove_tag("__name__");
+        mn.measurement = "name".to_string();
+        mn.add_label("foo", "bar");
+        mn.add_label("baz", "qux");
+        mn.remove_label("__name__");
         assert_eq!(
-            mn.metric_group.len(),
+            mn.measurement.len(),
             0,
             "expecting empty metric group got {}",
             &mn
         );
-        mn.remove_tag("foo");
+        mn.remove_label("foo");
 
         let mut exp_mn = MetricName::default();
-        exp_mn.add_tag("baz", "qux");
+        exp_mn.add_label("baz", "qux");
         assert!(
             names_equal(&mut exp_mn, &mut mn),
             "expecting {} got {}",
@@ -208,12 +208,12 @@ mod tests {
     #[test]
     fn test_metric_name_remove_tags_ignoring() {
         let mut mn = MetricName::default();
-        mn.metric_group = "name".to_string();
-        mn.add_tag("foo", "bar");
-        mn.add_tag("baz", "qux");
-        mn.remove_tags_ignoring(&vec!["__name__".to_string(), "foo".to_string()]);
+        mn.measurement = "name".to_string();
+        mn.add_label("foo", "bar");
+        mn.add_label("baz", "qux");
+        mn.remove_labels_ignoring(&vec!["__name__".to_string(), "foo".to_string()]);
         let mut exp_mn = MetricName::default();
-        exp_mn.add_tag("baz", "qux");
+        exp_mn.add_label("baz", "qux");
         assert!(
             names_equal(&mut mn, &mut exp_mn),
             "expecting {} got {}",
@@ -223,15 +223,15 @@ mod tests {
     }
 
     fn names_equal(a: &mut MetricName, b: &mut MetricName) -> bool {
-        if a.tags.len() != b.tags.len() {
+        if a.labels.len() != b.labels.len() {
             return false;
         }
 
-        a.sort_tags();
-        b.sort_tags();
+        a.sort_labels();
+        b.sort_labels();
 
-        for (x, y) in a.tags.iter().zip(&b.tags) {
-            if x.key != y.key || x.value != y.value {
+        for (x, y) in a.labels.iter().zip(&b.labels) {
+            if x.name != y.name || x.value != y.value {
                 return false;
             }
         }

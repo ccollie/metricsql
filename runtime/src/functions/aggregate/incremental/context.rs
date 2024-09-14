@@ -139,7 +139,7 @@ impl<'a> IncrementalAggrFuncContext<'a> {
 
         let keep_original = self.handler.keep_original();
         if !keep_original {
-            ts.metric_name.remove_group_tags(&self.ae.modifier);
+            ts.metric_name.remove_group_labels(&self.ae.modifier);
         }
 
         let key = ts.metric_name.signature();

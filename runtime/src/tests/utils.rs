@@ -1,7 +1,8 @@
 use itertools::izip;
 use metricsql_parser::prelude::Value;
 
-use crate::{MetricName, QueryResult, QueryValue, RuntimeResult, Timeseries};
+use crate::{QueryResult, RuntimeResult};
+use crate::types::{MetricName, QueryValue, Timeseries};
 
 pub fn test_results_equal(result: &[QueryResult], result_expected: &[QueryResult]) {
     assert_eq!(
@@ -122,27 +123,27 @@ pub fn test_rows_equal(
 
 pub fn test_metric_names_equal(mn: &MetricName, expected: &MetricName, pos: usize) {
     assert_eq!(
-        mn.metric_group, expected.metric_group,
+        mn.measurement, expected.measurement,
         "unexpected MetricGroup at #{}; got {}; want {}; metricGot={}, metricExpected={}",
-        pos, mn.metric_group, expected.metric_group, mn, expected
+        pos, mn.measurement, expected.measurement, mn, expected
     );
 
     assert_eq!(
-        mn.tags.len(),
-        expected.tags.len(),
-        "unexpected tags count at #{}; got {}; want {}; metricGot={}, metricExpected={}",
+        mn.labels.len(),
+        expected.labels.len(),
+        "unexpected labels count at #{}; got {}; want {}; metricGot={}, metricExpected={}",
         pos,
-        mn.tags.len(),
-        expected.tags.len(),
+        mn.labels.len(),
+        expected.labels.len(),
         mn,
         expected
     );
 
-    for (i, (tag, tag_expected)) in mn.tags.iter().zip(expected.tags.iter()).enumerate() {
+    for (i, (tag, tag_expected)) in mn.labels.iter().zip(expected.labels.iter()).enumerate() {
         assert_eq!(
-            tag.key, tag_expected.key,
+            tag.name, tag_expected.name,
             "unexpected tag key at #{pos}, {i}; got {}; want {}; got={mn}, expected={expected}",
-            tag.key, tag_expected.key
+            tag.name, tag_expected.name
         );
 
         assert_eq!(

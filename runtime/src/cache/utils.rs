@@ -122,6 +122,7 @@ pub fn merge_series(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use super::*;
     use crate::types::MetricName;
 
