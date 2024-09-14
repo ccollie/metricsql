@@ -1,4 +1,3 @@
-use crate::common::PromRegex;
 use super::utils::{
     are_equal_label_values,
     concat_label_values,
@@ -7,19 +6,12 @@ use super::utils::{
     is_regex_matcher,
     set_label_value
 };
-use super::{
-    is_default_regex_for_config,
-    GraphiteLabelRule,
-    GraphiteMatchTemplate,
-    IfExpression
-};
-use crate::storage::Label;
+use super::{is_default_regex_for_config, GraphiteLabelRule, GraphiteMatchTemplate, IfExpression, METRIC_NAME_LABEL};
 use ahash::HashSetExt;
 use dynamic_lru_cache::DynamicCache;
 use enquote::enquote;
 use metricsql_common::bytes_util::FastStringTransformer;
-use metricsql_common::prelude::match_handlers::StringMatchHandler;
-use metricsql_runtime::types::METRIC_NAME_LABEL;
+use metricsql_common::prelude::StringMatchHandler;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -28,9 +20,9 @@ use std::fmt::Display;
 use std::str::FromStr;
 use std::sync::{LazyLock, OnceLock};
 use xxhash_rust::xxh3::xxh3_64;
+use metricsql_common::regex_util::PromRegex;
 use metricsql_parser::label::Label;
-use crate::IfExpression;
-use crate::relabel_config::is_default_regex_for_config;
+
 
 pub trait Action {
     fn apply(&self, labels: &mut Vec<Label>, labels_offset: usize);
@@ -115,6 +107,17 @@ impl FromStr for RelabelActionType {
             "labelkeep" | "label_keep" => Ok(LabelKeep),
             "uppercase" => Ok(Uppercase),
             _ => Err(format!("unknown action: {}", s)),
+        }
+    }
+}
+
+impl RelabelActionType {
+    pub fn supports_regex(&self) -> bool {
+        use RelabelActionType::*;
+        match self {
+            DropIfContains | DropIfEqual | KeepIfContains | KeepIfEqual |
+            LabelMap | LabelMapAll | LabelDrop | LabelKeep => false,
+            _ => true,
         }
     }
 }
@@ -382,7 +385,7 @@ impl ParsedRelabelConfig {
         for label in labels.iter() {
             let label_name = self.replace_full_string_fast(&label.name);
             if label_name != label.name {
-                values.insert(&label_name, label.value.clone());
+                values.insert(label_name, label.value.clone());
             }
         }
         for (k, v) in values.iter() {

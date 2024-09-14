@@ -1,7 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::GraphiteMatchTemplate;
-    use crate::relabel::{GraphiteMatchTemplate, GraphiteReplaceTemplate};
+    use crate::{GraphiteMatchTemplate, GraphiteReplaceTemplate};
 
     #[test]
     fn test_graphite_template_match_expand() {
@@ -10,7 +9,7 @@ mod tests {
             let mut matches: Vec<String> = vec![];
             let ok = gmt.is_match(&mut matches, s);
 
-            let grt = crate::relabel::GraphiteReplaceTemplate::new(replace_tpl);
+            let grt = GraphiteReplaceTemplate::new(replace_tpl);
             let result = grt.expand(&matches);
             assert_eq!(result, result_expected, "unexpected result; got {}; want {}", result, result_expected);
         }

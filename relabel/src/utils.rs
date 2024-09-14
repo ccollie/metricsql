@@ -1,7 +1,11 @@
-use metricsql_common::prelude::match_handlers::StringMatchHandler;
-use metricsql_runtime::parse_metric_selector;
+use metricsql_common::prelude::StringMatchHandler;
 use regex::Regex;
-use crate::storage::Label;
+use metricsql_common::prelude::Label;
+use metricsql_common::regex_util::simplify;
+use metricsql_parser::ast::Expr;
+use metricsql_parser::label::Matchers;
+use metricsql_parser::parser::parse;
+use crate::relabel_error::{RelabelError, RelabelResult};
 
 /// `new_labels_from_string` creates labels from s, which can have the form `metric{labels}`.
 ///
@@ -128,5 +132,26 @@ pub(crate) fn is_regex_matcher(matcher: &StringMatchHandler) -> bool {
     match matcher {
         StringMatchHandler::FastRegex(_) => true,
         _ => false,
+    }
+}
+
+/// parse_metric_selector parses s containing PromQL metric selector and returns the corresponding
+/// LabelFilters.
+pub fn parse_metric_selector(s: &str) -> RelabelResult<Matchers> {
+    match parse(s) {
+        Ok(expr) => match expr {
+            Expr::MetricExpression(me) => {
+                if me.is_empty() {
+                    let msg = "labelFilters cannot be empty".to_string();
+                    return Err(RelabelError::InvalidSeriesSelector(msg));
+                }
+                Ok(me.matchers)
+            }
+            _ => {
+                let msg = format!("expecting metric selector; got {expr}").to_string();
+                Err(RelabelError::InvalidSeriesSelector(msg))
+            }
+        },
+        Err(err) => Err(RelabelError::ParseError(err)),
     }
 }

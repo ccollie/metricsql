@@ -1,0 +1,23 @@
+[package]
+name = "metricsql_relabel"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+description.workspace = true
+homepage.workspace = true
+repository.workspace = true
+keywords.workspace = true
+readme.workspace = true
+
+[dependencies]
+ahash.workspace = true
+dynamic-lru-cache.workspace = true
+enquote.workspace = true
+regex.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+xxhash-rust.workspace = true
+metricsql_common={ path = "../common" }
+metricsql_parser={ path = "../parser" }
+lazy_static = "1.5.0"

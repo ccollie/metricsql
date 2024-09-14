@@ -1,14 +1,4 @@
-use crate::relabel::relabel::ParsedRelabelConfig;
-use super::{
-    labels_to_string,
-    new_graphite_label_rules,
-    DebugStep,
-    GraphiteLabelRule,
-    GraphiteMatchTemplate,
-    IfExpression,
-    RelabelActionType
-};
-use crate::storage::Label;
+use super::{labels_to_string, new_graphite_label_rules, DebugStep, GraphiteLabelRule, GraphiteMatchTemplate, IfExpression, ParsedRelabelConfig, RelabelActionType};
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -17,8 +7,10 @@ use std::fmt;
 use std::fmt::Display;
 use std::str::FromStr;
 use dynamic_lru_cache::DynamicCache;
-use metricsql_common::prelude::remove_start_end_anchors;
-use crate::common::{simplify, PromRegex, METRIC_NAME_LABEL};
+use metricsql_common::prelude::{remove_start_end_anchors, Label};
+use metricsql_common::prelude::{simplify, PromRegex};
+
+pub const METRIC_NAME_LABEL: &str = "__name__";
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum RelabelAction {
@@ -290,7 +282,7 @@ pub fn parse_relabel_config(rc: RelabelConfig) -> Result<ParsedRelabelConfig, St
     let mut reg_str = rc.regex.unwrap_or_default();
     let (regex_anchored, regex_original_compiled, prom_regex) =
         if !is_empty_regex_str(&reg_str) && !is_default_regex(&reg_str) {
-            let mut regex = &reg_str[0..];
+            let regex = &reg_str[0..];
 
             let mut regex_orig = regex;
             if rc.action != ReplaceAll && rc.action != LabelMapAll {
@@ -300,7 +292,7 @@ pub fn parse_relabel_config(rc: RelabelConfig) -> Result<ParsedRelabelConfig, St
             }
 
             let regex_anchored =
-                Regex::new(&regex).map_err(|e| format!("cannot parse `regex` {regex}: {:?}", e))?;
+                Regex::new(&reg_str).map_err(|e| format!("cannot parse `regex` {reg_str}: {:?}", e))?;
 
             let regex_original_compiled = Regex::new(&regex_orig)
                 .map_err(|e| format!("cannot parse `regex` {}: {:?}", regex_orig, e))?;

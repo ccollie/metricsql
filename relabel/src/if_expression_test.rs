@@ -2,7 +2,6 @@
 mod test {
 	use metricsql_runtime::parse_metric_selector;
 	use crate::relabel::IfExpression;
-	use crate::relabel::utils::new_labels_from_string;
 	use crate::utils::new_labels_from_string;
 
 	#[test]

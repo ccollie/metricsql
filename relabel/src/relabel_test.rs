@@ -1,11 +1,11 @@
 #[cfg(test)]
 mod test {
-    use regex::Regex;
-    use crate::relabel::{DebugStep, labels_to_string, ParsedRelabelConfig, sanitize_metric_name};
-    use crate::relabel::relabel::{fill_label_references, finalize_labels};
-    use crate::relabel::relabel_config::{parse_relabel_config, ParsedConfigs, RelabelAction, RelabelConfig};
-    use crate::relabel::utils::new_labels_from_string;
-    use crate::storage::Label;
+    use metricsql_common::prelude::Label;
+    use crate::relabel::{fill_label_references, finalize_labels};
+    use crate::relabel::{labels_to_string, sanitize_metric_name, DebugStep, ParsedRelabelConfig};
+    use crate::relabel_config::RelabelConfig;
+    use crate::utils::new_labels_from_string;
+    use crate::{parse_relabel_config, ParsedConfigs, RelabelAction};
 
     #[test]
     fn test_sanitize_metric_name() {

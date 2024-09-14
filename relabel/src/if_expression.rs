@@ -1,10 +1,10 @@
 use super::{LabelFilter, LabelFilterOp, LabelMatchers};
-use crate::rules::{AlertsError, AlertsResult};
-use crate::storage::Label;
-use metricsql_common::prelude::get_optimized_re_match_func;
+use metricsql_common::prelude::{get_optimized_re_match_func, Label};
 use metricsql_parser::ast::Expr;
 use metricsql_parser::prelude::MetricExpr;
 use std::fmt::Display;
+use crate::label_filter::to_canonical_label_name;
+use crate::relabel_error::{RelabelError, RelabelResult};
 
 /// `IfExpression` represents PromQL-like label filters such as `metric_name{filters...}`.
 ///
@@ -29,10 +29,10 @@ impl IfExpression {
     }
 
     /// Parse parses ie from s.
-    pub fn parse(s: &str) -> AlertsResult<Self> {
+    pub fn parse(s: &str) -> RelabelResult<Self> {
         let mut ies = vec![];
         // todo: more specific error enum
-        let ie = IfExpressionMatcher::parse(s).map_err(|e| AlertsError::InvalidRule(e))?;
+        let ie = IfExpressionMatcher::parse(s).map_err(|e| RelabelError::InvalidRule(e))?;
         ies.push(ie);
         Ok(IfExpression(ies))
     }
@@ -58,11 +58,11 @@ impl Display for IfExpression {
 }
 
 impl TryFrom<MetricExpr> for IfExpression {
-    type Error = AlertsError;
+    type Error = RelabelError;
 
     fn try_from(me: MetricExpr) -> Result<Self, Self::Error> {
         let matchers_list = metric_expr_to_label_filter_list(&me)
-            .map_err(|e| AlertsError::InvalidRule(e.to_string()))?;
+            .map_err(|e| RelabelError::InvalidRule(e.to_string()))?;
         let ie = IfExpressionMatcher {
             s: me.to_string(),
             matchers_list,
@@ -125,16 +125,16 @@ fn match_label_filters(lfs: &[LabelFilter], labels: &[Label]) -> bool {
     lfs.iter().all(|lf| lf.matches(labels))
 }
 
-fn metric_expr_to_label_filter_list(me: &MetricExpr) -> AlertsResult<Vec<LabelMatchers>> {
+fn metric_expr_to_label_filter_list(me: &MetricExpr) -> RelabelResult<Vec<LabelMatchers>> {
     let mut lfss_new: Vec<LabelMatchers> = Vec::with_capacity(me.matchers.or_matchers.len() + me.matchers.matchers.len());
 
-    fn make_filter_list(filters: &[BaseLabelFilter]) -> AlertsResult<LabelMatchers> {
+    fn make_filter_list(filters: &[BaseLabelFilter]) -> RelabelResult<LabelMatchers> {
         let mut lfs_new: Vec<LabelFilter> = Vec::with_capacity(filters.len());
         for filter in filters.iter() {
             let lf = new_label_filter(filter).map_err(|e| {
                 let msg   = format!("cannot parse label filter {filter}: {:?}", e);
                 // todo: more specific error
-                AlertsError::Generic(msg)
+                RelabelError::Generic(msg)
             })?;
             lfs_new.push(lf);
         }
@@ -152,7 +152,7 @@ fn metric_expr_to_label_filter_list(me: &MetricExpr) -> AlertsResult<Vec<LabelMa
     Ok(lfss_new)
 }
 
-fn new_label_filter(mlf: &BaseLabelFilter) -> AlertsResult<LabelFilter> {
+fn new_label_filter(mlf: &BaseLabelFilter) -> RelabelResult<LabelFilter> {
     let mut lf = LabelFilter {
         label: to_canonical_label_name(&mlf.label).to_string(),
         op: get_filter_op(mlf),
@@ -164,7 +164,7 @@ fn new_label_filter(mlf: &BaseLabelFilter) -> AlertsResult<LabelFilter> {
             .map_err(|e| {
                 let msg = format!("cannot parse regexp for {}: {}", mlf, e);
                 // todo: specific error
-                AlertsError::Generic(msg)
+                RelabelError::Generic(msg)
             })?;
         lf.re = Some(re);
     }

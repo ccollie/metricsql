@@ -1,9 +1,8 @@
 use std::cmp::Ordering;
 use std::fmt;
 use std::ops::Deref;
-use metricsql_common::prelude::match_handlers::StringMatchHandler;
+use metricsql_common::prelude::{Label, StringMatchHandler};
 use serde::{Deserialize, Serialize};
-use crate::storage::Label;
 
 // todo: borrow this from metricsql_parser
 #[derive(
