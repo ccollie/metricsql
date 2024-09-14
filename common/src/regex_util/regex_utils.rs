@@ -1,8 +1,9 @@
+use super::hir_utils::{build_hir, get_literal, is_dot_plus, is_dot_star, is_empty_class, is_literal};
 use super::match_handlers::{StringMatchHandler, StringMatchOptions};
-use crate::prelude::match_handlers::Quantifier;
+use crate::regex_util::Quantifier;
 use regex::{Error as RegexError, Regex};
 use regex_syntax::hir::Class::{Bytes, Unicode};
-use regex_syntax::hir::{Class, Hir, HirKind};
+use regex_syntax::hir::{Hir, HirKind};
 use regex_syntax::parse as parse_regex;
 
 // Beyond this, it's better to use regexp.
@@ -113,14 +114,6 @@ fn get_or_values_ext(sre: &Hir, dest: &mut Vec<String>) -> bool {
                 }
             }
         }
-        _ => false,
-    }
-}
-
-fn is_literal(sre: &Hir) -> bool {
-    match sre.kind() {
-        HirKind::Literal(_) => true,
-        HirKind::Capture(cap) => is_literal(cap.sub.as_ref()),
         _ => false,
     }
 }
@@ -514,53 +507,6 @@ fn get_optimized_re_match_func_ext(
     }
 }
 
-fn hir_to_string(sre: &Hir) -> String {
-    match sre.kind() {
-        HirKind::Literal(lit) => String::from_utf8(lit.0.to_vec()).unwrap_or_default(),
-        HirKind::Concat(concat) => {
-            let mut s = String::new();
-            for hir in concat.iter() {
-                s.push_str(&hir_to_string(hir));
-            }
-            s
-        }
-        HirKind::Alternation(alternate) => {
-            // avoid extra allocation if it's all literal
-            if alternate.iter().all(is_literal) {
-                return alternate
-                    .iter()
-                    .map(hir_to_string)
-                    .collect::<Vec<_>>()
-                    .join("|");
-            }
-            let mut s = Vec::with_capacity(alternate.len());
-            for hir in alternate.iter() {
-                s.push(hir_to_string(hir));
-            }
-            s.join("|")
-        }
-        HirKind::Repetition(_repetition) => {
-            if is_dot_star(sre) {
-                return ".*".to_string();
-            } else if is_dot_plus(sre) {
-                return ".+".to_string();
-            }
-            sre.to_string()
-        }
-        _ => sre.to_string(),
-    }
-}
-
-fn get_literal(sre: &Hir) -> Option<String> {
-    match sre.kind() {
-        HirKind::Literal(lit) => {
-            let s = String::from_utf8(lit.0.to_vec()).unwrap_or_default();
-            Some(s)
-        }
-        _ => None,
-    }
-}
-
 fn literal_to_string(sre: &Hir) -> String {
     if let HirKind::Literal(lit) = sre.kind() {
         return String::from_utf8(lit.0.to_vec()).unwrap_or_default();
@@ -587,131 +533,11 @@ fn get_quantifier(sre: &Hir) -> Option<Quantifier> {
     }
 }
 
-fn is_dot_star(sre: &Hir) -> bool {
-    match sre.kind() {
-        HirKind::Capture(cap) => is_dot_star(cap.sub.as_ref()),
-        HirKind::Alternation(alternate) => alternate.iter().any(is_dot_star),
-        HirKind::Repetition(repetition) => {
-            if let HirKind::Class(clazz) = repetition.sub.kind() {
-                repetition.min == 0
-                    && repetition.max.is_none()
-                    && repetition.greedy
-                    && is_empty_class(clazz)
-            } else {
-                false
-            }
-        }
-        _ => false,
-    }
-}
-
-fn is_dot_plus(sre: &Hir) -> bool {
-    match sre.kind() {
-        HirKind::Capture(cap) => is_dot_plus(cap.sub.as_ref()),
-        HirKind::Repetition(repetition) => {
-            if let HirKind::Class(clazz) = repetition.sub.kind() {
-                repetition.min == 1
-                    && repetition.max.is_none()
-                    && repetition.greedy
-                    && is_empty_class(clazz)
-            } else {
-                false
-            }
-        }
-        _ => false,
-    }
-}
-
-fn is_empty_class(class: &Class) -> bool {
-    if class.is_empty() {
-        return true;
-    }
-    match class {
-        Unicode(uni) => {
-            let ranges = uni.ranges();
-            if ranges.len() == 2 {
-                let first = ranges.first().unwrap();
-                let last = ranges.last().unwrap();
-                if first.start() == '\0' && last.end() == '\u{10ffff}' {
-                    return true;
-                }
-            }
-        }
-        Bytes(bytes) => {
-            let ranges = bytes.ranges();
-            if ranges.len() == 2 {
-                let first = ranges.first().unwrap();
-                let last = ranges.last().unwrap();
-                if first.start() == 0 && last.end() == 255 {
-                    return true;
-                }
-            }
-        }
-    }
-    false
-}
-
-fn build_hir(pattern: &str) -> Result<Hir, RegexError> {
-    parse_regex(pattern).map_err(|err| RegexError::Syntax(err.to_string()))
-}
-
 #[cfg(test)]
 mod test {
     use super::remove_start_end_anchors;
     use crate::prelude::get_optimized_re_match_func;
 
-    #[test]
-    fn test_is_dot_star() {
-        fn check(s: &str, expected: bool) {
-            let sre = super::build_hir(s).unwrap();
-            let got = super::is_dot_star(&sre);
-            assert_eq!(
-                got, expected,
-                "unexpected is_dot_star for s={:?}; got {:?}; want {:?}",
-                s, got, expected
-            );
-        }
-
-        check(".*", true);
-        check(".+", false);
-        check("foo.*", false);
-        check(".*foo", false);
-        check("foo.*bar", false);
-        check(".*foo.*", false);
-        check(".*foo.*bar", false);
-        check(".*foo.*bar.*", false);
-        check(".*foo.*bar.*baz", false);
-        check(".*foo.*bar.*baz.*", false);
-        check(".*foo.*bar.*baz.*qux.*", false);
-        check(".*foo.*bar.*baz.*qux.*quux.*quuz.*corge.*grault", false);
-        check(".*foo.*bar.*baz.*qux.*quux.*quuz.*corge.*grault.*", false);
-    }
-
-    #[test]
-    fn test_is_dot_plus() {
-        fn check(s: &str, expected: bool) {
-            let sre = super::build_hir(s).unwrap();
-            let got = super::is_dot_plus(&sre);
-            assert_eq!(
-                got, expected,
-                "unexpected is_dot_plus for s={:?}; got {:?}; want {:?}",
-                s, got, expected
-            );
-        }
-
-        check(".*", false);
-        check(".+", true);
-        check("foo.*", false);
-        check(".*foo", false);
-        check("foo.*bar", false);
-        check(".*foo.*", false);
-        check(".*foo.*bar", false);
-        check(".*foo.*bar.*", false);
-        check(".*foo.*bar.*baz.*qux", false);
-        check(".*foo.*bar.*baz.*qux.*", false);
-        check(".*foo.*bar.*baz.*qux.*quux.*quuz.*corge.*grault", false);
-        check(".*foo.*bar.*baz.*qux.*quux.*quuz.*corge.*grault.*", false);
-    }
 
     #[test]
     fn test_remove_start_end_anchors() {
