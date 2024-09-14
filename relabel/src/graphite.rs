@@ -120,10 +120,10 @@ impl Display for GraphiteLabelRule {
 
 pub fn new_graphite_label_rules(m: &HashMap<String, String>) -> Vec<GraphiteLabelRule> {
     let mut result = Vec::with_capacity(m.len());
-    for (labelName, replaceTemplate) in m.iter() {
+    for (label_name, replace_template) in m.iter() {
         result.push(GraphiteLabelRule {
-            grt: GraphiteReplaceTemplate::new(replaceTemplate),
-            target_label: labelName.clone(),
+            grt: GraphiteReplaceTemplate::new(replace_template),
+            target_label: label_name.clone(),
         })
     }
     result

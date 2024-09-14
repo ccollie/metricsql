@@ -18,7 +18,7 @@ use crate::relabel_error::{RelabelError, RelabelResult};
 /// - 'foo{bar="baz"}'
 /// - '{x=~"y"}'
 #[derive(Debug, Default, Clone, PartialEq)]
-pub struct IfExpression(Vec<IfExpressionMatcher>);
+pub struct IfExpression(pub Vec<IfExpressionMatcher>);
 
 impl IfExpression {
     pub fn new(ies: Vec<IfExpressionMatcher>) -> Self {

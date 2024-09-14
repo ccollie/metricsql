@@ -9,10 +9,10 @@ mod graphite;
 mod graphite_test;
 #[cfg(test)]
 mod if_expression_test;
+#[cfg(test)]
 mod relabel_test;
 mod utils;
-#[cfg(test)]
-mod graphite_test;
+
 mod relabel_error;
 
 pub use if_expression::IfExpression;

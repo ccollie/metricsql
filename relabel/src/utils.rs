@@ -1,11 +1,12 @@
-use metricsql_common::prelude::StringMatchHandler;
-use regex::Regex;
+use crate::relabel_error::{RelabelError, RelabelResult};
+use ahash::HashMapExt;
 use metricsql_common::prelude::Label;
+use metricsql_common::prelude::StringMatchHandler;
 use metricsql_common::regex_util::simplify;
 use metricsql_parser::ast::Expr;
-use metricsql_parser::label::Matchers;
+use metricsql_parser::label::{LabelFilterOp, Matchers};
 use metricsql_parser::parser::parse;
-use crate::relabel_error::{RelabelError, RelabelResult};
+use regex::Regex;
 
 /// `new_labels_from_string` creates labels from s, which can have the form `metric{labels}`.
 ///
@@ -13,30 +14,23 @@ use crate::relabel_error::{RelabelError, RelabelResult};
 pub fn new_labels_from_string(metric_with_labels: &str) -> Result<Vec<Label>, String> {
     let mut metric_with_labels = metric_with_labels.to_string();
 
+    let mut strip_dummy_metric = false;
     if metric_with_labels.starts_with('{') {
+        if metric_with_labels == "{}" {
+            return Ok(Vec::new());
+        }
+        // Add a dummy metric name, since the parser needs it
         metric_with_labels = format!("dummy_metric{}", metric_with_labels);
+        strip_dummy_metric = true;
     }
 
     // add a value to metric_with_labels, so it could be parsed by prometheus protocol parser.
-    let filters = parse_metric_selector(&metric_with_labels)
+    let mut labels = parse_metric_name(&metric_with_labels)
         .map_err(|err| format!("cannot parse metric selector {:?}: {}", metric_with_labels, err))?;
 
-
-    let mut labels: Vec<Label> = vec![];
-    for tag_list in filters.iter() {
-        for tag in tag_list {
-            labels.push(Label{
-                name: tag.label.clone(),
-                value: tag.value.clone(),
-            });
-        }
+    if strip_dummy_metric {
+        labels.retain(|label| label.name != "dummy_metric");
     }
-
-    // if !strip_dummy_metric {
-    //     labels.push(Label {
-    //         name: "__name__"
-    //     });
-    // }
 
     Ok(labels)
 }
@@ -85,24 +79,14 @@ pub fn get_label_value<'a>(labels: &'a [Label], name: &str) -> &'a str {
     &EMPTY_STRING
 }
 
-/// returns label with the given name from labels.
-pub fn get_label_by_name<'a>(labels: &'a mut [Label], name: &str) -> Option<&'a mut Label> {
-    for label in labels.iter_mut() {
-        if &label.name == name {
-            return Some(label);
-        }
-    }
-    None
-}
-
 pub fn are_equal_label_values(labels: &[Label], label_names: &[String]) -> bool {
     if label_names.len() < 2 {
         // logger.Panicf("BUG: expecting at least 2 label_names; got {}", label_names.len());
         return false;
     }
     let label_value = get_label_value(labels, &label_names[0]);
-    for labelName in &label_names[1..] {
-        let v = get_label_value(labels, labelName);
+    for label_name in &label_names[1..] {
+        let v = get_label_value(labels, label_name);
         if v != label_value {
             return false;
         }
@@ -112,8 +96,8 @@ pub fn are_equal_label_values(labels: &[Label], label_names: &[String]) -> bool 
 
 pub fn contains_all_label_values(labels: &[Label], target_label: &str, source_labels: &[String]) -> bool {
     let target_label_value = get_label_value(labels, target_label);
-    for sourceLabel in source_labels.iter() {
-        let v = get_label_value(labels, sourceLabel);
+    for source_label in source_labels.iter() {
+        let v = get_label_value(labels, source_label);
         if !target_label_value.contains(v) {
             return false
         }
@@ -154,4 +138,38 @@ pub fn parse_metric_selector(s: &str) -> RelabelResult<Matchers> {
         },
         Err(err) => Err(RelabelError::ParseError(err)),
     }
+}
+
+pub fn parse_metric_name(s: &str) -> RelabelResult<Vec<Label>> {
+    let parsed = match parse_metric_selector(s) {
+        Ok(parsed) => parsed,
+        Err(err) => return Err(err),
+    };
+
+    if parsed.is_empty() {
+        return Err(RelabelError::InvalidSeriesSelector("labelFilters cannot be empty".to_string()));
+    }
+    if !parsed.or_matchers.is_empty() {
+        return Err(RelabelError::InvalidSeriesSelector("Invalid metric selector. `or` is not supported".to_string()));
+    }
+
+    let mut mn = Vec::default();
+    // make sure we only have '=' filters
+    for f in parsed.matchers.into_iter() {
+        if f.op != LabelFilterOp::Equal {
+            return Err(RelabelError::InvalidSeriesSelector(format!(
+                "invalid operator {} in metric name",
+                f.op
+            )));
+        }
+        let tag = Label {
+            name: f.label,
+            value: f.value,
+        };
+        mn.push(tag);
+    }
+    mn.sort();
+    Ok(mn)
+
+
 }

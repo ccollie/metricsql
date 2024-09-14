@@ -23,8 +23,6 @@ pub const MAX_LABEL_NAME_LEN: usize = 256;
 
 pub const METRIC_NAME_LABEL: &str = "__name__";
 
-const SEP: u8 = 0xff;
-
 // for tag manipulation (removing, adding, etc.), name vectors longer than this will be converted to a hashmap
 // for comparison, otherwise we do a linear probe
 const SET_SEARCH_MIN_THRESHOLD: usize = 16;
@@ -45,8 +43,19 @@ impl MetricName {
         }
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.measurement.is_empty() && self.labels.is_empty()
+    pub fn from_hashmap(tags: &HashMap<String, String>) -> Self {
+        let mut mn = MetricName::default();
+        for (key, value) in tags {
+            if key == METRIC_NAME_LABEL {
+                mn.measurement = value.into();
+            }
+            mn.labels.push(Label {
+                name: key.to_string(),
+                value: value.to_string(),
+            });
+        }
+        mn.sort_labels();
+        mn
     }
 
     /// from_strings creates new labels from pairs of strings.
@@ -91,6 +100,10 @@ impl MetricName {
         Ok(mn)
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.measurement.is_empty() && self.labels.is_empty()
+    }
+
     pub fn reset_measurement(&mut self) {
         self.measurement.clear();
     }
@@ -117,16 +130,6 @@ impl MetricName {
             return;
         }
         self.upsert(key, value);
-    }
-
-    pub fn add_labels_from_hashmap(&mut self, tags: &HashMap<String, String>) {
-        for (key, value) in tags {
-            if key == METRIC_NAME_LABEL {
-                self.measurement = value.into();
-                return;
-            }
-            self.upsert(key, value);
-        }
     }
 
     fn upsert(&mut self, key: &str, value: &str) {
@@ -200,7 +203,7 @@ impl MetricName {
         None
     }
 
-    /// removes all the tags not included in on_tags.
+    /// removes all the labels not included in on_tags.
     /// don't stare too deeply. Just convince yourself that this is the correct behavior.
     /// https://github.com/VictoriaMetrics/VictoriaMetrics/blob/cde5029bcecac116b59e245330f6caf625e75eea/lib/storage/metric_name.go#L247
     pub fn remove_labels_on(&mut self, on_tags: &[String]) {
@@ -241,19 +244,19 @@ impl MetricName {
         }
     }
 
-    pub fn retain_labels(&mut self, tags: &[String]) {
-        if !tags.iter().any(|x| *x == METRIC_NAME_LABEL) {
+    pub fn retain_labels(&mut self, labels: &[String]) {
+        if !labels.iter().any(|x| *x == METRIC_NAME_LABEL) {
             self.reset_measurement()
         }
-        if tags.is_empty() {
+        if labels.is_empty() {
             self.labels.clear();
             return;
         }
-        if tags.len() >= SET_SEARCH_MIN_THRESHOLD {
-            let set: AHashSet<_> = AHashSet::from_iter(tags);
+        if labels.len() >= SET_SEARCH_MIN_THRESHOLD {
+            let set: AHashSet<_> = AHashSet::from_iter(labels);
             self.labels.retain(|tag| set.contains(&tag.name));
         } else {
-            self.labels.retain(|tag| tags.contains(&tag.name));
+            self.labels.retain(|tag| labels.contains(&tag.name));
         }
     }
 
@@ -305,20 +308,6 @@ impl MetricName {
                 self.set_label_value(&tag.name, &tag.value);
             }
         }
-    }
-
-    pub fn append_labels_to_string(&self, dst: &mut Vec<u8>) {
-        dst.extend_from_slice("{{".as_bytes());
-
-        let len = &self.labels.len();
-        for (i, Label { name: k, value: v }) in self.labels.iter().enumerate() {
-            dst.extend_from_slice(format!("{}={}", k, enquote('"', v)).as_bytes());
-            if i + 1 < *len {
-                dst.extend_from_slice(", ".as_bytes())
-            }
-        }
-        // ??????????????
-        dst.extend_from_slice('}'.to_string().as_bytes());
     }
 
     pub(crate) fn marshal_labels_fast(&self, dst: &mut Vec<u8>) {
@@ -550,8 +539,8 @@ impl PartialOrd for MetricName {
         if self.measurement != other.measurement {
             return Some(self.measurement.cmp(&other.measurement));
         }
-        // Metric names for a and b match. Compare tags.
-        // Tags must be already sorted by the caller, so just compare them.
+        // measurement names for a and b match. Compare labels.
+        // Labels must be already sorted by the caller, so just compare them.
         for (a, b) in self.labels.iter().zip(&other.labels) {
             if let Some(ord) = a.partial_cmp(b) {
                 if ord != Ordering::Equal {

@@ -1,14 +1,14 @@
-use super::{labels_to_string, new_graphite_label_rules, DebugStep, GraphiteLabelRule, GraphiteMatchTemplate, IfExpression, ParsedRelabelConfig, RelabelActionType};
+use super::{labels_to_string, new_graphite_label_rules, DebugStep, GraphiteMatchTemplate, IfExpression, ParsedRelabelConfig, RelabelError};
+use dynamic_lru_cache::DynamicCache;
 use lazy_static::lazy_static;
+use metricsql_common::prelude::{remove_start_end_anchors, Label, simplify, PromRegex};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Display;
 use std::str::FromStr;
-use dynamic_lru_cache::DynamicCache;
-use metricsql_common::prelude::{remove_start_end_anchors, Label};
-use metricsql_common::prelude::{simplify, PromRegex};
+use crate::relabel_error::RelabelResult;
 
 pub const METRIC_NAME_LABEL: &str = "__name__";
 
@@ -104,10 +104,10 @@ impl FromStr for RelabelAction {
 /// RelabelConfig represents relabel config.
 ///
 /// See https://prometheus.io/docs/prometheus/latest/configuration/configuration/#relabel_config
-#[derive(Debug, Clone)]
-pub(crate) struct RelabelConfig {
-    pub if_expr: Option<IfExpression>,
-    pub action: RelabelActionType,
+#[derive(Debug, Default, Clone)]
+pub struct RelabelConfig {
+    pub if_expr: Option<String>,
+    pub action: RelabelAction,
     pub source_labels: Vec<String>,
     pub separator: String,
     pub target_label: String,
@@ -130,6 +130,30 @@ pub(crate) struct RelabelConfig {
     ///     job: '$1'
     ///     instance: '${2}:8080'
     pub labels: HashMap<String, String>,
+}
+
+impl RelabelConfig {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn keep(source_labels: Option<Vec<String>>, if_expr: Option<String>) -> RelabelResult<Self> {
+        let valid = match (&source_labels, &if_expr) {
+            (Some(labels), None) => !labels.is_empty(),
+            (None, Some(expr)) => !expr.is_empty(),
+            _ => false,
+        };
+        if !valid {
+            return Err(RelabelError::InvalidConfiguration("missing `source_labels` or if expression for `action=keep`".to_string()));
+        }
+
+        Ok(Self {
+            if_expr,
+            action: RelabelAction::Keep,
+            source_labels: source_labels.unwrap_or_default(),
+            ..Default::default()
+        })
+    }
 }
 
 #[derive(Debug, Default, Clone)]
@@ -220,7 +244,7 @@ impl Display for ParsedConfigs {
 // }
 
 /// parse_relabel_configs parses rcs to dst.
-pub fn parse_relabel_configs(rcs: Vec<RelabelConfig>) -> Result<ParsedConfigs, String> {
+pub fn parse_relabel_configs(rcs: Vec<RelabelConfig>) -> RelabelResult<ParsedConfigs> {
     if rcs.is_empty() {
         return Ok(ParsedConfigs::default());
     }
@@ -228,21 +252,18 @@ pub fn parse_relabel_configs(rcs: Vec<RelabelConfig>) -> Result<ParsedConfigs, S
     for (i, item) in rcs.into_iter().enumerate() {
         let prc = parse_relabel_config(item);
         if let Err(err) = prc {
-            return Err(format!(
+            return Err(RelabelError::InvalidRule(format!(
                 "error when parsing `relabel_config` #{}: {:?}",
                 i + 1,
                 err
-            ));
+            )));
         }
-        prcs.push(prc.unwrap());
+        prcs.push(prc?);
     }
     Ok(ParsedConfigs(prcs))
 }
 
-const DEFAULT_REGEX_STR_FOR_RELABEL_CONFIG: &str = "^(?:(.*))$";
 const DEFAULT_ORIGINAL_REGEX_STR_FOR_RELABEL_CONFIG: &str = "(.*)" ;
-//const DEFAULT_REGEX_STR_FOR_RELABEL_CONFIG: &'static str = "^(.*)$";
-
 
 // todo: use OnceLock
 lazy_static! {
@@ -255,7 +276,7 @@ pub(crate) fn is_default_regex_for_config(regex: &Regex) -> bool {
 }
 
 fn validate_labels(
-    action: RelabelActionType,
+    action: RelabelAction,
     source_labels: &Vec<String>,
     target_label: &str,
 ) -> Result<(), String> {
@@ -268,87 +289,133 @@ fn validate_labels(
     Ok(())
 }
 
-pub fn parse_relabel_config(rc: RelabelConfig) -> Result<ParsedRelabelConfig, String> {
-    use RelabelActionType::*;
+pub fn parse_relabel_config(rc: RelabelConfig) -> RelabelResult<ParsedRelabelConfig> {
+    let separator = if rc.separator.is_empty() { ";" } else { &rc.separator };
 
-    let mut source_labels = rc.source_labels;
-    let mut separator = ";";
-
-    if !rc.separator.is_empty() {
-        separator = &rc.separator;
-    }
-
-    let target_label = rc.target_label;
-    let mut reg_str = rc.regex.unwrap_or_default();
-    let (regex_anchored, regex_original_compiled, prom_regex) =
-        if !is_empty_regex_str(&reg_str) && !is_default_regex(&reg_str) {
-            let regex = &reg_str[0..];
-
-            let mut regex_orig = regex;
-            if rc.action != ReplaceAll && rc.action != LabelMapAll {
-                let stripped = remove_start_end_anchors(&regex);
-                regex_orig = stripped;
-                reg_str = format!("^(?:{stripped})$");
-            }
-
-            let regex_anchored =
-                Regex::new(&reg_str).map_err(|e| format!("cannot parse `regex` {reg_str}: {:?}", e))?;
-
-            let regex_original_compiled = Regex::new(&regex_orig)
-                .map_err(|e| format!("cannot parse `regex` {}: {:?}", regex_orig, e))?;
-
-            let prom_regex = PromRegex::new(&regex_orig).map_err(|err| {
-                format!(
-                    "BUG: cannot parse already parsed regex {}: {:?}",
-                    regex_orig, err
-                )
-            })?;
-
-            (regex_anchored, regex_original_compiled, prom_regex)
-        } else {
-            (
-                DEFAULT_REGEX_FOR_RELABEL_CONFIG.clone(),
-                DEFAULT_ORIGINAL_REGEX_FOR_RELABEL_CONFIG.clone(),
-                PromRegex::new(".*").unwrap(),
-            )
-        };
-
+    let (regex_anchored, regex_original_compiled, prom_regex) = compile_regex(&rc)
+        .map_err(|err| RelabelError::InvalidConfiguration(err))?;
 
     let modulus = rc.modulus;
-    let replacement = if !rc.replacement.is_empty() {
-        rc.replacement.clone()
+    let replacement = if rc.replacement.is_empty() { "$1".to_string() } else { rc.replacement.clone() };
+
+    let graphite_match_template = if !rc.r#match.is_empty() {
+        Some(GraphiteMatchTemplate::new(&rc.r#match))
     } else {
-        "$1".to_string()
+        None
     };
-    let mut graphite_match_template: Option<GraphiteMatchTemplate> = None;
-    if !rc.r#match.is_empty() {
-        graphite_match_template = Some(GraphiteMatchTemplate::new(&rc.r#match));
-    }
-    let mut graphite_label_rules: Vec<GraphiteLabelRule> = vec![];
-    if !rc.labels.is_empty() {
-        graphite_label_rules = new_graphite_label_rules(&rc.labels)
+
+    let graphite_label_rules = if !rc.labels.is_empty() {
+        new_graphite_label_rules(&rc.labels)
+    } else {
+        vec![]
+    };
+
+    let if_expr =  if let Some(expr) = &rc.if_expr {
+        Some(IfExpression::parse(expr)?)
+    } else {
+        None
+    };
+
+    validate_action(&rc, &replacement)
+        .map_err(|s| RelabelError::InvalidRule(s))?;
+
+    // TODO:
+    let rule_original = format!("{:?}", &rc);
+
+    let has_capture_group_in_target_label = rc.target_label.contains("$");
+    let prc = ParsedRelabelConfig {
+        rule_original: rule_original.to_string(),
+        source_labels: rc.source_labels,
+        separator: separator.to_string(),
+        target_label: rc.target_label,
+        regex_anchored,
+        modulus,
+        action: rc.action,
+        r#if: if_expr,
+        graphite_match_template,
+        graphite_label_rules,
+        string_replacer_cache: DynamicCache::new(64), // todo: pass in config ?
+        regex: prom_regex,
+        regex_original: regex_original_compiled,
+        has_capture_group_in_target_label,
+        has_capture_group_in_replacement: replacement.contains("$"),
+        has_label_reference_in_replacement: replacement.contains("{{"),
+        replacement,
+        submatch_cache: DynamicCache::new(64),
+    };
+    Ok(prc)
+}
+
+fn compile_regex(rc: &RelabelConfig) -> Result<(Regex, Regex, PromRegex), String> {
+    use RelabelAction::*;
+
+    let default_regex_original = DEFAULT_ORIGINAL_REGEX_STR_FOR_RELABEL_CONFIG;
+
+    let (is_empty, reg_str) = if let Some(regex) = &rc.regex {
+        let empty = is_empty_or_default_regex(regex);
+        if empty {
+            (true, default_regex_original)
+        } else {
+            (false, regex.as_str())
+        }
+    } else {
+        (true, default_regex_original)
+    };
+
+    if is_empty {
+        return Ok((
+            DEFAULT_REGEX_FOR_RELABEL_CONFIG.clone(),
+            DEFAULT_ORIGINAL_REGEX_FOR_RELABEL_CONFIG.clone(),
+            PromRegex::new(default_regex_original).unwrap(),
+        ));
     }
 
-    let mut action = rc.action.clone();
+    let regex = if rc.action != ReplaceAll && rc.action != LabelMapAll {
+        remove_start_end_anchors(&reg_str)
+    } else {
+        reg_str
+    };
+
+    let regex_anchored = Regex::new(&format!("^(?:{})$", regex))
+        .map_err(|e| format!("cannot parse `regex` {}: {:?}", reg_str, e))?;
+    let regex_original_compiled = Regex::new(&regex)
+        .map_err(|e| format!("cannot parse `regex` {}: {:?}", regex, e))?;
+    let prom_regex = PromRegex::new(&regex).map_err(|err| {
+        format!("BUG: cannot parse already parsed regex {}: {:?}", regex, err)
+    })?;
+
+    Ok((regex_anchored, regex_original_compiled, prom_regex))
+}
+
+
+fn validate_action(
+    rc: &RelabelConfig,
+    replacement: &str,
+) -> Result<(), String> {
+    use RelabelAction::*;
+
+    let source_labels = &rc.source_labels;
+    let target_label = &rc.target_label;
+
     match rc.action {
         Graphite => {
-            if graphite_match_template.is_none() {
-                return Err("missing `match` for `action=graphite`; see https://docs.victoriametrics.com/vmagent.html#graphite-relabeling".to_string());
+            if rc.r#match.is_empty() {
+                return Err("missing `match` for `action=graphite`".to_string());
             }
-            if graphite_label_rules.is_empty() {
-                return Err("missing `labels` for `action=graphite`; see https://docs.victoriametrics.com/vmagent.html#graphite-relabeling".to_string());
+            if rc.labels.is_empty() {
+                return Err("missing `labels` for `action=graphite`".to_string());
             }
             if !source_labels.is_empty() {
-                return Err("`source_labels` cannot be used with `action=graphite`; see https://docs.victoriametrics.com/vmagent.html#graphite-relabeling".to_string());
+                return Err("`source_labels` cannot be used with `action=graphite`".to_string());
             }
             if !target_label.is_empty() {
-                return Err("`target_label` cannot be used with `action=graphite`; see https://docs.victoriametrics.com/vmagent.html#graphite-relabeling".to_string());
+                return Err("`target_label` cannot be used with `action=graphite`".to_string());
             }
             if !replacement.is_empty() {
-                return Err("`replacement` cannot be used with `action=graphite`; see https://docs.victoriametrics.com/vmagent.html#graphite-relabeling".to_string());
+                return Err("`replacement` cannot be used with `action=graphite`".to_string());
             }
             if rc.regex.is_some() {
-                return Err("`regex` cannot be used for `action=graphite`; see https://docs.victoriametrics.com/vmagent.html#graphite-relabeling".to_string());
+                return Err("`regex` cannot be used for `action=graphite`".to_string());
             }
         }
         Replace => {
@@ -356,103 +423,25 @@ pub fn parse_relabel_config(rc: RelabelConfig) -> Result<ParsedRelabelConfig, St
                 return Err("missing `target_label` for `action=replace`".to_string());
             }
         }
-        ReplaceAll => validate_labels(rc.action, &source_labels, &target_label)?,
-        DropIfContains | DropIfEqual | KeepIfContains | KeepIfEqual | LabelMap | LabelMapAll
-        | LabelDrop | LabelKeep => {
-            validate_labels(rc.action, &source_labels, &target_label)?;
-            if rc.regex.is_some() {
-                return Err(format!("`regex` cannot be used for `action={}`", rc.action));
-            }
+        ReplaceAll | DropIfContains | DropIfEqual | KeepIfContains | KeepIfEqual | LabelMap | LabelMapAll
+        | LabelDrop | LabelKeep | KeepEqual | DropEqual | HashMod | Uppercase | Lowercase => {
+            validate_labels(rc.action, source_labels, target_label)?;
         }
-        KeepEqual | DropEqual => validate_labels(rc.action, &source_labels, &target_label)?,
-        Keep => {
+        Keep | Drop => {
             if source_labels.is_empty() && rc.if_expr.is_none() {
-                return Err("missing `source_labels` for `action=keep`".to_string());
+                return Err(format!("missing `source_labels` for `action={}`", rc.action));
             }
         }
-        Drop => {
-            if source_labels.is_empty() && rc.if_expr.is_none() {
-                return Err("missing `source_labels` for `action=drop`".to_string());
-            }
-        }
-        HashMod => {
-            validate_labels(rc.action, &source_labels, &target_label)?;
-            if modulus < 1 {
-                return Err(format!(
-                    "unexpected `modulus` for `action=hashmod`: {modulus}; must be greater than 0"
-                ));
-            }
-        }
-        KeepMetrics => {
+        KeepMetrics | DropMetrics => {
             if is_empty_regex(&rc.regex) && rc.if_expr.is_none() {
-                return Err("`regex` must be non-empty for `action=keep_metrics`".to_string());
+                return Err(format!("`regex` must be non-empty for `action={}`", rc.action));
             }
-            if source_labels.len() > 0 {
-                return Err(format!(
-                    "`source_labels` must be empty for `action=keep_metrics`; got {:?}",
-                    source_labels
-                ));
+            if !source_labels.is_empty() {
+                return Err(format!("`source_labels` must be empty for `action={}`", rc.action));
             }
-            source_labels = vec![METRIC_NAME_LABEL.to_string()];
-            action = Keep;
-        }
-        DropMetrics => {
-            if is_empty_regex(&rc.regex) && rc.if_expr.is_none() {
-                return Err("`regex` must be non-empty for `action=drop_metrics`".to_string());
-            }
-            if source_labels.len() > 0 {
-                return Err(format!(
-                    "`source_labels` must be empty for `action=drop_metrics`; got {:?}",
-                    source_labels
-                ));
-            }
-            source_labels = vec![METRIC_NAME_LABEL.to_string()];
-            action = Drop;
-        }
-        Uppercase | Lowercase => {
-            validate_labels(rc.action, &source_labels, &target_label)?;
         }
     }
-    if action != Graphite {
-        if graphite_match_template.is_some() {
-            return Err(format!("`match` config cannot be applied to `action={}`; it is applied only to `action=graphite`", action));
-        }
-        if !graphite_label_rules.is_empty() {
-            return Err(format!("`labels` config cannot be applied to `action={}`; it is applied only to `action=graphite`", action));
-        }
-    }
-
-    // let rule_original = match serde_yaml::to_string(&rc) {
-    //     Ok(data) => data,
-    //     Err(err) => {
-    //         panic!("BUG: cannot marshal RelabelConfig to yaml: {:?}", err);
-    //     }
-    // };
-
-    // TODO:
-    let rule_original = format!("{:?}", rc);
-
-    let prc = ParsedRelabelConfig {
-        rule_original: rule_original.to_string(),
-        source_labels,
-        separator: separator.to_string(),
-        target_label: target_label.to_string(),
-        regex_anchored,
-        modulus,
-        action,
-        r#if: rc.if_expr.clone(),
-        graphite_match_template,
-        graphite_label_rules,
-        string_replacer_cache: DynamicCache::new(64), // todo: pass in config ?
-        regex: prom_regex,
-        regex_original: regex_original_compiled,
-        has_capture_group_in_target_label: target_label.contains("$"),
-        has_capture_group_in_replacement: replacement.contains("$"),
-        has_label_reference_in_replacement: replacement.contains("{{"),
-        replacement,
-        submatch_cache: DynamicCache::new(64),
-    };
-    Ok(prc)
+    Ok(())
 }
 
 fn is_default_regex(expr: &str) -> bool {
@@ -467,6 +456,10 @@ fn is_empty_regex(regex: &Option<String>) -> bool {
         return is_empty_regex_str(regex)
     }
     true
+}
+
+fn is_empty_or_default_regex(expr: &str) -> bool {
+    is_empty_regex_str(expr) || is_default_regex(expr)
 }
 
 fn is_empty_regex_str(regex: &str) -> bool {

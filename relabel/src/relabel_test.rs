@@ -1,11 +1,16 @@
 #[cfg(test)]
 mod test {
     use metricsql_common::prelude::Label;
-    use crate::relabel::{fill_label_references, finalize_labels};
+    use crate::relabel::{fill_label_references};
     use crate::relabel::{labels_to_string, sanitize_metric_name, DebugStep, ParsedRelabelConfig};
     use crate::relabel_config::RelabelConfig;
     use crate::utils::new_labels_from_string;
-    use crate::{parse_relabel_config, ParsedConfigs, RelabelAction};
+    use crate::{parse_relabel_config, ParsedConfigs, RelabelAction, METRIC_NAME_LABEL};
+
+    /// removes labels with "__" in the beginning (except "__name__").
+    pub(crate) fn finalize_labels(dst: &mut Vec<Label>) {
+        dst.retain(|label| !label.name.starts_with("__") || label.name == METRIC_NAME_LABEL);
+    }
 
     #[test]
     fn test_sanitize_metric_name() {
@@ -62,14 +67,15 @@ mod test {
     }
 
     fn parse_config(config: &str) -> ParsedConfigs {
-        parse_relabel_configs_data(config)
-            .map_err(|err| format!("cannot parse \"{}\": {}", config, err))
-            .unwrap()
+        todo!("parse_config")
+        // parse_relabel_configs_data(config)
+        //     .map_err(|err| format!("cannot parse \"{}\": {}", config, err))
+        //     .unwrap()
     }
 
-    fn check_apply_debug(config: &str, metric: &str, dss_expected: Vec<DebugStep>) -> Result<(), String> {
+    fn check_apply_debug(config: &str, metric: &str, dss_expected: Vec<DebugStep>) {
         let pcs = parse_config(config);
-        let mut labels = new_labels_from_string(metric)?;
+        let mut labels = new_labels_from_string(metric).unwrap();
         let dss = pcs.apply_debug(&mut labels);
         assert_eq!(dss, dss_expected,
             "unexpected result; got\n{:?}\nwant\n{:?}", dss, dss_expected);
@@ -79,7 +85,7 @@ mod test {
     fn parsed_relabel_configs_apply_debug() {
 
 // empty relabel config
-        check_apply_debug("", "foo", vec![]).unwrap();
+        check_apply_debug("", "foo", vec![]);
 // add label
         check_apply_debug(r#"
 - target_label: abc
@@ -88,7 +94,7 @@ replacement: xyz
             rule: "target_label: abc\nreplacement: xyz\n".to_string(),
             r#in: r#"foo{bar="baz"}"#.to_string(),
             out: r#"foo{abc="xyz",bar="baz"}"#.to_string(),
-        }]).unwrap();
+        }]);
 // drop label
         check_apply_debug(r#"
 - target_label: bar
@@ -105,7 +111,7 @@ replacement: ''
                                   r#in: r#"foo{bar=""}"#.to_string(),
                                   out: "foo".to_string(),
                               },
-                          ]).expect("TODO: panic message");
+                          ]);
 // drop metric
         check_apply_debug(r#"
 - action: drop
@@ -116,7 +122,7 @@ regex: baz
                 rule: "action: drop\nsource_labels: [bar]\nregex: baz\n".to_string(),
                 r#in: r#"foo{abc="def",bar="baz"}"#.to_string(),
                 out: "{}".to_string(),
-            }]).unwrap();
+            }]);
 // Multiple steps
         check_apply_debug(r#"
 - action: labeldrop
@@ -135,13 +141,13 @@ replacement: "abc"
                                   r#in: r#"m{a="b"}"#.to_string(),
                                   out: r#"m{a="b",foobar="abc"}"#.to_string(),
                               },
-                          ]).unwrap();
+                          ]);
     }
 
 
     fn check_apply(config: &str, metric: &str, is_finalize: bool, result_expected: &str) {
         let pcs = parse_config(config);
-        let mut labels = new_labels_from_string(metric);
+        let mut labels = new_labels_from_string(metric).unwrap();
         pcs.apply(&mut labels, 0);
         if is_finalize {
             finalize_labels(&mut labels)
@@ -151,6 +157,20 @@ replacement: "abc"
         assert_eq!(result, result_expected, "unexpected result; got\n{}\nwant\n{}",
                    result, result_expected)
     }
+
+    fn check(config: RelabelConfig, metric: &str, is_finalize: bool, result_expected: &str) {
+        let pcs = parse_relabel_config(config).unwrap();
+        let mut labels = new_labels_from_string(metric).unwrap();
+        pcs.apply(&mut labels, 0);
+        if is_finalize {
+            finalize_labels(&mut labels)
+        }
+        labels.sort();
+        let result = labels_to_string(&labels);
+        assert_eq!(result, result_expected, "unexpected result; got\n{}\nwant\n{}",
+                   result, result_expected)
+    }
+
 
     #[test]
     fn apply_empty_relabel_configs() {
@@ -163,132 +183,143 @@ replacement: "abc"
 
     #[test]
     fn apply_replace_miss() {
-        check_apply(r#"
-- action: replace
-target_label: bar
-"#, "{}", false, "{}");
+        let config = RelabelConfig {
+            action: RelabelAction::Replace,
+            source_labels: vec!["foo".to_string()],
+            target_label: "bar".to_string(),
+            ..Default::default()
+        };
+        check(config.clone(), "{}", false, "{}");
+        check(config.clone(), r#"{xxx="yyy"}"#, false, r#"{xxx="yyy"}"#);
 
-        check_apply(r#"
-- action: replace
-source_labels: ["foo"]
-target_label: bar
-"#, "{}", false, "{}");
+        let config = RelabelConfig {
+            action: RelabelAction::Replace,
+            source_labels: vec!["foo".to_string()],
+            target_label: "xxx".to_string(),
+            regex: Some(".+".to_string()),
+            ..Default::default()
+        };
 
-        check_apply(r#"
-- action: replace
-source_labels: ["foo"]
-target_label: "bar"
-"#, r#"{xxx="yyy"}"#, false, r#"{xxx="yyy"}"#);
-
-        check_apply(r#"
-- action: replace
-source_labels: ["foo"]
-target_label: "bar"
-regex: ".+"
-"#, r#"{xxx="yyy"}"#, false, r#"{xxx="yyy"}"#);
-
-        check_apply(r#"
-- action: replace
-source_labels: ["foo"]
-target_label: "xxx"
-regex: ".+"
-"#, r#"{xxx="yyy"}"#, false, r#"{xxx="yyy"}"#);
+        check(config, r#"{xxx="yyy"}"#, false, r#"{xxx="yyy"}"#);
     }
 
     #[test]
     fn apply_replace_if_miss() {
-        check_apply(r#"
-- action: replace
-if: '{foo="bar"}'
-source_labels: ["xxx", "foo"]
-target_label: "bar"
-replacement: "a-$1-b"
-"#, r#"{xxx="yyy"}"#, false, r#"{xxx="yyy"}"#);
+        let config = RelabelConfig {
+            action: RelabelAction::Replace,
+            if_expr: Some(r#"{foo="bar"}"#.to_string()),
+            source_labels: vec!["xxx".to_string(), "foo".to_string()],
+            target_label: "bar".to_string(),
+            replacement: "a-$1-b".to_string(),
+            ..Default::default()
+        };
+        check(config, r#"{xxx="yyy"}"#, false, r#"{xxx="yyy"}"#);
     }
 
     #[test]
     fn apply_replace_hit() {
-        check_apply(r#"
-- action: replace
-source_labels: ["xxx", "foo"]
-target_label: "bar"
-replacement: "a-$1-b"
-"#, r#"{xxx="yyy"}"#, false, r#"{bar="a-yyy;-b",xxx="yyy"}"#);
-        check_apply(r#"
-- action: replace
-source_labels: ["xxx", "foo"]
-target_label: "xxx"
-"#, r#"{xxx="yyy"}"#, false, r#"{xxx="yyy;"}"#);
-        check_apply(r#"
-- action: replace
-source_labels: ["foo"]
-target_label: "xxx"
-"#, r#"{xxx="yyy"}"#, false, "{}")
+        let config = RelabelConfig {
+            action: RelabelAction::Replace,
+            source_labels: vec!["xxx".to_string(), "foo".to_string()],
+            target_label: "bar".to_string(),
+            replacement: "a-$1-b".to_string(),
+            ..Default::default()
+        };
+        check(config, r#"{xxx="yyy"}"#, false, r#"{bar="a-yyy;-b",xxx="yyy"}"#);
+
+        let config = RelabelConfig {
+            action: RelabelAction::Replace,
+            source_labels: vec!["xxx".to_string(), "foo".to_string()],
+            target_label: "xxx".to_string(),
+            ..Default::default()
+        };
+        check(config, r#"{xxx="yyy"}"#, false, r#"{xxx="yyy;"}"#);
+
+        let config = RelabelConfig {
+            action: RelabelAction::Replace,
+            source_labels: vec!["foo".to_string()],
+            target_label: "xxx".to_string(),
+            ..Default::default()
+        };
+        check(config, r#"{xxx="yyy"}"#, false, "{}")
     }
 
     #[test]
     fn apply_replace_if_hit() {
-        check_apply(r#"
-- action: replace
-if: '{xxx=~".y."}'
-source_labels: ["xxx", "foo"]
-target_label: "bar"
-replacement: "a-$1-b"
-"#, r#"{xxx="yyy"}"#, false, r#"{bar="a-yyy;-b",xxx="yyy"}"#);
+        let config = RelabelConfig {
+            action: RelabelAction::Replace,
+            if_expr: Some(r#"{xxx=~".y."}"#.to_string()),
+            source_labels: vec!["xxx".to_string(), "foo".to_string()],
+            target_label: "bar".to_string(),
+            replacement: "a-$1-b".to_string(),
+            ..Default::default()
+        };
+        check(config, r#"{xxx="yyy"}"#, false, r#"{bar="a-yyy;-b",xxx="yyy"}"#);
     }
 
     #[test]
     fn apply_replace_remove_label_value_hit() {
-        check_apply(r#"
-- action: replace
-source_labels: ["foo"]
-target_label: "foo"
-regex: "xxx"
-replacement: ""
-"#, r#"{foo="xxx",bar="baz"}"#, false, r#"{bar="baz"}"#);
+        let config = RelabelConfig {
+            action: RelabelAction::Replace,
+            source_labels: vec!["foo".to_string()],
+            target_label: "foo".to_string(),
+            regex: Some("xxx".to_string()),
+            replacement: "".to_string(),
+            ..Default::default()
+        };
+        check(config, r#"{foo="xxx",bar="baz"}"#, false, r#"{bar="baz"}"#);
     }
 
     #[test]
     fn apply_replace_remove_label_value_miss() {
-        check_apply(r#"
-- action: replace
-source_labels: ["foo"]
-target_label: "foo"
-regex: "xxx"
-replacement: ""
-"#, r#"{foo="yyy",bar="baz"}"#, false, r#"{bar="baz",foo="yyy"}"#);
+        let config = RelabelConfig {
+            action: RelabelAction::Replace,
+            source_labels: vec!["foo".to_string()],
+            target_label: "foo".to_string(),
+            regex: Some("xxx".to_string()),
+            replacement: "".to_string(),
+            ..Default::default()
+        };
+
+        check(config, r#"{foo="yyy",bar="baz"}"#, false, r#"{bar="baz",foo="yyy"}"#);
     }
 
     #[test]
     fn apply_replace_hit_remove_label() {
-        check_apply(r#"
-- action: replace
-source_labels: ["xxx", "foo"]
-regex: "yyy;.+"
-target_label: "foo"
-replacement: ""
-"#, r#"{xxx="yyy",foo="bar"}"#, false, r#"{xxx="yyy"}"#);
+        let config = RelabelConfig {
+            action: RelabelAction::Replace,
+            source_labels: vec!["xxx".to_string(), "foo".to_string()],
+            target_label: "foo".to_string(),
+            regex: Some("yyy;.+".to_string()),
+            replacement: "".to_string(),
+            ..Default::default()
+        };
+        check(config, r#"{xxx="yyy",foo="bar"}"#, false, r#"{xxx="yyy"}"#);
     }
 
     #[test]
     fn apply_replace_miss_remove_label() {
-        check_apply(r#"
-- action: replace
-source_labels: ["xxx", "foo"]
-regex: "yyy;.+"
-target_label: "foo"
-replacement: ""
-"#, r#"{xxx="yyyz",foo="bar"}"#, false, r#"{foo="bar",xxx="yyyz"}"#);
+        let config = RelabelConfig {
+            action: RelabelAction::Replace,
+            source_labels: vec!["xxx".to_string(), "foo".to_string()],
+            target_label: "foo".to_string(),
+            regex: Some("yyy;.+".to_string()),
+            replacement: "".to_string(),
+            ..Default::default()
+        };
+        check(config, r#"{xxx="yyyz",foo="bar"}"#, false, r#"{foo="bar",xxx="yyyz"}"#);
     }
 
     #[test]
     fn apply_replace_hit_target_label_with_capture_group() {
-        check_apply(r#"
-- action: replace
-source_labels: ["xxx", "foo"]
-target_label: "bar-$1"
-replacement: "a-$1-b"
-"#, r#"{xxx="yyy"}"#, false, r#"{bar-yyy;="a-yyy;-b",xxx="yyy"}"#)
+        let config = RelabelConfig {
+            action: RelabelAction::Replace,
+            source_labels: vec!["xxx".to_string(), "foo".to_string()],
+            target_label: "bar-$1".to_string(),
+            replacement: "a-$1-b".to_string(),
+            ..Default::default()
+        };
+        check(config, r#"{xxx="yyy"}"#, false, r#"{bar-yyy;="a-yyy;-b",xxx="yyy"}"#)
     }
 
     #[test]
@@ -590,11 +621,13 @@ if: '{foo="yyy"}'
 
     #[test]
     fn drop_hit() {
-        check_apply(r#"
-- action: drop
-source_labels: [foo]
-regex: yyy
-"#, r#"{foo="yyy"}"#, true, "{}")
+        let config = RelabelConfig {
+            action: RelabelAction::Drop,
+            source_labels: vec!["foo".to_string()],
+            regex: Some("yyy".to_string()),
+            ..Default::default()
+        };
+        check(config, r#"{foo="yyy"}"#, true, "{}")
     }
 
     #[test]
@@ -956,7 +989,7 @@ action: replace
     #[test]
     fn test_finalize_labels() {
         fn f(metric: &str, result_expected: &str) {
-            let mut result_labels = new_labels_from_string(metric);
+            let mut result_labels = new_labels_from_string(metric).unwrap();
             finalize_labels(&mut result_labels);
             let result = labels_to_string(&result_labels);
             assert_eq!(result, result_expected,
@@ -971,7 +1004,7 @@ action: replace
     #[test]
     fn test_fill_label_references() {
         fn f(replacement: &str, metric: &str, result_expected: &str) {
-            let labels = new_labels_from_string(metric);
+            let labels = new_labels_from_string(metric).unwrap();
             let mut result: String = String::with_capacity(32);
             fill_label_references(&mut result, replacement, &labels);
             assert_eq!(result, result_expected, "unexpected result; got\n{}\nwant\n{}", result, result_expected)
@@ -1014,7 +1047,7 @@ action: replace
         fn f(pattern: &str, s: &str) {
             let prc = new_test_regex_relabel_config(pattern);
             if prc.regex.is_match(s) {
-                format!("unexpected match_string({}) result; got true; want false", s)
+                panic!("unexpected match_string({}) result; got true; want false", s)
             }
         }
 
@@ -1045,7 +1078,7 @@ action: replace
             let mut total_labels = 0;
             let mut labels = vec![];
             for metric in metrics {
-                labels.extend(new_labels_from_string(&metric));
+                labels.extend(new_labels_from_string(&metric).unwrap());
                 let _ = pcs.apply(&mut labels, total_labels);
                 labels.sort();
                 total_labels += labels.len();

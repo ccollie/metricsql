@@ -18,6 +18,7 @@ use std::error::Error;
 use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
+use crate::types::Signature;
 
 // LazyLoader lazily loads samples into storage.
 // This is specifically implemented for unit testing of rules.
@@ -85,19 +86,36 @@ impl LazyLoader {
 
     // appendTill appends the defined time series to the storage till the given timestamp (in milliseconds).
     fn append_till(&mut self, ts: i64) -> Result<(), Box<dyn Error>> {
+        struct Drain {
+            h: Signature,
+            i: usize,
+        }
+
+        let mut drains: Vec<Drain> = vec![];
+
         if let Some(load_cmd) = self.load_cmd.as_mut() {
             for (h, samples) in load_cmd.defs.iter() {
                 if let Some(m) = load_cmd.metrics.get(h) {
                     for (i, s) in samples.iter().enumerate() {
                         if s.timestamp > ts {
                             // Removing the already added samples.
-                            load_cmd.defs.get_mut(h).unwrap().drain(..i);
+                            drains.push(Drain { h: h.clone(), i });
                             break;
                         }
                         self.storage.append(m.clone(), s.timestamp, s.value)?;
                         if i == samples.len() - 1 {
-                            load_cmd.defs.get_mut(h).unwrap().clear();
+                            drains.push(Drain { h: h.clone(), i: samples.len() });
                         }
+                    }
+                }
+            }
+
+            for d in drains.iter().rev() {
+                if let Some(samples) = load_cmd.defs.get_mut(&d.h) {
+                    if d.i == samples.len() - 1 {
+                        samples.clear();
+                    } else {
+                        samples.drain(..d.i);
                     }
                 }
             }

@@ -9,7 +9,7 @@ use crate::parser::TokenWithLocation;
 
 pub type ParseResult<T> = Result<T, ParseError>;
 
-#[derive(Default, Debug, PartialEq, Clone, Error)]
+#[derive(Default, Debug, PartialEq, Eq, Clone, Error)]
 pub enum ParseError {
     #[error("{0}")]
     ArgumentError(String),
@@ -49,7 +49,7 @@ pub enum ParseError {
 }
 
 /// ParseErr wraps a parsing error with line and position context.
-#[derive(Debug, PartialEq, Clone, Error)]
+#[derive(Debug, PartialEq, Eq, Clone, Error)]
 pub struct ParseErr {
     pub range: Span,
     pub err: String,

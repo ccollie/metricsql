@@ -1,8 +1,7 @@
 #[cfg(test)]
 mod test {
-	use metricsql_runtime::parse_metric_selector;
-	use crate::relabel::IfExpression;
-	use crate::utils::new_labels_from_string;
+	use crate::IfExpression;
+	use crate::utils::{new_labels_from_string, parse_metric_name, parse_metric_selector};
 
 	#[test]
 	fn test_if_expression_parse_failure() {
@@ -35,50 +34,9 @@ mod test {
 	}
 
 	#[test]
-	fn test_if_expression_marshal_unmarshal_json() {
-		fn check(s: &str, json_expected: &str) {
-			let ie = IfExpression::parse(s)
-				.map_err(|err| format!("cannot parse ifExpression {}: {}", s, err))
-				.unwrap();
-
-			let data = match serde_json::to_string(&ie) {
-				Ok(data) => data,
-				Err(err) => {
-					panic!("cannot marshal ifExpression {s}: {:?}", err);
-				}
-			};
-
-			assert_eq!(data, json_expected,
-					   "unexpected value after json marshaling;\ngot\n{}\nwant\n{}", data, json_expected);
-
-			let ie2: IfExpression = match serde_json::from_str(&data) {
-				Ok(data) => data,
-				Err(err) => {
-					panic!("cannot unmarshal ifExpression from json {data}: {:?}", err);
-				}
-			};
-
-			let data2 = match serde_json::to_string(&ie2) {
-				Ok(data) => data,
-				Err(err) => {
-					panic!("cannot marshal ifExpression {s}: {:?}", err);
-				}
-			};
-
-			assert_eq!(data2, json_expected,
-					   "unexpected data after unmarshal/marshal cycle;\ngot\n{}\nwant\n{}", data2, json_expected);
-		}
-
-		check("foo", r#""foo""#);
-		check(r#"{foo="bar",baz=~"x.*"}"#, r#""{foo=\"bar\",baz=~\"x.*\"}""#);
-		check(r#"{a="b" or c="d",x="z"}"#, r#""{a=\"b\" or c=\"d\",x=\"z\"}""#);
-	}
-
-
-	#[test]
 	fn test_if_expression_unmarshal_failure() {
 		fn check(s: &str) {
-			serde_yaml::from_str(s).expect("expecting non-nil error");
+			IfExpression::parse(s).expect("expecting non-nil error");
 		}
 
 		check("{");
@@ -100,34 +58,14 @@ mod test {
 	}
 
 	#[test]
-	fn test_if_expression_unmarshal_success() {
-		fn f(s: &str) {
-			let ie: IfExpression = serde_yaml::from_str(s).unwrap();
-			let mut b = serde_yaml::to_string(&ie).unwrap();
-			let b = b.trim();
-			assert_eq!(b, s, "unexpected marshaled data;\ngot\n{}\nwant\n{}", b, s);
-		}
-
-		f(r#"'{}'"#);
-		f("foo");
-		f(r#"foo{bar="baz"}"#);
-		f(r#"'{a="b", c!="d", e=~"g", h!~"d"}'"#);
-		f(r#"foo{bar="zs",a=~"b|c"}"#);
-		f(r#"foo{z="y" or bar="zs",a=~"b|c"}"#);
-		f(r#"- foo
-- bar{baz="abc"}"#)
-	}
-
-	#[test]
 	fn test_if_expression_match() {
 		fn check(if_expr: &str, metric_with_labels: &str) {
-			let ie = match serde_yaml::from_str(if_expr) {
+			let ie = match IfExpression::parse(if_expr) {
 				Err(err) => panic!("unexpected error during unmarshal: {:?}", err),
 				Ok(val) => val
 			};
-			let labels = parse_metric_selector(metric_with_labels)
-				.unwrap();
-			if !ie.Match(labels.GetLabels()) {
+			let labels = parse_metric_name(metric_with_labels).unwrap();
+			if !ie.is_match(&labels) {
 				panic!("unexpected mismatch of if_expr={} for {}", if_expr, metric_with_labels)
 			}
 		}
@@ -159,8 +97,8 @@ mod test {
 	#[test]
 	fn test_if_expression_mismatch() {
 		fn check(if_expr: &str, metric_with_labels: &str) {
-			let ie: IfExpression = serde_yaml::from_str(if_expr).unwrap();
-			let labels = new_labels_from_string(metric_with_labels);
+			let ie: IfExpression = IfExpression::parse(if_expr).unwrap();
+			let labels = new_labels_from_string(metric_with_labels).unwrap();
 			if ie.is_match(&labels[..]) {
 				panic!("unexpected match of if_expr={} for {}", if_expr, metric_with_labels)
 			}
