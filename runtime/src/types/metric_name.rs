@@ -11,6 +11,7 @@ use metricsql_parser::label::LabelFilterOp;
 use metricsql_parser::prelude::{AggregateModifier, VectorMatchModifier};
 use serde::{Deserialize, Serialize};
 use metricsql_common::prelude::Label;
+use metricsql_parser::parser::{parse_metric_name, ParseError, ParseResult};
 use crate::common::encoding::{read_string, read_usize, write_string, write_usize};
 use crate::parse_metric_selector;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
@@ -63,29 +64,15 @@ impl MetricName {
         Ok(res)
     }
 
-    // todo: should be a parseError
-    pub fn parse(s: &str) -> RuntimeResult<Self> {
-        let filters = parse_metric_selector(s)?;
-        if filters.is_empty() {
-            return Err(RuntimeError::from("labelFilters cannot be empty"));
-        }
-        if !filters.or_matchers.is_empty() {
-            return Err(RuntimeError::from("Invalid metric selector. `or` is not supported"));
-        }
+    pub fn parse(s: &str) -> ParseResult<Self> {
+        let mut labels = parse_metric_name(s)?;
         let mut mn = MetricName::default();
-        // make sure we only have '=' filters
-        for f in filters.matchers.into_iter() {
-            if f.op != LabelFilterOp::Equal {
-                return Err(RuntimeError::from(format!(
-                    "invalid operator {} in metric name",
-                    f.op
-                )));
+        for label in labels.drain(..) {
+            if label.name == METRIC_NAME_LABEL {
+                mn.measurement = label.value;
+            } else {
+                mn.labels.push(label);
             }
-            let tag = Label {
-                name: f.label,
-                value: f.value,
-            };
-            mn.labels.push(tag);
         }
         mn.sort_labels();
         Ok(mn)

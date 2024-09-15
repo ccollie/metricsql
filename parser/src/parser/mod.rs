@@ -35,6 +35,9 @@ mod expand_with_test;
 mod parser_example_test;
 #[cfg(test)]
 mod parser_test;
+mod metric_name;
+
+pub use metric_name::parse_metric_name;
 
 pub fn parse(input: &str) -> ParseResult<Expr> {
     let mut parser = Parser::new(input)?;
