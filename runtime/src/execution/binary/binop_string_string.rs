@@ -24,10 +24,9 @@ pub(crate) fn eval_string_string_binop(
                 })?;
                 Ok(QueryValue::Scalar(cmp))
             } else {
-                Err(RuntimeError::NotImplemented(format!(
-                    "Unimplemented string operator: {} {} {}",
-                    op, left, right
-                )))
+                Err(RuntimeError::NotImplemented(
+                    format!("Unimplemented string operator: {op} {left} {right}")
+                ))
             }
         }
     }

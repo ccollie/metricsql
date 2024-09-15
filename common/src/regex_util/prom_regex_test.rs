@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod test {
-    use crate::common::regex_util::PromRegex;
     use regex::Regex;
+    use crate::regex_util::PromRegex;
 
     #[test]
     fn test_prom_regex_parse_failure() {

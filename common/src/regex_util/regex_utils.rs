@@ -163,14 +163,18 @@ pub fn get_optimized_re_match_func(expr: &str) -> Result<(StringMatchHandler, us
     }
 
     if expr.is_empty() {
-        return create_re_match_fn(expr);
+        let matcher = StringMatchHandler::empty_string_match();
+        return Ok((matcher, LITERAL_MATCH_COST))
     }
+
     if expr == ".*" {
         return Ok((StringMatchHandler::MatchAll, FULL_MATCH_COST));
     }
+
     if expr == ".+" {
         return Ok((StringMatchHandler::NotEmpty, FULL_MATCH_COST));
     }
+
     let mut sre = match build_hir(expr) {
         Ok(sre) => sre,
         Err(err) => {

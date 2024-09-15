@@ -138,11 +138,10 @@ fn aggr_func_impl(
     arg: &mut AggrFuncArg,
 ) -> RuntimeResult<Vec<Timeseries>> {
     let mut tss = get_aggr_timeseries(arg)?;
-    aggr_func_ext(
-        move |tss: &mut Vec<Timeseries>, _: &Option<AggregateModifier>| {
+    aggr_func_ext(move |tss: &mut Vec<Timeseries>, _: &Option<AggregateModifier>| {
             afe(tss);
             std::mem::take(tss)
-        }, // todo: avoid cloning
+        },
         &mut tss,
         arg.modifier,
         arg.limit,
@@ -577,7 +576,7 @@ fn aggr_func_share(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
                 }
                 sum += v;
             }
-            // Divide every non-negative value at position i by sum in order to get its' share.
+            // Divide every non-negative value at position i by sum in order to get its share.
             for ts in tss.iter_mut() {
                 let v = ts.values[i];
                 ts.values[i] = if v.is_nan() || v < 0.0 {
@@ -1074,7 +1073,7 @@ fn get_per_point_iqr_bounds(tss: &[Timeseries]) -> (Vec<f64>, Vec<f64>) {
     }
     let points_len = tss[0].values.len();
     let mut values = get_pooled_vec_f64(tss.len());
-    // todo(perf) - use pool
+    // todo(perf) - use pool/smallvec
     let mut lower = Vec::with_capacity(points_len);
     let mut upper = Vec::with_capacity(points_len);
 

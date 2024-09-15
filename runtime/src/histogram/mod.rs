@@ -164,6 +164,7 @@ impl Histogram {
     /// isn't included in the bucket, while the upper bound is included.
     /// This is required to be compatible with Prometheus-style histogram buckets
     /// with `le` (less or equal) labels.
+    #[allow(unused)]
     pub fn visit_non_zero_buckets<'a, F, C>(&self, context: &mut C, f: F)
     where
         F: Fn(&'a str, u64, &mut C),

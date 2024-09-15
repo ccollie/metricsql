@@ -73,7 +73,7 @@ impl ExecutableNode for BinopNode {
             }
             (InstantVector(ref mut vector), Scalar(scalar)) => {
                 if self.op.is_logical_op() {
-                    // expand scalar to vector. Note we handle unless specially, since it's
+                    // expand scalar to vector. Note we handle `unless` specially, since it's
                     // possible to calculate without expanding the scalar (and allocating memory).
                     if self.op != Operator::Unless {
                         let left = std::mem::take(vector);

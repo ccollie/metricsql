@@ -22,8 +22,6 @@ pub const MAX_LABEL_NAME_LEN: usize = 256;
 
 pub const METRIC_NAME_LABEL: &str = "__name__";
 
-const SEP: u8 = 0xff;
-
 // for tag manipulation (removing, adding, etc.), name vectors longer than this will be converted to a hashmap
 // for comparison, otherwise we do a linear probe
 const SET_SEARCH_MIN_THRESHOLD: usize = 16;

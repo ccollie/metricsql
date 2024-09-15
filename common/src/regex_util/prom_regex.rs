@@ -42,9 +42,12 @@ impl PromRegex {
 
     /// is_match returns true if s matches pr.
     ///
-    /// The pr is automatically anchored to the beginning and to the end
+    /// The pattern is automatically anchored to the beginning and to the end
     /// of the matching string with '^' and '$'.
     pub fn is_match(&self, s: &str) -> bool {
+        if self.is_complete {
+            return self.prefix == s;
+        }
         self.matcher.matches(s)
     }
 }
