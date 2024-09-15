@@ -2,20 +2,18 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Display;
-use std::hash::{Hash};
+use std::hash::Hash;
 use std::str::FromStr;
 
-use ahash::{AHashMap, AHashSet};
-use enquote::enquote;
-use metricsql_parser::label::LabelFilterOp;
-use metricsql_parser::prelude::{AggregateModifier, VectorMatchModifier};
-use serde::{Deserialize, Serialize};
-use metricsql_common::prelude::Label;
-use metricsql_parser::parser::{parse_metric_name, ParseError, ParseResult};
 use crate::common::encoding::{read_string, read_usize, write_string, write_usize};
-use crate::parse_metric_selector;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::types::Signature;
+use ahash::{AHashMap, AHashSet};
+use enquote::enquote;
+use metricsql_common::prelude::Label;
+use metricsql_parser::parser::{parse_metric_name, ParseError, ParseResult};
+use metricsql_parser::prelude::{AggregateModifier, VectorMatchModifier};
+use serde::{Deserialize, Serialize};
 
 /// The maximum length of label name.
 ///
@@ -485,7 +483,7 @@ impl MetricName {
 }
 
 impl FromStr for MetricName {
-    type Err = RuntimeError;
+    type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         MetricName::parse(s)
@@ -493,7 +491,7 @@ impl FromStr for MetricName {
 }
 
 impl TryFrom<&str> for MetricName {
-    type Error = RuntimeError;
+    type Error = ParseError;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         MetricName::parse(s)
@@ -501,7 +499,7 @@ impl TryFrom<&str> for MetricName {
 }
 
 impl TryFrom<String> for MetricName {
-    type Error = RuntimeError;
+    type Error = ParseError;
 
     fn try_from(s: String) -> Result<Self, Self::Error> {
         MetricName::parse(&s)
