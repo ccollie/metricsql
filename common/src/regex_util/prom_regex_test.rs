@@ -33,6 +33,8 @@ mod test {
             );
         }
 
+        f("foo|bar", "foobar", false);
+
         f("^foo|b(ar)$", "foo", true);
 
         f("", "foo", false);

@@ -49,7 +49,7 @@ impl StringMatchHandler {
     }
 
     pub fn empty_string_match() -> Self {
-        Self::MatchFn(MatchFnHandler::new("", empty_match_fn))
+        Self::Empty
     }
 
     pub fn fast_regex(regex: Regex) -> Self {
@@ -430,10 +430,6 @@ fn get_optimized_literal_matcher(value: String, options: &StringMatchOptions) ->
             }
         }
     }
-}
-
-pub(super) fn empty_match_fn(_: &str, haystack: &str) -> bool {
-    haystack.is_empty()
 }
 
 fn equals_fn(needle: &str, haystack: &str) -> bool {

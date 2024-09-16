@@ -1,4 +1,4 @@
-use super::hir_utils::{build_hir, get_literal, is_dot_plus, is_dot_star, is_empty_class, is_literal};
+use super::hir_utils::{build_hir, get_literal, hir_to_string, is_dot_plus, is_dot_star, is_empty_class, is_literal};
 use super::match_handlers::{StringMatchHandler, StringMatchOptions};
 use crate::regex_util::Quantifier;
 use regex::{Error as RegexError, Regex};
@@ -119,7 +119,7 @@ fn get_or_values_ext(sre: &Hir, dest: &mut Vec<String>) -> bool {
 }
 
 pub fn is_valid_regexp(expr: &str) -> bool {
-    if expr == ".*" || expr == ".+" {
+    if expr == ".*" || expr == ".+" || expr.is_empty() {
         return true;
     }
     parse_regex(expr).is_ok()
@@ -129,6 +129,7 @@ pub fn is_valid_regexp(expr: &str) -> bool {
 /// time for execution.
 ///
 /// These values are obtained from BenchmarkOptimizedRematch_cost benchmark.
+pub const EMPTY_MATCH_COST: usize = 0;
 pub const FULL_MATCH_COST: usize = 1;
 pub const PREFIX_MATCH_COST: usize = 2;
 pub const LITERAL_MATCH_COST: usize = 3;
@@ -163,8 +164,7 @@ pub fn get_optimized_re_match_func(expr: &str) -> Result<(StringMatchHandler, us
     }
 
     if expr.is_empty() {
-        let matcher = StringMatchHandler::empty_string_match();
-        return Ok((matcher, LITERAL_MATCH_COST))
+        return Ok((StringMatchHandler::Empty, LITERAL_MATCH_COST))
     }
 
     if expr == ".*" {
@@ -187,6 +187,10 @@ pub fn get_optimized_re_match_func(expr: &str) -> Result<(StringMatchHandler, us
 
     let mut anchor_start = false;
     let mut anchor_end = false;
+
+    let debug_str = format!("{:?}, {}", sre, hir_to_string(&sre));
+
+    println!("expr {}", debug_str);
 
     if let HirKind::Concat(subs) = sre.kind() {
         let mut concat = &subs[..];

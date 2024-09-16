@@ -41,6 +41,8 @@ mod common;
 extern crate rs_unit;
 #[cfg(test)]
 mod tests;
+mod filter;
+
 #[cfg(test)]
 pub use tests::utils::*;
 
