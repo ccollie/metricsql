@@ -54,16 +54,76 @@ impl TagFilter {
         is_regexp: bool,
     ) -> Result<TagFilter, String> {
 
+        let mut is_negative = is_negative;
+        let mut is_regexp = is_regexp;
+
+        let mut value_ = value;
+        // Verify whether tag filter is empty.
+        if value.is_empty() {
+            // Substitute an empty tag value with the negative match of `.+` regexp in order to
+            // filter out all the values with the given tag.
+            is_negative = !is_negative;
+            is_regexp = true;
+            value_ = ".+";
+        }
+        if is_regexp && value == ".*" {
+            if !is_negative {
+                // Skip tag filter matching anything, since it equals to no filter.
+                return Ok(Self {
+                    key: key.to_string(),
+                    value: value.to_string(),
+                    is_negative: false,
+                    is_regexp: true,
+                    match_cost: 0,
+                    matcher: StringMatchHandler::MatchAll,
+                    is_empty_match: true,
+                });
+            }
+
+            // Substitute negative tag filter matching anything with negative tag filter matching non-empty value
+            // in order to filter out all the time series with the given key.
+            value_ = ".+";
+        }
+
         let (matcher, match_cost) = if is_regexp {
-            compile_regexp_anchored(value)?
+            compile_regexp_anchored(value_)?
         } else {
             (StringMatchHandler::Literal(key.to_string()), FULL_MATCH_COST)
         };
-        // tf.is_empty_match = prefix.is_empty() && tf.suffix_match.matches("");
+
+        if is_regexp {
+            // expression may have been simplified
+            match &matcher {
+                StringMatchHandler::Literal(literal) => {
+                   is_regexp = false;
+                    value_ = &literal;
+                }
+                _ => {}
+            }
+        }
+
+        // todo: need better way to handle this
+        let is_empty_match = matches!(matcher, StringMatchHandler::MatchAll);
+
+        if is_negative && is_empty_match {
+            // We have {key!~"|foo"} tag filter, which matches non-empty key values.
+            // So add {key=~".+"} tag filter in order to enforce this.
+            // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/546 for details.
+
+            return Ok(Self{
+                key: key.to_string(),
+                value: ".+".to_string(),
+                is_negative: false,
+                is_regexp: true,
+                match_cost: FULL_MATCH_COST,
+                matcher: StringMatchHandler::NotEmpty,
+                is_empty_match: true,
+            })
+        }
 
         Ok(TagFilter {
             key: key.to_string(),
-            value: value.to_string(),
+            value: value_.to_string(),
             is_negative,
             is_regexp,
             match_cost,
@@ -81,17 +141,17 @@ impl TagFilter {
         }
     }
 
-    pub fn get_op(&self) -> &'static str {
+    pub fn op(&self) -> LabelFilterOp {
         if self.is_negative {
             if self.is_regexp {
-                return "!~";
+                return LabelFilterOp::RegexNotEqual;
             }
-            return "!=";
+            return LabelFilterOp::NotEqual;
         }
         if self.is_regexp {
-            return "=~";
+            return LabelFilterOp::RegexEqual;
         }
-        "="
+        LabelFilterOp::Equal
     }
 }
 
@@ -154,20 +214,8 @@ impl TagFilters {
     }
 
     pub fn add_label_filter(&mut self, filter: &LabelFilter) -> Result<(), String> {
-        match filter.op {
-            LabelFilterOp::Equal=> {
-                self.add(&filter.label, &filter.value, false, false)
-            }
-            LabelFilterOp::NotEqual => {
-                self.add(&filter.label, &filter.value, true, false)
-            }
-            LabelFilterOp::RegexEqual => {
-                self.add(&filter.label, &filter.value, false, true)
-            }
-            LabelFilterOp::RegexNotEqual => {
-                self.add(&filter.label, &filter.value, true, true)
-            }
-        }
+        self.0.push(TagFilter::from_label_filter(filter)?);
+        Ok(())
     }
 
     pub fn is_match(&self, b: &str) -> bool {
