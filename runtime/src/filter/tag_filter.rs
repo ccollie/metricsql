@@ -1,12 +1,12 @@
 use crate::prelude::METRIC_NAME_LABEL;
-use crate::RuntimeResult;
 use metricsql_common::regex_util::FULL_MATCH_COST;
 use metricsql_common::regex_util::{compile_regexp_anchored, StringMatchHandler};
 use metricsql_parser::label::{LabelFilter, LabelFilterOp, Matchers};
+use metricsql_parser::parser::{ParseError, ParseResult};
 use smallvec::SmallVec;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
-
+use std::ops::Deref;
 
 /// TagFilter represents a filter used for filtering tags.
 #[derive(Clone, Default, Debug)]
@@ -25,7 +25,7 @@ pub struct TagFilter {
 }
 
 impl TagFilter {
-    pub fn from_label_filter(filter: &LabelFilter) -> Result<Self, String> {
+    pub fn from_label_filter(filter: &LabelFilter) -> ParseResult<Self> {
         match filter.op {
             LabelFilterOp::Equal=> {
                 Self::new(&filter.label, &filter.value, false, false)
@@ -52,7 +52,7 @@ impl TagFilter {
         value: &str,
         is_negative: bool,
         is_regexp: bool,
-    ) -> Result<TagFilter, String> {
+    ) -> ParseResult<TagFilter> {
 
         let mut is_negative = is_negative;
         let mut is_regexp = is_regexp;
@@ -86,7 +86,8 @@ impl TagFilter {
         }
 
         let (matcher, match_cost) = if is_regexp {
-            compile_regexp_anchored(value_)?
+            compile_regexp_anchored(value_)
+                .map_err(|err| ParseError::InvalidRegex(format!("cannot compile regexp: {value_}")))?
         } else {
             (StringMatchHandler::Literal(key.to_string()), FULL_MATCH_COST)
         };
@@ -179,7 +180,7 @@ impl PartialOrd for TagFilter {
 // String returns human-readable tf value.
 impl Display for TagFilter {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let op = self.get_op();
+        let op = self.op();
         let value = if self.value.len() > 60 {
             // todo: could panic for non-ascii
             &self.value[0..60]
@@ -205,7 +206,7 @@ impl TagFilters {
         Self(filters)
     }
 
-    pub fn add_label_filters(&mut self, filters: &[LabelFilter]) -> Result<(), String> {
+    pub fn add_label_filters(&mut self, filters: &[LabelFilter]) -> ParseResult<()> {
         for filter in filters.iter() {
             self.add_label_filter(filter)?;
         }
@@ -213,7 +214,7 @@ impl TagFilters {
         Ok(())
     }
 
-    pub fn add_label_filter(&mut self, filter: &LabelFilter) -> Result<(), String> {
+    pub fn add_label_filter(&mut self, filter: &LabelFilter) -> ParseResult<()> {
         self.0.push(TagFilter::from_label_filter(filter)?);
         Ok(())
     }
@@ -293,6 +294,10 @@ impl TagFilters {
     pub fn match_cost(&self) -> usize {
         self.0.iter().map(|tf| tf.match_cost).sum()
     }
+
+    pub fn iter(&self) -> std::slice::Iter<'_, TagFilter> {
+        self.0.iter()
+    }
 }
 
 impl Display for TagFilters {
@@ -306,50 +311,42 @@ impl Display for TagFilters {
     }
 }
 
-// A translation of Matchers to an executable form.
-pub struct LabelMatchers {
-    pub filters: SmallVec<[TagFilters; 4]>,
-}
+impl Deref for TagFilters {
+    type Target = Vec<TagFilter>;
 
-impl Default for LabelMatchers {
-    fn default() -> Self {
-        Self {
-            filters: SmallVec::new(),
-        }
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
-impl LabelMatchers {
 
-    pub fn from_matchers(matchers: &Matchers) -> RuntimeResult<Self> {
-        let mut result = LabelMatchers::default();
+pub type LabelFilterVec = SmallVec<[TagFilters; 3]>;
 
-        if !matchers.or_matchers.is_empty() {
-            for label_filters in matchers.or_matchers.iter() {
-                let mut filters = Self::filters_from_vec(&label_filters)?;
-                filters.sort();
-                result.filters.push(filters);
-            }
+
+/// Create a set of optimized matchers from a list of LabelFilter matchers
+/// Each element is a set of ANDed label filters, which are then ORed together
+pub fn create_label_filter_matchers(matchers: &Matchers) -> ParseResult<LabelFilterVec> {
+    let mut result = LabelFilterVec::new();
+    if !matchers.or_matchers.is_empty() {
+        for label_filters in matchers.or_matchers.iter() {
+            let filters = filters_from_vec(&label_filters)?;
+            result.push(filters);
         }
-
-        if !matchers.matchers.is_empty() {
-            let mut filters = Self::filters_from_vec(&matchers.matchers)?;
-            filters.sort();
-            result.filters.push(filters);
-        }
-
-        Ok(result)
     }
 
-    pub fn is_match(&self, b: &str) -> bool {
-        self.filters.iter().any(|m| m.is_match(b))
+    if !matchers.matchers.is_empty() {
+        let filters = filters_from_vec(&matchers.matchers)?;
+        result.push(filters);
     }
 
-    fn filters_from_vec(items: &[LabelFilter]) -> RuntimeResult<TagFilters> {
-        let mut filters = TagFilters::new(Vec::with_capacity(items.len()));
-        for filter in items.iter() {
-            filters.add_label_filter(filter)?;
-        }
-        Ok(filters)
+    Ok(result)
+}
+
+fn filters_from_vec(items: &[LabelFilter]) -> ParseResult<TagFilters> {
+    let mut filters = TagFilters::new(Vec::with_capacity(items.len()));
+    for filter in items.iter() {
+        filters.add_label_filter(filter)?;
     }
+    filters.sort();
+    Ok(filters)
 }
