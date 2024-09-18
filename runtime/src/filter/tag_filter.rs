@@ -87,7 +87,7 @@ impl TagFilter {
 
         let (matcher, match_cost) = if is_regexp {
             compile_regexp_anchored(value_)
-                .map_err(|err| ParseError::InvalidRegex(format!("cannot compile regexp: {value_}")))?
+                .map_err(|_err| ParseError::InvalidRegex(format!("cannot compile regexp: {value_}")))?
         } else {
             (StringMatchHandler::Literal(key.to_string()), FULL_MATCH_COST)
         };
@@ -286,17 +286,16 @@ impl TagFilters {
         Ok(())
     }
 
-    /// Reset resets the tf
-    pub(crate) fn reset(&mut self) {
-        self.0.clear();
-    }
-
     pub fn match_cost(&self) -> usize {
         self.0.iter().map(|tf| tf.match_cost).sum()
     }
 
     pub fn iter(&self) -> std::slice::Iter<'_, TagFilter> {
         self.0.iter()
+    }
+
+    pub fn reset(&mut self) {
+        self.0.clear();
     }
 }
 

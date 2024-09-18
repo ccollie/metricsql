@@ -413,7 +413,7 @@ impl RollupConfig {
             0 => {}
             1 => {
                 let rfa = &func_args[0];
-                let value = (self.handler).eval(rfa);
+                let value = self.handler.eval(rfa);
                 dst_values.push(value);
             }
             2 => {
@@ -422,8 +422,8 @@ impl RollupConfig {
                 let second = iter.next().unwrap();
                 // todo: only use join if the number of items passes a given threshold
                 let (first_val, second_val) = rayon::join(
-                    || (self.handler).eval(first),
-                    || (self.handler).eval(second),
+                    || self.handler.eval(first),
+                    || self.handler.eval(second),
                 );
                 dst_values.push(first_val);
                 dst_values.push(second_val);
@@ -432,7 +432,7 @@ impl RollupConfig {
                 // todo: only use rayon if the number of items passes a given threshold
                 func_args
                     .par_iter()
-                    .map(|rfa| (self.handler).eval(rfa))
+                    .map(|rfa| self.handler.eval(rfa))
                     .collect_into_vec(dst_values);
             }
         }
@@ -475,7 +475,7 @@ impl RollupConfig {
     }
 }
 
-/// rollup_samples_scanned_per_call contains functions which scan lower number of samples
+/// `rollup_samples_scanned_per_call` contains functions which scan a lower number of samples
 /// than is passed to the rollup func.
 ///
 /// It is expected that the remaining rollupFuncs scan all the samples passed to them.
@@ -539,7 +539,7 @@ fn seek_first_timestamp_idx_after(
     if end_idx < timestamps.len() && timestamps[end_idx] > seek_timestamp {
         timestamps = &timestamps[0..end_idx];
     }
-    if timestamps.len() < 16 {
+    if timestamps.len() < 32 {
         // Fast path: the number of timestamps to provider is small, so scan them all.
         for (i, timestamp) in timestamps.iter().enumerate() {
             if *timestamp > seek_timestamp {
@@ -745,7 +745,7 @@ fn get_rollup_tag(expr: &Expr) -> RuntimeResult<Option<&String>> {
     }
 }
 
-// todo: use in optimize so its cached in the DAG node
+// todo: use in optimize so it's cached in the DAG node
 fn get_rollup_aggr_functions(expr: &Expr) -> RuntimeResult<Vec<RollupFunction>> {
     fn get_func_by_name(name: &str) -> RuntimeResult<RollupFunction> {
         if let Ok(func) = get_rollup_func_by_name(name) {

@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use crate::common::regex_util::tag_filter::{get_regexp_from_cache, TagFilter, TagFilters};
+    use metricsql_common::regex_util::{get_regexp_from_cache};
+    use crate::{TagFilter, TagFilters};
 
     #[test]
     fn test_get_regexp_from_cache() {

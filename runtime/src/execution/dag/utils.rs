@@ -14,7 +14,7 @@ use crate::functions::transform::extract_labels;
 use crate::{RuntimeError, RuntimeResult};
 use crate::types::{InstantVector, QueryValue, Timeseries};
 
-pub(super) fn resolve_value(index: usize, value: &mut QueryValue, computed: &mut [QueryValue]) {
+pub fn resolve_value(index: usize, value: &mut QueryValue, computed: &mut [QueryValue]) {
     // Note: we return values in this particular way because of an optimization in the evaluator.
     // Consider a call like
     //
@@ -36,7 +36,7 @@ pub(super) fn resolve_value(index: usize, value: &mut QueryValue, computed: &mut
     }
 }
 
-pub(super) fn resolve_node_args(
+pub fn resolve_node_args(
     node_args: &[NodeArg],
     args: &mut Vec<QueryValue>,
     computed: &mut [QueryValue],
@@ -49,7 +49,7 @@ pub(super) fn resolve_node_args(
     }
 }
 
-pub(super) fn resolve_vector(
+pub fn resolve_vector(
     index: usize,
     computed: &mut [QueryValue],
 ) -> RuntimeResult<InstantVector> {
@@ -59,10 +59,7 @@ pub(super) fn resolve_vector(
         Ok(std::mem::take(vector))
     } else {
         // todo: argument error
-        Err(RuntimeError::TypeCastError(format!(
-            "expected vector, got {}",
-            dependency.data_type_name()
-        )))
+        Err(RuntimeError::TypeCastError(format!("expected vector, got {}", dependency.data_type_name())))
     }
 }
 
@@ -107,7 +104,7 @@ pub(super) fn get_at_value(value: &QueryValue) -> RuntimeResult<i64> {
     Ok((v * 1000_f64) as i64)
 }
 
-pub(super) fn exec_vector_vector(
+pub fn exec_vector_vector(
     ctx: &Context,
     left: InstantVector,
     right: InstantVector,
@@ -135,7 +132,7 @@ pub(super) fn exec_vector_vector(
     Ok(result)
 }
 
-pub(super) fn expand_single_value(tss: &mut [Timeseries], ec: &EvalConfig) -> RuntimeResult<()> {
+pub fn expand_single_value(tss: &mut [Timeseries], ec: &EvalConfig) -> RuntimeResult<()> {
     // expand single-point tss to the original time range.
     let timestamps = ec.get_timestamps()?;
     for ts in tss.iter_mut() {
@@ -145,7 +142,7 @@ pub(super) fn expand_single_value(tss: &mut [Timeseries], ec: &EvalConfig) -> Ru
     Ok(())
 }
 
-pub(super) fn adjust_series_by_offset(rvs: &mut [Timeseries], offset: i64) {
+pub fn adjust_series_by_offset(rvs: &mut [Timeseries], offset: i64) {
     if offset != 0 && !rvs.is_empty() {
         // Make a copy of timestamps, since they may be used in other values.
         let src_timestamps = &rvs[0].timestamps;
@@ -162,7 +159,7 @@ pub(super) fn adjust_series_by_offset(rvs: &mut [Timeseries], offset: i64) {
 /// Values for returned series are set to nan if at least a single tss series contains nan at that point.
 /// This means that tss contains a series with non-empty results at that point.
 /// This follows Prometheus logic - see https://github.com/VictoriaMetrics/VictoriaMetrics/issues/2130
-pub(super) fn handle_aggregate_absent_over_time(
+pub fn handle_aggregate_absent_over_time(
     ec: &EvalConfig,
     tss: &[Timeseries],
     expr: Option<&MetricExpr>,

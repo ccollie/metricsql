@@ -9,7 +9,6 @@ pub const MAX_VARINT_LEN_32: usize = 5;
 pub const MAX_VARINT_LEN_64: usize = 10;
 
 
-
 /// marshal_fixed_int appends marshaled v to dst and returns the result.
 pub fn marshal_fixed_int<T: FixedInt>(dst: &mut Vec<u8>, v: T) {
     let mut buf = [0_u8; 16];

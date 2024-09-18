@@ -38,10 +38,8 @@ fn op_and(left: f64, right: f64) -> f64 {
 fn op_or(left: f64, right: f64) -> f64 {
     if !left.is_nan() {
         return left
-    } else if !right.is_nan() {
-        return right
     }
-    f64::NAN
+    right
 }
 
 /// gt returns true of left > right

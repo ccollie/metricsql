@@ -153,7 +153,9 @@ impl SubqueryNode {
         )?;
 
         // unconditionally align start and end args to step for subquery as Prometheus does.
-        (ec_sq.start, ec_sq.end) = align_start_end(ec_sq.start, ec_sq.end, ec_sq.step);
+        let (start, end) = align_start_end(ec_sq.start, ec_sq.end, ec_sq.step);
+        ec_sq.start = start;
+        ec_sq.end = end;
 
         let tss_sq = self.exec_expression(ctx, &ec_sq)?;
         if tss_sq.is_empty() {

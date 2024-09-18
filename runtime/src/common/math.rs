@@ -74,8 +74,6 @@ pub(crate) fn mean(values: &[f64]) -> f64 {
 pub(crate) fn stdvar(values: &[f64]) -> f64 {
     // See `Rapid calculation methods` at https://en.wikipedia.org/wiki/Standard_deviation
 
-    // There is no need in handling NaNs here, since they must be cleaned up
-    // before calling rollup fns.
     if values.is_empty() {
         return f64::NAN;
     }

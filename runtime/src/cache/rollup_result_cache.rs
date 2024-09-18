@@ -725,25 +725,21 @@ impl RollupResultCacheMetaInfoEntry {
         self.key.marshal(dst);
     }
 
-    fn unmarshal(src: &[u8]) -> RuntimeResult<(Self, &[u8])> {
-        if src.len() < 8 {
-            return Err(RuntimeError::SerializationError(format!(
-                "cannot unmarshal start from {} bytes; need at least {} bytes",
-                src.len(),
-                8
-            )));
-        }
-
-        let mut src = src;
-        let mut res = Self::default();
-
-        (src, res.start) = read_i64(src, "result cache index start")?;
-        (src, res.end) = read_i64(src, "result cache index end")?;
-
-        (res.key, src) = RollupResultCacheKey::unmarshal(src)?;
-
-        Ok((res, src))
+fn unmarshal(src: &[u8]) -> RuntimeResult<(Self, &[u8])> {
+    if src.len() < 8 {
+        return Err(RuntimeError::SerializationError(format!(
+            "cannot unmarshal start from {} bytes; need at least {} bytes",
+            src.len(),
+            8
+        )));
     }
+
+    let (src, start) = read_i64(src, "result cache index start")?;
+    let (src, end) = read_i64(src, "result cache index end")?;
+    let (key, src) = RollupResultCacheKey::unmarshal(src)?;
+
+    Ok((Self { start, end, key }, src))
+}
 }
 
 /// RollupResultCacheKey must be globally unique across nodes,

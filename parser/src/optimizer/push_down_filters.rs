@@ -12,7 +12,7 @@ use crate::parser::{ParseError, ParseResult};
 use crate::prelude::{can_accept_multiple_args_for_aggr_func, VectorMatchCardinality};
 use metricsql_common::hash::{FastHashSet, HashSetExt};
 
-/// push_down_filters optimizes e in order to improve its performance.
+/// `push_down_filters` optimizes e in order to improve its performance.
 ///
 /// It performs the following optimizations:
 ///

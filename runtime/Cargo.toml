@@ -62,3 +62,6 @@ async-std = ["dep:async-std", "agnostic-lite/async-std"]
 
 [target.'cfg(target_arch = "x86_64")']
 rustflags = ["-C", "target-feature=+bmi1,+bmi2,+avx2"]
+
+[profile.release]
+target-cpu = "native"

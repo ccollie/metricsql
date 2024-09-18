@@ -85,25 +85,29 @@ impl LazyLoader {
 
     // appendTill appends the defined time series to the storage till the given timestamp (in milliseconds).
     fn append_till(&mut self, ts: i64) -> Result<(), Box<dyn Error>> {
-        if let Some(load_cmd) = self.load_cmd.as_mut() {
-            for (h, samples) in load_cmd.defs.iter() {
-                if let Some(m) = load_cmd.metrics.get(h) {
-                    for (i, s) in samples.iter().enumerate() {
-                        if s.timestamp > ts {
-                            // Removing the already added samples.
-                            load_cmd.defs.get_mut(h).unwrap().drain(..i);
-                            break;
-                        }
-                        self.storage.append(m.clone(), s.timestamp, s.value)?;
-                        if i == samples.len() - 1 {
-                            load_cmd.defs.get_mut(h).unwrap().clear();
-                        }
+    if let Some(load_cmd) = self.load_cmd.as_mut() {
+        let defs = &mut load_cmd.defs;
+        for (h, samples) in defs.iter_mut() {
+            if let Some(m) = load_cmd.metrics.get(h) {
+                let mut clear_samples = false;
+                for (i, s) in samples.iter().enumerate() {
+                    if s.timestamp > ts {
+                        samples.drain(..i);
+                        break;
                     }
+                    self.storage.append(m.clone(), s.timestamp, s.value)?;
+                    if i == samples.len() - 1 {
+                        clear_samples = true;
+                    }
+                }
+                if clear_samples {
+                    samples.clear();
                 }
             }
         }
-        Ok(())
     }
+    Ok(())
+}
 
     // WithSamplesTill loads the samples till given timestamp and executes the given function.
     fn with_samples_till<F>(&mut self, ts: Duration, mut fn_: F)

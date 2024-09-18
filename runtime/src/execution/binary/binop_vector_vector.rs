@@ -647,7 +647,7 @@ fn create_series_map_by_tag_set(
     (m_left, m_right)
 }
 
-pub(in crate::execution) fn is_scalar(arg: &[Timeseries]) -> bool {
+fn is_scalar(arg: &[Timeseries]) -> bool {
     arg.len() == 1 && arg[0].metric_name.is_empty()
 }
 

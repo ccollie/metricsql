@@ -398,7 +398,9 @@ fn query_range_handler(
     validate_max_points_per_timeseries(start, end, step, max_points)?;
 
     if params.may_cache {
-        (start, end) = adjust_start_end(start, end, step)
+        let (_start, _end) = adjust_start_end(start, end, step);
+        start = _start;
+        end = _end;
     }
 
     let mut ec = EvalConfig::new(start, end, step);
@@ -425,7 +427,7 @@ fn query_range_handler(
     Ok(result)
 }
 
-/// adjust_last_points substitutes the last point values on the time range (start..end]
+/// `adjust_last_points` substitutes the last point values on the time range (start..end]
 /// with the previous point values, since these points may contain incomplete values.
 fn adjust_last_points(tss: &mut [QueryResult], start: Timestamp, end: Timestamp) {
     for ts in tss.iter_mut() {

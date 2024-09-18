@@ -1,13 +1,9 @@
-use super::hir_utils::{build_hir, get_literal, hir_to_string, is_dot_plus, is_dot_star, is_empty_class, is_literal};
+use super::hir_utils::*;
 use super::match_handlers::{StringMatchHandler, StringMatchOptions};
 use crate::regex_util::Quantifier;
 use regex::{Error as RegexError, Regex};
-use regex_syntax::hir::Class::{Bytes, Unicode};
 use regex_syntax::hir::{Hir, HirKind};
 use regex_syntax::parse as parse_regex;
-
-// Beyond this, it's better to use regexp.
-const MAX_OR_VALUES: usize = 16;
 
 /// remove_start_end_anchors removes '^' at the start of expr and '$' at the end of the expr.
 pub fn remove_start_end_anchors(expr: &str) -> &str {
@@ -23,99 +19,6 @@ pub fn remove_start_end_anchors(expr: &str) -> &str {
         }
     }
     cursor
-}
-
-fn get_or_values_ext(sre: &Hir, dest: &mut Vec<String>) -> bool {
-    use HirKind::*;
-    match sre.kind() {
-        Empty => {
-            dest.push("".to_string());
-            true
-        }
-        Capture(cap) => get_or_values_ext(cap.sub.as_ref(), dest),
-        Literal(literal) => {
-            if let Ok(s) = String::from_utf8(literal.0.to_vec()) {
-                dest.push(s);
-                true
-            } else {
-                false
-            }
-        }
-        Alternation(alt) => {
-            dest.reserve(alt.len());
-            for sub in alt.iter() {
-                let start_count = dest.len();
-                if let Some(literal) = get_literal(sub) {
-                    dest.push(literal);
-                } else if !get_or_values_ext(sub, dest) {
-                    return false;
-                }
-                if dest.len() - start_count > MAX_OR_VALUES {
-                    return false;
-                }
-            }
-            true
-        }
-        Concat(concat) => {
-            let mut prefixes = Vec::with_capacity(MAX_OR_VALUES);
-            if !get_or_values_ext(&concat[0], &mut prefixes) {
-                return false;
-            }
-            let subs = Vec::from(&concat[1..]);
-            let concat = Hir::concat(subs);
-            let prefix_count = prefixes.len();
-            if !get_or_values_ext(&concat, &mut prefixes) {
-                return false;
-            }
-            let suffix_count = prefixes.len() - prefix_count;
-            let additional_capacity = prefix_count * suffix_count;
-            if additional_capacity > MAX_OR_VALUES {
-                // It is cheaper to use regexp here.
-                return false;
-            }
-            dest.reserve(additional_capacity);
-            let (pre, suffixes) = prefixes.split_at(prefix_count);
-            for prefix in pre.iter() {
-                for suffix in suffixes.iter() {
-                    dest.push(format!("{prefix}{suffix}"));
-                }
-            }
-            true
-        }
-        Class(class) => {
-            if let Some(literal) = class.literal() {
-                return if let Ok(s) = String::from_utf8(literal.to_vec()) {
-                    dest.push(s);
-                    true
-                } else {
-                    false
-                };
-            }
-
-            match class {
-                Unicode(uni) => {
-                    for urange in uni.iter().flat_map(|r| r.start()..=r.end()) {
-                        dest.push(format!("{urange}"));
-                        if dest.len() > MAX_OR_VALUES {
-                            // It is cheaper to use regexp here.
-                            return false;
-                        }
-                    }
-                    true
-                }
-                Bytes(bytes) => {
-                    for range in bytes.iter().flat_map(|r| r.start()..=r.end()) {
-                        dest.push(format!("{range}"));
-                        if dest.len() > MAX_OR_VALUES {
-                            return false;
-                        }
-                    }
-                    true
-                }
-            }
-        }
-        _ => false,
-    }
 }
 
 pub fn is_valid_regexp(expr: &str) -> bool {
@@ -275,6 +178,7 @@ fn get_optimized_re_match_func_ext(
         // '.*'
         return Ok(Some((StringMatchHandler::MatchAll, FULL_MATCH_COST)));
     }
+
     if is_dot_plus(sre) {
         // '.+'
         return Ok(Some((StringMatchHandler::NotEmpty, FULL_MATCH_COST)));
@@ -545,7 +449,6 @@ fn get_quantifier(sre: &Hir) -> Option<Quantifier> {
 mod test {
     use super::remove_start_end_anchors;
     use crate::prelude::get_optimized_re_match_func;
-
 
     #[test]
     fn test_remove_start_end_anchors() {
