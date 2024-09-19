@@ -174,13 +174,13 @@ fn new_label_filter(mlf: &BaseLabelFilter) -> RelabelResult<LabelFilter> {
 fn get_filter_op(mlf: &BaseLabelFilter) -> LabelFilterOp {
     if mlf.is_negative() {
         return if mlf.is_regexp() {
-            LabelFilterOp::NotMatchRegexp
+            LabelFilterOp::RegexNotEqual
         } else {
             LabelFilterOp::NotEqual
         };
     }
     if mlf.is_regexp() {
-        LabelFilterOp::MatchRegexp
+        LabelFilterOp::RegexEqual
     } else {
         LabelFilterOp::Equal
     }

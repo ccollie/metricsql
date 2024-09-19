@@ -11,10 +11,10 @@ use crate::parser::{compile_regexp, escape_ident, is_empty_regex, ParseError, Pa
 pub struct LabelFilterExpr {
     pub op: LabelFilterOp,
 
-    /// Label contains label name for the filter.
+    /// Label contains either the label name or the WITH template reference.
     pub label: String,
 
-    /// Value contains unquoted value for the filter.
+    /// Value can be nil if Label contains unexpanded WITH template reference.
     pub value: StringExpr,
 
     is_variable: bool,

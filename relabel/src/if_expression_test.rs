@@ -76,22 +76,22 @@ mod test {
 		check(r#"foo{bar="a" or baz="x"}"#, r#"foo{bar="a"}"#);
 		check(r#"foo{baz="x" or bar="a"}"#, r#"foo{bar="a"}"#);
 		check(r#"foo{bar="a"}"#, r#"foo{x="y",bar="a",baz="b"}"#);
-		check(r#"'{a=~"x|abc",y!="z"}'"#, r#"m{x="aa",a="abc"}"#);
-		check(r#"'{a=~"x|abc",y!="z"}'"#, r#"m{x="aa",a="abc",y="qwe"}"#);
-		check(r#"'{__name__="foo"}'"#, r#"foo{bar="baz"}"#);
-		check(r#"'{__name__=~"foo|bar"}'"#, "bar");
-		check(r#"'{__name__!=""}'"#, "foo");
-		check(r#"'{__name__!=""}'"#, r#"bar{baz="aa",b="c"}"#);
-		check(r#"'{__name__!~"a.+"}'"#, r#"bar{baz="aa",b="c"}"#);
+		check(r#"{a=~"x|abc",y!="z"}"#, r#"m{x="aa",a="abc"}"#);
+		check(r#"{a=~"x|abc",y!="z"}"#, r#"m{x="aa",a="abc",y="qwe"}"#);
+		check(r#"{__name__="foo"}"#, r#"foo{bar="baz"}"#);
+		check(r#"{__name__=~"foo|bar"}"#, "bar");
+		check(r#"{__name__!=""}"#, "foo");
+		check(r#"{__name__!=""}"#, r#"bar{baz="aa",b="c"}"#);
+		check(r#"{__name__!~"a.+"}"#, r#"bar{baz="aa",b="c"}"#);
 		check(r#"foo{a!~"a.+"}"#, r#"foo{a="baa"}"#);
-		check(r#"'{foo=""}'"#, "bar");
-		check(r#"'{foo!=""}'"#, r#"aa{foo="b"}"#);
-		check(r#"'{foo=~".*"}'"#, "abc");
-		check(r#"'{foo=~".*"}'"#, r#"abc{foo="bar"}"#);
-		check(r#"'{foo!~".+"}'"#, "abc");
-		check(r#"'{foo=~"bar|"}'"#, "abc");
-		check(r#"'{foo=~"bar|"}'"#, r#"abc{foo="bar"}"#);
-		check(r#"'{foo!~"bar|"}'"#, r#"abc{foo="baz"}"#);
+		check(r#"{foo=""}"#, "bar");
+		check(r#"{foo!=""}"#, r#"aa{foo="b"}"#);
+		check(r#"{foo=~".*"}"#, "abc");
+		check(r#"{foo=~".*"}"#, r#"abc{foo="bar"}"#);
+		check(r#"{foo!~".+"}"#, "abc");
+		check(r#"{foo=~"bar|"}"#, "abc");
+		check(r#"{foo=~"bar|"}"#, r#"abc{foo="bar"}"#);
+		check(r#"{foo!~"bar|"}"#, r#"abc{foo="baz"}"#);
 	}
 
 	#[test]
@@ -110,16 +110,16 @@ mod test {
 		check(r#"foo{bar="a" or baz="a"}"#, "foo");
 		check(r#"foo{bar="a"}"#, r#"foo{bar="b"}"#);
 		check(r#"foo{bar="a"}"#, r#"foo{baz="b",a="b"}"#);
-		check(r#"'{a=~"x|abc",y!="z"}'"#, r#"m{x="aa",a="xabc"}"#);
-		check(r#"'{a=~"x|abc",y!="z"}'"#, r#"m{x="aa",a="abc",y="z"}"#);
-		check(r#"'{__name__!~".+"}'"#, "foo");
-		check(r#"'{a!~"a.+"}'"#, r#"foo{a="abc"}"#);
-		check(r#"'{foo=""}'"#, r#"bar{foo="aa"}"#);
-		check(r#"'{foo!=""}'"#, "aa");
-		check(r#"'{foo=~".+"}'"#, "abc");
-		check(r#"'{foo!~".+"}'"#, r#"abc{foo="x"}"#);
-		check(r#"'{foo=~"bar|"}'"#, r#"abc{foo="baz"}"#);
-		check(r#"'{foo!~"bar|"}'"#, "abc");
-		check(r#"'{foo!~"bar|"}'"#, r#"abc{foo="bar"}"#);
+		check(r#"{a=~"x|abc",y!="z"}"#, r#"m{x="aa",a="xabc"}"#);
+		check(r#"{a=~"x|abc",y!="z"}"#, r#"m{x="aa",a="abc",y="z"}"#);
+		check(r#"{__name__!~".+"}"#, "foo");
+		check(r#"{a!~"a.+"}"#, r#"foo{a="abc"}"#);
+		check(r#"{foo=""}"#, r#"bar{foo="aa"}"#);
+		check(r#"{foo!=""}"#, "aa");
+		check(r#"{foo=~".+"}"#, "abc");
+		check(r#"{foo!~".+"}"#, r#"abc{foo="x"}"#);
+		check(r#"{foo=~"bar|"}"#, r#"abc{foo="baz"}"#);
+		check(r#"{foo!~"bar|"}"#, "abc");
+		check(r#"{foo!~"bar|"}"#, r#"abc{foo="bar"}"#);
 	}
 }

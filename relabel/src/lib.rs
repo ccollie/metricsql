@@ -1,5 +1,4 @@
 #![feature(lazy_cell)]
-
 mod relabel_config;
 mod if_expression;
 mod relabel;
@@ -12,7 +11,6 @@ mod if_expression_test;
 #[cfg(test)]
 mod relabel_test;
 mod utils;
-
 mod relabel_error;
 
 pub use if_expression::IfExpression;

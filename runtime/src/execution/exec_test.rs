@@ -1715,6 +1715,11 @@ mod tests {
     }
 
     #[test]
+    fn test_and1() {
+        test_query("1 and (0 > 1)", vec![]);
+    }
+
+    #[test]
     fn test_time_unless_time_greater_than_1500() {
         assert_result_eq(
             "time() unless time() > 1500",

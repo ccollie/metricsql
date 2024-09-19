@@ -686,13 +686,13 @@ impl Prettier for DurationExpr {
 ///
 /// `x{job="foo",instance="bar" or job="x",instance="baz"}`
 ///
-/// In this case the filter returns all the series, which match at least one of the following filters:
+/// In this case the filter returns all the series which match at least one of the following filters:
 ///
 /// `x{job="foo",instance="bar"}`
 /// `x{job="x",instance="baz"}`
 ///
-/// This allows using or-delimited list of filters inside rollup functions. For example,
-/// the following query calculates rate per each matching series for the given or-delimited filters:
+/// This allows using or-delimited list of filters inside rollup functions. For example the
+/// following query calculates rate per each matching series for the given or-delimited filters:
 ///
 /// `rate(x{job="foo",instance="bar" or job="x",instance="baz"}[5m])`
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -29,7 +29,7 @@ pub fn new_labels_from_string(metric_with_labels: &str) -> Result<Vec<Label>, St
         .map_err(|err| format!("cannot parse metric selector {:?}: {}", metric_with_labels, err))?;
 
     if strip_dummy_metric {
-        labels.retain(|label| label.name != "dummy_metric");
+        labels.retain(|label| label.value != "dummy_metric");
     }
 
     Ok(labels)

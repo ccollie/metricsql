@@ -9,7 +9,7 @@ use crate::ast::{
 };
 use crate::common::{Value, ValueType};
 use crate::functions::BuiltinFunction;
-use crate::label::NAME_LABEL;
+use crate::label::{LabelFilter, NAME_LABEL};
 
 /// check_ast checks the validity of the provided AST. This includes type checking.
 /// Recursively check correct typing for child nodes and raise errors in case of bad typing.
@@ -199,21 +199,38 @@ fn check_ast_for_rollup(mut ex: RollupExpr) -> Result<Expr, String> {
 }
 
 fn check_ast_for_vector_selector(ex: MetricExpr) -> Result<Expr, String> {
-    match ex.metric_name() {
-        Some(_) => {
-            // make sure metric name is not set twice (to different values)
-            // with OR matching, __name__ can appear multiple times]
-            // ex: {__name__="foo" OR __name__="bar"}
-            // {__name__="a",bar="baz" or __name__="a"}
-            let mut du = ex.find_matchers(NAME_LABEL);
-            if du.len() >= 2 {
-                // this is to ensure that the err information can be predicted with fixed order
-                du.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
-                return Err(format!(
-                    "metric name must not be set twice: '{}' or '{}'",
-                    du[0].label, du[1].label
-                ));
+    // make sure metric name is not set twice (to different values)
+    // with OR matching, __name__ can appear multiple times]
+    // ex: {__name__="foo" OR __name__="bar"}
+    // {__name__="a",bar="baz" or __name__="a"}
+    fn check_duplicate_name_filters(filters: &Vec<LabelFilter>) -> Result<(), String> {
+        if filters.len() >= 2 {
+            let mut name_filters: Vec<_> = filters.iter()
+                .filter_map(|x| if x.label == NAME_LABEL { Some(x) } else { None })
+                .collect();
+
+            if filters.len() < 2 {
+                return Ok(());
+            }
+            // this is to ensure that the err information can be predicted with fixed order
+            name_filters.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+            return Err(format!(
+                "metric name must not be set twice: '{}' or '{}'",
+                name_filters[0].label, name_filters[1].label
+            ));
+        }
+        Ok(())
+    }
+
+    match ex.name {
+        Some(_) => {
+            check_duplicate_name_filters(&ex.matchers.matchers)?;
+            if ex.has_or_matchers() {
+                for filters in ex.matchers.or_matchers.iter() {
+                    check_duplicate_name_filters(filters)?;
+                }
             }
             Ok(Expr::MetricExpression(ex))
         }

@@ -1,58 +1,9 @@
+use metricsql_common::prelude::{Label, StringMatchHandler};
 use std::cmp::Ordering;
 use std::fmt;
 use std::ops::Deref;
-use metricsql_common::prelude::{Label, StringMatchHandler};
-use serde::{Deserialize, Serialize};
 
-// todo: borrow this from metricsql_parser
-#[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Copy, Hash, Serialize, Deserialize,
-)]
-pub enum LabelFilterOp {
-    Equal,
-    NotEqual,
-    MatchRegexp,
-    NotMatchRegexp,
-}
-
-impl LabelFilterOp {
-    pub fn is_regex(&self) -> bool {
-        match self {
-            LabelFilterOp::MatchRegexp | LabelFilterOp::NotMatchRegexp => true,
-            _ => false,
-        }
-    }
-
-    pub fn is_negative(&self) -> bool {
-        match self {
-            LabelFilterOp::NotEqual | LabelFilterOp::NotMatchRegexp => true,
-            _ => false,
-        }
-    }
-}
-
-impl fmt::Display for LabelFilterOp {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            LabelFilterOp::Equal => write!(f, "="),
-            LabelFilterOp::NotEqual => write!(f, "!="),
-            LabelFilterOp::MatchRegexp => write!(f, "=~"),
-            LabelFilterOp::NotMatchRegexp => write!(f, "!~"),
-        }
-    }
-}
-
-impl From<&str> for LabelFilterOp {
-    fn from(s: &str) -> Self {
-        match s {
-            "=" => LabelFilterOp::Equal,
-            "!=" => LabelFilterOp::NotEqual,
-            "=~" => LabelFilterOp::MatchRegexp,
-            "!~" => LabelFilterOp::NotMatchRegexp,
-            _ => panic!("BUG: unexpected operation for label filter: {}", s),
-        }
-    }
-}
+pub type LabelFilterOp = metricsql_parser::label::LabelFilterOp;
 
 
 /// labelFilter contains PromQL filter for `{label op "value"}`
@@ -92,8 +43,8 @@ impl LabelFilter {
         match self.op {
             LabelFilterOp::Equal => self.equal_value(labels),
             LabelFilterOp::NotEqual => !self.equal_value(labels),
-            LabelFilterOp::MatchRegexp => self.match_regexp(labels),
-            LabelFilterOp::NotMatchRegexp => !self.match_regexp(labels),
+            LabelFilterOp::RegexEqual => self.match_regexp(labels),
+            LabelFilterOp::RegexNotEqual => !self.match_regexp(labels),
         }
     }
 
