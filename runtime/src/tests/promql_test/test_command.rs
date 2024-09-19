@@ -38,7 +38,6 @@ pub(crate) struct LoadCmd {
     pub(super) gap: Duration,
     pub(super) metrics: HashMap<Signature, MetricName>,
     pub(super) defs: HashMap<Signature, Vec<Sample>>,
-    with_nhcb: bool,
 }
 
 impl Display for LoadCmd {
@@ -48,12 +47,11 @@ impl Display for LoadCmd {
 }
 
 impl LoadCmd {
-    pub(crate) fn new(gap: Duration, with_nhcb: bool) -> Self {
+    pub(crate) fn new(gap: Duration) -> Self {
         Self {
             gap,
             metrics: HashMap::new(),
             defs: HashMap::new(),
-            with_nhcb,
         }
     }
 

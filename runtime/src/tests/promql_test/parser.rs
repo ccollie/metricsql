@@ -122,7 +122,7 @@ pub fn parse_load(lines: &[String], i: usize) -> Result<(usize, TestCommand), Pa
     let gap_millis = parse_duration_value(step, 1)
         .map_err(|e| raise(i, format!("invalid test definition, failed to parse step: {:?}", e)))?;
     let gap = Duration::from_millis(gap_millis as u64);
-    let mut cmd = LoadCmd::new(gap, with_nhcb);
+    let mut cmd = LoadCmd::new(gap);
     let mut j = i + 1;
     while j < lines.len() {
         let def_line = &lines[j];

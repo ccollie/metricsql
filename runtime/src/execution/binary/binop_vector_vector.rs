@@ -7,7 +7,7 @@ use metricsql_parser::ast::{Operator, VectorMatchCardinality, VectorMatchModifie
 use metricsql_parser::binaryop::{
     get_scalar_binop_handler, get_scalar_comparison_handler, BinopFunc,
 };
-use metricsql_parser::prelude::{BinModifier, MatchingLabels};
+use metricsql_parser::prelude::{BinModifier, Labels};
 
 use crate::execution::utils::remove_empty_series;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
@@ -223,7 +223,7 @@ fn adjust_binary_op_tags(
                         }
                     }
                     Some(VectorMatchModifier::Ignoring(labels)) => Cow::Borrowed(labels),
-                    None => Cow::Owned(MatchingLabels::default()),
+                    None => Cow::Owned(Labels::default()),
                 };
 
                 let mut ts_left = ensure_single_timeseries("left", bfa.op, bfa.modifier, tss_left)?;
@@ -310,7 +310,7 @@ fn group_join(
     tss_right: &mut Vec<Timeseries>,
 ) -> RuntimeResult<()> {
     let empty_prefix = "";
-    let empty_labels = MatchingLabels::default();
+    let empty_labels = Labels::default();
 
     let (join_tags, skip_tags) = if let Some(modifier) = bfa.modifier {
         let join = match &modifier.card {

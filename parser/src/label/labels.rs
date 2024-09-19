@@ -24,9 +24,9 @@ use serde::{Deserialize, Serialize};
 
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Eq)]
-pub struct MatchingLabels(pub(crate) Vec<String>);
+pub struct Labels(pub(crate) Vec<String>);
 
-impl MatchingLabels {
+impl Labels {
     pub fn append(mut self, l: String) -> Self {
         self.0.push(l);
         self
@@ -55,14 +55,14 @@ impl MatchingLabels {
         self.0.is_empty()
     }
 
-    pub fn is_joint(&self, ls: &MatchingLabels) -> bool {
+    pub fn is_joint(&self, ls: &Labels) -> bool {
         let s1: AHashSet<&String> = self.0.iter().collect();
         let s2: AHashSet<&String> = ls.0.iter().collect();
 
         !s1.is_disjoint(&s2)
     }
 
-    pub fn intersect(&self, ls: &MatchingLabels) -> MatchingLabels {
+    pub fn intersect(&self, ls: &Labels) -> Labels {
         let s1: AHashSet<&String> = self.0.iter().collect();
         let s2: AHashSet<&String> = ls.0.iter().collect();
         let labels = s1.intersection(&s2).map(|s| s.to_string()).collect();
@@ -95,8 +95,8 @@ impl MatchingLabels {
     }
 }
 
-impl PartialEq<MatchingLabels> for MatchingLabels {
-    fn eq(&self, other: &MatchingLabels) -> bool {
+impl PartialEq<Labels> for Labels {
+    fn eq(&self, other: &Labels) -> bool {
         let len = self.0.len();
         if len != other.0.len() {
             return false;
@@ -118,7 +118,7 @@ impl PartialEq<MatchingLabels> for MatchingLabels {
     }
 }
 
-impl PartialEq<Vec<String>> for MatchingLabels {
+impl PartialEq<Vec<String>> for Labels {
     fn eq(&self, other: &Vec<String>) -> bool {
         let len = self.0.len();
         if len != other.len() {
@@ -141,7 +141,7 @@ impl PartialEq<Vec<String>> for MatchingLabels {
     }
 }
 
-impl Hash for MatchingLabels {
+impl Hash for Labels {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         let len = self.0.len();
         match len {
@@ -155,7 +155,7 @@ impl Hash for MatchingLabels {
     }
 }
 
-impl FromStr for MatchingLabels {
+impl FromStr for Labels {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -165,7 +165,7 @@ impl FromStr for MatchingLabels {
     }
 }
 
-impl From<Vec<String>> for MatchingLabels {
+impl From<Vec<String>> for Labels {
     fn from(ls: Vec<String>) -> Self {
         let mut labels = ls;
         labels.sort();
@@ -173,13 +173,13 @@ impl From<Vec<String>> for MatchingLabels {
     }
 }
 
-impl AsRef<[String]> for MatchingLabels {
+impl AsRef<[String]> for Labels {
     fn as_ref(&self) -> &[String] {
         self.0.as_slice()
     }
 }
 
-impl fmt::Display for MatchingLabels {
+impl fmt::Display for Labels {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.0.join(", "))
     }

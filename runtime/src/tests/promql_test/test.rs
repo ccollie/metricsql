@@ -408,7 +408,7 @@ fn get_lines(input: &str) -> Vec<String> {
 }
 
 
-// AtModifierUnsafeFunctions are the functions whose result
+// `is_at_modifier_unsafe_functions` are the functions whose result
 // can vary if evaluation time is changed when the arguments are
 // step invariant. It also includes functions that use the timestamps
 // of the passed instant vector argument to calculate a result since
