@@ -440,6 +440,12 @@ impl RollupResultCache {
         let inner = self.inner.lock().unwrap();
         inner.stats.clone()
     }
+
+    pub fn clear(&self) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.cache.clear();
+        inner.stats = Default::default();
+    }
 }
 
 // let resultBufPool = ByteBufferPool
