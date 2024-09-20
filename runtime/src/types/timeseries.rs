@@ -3,11 +3,11 @@ use std::sync::Arc;
 
 use ahash::AHashMap;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-
+use metricsql_common::hash::Signature;
 use metricsql_parser::ast::VectorMatchModifier;
 
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use super::{MetricName, Timestamp, Signature};
+use super::{MetricName, Timestamp};
 
 pub type TimeseriesHashMap = AHashMap<Signature, Vec<Timeseries>>;
 pub type TimeseriesHashMapRef<'a> = AHashMap<Signature, &'a [Timeseries]>;

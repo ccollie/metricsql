@@ -10,10 +10,7 @@ mod traits;
 
 #[cfg(test)]
 mod metric_name_test;
-mod signature;
 #[cfg(test)]
 mod timeseries_test;
-
-pub use signature::Signature;
 
 pub use metricsql_common::label::Label;

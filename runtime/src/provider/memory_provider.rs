@@ -5,13 +5,13 @@ use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
 use itertools::Itertools;
-
+use metricsql_common::hash::Signature;
 use metricsql_parser::prelude::{LabelFilter, Matchers};
 
 use crate::{
     Deadline, MetricStorage, QueryResult, QueryResults, RuntimeResult, SearchQuery,
 };
-use crate::types::{MetricName, Signature};
+use crate::types::{MetricName};
 
 #[derive(Debug, Clone)]
 pub struct Point {

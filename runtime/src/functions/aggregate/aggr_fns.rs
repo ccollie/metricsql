@@ -5,7 +5,7 @@ use std::ops::DerefMut;
 
 use ahash::AHashMap;
 use lockfree_object_pool::LinearReusable;
-
+use metricsql_common::hash::Signature;
 use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_f64_filled};
 use metricsql_parser::ast::AggregateModifier;
 use metricsql_parser::functions::AggregateFunction;
@@ -23,7 +23,7 @@ use crate::functions::utils::{
 };
 use crate::histogram::{get_pooled_histogram, Histogram, NonZeroBucket};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::types::{QueryValue, Signature, Timeseries};
+use crate::types::{QueryValue, Timeseries};
 
 const MAX_SERIES_PER_AGGR_FUNC: usize = 100000;
 

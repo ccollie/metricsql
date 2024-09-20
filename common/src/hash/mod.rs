@@ -23,3 +23,6 @@ mod gxhash;
 mod fast_hash_fallback;
 
 mod no_hash;
+mod signature;
+
+pub use signature::*;

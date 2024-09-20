@@ -14,6 +14,7 @@
 
 //! Label matchers
 
+use metricsql_common::hash::Signature;
 use std::collections::BTreeSet;
 use std::fmt;
 use std::hash::Hash;
@@ -182,5 +183,17 @@ impl AsRef<[String]> for Labels {
 impl fmt::Display for Labels {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.0.join(", "))
+    }
+}
+
+impl From<Labels> for Signature{
+    fn from(labels: Labels) -> Self {
+        Signature::from_vec(&labels.0)
+    }
+}
+
+impl From<&Labels> for Signature {
+    fn from(labels: &Labels) -> Self {
+        Signature::from_iter(labels.0.iter())
     }
 }

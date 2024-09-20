@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use ahash::AHashMap;
-
+use metricsql_common::hash::Signature;
 use metricsql_parser::parser::parse_number;
 
 use crate::execution::merge_non_overlapping_timeseries;
@@ -13,7 +13,6 @@ use crate::functions::transform::utils::{copy_timeseries, is_inf};
 use crate::functions::transform::TransformFuncArg;
 use crate::{RuntimeError, RuntimeResult};
 use crate::types::{
-    Signature,
     MetricName,
     QueryValue,
     Timeseries

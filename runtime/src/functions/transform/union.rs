@@ -1,9 +1,9 @@
 use ahash::AHashSet;
-
+use metricsql_common::hash::Signature;
 use crate::execution::{eval_number, EvalConfig};
 use crate::functions::transform::TransformFuncArg;
 use crate::{RuntimeError, RuntimeResult};
-use crate::types::{QueryValue, Timeseries, Signature };
+use crate::types::{QueryValue, Timeseries };
 
 pub(crate) fn union(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     // we don't use args after this

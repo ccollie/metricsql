@@ -7,10 +7,11 @@ use crate::execution::parser_cache::{ParseCacheResult, ParseCacheValue};
 use crate::execution::EvalConfig;
 use crate::provider::QueryResult;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::types::{QueryValue, Signature, Timeseries};
+use crate::types::{QueryValue, Timeseries};
 use ahash::AHashSet;
 use chrono::Utc;
 use tracing::{field, info, trace_span, Span};
+use metricsql_common::hash::Signature;
 
 pub(crate) fn parse_promql_internal(
     context: &Context,

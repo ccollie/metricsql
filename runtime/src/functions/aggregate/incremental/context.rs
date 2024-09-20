@@ -2,12 +2,12 @@ use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::sync::{Arc, RwLock};
 
 use ahash::AHashMap;
-
+use metricsql_common::hash::Signature;
 use metricsql_parser::ast::AggregationExpr;
 use metricsql_parser::functions::AggregateFunction;
 
 use crate::functions::aggregate::IncrementalAggregationHandler;
-use crate::types::{Timeseries, Signature};
+use crate::types::{Timeseries};
 use crate::{RuntimeError, RuntimeResult};
 
 pub enum IncrementalAggrFuncKind {

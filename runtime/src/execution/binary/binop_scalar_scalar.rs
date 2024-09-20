@@ -11,8 +11,7 @@ pub(crate) fn scalar_binary_operation(
 ) -> RuntimeResult<f64> {
     metricsql_parser::binaryop::scalar_binary_operation(lhs, rhs, op, return_bool).map_err(|_| {
         RuntimeError::NotImplemented(format!(
-            "Unimplemented scalar binary operation: op = {:?}, lhs = {:?}, rhs = {:?}",
-            op, lhs, rhs
+            "Unimplemented scalar binary operation: op = {op}, lhs = {lhs}, rhs = {rhs}",
         ))
     })
 }

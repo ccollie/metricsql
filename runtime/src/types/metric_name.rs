@@ -1,3 +1,4 @@
+use metricsql_common::hash::Signature;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt;
@@ -7,7 +8,6 @@ use std::str::FromStr;
 
 use crate::common::encoding::{read_string, read_usize, write_string, write_usize};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::types::Signature;
 use ahash::{AHashMap, AHashSet};
 use enquote::enquote;
 use metricsql_common::prelude::Label;
@@ -397,7 +397,7 @@ impl MetricName {
     }
 
     pub(crate) fn signature(&self) -> Signature {
-        Signature::new(self)
+        Signature::from_name_and_labels(&self.measurement, self.labels.iter())
     }
 
     pub fn sort_labels(&mut self) {
@@ -408,7 +408,7 @@ impl MetricName {
 
     /// generate a Signature using tags only (excluding the measurement name)
     pub fn labels_signature(&self) -> Signature {
-        Signature::from_labels(self)
+        Signature::from_vec(&self.labels)
     }
 
     /// Compute a signature hash using only the tags passed in `labels`. `metric_group` is ignored.
@@ -424,7 +424,7 @@ impl MetricName {
 
     fn signature_with_labels_internal(&self, name: &str, labels: &[String]) -> Signature {
         let iter = self.labels.iter().filter(|tag| labels.contains(&tag.name));
-        Signature::with_name_and_labels(name, iter)
+        Signature::from_name_and_labels(name, iter)
     }
 
     /// Compute a signature hash ignoring the passed in labels.
@@ -441,12 +441,12 @@ impl MetricName {
     fn signature_without_labels_internal(&self, name: &str, labels: &[String]) -> Signature {
         if labels.is_empty() {
             let iter = self.labels.iter();
-            return Signature::with_name_and_labels(name, iter);
+            return Signature::from_name_and_labels(name, iter);
         }
         let includes_metric_group = labels.iter().any(|x| *x == METRIC_NAME_LABEL);
         let group_name = if includes_metric_group { name } else { "" };
         let iter = self.labels.iter().filter(|tag| !labels.contains(&tag.name));
-        Signature::with_name_and_labels(group_name, iter)
+        Signature::from_name_and_labels(group_name, iter)
     }
 
     /// Calculate signature for the metric name by the given match modifier.
@@ -469,7 +469,7 @@ impl MetricName {
         modifier: &Option<VectorMatchModifier>,
     ) -> Signature {
         match modifier {
-            None => Signature::from_labels(self),
+            None => self.signature(),
             Some(m) => match m {
                 VectorMatchModifier::On(labels) => self.tags_signature_with_labels(labels.as_ref()),
                 VectorMatchModifier::Ignoring(labels) => {

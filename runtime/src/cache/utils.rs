@@ -1,7 +1,8 @@
 use crate::execution::EvalConfig;
-use crate::types::{Signature, Timeseries, Timestamp};
+use crate::types::{Timeseries, Timestamp};
 use ahash::{AHashMap, AHashSet};
 use tracing::{error, info, warn};
+use metricsql_common::hash::Signature;
 
 fn equal_timestamps(a: &[i64], b: &[i64]) -> bool {
     a == b

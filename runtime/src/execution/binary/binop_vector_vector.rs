@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::collections::hash_map::Entry;
 
 use ahash::AHashMap;
-
+use metricsql_common::hash::Signature;
 use metricsql_parser::ast::{Operator, VectorMatchCardinality, VectorMatchModifier};
 use metricsql_parser::binaryop::{
     get_scalar_binop_handler, get_scalar_comparison_handler, BinopFunc,
@@ -13,7 +13,6 @@ use crate::execution::utils::remove_empty_series;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::types::{
     group_series_by_match_modifier,
-    Signature,
     Timeseries,
     InstantVector,
     TimeseriesHashMap,
@@ -141,7 +140,7 @@ fn binary_op_func_impl(bf: BinopFunc, bfa: &mut BinaryOpFuncArg) -> RuntimeResul
     }
 
     // do not remove time series containing only NaNs, since then the `(foo op bar) default N`
-    // won't work as expected if `(foo op bar)` results to NaN series.
+    // won't work as expected if `(foo op bar)` results in NaN series.
     if is_right {
         Ok(right)
     } else {
@@ -158,7 +157,7 @@ fn adjust_binary_op_tags(
     // `vector op vector` or `foo op {on|ignoring} {group_left|group_right} bar`
     let (mut m_left, mut m_right) = create_series_map_by_tag_set(bfa);
 
-    // I think if we wanted we could reuse bfa.left and bfa.right here
+    // TODO: I think if we wanted we could reuse bfa.left and bfa.right here
     let mut rvs_left: Vec<Timeseries> = Vec::with_capacity(4);
     let mut rvs_right: Vec<Timeseries> = Vec::with_capacity(4);
 
@@ -212,7 +211,7 @@ fn adjust_binary_op_tags(
                 let group_tags = match matching {
                     Some(VectorMatchModifier::On(labels)) => {
                         is_on = true;
-                        // Add __name__ to groupTags if metric name must be preserved.
+                        // Add `__name__` to group_tags if metric name must be preserved.
                         if keep_metric_names {
                             let mut changed = labels.clone();
                             changed.push(METRIC_NAME_LABEL.to_string());
@@ -341,9 +340,9 @@ fn group_join(
             ts_left.metric_name.reset_measurement();
         }
 
+        // Easy case - right part contains only a single matching time series.
         if tss_right.len() == 1 {
             let mut right = tss_right.remove(0);
-            // Easy case - right part contains only a single matching time series.
             ts_left.metric_name.set_labels(
                 empty_prefix,
                 join_tags.as_ref(),
@@ -361,7 +360,7 @@ fn group_join(
         map.clear();
 
         for mut ts_right in tss_right.drain(..) {
-            let mut ts_copy = ts_left.clone(); // todo: how to avoid clone ?
+            let mut ts_copy = ts_left.clone(); // todo(perf): how to avoid clone ?
             ts_copy.metric_name.set_labels(
                 empty_prefix,
                 join_tags.as_ref(),

@@ -21,7 +21,8 @@ use std::fmt;
 use std::fmt::Display;
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use crate::types::{MetricName, QueryValue, Signature};
+use metricsql_common::hash::Signature;
+use crate::types::{MetricName, QueryValue};
 
 // Clear command
 #[derive(Debug, Clone)]
