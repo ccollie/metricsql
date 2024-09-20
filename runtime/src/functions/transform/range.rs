@@ -107,21 +107,7 @@ pub(super) fn set_last_values(tfa: &mut TransformFuncArg, tss: &mut Vec<Timeseri
         if last == 0 {
             continue;
         }
-        let mut v_last = ts.values[last];
-
-        if tfa.ec.real_end > 0 {
-            let values = &ts.values[0..last];
-            let timestamps = &ts.timestamps[0..last];
-            for (v, ts) in values.iter().rev().zip(timestamps.iter().rev()) {
-                if v.is_nan() {
-                    continue;
-                }
-                if *ts > tfa.ec.real_end {
-                    continue;
-                }
-                v_last = *v;
-            }
-        }
+        let v_last = ts.values[last];
 
         for v in ts.values[0..last].iter_mut() {
             if !v.is_nan() {

@@ -79,12 +79,6 @@ pub struct EvalConfig {
     pub end: Timestamp,
     pub step: i64, // todo: Duration
 
-    /// real_start contains the original start of the interval when executed in subqueries (because Start can be changed  for subqueries)
-    pub real_start: i64,
-
-    /// real_end contains the original end of the interval when executed in subqueries (because End can be changed for subqueries)
-    pub real_end: i64,
-
     /// `max_series` is the maximum number of time series which can be scanned by the query.
     /// Zero means 'no limit'
     pub max_series: usize,
@@ -143,8 +137,6 @@ impl EvalConfig {
             start: self.start,
             end: self.end,
             step: self.step,
-            real_start: self.real_start,
-            real_end: self.real_end,
             deadline: self.deadline,
             max_series: self.max_series,
             quoted_remote_addr: self.quoted_remote_addr.clone(),
@@ -244,8 +236,6 @@ impl Default for EvalConfig {
             start: 0,
             end: 0,
             step: 0,
-            real_start: 0,
-            real_end: 0,
             max_series: 0,
             quoted_remote_addr: None,
             deadline: Deadline::default(),
@@ -269,7 +259,6 @@ impl Clone for EvalConfig {
             start: self.start,
             end: self.end,
             step: self.step,
-            real_start: self.real_start,
             deadline: self.deadline,
             max_series: self.max_series,
             quoted_remote_addr: self.quoted_remote_addr.clone(),
@@ -281,19 +270,8 @@ impl Clone for EvalConfig {
             no_stale_markers: self.no_stale_markers,
             max_points_per_series: self.max_points_per_series,
             disable_cache: self.disable_cache,
-            real_end: self.real_end,
             disable_implicit_conversion: self.disable_implicit_conversion,
         };
-        if ec.real_start > 0 {
-            ec.real_start = self.real_start
-        } else {
-            ec.real_start = self.start
-        }
-        if ec.real_end > 0 {
-            ec.real_end = self.real_end
-        } else {
-            ec.real_end = self.end
-        }
         ec
     }
 }
