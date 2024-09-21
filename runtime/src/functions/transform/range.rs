@@ -101,7 +101,7 @@ pub(crate) fn range_last(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timese
     Ok(series)
 }
 
-pub(super) fn set_last_values(tfa: &mut TransformFuncArg, tss: &mut Vec<Timeseries>) {
+pub(super) fn set_last_values(_tfa: &mut TransformFuncArg, tss: &mut Vec<Timeseries>) {
     for ts in tss {
         let last = get_last_non_nan_index(&ts.values);
         if last == 0 {

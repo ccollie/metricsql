@@ -128,6 +128,7 @@ impl EvalConfig {
             start,
             end,
             step,
+            no_stale_markers: true,
             ..Default::default()
         }
     }
@@ -255,7 +256,7 @@ impl Default for EvalConfig {
 impl Clone for EvalConfig {
     fn clone(&self) -> Self {
         let timestamps = self.get_timestamps().unwrap_or_else(|_| Arc::new(vec![]));
-        let mut ec = Self {
+        Self {
             start: self.start,
             end: self.end,
             step: self.step,
@@ -271,8 +272,7 @@ impl Clone for EvalConfig {
             max_points_per_series: self.max_points_per_series,
             disable_cache: self.disable_cache,
             disable_implicit_conversion: self.disable_implicit_conversion,
-        };
-        ec
+        }
     }
 }
 

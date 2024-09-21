@@ -352,10 +352,7 @@ pub(crate) fn label_value(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Times
     for ts in series.iter_mut() {
         ts.metric_name.reset_measurement();
         let v = match ts.metric_name.label_value(&label_name) {
-            Some(v) => match v.parse::<f64>() {
-                Ok(v) => v,
-                Err(..) => f64::NAN,
-            },
+            Some(v) => v.parse::<f64>().unwrap_or(f64::NAN),
             None => f64::NAN,
         };
 
@@ -510,8 +507,7 @@ fn get_label<'a>(
 ) -> RuntimeResult<Cow<'a, String>> {
     get_string_arg(&tfa.args, arg_num).map_err(|e| {
         RuntimeError::ArgumentError(format!(
-            "cannot get {} label name from arg #{}: {:?}",
-            name, arg_num, e
+            "cannot get {name} label name from arg #{arg_num}: {:?}", e
         ))
     })
 }

@@ -25,8 +25,8 @@ impl Default for PromRegex {
 
 impl PromRegex {
     pub fn new(expr: &str) -> Result<PromRegex, RegexError> {
-        let (matcher, _) = compile_regexp_anchored(&expr)
-            .map_err(|e| RegexError::Syntax(e))?;
+        let (matcher, _) = compile_regexp_anchored(expr)
+            .map_err(RegexError::Syntax)?;
         let pr = PromRegex {
             matcher,
         };

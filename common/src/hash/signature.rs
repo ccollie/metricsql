@@ -25,7 +25,7 @@ const EMPTY_LIST_SIGNATURE: u64 = 0x9e3779b97f4a7c15;
 const EMPTY_NAME_VALUE: u64 = 0x9e3779b97f4a7c16;
 
 impl Signature {
-    pub fn from_str(s: &str) -> Signature {
+    pub fn new(s: &str) -> Signature {
         let mut hasher = FastHasher::default();
         if !s.is_empty() {
             hasher.write(s.as_bytes());
@@ -97,7 +97,13 @@ impl From<&Vec<String>> for Signature {
 }
 
 impl From<&str> for Signature {
-    fn from(name: &str) -> Self {
-        Signature::from_str(name)
+    fn from(s: &str) -> Self {
+        let mut hasher = FastHasher::default();
+        if !s.is_empty() {
+            hasher.write(s.as_bytes());
+        } else {
+            hasher.write_u64(EMPTY_NAME_VALUE);
+        }
+        Signature(hasher.finish())
     }
 }

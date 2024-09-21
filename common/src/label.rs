@@ -5,7 +5,7 @@ use get_size::GetSize;
 use integer_encoding::VarInt;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, Ord, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[derive(GetSize)]
 pub struct Label {
     pub name: String,
@@ -65,7 +65,7 @@ fn write_string(buf: &mut Vec<u8>, s: &str) {
     }
 }
 
-fn read_string<'a>(slice: &'a [u8]) -> (&'a str, &'a [u8]) {
+fn read_string(slice: &[u8]) -> (&str, &[u8]) {
     let (len, n) = u64::decode_var(slice).unwrap();
     let len = len as usize;
     let tail = &slice[n..];

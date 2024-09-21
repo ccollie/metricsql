@@ -4,7 +4,6 @@ use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 use get_size::GetSize;
 use lru_time_cache::LruCache;
 use crate::prelude::{get_optimized_re_match_func, EMPTY_MATCH_COST};
-use crate::prelude::StringMatchHandler::{Empty, MatchAll, MatchNone, NotEmpty};
 use super::StringMatchHandler;
 
 // todo: read from env
@@ -150,7 +149,7 @@ pub fn compile_regexp_anchored(expr: &str) -> Result<(StringMatchHandler, usize)
 
 fn compile_regexp_ex(expr: &str) -> Result<RegexpCacheValue, String> {
     let (matcher, cost) =
-        get_optimized_re_match_func(&expr)
+        get_optimized_re_match_func(expr)
             .map_err(|_| {
                 format!("cannot build regexp from {}", expr)
             })?;

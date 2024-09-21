@@ -26,10 +26,10 @@ pub fn hir_to_string(sre: &Hir) -> String {
         }
         HirKind::Alternation(alternate) => {
             // avoid extra allocation if it's all literal
-            if alternate.iter().all(|hir| is_literal(hir)) {
+            if alternate.iter().all(is_literal) {
                 return alternate
                     .iter()
-                    .map(|hir| hir_to_string(hir))
+                    .map(hir_to_string)
                     .collect::<Vec<_>>()
                     .join("|")
             }
@@ -68,13 +68,13 @@ pub fn is_dot_star(sre: &Hir) -> bool {
     match sre.kind() {
         HirKind::Capture(cap) => is_dot_star(cap.sub.as_ref()),
         HirKind::Alternation(alternate) => {
-            alternate.iter().any(|re_sub| is_dot_star(re_sub))
+            alternate.iter().any(is_dot_star)
         }
         HirKind::Repetition(repetition) => {
             repetition.min == 0 &&
                 repetition.max.is_none() &&
-                repetition.greedy == true &&
-                sre.properties().is_literal() == false
+                repetition.greedy &&
+                !sre.properties().is_literal()
         }
         _ => false,
     }
@@ -84,13 +84,13 @@ pub fn is_dot_plus(sre: &Hir) -> bool {
     match sre.kind() {
         HirKind::Capture(cap) => is_dot_plus(cap.sub.as_ref()),
         HirKind::Alternation(alternate) => {
-            alternate.iter().any(|re_sub| is_dot_plus(re_sub))
+            alternate.iter().any(is_dot_plus)
         }
         HirKind::Repetition(repetition) => {
             repetition.min == 1 &&
                 repetition.max.is_none() &&
-                repetition.greedy == true &&
-                sre.properties().is_literal() == false
+                repetition.greedy &&
+                !sre.properties().is_literal()
         }
         _ => false,
     }

@@ -94,12 +94,9 @@ impl TagFilter {
 
         if is_regexp {
             // expression may have been simplified
-            match &matcher {
-                StringMatchHandler::Literal(literal) => {
-                   is_regexp = false;
-                    value_ = &literal;
-                }
-                _ => {}
+            if let StringMatchHandler::Literal(literal) = &matcher {
+               is_regexp = false;
+                value_ = literal;
             }
         }
 
@@ -328,7 +325,7 @@ pub fn create_label_filter_matchers(matchers: &Matchers) -> ParseResult<LabelFil
     let mut result = LabelFilterVec::new();
     if !matchers.or_matchers.is_empty() {
         for label_filters in matchers.or_matchers.iter() {
-            let filters = filters_from_vec(&label_filters)?;
+            let filters = filters_from_vec(label_filters)?;
             result.push(filters);
         }
     }
