@@ -34,13 +34,13 @@ use crate::functions::transform::math::{
 };
 use crate::functions::transform::rand::{rand, rand_exp, rand_norm};
 use crate::functions::transform::range::{
-    range_avg, range_first, range_last, range_linear_regression, range_max, range_median,
-    range_min, range_normalize, range_ru, range_stddev, range_stdvar, range_sum,
-    range_trim_outliers, range_trim_spikes, range_trim_zscore, range_zscore,
-    transform_range_quantile,
+    range_mad, range_avg, range_first, range_last, range_linear_regression, range_max, range_median,
+    range_min, range_normalize, range_stddev, range_stdvar, range_sum, range_trim_outliers,
+    range_trim_spikes, range_trim_zscore, range_zscore, transform_range_quantile
 };
 use crate::functions::transform::remove_resets::remove_resets;
 use crate::functions::transform::round::round;
+use crate::functions::transform::ru::transform_ru;
 use crate::functions::transform::running::{running_avg, running_max, running_min, running_sum};
 use crate::functions::transform::scalar::scalar;
 use crate::functions::transform::smooth_exponential::smooth_exponential;
@@ -82,10 +82,11 @@ mod transform_test;
 mod union;
 mod utils;
 mod vector;
+mod ru;
 
 pub struct TransformFuncArg<'a> {
     pub ec: &'a EvalConfig,
-    pub args: Vec<QueryValue>,
+    pub args: Vec<QueryValue>, // todo: SmallVec
     pub keep_metric_names: bool,
 }
 
@@ -186,6 +187,7 @@ const fn get_transform_func(f: TransformFunction) -> TransformFuncHandler {
         RangeFirst => range_first,
         RangeLast => range_last,
         RangeLinearRegression => range_linear_regression,
+        RangeMAD => range_mad,
         RangeMax => range_max,
         RangeMedian => range_median,
         RangeMin => range_min,
@@ -200,7 +202,7 @@ const fn get_transform_func(f: TransformFunction) -> TransformFuncHandler {
         RangeZScore => range_zscore,
         RemoveResets => remove_resets,
         Round => round,
-        Ru => range_ru,
+        Ru => transform_ru,
         RunningAvg => running_avg,
         RunningMax => running_max,
         RunningMin => running_min,
