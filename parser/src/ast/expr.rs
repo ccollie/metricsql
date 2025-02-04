@@ -129,11 +129,11 @@ impl BinModifier {
                  (Some(labels), Some(matching)) if !labels.is_joint(matching.labels()))
     }
 
-    pub fn intersect_labels(&self) -> Option<Vec<String>> {
+    pub fn intersect_labels(&self) -> Option<Labels> {
         if let Some(labels) = self.card.labels() {
             if let Some(matching) = &self.matching {
                 let res = labels.intersect(matching.labels());
-                return Some(res.0);
+                return Some(res);
             }
         };
         None
@@ -1356,7 +1356,7 @@ impl BinaryExpr {
     }
 
     /// intersect labels of card and matching
-    pub fn intersect_labels(&self) -> Option<Vec<String>> {
+    pub fn intersect_labels(&self) -> Option<Labels> {
         self.modifier
             .as_ref()
             .and_then(|modifier| modifier.intersect_labels())

@@ -24,7 +24,7 @@ use ahash::AHashSet;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Eq)]
-pub struct Labels(pub(crate) Vec<String>);
+pub struct Labels(Vec<String>);
 
 impl Labels {
     pub fn append(mut self, l: String) -> Self {
@@ -101,6 +101,10 @@ impl Labels {
 
     pub fn get_label(&self, key: &str) -> Option<&String> {
         self.0.iter().find(|l| *l == key)
+    }
+    
+    pub fn into_vec(self) -> Vec<String> {
+        self.0.to_vec()
     }
 }
 

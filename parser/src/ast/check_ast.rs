@@ -93,7 +93,8 @@ fn check_ast_for_binary_expr(mut ex: BinaryExpr) -> Result<Expr, String> {
     // Every time series of the result vector must be uniquely identifiable.
     if ex.is_matching_on() && ex.is_labels_joint() {
         if let Some(labels) = ex.intersect_labels() {
-            if let Some(label) = labels.first() {
+            let slice = labels.as_ref();
+            if let Some(label) = slice.first() {
                 return Err(format!(
                     "label '{label}' must not occur in ON and GROUP clause at once",
                 ));
