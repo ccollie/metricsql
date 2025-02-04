@@ -1,7 +1,6 @@
 use std::fmt::Display;
 use thiserror::Error;
 
-
 pub type ProviderResult<T> = Result<T, ProviderError>;
 
 #[derive(Debug, PartialEq, Clone, Error)]

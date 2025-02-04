@@ -361,27 +361,26 @@ impl Display for Token {
     }
 }
 
-pub(crate) const IDENT_LIKE_TOKENS: &[Token] =
-    &[
-        Token::By,
-        Token::Bool,
-        Token::OpDefault,
-        Token::GroupLeft,
-        Token::GroupRight,
-        Token::Ignoring,
-        Token::KeepMetricNames,
-        Token::Identifier,
-        Token::Limit,
-        Token::On,
-        Token::Offset,
-        Token::Without,
-        Token::OpAnd,
-        Token::OpAtan2,
-        Token::OpIf,
-        Token::OpIfNot,
-        Token::OpOr,
-        Token::OpUnless,
-    ];
+pub(crate) const IDENT_LIKE_TOKENS: &[Token] = &[
+    Token::By,
+    Token::Bool,
+    Token::OpDefault,
+    Token::GroupLeft,
+    Token::GroupRight,
+    Token::Ignoring,
+    Token::KeepMetricNames,
+    Token::Identifier,
+    Token::Limit,
+    Token::On,
+    Token::Offset,
+    Token::Without,
+    Token::OpAnd,
+    Token::OpAtan2,
+    Token::OpIf,
+    Token::OpIfNot,
+    Token::OpOr,
+    Token::OpUnless,
+];
 
 #[cfg(test)]
 mod tests {
@@ -538,8 +537,8 @@ mod tests {
         // Numbers
         let s = r"3+1.2-.23+4.5e5-78e-6+1.24e+45-NaN+Inf";
         let expected = vec![
-            "3", "+", "1.2", "-.23", "+", "4.5e5", "-", "78e-6", "+", "1.24e+45", "-", "NaN",
-            "+", "Inf",
+            "3", "+", "1.2", "-.23", "+", "4.5e5", "-", "78e-6", "+", "1.24e+45", "-", "NaN", "+",
+            "Inf",
         ];
         test_success(s, &expected);
 
@@ -791,8 +790,6 @@ mod tests {
         ];
         test_success(s, &expected);
     }
-
-
 
     #[test]
     fn binary_op() {

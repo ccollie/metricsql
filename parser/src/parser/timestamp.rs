@@ -18,7 +18,7 @@ pub fn parse_timestamp(s: &str) -> ParseResult<i64> {
 }
 
 
-/// parse_numeric_timestamp parses timestamp at s in seconds, milliseconds, microseconds or nanoseconds.
+/// `parse_numeric_timestamp` parses timestamp at s in seconds, milliseconds, microseconds or nanoseconds.
 ///
 /// It returns milliseconds for the parsed timestamp.
 pub fn parse_numeric_timestamp(s: &str) -> Result<i64, Box<dyn std::error::Error>> {
