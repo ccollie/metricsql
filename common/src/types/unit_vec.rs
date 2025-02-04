@@ -29,7 +29,6 @@ use std::fmt::{Debug, Formatter};
 use std::num::NonZeroUsize;
 use std::ops::{Deref, DerefMut};
 use std::{fmt, ptr};
-pub type IdxVec = UnitVec<usize>;
 
 /// A type logically equivalent to `Vec<T>`, but which does not do a
 /// memory allocation until at least two elements have been pushed, storing the
@@ -348,6 +347,13 @@ impl<T> UnitVec<T> {
     }
 }
 
+impl<T: Ord> UnitVec<T> {
+    pub fn sort(&mut self) {
+        let mut items = self.as_mut_slice();
+        items.sort_unstable();
+    }
+}
+
 impl<T> Extend<T> for UnitVec<T> {
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
         let iter = iter.into_iter();
@@ -371,7 +377,7 @@ impl<T> Clone for UnitVec<T> {
                 Self { ..*self }
             } else {
                 let mut copy = Self::with_capacity(self.len);
-                std::ptr::copy(self.data_ptr(), copy.data_ptr_mut(), self.len);
+                ptr::copy(self.data_ptr(), copy.data_ptr_mut(), self.len);
                 copy.len = self.len;
                 copy
             }
@@ -390,7 +396,7 @@ impl<T> Default for UnitVec<T> {
         Self {
             len: 0,
             capacity: NonZeroUsize::new(1).unwrap(),
-            data: std::ptr::null_mut(),
+            data: ptr::null_mut(),
         }
     }
 }
@@ -497,7 +503,7 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for UnitVec<T> {
         impl<'de, T: Deserialize<'de>> Visitor<'de> for UnitVecVisitor<T> {
             type Value = UnitVec<T>;
 
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, formatter: &mut Formatter) -> fmt::Result {
                 formatter.write_str("a sequence")
             }
 
@@ -618,5 +624,12 @@ mod tests {
         let data = "[]";
         let deserialized: UnitVec<i32> = serde_json::from_str(data).unwrap();
         assert_eq!(deserialized, UnitVec::new());
+    }
+
+    #[test]
+    fn test_sort_unitvec() {
+        let mut vec: UnitVec<usize>/* Type */ = unitvec![3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5];
+        vec.sort();
+        assert_eq!(vec.as_slice(), &[1, 1, 2, 3, 3, 4, 5, 5, 5, 6, 9]);
     }
 }
