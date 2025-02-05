@@ -93,6 +93,7 @@ mod tests {
             .put_series(&ec, &fe, window, &tss)
             .expect("error putting to cache");
         let (tss, new_start) = cache.get_series(&ec, &fe, window).unwrap();
+
         assert_eq!(
             new_start, 1400,
             "unexpected new_start; got {}; want {}",

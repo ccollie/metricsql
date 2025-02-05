@@ -46,7 +46,7 @@ pub fn parse(input: &str) -> ParseResult<Expr> {
     check_ast(expr).map_err(|err| ParseError::General(err.to_string()))
 }
 
-/// Parse a string representing a metric selector expression e,g. 
+/// Parse a string representing a metric selector expression e.g. latency{service="auth", status~="400|500"} 
 pub fn parse_metric_selector(input: &str) -> ParseResult<Matchers> {
     let mut parser = Parser::new(input)?;
     match parse_expression(&mut parser) {

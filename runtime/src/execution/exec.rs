@@ -334,7 +334,10 @@ pub fn eval_expr(ctx: &Context, ec: &EvalConfig, expr: &Expr) -> RuntimeResult<Q
         }
         Expr::Function(fe) => eval_function(ctx, ec, expr, fe),
         Expr::UnaryOperator(ue) => eval_unary_op(ctx, ec, ue),
-        _ => Err(RuntimeError::NotImplemented(format!("No handler for {:?}", expr))),
+        _ => Err(RuntimeError::NotImplemented(format!(
+            "No handler for {:?}",
+            expr
+        ))),
     }
 }
 

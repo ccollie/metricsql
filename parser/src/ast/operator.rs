@@ -30,8 +30,9 @@ pub enum Operator {
     Unless,
 }
 
-fn lookup_operator_internal(key: &[u8]) -> Option<Operator> {
-    hashify::tiny_map! { key,
+pub fn lookup_operator(key: &str) -> Option<Operator> {
+    hashify::tiny_map_ignore_case! { 
+        key.as_bytes(),
         "+" => Operator::Add,
         "-" => Operator::Sub,
         "*" => Operator::Mul,
@@ -62,21 +63,6 @@ fn lookup_operator_internal(key: &[u8]) -> Option<Operator> {
     }
 }
 
-pub fn lookup_operator(op: &str) -> Option<Operator> {
-    if let Some(ch) = op.chars().next() {
-        if !ch.is_alphabetic() {
-            lookup_operator_internal(op.as_bytes())
-        } else {
-            // slight optimization - don't lowercase if not needed (save allocation)
-            lookup_operator_internal(op.as_bytes()).or_else(|| {
-                let lower = op.to_ascii_lowercase();
-                lookup_operator_internal(lower.as_bytes())
-            })
-        }
-    } else {
-        None
-    }
-}
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum BinaryOpKind {
@@ -228,10 +214,7 @@ impl TryFrom<Token> for Operator {
             Token::OpPow => Ok(Operator::Pow),
             Token::OpUnless => Ok(Operator::Unless),
             Token::OpPlus => Ok(Operator::Add),
-            _ => Err(ParseError::General(format!(
-                "Unknown binary op {:?}",
-                token
-            ))),
+            _ => Err(ParseError::General(format!("Unknown binary op {token}"))),
         }
     }
 }

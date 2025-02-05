@@ -349,7 +349,7 @@ impl<T> UnitVec<T> {
 
 impl<T: Ord> UnitVec<T> {
     pub fn sort(&mut self) {
-        let mut items = self.as_mut_slice();
+        let items = self.as_mut_slice();
         items.sort_unstable();
     }
 }

@@ -1,4 +1,4 @@
-use super::{MetricName, Timestamp};
+use super::{MetricName, Sample, Timestamp};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use metricsql_common::hash::{IntMap, Signature};
 use metricsql_common::prelude::humanize_duration;
@@ -62,6 +62,23 @@ impl Timeseries {
 
     pub fn signature(&self) -> Signature {
         self.metric_name.signature()
+    }
+
+    pub fn get_range(&self, start: Timestamp, end: Timestamp) -> Vec<Sample> {
+        if self.is_empty() {
+            return vec![];
+        }
+        let first = self.timestamps[0];
+        let last = self.timestamps.last().unwrap();
+        if start < first || end > *last {
+            return vec![];
+        }
+        self.values
+            .iter().cloned()
+            .zip(self.timestamps.iter().cloned())
+            .filter(|(_, t)| *t >= start && *t <= end)
+            .map(|(v, t)| Sample::new(t, v))
+            .collect::<Vec<_>>()
     }
 }
 

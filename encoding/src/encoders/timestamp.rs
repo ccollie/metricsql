@@ -85,7 +85,7 @@ pub fn encode(src: &[i64], dst: &mut Vec<u8>) -> Result<(), Box<dyn Error>> {
 
     // first 4 high bits used for encoding type
     dst.push((Encoding::Simple8b as u8) << 4);
-    dst[0] |= ((div as f64).log10()) as u8; // 4 low bits used for log10 divisor
+    dst[0] |= (div as f64).log10() as u8; // 4 low bits used for log10 divisor
     dst.extend_from_slice(&deltas[0].to_be_bytes()); // encode first value
     simple8b::encode(&deltas[1..], dst)
 }
@@ -97,11 +97,11 @@ fn i64_to_u64_vector(src: &[i64]) -> Vec<u64> {
     src.iter().map(|x| *x as u64).collect::<Vec<u64>>()
 }
 
-// encode_rle encodes the value v, delta and count into dst.
-//
-// v should be the first element of a sequence, delta the difference that each
-// value in the sequence differs by, and count the total number of values in the
-// sequence.
+/// `encode_rle` encodes the value v, delta and count into dst.
+///
+/// v should be the first element of a sequence, delta the difference that each
+/// value in the sequence differs by, and count the total number of values in the
+/// sequence.
 fn encode_rle(v: u64, delta: u64, count: u64, dst: &mut Vec<u8>) {
     use super::MAX_VAR_INT_64;
 
@@ -126,7 +126,7 @@ fn encode_rle(v: u64, delta: u64, count: u64, dst: &mut Vec<u8>) {
     if div > 1 {
         // calculate and store the number of trailing 0s in the divisor.
         // e.g., 100_000 would be stored as 5.
-        let scaler = ((div as f64).log10()) as u8;
+        let scaler = (div as f64).log10() as u8;
         assert!(scaler <= 15);
 
         dst[0] |= scaler; // Set the scaler on low 4 bits of first byte.
@@ -324,7 +324,7 @@ mod tests {
             },
         ];
 
-        for test in tests {
+        for test in tests.into_iter() {
             let mut dst = vec![];
             let src = test.input.clone();
             let exp = test.input;
