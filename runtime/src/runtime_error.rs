@@ -39,6 +39,8 @@ pub enum RuntimeError {
     Internal(String),
     #[error("{0}")]
     ResourcesExhausted(String),
+    #[error("Provider error fetching series: {0}")]
+    ProviderError(String),
     #[error("{0}")]
     NotImplemented(String),
     #[error("Cannot optimize expression: {0}")]

@@ -1,22 +1,17 @@
-use super::index_key::{get_key_for_label_prefix, IndexKey};
+use super::index_key::{format_key_for_label_value, format_key_for_metric_name, get_key_for_label_prefix, IndexKey};
 use super::provider_error::{ProviderError, ProviderResult};
-use metricsql_common::hash::{FastHashSet, HashSetExt, IntMap};
+use crate::types::{MetricName, METRIC_NAME_LABEL};
+use metricsql_common::hash::{FastHashSet, HashSetExt};
 use metricsql_parser::label::{Label, MatchOp, Matcher, Matchers};
 use smallvec::SmallVec;
 use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::ops::ControlFlow;
-use crate::types::{MetricName, METRIC_NAME_LABEL};
 
-// todo: move to config
-pub const OPTIMIZE_CHANGE_THRESHOLD: usize = 1000;
 
 pub type SeriesRef = u64;
 pub(crate) use croaring::Bitmap64 as IdBitmap;
-
-
-/// Type for the key of the index. Use instead of `String` because Valkey keys are binary safe not utf8 safe.
-pub type KeyType = Box<[u8]>;
+use enquote::enquote;
 
 // label
 // label=value
@@ -24,59 +19,72 @@ pub type ARTBitmap = blart::TreeMap<IndexKey, IdBitmap>;
 
 #[derive(Clone, Default, Debug)]
 pub struct MemoryPostings {
-    /// Map from timeseries id to postings ref.
-    pub(super) id_to_key: IntMap<SeriesRef, KeyType>,
+    all_postings: IdBitmap,
     /// Map from label name and (label name,  label value) to set of timeseries ids.
-    pub label_index: ARTBitmap,
-    pub label_count: usize,
+    label_index: ARTBitmap,
+    label_count: usize,
 }
 
 impl MemoryPostings {
-    pub fn new() -> MemoryPostings {
+    pub fn new() -> Self {
         MemoryPostings {
-            id_to_key: Default::default(),
+            all_postings: Default::default(),
             label_index: Default::default(),
-            label_count: 0,
+            label_count: 0
         }
     }
 
     pub(crate) fn clear(&mut self) {
-        self.id_to_key.clear();
+        self.all_postings.clear();
         self.label_index.clear();
         self.label_count = 0;
     }
 
-    pub fn index_time_series(&mut self, id: SeriesRef, metric_name: &MetricName) {
+    pub fn label_index(&mut self) -> &ARTBitmap {
+        &self.label_index
+    }
+
+    pub fn label_count(&self) -> usize {
+        self.label_count
+    }
+
+    pub fn add_posting(&mut self, id: SeriesRef, metric_name: &MetricName) {
         debug_assert!(id != 0);
         
         if !metric_name.measurement.is_empty() {
-            self.index_series_by_label(id, METRIC_NAME_LABEL, &metric_name.measurement);
+            self.add_posting_for_label_value(id, METRIC_NAME_LABEL, &metric_name.measurement);
         }
 
         for Label { name, value } in metric_name.labels.iter() {
-            self.index_series_by_label(id, name, value);
+            self.add_posting_for_label_value(id, name, value);
         }
+        
+        self.all_postings.add(id)
     }
 
-    pub fn reindex_timeseries(&mut self, id: SeriesRef, metric_name: &MetricName) {
-        self.remove_series_by_id(id, &metric_name.measurement, &metric_name.labels);
-        self.index_time_series(id, &metric_name);
+    pub fn reindex_posting(&mut self, id: SeriesRef, metric_name: &MetricName) {
+        self.remove_posting_by_id_and_labels(id, &metric_name.measurement, &metric_name.labels);
+        self.add_posting(id, &metric_name);
+    }
+    
+    pub fn has_posting(&self, id: SeriesRef) -> bool {
+        self.all_postings.contains(id)
+    }
+    
+    pub fn remove_posting(&mut self, id: SeriesRef, metric_name: &MetricName) {
+        self.remove_posting_by_id_and_labels(id, &metric_name.measurement, &metric_name.labels)
     }
 
-    pub fn remove_series(&mut self, id: SeriesRef, metric_name: &MetricName) {
-        self.remove_series_by_id(id, &metric_name.measurement, &metric_name.labels);
-    }
-
-    pub(crate) fn remove_series_by_id(
+    fn remove_posting_by_id_and_labels(
         &mut self,
         id: SeriesRef,
         metric_name: &str,
         labels: &[Label],
     ) {
-        self.id_to_key.remove(&id);
+        self.all_postings.remove(id);
         // should never happen, but just in case
         if metric_name.is_empty() && labels.is_empty() {
-            return;
+            return
         }
 
         if !metric_name.is_empty() {
@@ -88,20 +96,16 @@ impl MemoryPostings {
         }
     }
 
-    fn index_series_by_metric_name(&mut self, ts_id: SeriesRef, metric_name: &str) {
-        self.index_series_by_label(ts_id, METRIC_NAME_LABEL, metric_name);
-    }
-
-    fn has_label(&self, label: &str) -> bool {
+    pub fn has_label(&self, label: &str) -> bool {
         let prefix = get_key_for_label_prefix(label);
         self.label_index.prefix(prefix.as_bytes()).next().is_some()
     }
 
-    pub fn add_posting_for_label_value(
+    fn add_posting_for_label_value(
         &mut self,
+        ts_id: SeriesRef,
         label: &str,
         value: &str,
-        ts_id: SeriesRef,
     ) -> bool {
         let key = IndexKey::for_label_value(label, value);
         let result = if let Some(bmp) = self.label_index.get_mut(&key) {
@@ -126,8 +130,12 @@ impl MemoryPostings {
         result
     }
 
-    pub fn index_series_by_label(&mut self, ts_id: SeriesRef, label: &str, value: &str) {
-        self.add_posting_for_label_value(label, value, ts_id);
+    fn index_posting_by_label(&mut self, ts_id: SeriesRef, label: &str, value: &str) -> ProviderResult<()> {
+        if !self.all_postings.contains(ts_id) {
+            return Err(ProviderError::MissingPostingInIndex)
+        }
+        self.add_posting_for_label_value(ts_id, label, value);
+        Ok(())
     }
 
     fn remove_posting_for_label_value(&mut self, label: &str, value: &str, ts_id: SeriesRef) {
@@ -144,13 +152,13 @@ impl MemoryPostings {
     }
 
     /// Returns a list of all series matching `matchers`
-    pub fn series_refs_by_matchers(&self, matchers: &Matchers) -> ProviderResult<Cow<IdBitmap>> {
+    pub fn postings_for_matchers(&self, matchers: &Matchers) -> ProviderResult<Cow<IdBitmap>> {
         if matchers.is_empty() {
             // ??
-            return Ok(Cow::Owned(self.all_postings()));
+            return Ok(Cow::Borrowed(&self.all_postings));
         }
         if !matchers.matchers.is_empty() {
-            return self.postings_for_matchers(&matchers.matchers);
+            return self.postings_for_matchers_slice(&matchers.matchers);
         }
 
         if !matchers.or_matchers.is_empty() {
@@ -160,7 +168,7 @@ impl MemoryPostings {
             } else {
                 let mut acc = IdBitmap::new();
                 for filter in matchers.or_matchers.iter() {
-                    let postings = self.postings_for_matchers(filter)?;
+                    let postings = self.postings_for_matchers_slice(filter)?;
                     acc.or_inplace(&postings);
                 }
                 Ok(Cow::Owned(acc))
@@ -171,12 +179,12 @@ impl MemoryPostings {
     }
 
     /// `postings_for_matchers` assembles a single postings iterator against the index
-    /// based on the given matchers. The resulting postings are not ordered by series.
-    pub fn postings_for_matchers(&self, ms: &[Matcher]) -> ProviderResult<Cow<IdBitmap>> {
+    /// based on the given matchers. The resulting postings are not ordered by series. 
+    fn postings_for_matchers_slice(&self, ms: &[Matcher]) -> ProviderResult<Cow<IdBitmap>> {
         if ms.len() == 1 {
             let m = &ms[0];
             if m.label.is_empty() && m.label.is_empty() {
-                return Ok(Cow::Owned(self.all_postings()));
+                return Ok(Cow::Borrowed(&self.all_postings));
             }
         }
 
@@ -206,7 +214,7 @@ impl MemoryPostings {
             // If there's nothing to subtract from, add in everything and remove the not_its later.
             // We prefer to get all_postings so that the base of subtraction (i.e. all_postings)
             // doesn't include series that may be added to the index reader during this function call.
-            self.all_postings()
+            self.all_postings.clone()
         } else {
             IdBitmap::new()
         };
@@ -319,26 +327,11 @@ impl MemoryPostings {
         result
     }
 
-    pub fn all_postings(&self) -> IdBitmap {
-        const BUFFER_SIZE: usize = 64;
-        let mut result = IdBitmap::new();
-        // use chunks to minimize ffi calls
-        let mut id_chunk: [SeriesRef; BUFFER_SIZE] = [0; BUFFER_SIZE];
-        let mut len = 0;
-        for id in self.id_to_key.keys().copied() {
-            id_chunk[len] = id;
-            len += 1;
-            if len % BUFFER_SIZE == 0 {
-                result.add_many(&id_chunk);
-                len = 0;
-            }
-        }
-        if len > 0 {
-            result.add_many(&id_chunk[0..len]);
-        }
-        result
+    pub fn all_postings(&self) -> &IdBitmap {
+        &self.all_postings
     }
-
+    
+    
     /// `postings` returns the postings list iterator for the label pairs.
     /// The postings here contain the ids to the series inside the index.
     pub fn postings(&self, name: &str, values: &[String]) -> IdBitmap {
@@ -396,7 +389,7 @@ impl MemoryPostings {
 
     pub fn postings_for_matcher(&self, m: &Matcher) -> Cow<IdBitmap> {
         if m.label.is_empty() && m.value.is_empty() {
-            return Cow::Owned(self.all_postings());
+            return Cow::Borrowed(&self.all_postings);
         }
         if m.op == MatchOp::Equal {
             return self.postings_for_label_value(&m.label, &m.value);
@@ -453,7 +446,7 @@ impl MemoryPostings {
             return Ok(all_values);
         }
 
-        let p = self.postings_for_matchers(matchers)?;
+        let p = self.postings_for_matchers_slice(matchers)?;
 
         all_values.retain(|v| {
             let postings = self.postings_for_label_value(name, v);
@@ -479,6 +472,48 @@ impl MemoryPostings {
         values
     }
 
+    /// This exists primarily to ensure that we disallow duplicate metric names
+    pub fn posting_by_name_and_labels(
+        &self,
+        metric: &str,
+        labels: &[Label],
+    ) -> ProviderResult<Option<SeriesRef>> {
+        let mut key: String = String::new();
+        format_key_for_metric_name(&mut key, metric);
+        if let Some(measurement_bmp) = self.label_index.get(key.as_bytes()) {
+            let mut first = true;
+            let mut acc = IdBitmap::new();
+            for label in labels.iter() {
+                format_key_for_label_value(&mut key, &label.name, &label.value);
+                if let Some(bmp) = self.label_index.get(key.as_bytes()) {
+                    if bmp.is_empty() {
+                        break;
+                    }
+                    if first {
+                        acc = measurement_bmp.and(bmp);
+                        first = false;
+                    } else {
+                        acc.and_inplace(bmp);
+                    }
+                }
+            }
+            match acc.cardinality() {
+                0 => Ok(None),
+                1 => Ok(acc.iter().next()),
+                _ => {
+                    let metric_name = format_prometheus_metric_name(metric, labels);
+                    Err(ProviderError::DuplicatePostingInIndex(metric_name))
+                }
+            }
+        } else {
+            Ok(None)
+        }
+    }
+    
+    pub fn posting_for_metric(&self, metric: &MetricName) -> ProviderResult<Option<SeriesRef>> {
+        self.posting_by_name_and_labels(&metric.measurement, &metric.labels)
+    }
+    
     pub fn process_label_values<T, CONTEXT, F, PRED>(
         &self,
         label: &str,
@@ -568,11 +603,11 @@ fn run_or_matchers_parallel<'a>(
 
     match matchers {
         [] => Ok(Cow::Owned(IdBitmap::new())),
-        [matchers] => label_index.postings_for_matchers(matchers),
+        [matchers] => label_index.postings_for_matchers_slice(matchers),
         [m1, m2] => {
             let (r1, r2) = scope.join(
-                |_| label_index.postings_for_matchers(m1),
-                |_| label_index.postings_for_matchers(m2),
+                |_| label_index.postings_for_matchers_slice(m1),
+                |_| label_index.postings_for_matchers_slice(m2),
             );
             let mut r1 = r1?.into_owned();
             let r2 = r2?;
@@ -581,11 +616,11 @@ fn run_or_matchers_parallel<'a>(
         }
         [m1, m2, m3] => {
             let (x, (y, z)) = scope.join(
-                |_| label_index.postings_for_matchers(m1),
+                |_| label_index.postings_for_matchers_slice(m1),
                 |s2| {
                     s2.join(
-                        |_| label_index.postings_for_matchers(m2),
-                        |_| label_index.postings_for_matchers(m3),
+                        |_| label_index.postings_for_matchers_slice(m2),
+                        |_| label_index.postings_for_matchers_slice(m3),
                     )
                 },
             );
@@ -599,12 +634,12 @@ fn run_or_matchers_parallel<'a>(
         [m1, m2, m3, m4] => {
             let ((w, x), (y, z)) = scope.join(
                 |s1| s1.join(
-                    |_| label_index.postings_for_matchers(m1),
-                    |_| label_index.postings_for_matchers(m2),
+                    |_| label_index.postings_for_matchers_slice(m1),
+                    |_| label_index.postings_for_matchers_slice(m2),
                 ),
                 |s2| { s2.join(
-                        |_| label_index.postings_for_matchers(m3),
-                        |_| label_index.postings_for_matchers(m4),
+                    |_| label_index.postings_for_matchers_slice(m3),
+                    |_| label_index.postings_for_matchers_slice(m4),
                     )
                 },
             );
@@ -629,5 +664,40 @@ fn run_or_matchers_parallel<'a>(
             left_results.or_inplace(&right_results);
             Ok(Cow::Owned(left_results))
         }
+    }
+}
+
+// Note - assumes that labels is sorted
+fn format_prometheus_metric_name(name: &str, labels: &[Label]) -> String {
+    let size_hint = name.len()
+        + labels
+        .iter()
+        .map(|l| l.name.len() + l.value.len() + 3)
+        .sum::<usize>();
+    let mut full_name: String = String::with_capacity(size_hint);
+    format_prometheus_metric_name_into(&mut full_name, name, labels);
+    full_name
+}
+
+fn format_prometheus_metric_name_into(full_name: &mut String, name: &str, labels: &[Label]) {
+    full_name.push_str(name);
+    if !labels.is_empty() {
+        full_name.push('{');
+        for (i, label) in labels.iter().enumerate() {
+            full_name.push_str(&label.name);
+            full_name.push_str("=\"");
+            // avoid allocation if possible
+            if label.value.contains('"') {
+                let quoted_value = enquote('\"', &label.value);
+                full_name.push_str(&quoted_value);
+            } else {
+                full_name.push_str(&label.value);
+            }
+            full_name.push('"');
+            if i < labels.len() - 1 {
+                full_name.push(',');
+            }
+        }
+        full_name.push('}');
     }
 }

@@ -109,38 +109,35 @@ impl Borrow<[u8]> for IndexKey {
     }
 }
 
-pub fn format_key_for_label_prefix(dest: &mut String, label_name: &str) {
+pub(super) fn format_key_for_label_prefix(dest: &mut String, label_name: &str) {
     dest.clear();
     // Safety: according to the source, write! does not panic
     write!(dest, "{label_name}=").expect("write! macro failed");
 }
 
-pub fn format_key_for_label_value(dest: &mut String, label_name: &str, value: &str) {
+pub(super) fn format_key_for_label_value(dest: &mut String, label_name: &str, value: &str) {
     dest.clear();
     // according to https://github.com/rust-lang/rust/blob/1.47.0/library/alloc/src/string.rs#L2414-L2427
     // write! will not return an Err, so the unwrap is safe
     write!(dest, "{label_name}={value}\0").expect("write! macro failed");
 }
 
-pub fn format_key_for_metric_name(dest: &mut String, metric_name: &str) {
+pub(super) fn format_key_for_metric_name(dest: &mut String, metric_name: &str) {
     format_key_for_label_value(dest, METRIC_NAME_LABEL, metric_name);
 }
 
-pub fn get_key_for_label_prefix(label_name: &str) -> String {
+pub(super) fn get_key_for_label_prefix(label_name: &str) -> String {
     let mut value = String::with_capacity(label_name.len() + 1);
     format_key_for_label_prefix(&mut value, label_name);
     value
 }
 
-pub fn get_key_for_label_value(label_name: &str, value: &str) -> String {
+pub(super) fn get_key_for_label_value(label_name: &str, value: &str) -> String {
     let mut res = String::with_capacity(label_name.len() + value.len() + 1);
     format_key_for_label_value(&mut res, label_name, value);
     res
 }
 
-pub fn get_key_for_metric_name(metric_name: &str) -> String {
-    get_key_for_label_value(METRIC_NAME_LABEL, metric_name)
-}
 
 #[cfg(test)]
 mod tests {

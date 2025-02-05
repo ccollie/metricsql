@@ -1,17 +1,22 @@
 use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
-use std::ops::Deref;
-use std::sync::{Arc, RwLock};
+use std::sync::RwLock;
 
 use async_trait::async_trait;
 use metricsql_common::hash::Signature;
 use metricsql_parser::prelude::{Matcher, Matchers};
 
-use crate::{
-    Deadline, MetricStorage, QueryResult, QueryResults, RuntimeResult, SearchQuery,
-};
 use crate::prelude::MemoryPostings;
-use crate::types::{MetricName};
+use crate::types::MetricName;
+use crate::{
+    Deadline, 
+    MetricStorage,
+    QueryResult,
+    QueryResults,
+    RuntimeError,
+    RuntimeResult,
+    SearchQuery
+};
 
 #[derive(Debug, Clone)]
 pub struct Point {
@@ -34,37 +39,50 @@ pub struct MemoryMetricProvider {
 
 #[derive(Default, Debug, Clone)]
 struct Storage {
-    labels_hash: BTreeMap<Signature, Arc<MetricName>>,
-    sample_values: BTreeMap<Signature, Vec<Point>>,
+    series: BTreeMap<Signature, (MetricName, Vec<Point>)>,
     postings: MemoryPostings
 }
 
 impl Storage {
-    fn append(&mut self, labels: MetricName, t: i64, v: f64) -> RuntimeResult<()> {
+    pub fn append(&mut self, labels: MetricName, t: i64, v: f64) -> RuntimeResult<()> {
         let h = labels.signature();
-        match self.labels_hash.entry(h) {
-            Entry::Vacant(e) => {
-                let metric = Arc::new(labels);
-                e.insert(metric);
-                self.sample_values.insert(h, vec![Point { t, v }]);
-            }
-            Entry::Occupied(_) => {
-                let values = self.sample_values.entry(h).or_default();
-                values.push(Point { t, v });
-            }
+        let id: u64 = h.into();
+        match self.series.entry(h) {
+            Entry::Vacant(entry) => {
+                self.postings.add_posting(id, &labels);
+                entry.insert((labels, vec![Point { t, v }]));
+            },
+            Entry::Occupied(mut entry) => {
+                entry.get_mut().1.push(Point { t, v });
+            },
         }
         Ok(())
     }
 
     pub fn search(&self, start: i64, end: i64, filters: &Matchers) -> RuntimeResult<QueryResults> {
         let mut results: Vec<QueryResult> = vec![];
-        // todo: handle or
-        for (k, labels) in &self.labels_hash {
-            for matchers in filters.iter() {
-                if matches_filters(labels, matchers) {
-                    if let Some(res) = self.get_range(*k, start, end) {
-                        results.push(res)
+        let found = self.postings.postings_for_matchers(filters)
+            .map_err(|_| RuntimeError::ProviderError(filters.to_string()))?;
+
+        for id in found.iter() {
+            let signature = Signature::from(id);
+            if let Some((metric_name, data)) = self.series.get(&signature) {
+                if let Some(first_idx) = find_first_index(&data, start) {
+                    let mut last_idx = first_idx;
+                    while last_idx < data.len() {
+                        if data[last_idx].t > end {
+                            break;
+                        }
+                        last_idx += 1;
                     }
+                    let samples = &data[first_idx..=last_idx];
+                    let values = samples.iter().map(|x| x.v).collect();
+                    let timestamps = samples.iter().map(|x| x.t).collect();
+                    results.push(QueryResult {
+                        metric: metric_name.clone(),
+                        values,
+                        timestamps
+                    });
                 }
             }
         }
@@ -72,44 +90,9 @@ impl Storage {
         Ok(QueryResults::new(results))
     }
 
-    fn get_range(&self, metric_id: Signature, start: i64, end: i64) -> Option<QueryResult> {
-        if let Some(values) = self.sample_values.get(&metric_id) {
-            if let Some(start) = find_first_index(values, start) {
-                let points = &mut values[start..]
-                    .iter()
-                    .filter(|p| p.t <= end)
-                    .collect::<Vec<_>>();
-
-                points.sort_by(|a, b| a.t.cmp(&b.t));
-
-                let mut timestamps = Vec::with_capacity(points.len());
-                let mut values = Vec::with_capacity(points.len());
-
-                for point in points {
-                    timestamps.push(point.t);
-                    values.push(point.v);
-                }
-
-                let metric_name = if let Some(mn) = self.labels_hash.get(&metric_id) {
-                    let copy: MetricName = mn.deref().clone();
-                    copy
-                } else {
-                    MetricName::default()
-                };
-
-                return Some(QueryResult {
-                    metric: metric_name,
-                    values,
-                    timestamps,
-                });
-            }
-        }
-        None
-    }
-
     fn clear(&mut self) {
-        self.labels_hash.clear();
-        self.sample_values.clear();
+        self.series.clear();
+        self.postings.clear();
     }
 }
 
@@ -117,8 +100,7 @@ impl MemoryMetricProvider {
     pub fn new() -> Self {
         Self {
             inner: RwLock::new(Storage {
-                labels_hash: Default::default(),
-                sample_values: Default::default(),
+                series: Default::default(),
                 postings: MemoryPostings::new(),
             }),
         }
@@ -161,16 +143,6 @@ impl MetricStorage for MemoryMetricProvider {
     }
 }
 
-fn matches_filter(mn: &MetricName, filter: &Matcher) -> bool {
-    if let Some(v) = mn.label_value(filter.label.as_str()) {
-        return filter.matches(v);
-    }
-    false
-}
-
-fn matches_filters(mn: &MetricName, filters: &[Matcher]) -> bool {
-    filters.iter().all(|f| matches_filter(mn, f))
-}
 
 fn find_first_index(range_values: &[Point], ts: i64) -> Option<usize> {
     // Find the index of the first item where `range.start <= key`.
@@ -183,6 +155,22 @@ fn find_first_index(range_values: &[Point], ts: i64) -> Option<usize> {
         Err(index) => index.checked_sub(1),
     }
 }
+
+
+pub fn find_last_ge_index<T: Ord>(arr: &[T], val: &T) -> usize {
+    if arr.len() <= 16 {
+        return arr.iter().rposition(|x| val >= x).map_or(0, |idx| {
+            if arr[idx] > *val {
+                idx.saturating_sub(1)
+            } else {
+                idx
+            }
+        });
+    }
+    arr.binary_search(val)
+        .unwrap_or_else(|x| x.saturating_sub(1))
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -197,8 +185,10 @@ mod tests {
         labels.add_label("foo", "bar");
         provider.append(labels.clone(), 1, 1.0).unwrap();
 
+        let signature = labels.signature();
+        let id: u64 = signature.into();
         let inner = provider.inner.read().unwrap();
-        assert!(inner.labels_hash.contains_key(&labels.signature()));
+        assert!(inner.postings.has_posting(id));
     }
 
     #[test]
@@ -210,10 +200,13 @@ mod tests {
         provider.append(labels.clone(), 2, 2.0).unwrap();
 
         let inner = provider.inner.read().unwrap();
-        assert_eq!(
-            inner.sample_values.get(&labels.signature()).unwrap().len(),
-            2
-        );
+        
+        let signature = labels.signature();
+        if let Some((_, data)) = inner.series.get(&signature) {
+            assert_eq!(data.len(), 2);
+        } else {
+            panic!("No data found for metric: {:?}", labels);
+        }
     }
 
     #[test]

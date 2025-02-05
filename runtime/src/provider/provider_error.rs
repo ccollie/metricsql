@@ -1,4 +1,3 @@
-use std::fmt::Display;
 use thiserror::Error;
 
 pub type ProviderResult<T> = Result<T, ProviderError>;
@@ -11,6 +10,10 @@ pub enum ProviderError {
     MissingMatcher,
     #[error("Error fetching postings")]
     PostingFetchError,
+    #[error("Missing posting in index")]
+    MissingPostingInIndex,
+    #[error("Duplicate posting in index for metric: \"{0}\"")]
+    DuplicatePostingInIndex(String),
     #[error("{0}")]
     General(String),
     #[error("Deadline exceeded: {0}")]
