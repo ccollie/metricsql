@@ -22,6 +22,8 @@ pub enum ProviderError {
     TaskCancelledError(String),
     #[error("Duplicate output series: {0}")]
     DuplicateOutputSeries(String),
+    #[error("Posting serialization error: {0}")]
+    PostingSerializationError(String),
     #[error("The response contains more than {max_series} series: found {found_series};")]
     MaxSeriesExceeded {
         found_series: usize,

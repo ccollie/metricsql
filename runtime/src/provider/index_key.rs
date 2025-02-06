@@ -1,4 +1,4 @@
-use blart::AsBytes;
+use blart::{AsBytes, NoPrefixesBytes};
 use std::borrow::Borrow;
 use std::fmt::Display;
 use std::fmt::Write;
@@ -109,6 +109,8 @@ impl Borrow<[u8]> for IndexKey {
         self.as_bytes()
     }
 }
+
+unsafe impl NoPrefixesBytes for IndexKey {}
 
 pub(super) fn format_key_for_label_prefix(dest: &mut String, label_name: &str) {
     dest.clear();

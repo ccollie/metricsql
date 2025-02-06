@@ -14,6 +14,7 @@ pub struct PostingsStats {
     pub label_value_stats: Vec<PostingStat>,
     pub label_value_pairs_stats: Vec<PostingStat>,
     pub num_label_pairs: usize,
+    pub num_labels: usize,
 }
 
 impl PostingsStats {
@@ -24,6 +25,7 @@ impl PostingsStats {
             label_value_stats: Vec::new(),
             label_value_pairs_stats: Vec::new(),
             num_label_pairs: 0,
+            num_labels: 0,
         }
     }
 }

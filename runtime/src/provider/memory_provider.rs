@@ -4,7 +4,7 @@ use std::sync::RwLock;
 
 use async_trait::async_trait;
 use metricsql_common::hash::Signature;
-use metricsql_parser::prelude::{Matcher, Matchers};
+use metricsql_parser::prelude::{Matchers};
 
 use crate::prelude::MemoryPostings;
 use crate::types::MetricName;
@@ -44,6 +44,13 @@ struct Storage {
 }
 
 impl Storage {
+    pub fn new() -> Self {
+        Storage {
+            series: BTreeMap::new(),
+            postings: MemoryPostings::new(),
+        }
+    }
+    
     pub fn append(&mut self, labels: MetricName, t: i64, v: f64) -> RuntimeResult<()> {
         let h = labels.signature();
         let id: u64 = h.into();
@@ -158,6 +165,7 @@ fn find_first_index(range_values: &[Point], ts: i64) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
+    use metricsql_parser::label::Matcher;
     use crate::types::MetricName;
 
     use super::*;
