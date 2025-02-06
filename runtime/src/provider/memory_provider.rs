@@ -156,22 +156,6 @@ fn find_first_index(range_values: &[Point], ts: i64) -> Option<usize> {
     }
 }
 
-
-pub fn find_last_ge_index<T: Ord>(arr: &[T], val: &T) -> usize {
-    if arr.len() <= 16 {
-        return arr.iter().rposition(|x| val >= x).map_or(0, |idx| {
-            if arr[idx] > *val {
-                idx.saturating_sub(1)
-            } else {
-                idx
-            }
-        });
-    }
-    arr.binary_search(val)
-        .unwrap_or_else(|x| x.saturating_sub(1))
-}
-
-
 #[cfg(test)]
 mod tests {
     use crate::types::MetricName;

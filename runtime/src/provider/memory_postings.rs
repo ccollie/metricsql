@@ -1,21 +1,31 @@
-use super::index_key::{format_key_for_label_value, format_key_for_metric_name, get_key_for_label_prefix, IndexKey};
+use super::index_key::{
+    format_key_for_label_value, 
+    format_key_for_metric_name, 
+    get_key_for_label_prefix, 
+    IndexKey
+};
 use super::provider_error::{ProviderError, ProviderResult};
 use crate::types::{MetricName, METRIC_NAME_LABEL};
-use metricsql_common::hash::{FastHashSet, HashSetExt};
+use metricsql_common::hash::{FastHashMap, FastHashSet, HashSetExt};
 use metricsql_parser::label::{Label, MatchOp, Matcher, Matchers};
 use smallvec::SmallVec;
 use std::borrow::Cow;
 use std::cmp::Ordering;
+use std::collections::BTreeSet;
+use std::collections::hash_map::Entry;
 use std::ops::ControlFlow;
-
+use ahash::HashMapExt;
 
 pub type SeriesRef = u64;
 pub(crate) use croaring::Bitmap64 as IdBitmap;
 use enquote::enquote;
+use get_size::GetSize;
+use super::posting_stats::{PostingStat, PostingsStats, StatsMaxHeap};
 
 // label
 // label=value
 pub type ARTBitmap = blart::TreeMap<IndexKey, IdBitmap>;
+
 
 #[derive(Clone, Default, Debug)]
 pub struct MemoryPostings {
@@ -34,7 +44,7 @@ impl MemoryPostings {
         }
     }
 
-    pub(crate) fn clear(&mut self) {
+    pub fn clear(&mut self) {
         self.all_postings.clear();
         self.label_index.clear();
         self.label_count = 0;
@@ -70,7 +80,7 @@ impl MemoryPostings {
     pub fn has_posting(&self, id: SeriesRef) -> bool {
         self.all_postings.contains(id)
     }
-    
+
     pub fn remove_posting(&mut self, id: SeriesRef, metric_name: &MetricName) {
         self.remove_posting_by_id_and_labels(id, &metric_name.measurement, &metric_name.labels)
     }
@@ -420,7 +430,7 @@ impl MemoryPostings {
         Cow::Owned(self.postings_for_matcher_internal(m, false))
     }
 
-    pub fn label_values_with_matchers(
+    pub fn label_values_for_matcher_slice(
         &self,
         name: &str,
         matchers: &[Matcher],
@@ -456,6 +466,20 @@ impl MemoryPostings {
         Ok(all_values)
     }
 
+    /// label_names returns all the unique label names.
+    pub fn label_names(&self) -> Vec<String> {
+        let mut set: BTreeSet<String> = BTreeSet::new();
+        for key in self.label_index.keys() {
+            if let Some((label, _)) = key.split() {
+                if !label.is_empty() {
+                    set.insert(label.to_string());
+                }
+            }
+        }
+        set.into_iter().collect()
+    }
+
+
     pub fn label_values(&self, name: &str) -> Vec<String> {
         let mut values = Vec::new();
         self.process_label_values(
@@ -470,6 +494,28 @@ impl MemoryPostings {
         values.sort();
 
         values
+    }
+
+    pub fn label_values_for_matchers(
+        &self,
+        name: &str,
+        matchers: &Matchers,
+    ) -> ProviderResult<Vec<String>> {
+        if !matchers.matchers.is_empty() {
+            return self.label_values_for_matcher_slice(name, &matchers.matchers);
+        }
+
+        if !matchers.or_matchers.is_empty() {
+            let mut set = BTreeSet::new();
+            for filter in matchers.or_matchers.iter() {
+                let result = self.label_values_for_matcher_slice(name, filter)?;
+                set.extend(result);
+            }
+            let result = set.into_iter().collect();
+            Ok(result)
+        } else {
+            Ok(vec![])
+        }
     }
 
     /// This exists primarily to ensure that we disallow duplicate metric names
@@ -509,11 +555,11 @@ impl MemoryPostings {
             Ok(None)
         }
     }
-    
+
     pub fn posting_for_metric(&self, metric: &MetricName) -> ProviderResult<Option<SeriesRef>> {
         self.posting_by_name_and_labels(&metric.measurement, &metric.labels)
     }
-    
+
     pub fn process_label_values<T, CONTEXT, F, PRED>(
         &self,
         label: &str,
@@ -539,6 +585,63 @@ impl MemoryPostings {
             }
         }
         None
+    }
+
+    pub fn stats(&self, label: &str, limit: usize) -> PostingsStats {
+        
+        #[derive(Clone, Copy)]
+        struct SizeAccumulator {
+            size: usize,
+            count: u64,
+        }
+
+        let mut count_map: FastHashMap<&str, SizeAccumulator> = FastHashMap::with_capacity(self.label_count);
+        let mut metrics = StatsMaxHeap::new(limit);
+        let mut labels = StatsMaxHeap::new(limit);
+        let mut label_value_length = StatsMaxHeap::new(limit);
+        let mut label_value_pairs = StatsMaxHeap::new(limit);
+        let mut num_label_pairs = 0;
+        
+        for (key, bitmap) in self.label_index.iter() {
+            let count = bitmap.cardinality();
+            if let Some((name, value)) = key.split() {
+                let size = key.get_size() + get_bitmap_size(bitmap);
+                match count_map.entry(name) {
+                    Entry::Occupied(mut entry) => {
+                        let acc = entry.get_mut();
+                        acc.count += count;
+                        acc.size += size;
+                    }
+                    Entry::Vacant(entry) => {
+                        let acc = SizeAccumulator {
+                            size,
+                            count,
+                        };
+                        entry.insert(acc);
+                    }
+                }
+                
+                label_value_pairs.push(PostingStat { name: format!("{}={}", name, value), count });
+                num_label_pairs += 1;
+                
+                if label == name {
+                    metrics.push(PostingStat { name: name.to_string(), count });                    
+                }
+            }
+        }
+        
+        for (name, v) in count_map {
+            labels.push(PostingStat { name: name.to_string(), count: v.count });
+            label_value_length.push(PostingStat { name: name.to_string(), count: v.size as u64 });
+        }
+
+        PostingsStats {
+            cardinality_metrics_stats: metrics.into_vec(),
+            cardinality_label_stats: labels.into_vec(),
+            label_value_stats: label_value_length.into_vec(),
+            label_value_pairs_stats: label_value_pairs.into_vec(),
+            num_label_pairs,
+        }
     }
 }
 
@@ -700,4 +803,8 @@ fn format_prometheus_metric_name_into(full_name: &mut String, name: &str, labels
         }
         full_name.push('}');
     }
+}
+
+fn get_bitmap_size(bmp: &IdBitmap) -> usize {
+    bmp.cardinality() as usize * size_of::<SeriesRef>()
 }

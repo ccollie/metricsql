@@ -3,9 +3,10 @@ use std::borrow::Borrow;
 use std::fmt::Display;
 use std::fmt::Write;
 use std::ops::Deref;
+use get_size::GetSize;
 use crate::types::METRIC_NAME_LABEL;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, GetSize)]
 pub struct IndexKey(Box<[u8]>);
 
 const SENTINEL: u8 = 0;
