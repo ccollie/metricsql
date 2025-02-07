@@ -24,25 +24,26 @@ use std::sync::LazyLock;
 
 pub type SeriesRef = u64;
 use super::posting_stats::{PostingStat, PostingsStats, StatsMaxHeap};
-pub(crate) use croaring::Bitmap64 as IdBitmap;
 use croaring::Portable;
 use enquote::enquote;
 use get_size::GetSize;
 use integer_encoding::{VarIntReader, VarIntWriter};
+use itertools::Itertools;
 
 const ALL_POSTINGS_KEY: &str = "$_ALL_P0STINGS_";
-static EMPTY_BITMAP: LazyLock<IdBitmap> = LazyLock::new(|| IdBitmap::new());
+static EMPTY_BITMAP: LazyLock<PostingsBitmap> = LazyLock::new(|| PostingsBitmap::new());
 
+pub type PostingsBitmap = croaring::Bitmap64;
 // label
 // label=value
-pub type ARTBitmap = TreeMap<IndexKey, IdBitmap>;
+pub type PostingsIndex = TreeMap<IndexKey, PostingsBitmap>;
 
 
 #[derive(Clone, Debug)]
 pub struct MemoryPostings {
     all_postings_key: IndexKey,
     /// Map from label name and (label name,  label value) to set of timeseries ids.
-    label_index: ARTBitmap,
+    label_index: PostingsIndex,
 }
 
 impl Default for MemoryPostings {
@@ -53,10 +54,10 @@ impl Default for MemoryPostings {
 
 impl MemoryPostings {
     pub fn new() -> Self {
-        let mut index: ARTBitmap = Default::default();
+        let mut index: PostingsIndex = Default::default();
         let all_postings_key = IndexKey::from(ALL_POSTINGS_KEY);
 
-        index.insert(all_postings_key.clone(), IdBitmap::default());
+        index.insert(all_postings_key.clone(), PostingsBitmap::default());
         MemoryPostings {
             all_postings_key,
             label_index: index,
@@ -67,7 +68,7 @@ impl MemoryPostings {
         self.label_index.clear();
     }
 
-    pub fn label_index(&mut self) -> &ARTBitmap {
+    pub fn label_index(&mut self) -> &PostingsIndex {
         &self.label_index
     }
 
@@ -138,7 +139,7 @@ impl MemoryPostings {
                 false
             }
             ARTEntry::Vacant(entry) => {
-                let mut bmp = IdBitmap::new();
+                let mut bmp = PostingsBitmap::new();
                 bmp.add(ts_id);
                 entry.insert(bmp);
                 true
@@ -157,7 +158,7 @@ impl MemoryPostings {
     }
 
     /// Returns a list of all series matching `matchers`
-    pub fn postings_for_matchers(&self, matchers: &Matchers) -> ProviderResult<Cow<IdBitmap>> {
+    pub fn postings_for_matchers(&self, matchers: &Matchers) -> ProviderResult<Cow<PostingsBitmap>> {
         if matchers.is_empty() {
             // ??
             return Ok(Cow::Borrowed(self.all_postings()));
@@ -171,7 +172,7 @@ impl MemoryPostings {
             if parallelize {
                 run_or_matchers_parallel(self, &matchers.or_matchers)
             } else {
-                let mut acc = IdBitmap::new();
+                let mut acc = PostingsBitmap::new();
                 for filter in matchers.or_matchers.iter() {
                     let postings = self.postings_for_matchers_slice(filter)?;
                     acc.or_inplace(&postings);
@@ -185,7 +186,7 @@ impl MemoryPostings {
 
     /// `postings_for_matchers` assembles a single postings iterator against the index
     /// based on the given matchers. The resulting postings are not ordered by series. 
-    fn postings_for_matchers_slice(&self, ms: &[Matcher]) -> ProviderResult<Cow<IdBitmap>> {
+    fn postings_for_matchers_slice(&self, ms: &[Matcher]) -> ProviderResult<Cow<PostingsBitmap>> {
         if ms.len() == 1 {
             let m = &ms[0];
             if m.label.is_empty() && m.label.is_empty() {
@@ -194,7 +195,7 @@ impl MemoryPostings {
         }
 
         let mut sorted_matchers: SmallVec<(&Matcher, bool, bool), 4> = SmallVec::new();
-        let mut not_its = IdBitmap::new();
+        let mut not_its = PostingsBitmap::new();
 
         let mut has_subtracting_matchers = false;
         let mut has_intersecting_matchers = false;
@@ -221,7 +222,7 @@ impl MemoryPostings {
             // doesn't include series that may be added to the index reader during this function call.
             self.all_postings().clone()
         } else {
-            IdBitmap::new()
+            PostingsBitmap::new()
         };
 
         // Sort matchers to have the intersecting matchers first.
@@ -258,7 +259,7 @@ impl MemoryPostings {
             }
 
             if typ == MatchOp::RegexNotEqual && value == ".*" {
-                return Ok(Cow::Owned(IdBitmap::default()));
+                return Ok(Cow::Owned(PostingsBitmap::default()));
             }
 
             if typ == MatchOp::RegexEqual && value == ".+" {
@@ -323,16 +324,16 @@ impl MemoryPostings {
         Ok(Cow::Owned(its))
     }
 
-    pub fn postings_for_all_label_values(&self, label_name: &str) -> IdBitmap {
+    pub fn postings_for_all_label_values(&self, label_name: &str) -> PostingsBitmap {
         let prefix = get_key_for_label_prefix(label_name);
-        let mut result = IdBitmap::new();
+        let mut result = PostingsBitmap::new();
         for (_, map) in self.label_index.prefix(prefix.as_bytes()) {
             result |= map;
         }
         result
     }
 
-    pub fn all_postings(&self) -> &IdBitmap {
+    pub fn all_postings(&self) -> &PostingsBitmap {
         self.label_index.get(&self.all_postings_key)
             .unwrap_or(&*EMPTY_BITMAP)
     }
@@ -345,7 +346,7 @@ impl MemoryPostings {
         if let Some(bitmap) = self.label_index.get_mut(&self.all_postings_key) {
             bitmap.add(id);
         } else {
-            let mut bmp = IdBitmap::new();
+            let mut bmp = PostingsBitmap::new();
             bmp.add(id);
             self.label_index.insert(self.all_postings_key.clone(), bmp);
         }
@@ -359,8 +360,8 @@ impl MemoryPostings {
     
     /// `postings` returns the postings list iterator for the label pairs.
     /// The postings here contain the ids to the series inside the index.
-    pub fn postings(&self, name: &str, values: &[String]) -> IdBitmap {
-        let mut result = IdBitmap::new();
+    pub fn postings(&self, name: &str, values: &[String]) -> PostingsBitmap {
+        let mut result = PostingsBitmap::new();
         for value in values {
             let key = IndexKey::for_label_value(name, value);
             if let Some(bmp) = self.label_index.get(&key) {
@@ -370,22 +371,22 @@ impl MemoryPostings {
         result
     }
 
-    pub fn postings_for_label_value<'a>(&'a self, name: &str, value: &str) -> Cow<'a, IdBitmap> {
+    pub fn postings_for_label_value<'a>(&'a self, name: &str, value: &str) -> Cow<'a, PostingsBitmap> {
         let key = IndexKey::for_label_value(name, value);
         if let Some(bmp) = self.label_index.get(&key) {
             Cow::Borrowed(bmp)
         } else {
-            Cow::Owned(IdBitmap::default())
+            Cow::Owned(PostingsBitmap::default())
         }
     }
 
     /// `postings_for_label_matching` returns postings having a label with the given name and a value
     /// for which match returns true. If no postings are found having at least one matching label,
     /// an empty bitmap is returned.
-    pub fn postings_for_label_matching(&self, name: &str, match_fn: fn(&str) -> bool) -> IdBitmap {
+    pub fn postings_for_label_matching(&self, name: &str, match_fn: fn(&str) -> bool) -> PostingsBitmap {
         let prefix = get_key_for_label_prefix(name);
         let start_pos = prefix.len();
-        let mut result = IdBitmap::new();
+        let mut result = PostingsBitmap::new();
         for (key, map) in self.label_index.prefix(prefix.as_bytes()) {
             let value = key.sub_string(start_pos);
             if match_fn(value) {
@@ -395,8 +396,8 @@ impl MemoryPostings {
         result
     }
 
-    fn postings_for_matcher_internal(&self, matcher: &Matcher, inverse: bool) -> IdBitmap {
-        let mut result = IdBitmap::new();
+    fn postings_for_matcher_internal(&self, matcher: &Matcher, inverse: bool) -> PostingsBitmap {
+        let mut result = PostingsBitmap::new();
         let prefix = get_key_for_label_prefix(&matcher.label);
         let start_pos = prefix.len();
         for (key, map) in self.label_index.prefix(prefix.as_bytes()) {
@@ -412,7 +413,7 @@ impl MemoryPostings {
         result
     }
 
-    pub fn postings_for_matcher(&self, m: &Matcher) -> Cow<IdBitmap> {
+    pub fn postings_for_matcher(&self, m: &Matcher) -> Cow<PostingsBitmap> {
         if m.label.is_empty() && m.value.is_empty() {
             return Cow::Borrowed(self.all_postings());
         }
@@ -429,7 +430,7 @@ impl MemoryPostings {
             } else if let Some(prefix) = m.prefix() {
                 // todo: refactor into a method
                 // todo: possible optimization - if there's only one entry, we can return a reference
-                let mut result = IdBitmap::new();
+                let mut result = PostingsBitmap::new();
                 let key_prefix = IndexKey::for_label_value(&m.label, prefix);
                 let start_pos = key_prefix.len();
                 for (key, map) in self.label_index.prefix(&key_prefix) {
@@ -543,7 +544,7 @@ impl MemoryPostings {
         format_key_for_metric_name(&mut key, metric);
         if let Some(measurement_bmp) = self.label_index.get(key.as_bytes()) {
             let mut first = true;
-            let mut acc = IdBitmap::new();
+            let mut acc = PostingsBitmap::new();
             for label in labels.iter() {
                 format_key_for_label_value(&mut key, &label.name, &label.value);
                 if let Some(bmp) = self.label_index.get(key.as_bytes()) {
@@ -583,7 +584,7 @@ impl MemoryPostings {
         f: F,
     ) -> Option<T>
     where
-        F: Fn(&mut CONTEXT, &str, &IdBitmap) -> ControlFlow<Option<T>>,
+        F: Fn(&mut CONTEXT, &str, &PostingsBitmap) -> ControlFlow<Option<T>>,
         PRED: Fn(&str) -> bool,
     {
         let prefix = get_key_for_label_prefix(label);
@@ -714,7 +715,7 @@ impl MemoryPostings {
     }
 }
 
-fn write_bitmap<W: Write>(writer: &mut W, buf: &mut Vec<u8>, bitmap: &IdBitmap) -> io::Result<()> {
+fn write_bitmap<W: Write>(writer: &mut W, buf: &mut Vec<u8>, bitmap: &PostingsBitmap) -> io::Result<()> {
     buf.clear();
 
     // Docs for Portable state that it is Endian dependent, whereas the docs below imply that the data is
@@ -727,13 +728,13 @@ fn write_bitmap<W: Write>(writer: &mut W, buf: &mut Vec<u8>, bitmap: &IdBitmap) 
     writer.write_all(serialized)
 }
 
-fn read_bitmap<R: Read>(reader: &mut R, buf: &mut Vec<u8>) -> io::Result<IdBitmap> {
+fn read_bitmap<R: Read>(reader: &mut R, buf: &mut Vec<u8>) -> io::Result<PostingsBitmap> {
     let len = reader.read_varint::<usize>()?;
     buf.resize(len, 0);
 
     reader.read_exact(buf)?;
     // Not sure how I feel about the possible silent failure
-    Ok(IdBitmap::deserialize::<Portable>(&buf))
+    Ok(PostingsBitmap::deserialize::<Portable>(&buf))
 }
 
 
@@ -753,7 +754,7 @@ fn read_key<R: Read>(reader: &mut R) -> io::Result<IndexKey> {
 }
 
 #[inline]
-fn intersect(dest: &mut IdBitmap, other: &IdBitmap) {
+fn intersect(dest: &mut PostingsBitmap, other: &PostingsBitmap) {
     if dest.is_empty() {
         *dest |= other;
     } else {
@@ -768,7 +769,7 @@ fn is_subtracting_matcher(m: &Matcher, label_must_be_set: &FastHashSet<String>) 
     matches!(m.op, MatchOp::NotEqual | MatchOp::RegexNotEqual if m.matches(""))
 }
 
-fn inverse_postings_for_matcher<'a>(postings: &'a MemoryPostings, m: &Matcher) -> Cow<'a, IdBitmap> {
+fn inverse_postings_for_matcher<'a>(postings: &'a MemoryPostings, m: &Matcher) -> Cow<'a, PostingsBitmap> {
     // Fast-path for RegexNotEqual matching.
     // Inverse of a RegexNotEqual is RegexpEqual (double negation).
     // Fast-path for set matching.
@@ -808,11 +809,11 @@ fn should_parallelize_matchers(matchers: &Matchers) -> bool {
 fn run_or_matchers_parallel<'a>(
     label_index: &'a MemoryPostings,
     matchers: &[Vec<Matcher>],
-) -> ProviderResult<Cow<'a, IdBitmap>> {
+) -> ProviderResult<Cow<'a, PostingsBitmap>> {
     let mut scope = chili::Scope::global();
 
     match matchers {
-        [] => Ok(Cow::Owned(IdBitmap::new())),
+        [] => Ok(Cow::Owned(PostingsBitmap::new())),
         [matchers] => label_index.postings_for_matchers_slice(matchers),
         [m1, m2] => {
             let (r1, r2) = scope.join(
@@ -913,6 +914,6 @@ fn format_prometheus_metric_name_into(full_name: &mut String, name: &str, labels
     }
 }
 
-fn get_bitmap_size(bmp: &IdBitmap) -> usize {
+fn get_bitmap_size(bmp: &PostingsBitmap) -> usize {
     bmp.cardinality() as usize * size_of::<SeriesRef>()
 }
