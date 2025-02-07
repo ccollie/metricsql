@@ -28,7 +28,6 @@ use croaring::Portable;
 use enquote::enquote;
 use get_size::GetSize;
 use integer_encoding::{VarIntReader, VarIntWriter};
-use itertools::Itertools;
 
 const ALL_POSTINGS_KEY: &str = "$_ALL_P0STINGS_";
 static EMPTY_BITMAP: LazyLock<PostingsBitmap> = LazyLock::new(|| PostingsBitmap::new());
