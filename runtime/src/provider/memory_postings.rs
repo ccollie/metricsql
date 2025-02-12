@@ -239,21 +239,22 @@ impl MemoryPostings {
             cost_i.cmp(&cost_j)
         });
 
+        let mut first_pass = true;
+        
         for (m, matches_empty, _is_subtracting) in sorted_matchers {
             let value = &m.value;
             let name = &m.label;
             let typ = m.op;
 
             if name.is_empty() && value.is_empty() {
-                // If the matchers for a label name selects an empty value, it selects all
-                // the series which don't have the label name set too. See:
-                //
+                // We already handled the case at the top of the function,
+                // and it is unexpected to get all postings again here.
                 return Err(ProviderError::MissingMatcher);
-                // todo: better error
             }
 
             if typ == MatchOp::RegexEqual && value == ".*" {
                 // .* regexp matches any string: do nothing.
+                first_pass = false;
                 continue;
             }
 
@@ -297,7 +298,7 @@ impl MemoryPostings {
                         if it.is_empty() {
                             return Ok(it);
                         }
-                        intersect(&mut its, &it);
+                        intersect(&mut its, &it, first_pass);
                     }
                 } else {
                     // l="a", l=~"a|b", l=~"a.b", etc.
@@ -306,7 +307,7 @@ impl MemoryPostings {
                     if it.is_empty() {
                         return Ok(it);
                     }
-                    intersect(&mut its, &it);
+                    intersect(&mut its, &it, first_pass); 
                 }
             } else {
                 // l=""
@@ -317,6 +318,8 @@ impl MemoryPostings {
                 let it = inverse_postings_for_matcher(self, m);
                 not_its.or_inplace(&it)
             }
+            
+            first_pass = false;
         }
 
         its -= &not_its;
@@ -562,7 +565,7 @@ impl MemoryPostings {
                 0 => Ok(None),
                 1 => Ok(acc.iter().next()),
                 _ => {
-                    let metric_name = format_prometheus_metric_name(metric, labels);
+                    let metric_name = format_metric_name(metric, labels);
                     Err(ProviderError::DuplicatePostingInIndex(metric_name))
                 }
             }
@@ -753,7 +756,8 @@ fn read_key<R: Read>(reader: &mut R) -> io::Result<IndexKey> {
 }
 
 #[inline]
-fn intersect(dest: &mut PostingsBitmap, other: &PostingsBitmap) {
+fn intersect(dest: &mut PostingsBitmap, other: &PostingsBitmap, first_pass: bool) {
+    // first_pass is to distinguish if dest becomes empty during iteration or 
     if dest.is_empty() {
         *dest |= other;
     } else {
@@ -765,7 +769,7 @@ fn is_subtracting_matcher(m: &Matcher, label_must_be_set: &FastHashSet<String>) 
     if !label_must_be_set.contains(&m.label) {
         return true;
     }
-    matches!(m.op, MatchOp::NotEqual | MatchOp::RegexNotEqual if m.matches(""))
+    matches!(m.op, MatchOp::NotEqual | MatchOp::RegexNotEqual) && m.matches("")
 }
 
 fn inverse_postings_for_matcher<'a>(postings: &'a MemoryPostings, m: &Matcher) -> Cow<'a, PostingsBitmap> {
@@ -879,18 +883,18 @@ fn run_or_matchers_parallel<'a>(
 }
 
 // Note - assumes that labels is sorted
-fn format_prometheus_metric_name(name: &str, labels: &[Label]) -> String {
+fn format_metric_name(name: &str, labels: &[Label]) -> String {
     let size_hint = name.len()
         + labels
         .iter()
         .map(|l| l.name.len() + l.value.len() + 3)
         .sum::<usize>();
     let mut full_name: String = String::with_capacity(size_hint);
-    format_prometheus_metric_name_into(&mut full_name, name, labels);
+    format_metric_name_into(&mut full_name, name, labels);
     full_name
 }
 
-fn format_prometheus_metric_name_into(full_name: &mut String, name: &str, labels: &[Label]) {
+fn format_metric_name_into(full_name: &mut String, name: &str, labels: &[Label]) {
     full_name.push_str(name);
     if !labels.is_empty() {
         full_name.push('{');
