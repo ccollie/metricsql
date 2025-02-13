@@ -1,11 +1,11 @@
+use crate::provider::index_reader::IndexReaderResult;
 use crate::SeriesRef;
-use smallvec::SmallVec;
+use metricsql_common::hash::{FastHashSet, HashSetExt};
+use smallvec::{smallvec, SmallVec};
 use std::cmp::Ordering;
-use std::collections::BinaryHeap;
+use std::collections::{BTreeSet, BinaryHeap};
 use std::hash::{Hash, Hasher};
 use std::iter::Peekable;
-use metricsql_common::hash::{FastHashSet, HashSetExt};
-use crate::provider::index_reader::IndexReaderResult;
 
 pub type PostingsListVec = SmallVec<SeriesRef, 16>;
 
@@ -14,7 +14,7 @@ pub enum PostingsEnum {
     Empty(EmptyPostings),
     List(ListPostings),
     Intersection(IntersectPostings),
-    Removed(RemovedPostings),
+    Removed(Box<RemovedPostings>),
     Wrapped(Box<dyn PostingsList>),
     Iterator(BoxedIterator)
 }
@@ -24,16 +24,33 @@ impl PostingsEnum {
         PostingsEnum::Empty(EmptyPostings {})
     }
 
-    pub(super) fn remove(full: impl PostingsList, removed: impl PostingsList) -> Self {
-        PostingsEnum::Removed(RemovedPostings::new(full, removed))
+    pub(super) fn remove(full: PostingsEnum, removed: Box<dyn PostingsList>) -> Self {
+        PostingsEnum::Removed(Box::new(RemovedPostings::new(full, removed)))
     }
 
-    pub(super) fn intersection(its: Vec<impl PostingsList>) -> Self {
+    pub(super) fn intersection(its: Vec<BoxedPostings>) -> Self {
         PostingsEnum::Intersection(IntersectPostings::new(its))
     }
 
-    pub(super) fn wrap(inner: Box<dyn PostingsList>) -> Self {
+    pub(super) fn wrap(inner: BoxedPostings) -> Self {
         PostingsEnum::Wrapped(inner)
+    }
+}
+
+impl Iterator for PostingsEnum {
+    type Item = SeriesRef;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            PostingsEnum::Empty(_e) => None,
+            PostingsEnum::List(l) => l.next(),
+            PostingsEnum::Intersection(i) => i.next(),
+            PostingsEnum::Removed(r) => r.next(),
+            PostingsEnum::Wrapped(w) => w.next(),
+            PostingsEnum::Iterator(i) => {
+                i.next()
+            }
+        }
     }
 }
 
@@ -46,25 +63,20 @@ impl PostingsList for PostingsEnum {
             PostingsEnum::Intersection(i) => i.is_empty(),
             PostingsEnum::Removed(r) => r.is_empty(),
             PostingsEnum::Wrapped(w) => w.is_empty(),
-            PostingsEnum::Iterator(i) => { false }
-        }
-    }
-
-    fn iter(&self) -> Box<dyn Iterator<Item=SeriesRef>> {
-        match self {
-            PostingsEnum::Empty(e) => e.iter(),
-            PostingsEnum::List(l) => l.iter(),
-            PostingsEnum::Intersection(i) => i.iter(),
-            PostingsEnum::Removed(r) => r.iter(),
-            PostingsEnum::Wrapped(w) => w.iter(),
-            PostingsEnum::Iterator(_) => unimplemented!()
+            PostingsEnum::Iterator(_i) => { false }
         }
     }
 }
-pub trait PostingsList {
+pub trait PostingsList: Iterator<Item=SeriesRef> {
     fn is_empty(&self) -> bool;
+}
 
-    fn iter(&self) -> Box<dyn Iterator<Item=SeriesRef>>;
+pub type BoxedPostings = Box<dyn PostingsList>;
+
+impl PostingsList for Box<dyn PostingsList> {
+    fn is_empty(&self) -> bool {
+        (**self).is_empty()
+    }
 }
 
 pub struct EmptyPostings {}
@@ -72,9 +84,6 @@ pub struct EmptyPostings {}
 impl PostingsList for EmptyPostings {
     fn is_empty(&self) -> bool {
         true
-    }
-    fn iter(&self) -> Box<dyn Iterator<Item=SeriesRef>> {
-        Box::new(std::iter::empty::<SeriesRef>())
     }
 }
 
@@ -84,6 +93,12 @@ impl EmptyPostings {
     }
 }
 
+impl Iterator for EmptyPostings {
+    type Item = SeriesRef;
+    fn next(&mut self) -> Option<Self::Item> {
+        None
+    }
+}
 pub fn empty_postings() -> impl PostingsList {
     PostingsEnum::empty()
 }
@@ -94,6 +109,7 @@ type PeekableIterator = Box<Peekable<dyn Iterator<Item=SeriesRef>>>;
 #[derive(Clone)]
 pub(super) struct ListPostings {
     list: PostingsListVec,
+    idx: usize,
     cur: SeriesRef,
 }
 
@@ -101,8 +117,10 @@ impl ListPostings {
     fn new(values: &[SeriesRef]) -> Self {
         let mut list: PostingsListVec = PostingsListVec::new();
         list.extend_from_slice(values);
+        // todo: ensure sorted
         ListPostings { 
             list,
+            idx: 0,
             cur: 0 
         }
     }
@@ -112,21 +130,36 @@ impl PostingsList for ListPostings {
     fn is_empty(&self) -> bool {
         self.list.is_empty()
     }
+}
 
-    fn iter(&self) -> Box<dyn Iterator<Item=SeriesRef>> {
-        Box::new(self.list.iter().cloned())
+impl Iterator for ListPostings {
+    type Item = SeriesRef;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.idx < self.list.len() {
+            let res = self.list.get(self.idx).map(|item| *item);
+            self.idx += 1;
+            res
+        } else {
+            None
+        }
     }
 }
 
-
 pub(super) struct IntersectPostings {
     arr: Vec<Box<dyn PostingsList>>,
-    cur: SeriesRef,
+    values: SmallVec<SeriesRef, 32>,
+    idx: usize,
+    is_init: bool,
 }
 
 impl IntersectPostings {
-    fn new(its: Vec<impl PostingsList>) -> Self {
-        IntersectPostings { arr: its, cur: 0 }
+    fn new(its: Vec<BoxedPostings>) -> Self {
+        IntersectPostings {
+            arr: its,
+            idx: 0,
+            values: smallvec![],
+            is_init: false
+        }
     }
 }
 
@@ -134,55 +167,26 @@ impl PostingsList for IntersectPostings {
     fn is_empty(&self) -> bool {
         self.arr.iter().any(|p| p.is_empty())
     }
-
-    fn iter(&self) -> Box<dyn Iterator<Item=SeriesRef>> {
-        Box::new(IntersectionIterator::new(&self.arr))
-    }
 }
 
-pub(super) struct IntersectionIterator {
-    iters: Vec<Peekable<BoxedIterator>>,
-    cur: SeriesRef,
-}
 
-impl IntersectionIterator {
-    fn new(its: Vec<Box<dyn PostingsList>>) -> Self {
-        let iters = its.iter()
-            .map(|s| Box::new(s.iter().peekable()))
-            .collect();
-
-        IntersectionIterator {
-            iters,
-            cur: SeriesRef::MAX,
-        }
-    }
-}
-
-// Source: https://github.com/VictorBulba/sorted_intersection/blob/master/src/lib.rs
-impl Iterator for IntersectionIterator {
+impl Iterator for IntersectPostings {
     type Item = SeriesRef;
-
-    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        let mut max = self.iters.first_mut()?.next()?;
-        let mut max_index = 0;
-        let mut index = 1;
-        while index != max_index {
-            let iter = match self.iters.get_mut(index) {
-                Some(i) => i,
-                None => return Some(max),
-            };
-            loop {
-                match iter.next() {
-                    Some(x) if x == max => break,
-                    Some(other) if other > max => { max_index = index; max = other; break; }
-                    Some(_) => continue,
-                    None => return None,
-                }
+        if !self.is_init {
+            self.is_init = true;
+            let mut set: BTreeSet<SeriesRef> = BTreeSet::new();
+            for iter in self.arr.iter_mut() {
+                set.extend(iter);
             }
-            index = (index + 1) % self.iters.len();
+            self.values.extend(set);
         }
-        Some(max)
+        if self.idx < self.values.len() {
+            let res = self.values.get(self.idx).map(|item| *item);
+            self.idx += 1;
+            return res
+        }
+        None
     }
 }
 
@@ -211,15 +215,15 @@ pub(super) fn intersect(its: Vec<Box<dyn PostingsList>>) -> PostingsEnum {
 }
 
 pub(super) struct RemovedPostings {
-    full: Peekable<BoxedIterator>,
-    remove: Peekable<BoxedIterator>,
+    full: Peekable<PostingsEnum>,
+    remove: Peekable<Box<dyn PostingsList>>,
 }
 
 impl RemovedPostings {
-    fn new(full: impl PostingsList, remove: impl PostingsList) -> Self {
+    fn new(full: PostingsEnum, remove: Box<dyn PostingsList>) -> Self {
         RemovedPostings {
-            full: full.iter().peekable(),
-            remove: remove.iter().peekable(),
+            full: full.peekable(),
+            remove: remove.peekable(),
          }
     }
 }
@@ -227,10 +231,6 @@ impl RemovedPostings {
 impl PostingsList for RemovedPostings {
     fn is_empty(&self) -> bool {
         false
-    }
-
-    fn iter(&self) -> Box<dyn Iterator<Item=SeriesRef>> {
-        Self
     }
 }
 
@@ -265,14 +265,10 @@ impl Iterator for RemovedPostings {
     }
 }
 
-// Define a struct for mergedPostings
-pub(super) struct MergedPostings {
-    p: Vec<Box<dyn PostingsList>>,
-}
 
 // Define a struct to wrap Postings and implement Ord, PartialOrd, Eq, and PartialEq for BinaryHeap
 struct PostingsWrapper {
-    postings: BoxedIterator,
+    postings: Box<dyn PostingsList>,
     cur: SeriesRef,
 }
 
@@ -296,39 +292,29 @@ impl PartialEq for PostingsWrapper {
     }
 }
 
+// Define a struct for mergedPostings
+pub(super) struct MergedPostings {
+    h: BinaryHeap<PostingsWrapper>,
+    cur: SeriesRef,
+}
+
 impl MergedPostings {
     fn new(p: Vec<Box<dyn PostingsList>>) -> Self {
-        MergedPostings { p }
+        let mut h = BinaryHeap::new();
+        for postings in p.into_iter() {
+            h.push(PostingsWrapper { postings, cur: u64::MAX });
+        }
+        Self { h, cur: 0 }
     }
 }
 
 impl PostingsList for MergedPostings {
     fn is_empty(&self) -> bool {
-        self.p.iter().all(|p| p.is_empty())
-    }
-    
-    fn iter(&self) -> Box<dyn Iterator<Item=SeriesRef>> {
-        Box::new(MergedPostingsIterator::new(&self.p))
+        self.h.is_empty()
     }
 }
 
-pub struct MergedPostingsIterator {
-    h: BinaryHeap<PostingsWrapper>,
-    cur: SeriesRef,
-}
-
-impl MergedPostingsIterator {
-    fn new(p: &[Box<dyn PostingsList>]) -> Self {
-        let mut h = BinaryHeap::new();
-        for postings in p.iter() {
-            let iter = Box::new(postings.iter());
-            h.push(PostingsWrapper { postings: iter, cur: u64::MAX });
-        }
-        MergedPostingsIterator { h, cur: 0 }
-    }
-}
-
-impl Iterator for MergedPostingsIterator {
+impl Iterator for MergedPostings {
     type Item = SeriesRef;
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(mut pw) = self.h.pop() {
@@ -348,7 +334,7 @@ impl Iterator for MergedPostingsIterator {
 
 /// `without` returns a new postings list that contains all elements from the full list that
 /// are not in the drop list.
-pub(super) fn without(full: PostingsEnum, drop: impl PostingsList) -> PostingsEnum {
+pub(super) fn without(full: PostingsEnum, drop: Box<dyn PostingsList>) -> PostingsEnum {
     if full.is_empty() {
         return PostingsEnum::empty()
     }
@@ -357,11 +343,11 @@ pub(super) fn without(full: PostingsEnum, drop: impl PostingsList) -> PostingsEn
         return full
     }
 
-    PostingsEnum::Removed(RemovedPostings::new(full, drop))
+    PostingsEnum::remove(full, drop)
 }
 
 
-pub(super) fn find_intersecting_postings(p: &impl PostingsList, candidates: Vec<Box<dyn PostingsList>>) -> IndexReaderResult<FastHashSet<PostingsWithIndex>> {
+pub(super) fn find_intersecting_postings(p: impl PostingsList, candidates: Vec<BoxedPostings>) -> IndexReaderResult<FastHashSet<PostingsWithIndex>> {
     let mut set: FastHashSet<PostingsWithIndex> = FastHashSet::with_capacity(candidates.len() * 4);
     if p.is_empty() {
         return Ok(set);
@@ -372,11 +358,11 @@ pub(super) fn find_intersecting_postings(p: &impl PostingsList, candidates: Vec<
         dest.extend(items);
     }
 
-    add_iter(&mut set, usize::MAX, p.iter().into_iter());
+    add_iter(&mut set, usize::MAX, p.into_iter());
 
     for (index, it) in candidates.into_iter().enumerate() {
         if !it.is_empty() {
-            add_iter(&mut set, index, it.iter())
+            add_iter(&mut set, index, it)
         }
     }
 

@@ -5,12 +5,11 @@ use super::index_key::{
     get_key_for_label_value,
     IndexKey
 };
-use super::provider_error::{ProviderError, ProviderResult};
+use super::error::{ProviderError, ProviderResult};
 use crate::types::{MetricName, METRIC_NAME_LABEL};
-use ahash::HashMapExt;
 use blart::map::Entry as ARTEntry;
-use blart::{TreeMap};
-use metricsql_common::hash::{FastHashMap, FastHashSet, HashSetExt};
+use blart::TreeMap;
+use metricsql_common::hash::{FastHashMap, FastHashSet};
 use metricsql_parser::label::{Label, MatchOp, Matcher, Matchers, NAME_LABEL};
 use smallvec::SmallVec;
 use std::borrow::Cow;
@@ -753,16 +752,6 @@ fn read_key<R: Read>(reader: &mut R) -> io::Result<IndexKey> {
     reader.read_exact(&mut data)?;
     let key = IndexKey::from(data);
     Ok(key)
-}
-
-#[inline]
-fn intersect(dest: &mut PostingsBitmap, other: &PostingsBitmap, first_pass: bool) {
-    // first_pass is to distinguish if dest becomes empty during iteration or 
-    if dest.is_empty() {
-        *dest |= other;
-    } else {
-        *dest &= other;
-    }
 }
 
 fn is_subtracting_matcher(m: &Matcher, label_must_be_set: &FastHashSet<String>) -> bool {

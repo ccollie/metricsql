@@ -1,20 +1,17 @@
 use super::index_reader::{IndexReader, IndexReaderError, IndexReaderResult};
-use crate::provider::postings::{find_intersecting_postings, without, PostingsEnum, PostingsList};
-use crate::SeriesRef;
-use futures::future::try_join_all;
-use futures::Future;
+use crate::provider::postings::{find_intersecting_postings, without, EmptyPostings, PostingsEnum, PostingsList};
+use enquote::enquote;
+use futures::future::{try_join_all, BoxFuture};
 use metricsql_common::hash::{FastHashSet, HashSetExt};
 use metricsql_parser::label::{Label, MatchOp, Matcher, Matchers};
 use smallvec::SmallVec;
 use std::cmp::Ordering;
-use enquote::enquote;
 
 /// `postings_for_matchers` assembles a single postings iterator against the index reader
 /// based on the given matchers. The resulting postings are not ordered by series.
-pub async fn postings_for_matchers(ix: &impl IndexReader, matchers: &Matchers) -> IndexReaderResult<PostingsEnum> {
+pub async fn postings_for_matchers(ix: &impl IndexReader, matchers: &Matchers) -> IndexReaderResult<Box<dyn PostingsList>> {
     if matchers.is_empty() {
-        // ??
-        return all_postings(ix).await;
+        return ix.all_postings().await;
     }
 
     if !matchers.matchers.is_empty() {
@@ -24,37 +21,36 @@ pub async fn postings_for_matchers(ix: &impl IndexReader, matchers: &Matchers) -
     if !matchers.or_matchers.is_empty() {
         run_or_matchers(ix, &matchers.or_matchers).await
     } else {
-        Ok(PostingsEnum::empty())
+        Ok(Box::new(EmptyPostings::new()) as Box<dyn PostingsList>)
     }
 }
 
-pub async fn postings_for_matcher(ix: &impl IndexReader, m: &Matcher) -> IndexReaderResult<PostingsEnum> {
+pub async fn postings_for_matcher(ix: &impl IndexReader, m: &Matcher) -> IndexReaderResult<Box<dyn PostingsList>> {
+    postings_for_matcher_internal(ix, m).await
+}
+
+fn postings_for_matcher_internal<'a>(ix: &'a impl IndexReader, m: &'a Matcher) -> BoxFuture<'a, IndexReaderResult<Box<dyn PostingsList>>> {
     if m.label.is_empty() && m.value.is_empty() {
-        return all_postings(ix).await;
+        return ix.all_postings();
     }
-    
+
     if m.op == MatchOp::Equal {
         // how to avoid clone ???
-        return postings(ix, &m.label, &[m.value.clone()]).await;
+        return ix.postings(&m.label, &[m.value.clone()]);
     }
-    
+
     // Fast-path for set matching.
     if m.op == MatchOp::RegexEqual {
         let set_matches = m.set_matches();
         if let Some(matches) = set_matches {
             if !matches.is_empty() {
-                return postings(ix, &m.label, &matches).await;
+                return ix.postings(&m.label, &matches);
             }
         }
     }
 
-    let postings = ix.postings_for_label_matching(&m.label, |s| m.matches(s))
-        .await?;
-    
-    let postings = PostingsEnum::wrap(Box::new(postings));
-    Ok(postings)
+    ix.postings_for_label_matching(&m.label, |s| m.matches(s))
 }
-
 
 pub async fn label_values_with_matchers(r: &impl IndexReader, name: &str, matchers: &[Matcher]) -> IndexReaderResult<Vec<String>> {
     let mut all_values = r.label_values(name, matchers).await?;
@@ -90,7 +86,7 @@ pub async fn label_values_with_matchers(r: &impl IndexReader, name: &str, matche
         }).collect();
 
     let postings = try_join_all(values_postings.into_iter()).await?;
-    let indexes = find_intersecting_postings(&p, postings)?;
+    let indexes = find_intersecting_postings(p, postings)?;
     let mut values = Vec::with_capacity(indexes.len());
     for posting in indexes {
         values.push(all_values[posting.index].clone());
@@ -99,29 +95,27 @@ pub async fn label_values_with_matchers(r: &impl IndexReader, name: &str, matche
     Ok(values)
 }
 
-async fn empty() -> IndexReaderResult<PostingsEnum> {
-    Ok(PostingsEnum::empty())
-}
 
-type IterResult = dyn Future<Output=IndexReaderResult<dyn Iterator<Item=SeriesRef>>>;
+//type PostingsResult<'a> = BoxFuture<'a, IndexReaderResult<impl PostingsList>>;
 
 /// `postings_for_matchers` assembles a single postings iterator against the index
 /// based on the given matchers. The resulting postings are not ordered by series. 
-async fn postings_for_matchers_slice(ix: &impl IndexReader, ms: &[Matcher]) -> IndexReaderResult<PostingsEnum> {
+async fn postings_for_matchers_slice<'a>(ix: &'a impl IndexReader, ms: &[Matcher]) -> IndexReaderResult<Box<dyn PostingsList>> {
     if ms.len() == 1 {
         let m = &ms[0];
         if m.label.is_empty() && m.label.is_empty() {
-            return all_postings(ix).await;
+            return ix.all_postings().await;
         }
     }
-
-    let mut sorted_matchers: SmallVec<(&Matcher, bool, bool), 4> = SmallVec::new();
+    
+    let mut not_its_futures: SmallVec<_, 4> = SmallVec::new();
+    let mut its_futures: SmallVec<_,  4> = SmallVec::new();
     let mut not_its: SmallVec<_, 4> = SmallVec::new();
-    let mut its: SmallVec<_, 4> =SmallVec::new(); // todo: smallvec
 
     let mut has_subtracting_matchers = false;
     let mut has_intersecting_matchers = false;
 
+    let mut sorted_matchers: SmallVec<(&Matcher, bool, bool), 4> = SmallVec::new();
     // See which label must be non-empty.
     // Optimization for case like {l=~".", l!="1"}.
     let mut label_must_be_set: FastHashSet<&str> = FastHashSet::with_capacity(ms.len());
@@ -142,9 +136,10 @@ async fn postings_for_matchers_slice(ix: &impl IndexReader, ms: &[Matcher]) -> I
         // If there's nothing to subtract from, add in everything and remove the not_its later.
         // We prefer to get all_postings so that the base of subtraction (i.e. all_postings)
         // doesn't include series that may be added to the index reader during this function call.
-        its.push( ix.all_postings() );
+        its_futures.push( ix.all_postings() );
     } else {
-        its.push(empty());
+        let empty = Box::pin(async { Ok(Box::new(EmptyPostings::new()) as Box<dyn PostingsList>) });
+        its_futures.push(empty);
     };
 
     // Sort matchers to have the intersecting matchers first.
@@ -179,23 +174,22 @@ async fn postings_for_matchers_slice(ix: &impl IndexReader, ms: &[Matcher]) -> I
         }
 
         if typ == MatchOp::RegexNotEqual && value == ".*" {
-            return Ok(PostingsEnum::empty());
+            return Ok(Box::new(PostingsEnum::empty()));
         }
 
         if typ == MatchOp::RegexEqual && value == ".+" {
             // .+ regexp matches any non-empty string: get postings for all label values.
             let it = ix.postings_for_all_label_values(&m.label);
-            its.push(it);
+            its_futures.push(it);
         } else if typ == MatchOp::RegexNotEqual && value == ".+" {
             // .+ regexp matches any non-empty string: get postings for all label values and remove them.
             let it = ix.postings_for_all_label_values(name);
-            not_its.push( it );
+            not_its_futures.push( it );
         } else if label_must_be_set.contains(&name.as_str()) {
             // If this matcher must be non-empty, we can be smarter.
             let is_not = typ == MatchOp::NotEqual || m.op == MatchOp::RegexNotEqual;
 
             if is_not {
-                // a failure here should probably panic
                 let inverse = m.inverse().map_err(|_| {
                     IndexReaderError::InvalidMatcher(m.to_string())
                 })?;
@@ -205,20 +199,22 @@ async fn postings_for_matchers_slice(ix: &impl IndexReader, ms: &[Matcher]) -> I
                     // l!="foo"
                     // If the label can't be empty and is a Not and the inner matcher
                     // doesn't match empty, then subtract it out at the end.
-                    let it = postings_for_matcher(ix, &inverse);
+                    // NOTE: we resolve immediately here to avoid borrowing issue with inverse
+                    // TODO: Find a way to handle this
+                    let it = postings_for_matcher_internal(ix, &inverse).await?;
                     not_its.push(it);
                 } else {
                     // l!=""
                     // If the label can't be empty and is a Not, but the inner matcher can
                     // be empty we need to use inverse_postings_for_matcher.
-                    let it = inverse_postings_for_matcher(ix, &inverse).await?;
-                    its.push(it);
+                    let it = inverse_postings_for_matcher(ix, &inverse);
+                    its_futures.push(it);
                 }
             } else {
                 // l="a", l=~"a|b", l=~"a.b", etc.
                 // Non-Not matcher, use normal `postings_for_matcher`.
-                let it = postings_for_matcher(ix, m).await?;
-                its.push(it);
+                let it = postings_for_matcher_internal(ix, m);
+                its_futures.push(it);
             }
         } else {
             // l=""
@@ -226,14 +222,15 @@ async fn postings_for_matchers_slice(ix: &impl IndexReader, ms: &[Matcher]) -> I
             // the series which don't have the label name set too. See:
             // https://github.com/prometheus/prometheus/issues/3575 and
             // https://github.com/prometheus/prometheus/pull/3578#issuecomment-351653555
-            let it = inverse_postings_for_matcher(ix, m).await?;
-            not_its.push(it)
+            let it = inverse_postings_for_matcher(ix, m);
+            not_its_futures.push(it)
         }
     }
 
     // todo: join the following 2 statements
-    let resolved_its = try_join_all(its).await?;
-    let resolved_not_its = try_join_all(not_its).await?;
+    let resolved_its = try_join_all(its_futures).await?;
+    let mut resolved_not_its = try_join_all(not_its_futures).await?;
+    resolved_not_its.extend(not_its);
 
     let mut it = PostingsEnum::intersection(resolved_its);
 
@@ -241,7 +238,7 @@ async fn postings_for_matchers_slice(ix: &impl IndexReader, ms: &[Matcher]) -> I
         it = without(it, not)
     }
 
-    Ok(it)
+    Ok(Box::new(it))
 }
 
 
@@ -253,14 +250,14 @@ fn is_subtracting_matcher(m: &Matcher, label_must_be_set: &FastHashSet<&str>) ->
     matches!(m.op, MatchOp::NotEqual | MatchOp::RegexNotEqual) && m.matches("")
 }
 
-async fn inverse_postings_for_matcher<'a>(ix: &impl IndexReader, m: &Matcher) -> IndexReaderResult<PostingsEnum> {
+fn inverse_postings_for_matcher<'a>(ix: &'a impl IndexReader, m: &Matcher) -> BoxFuture<'a, IndexReaderResult<Box<dyn PostingsList>>> {
     // Fast-path for RegexNotEqual matching.
     // Inverse of a RegexNotEqual is RegexpEqual (double negation).
     // Fast-path for set matching.
     if m.op == MatchOp::RegexNotEqual {
         if let Some(matches) = m.set_matches() {
             if !matches.is_empty() {
-                return postings(ix, &m.label, &matches).await
+                return ix.postings(&m.label, &matches)
             }
         }
     }
@@ -270,29 +267,28 @@ async fn inverse_postings_for_matcher<'a>(ix: &impl IndexReader, m: &Matcher) ->
     if m.op == MatchOp::NotEqual {
         // todo: figure out how to eliminate this clone
         let value = m.value.clone();
-        return postings(ix, &m.label, &[value]).await
+        return ix.postings(&m.label, &[value])
     }
 
     // If the matcher being inverted is =~"" or ="", we just want all the values.
     if m.value.is_empty() && (m.op == MatchOp::RegexEqual || m.op == MatchOp::Equal) {
-        let postings = ix.postings_for_all_label_values(&m.label).await?;
-        return Ok(PostingsEnum::wrap(Box::new(postings)));
+        return ix.postings_for_all_label_values(&m.label)
     }
 
-    let postings = ix.postings_for_label_matching(&m.label, |s| !m.matches(s)).await?;
-    Ok(PostingsEnum::wrap(Box::new(postings)))
+    ix.postings_for_label_matching(&m.label, |s| !m.matches(s))
 }
 
-async fn run_or_matchers(ix: &impl IndexReader, matchers: &[Vec<Matcher>]) -> IndexReaderResult<PostingsEnum> {
+async fn run_or_matchers(ix: &impl IndexReader, matchers: &[Vec<Matcher>]) -> IndexReaderResult<Box<dyn PostingsList>> {
     if matchers.is_empty() {
-        Ok(PostingsEnum::empty())
+        Ok(Box::new(EmptyPostings::new()) as Box<dyn PostingsList>)
     } else if matchers.len() == 1 {
         let m = matchers.get(0).expect("Out of bounds error running matchers");
         postings_for_matchers_slice(ix, &m).await
     } else {
-        let futures = matchers.iter().map(|m| postings_for_matchers_slice(ix, m)).collect();
+        let futures: Vec<_> = matchers.iter().map(|m| postings_for_matchers_slice(ix, m)).collect();
         let its = try_join_all(futures).await?;
-        Ok(PostingsEnum::intersection(its))
+        let iter = Box::new(PostingsEnum::intersection(its)) as Box<dyn PostingsList>;
+        Ok(iter)
     }
 }
 
@@ -329,15 +325,4 @@ fn format_metric_name_into(full_name: &mut String, name: &str, labels: &[Label])
         }
         full_name.push('}');
     }
-}
-
-#[inline]
-async fn all_postings(ix: &impl IndexReader) -> IndexReaderResult<PostingsEnum> {
-    let postings = ix.all_postings().await?;
-    Ok(PostingsEnum::Wrapped(Box::new(postings)))
-}
-
-async fn postings(ix: &impl IndexReader, name: &str, values: &[String]) -> IndexReaderResult<PostingsEnum> {
-    let postings = ix.postings(name, values).await?;
-    Ok(PostingsEnum::wrap(Box::new(postings)))
 }

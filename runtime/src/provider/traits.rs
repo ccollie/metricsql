@@ -1,8 +1,8 @@
-use std::error::Error;
+use super::error::ProviderResult;
+use crate::types::Sample;
+use crate::RuntimeResult;
 use async_trait::async_trait;
 use metricsql_parser::label::{Labels, Matcher};
-use crate::RuntimeResult;
-use crate::types::Sample;
 
 /// `LabelHints` specifies hints passed for label reads.
 /// This is used only as an option for implementation to use.
@@ -17,11 +17,11 @@ pub trait LabelQuerier {
     /// `label_values` returns all potential values for a label name in sorted order.
     /// If matchers are specified the returned result set is reduced
     /// to label values of metrics matching the matchers.
-    async fn label_values(&self, name: &str, hints: &LabelHints, matchers: &[Matcher]) -> Result<Vec<String>, Box<dyn Error>>;
+    async fn label_values(&self, name: &str, hints: &LabelHints, matchers: &[Matcher]) -> ProviderResult<Vec<String>>;
 
     /// `label_names` returns all the unique label names present in the block in sorted order.
     /// If matchers are specified the returned result set is reduced to label names of metrics matching the matchers.
-    async fn label_names(&self, name: &str, hints: &LabelHints, matchers: &[Matcher]) -> Result<Vec<String>, Box<dyn Error>>;
+    async fn label_names(&self, name: &str, hints: &LabelHints, matchers: &[Matcher]) -> ProviderResult<Vec<String>>;
 }
 
 /// SelectHints specifies hints passed for data selections.
@@ -52,9 +52,10 @@ pub trait Series: Sized {
 }
 
 /// Querier provides querying access over time series data of a fixed time range.
-pub trait Querier: LabelQuerier + Send + Sync {
+pub trait Querier<S: Series>: LabelQuerier + Send + Sync {
     /// `select` returns a set of series that matches the given label matchers.
     /// Results are not checked whether they match. Results that do not match may cause undefined behavior.
-    /// It allows passing hints that can help in optimising select, but it's up to implementation how this is used if used at all.
-    async fn select(&self, hints: &SelectOptions, matchers: &[Matcher]) -> RuntimeResult<Vec<dyn Series>>;
+    /// It allows passing hints that can help in optimising select, but it's up to implementation how 
+    /// this is used if used at all.
+    async fn select(&self, hints: &SelectOptions, matchers: &[Matcher]) -> ProviderResult<Vec<S>>;
 }

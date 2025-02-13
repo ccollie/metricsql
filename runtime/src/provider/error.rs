@@ -1,6 +1,10 @@
 use thiserror::Error;
+use crate::SeriesRef;
 
-pub type ProviderResult<T> = Result<T, ProviderError>;
+/// Alias for a type-erased error type.
+pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
+
+pub type ProviderResult<T=()> = Result<T, ProviderError>;
 
 #[derive(Debug, PartialEq, Clone, Error)]
 pub enum ProviderError {
@@ -28,6 +32,21 @@ pub enum ProviderError {
     MaxSeriesExceeded {
         found_series: usize,
         max_series: usize,
+    },
+    #[error("Series not found for ID: {0}")]
+    SeriesNotFound(SeriesRef),
+    #[error("No postings found for label: {0}")]
+    NoPostingsForLabel(String),
+    #[error("No postings found for label value: {0}")]
+    NoPostingsForLabelValue(String),
+    // IndexNotFound,
+    #[error("Invalid index or index not found")]
+    InvalidIndex,
+    // // CorruptedIndex,
+    #[error("Internal error \"{reason}\": Source {source:?}")]
+    Internal {
+        reason: String,
+        source: Option<BoxError>,
     },
 }
 
