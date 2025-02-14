@@ -6,7 +6,7 @@ pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 pub type ProviderResult<T=()> = Result<T, ProviderError>;
 
-#[derive(Debug, PartialEq, Clone, Error)]
+#[derive(Debug, Error)]
 pub enum ProviderError {
     #[error("Invalid matcher: `{0}`")]
     InvalidMatcher(String),
@@ -48,6 +48,8 @@ pub enum ProviderError {
         reason: String,
         source: Option<BoxError>,
     },
+    #[error("Not found")]
+    NotFound
 }
 
 impl ProviderError {

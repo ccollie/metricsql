@@ -1,4 +1,3 @@
-use crate::provider::index_reader::IndexReaderResult;
 use crate::SeriesRef;
 use metricsql_common::hash::{FastHashSet, HashSetExt};
 use smallvec::{smallvec, SmallVec};
@@ -6,6 +5,7 @@ use std::cmp::Ordering;
 use std::collections::{BTreeSet, BinaryHeap};
 use std::hash::{Hash, Hasher};
 use std::iter::Peekable;
+use crate::provider::error::ProviderResult;
 
 pub type PostingsListVec = SmallVec<SeriesRef, 16>;
 
@@ -347,7 +347,7 @@ pub(super) fn without(full: PostingsEnum, drop: Box<dyn PostingsList>) -> Postin
 }
 
 
-pub(super) fn find_intersecting_postings(p: impl PostingsList, candidates: Vec<BoxedPostings>) -> IndexReaderResult<FastHashSet<PostingsWithIndex>> {
+pub(super) fn find_intersecting_postings(p: impl PostingsList, candidates: Vec<BoxedPostings>) -> ProviderResult<FastHashSet<PostingsWithIndex>> {
     let mut set: FastHashSet<PostingsWithIndex> = FastHashSet::with_capacity(candidates.len() * 4);
     if p.is_empty() {
         return Ok(set);

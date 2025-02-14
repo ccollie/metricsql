@@ -1,8 +1,40 @@
 use super::error::ProviderResult;
 use crate::types::Sample;
-use crate::RuntimeResult;
 use async_trait::async_trait;
 use metricsql_parser::label::{Labels, Matcher};
+use crate::SeriesRef;
+
+pub struct AppendOptions {
+    discard_out_of_order: bool
+}
+
+/// Appender provides batched appends against a storage.
+/// It must be completed with a call to commit or rollback.
+///
+///
+/// The type of samples (float64, histogram, etc) appended for a given series must remain same within an Appender.
+/// The behaviour is undefined if samples of different types are appended to the same series in a single Commit().
+pub trait Appender {
+    /// `append` adds a sample pair for the given series.
+    /// An optional series reference can be provided to accelerate calls.
+    /// A series reference number is returned which can be used to add further
+    /// samples to the given series in the same or later transactions.
+    /// Adding the sample via `append()` returns a new reference number.
+    /// If the reference is 0 it must not be used for caching.
+    async fn append(&mut self, sref: SeriesRef, labels: Labels, ts: i64, value: f64) -> ProviderResult<SeriesRef>;
+
+    /// `commit()` submits the collected samples and purges the batch. If `commit()`
+    /// returns an Err, it also rolls back all modifications made in
+    /// the appender so far, as `rollback()` would do.
+    async fn commit(&mut self) -> ProviderResult;
+
+    /// `rollback` rolls back all modifications made in the appender so far.
+    async fn rollback(&mut self) -> ProviderResult;
+
+    /// `set_options` configures the appender with specific append options such as
+    /// discarding out-of-order samples even if out-of-order is enabled in the TSDB.
+    fn set_options(&mut self, opts: &AppendOptions);
+}
 
 /// `LabelHints` specifies hints passed for label reads.
 /// This is used only as an option for implementation to use.

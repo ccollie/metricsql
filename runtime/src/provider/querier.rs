@@ -1,15 +1,15 @@
-use super::index_reader::{IndexReader, IndexReaderError, IndexReaderResult};
+use super::error::{ProviderError, ProviderResult};
+use super::index_reader::IndexReader;
 use crate::provider::postings::{find_intersecting_postings, without, EmptyPostings, PostingsEnum, PostingsList};
-use enquote::enquote;
 use futures::future::{try_join_all, BoxFuture};
 use metricsql_common::hash::{FastHashSet, HashSetExt};
-use metricsql_parser::label::{Label, MatchOp, Matcher, Matchers};
+use metricsql_parser::label::{MatchOp, Matcher, Matchers};
 use smallvec::SmallVec;
 use std::cmp::Ordering;
 
 /// `postings_for_matchers` assembles a single postings iterator against the index reader
 /// based on the given matchers. The resulting postings are not ordered by series.
-pub async fn postings_for_matchers(ix: &impl IndexReader, matchers: &Matchers) -> IndexReaderResult<Box<dyn PostingsList>> {
+pub async fn postings_for_matchers(ix: &impl IndexReader, matchers: &Matchers) -> ProviderResult<Box<dyn PostingsList>> {
     if matchers.is_empty() {
         return ix.all_postings().await;
     }
@@ -25,11 +25,11 @@ pub async fn postings_for_matchers(ix: &impl IndexReader, matchers: &Matchers) -
     }
 }
 
-pub async fn postings_for_matcher(ix: &impl IndexReader, m: &Matcher) -> IndexReaderResult<Box<dyn PostingsList>> {
+pub async fn postings_for_matcher(ix: &impl IndexReader, m: &Matcher) -> ProviderResult<Box<dyn PostingsList>> {
     postings_for_matcher_internal(ix, m).await
 }
 
-fn postings_for_matcher_internal<'a>(ix: &'a impl IndexReader, m: &'a Matcher) -> BoxFuture<'a, IndexReaderResult<Box<dyn PostingsList>>> {
+fn postings_for_matcher_internal<'a>(ix: &'a impl IndexReader, m: &'a Matcher) -> BoxFuture<'a, ProviderResult<Box<dyn PostingsList>>> {
     if m.label.is_empty() && m.value.is_empty() {
         return ix.all_postings();
     }
@@ -52,7 +52,7 @@ fn postings_for_matcher_internal<'a>(ix: &'a impl IndexReader, m: &'a Matcher) -
     ix.postings_for_label_matching(&m.label, |s| m.matches(s))
 }
 
-pub async fn label_values_with_matchers(r: &impl IndexReader, name: &str, matchers: &[Matcher]) -> IndexReaderResult<Vec<String>> {
+pub async fn label_values_with_matchers(r: &impl IndexReader, name: &str, matchers: Option<&Matchers>) -> ProviderResult<Vec<String>> {
     let mut all_values = r.label_values(name, matchers).await?;
     let mut has_matchers_for_other_labels = false;
 
@@ -96,11 +96,11 @@ pub async fn label_values_with_matchers(r: &impl IndexReader, name: &str, matche
 }
 
 
-//type PostingsResult<'a> = BoxFuture<'a, IndexReaderResult<impl PostingsList>>;
+//type PostingsResult<'a> = BoxFuture<'a, ProviderResult<impl PostingsList>>;
 
 /// `postings_for_matchers` assembles a single postings iterator against the index
 /// based on the given matchers. The resulting postings are not ordered by series. 
-async fn postings_for_matchers_slice<'a>(ix: &'a impl IndexReader, ms: &[Matcher]) -> IndexReaderResult<Box<dyn PostingsList>> {
+async fn postings_for_matchers_slice<'a>(ix: &'a impl IndexReader, ms: &[Matcher]) -> ProviderResult<Box<dyn PostingsList>> {
     if ms.len() == 1 {
         let m = &ms[0];
         if m.label.is_empty() && m.label.is_empty() {
@@ -165,7 +165,7 @@ async fn postings_for_matchers_slice<'a>(ix: &'a impl IndexReader, ms: &[Matcher
         if name.is_empty() && value.is_empty() {
             // We already handled the case at the top of the function,
             // and it is unexpected to get all postings again here.
-            return Err(IndexReaderError::MissingMatcher);
+            return Err(ProviderError::MissingMatcher);
         }
 
         if typ == MatchOp::RegexEqual && value == ".*" {
@@ -191,7 +191,7 @@ async fn postings_for_matchers_slice<'a>(ix: &'a impl IndexReader, ms: &[Matcher
 
             if is_not {
                 let inverse = m.inverse().map_err(|_| {
-                    IndexReaderError::InvalidMatcher(m.to_string())
+                    ProviderError::InvalidMatcher(m.to_string())
                 })?;
 
                 // If the label can't be empty and is a Not, then subtract it out at the end.
@@ -250,7 +250,7 @@ fn is_subtracting_matcher(m: &Matcher, label_must_be_set: &FastHashSet<&str>) ->
     matches!(m.op, MatchOp::NotEqual | MatchOp::RegexNotEqual) && m.matches("")
 }
 
-fn inverse_postings_for_matcher<'a>(ix: &'a impl IndexReader, m: &Matcher) -> BoxFuture<'a, IndexReaderResult<Box<dyn PostingsList>>> {
+fn inverse_postings_for_matcher<'a>(ix: &'a impl IndexReader, m: &Matcher) -> BoxFuture<'a, ProviderResult<Box<dyn PostingsList>>> {
     // Fast-path for RegexNotEqual matching.
     // Inverse of a RegexNotEqual is RegexpEqual (double negation).
     // Fast-path for set matching.
@@ -278,7 +278,7 @@ fn inverse_postings_for_matcher<'a>(ix: &'a impl IndexReader, m: &Matcher) -> Bo
     ix.postings_for_label_matching(&m.label, |s| !m.matches(s))
 }
 
-async fn run_or_matchers(ix: &impl IndexReader, matchers: &[Vec<Matcher>]) -> IndexReaderResult<Box<dyn PostingsList>> {
+async fn run_or_matchers(ix: &impl IndexReader, matchers: &[Vec<Matcher>]) -> ProviderResult<Box<dyn PostingsList>> {
     if matchers.is_empty() {
         Ok(Box::new(EmptyPostings::new()) as Box<dyn PostingsList>)
     } else if matchers.len() == 1 {
@@ -289,40 +289,5 @@ async fn run_or_matchers(ix: &impl IndexReader, matchers: &[Vec<Matcher>]) -> In
         let its = try_join_all(futures).await?;
         let iter = Box::new(PostingsEnum::intersection(its)) as Box<dyn PostingsList>;
         Ok(iter)
-    }
-}
-
-// Note - assumes that labels is sorted
-fn format_metric_name(name: &str, labels: &[Label]) -> String {
-    let size_hint = name.len()
-        + labels
-        .iter()
-        .map(|l| l.name.len() + l.value.len() + 3)
-        .sum::<usize>();
-    let mut full_name: String = String::with_capacity(size_hint);
-    format_metric_name_into(&mut full_name, name, labels);
-    full_name
-}
-
-fn format_metric_name_into(full_name: &mut String, name: &str, labels: &[Label]) {
-    full_name.push_str(name);
-    if !labels.is_empty() {
-        full_name.push('{');
-        for (i, label) in labels.iter().enumerate() {
-            full_name.push_str(&label.name);
-            full_name.push_str("=\"");
-            // avoid allocation if possible
-            if label.value.contains('"') {
-                let quoted_value = enquote('\"', &label.value);
-                full_name.push_str(&quoted_value);
-            } else {
-                full_name.push_str(&label.value);
-            }
-            full_name.push('"');
-            if i < labels.len() - 1 {
-                full_name.push(',');
-            }
-        }
-        full_name.push('}');
     }
 }
