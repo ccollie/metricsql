@@ -7,7 +7,7 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 use std::time::Duration;
-
+use blart::AsBytes;
 use super::candlestick::{rollup_close, rollup_high, rollup_low, rollup_open};
 use super::delta::delta_values;
 use super::deriv::deriv_values;
@@ -21,9 +21,12 @@ use super::rollup_fns::{
 };
 use super::{RollupFuncArg, RollupHandler, TimeSeriesMap};
 use crate::common::math::quantile;
-use crate::execution::{get_timestamps, validate_max_points_per_timeseries};
+use crate::execution::validate_max_points_per_timeseries;
 use crate::types::{get_timeseries, Timestamp};
 use crate::{RuntimeError, RuntimeResult};
+
+#[cfg(test)]
+use crate::execution::get_timestamps;
 
 const EMPTY_STRING: &str = "";
 
@@ -97,16 +100,17 @@ const CLOSE: &str = "close";
 const LOW: &str = "low";
 const HIGH: &str = "high";
 
-fn get_tag_fn_from_str(name: &str) -> Option<(&'static str, &RollupHandler)> {
-    match name {
-        op if op.eq_ignore_ascii_case(MIN) => Some((MIN, &FN_MIN)),
-        op if op.eq_ignore_ascii_case(MAX) => Some((MAX, &FN_MAX)),
-        op if op.eq_ignore_ascii_case(AVG) => Some((AVG, &FN_AVG)),
-        op if op.eq_ignore_ascii_case(OPEN) => Some((OPEN, &FN_OPEN)),
-        op if op.eq_ignore_ascii_case(CLOSE) => Some((CLOSE, &FN_CLOSE)),
-        op if op.eq_ignore_ascii_case(LOW) => Some((LOW, &FN_LOW)),
-        op if op.eq_ignore_ascii_case(HIGH) => Some((HIGH, &FN_HIGH)),
-        _ => None,
+
+fn get_tag_fn_from_str(key: &str) -> Option<(&'static str, &RollupHandler)> {
+    hashify::tiny_map_ignore_case! {
+        key.as_bytes(),
+        "avg" => (AVG, &FN_AVG),
+        "high" => (HIGH, &FN_HIGH),
+        "low" => (LOW, &FN_LOW),
+        "max" => (MAX, &FN_MAX),
+        "min" => (MIN, &FN_MIN),
+        "open" => (OPEN, &FN_OPEN),
+        "close" => (CLOSE, &FN_CLOSE),
     }
 }
 

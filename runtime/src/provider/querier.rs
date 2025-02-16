@@ -1,6 +1,6 @@
 use super::error::{ProviderError, ProviderResult};
 use super::index_reader::IndexReader;
-use crate::provider::postings::{find_intersecting_postings, without, EmptyPostings, PostingsEnum, PostingsList};
+use crate::provider::postings::{find_intersecting_postings, without, PostingsEnum, PostingsList};
 use futures::future::{try_join_all, BoxFuture};
 use metricsql_common::hash::{FastHashSet, HashSetExt};
 use metricsql_parser::label::{MatchOp, Matcher, Matchers};
@@ -21,7 +21,7 @@ pub async fn postings_for_matchers(ix: &impl IndexReader, matchers: &Matchers) -
     if !matchers.or_matchers.is_empty() {
         run_or_matchers(ix, &matchers.or_matchers).await
     } else {
-        Ok(Box::new(EmptyPostings::new()) as Box<dyn PostingsList>)
+        Ok(Box::new(PostingsEnum::Empty) as Box<dyn PostingsList>)
     }
 }
 
@@ -54,20 +54,39 @@ fn postings_for_matcher_internal<'a>(ix: &'a impl IndexReader, m: &'a Matcher) -
 
 pub async fn label_values_with_matchers(r: &impl IndexReader, name: &str, matchers: Option<&Matchers>) -> ProviderResult<Vec<String>> {
     let mut all_values = r.label_values(name, matchers).await?;
+
+    fn process_matchers(
+        matchers: &[Matcher], 
+        name: &str,
+        all_values: &mut Vec<String>
+    ) -> bool {
+        let mut has_matchers_for_other_labels = false;
+        for m in matchers {
+            if m.label != name {
+                has_matchers_for_other_labels = true;
+                continue;
+            }
+
+            *all_values = all_values.iter()
+                .filter_map(|x| if m.matches(x.as_str()) {
+                    Some(x.clone())
+                } else {
+                    None
+                }).collect();
+        }
+        has_matchers_for_other_labels
+    }
+
     let mut has_matchers_for_other_labels = false;
 
-    for m in matchers {
-        if m.label != name {
-            has_matchers_for_other_labels = true;
-            continue;
+    if let Some(matchers) = matchers {
+        if !matchers.matchers.is_empty() {
+            has_matchers_for_other_labels = process_matchers(&matchers.matchers, name, &mut all_values);
+        } else if !matchers.or_matchers.is_empty() {
+            for or_matchers in &matchers.or_matchers {
+                has_matchers_for_other_labels |= process_matchers(or_matchers, name, &mut all_values);
+            }
         }
-        
-        all_values = all_values.iter()
-            .filter_map(|x| if m.matches(x.as_str()) {
-                Some(x.clone())
-            } else { 
-                None
-            }).collect();
     }
 
     if all_values.is_empty() {
@@ -138,7 +157,7 @@ async fn postings_for_matchers_slice<'a>(ix: &'a impl IndexReader, ms: &[Matcher
         // doesn't include series that may be added to the index reader during this function call.
         its_futures.push( ix.all_postings() );
     } else {
-        let empty = Box::pin(async { Ok(Box::new(EmptyPostings::new()) as Box<dyn PostingsList>) });
+        let empty = Box::pin(async { Ok(Box::new(PostingsEnum::Empty) as Box<dyn PostingsList>) });
         its_futures.push(empty);
     };
 
@@ -280,7 +299,7 @@ fn inverse_postings_for_matcher<'a>(ix: &'a impl IndexReader, m: &Matcher) -> Bo
 
 async fn run_or_matchers(ix: &impl IndexReader, matchers: &[Vec<Matcher>]) -> ProviderResult<Box<dyn PostingsList>> {
     if matchers.is_empty() {
-        Ok(Box::new(EmptyPostings::new()) as Box<dyn PostingsList>)
+        Ok(Box::new(PostingsEnum::Empty) as Box<dyn PostingsList>)
     } else if matchers.len() == 1 {
         let m = matchers.get(0).expect("Out of bounds error running matchers");
         postings_for_matchers_slice(ix, &m).await

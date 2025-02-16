@@ -30,6 +30,7 @@ chrono.workspace = true
 chrono-tz.workspace = true
 effective-limits = "0.5"
 get-size.workspace = true
+hashify.workspace = true
 integer-encoding.workspace = true
 itertools.workspace = true
 lockfree-object-pool = "0.1"

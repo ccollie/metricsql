@@ -2,7 +2,7 @@ use crate::provider::error::ProviderResult;
 use crate::provider::postings::PostingsList;
 use crate::SeriesRef;
 use futures::future::BoxFuture;
-use metricsql_parser::label::{Matcher, Matchers};
+use metricsql_parser::label::Matchers;
 
 
 /// IndexReader provides reading access of serialized index data.

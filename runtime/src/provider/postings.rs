@@ -9,9 +9,8 @@ use crate::provider::error::ProviderResult;
 
 pub type PostingsListVec = SmallVec<SeriesRef, 16>;
 
-
 pub enum PostingsEnum {
-    Empty(EmptyPostings),
+    Empty,
     List(ListPostings),
     Intersection(IntersectPostings),
     Removed(Box<RemovedPostings>),
@@ -21,7 +20,7 @@ pub enum PostingsEnum {
 
 impl PostingsEnum {
     pub(super) fn empty() -> Self {
-        PostingsEnum::Empty(EmptyPostings {})
+        PostingsEnum::Empty
     }
 
     pub(super) fn remove(full: PostingsEnum, removed: Box<dyn PostingsList>) -> Self {
@@ -42,7 +41,7 @@ impl Iterator for PostingsEnum {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
-            PostingsEnum::Empty(_e) => None,
+            PostingsEnum::Empty => None,
             PostingsEnum::List(l) => l.next(),
             PostingsEnum::Intersection(i) => i.next(),
             PostingsEnum::Removed(r) => r.next(),
@@ -58,7 +57,7 @@ impl PostingsList for PostingsEnum {
 
     fn is_empty(&self) -> bool {
         match self {
-            PostingsEnum::Empty(_) => true,
+            PostingsEnum::Empty => true,
             PostingsEnum::List(l) => l.is_empty(),
             PostingsEnum::Intersection(i) => i.is_empty(),
             PostingsEnum::Removed(r) => r.is_empty(),

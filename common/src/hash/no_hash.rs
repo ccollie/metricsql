@@ -13,7 +13,6 @@ use core::{
     hash::{BuildHasherDefault, Hasher},
     marker::PhantomData,
 };
-use std::collections::BTreeSet;
 
 /// A `HashMap` with an integer domain, using `NoHashHasher` to perform no hashing at all.
 ///

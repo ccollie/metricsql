@@ -517,7 +517,7 @@ pub fn is_rollup_aggregation_over_time(func: RollupFunction) -> bool {
 fn lookup_rollup_fn(key: &[u8]) -> Option<RollupFunction> {
     use RollupFunction::*;
     // This must be kept in sync with RollupFunction
-    hashify::tiny_map! { 
+    hashify::tiny_map! {
         key,
         "absent_over_time" => AbsentOverTime,
         "aggr_over_time" => AggrOverTime,

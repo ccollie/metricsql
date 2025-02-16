@@ -11,8 +11,8 @@ use ahash::HashMapExt;
 use blart::map::Entry as ARTEntry;
 use blart::TreeMap;
 use croaring::bitmap64::Bitmap64Iterator;
-use metricsql_common::hash::{FastHashMap, FastHashSet};
-use metricsql_parser::label::{Label, MatchOp, Matcher, Matchers, NAME_LABEL};
+use metricsql_common::hash::FastHashMap;
+use metricsql_parser::label::{Label, Matcher, Matchers, NAME_LABEL};
 use std::borrow::Cow;
 use std::collections::hash_map::Entry;
 use std::collections::BTreeSet;
@@ -25,17 +25,17 @@ pub type SeriesRef = u64;
 use super::posting_stats::{PostingStat, PostingsStats, StatsMaxHeap};
 use crate::provider::index_reader::IndexReader;
 use crate::provider::postings::PostingsList;
+use crate::provider::querier::postings_for_matchers;
 use croaring::{Bitmap64, Portable};
 use enquote::enquote;
 use futures::future::BoxFuture;
 use get_size::GetSize;
 use integer_encoding::{VarIntReader, VarIntWriter};
-use crate::provider::querier::postings_for_matchers;
 
 const ALL_POSTINGS_KEY: &str = "$_ALL_P0STINGS_";
 static EMPTY_BITMAP: LazyLock<PostingsBitmap> = LazyLock::new(|| PostingsBitmap::new());
 
-pub type PostingsBitmap = croaring::Bitmap64;
+pub type PostingsBitmap = Bitmap64;
 // label
 // label=value
 pub type PostingsIndex = TreeMap<IndexKey, PostingsBitmap>;
@@ -258,7 +258,7 @@ impl MemoryPostings {
     }
 
 
-    pub fn label_values_for_matcher_slice(
+    fn label_values_for_matcher_slice(
         &self,
         name: &str,
         matchers: &[Matcher],
@@ -310,7 +310,9 @@ impl MemoryPostings {
 
     pub fn label_values(&self, name: &str) -> Vec<String> {
         let mut values = Vec::new();
-        self.process_label_values(name, &mut values, |_, _| true,
+        let _ = self.process_label_values(name,
+                                  &mut values, 
+                                  |_, _| true,
                                   |values, value, _| {
                                       values.push(value.to_string());
                                       ControlFlow::<Option<()>>::Continue(())
@@ -524,16 +526,16 @@ impl MemoryPostings {
 }
 
 impl IndexReader for MemoryPostings {
-    type Iter = ();
+    type Iter = BitmapPostings;
 
     fn all_postings<'a>(&'a self) -> BoxFuture<'a, ProviderResult<Box<dyn PostingsList>>> {
         let bmp = self.all_postings();
         let result = BitmapPostings::new(bmp);
-        Box::pin(Ok(Box::new(result)))
+        Box::pin(async move { Ok(Box::new(result) as Box<dyn PostingsList>) })
     }
 
     async fn sorted_label_values(&self, name: &str, matchers: Option<&Matchers>) -> ProviderResult<Vec<String>> {
-        let mut values = self.label_values(name, matchers);
+        let mut values = <Self as IndexReader>::label_values(self, name, matchers).await?;
         values.sort();
         Ok(values)
     }
@@ -549,13 +551,13 @@ impl IndexReader for MemoryPostings {
                                           |_, ids| ids.intersect(&postings),
                                           |state, value, _ | {
                                               state.push(value.to_string());
-                                              ControlFlow::Continue(())
+                                              ControlFlow::<Option<()>>::Continue(())
                                           });   
             }
         } else {
-            self.process_label_values(name, &mut values, |_,_| true, |state, value, postings | {
+            self.process_label_values(name, &mut values, |_,_| true, |state, value, _| {
                 state.push(value.to_string());
-                ControlFlow::Continue(())
+                ControlFlow::<Option<()>>::Continue(())
             });
         }
         Ok(values)
@@ -564,7 +566,7 @@ impl IndexReader for MemoryPostings {
     fn postings(&self, name: &str, values: &[String]) -> BoxFuture<'_, ProviderResult<Box<dyn PostingsList>>> {
         let bmp = self.postings(name, values);
         let result = BitmapPostings::new(bmp);
-        Box::pin(Ok(Box::new(result)))
+        Box::pin(async move { Ok(Box::new(result) as Box<dyn PostingsList>) })
     }
 
     fn postings_for_label_matching(&self, name: &str, match_fn: impl Fn(&str) -> bool) -> BoxFuture<'_, ProviderResult<Box<dyn PostingsList>>> {
@@ -578,24 +580,24 @@ impl IndexReader for MemoryPostings {
             }
         }
         let result = BitmapPostings::new(res);
-        Box::pin(Ok(Box::new(result)))
+        Box::pin(async move { Ok(Box::new(result) as Box<dyn PostingsList>) })
     }
 
     fn postings_for_all_label_values(&self, name: &str) -> BoxFuture<'_, ProviderResult<Box<dyn PostingsList>>> {
         let res = self.postings_for_all_label_values(name);
         let result = BitmapPostings::new(res);
-        Box::pin(Ok(Box::new(result)))
+        Box::pin(async move { Ok(Box::new(result) as Box<dyn PostingsList>) })
     }
 
-    fn sorted_postings(&self, postings: impl Iterator<Item=SeriesRef>) -> BoxFuture<'_, ProviderResult<Box<dyn PostingsList>>> {
-        todo!()
+    fn sorted_postings(&self, _postings: impl Iterator<Item=SeriesRef>) -> BoxFuture<'_, ProviderResult<Box<dyn PostingsList>>> {
+        unimplemented!("sorted_postings")
     }
 
     async fn label_names(&self, matchers: Option<&Matchers>) -> ProviderResult<Vec<String>> {
         let mut set: BTreeSet<String> = BTreeSet::new();
         if let Some(matchers) = matchers {
             let postings = postings_for_matchers(self, matchers).await?;
-            let matched_bitmap = Bitmap64::from(postings);
+            let matched_bitmap = Bitmap64::from_iter(postings);
             if !matched_bitmap.is_empty() {
                 for (k, postings) in self.label_index.iter() {
                     if let Some((key, _)) = k.split() {
@@ -634,7 +636,7 @@ impl IndexReader for MemoryPostings {
     }
 
     async fn label_names_for(&self, postings: impl Iterator<Item=SeriesRef>) -> ProviderResult<Vec<String>> {
-        let mut bitmap: Bitmap64 = Bitmap64::from_iter(postings);
+        let bitmap: Bitmap64 = Bitmap64::from_iter(postings);
         // Slow
         let mut set: BTreeSet<String> = BTreeSet::new();
         if !bitmap.is_empty() {
@@ -687,14 +689,6 @@ fn read_key<R: Read>(reader: &mut R) -> io::Result<IndexKey> {
     let key = IndexKey::from(data);
     Ok(key)
 }
-
-fn is_subtracting_matcher(m: &Matcher, label_must_be_set: &FastHashSet<String>) -> bool {
-    if !label_must_be_set.contains(&m.label) {
-        return true;
-    }
-    matches!(m.op, MatchOp::NotEqual | MatchOp::RegexNotEqual) && m.matches("")
-}
-
 
 
 // Note - assumes that labels is sorted
