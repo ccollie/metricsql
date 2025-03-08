@@ -212,6 +212,9 @@ mod tests {
         f(r#"{a="b" or c="d",a="b"}"#, r#"{a="b"}"#);
         f(r#"{a="b",c="d" or c="d",a="b"}"#, r#"{a="b", c="d"}"#);
         f(r#"foo{x="y",a="b",c="d" or c="d",a="b"}"#, r#"{a="b", c="d"}"#);
+
+        // ifnot
+        f(r#"foo{a="a"} ifnot foo{b="b"}"#, r#"foo{a="a"} ifnot foo{a="a",b="b"}"#);
     }
 
     #[test]

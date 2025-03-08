@@ -181,6 +181,12 @@ pub fn get_common_label_filters(e: &Expr) -> Vec<Matcher> {
                     trim_filters_by_match_modifier(&mut lfs_left, group_modifier);
                     lfs_left
                 }
+                Operator::IfNot => {
+                    // remove right from left, so filter in left can be pushed down to right.
+			        // {f1} ifnot `any` -> {f1}
+                    trim_filters_by_match_modifier(&mut lfs_left, group_modifier);
+                    lfs_left
+                }
                 _ => {
                     match join_modifier {
                         // group_left
