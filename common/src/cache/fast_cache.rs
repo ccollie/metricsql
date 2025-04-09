@@ -561,7 +561,6 @@ impl BucketInner {
             || idx >= self.idx && gen == MAX_GEN && b_gen == 1
     }
 
-
     fn retrieve_value(&mut self, k: &[u8], v: usize) -> Option<&[u8]> {
         let chunk_idx: usize = v / CHUNK_SIZE;
         if chunk_idx >= self.chunks.len() {
@@ -777,7 +776,6 @@ mod tests {
             "unexpected non-empty value obtained from small cache: {}",
             String::from_utf8_lossy(&v)
         );
-
 
         assert!(!c.has(b"foobar"), "non-existing entry found in the cache");
     }

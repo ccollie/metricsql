@@ -1,10 +1,10 @@
+use crate::types::METRIC_NAME_LABEL;
 use blart::{AsBytes, NoPrefixesBytes};
+use get_size::GetSize;
 use std::borrow::Borrow;
 use std::fmt::Display;
 use std::fmt::Write;
 use std::ops::Deref;
-use get_size::GetSize;
-use crate::types::METRIC_NAME_LABEL;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, GetSize)]
 pub struct IndexKey(Box<[u8]>);
@@ -141,7 +141,6 @@ pub(super) fn get_key_for_label_value(label_name: &str, value: &str) -> String {
     res
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -233,7 +232,6 @@ mod tests {
         let borrowed: &[u8] = key.borrow();
         assert_eq!(borrowed, b"test_key\0");
     }
-
 
     #[test]
     fn test_with_collection() {

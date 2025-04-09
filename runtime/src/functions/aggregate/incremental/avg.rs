@@ -7,7 +7,9 @@ impl IncrementalAggrHandler for IncrementalAggrAvg {
         // do not use `Rapid calculation methods` at https://en.wikipedia.org/wiki/Standard_deviation,
         // since it is slower and has no obvious benefits in increased precision.
 
-        for (v, (count, dst)) in values.iter().cloned()
+        for (v, (count, dst)) in values
+            .iter()
+            .cloned()
             .zip(iac.values.iter_mut().zip(iac.ts.values.iter_mut()))
             .filter(|(v, (_, _))| !v.is_nan())
         {
@@ -23,11 +25,13 @@ impl IncrementalAggrHandler for IncrementalAggrAvg {
     }
 
     fn merge(&self, dst: &mut IncrementalAggrContext, src: &IncrementalAggrContext) {
-        for ((src_count, dst_count), (v, dst)) in
-            src.values.iter().cloned()
-                .zip(dst.values.iter_mut())
-                .zip(src.ts.values.iter().cloned().zip(dst.ts.values.iter_mut()))
-                .filter(|((src_count, _), _)| *src_count != 0.0)
+        for ((src_count, dst_count), (v, dst)) in src
+            .values
+            .iter()
+            .cloned()
+            .zip(dst.values.iter_mut())
+            .zip(src.ts.values.iter().cloned().zip(dst.ts.values.iter_mut()))
+            .filter(|((src_count, _), _)| *src_count != 0.0)
         {
             if *dst_count == 0.0 {
                 *dst = v;

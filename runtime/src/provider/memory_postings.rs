@@ -1,10 +1,7 @@
 use super::error::{ProviderError, ProviderResult};
 use super::index_key::{
-    format_key_for_label_value,
-    format_key_for_metric_name,
-    get_key_for_label_prefix,
-    get_key_for_label_value,
-    IndexKey,
+    format_key_for_label_value, format_key_for_metric_name, get_key_for_label_prefix,
+    get_key_for_label_value, IndexKey,
 };
 use crate::types::{MetricName, METRIC_NAME_LABEL};
 use ahash::HashMapExt;
@@ -24,11 +21,10 @@ use std::sync::LazyLock;
 pub type SeriesRef = u64;
 use super::posting_stats::{PostingStat, PostingsStats, StatsMaxHeap};
 use crate::provider::index_reader::IndexReader;
-use crate::provider::postings::PostingsList;
+use crate::provider::postings::PostingsIterator;
 use crate::provider::querier::postings_for_matchers;
 use croaring::{Bitmap64, Portable};
 use enquote::enquote;
-use futures::future::BoxFuture;
 use get_size::GetSize;
 use integer_encoding::{VarIntReader, VarIntWriter};
 
@@ -40,28 +36,31 @@ pub type PostingsBitmap = Bitmap64;
 // label=value
 pub type PostingsIndex = TreeMap<IndexKey, PostingsBitmap>;
 
-pub struct BitmapPostings {
-    cursor: Bitmap64Iterator<'_>,
-    len: u64,
+pub struct BitmapPostings<'a> {
+    cursor: Bitmap64Iterator<'a>,
+    len: usize,
 }
 
-impl BitmapPostings {
-    fn new(bitmap: PostingsBitmap) -> Self {
-        BitmapPostings {
-            cursor: bitmap.iter(),
-            len: bitmap.cardinality(),
-        }
+impl<'a> BitmapPostings<'a> {
+    pub fn new(bitmap: PostingsBitmap) -> Self {
+        let cursor = bitmap.iter();
+        let len = bitmap.cardinality() as usize;
+        BitmapPostings { cursor, len }
     }
 }
-impl Iterator for BitmapPostings {
+impl<'a> Iterator for BitmapPostings<'a> {
     type Item = SeriesRef;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.cursor.next()
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.len, Some(self.len))
+    }
 }
 
-impl PostingsList for BitmapPostings {
+impl<'a> PostingsIterator<'a> for BitmapPostings<'a> {
     fn is_empty(&self) -> bool {
         self.len == 0
     }
@@ -154,12 +153,7 @@ impl MemoryPostings {
         self.label_index.prefix(prefix.as_bytes()).next().is_some()
     }
 
-    fn add_posting_for_label_value(
-        &mut self,
-        ts_id: SeriesRef,
-        label: &str,
-        value: &str,
-    ) -> bool {
+    fn add_posting_for_label_value(&mut self, ts_id: SeriesRef, label: &str, value: &str) -> bool {
         let key = IndexKey::for_label_value(label, value);
         match self.label_index.entry(key) {
             ARTEntry::Occupied(mut entry) => {
@@ -195,7 +189,8 @@ impl MemoryPostings {
     }
 
     pub fn all_postings(&self) -> &PostingsBitmap {
-        self.label_index.get(&self.all_postings_key)
+        self.label_index
+            .get(&self.all_postings_key)
             .unwrap_or(&*EMPTY_BITMAP)
     }
 
@@ -232,7 +227,11 @@ impl MemoryPostings {
         result
     }
 
-    pub fn postings_for_label_value<'a>(&'a self, name: &str, value: &str) -> Cow<'a, PostingsBitmap> {
+    pub fn postings_for_label_value<'a>(
+        &'a self,
+        name: &str,
+        value: &str,
+    ) -> Cow<'a, PostingsBitmap> {
         let key = IndexKey::for_label_value(name, value);
         if let Some(bmp) = self.label_index.get(&key) {
             Cow::Borrowed(bmp)
@@ -244,7 +243,11 @@ impl MemoryPostings {
     /// `postings_for_label_matching` returns postings having a label with the given name and a value
     /// for which match returns true. If no postings are found having at least one matching label,
     /// an empty bitmap is returned.
-    pub fn postings_for_label_matching(&self, name: &str, match_fn: fn(&str) -> bool) -> PostingsBitmap {
+    pub fn postings_for_label_matching(
+        &self,
+        name: &str,
+        match_fn: fn(&str) -> bool,
+    ) -> PostingsBitmap {
         let prefix = get_key_for_label_prefix(name);
         let start_pos = prefix.len();
         let mut result = PostingsBitmap::new();
@@ -256,7 +259,6 @@ impl MemoryPostings {
         }
         result
     }
-
 
     fn label_values_for_matcher_slice(
         &self,
@@ -307,16 +309,16 @@ impl MemoryPostings {
         set.into_iter().collect()
     }
 
-
     pub fn label_values(&self, name: &str) -> Vec<String> {
         let mut values = Vec::new();
-        let _ = self.process_label_values(name,
-                                  &mut values, 
-                                  |_, _| true,
-                                  |values, value, _| {
-                                      values.push(value.to_string());
-                                      ControlFlow::<Option<()>>::Continue(())
-                                  },
+        let _ = self.process_label_values(
+            name,
+            &mut values,
+            |_, _| true,
+            |values, value, _| {
+                values.push(value.to_string());
+                ControlFlow::<Option<()>>::Continue(())
+            },
         );
         values.sort();
 
@@ -439,19 +441,22 @@ impl MemoryPostings {
                         acc.size += size;
                     }
                     Entry::Vacant(entry) => {
-                        let acc = SizeAccumulator {
-                            size,
-                            count,
-                        };
+                        let acc = SizeAccumulator { size, count };
                         entry.insert(acc);
                     }
                 }
 
-                label_value_pairs.push(PostingStat { name: format!("{}={}", name, value), count });
+                label_value_pairs.push(PostingStat {
+                    name: format!("{}={}", name, value),
+                    count,
+                });
                 num_label_pairs += 1;
 
                 if label == name {
-                    metrics.push(PostingStat { name: name.to_string(), count });
+                    metrics.push(PostingStat {
+                        name: name.to_string(),
+                        count,
+                    });
                 }
             }
         }
@@ -459,8 +464,14 @@ impl MemoryPostings {
         let mut num_labels: usize = 0;
 
         for (name, v) in count_map {
-            labels.push(PostingStat { name: name.to_string(), count: v.count });
-            label_value_length.push(PostingStat { name: name.to_string(), count: v.size as u64 });
+            labels.push(PostingStat {
+                name: name.to_string(),
+                count: v.count,
+            });
+            label_value_length.push(PostingStat {
+                name: name.to_string(),
+                count: v.size as u64,
+            });
             if name != NAME_LABEL && name != ALL_POSTINGS_KEY {
                 num_labels += 1;
             }
@@ -526,50 +537,69 @@ impl MemoryPostings {
 }
 
 impl IndexReader for MemoryPostings {
-    type Iter = BitmapPostings;
+    type Items<'a> = BitmapPostings<'a>;
 
-    fn all_postings<'a>(&'a self) -> BoxFuture<'a, ProviderResult<Box<dyn PostingsList>>> {
+    async fn all_postings<'a>(&'a self) -> ProviderResult<BitmapPostings<'a>> {
         let bmp = self.all_postings();
         let result = BitmapPostings::new(bmp);
-        Box::pin(async move { Ok(Box::new(result) as Box<dyn PostingsList>) })
+        Ok(result)
     }
 
-    async fn sorted_label_values(&self, name: &str, matchers: Option<&Matchers>) -> ProviderResult<Vec<String>> {
-        let mut values = <Self as IndexReader>::label_values(self, name, matchers).await?;
+    async fn sorted_label_values(
+        &self,
+        name: &str,
+        matchers: Option<&Matchers>,
+    ) -> ProviderResult<Vec<String>> {
+        let mut values = self.label_values(name, matchers);
         values.sort();
         Ok(values)
     }
 
-    async fn label_values(&self, name: &str, matchers: Option<&Matchers>) -> ProviderResult<Vec<String>> {
+    async fn label_values(
+        &self,
+        name: &str,
+        matchers: Option<&Matchers>,
+    ) -> ProviderResult<Vec<String>> {
         let mut values: Vec<String> = Vec::new();
         if let Some(matchers) = matchers {
             let matched_postings = postings_for_matchers(self, matchers).await?;
             let postings = Bitmap64::from_iter(matched_postings);
             if !postings.is_empty() {
-                self.process_label_values(name,
-                                          &mut values,
-                                          |_, ids| ids.intersect(&postings),
-                                          |state, value, _ | {
-                                              state.push(value.to_string());
-                                              ControlFlow::<Option<()>>::Continue(())
-                                          });   
+                self.process_label_values(
+                    name,
+                    &mut values,
+                    |_, ids| ids.intersect(&postings),
+                    |state, value, _| {
+                        state.push(value.to_string());
+                        ControlFlow::<Option<()>>::Continue(())
+                    },
+                );
             }
         } else {
-            self.process_label_values(name, &mut values, |_,_| true, |state, value, _| {
-                state.push(value.to_string());
-                ControlFlow::<Option<()>>::Continue(())
-            });
+            self.process_label_values(
+                name,
+                &mut values,
+                |_, _| true,
+                |state, value, _| {
+                    state.push(value.to_string());
+                    ControlFlow::<Option<()>>::Continue(())
+                },
+            );
         }
         Ok(values)
     }
 
-    fn postings(&self, name: &str, values: &[String]) -> BoxFuture<'_, ProviderResult<Box<dyn PostingsList>>> {
+    async fn postings(&self, name: &str, values: &[&str]) -> ProviderResult<BitmapPostings> {
         let bmp = self.postings(name, values);
         let result = BitmapPostings::new(bmp);
-        Box::pin(async move { Ok(Box::new(result) as Box<dyn PostingsList>) })
+        Ok(result)
     }
 
-    fn postings_for_label_matching(&self, name: &str, match_fn: impl Fn(&str) -> bool) -> BoxFuture<'_, ProviderResult<Box<dyn PostingsList>>> {
+    async fn postings_for_label_matching(
+        &self,
+        name: &str,
+        match_fn: impl Fn(&str) -> bool,
+    ) -> ProviderResult<BitmapPostings> {
         let mut res = PostingsBitmap::new();
         let prefix = get_key_for_label_prefix(name);
         let start_pos = prefix.len();
@@ -580,16 +610,19 @@ impl IndexReader for MemoryPostings {
             }
         }
         let result = BitmapPostings::new(res);
-        Box::pin(async move { Ok(Box::new(result) as Box<dyn PostingsList>) })
+        Ok(result)
     }
 
-    fn postings_for_all_label_values(&self, name: &str) -> BoxFuture<'_, ProviderResult<Box<dyn PostingsList>>> {
+    async fn postings_for_all_label_values(&self, name: &str) -> ProviderResult<BitmapPostings> {
         let res = self.postings_for_all_label_values(name);
         let result = BitmapPostings::new(res);
-        Box::pin(async move { Ok(Box::new(result) as Box<dyn PostingsList>) })
+        Ok(result)
     }
 
-    fn sorted_postings(&self, _postings: impl Iterator<Item=SeriesRef>) -> BoxFuture<'_, ProviderResult<Box<dyn PostingsList>>> {
+    async fn sorted_postings(
+        &self,
+        _postings: impl Iterator<Item = SeriesRef>,
+    ) -> ProviderResult<BitmapPostings> {
         unimplemented!("sorted_postings")
     }
 
@@ -601,7 +634,10 @@ impl IndexReader for MemoryPostings {
             if !matched_bitmap.is_empty() {
                 for (k, postings) in self.label_index.iter() {
                     if let Some((key, _)) = k.split() {
-                        if key != ALL_POSTINGS_KEY && !set.contains(key) && postings.intersect(&matched_bitmap) {
+                        if key != ALL_POSTINGS_KEY
+                            && !set.contains(key)
+                            && postings.intersect(&matched_bitmap)
+                        {
                             set.insert(key.to_string());
                         }
                     }
@@ -616,33 +652,38 @@ impl IndexReader for MemoryPostings {
                 }
             }
         }
-        
+
         let res = set.into_iter().collect::<Vec<_>>();
         Ok(res)
     }
 
     async fn label_value_for(&self, id: SeriesRef, label: &str) -> ProviderResult<String> {
         let mut state = ();
-        let value = self.process_label_values(label, &mut state,
-                                              |_, postings| postings.contains(id),
-                                              |_, value, _| {
-                                                  ControlFlow::Break(Some(value.to_string()))
-                                              });
+        let value = self.process_label_values(
+            label,
+            &mut state,
+            |_, postings| postings.contains(id),
+            |_, value, _| ControlFlow::Break(Some(value.to_string())),
+        );
         if let Some(value) = value {
             Ok(value)
         } else {
-            Err(ProviderError::NotFound) // todo: better error   
+            Err(ProviderError::NotFound) // todo: better error
         }
     }
 
-    async fn label_names_for(&self, postings: impl Iterator<Item=SeriesRef>) -> ProviderResult<Vec<String>> {
+    async fn label_names_for(
+        &self,
+        postings: impl Iterator<Item = SeriesRef>,
+    ) -> ProviderResult<Vec<String>> {
         let bitmap: Bitmap64 = Bitmap64::from_iter(postings);
         // Slow
         let mut set: BTreeSet<String> = BTreeSet::new();
         if !bitmap.is_empty() {
             for (k, postings) in self.label_index.iter() {
                 if let Some((key, _)) = k.split() {
-                    if key != ALL_POSTINGS_KEY && !set.contains(key) && postings.intersect(&bitmap) {
+                    if key != ALL_POSTINGS_KEY && !set.contains(key) && postings.intersect(&bitmap)
+                    {
                         set.insert(key.to_string());
                     }
                 }
@@ -652,7 +693,11 @@ impl IndexReader for MemoryPostings {
     }
 }
 
-fn write_bitmap<W: Write>(writer: &mut W, buf: &mut Vec<u8>, bitmap: &PostingsBitmap) -> io::Result<()> {
+fn write_bitmap<W: Write>(
+    writer: &mut W,
+    buf: &mut Vec<u8>,
+    bitmap: &PostingsBitmap,
+) -> io::Result<()> {
     buf.clear();
 
     // Docs for Portable state that it is Endian dependent, whereas the docs below imply that the data is
@@ -674,7 +719,6 @@ fn read_bitmap<R: Read>(reader: &mut R, buf: &mut Vec<u8>) -> io::Result<Posting
     Ok(PostingsBitmap::deserialize::<Portable>(&buf))
 }
 
-
 fn write_key<W: Write>(key: &IndexKey, mut writer: W) -> io::Result<()> {
     let val = key.as_str();
     writer.write_varint(val.len())?;
@@ -690,14 +734,13 @@ fn read_key<R: Read>(reader: &mut R) -> io::Result<IndexKey> {
     Ok(key)
 }
 
-
 // Note - assumes that labels is sorted
 fn format_metric_name(name: &str, labels: &[Label]) -> String {
     let size_hint = name.len()
         + labels
-        .iter()
-        .map(|l| l.name.len() + l.value.len() + 3)
-        .sum::<usize>();
+            .iter()
+            .map(|l| l.name.len() + l.value.len() + 3)
+            .sum::<usize>();
     let mut full_name: String = String::with_capacity(size_hint);
     format_metric_name_into(&mut full_name, name, labels);
     full_name

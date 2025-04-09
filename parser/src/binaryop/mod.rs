@@ -39,7 +39,7 @@ const fn op_and(left: f64, right: f64) -> f64 {
 #[inline]
 const fn op_or(left: f64, right: f64) -> f64 {
     if !left.is_nan() {
-        return left
+        return left;
     }
     right
 }
@@ -172,7 +172,11 @@ macro_rules! make_comparison_func_bool {
             if left.is_nan() {
                 return f64::NAN;
             }
-            if $func(left, right) { 1_f64 } else { 0_f64 }
+            if $func(left, right) {
+                1_f64
+            } else {
+                0_f64
+            }
         }
     };
 }

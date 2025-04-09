@@ -11,7 +11,6 @@ use crate::prelude::binary::scalar_binary_operation;
 use crate::prelude::{eval_number, QueryValue, Timeseries};
 use crate::types::{FunctionArgs, InstantVector};
 use crate::{QueryResult, RuntimeError, RuntimeResult};
-use ahash::AHashSet;
 use metricsql_common::hash::{HashSetExt, IntSet, Signature};
 use metricsql_common::prelude::current_time_millis;
 use metricsql_parser::ast::{
@@ -394,8 +393,8 @@ fn eval_parens_op(ctx: &Context, ec: &EvalConfig, pe: &ParensExpr) -> RuntimeRes
 
 fn exec_binary_op(ctx: &Context, ec: &EvalConfig, be: &BinaryExpr) -> RuntimeResult<QueryValue> {
     let is_tracing = ctx.trace_enabled();
-    // first are cheap binary ops that can be handled without invoking rayon overhead
-    let res = match (&be.left.as_ref(), &be.right.as_ref()) {
+    // first are cheap binary ops that can be handled without invoking rayon/chili overhead
+    let res = match (be.left.as_ref(), be.right.as_ref()) {
         // vector op vector needs special handling where both vectors contain selectors
         (Expr::MetricExpression(_), Expr::MetricExpression(_))
         | (Expr::Rollup(_), Expr::Rollup(_))

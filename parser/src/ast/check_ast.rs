@@ -4,7 +4,7 @@
 // Original Source: https://github.com/GreptimeTeam/promql-parser/blob/main/src/parser/ast.rs
 use crate::ast::{
     AggregationExpr, BExpression, BinModifier, BinaryExpr, Expr, FunctionExpr, MetricExpr,
-    NumberLiteral, ParensExpr, RollupExpr, StringExpr, UnaryExpr, VectorMatchCardinality
+    NumberLiteral, ParensExpr, RollupExpr, StringExpr, UnaryExpr, VectorMatchCardinality,
 };
 use crate::common::{Value, ValueType};
 use crate::functions::BuiltinFunction;
@@ -199,7 +199,13 @@ fn check_ast_for_vector_selector(ex: MetricExpr) -> Result<Expr, String> {
             // with OR matching, __name__ can appear multiple times]
             // ex: {__name__="foo" OR __name__="bar"}
             // {__name__="a",bar="baz" or __name__="a"}
-            let mut is_duplicate = ex.matchers.matchers.iter().filter(|m| m.name() == NAME_LABEL).count() > 0;
+            let mut is_duplicate = ex
+                .matchers
+                .matchers
+                .iter()
+                .filter(|m| m.name() == NAME_LABEL)
+                .count()
+                > 0;
             if !is_duplicate {
                 // try the arms of the OR matchers
                 let or_matchers = &ex.matchers.or_matchers;

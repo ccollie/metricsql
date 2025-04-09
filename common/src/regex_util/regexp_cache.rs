@@ -29,7 +29,7 @@ impl RegexpCache {
             requests: AtomicU64::new(0),
             misses: AtomicU64::new(0),
             inner: Mutex::new(LruCache::with_capacity(DEFAULT_CACHE_SIZE)),
-            max_size_bytes
+            max_size_bytes,
         }
     }
 
@@ -122,8 +122,8 @@ pub fn compile_regexp_anchored(expr: &str) -> Result<(StringMatchHandler, usize)
 }
 
 fn compile_regexp_ex(expr: &str) -> Result<RegexpCacheValue, String> {
-    let matcher= string_matcher_from_regex(expr)
-        .map_err(|_| { format!("cannot build regexp from {}", expr) })?;
+    let matcher = string_matcher_from_regex(expr)
+        .map_err(|_| format!("cannot build regexp from {}", expr))?;
 
     // heuristic for rcv in-memory size
     let size_bytes = matcher.get_size();

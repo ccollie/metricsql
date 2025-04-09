@@ -1,8 +1,8 @@
 use itertools::izip;
 use metricsql_parser::prelude::Value;
 
-use crate::{QueryResult, RuntimeResult};
 use crate::types::{MetricName, QueryValue, Timeseries};
+use crate::{QueryResult, RuntimeResult};
 
 pub fn test_results_equal(result: &[QueryResult], result_expected: &[QueryResult]) {
     assert_eq!(

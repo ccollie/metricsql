@@ -10,29 +10,23 @@ use crate::functions::rollup::{
         new_rollup_count_eq, new_rollup_count_gt, new_rollup_count_le, new_rollup_count_ne,
         new_rollup_count_values, new_rollup_share_eq, new_rollup_share_gt, new_rollup_share_le,
         new_rollup_sum_eq, new_rollup_sum_gt, new_rollup_sum_le,
-    }, delta::{
+    },
+    delta::{
         new_rollup_delta, new_rollup_delta_prometheus, new_rollup_idelta, new_rollup_increase,
         rollup_delta, rollup_idelta,
-    }, deriv::{
+    },
+    deriv::{
         new_rollup_deriv, new_rollup_deriv_fast, new_rollup_ideriv, new_rollup_irate,
         new_rollup_rate, rollup_deriv_fast, rollup_deriv_slow, rollup_ideriv,
-    }, duration_over_time::new_rollup_duration_over_time,
-    hoeffding_bound::{
-        new_rollup_hoeffding_bound_lower,
-        new_rollup_hoeffding_bound_upper
     },
+    duration_over_time::new_rollup_duration_over_time,
+    hoeffding_bound::{new_rollup_hoeffding_bound_lower, new_rollup_hoeffding_bound_upper},
     holt_winters::new_rollup_holt_winters,
     integrate::{new_rollup_integrate, rollup_integrate},
     outlier_iqr::rollup_outlier_iqr,
-    quantiles::{
-        new_rollup_quantile,
-        new_rollup_quantiles
-    },
+    quantiles::{new_rollup_quantile, new_rollup_quantiles},
     types::RollupHandlerFactory,
-    RollupFunc,
-    RollupFuncArg,
-    RollupHandler,
-    RollupHandlerFloat
+    RollupFunc, RollupFuncArg, RollupHandler, RollupHandlerFloat,
 };
 
 use crate::runtime_error::{RuntimeError, RuntimeResult};
@@ -276,7 +270,11 @@ pub(crate) const fn get_rollup_function_factory(func: RollupFunction) -> RollupH
     }
 }
 
-pub(super) fn remove_counter_resets(values: &mut [f64], timestamps: &[i64], max_staleness_interval: i64) {
+pub(super) fn remove_counter_resets(
+    values: &mut [f64],
+    timestamps: &[i64],
+    max_staleness_interval: i64,
+) {
     if values.is_empty() {
         return;
     }
@@ -372,7 +370,12 @@ pub(super) fn rollup_min(rfa: &RollupFuncArg) -> f64 {
         return NAN;
     }
 
-    let min = rfa.values.iter().copied().min_by(|a, b| a.total_cmp(b)).unwrap();
+    let min = rfa
+        .values
+        .iter()
+        .copied()
+        .min_by(|a, b| a.total_cmp(b))
+        .unwrap();
     min
 }
 
@@ -419,7 +422,12 @@ pub(super) fn rollup_tmin(rfa: &RollupFuncArg) -> f64 {
     }
     let mut min_value = values[0];
     let mut min_timestamp = rfa.timestamps[0];
-    for (v, ts) in rfa.values.iter().copied().zip(rfa.timestamps.iter().copied()) {
+    for (v, ts) in rfa
+        .values
+        .iter()
+        .copied()
+        .zip(rfa.timestamps.iter().copied())
+    {
         // Get the last timestamp for the minimum value as most users expect.
         if v <= min_value {
             min_value = v;
@@ -440,7 +448,12 @@ pub(super) fn rollup_tmax(rfa: &RollupFuncArg) -> f64 {
     let mut max_value = rfa.values[0];
     let mut max_timestamp = rfa.timestamps[0];
 
-    for (v, ts) in rfa.values.iter().copied().zip(rfa.timestamps.iter().copied()) {
+    for (v, ts) in rfa
+        .values
+        .iter()
+        .copied()
+        .zip(rfa.timestamps.iter().copied())
+    {
         // Get the last timestamp for the maximum value as most users expect.
         if v >= max_value {
             max_value = v;
@@ -591,7 +604,11 @@ pub(super) fn rollup_stale_samples(rfa: &RollupFuncArg) -> f64 {
     if values.is_empty() {
         return NAN;
     }
-    rfa.values.iter().copied().filter(|v| is_stale_nan(*v)).count() as f64
+    rfa.values
+        .iter()
+        .copied()
+        .filter(|v| is_stale_nan(*v))
+        .count() as f64
 }
 
 pub(super) fn rollup_stddev(rfa: &RollupFuncArg) -> f64 {

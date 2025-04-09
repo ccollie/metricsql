@@ -1,10 +1,10 @@
-use thiserror::Error;
 use crate::SeriesRef;
+use thiserror::Error;
 
 /// Alias for a type-erased error type.
 pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
-pub type ProviderResult<T=()> = Result<T, ProviderError>;
+pub type ProviderResult<T = ()> = Result<T, ProviderError>;
 
 #[derive(Debug, Error)]
 pub enum ProviderError {
@@ -49,7 +49,7 @@ pub enum ProviderError {
         source: Option<BoxError>,
     },
     #[error("Not found")]
-    NotFound
+    NotFound,
 }
 
 impl ProviderError {
@@ -83,5 +83,3 @@ impl<E: std::error::Error + 'static> From<(&str, E)> for ProviderError {
         ProviderError::General(msg)
     }
 }
-
-

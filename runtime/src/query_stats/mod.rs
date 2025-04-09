@@ -129,12 +129,7 @@ impl QueryStatsTracker {
     /// Registers the query on the given time_range_msecs, which has been started at start_time.
     ///
     /// register_query must be called when the query is finished.
-    pub(crate) fn register_query(
-        &self,
-        query: &str,
-        time_range_msecs: i64,
-        start_time: Timestamp,
-    ) {
+    pub(crate) fn register_query(&self, query: &str, time_range_msecs: i64, start_time: Timestamp) {
         let register_time = current_time_millis();
         let duration = Duration::from_millis((register_time - start_time).unsigned_abs());
         if duration < self.config.min_query_duration {

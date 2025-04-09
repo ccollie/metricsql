@@ -7,9 +7,10 @@ use metricsql_common::hash::{FastHashSet, HashSetExt};
 use metricsql_parser::label::{MatchOp, Matcher, Matchers};
 use smallvec::SmallVec;
 use std::cmp::Ordering;
+use std::sync::Arc;
 
-pub struct Querier<T: IndexReader> {
-    pub index_reader: T,
+pub struct IndexQuerier<T: IndexReader> {
+    pub index_reader: Arc<T>,
 }
 
 /// `postings_for_matchers` assembles a single postings iterator against the index reader

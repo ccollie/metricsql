@@ -13,7 +13,7 @@ fn parse_basic(str: &str) -> ParseResult<f64> {
     } else {
         (str, 1)
     };
-    
+
     // this initial check is to avoid the cost of an allocation if not necessary
     let res = if str.contains('_') {
         let str = str.replace('_', "");

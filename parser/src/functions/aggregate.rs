@@ -168,10 +168,10 @@ pub fn aggregate_function_signature(fun: &AggregateFunction) -> Signature {
     use AggregateFunction::*;
     match fun {
         CountValues => Signature::exact(vec![ValueType::String, ValueType::InstantVector]),
-        Topk | Limitk | Outliersk => Signature::exact(
-            vec![ValueType::Scalar, ValueType::InstantVector]),
-        OutliersMAD => Signature::exact(
-            vec![ValueType::Scalar, ValueType::InstantVector]),
+        Topk | Limitk | Outliersk => {
+            Signature::exact(vec![ValueType::Scalar, ValueType::InstantVector])
+        }
+        OutliersMAD => Signature::exact(vec![ValueType::Scalar, ValueType::InstantVector]),
         TopkMin | TopkMax | TopkAvg | TopkMedian | BottomkMin | BottomkMax | BottomkAvg
         | BottomkLast | BottomkMedian => Signature::exact_with_min_args(
             vec![

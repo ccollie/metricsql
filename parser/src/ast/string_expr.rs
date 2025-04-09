@@ -196,7 +196,7 @@ impl StringExpr {
             if let Some(StringSegment::Literal(lit)) = self.0.into_iter().next() {
                 return Ok(lit);
             }
-            return Ok("".to_string())
+            return Ok("".to_string());
         }
         let msg = "BUG: string expression is not a literal".to_string();
         Err(ParseError::General(msg))

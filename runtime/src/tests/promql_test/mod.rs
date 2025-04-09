@@ -1,6 +1,6 @@
-mod types;
+mod lazy_loader;
 mod parser;
-mod utils;
 mod test;
 mod test_command;
-mod lazy_loader;
+mod types;
+mod utils;

@@ -1,7 +1,13 @@
+use crate::common::format::format_number;
+use crate::execution::{eval_number, EvalConfig};
+use crate::functions::types::get_single_timeseries;
+use crate::types::{Label, Timeseries, Timestamp};
+use crate::{RuntimeError, RuntimeResult};
 use metricsql_parser::ast::DurationExpr;
 use metricsql_parser::common::{Value, ValueType};
 use serde::ser::{SerializeSeq, SerializeStruct};
 use serde::{Serialize, Serializer};
+use smallvec::SmallVec;
 use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -9,12 +15,6 @@ use std::fmt::{Display, Formatter};
 use std::hash::Hash;
 use std::str::FromStr;
 use std::time::Duration;
-use smallvec::SmallVec;
-use crate::common::format::format_number;
-use crate::execution::{eval_number, EvalConfig};
-use crate::functions::types::get_single_timeseries;
-use crate::{RuntimeError, RuntimeResult};
-use crate::types::{Label, Timeseries, Timestamp};
 
 pub type Labels = Vec<Label>;
 pub type SampleValue = f64;
@@ -53,7 +53,7 @@ impl PartialEq for Sample {
                 other.value.is_nan()
             } else {
                 self.value == other.value
-            }
+            };
         }
         false
     }

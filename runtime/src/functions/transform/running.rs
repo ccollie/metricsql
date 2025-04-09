@@ -1,7 +1,7 @@
 use crate::functions::arg_parse::get_series_arg;
 use crate::functions::transform::TransformFuncArg;
-use crate::{RuntimeResult, types::Timeseries};
 use crate::functions::utils::get_first_non_nan_index;
+use crate::{types::Timeseries, RuntimeResult};
 
 pub(crate) fn running_avg(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     running_func_impl(tfa, handle_avg)

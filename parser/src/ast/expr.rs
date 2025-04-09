@@ -12,17 +12,12 @@ use serde::{Deserialize, Serialize};
 use metricsql_common::duration::fmt_duration_ms;
 
 use crate::ast::utils::string_vecs_equal_unordered;
-use crate::ast::{
-    indent, prettify_args, Operator, Prettier, StringExpr, MAX_CHARACTERS_PER_LINE,
-};
+use crate::ast::{indent, prettify_args, Operator, Prettier, StringExpr, MAX_CHARACTERS_PER_LINE};
 use crate::common::{hash_f64, write_comma_separated, write_number, Value, ValueType};
 use crate::functions::{AggregateFunction, BuiltinFunction, TransformFunction};
 use crate::label::{Labels, MatchOp, Matcher, Matchers, NAME_LABEL};
 use crate::parser::{ParseError, ParseResult};
-use crate::prelude::{
-    get_aggregate_arg_idx_for_optimization, BuiltinFunctionType,
-    RollupFunction,
-};
+use crate::prelude::{get_aggregate_arg_idx_for_optimization, BuiltinFunctionType, RollupFunction};
 
 pub type BExpr = Box<Expr>;
 
@@ -591,13 +586,20 @@ impl DurationExpr {
         }
     }
 
+    pub fn as_secs(&self, step: Duration) -> f64 {
+        match self {
+            DurationExpr::Millis(v) => *v as f64 / 1000.0,
+            DurationExpr::StepValue(v) => *v * step.as_secs_f64(),
+        }
+    }
+
     pub fn as_duration(&self, step: Duration) -> Duration {
         match self {
             DurationExpr::Millis(v) => Duration::from_millis(*v as u64),
-            DurationExpr::StepValue(v) => { 
+            DurationExpr::StepValue(v) => {
                 let millis = *v * step.as_millis() as f64;
                 Duration::from_millis(millis as u64)
-            },
+            }
         }
     }
     pub fn value_as_secs(&self, step: Duration) -> i64 {
@@ -897,7 +899,8 @@ impl FunctionExpr {
     }
 
     pub fn arg_for_optimization(&self) -> Option<&Expr> {
-        self.arg_idx_for_optimization().and_then(|idx| self.args.get(idx))
+        self.arg_idx_for_optimization()
+            .and_then(|idx| self.args.get(idx))
     }
 
     pub fn default_rollup(arg: Expr) -> ParseResult<Self> {
@@ -1033,7 +1036,8 @@ impl AggregationExpr {
     }
 
     pub fn get_arg_for_optimization(&self) -> Option<&'_ Expr> {
-        self.arg_idx_for_optimization().and_then(|idx| self.args.get(idx))
+        self.arg_idx_for_optimization()
+            .and_then(|idx| self.args.get(idx))
     }
 
     pub fn arg_idx_for_optimization(&self) -> Option<usize> {

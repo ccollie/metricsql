@@ -1,17 +1,19 @@
-use rand::prelude::{Rng, StdRng, SeedableRng, Distribution};
-use rand::rngs::ThreadRng;
-use rand_distr::{Exp1, StandardNormal, StandardUniform};
 use crate::execution::eval_number;
 use crate::functions::transform::TransformFuncArg;
 use crate::types::Timeseries;
 use crate::{RuntimeError, RuntimeResult};
+use rand::prelude::{Distribution, Rng, SeedableRng, StdRng};
+use rand::rngs::ThreadRng;
+use rand_distr::{Exp1, StandardNormal, StandardUniform};
 
 fn create_rng(tfa: &mut TransformFuncArg) -> RuntimeResult<StdRng> {
     if tfa.args.len() == 1 {
         return match tfa.args[0].get_int() {
             Err(e) => Err(e),
             Ok(val) => match u64::try_from(val) {
-                Err(_) => Err(RuntimeError::ArgumentError(format!("invalid rand seed {val}"))),
+                Err(_) => Err(RuntimeError::ArgumentError(format!(
+                    "invalid rand seed {val}"
+                ))),
                 Ok(seed) => Ok(StdRng::seed_from_u64(seed)),
             },
         };

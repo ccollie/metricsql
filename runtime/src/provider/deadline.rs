@@ -37,7 +37,8 @@ impl Deadline {
         let millis = timeout.as_millis() as u64;
         if timeout > MAX_DURATION {
             return Err(RuntimeError::ArgumentError(format!(
-                "Timeout value too large: {}", humanize_duration(&timeout),
+                "Timeout value too large: {}",
+                humanize_duration(&timeout),
             )));
         }
         let start = start_time.into();
@@ -58,10 +59,7 @@ impl Default for Deadline {
         let start = Timestamp::now();
         let timeout = Duration::from_secs(10); // todo: constant
         let deadline = start + timeout.as_millis() as i64;
-        Deadline {
-            deadline,
-            timeout,
-        }
+        Deadline { deadline, timeout }
     }
 }
 

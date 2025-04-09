@@ -4,18 +4,12 @@ use std::sync::RwLock;
 
 use async_trait::async_trait;
 use metricsql_common::hash::Signature;
-use metricsql_parser::prelude::{Matchers};
+use metricsql_parser::prelude::Matchers;
 
 use crate::prelude::MemoryPostings;
 use crate::types::MetricName;
 use crate::{
-    Deadline, 
-    MetricStorage,
-    QueryResult,
-    QueryResults,
-    RuntimeError,
-    RuntimeResult,
-    SearchQuery
+    Deadline, MetricStorage, QueryResult, QueryResults, RuntimeError, RuntimeResult, SearchQuery,
 };
 
 #[derive(Debug, Clone)]
@@ -40,7 +34,7 @@ pub struct MemoryMetricProvider {
 #[derive(Default, Debug, Clone)]
 struct Storage {
     series: BTreeMap<Signature, (MetricName, Vec<Point>)>,
-    postings: MemoryPostings
+    postings: MemoryPostings,
 }
 
 impl Storage {
@@ -50,7 +44,7 @@ impl Storage {
             postings: MemoryPostings::new(),
         }
     }
-    
+
     pub fn append(&mut self, labels: MetricName, t: i64, v: f64) -> RuntimeResult<()> {
         let h = labels.signature();
         let id: u64 = h.into();
@@ -58,17 +52,18 @@ impl Storage {
             Entry::Vacant(entry) => {
                 self.postings.add_posting(id, &labels);
                 entry.insert((labels, vec![Point { t, v }]));
-            },
+            }
             Entry::Occupied(mut entry) => {
                 entry.get_mut().1.push(Point { t, v });
-            },
+            }
         }
         Ok(())
     }
 
     pub fn search(&self, start: i64, end: i64, filters: &Matchers) -> RuntimeResult<QueryResults> {
         let mut results: Vec<QueryResult> = vec![];
-        let found = self.postings.postings_for_matchers(filters)
+        let found = self
+            .postings_for_matchers(filters)
             .map_err(|_| RuntimeError::ProviderError(filters.to_string()))?;
 
         for id in found.iter() {
@@ -88,7 +83,7 @@ impl Storage {
                     results.push(QueryResult {
                         metric: metric_name.clone(),
                         values,
-                        timestamps
+                        timestamps,
                     });
                 }
             }
@@ -150,7 +145,6 @@ impl MetricStorage for MemoryMetricProvider {
     }
 }
 
-
 fn find_first_index(range_values: &[Point], ts: i64) -> Option<usize> {
     // Find the index of the first item where `range.start <= key`.
     match range_values.binary_search_by_key(&ts, |point| point.t) {
@@ -165,8 +159,8 @@ fn find_first_index(range_values: &[Point], ts: i64) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
-    use metricsql_parser::label::Matcher;
     use crate::types::MetricName;
+    use metricsql_parser::label::Matcher;
 
     use super::*;
 
@@ -192,7 +186,7 @@ mod tests {
         provider.append(labels.clone(), 2, 2.0).unwrap();
 
         let inner = provider.inner.read().unwrap();
-        
+
         let signature = labels.signature();
         if let Some((_, data)) = inner.series.get(&signature) {
             assert_eq!(data.len(), 2);

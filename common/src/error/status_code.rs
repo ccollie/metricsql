@@ -83,8 +83,7 @@ impl StatusCode {
     /// Returns `true` if the error with this code is retryable.
     pub fn is_retryable(&self) -> bool {
         match self {
-            | StatusCode::RuntimeResourcesExhausted
-            | StatusCode::Internal => false,
+            StatusCode::RuntimeResourcesExhausted | StatusCode::Internal => false,
 
             StatusCode::Success
             | StatusCode::Unknown

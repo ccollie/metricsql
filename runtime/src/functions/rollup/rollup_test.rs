@@ -2,19 +2,19 @@
 mod tests {
     use crate::common::math::{linear_regression, STALE_NAN};
     use crate::functions::rollup::{
-        get_rollup_func_by_name, get_rollup_function_factory, get_rollup_function_handler,
-        RollupConfig, RollupFuncArg, RollupHandler, RollupHandlerFactory,
         delta::*,
         deriv::*,
-        rollup_fns::{
-            remove_counter_resets, rollup_avg, rollup_changes, rollup_changes_prometheus, 
-            rollup_count, rollup_default, rollup_distinct, rollup_first, rollup_increase_pure, 
-            rollup_lag, rollup_lifetime, rollup_max, rollup_min, rollup_mode_over_time, 
-            rollup_rate_over_sum, rollup_resets, rollup_scrape_interval, rollup_stddev, rollup_sum, 
-            rollup_zscore_over_time, ROLLUP_LAST
-        },
+        get_rollup_func_by_name, get_rollup_function_factory, get_rollup_function_handler,
         integrate::rollup_integrate,
         outlier_iqr::rollup_outlier_iqr,
+        rollup_fns::{
+            remove_counter_resets, rollup_avg, rollup_changes, rollup_changes_prometheus,
+            rollup_count, rollup_default, rollup_distinct, rollup_first, rollup_increase_pure,
+            rollup_lag, rollup_lifetime, rollup_max, rollup_min, rollup_mode_over_time,
+            rollup_rate_over_sum, rollup_resets, rollup_scrape_interval, rollup_stddev, rollup_sum,
+            rollup_zscore_over_time, ROLLUP_LAST,
+        },
+        RollupConfig, RollupFuncArg, RollupHandler, RollupHandlerFactory,
     };
     use crate::types::{QueryValue, Timeseries, Timestamp};
     use crate::{compare_floats, test_rows_equal, RuntimeResult};
@@ -135,15 +135,27 @@ mod tests {
         let mut values = TEST_VALUES.to_vec();
         let mut timestamps = TEST_TIMESTAMPS.to_vec();
         remove_counter_resets(&mut values, &mut timestamps, 0);
-        let values_expected = vec![123.0, 157.0, 167.0, 188.0, 221.0, 255.0, 320.0, 332.0, 364.0, 396.0, 398.0, 398.0];
-        test_rows_equal(&values, &TEST_TIMESTAMPS, &values_expected, &TEST_TIMESTAMPS);
+        let values_expected = vec![
+            123.0, 157.0, 167.0, 188.0, 221.0, 255.0, 320.0, 332.0, 364.0, 396.0, 398.0, 398.0,
+        ];
+        test_rows_equal(
+            &values,
+            &TEST_TIMESTAMPS,
+            &values_expected,
+            &TEST_TIMESTAMPS,
+        );
 
         // removeCounterResets doesn't expect negative values, so it doesn't work properly with them.
         let mut values = vec![-100.0, -200.0, -300.0, -400.0];
         let timestamps_expected = vec![0, 1, 2, 3];
         remove_counter_resets(&mut values, &timestamps_expected, 0);
         let values_expected = vec![-100.0, -100.0, -100.0, -100.0];
-        test_rows_equal(&values, &timestamps_expected, &values_expected, &timestamps_expected);
+        test_rows_equal(
+            &values,
+            &timestamps_expected,
+            &values_expected,
+            &timestamps_expected,
+        );
 
         // verify how partial counter reset is handled.
         // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/2787
@@ -151,7 +163,12 @@ mod tests {
         let timestamps_expected = vec![0, 1, 2, 3, 4, 5];
         remove_counter_resets(&mut values, &timestamps_expected, 0);
         let values_expected = vec![100.0, 100.0, 125.0, 125.0, 145.0, 195.0];
-        test_rows_equal(&values, &timestamps_expected, &values_expected, &timestamps_expected);
+        test_rows_equal(
+            &values,
+            &timestamps_expected,
+            &values_expected,
+            &timestamps_expected,
+        );
 
         // verify that staleness interval is respected during resets
         // see https://github.com/VictoriaMetrics/VictoriaMetrics/issues/8072
@@ -170,18 +187,23 @@ mod tests {
         test_rows_equal(&values, &timestamps, &values_expected, &timestamps);
 
         // verify results always increase monotonically with possible float operations precision error
-        let mut values = vec![34.094223, 2.7518, 2.140669, 0.044878, 1.887095, 2.546569, 2.490149, 0.045, 0.035684, 0.062454, 0.058296];
+        let mut values = vec![
+            34.094223, 2.7518, 2.140669, 0.044878, 1.887095, 2.546569, 2.490149, 0.045, 0.035684,
+            0.062454, 0.058296,
+        ];
         let timestamps_expected = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
         remove_counter_resets(&mut values, &timestamps_expected, 0);
         let mut prev = f64::NAN;
         for (i, &v) in values.iter().enumerate() {
             if v < prev {
-                panic!("error: unexpected value keep getting bigger {};\ncur {};\npre {}\n", i, v, prev);
+                panic!(
+                    "error: unexpected value keep getting bigger {};\ncur {};\npre {}\n",
+                    i, v, prev
+                );
             }
             prev = v;
         }
     }
-
 
     #[test]
     fn test_delta_values() {
@@ -562,21 +584,27 @@ mod tests {
     #[test]
     fn test_linear_regression() {
         fn compare_values(vs1: &[f64], vs2: &[f64]) {
-            assert_eq!(vs1.len(), vs2.len(), "unexpected number of values; got {}; want {}", vs1.len(), vs2.len());
+            assert_eq!(
+                vs1.len(),
+                vs2.len(),
+                "unexpected number of values; got {}; want {}",
+                vs1.len(),
+                vs2.len()
+            );
             for (i, v1) in vs1.iter().copied().enumerate() {
                 let v2 = vs2[i];
                 if v1.is_nan() {
                     assert!(v2.is_nan(), "expected NaN, got {v2} at index {i}");
                     continue;
                 }
-                
+
                 let eps = (v1 - v2).abs();
                 if eps > 1e-14 {
-                    panic!("unexpected value; got {v1}; want {v2}");  
+                    panic!("unexpected value; got {v1}; want {v2}");
                 }
             }
         }
-        
+
         let f = |values: &[f64], timestamps: &[Timestamp], exp_v: f64, exp_k: f64| {
             let ts = &timestamps[0] + 100;
             let (v, k) = linear_regression(values, timestamps, ts);
@@ -729,7 +757,7 @@ mod tests {
         };
 
         // Invalid number of args
-      //  f("default_rollup", &[]);
+        //  f("default_rollup", &[]);
         f("holt_winters", &[]);
         f("predict_linear", &[]);
         f("quantile_over_time", &[]);
@@ -780,7 +808,7 @@ mod tests {
             max_points_per_series: 10000,
             ..Default::default()
         };
-        
+
         test_rollup(&mut rc, &[NAN, NAN, NAN, NAN, NAN], &[0, 1, 2, 3, 4]);
     }
 
@@ -845,7 +873,7 @@ mod tests {
             step: Duration::from_millis(20),
             window: Duration::ZERO,
             max_points_per_series: 10000,
-            ..RollupConfig::default()   
+            ..RollupConfig::default()
         };
 
         test_rollup(&mut rc, &[44_f64, 32.0, 34.0, NAN], &[100, 120, 140, 160]);
@@ -861,7 +889,7 @@ mod tests {
             window: Duration::ZERO,
             ..Default::default()
         };
-        
+
         test_rollup(
             &mut rc,
             &[NAN, NAN, 123.0, 34.0, 32.0],
@@ -952,7 +980,7 @@ mod tests {
             end: 140,
             step: Duration::from_millis(10),
             lookback_delta: Duration::ZERO,
-           ..Default::default()
+            ..Default::default()
         };
 
         test_rollup(
@@ -979,12 +1007,19 @@ mod tests {
         };
         rc.ensure_timestamps().expect("failed to ensure timestamps");
         let mut dst_values: Vec<f64> = vec![];
-        let samples_scanned = rc.exec_internal(&mut dst_values, None, &values, &timestamps).expect("failed to exec");
+        let samples_scanned = rc
+            .exec_internal(&mut dst_values, None, &values, &timestamps)
+            .expect("failed to exec");
 
         assert_eq!(samples_scanned, 7);
         let values_expected = vec![1.0, 0.0];
         let timestamps_expected = vec![0, 45000];
-        test_rows_equal(&dst_values, &rc.timestamps, &values_expected, &timestamps_expected);
+        test_rows_equal(
+            &dst_values,
+            &rc.timestamps,
+            &values_expected,
+            &timestamps_expected,
+        );
 
         // step > gap ; lookback_delta < gap
         let mut rc = RollupConfig {
@@ -999,18 +1034,24 @@ mod tests {
 
         rc.ensure_timestamps().expect("failed to ensure timestamps");
         let mut dst_values: Vec<f64> = vec![];
-        let samples_scanned = rc.exec_internal(&mut dst_values, None, &values, &timestamps).expect("failed to exec");
+        let samples_scanned = rc
+            .exec_internal(&mut dst_values, None, &values, &timestamps)
+            .expect("failed to exec");
 
         assert_eq!(samples_scanned, 7);
 
         let values_expected = vec![1.0, 0.0];
         let timestamps_expected = vec![0, 45000];
-        test_rows_equal(&dst_values, &rc.timestamps, &values_expected, &timestamps_expected);
+        test_rows_equal(
+            &dst_values,
+            &rc.timestamps,
+            &values_expected,
+            &timestamps_expected,
+        );
     }
 
     #[test]
     fn test_rollup_delta_with_staleness_step_lt_gap() {
-
         let timestamps = vec![0, 15000, 30000, 70000];
         let values = vec![1.0, 1.0, 1.0, 1.0];
 
@@ -1027,12 +1068,19 @@ mod tests {
 
         rc.ensure_timestamps().expect("failed to ensure timestamps");
         let mut dst_values: Vec<f64> = vec![];
-        let samples_scanned = rc.exec_internal(&mut dst_values, None, &values, &timestamps).expect("failed to exec");
+        let samples_scanned = rc
+            .exec_internal(&mut dst_values, None, &values, &timestamps)
+            .expect("failed to exec");
 
         assert_eq!(samples_scanned, 8);
         let values_expected = vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
         let timestamps_expected = vec![0, 10000, 20000, 30000, 40000, 50000, 60000, 70000];
-        test_rows_equal(&dst_values, &rc.timestamps, &values_expected, &timestamps_expected);
+        test_rows_equal(
+            &dst_values,
+            &rc.timestamps,
+            &values_expected,
+            &timestamps_expected,
+        );
 
         // step < gap ; lookback_delta > 0
         let mut rc = RollupConfig {
@@ -1046,14 +1094,20 @@ mod tests {
         };
         rc.ensure_timestamps().expect("failed to ensure timestamps");
         let mut dst_values: Vec<f64> = vec![];
-        let samples_scanned = rc.exec_internal(&mut dst_values, None, &values, &timestamps).expect("failed to exec");
+        let samples_scanned = rc
+            .exec_internal(&mut dst_values, None, &values, &timestamps)
+            .expect("failed to exec");
 
         assert_eq!(samples_scanned, 8);
         let values_expected = vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
         let timestamps_expected = vec![0, 10000, 20000, 30000, 40000, 50000, 60000, 70000];
-        test_rows_equal(&dst_values, &rc.timestamps, &values_expected, &timestamps_expected);
+        test_rows_equal(
+            &dst_values,
+            &rc.timestamps,
+            &values_expected,
+            &timestamps_expected,
+        );
     }
-
 
     #[test]
     fn test_rollup_increase_with_staleness_step_gt_gap() {
@@ -1075,12 +1129,19 @@ mod tests {
         rc.ensure_timestamps().expect("failed to ensure timestamps");
         let mut dst_values: Vec<f64> = vec![];
 
-        let samples_scanned = rc.exec_internal(&mut dst_values, None, &values, &timestamps).expect("failed to exec");
+        let samples_scanned = rc
+            .exec_internal(&mut dst_values, None, &values, &timestamps)
+            .expect("failed to exec");
         assert_eq!(samples_scanned, 8);
 
         let values_expected = vec![1.0, 0.0, 0.0];
         let timestamps_expected = vec![0, 35000, 70000];
-        test_rows_equal(&dst_values, &rc.timestamps, &values_expected, &timestamps_expected);
+        test_rows_equal(
+            &dst_values,
+            &rc.timestamps,
+            &values_expected,
+            &timestamps_expected,
+        );
     }
 
     #[test]
@@ -1097,19 +1158,27 @@ mod tests {
             step: Duration::from_millis(10000),
             window: Duration::ZERO,
             max_points_per_series: 10000,
-           ..Default::default()
+            ..Default::default()
         };
 
         rc.ensure_timestamps().expect("failed to ensure timestamps");
         let mut dst_values: Vec<f64> = vec![];
 
-        let samples_scanned = rc.exec_internal(&mut dst_values, None, &values, &timestamps).expect("failed to exec");
+        let samples_scanned = rc
+            .exec_internal(&mut dst_values, None, &values, &timestamps)
+            .expect("failed to exec");
         assert_eq!(samples_scanned, 8);
 
         let values_expected = vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
-        let timestamps_expected: Vec<i64> = vec![0, 10000, 20000, 30000, 40000, 50000, 60000, 70000];
+        let timestamps_expected: Vec<i64> =
+            vec![0, 10000, 20000, 30000, 40000, 50000, 60000, 70000];
 
-        test_rows_equal(&dst_values, &rc.timestamps, &values_expected, &timestamps_expected);
+        test_rows_equal(
+            &dst_values,
+            &rc.timestamps,
+            &values_expected,
+            &timestamps_expected,
+        );
     }
 
     #[test]
@@ -1133,12 +1202,19 @@ mod tests {
 
         let mut dst_values: Vec<f64> = vec![];
 
-        let samples_scanned = rc.exec_internal(&mut dst_values, None, &values, &timestamps).expect("failed to exec");
+        let samples_scanned = rc
+            .exec_internal(&mut dst_values, None, &values, &timestamps)
+            .expect("failed to exec");
         assert_eq!(samples_scanned, 10);
 
         let values_expected = vec![1.0, 0.0, 0.0, f64::NAN, 1.0];
         let timestamps_expected = vec![0, 10000, 20000, 30000, 40000];
-        test_rows_equal(&dst_values, &rc.timestamps, &values_expected, &timestamps_expected);
+        test_rows_equal(
+            &dst_values,
+            &rc.timestamps,
+            &values_expected,
+            &timestamps_expected,
+        );
     }
 
     #[test]
@@ -1159,12 +1235,19 @@ mod tests {
             rc.ensure_timestamps().expect("failed to ensure timestamps");
             let mut dst_values: Vec<f64> = vec![];
 
-            let samples_scanned = rc.exec_internal(&mut dst_values, None, &values, &timestamps).expect("failed to exec");
+            let samples_scanned = rc
+                .exec_internal(&mut dst_values, None, &values, &timestamps)
+                .expect("failed to exec");
 
             assert_eq!(samples_scanned, 7);
             let values_expected = vec![1.0, 0.0];
             let timestamps_expected = vec![0, 45000];
-            test_rows_equal(&dst_values, &rc.timestamps, &values_expected, &timestamps_expected);
+            test_rows_equal(
+                &dst_values,
+                &rc.timestamps,
+                &values_expected,
+                &timestamps_expected,
+            );
         }
 
         // Test case: step > gap; LookbackDelta < gap
@@ -1180,14 +1263,20 @@ mod tests {
             rc.ensure_timestamps().expect("failed to ensure timestamps");
             let mut dst_values: Vec<f64> = vec![];
 
-            let samples_scanned = rc.exec_internal(&mut dst_values, None, &values, &timestamps).expect("failed to exec");
+            let samples_scanned = rc
+                .exec_internal(&mut dst_values, None, &values, &timestamps)
+                .expect("failed to exec");
 
             assert_eq!(samples_scanned, 7);
             let values_expected = vec![1.0, 0.0];
             let timestamps_expected = vec![0, 45000];
-            test_rows_equal(&dst_values, &rc.timestamps, &values_expected, &timestamps_expected);
+            test_rows_equal(
+                &dst_values,
+                &rc.timestamps,
+                &values_expected,
+                &timestamps_expected,
+            );
         }
-
     }
 
     #[test]
@@ -1208,12 +1297,19 @@ mod tests {
             };
             rc.ensure_timestamps().expect("failed to ensure timestamps");
             let mut dst_values: Vec<f64> = vec![];
-            let samples_scanned = rc.exec_internal(&mut dst_values, None, &values, &timestamps).expect("failed to exec");
+            let samples_scanned = rc
+                .exec_internal(&mut dst_values, None, &values, &timestamps)
+                .expect("failed to exec");
 
             assert_eq!(samples_scanned, 8);
             let values_expected = vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
             let timestamps_expected = vec![0, 10000, 20000, 30000, 40000, 50000, 60000, 70000];
-            test_rows_equal(&dst_values, &rc.timestamps, &values_expected, &timestamps_expected);
+            test_rows_equal(
+                &dst_values,
+                &rc.timestamps,
+                &values_expected,
+                &timestamps_expected,
+            );
         }
 
         // Test case: step < gap; LookbackDelta > 0
@@ -1228,12 +1324,19 @@ mod tests {
             };
             rc.ensure_timestamps().expect("failed to ensure timestamps");
             let mut dst_values: Vec<f64> = vec![];
-            let samples_scanned = rc.exec_internal(&mut dst_values, None, &values, &timestamps).expect("failed to exec");
+            let samples_scanned = rc
+                .exec_internal(&mut dst_values, None, &values, &timestamps)
+                .expect("failed to exec");
 
             assert_eq!(samples_scanned, 8);
             let values_expected = vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
             let timestamps_expected = vec![0, 10000, 20000, 30000, 40000, 50000, 60000, 70000];
-            test_rows_equal(&dst_values, &rc.timestamps, &values_expected, &timestamps_expected);
+            test_rows_equal(
+                &dst_values,
+                &rc.timestamps,
+                &values_expected,
+                &timestamps_expected,
+            );
         }
     }
 
@@ -1252,12 +1355,19 @@ mod tests {
         };
         rc.ensure_timestamps().expect("failed to ensure timestamps");
         let mut dst_values: Vec<f64> = vec![];
-        let samples_scanned = rc.exec_internal(&mut dst_values, None, &values, &timestamps).expect("failed to exec");
+        let samples_scanned = rc
+            .exec_internal(&mut dst_values, None, &values, &timestamps)
+            .expect("failed to exec");
 
         assert_eq!(samples_scanned, 10);
         let values_expected = vec![1.0, 0.0, 0.0, NAN, 1.0];
         let timestamps_expected = vec![0, 10000, 20000, 30000, 40000];
-        test_rows_equal(&dst_values, &rc.timestamps, &values_expected, &timestamps_expected);
+        test_rows_equal(
+            &dst_values,
+            &rc.timestamps,
+            &values_expected,
+            &timestamps_expected,
+        );
     }
 
     #[test]
@@ -1357,7 +1467,7 @@ mod tests {
 
     #[test]
     fn test_rollup_idelta_no_window() {
-        let mut rc =  RollupConfig {
+        let mut rc = RollupConfig {
             handler: RollupHandler::Wrapped(rollup_idelta),
             start: 10,
             end: 130,
@@ -1371,7 +1481,7 @@ mod tests {
 
     #[test]
     fn test_rollup_lag_no_window() {
-        let mut rc = RollupConfig{
+        let mut rc = RollupConfig {
             handler: RollupHandler::Wrapped(rollup_lag),
             start: 0,
             end: 160,
@@ -1394,7 +1504,7 @@ mod tests {
             end: 160,
             step: Duration::from_millis(40),
             window: Duration::ZERO,
-           ..Default::default()
+            ..Default::default()
         };
 
         test_rollup(
@@ -1428,7 +1538,7 @@ mod tests {
             end: 160,
             step: Duration::from_millis(40),
             window: Duration::ZERO,
-            ..RollupConfig::default()   
+            ..RollupConfig::default()
         };
 
         test_rollup(
@@ -1468,7 +1578,7 @@ mod tests {
             end: 160,
             step: Duration::from_millis(40),
             window: Duration::ZERO,
-            ..RollupConfig::default()   
+            ..RollupConfig::default()
         };
 
         test_rollup(&mut rc, &[NAN, 4.0, 4.0, 3.0, 0.0], &[0, 40, 80, 120, 160]);
@@ -1707,7 +1817,7 @@ mod tests {
             max_points_per_series: 10000,
             ..RollupConfig::default()
         };
-        
+
         rc.ensure_timestamps().unwrap();
         let mut src_values: Vec<f64> = Vec::with_capacity(SRC_VALUES_COUNT as usize);
         let mut src_timestamps: Vec<Timestamp> = Vec::with_capacity(SRC_VALUES_COUNT as usize);

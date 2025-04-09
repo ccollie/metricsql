@@ -46,7 +46,12 @@ pub fn validate_function_args(func: &BuiltinFunction, args: &[Expr]) -> ParseRes
     Ok(())
 }
 
-fn validate_return_type(func: &BuiltinFunction, return_type: ValueType, expected: ValueType, index: usize) -> ParseResult<()> {
+fn validate_return_type(
+    func: &BuiltinFunction,
+    return_type: ValueType,
+    expected: ValueType,
+    index: usize,
+) -> ParseResult<()> {
     match expected {
         ValueType::RangeVector => match return_type {
             ValueType::Scalar | ValueType::InstantVector | ValueType::RangeVector => Ok(()),
@@ -71,7 +76,11 @@ fn validate_return_type(func: &BuiltinFunction, return_type: ValueType, expected
     }
 }
 
-fn validate_expr_type(func: &BuiltinFunction, expr: &Expr, expected_type: ValueType) -> ParseResult<()> {
+fn validate_expr_type(
+    func: &BuiltinFunction,
+    expr: &Expr,
+    expected_type: ValueType,
+) -> ParseResult<()> {
     match expr {
         Expr::Duration(_) | Expr::NumberLiteral(_) if expected_type.is_scalar() => Ok(()),
         Expr::StringLiteral(_) if expected_type == ValueType::String => Ok(()),
@@ -79,7 +88,12 @@ fn validate_expr_type(func: &BuiltinFunction, expr: &Expr, expected_type: ValueT
     }
 }
 
-fn expect_type(func: &BuiltinFunction, actual: ValueType, expected: ValueType, index: usize) -> ParseResult<()> {
+fn expect_type(
+    func: &BuiltinFunction,
+    actual: ValueType,
+    expected: ValueType,
+    index: usize,
+) -> ParseResult<()> {
     if actual != expected {
         return Err(ParseError::ArgumentError(format!(
             "Invalid argument #{} to function {}(). Expeccted {}, found {}",

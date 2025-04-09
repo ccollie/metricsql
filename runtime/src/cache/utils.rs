@@ -1,9 +1,8 @@
 use crate::execution::EvalConfig;
 use crate::types::{Timeseries, Timestamp};
 use ahash::{AHashMap, AHashSet};
-use tracing::{error, info, warn};
 use metricsql_common::hash::Signature;
-
+use tracing::{error, info, warn};
 
 pub fn merge_series(
     // qt: &Arc<Mutex<QueryTracer>>,
@@ -33,7 +32,10 @@ pub fn merge_series(
     if b_timestamps.len() == shared_timestamps.len() {
         for ts_b in b.iter_mut() {
             if *ts_b.timestamps != b_timestamps {
-                error!("BUG: invalid timestamps in b series {}; got {:?}; want {:?}", ts_b.metric_name, ts_b.timestamps, b_timestamps);
+                error!(
+                    "BUG: invalid timestamps in b series {}; got {:?}; want {:?}",
+                    ts_b.metric_name, ts_b.timestamps, b_timestamps
+                );
                 panic!("BUG: invalid timestamps in b series");
             }
             ts_b.timestamps = shared_timestamps.clone();
@@ -44,12 +46,18 @@ pub fn merge_series(
     let mut m_a: AHashMap<Signature, Timeseries> = AHashMap::with_capacity(a.len());
     for ts in a.into_iter() {
         if *ts.timestamps != a_timestamps {
-            error!("BUG: invalid timestamps in a series {}; got {:?}; want {:?}", ts.metric_name, ts.timestamps, a_timestamps);
+            error!(
+                "BUG: invalid timestamps in a series {}; got {:?}; want {:?}",
+                ts.metric_name, ts.timestamps, a_timestamps
+            );
             panic!("BUG: invalid timestamps in a series");
         }
         let key = ts.signature();
         if m_a.contains_key(&key) {
-            warn!("cannot merge series because a series contain duplicate {}", ts.metric_name);
+            warn!(
+                "cannot merge series because a series contain duplicate {}",
+                ts.metric_name
+            );
             return (vec![], false);
         }
         m_a.insert(key, ts);
@@ -60,13 +68,19 @@ pub fn merge_series(
     let mut a_nans = Vec::new();
     for ts_b in b.into_iter() {
         if *ts_b.timestamps != b_timestamps {
-            error!("BUG: invalid timestamps for b series {}; got {:?}; want {:?}", ts_b.metric_name, ts_b.timestamps, b_timestamps);
+            error!(
+                "BUG: invalid timestamps for b series {}; got {:?}; want {:?}",
+                ts_b.metric_name, ts_b.timestamps, b_timestamps
+            );
             panic!("BUG: invalid timestamps for b series");
         }
 
         let key = ts_b.signature();
         if m_b.contains(&key) {
-            warn!("cannot merge series because b series contain duplicate {}", ts_b.metric_name);
+            warn!(
+                "cannot merge series because b series contain duplicate {}",
+                ts_b.metric_name
+            );
             return (vec![], false);
         }
         m_b.insert(key);
@@ -122,10 +136,10 @@ pub fn merge_series(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-    use std::time::Duration;
     use super::*;
     use crate::types::MetricName;
+    use std::sync::Arc;
+    use std::time::Duration;
 
     fn test_timeseries_equal(t: &Timeseries, t_expected: &Timeseries) {
         assert_eq!(t.timestamps, t_expected.timestamps);

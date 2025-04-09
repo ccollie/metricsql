@@ -1,11 +1,11 @@
 use crate::error::{ErrorExt, StatusCode};
 use agnostic_lite::{AsyncBlockingSpawner, AsyncSpawner, RuntimeLite};
 use cfg_if::cfg_if;
-use thiserror::Error;
 use std::any::Any;
 use std::future::Future;
 use std::sync::LazyLock;
 use std::time::Duration;
+use thiserror::Error;
 
 cfg_if! {
     if #[cfg(feature = "tokio")] {
@@ -79,7 +79,7 @@ where
     let res = futures::executor::block_on(async { spawn(future).await });
     match res {
         Ok(v) => Ok(v),
-        Err(e) => Err(Error::Join(e.to_string()))
+        Err(e) => Err(Error::Join(e.to_string())),
     }
 }
 

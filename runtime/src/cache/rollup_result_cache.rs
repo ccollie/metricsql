@@ -1,21 +1,21 @@
-use std::collections::hash_map::Entry::{Occupied, Vacant};
-use std::collections::HashMap;
-use std::hash::Hasher;
-use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Duration;
 use ahash::AHashSet;
-/// import commonly used items from the prelude:
-use rand::prelude::*;
-use serde::{Deserialize, Serialize};
-use smallvec::SmallVec;
-use tracing::span::EnteredSpan;
-use tracing::{field, info, span_enabled, trace_span, Level, Span};
-use xxhash_rust::xxh3::Xxh3;
 use metricsql_common::hash::{FastHasher, Signature};
 use metricsql_common::prelude::{get_pooled_buffer, AtomicCounter, RelaxedU64Counter};
 use metricsql_common::types::Label;
 use metricsql_parser::ast::Expr;
 use metricsql_parser::prelude::Matchers;
+/// import commonly used items from the prelude:
+use rand::prelude::*;
+use serde::{Deserialize, Serialize};
+use smallvec::SmallVec;
+use std::collections::hash_map::Entry::{Occupied, Vacant};
+use std::collections::HashMap;
+use std::hash::Hasher;
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Duration;
+use tracing::span::EnteredSpan;
+use tracing::{field, info, span_enabled, trace_span, Level, Span};
+use xxhash_rust::xxh3::Xxh3;
 
 use crate::cache::default_result_cache_storage::DefaultResultCacheStorage;
 use crate::cache::serialization::{compress_series_slice, deserialize_series_between};
@@ -25,7 +25,9 @@ use crate::common::memory::memory_limit;
 use crate::common::memory_limiter::MemoryLimiter;
 use crate::execution::EvalConfig;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::types::{assert_identical_timestamps, SeriesSlice, Timestamp, Timeseries, TimestampTrait, MetricName};
+use crate::types::{
+    assert_identical_timestamps, MetricName, SeriesSlice, Timeseries, Timestamp, TimestampTrait,
+};
 
 /// The maximum duration since the current time for response data, which is always queried from the
 /// original raw data, without using the response cache. Increase this value if you see gaps in responses
@@ -267,10 +269,10 @@ impl RollupResultCache {
         let span = if is_tracing {
             let mut query = expr.to_string();
             query.truncate(300);
-            
+
             let window = window.as_millis() as u64;
             let step = ec.step.as_millis() as u64;
-            
+
             trace_span!(
                 "rollup_cache::put_series",
                 query,
@@ -311,8 +313,10 @@ impl RollupResultCache {
         // Remove values up to currentTime - step - CACHE_TIMESTAMP_OFFSET,
         // since these values may be added later.
         let timestamps = tss[0].timestamps.as_slice();
-        let deadline = Timestamp::now() - (ec.step.as_millis() as i64) - (CACHE_TIMESTAMP_OFFSET.as_millis() as i64);
-        
+        let deadline = Timestamp::now()
+            - (ec.step.as_millis() as i64)
+            - (CACHE_TIMESTAMP_OFFSET.as_millis() as i64);
+
         let i = timestamps.partition_point(|&t| t <= deadline);
         if i == 0 {
             // Nothing to store in the cache.
@@ -333,9 +337,7 @@ impl RollupResultCache {
         } else {
             let rvs = tss
                 .iter()
-                .map(|ts| {
-                    SeriesSlice::from_timeseries(ts, None)
-                })
+                .map(|ts| SeriesSlice::from_timeseries(ts, None))
                 .collect::<Vec<SeriesSlice>>();
 
             self.put_internal(&rvs, ec, expr, window, &span)
@@ -582,8 +584,10 @@ pub(crate) fn merge_timeseries(
 
         match a_map.entry(signature) {
             Occupied(_) => {
-                return Err(RuntimeError::DuplicateMetricLabels(ts_a.metric_name.to_string()));
-            }, // Duplicate metric names in `a`.
+                return Err(RuntimeError::DuplicateMetricLabels(
+                    ts_a.metric_name.to_string(),
+                ));
+            } // Duplicate metric names in `a`.
             Vacant(entry) => {
                 entry.insert(ts_a);
             }
@@ -607,7 +611,9 @@ pub(crate) fn merge_timeseries(
         let signature = ts_b.signature();
 
         if !b_map.insert(signature) {
-            return Err(RuntimeError::DuplicateMetricLabels(ts_b.metric_name.to_string()));
+            return Err(RuntimeError::DuplicateMetricLabels(
+                ts_b.metric_name.to_string(),
+            ));
         }
 
         // Create a new timeseries for the merged result.
@@ -789,21 +795,21 @@ impl RollupResultCacheMetaInfoEntry {
         self.key.marshal(dst);
     }
 
-fn unmarshal(src: &[u8]) -> RuntimeResult<(Self, &[u8])> {
-    if src.len() < 8 {
-        return Err(RuntimeError::SerializationError(format!(
-            "cannot unmarshal start from {} bytes; need at least {} bytes",
-            src.len(),
-            8
-        )));
+    fn unmarshal(src: &[u8]) -> RuntimeResult<(Self, &[u8])> {
+        if src.len() < 8 {
+            return Err(RuntimeError::SerializationError(format!(
+                "cannot unmarshal start from {} bytes; need at least {} bytes",
+                src.len(),
+                8
+            )));
+        }
+
+        let (src, start) = read_i64(src, "result cache index start")?;
+        let (src, end) = read_i64(src, "result cache index end")?;
+        let (key, src) = RollupResultCacheKey::unmarshal(src)?;
+
+        Ok((Self { start, end, key }, src))
     }
-
-    let (src, start) = read_i64(src, "result cache index start")?;
-    let (src, end) = read_i64(src, "result cache index end")?;
-    let (key, src) = RollupResultCacheKey::unmarshal(src)?;
-
-    Ok((Self { start, end, key }, src))
-}
 }
 
 /// RollupResultCacheKey must be globally unique across nodes,

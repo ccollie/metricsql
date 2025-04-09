@@ -31,7 +31,7 @@ pub enum Operator {
 }
 
 pub fn lookup_operator(key: &str) -> Option<Operator> {
-    hashify::tiny_map_ignore_case! { 
+    hashify::tiny_map_ignore_case! {
         key.as_bytes(),
         "+" => Operator::Add,
         "-" => Operator::Sub,
@@ -62,7 +62,6 @@ pub fn lookup_operator(key: &str) -> Option<Operator> {
         "default" => Operator::Default,
     }
 }
-
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum BinaryOpKind {
@@ -232,10 +231,10 @@ pub fn is_binary_op(op: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-    use strum::IntoEnumIterator;
     use crate::ast::is_binary_op;
     use crate::prelude::Operator;
+    use std::str::FromStr;
+    use strum::IntoEnumIterator;
 
     #[test]
     fn test_is_binary_op_success() {
@@ -275,13 +274,13 @@ mod tests {
         f("<==");
         f("234");
     }
-    
+
     #[test]
     fn test_operator_from_str() {
         for op in Operator::iter() {
             let op_str = op.as_str();
             assert_eq!(Operator::from_str(op.as_str()), Ok(op));
-            
+
             let upper = op_str.to_ascii_uppercase();
             assert_eq!(Operator::from_str(&upper), Ok(op));
         }

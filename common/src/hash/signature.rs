@@ -1,8 +1,8 @@
+use crate::hash::{FastHasher, IsEnabled};
+use crate::types::Label;
 use std::fmt::Display;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
-use crate::hash::{FastHasher, IsEnabled};
-use crate::types::Label;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Copy, Ord, PartialOrd)]
 pub struct Signature(u64);

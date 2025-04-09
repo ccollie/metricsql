@@ -1,5 +1,6 @@
 use super::{MetricName, Sample, Timestamp};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
+use ahash::HashMapExt;
 use metricsql_common::hash::{IntMap, Signature};
 use metricsql_common::prelude::humanize_duration;
 use metricsql_parser::ast::VectorMatchModifier;
@@ -7,7 +8,6 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::fmt::Debug;
 use std::sync::Arc;
 use std::time::Duration;
-use ahash::HashMapExt;
 
 pub type TimeseriesHashMap = IntMap<Signature, Vec<Timeseries>>;
 pub type TimeseriesHashMapRef<'a> = IntMap<Signature, &'a [Timeseries]>;
@@ -74,7 +74,8 @@ impl Timeseries {
             return vec![];
         }
         self.values
-            .iter().cloned()
+            .iter()
+            .cloned()
             .zip(self.timestamps.iter().cloned())
             .filter(|(_, t)| *t >= start && *t <= end)
             .map(|(v, t)| Sample::new(t, v))
@@ -89,7 +90,11 @@ pub(crate) struct SeriesSlice<'a> {
 }
 
 impl<'a> SeriesSlice<'a> {
-    pub fn new(metric_name: &'a MetricName, timestamps: &'a [Timestamp], values: &'a [f64]) -> Self {
+    pub fn new(
+        metric_name: &'a MetricName,
+        timestamps: &'a [Timestamp],
+        values: &'a [f64],
+    ) -> Self {
         SeriesSlice {
             metric_name,
             timestamps,
@@ -181,7 +186,6 @@ pub(crate) fn assert_identical_timestamps(tss: &[Timeseries], step: Duration) ->
     Ok(())
 }
 
-
 pub(crate) fn get_timeseries() -> Timeseries {
     // timeseries_pool().pull().timeseries.borrow_mut()
     Timeseries::default()
@@ -200,15 +204,20 @@ pub fn group_series_by_match_modifier(
         for (sig, ts) in series
             .into_par_iter()
             .map(|timeseries| {
-                let sig = timeseries.metric_name.get_hash_signature(modifier, with_metric_name);
+                let sig = timeseries
+                    .metric_name
+                    .get_hash_signature(modifier, with_metric_name);
                 (sig, timeseries)
-            }).collect::<Vec<_>>() {
+            })
+            .collect::<Vec<_>>()
+        {
             m.entry(sig).or_default().push(ts);
         }
-
     } else {
         for timeseries in series.into_iter() {
-            let sig = timeseries.metric_name.get_hash_signature(modifier, with_metric_name);
+            let sig = timeseries
+                .metric_name
+                .get_hash_signature(modifier, with_metric_name);
             m.entry(sig).or_default().push(timeseries);
         }
     }

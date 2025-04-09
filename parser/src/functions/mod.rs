@@ -6,8 +6,8 @@ pub use signature::*;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
-use std::sync::{LazyLock};
-use strum::{IntoEnumIterator};
+use std::sync::LazyLock;
+use strum::IntoEnumIterator;
 pub use transform::*;
 
 use crate::ast::Expr;
@@ -168,7 +168,6 @@ pub type FunctionRegistry = FastHashMap<&'static str, FunctionMeta>;
 
 pub static FUNCTION_REGISTRY: LazyLock<FunctionRegistry> = LazyLock::new(init_registry);
 
-
 fn init_registry() -> FunctionRegistry {
     let mut registry = FunctionRegistry::default();
 
@@ -293,8 +292,9 @@ impl BuiltinFunction {
         }
     }
 
-     pub fn get_arg_for_optimization<'a>(&'a self, args: &'a [Expr]) -> Option<&'a Expr> {
-        self.get_arg_idx_for_optimization(args.len()).and_then(|idx| args.get(idx))
+    pub fn get_arg_for_optimization<'a>(&'a self, args: &'a [Expr]) -> Option<&'a Expr> {
+        self.get_arg_idx_for_optimization(args.len())
+            .and_then(|idx| args.get(idx))
     }
 
     pub fn get_arg_idx_for_optimization(&self, args_len: usize) -> Option<usize> {

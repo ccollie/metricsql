@@ -12,9 +12,7 @@ use crate::functions::transform::ru::transform_ru;
 use crate::runtime_error::RuntimeResult;
 use crate::types::{FunctionArgs, Timeseries};
 use absent::transform_absent;
-use bitmap::{
-    transform_bitmap_and, transform_bitmap_or, transform_bitmap_xor,
-};
+use bitmap::{transform_bitmap_and, transform_bitmap_or, transform_bitmap_xor};
 use clamp::{clamp, clamp_max, clamp_min};
 use datetime::{
     day_of_month, day_of_week, day_of_year, days_in_month, hour, minute, month, now, time,
@@ -24,7 +22,7 @@ use drop_empty_series::transform_drop_empty_series;
 use end::transform_end;
 use histogram::{
     buckets_limit, histogram_avg, histogram_quantile, histogram_quantiles, histogram_share,
-    histogram_stddev, histogram_stdvar, prometheus_buckets
+    histogram_stddev, histogram_stdvar, prometheus_buckets,
 };
 use interpolate::interpolate;
 use keep_last_value::keep_last_value;
@@ -38,9 +36,10 @@ use limit_offset::limit_offset;
 use metricsql_parser::ast::FunctionExpr;
 use rand::{rand, rand_exp, rand_norm};
 use range::{
-    range_avg, range_first, range_last, range_linear_regression, range_mad, range_max, range_median,
-    range_min, range_normalize, range_stddev, range_stdvar, range_sum, range_trim_outliers,
-    range_trim_spikes, range_trim_zscore, range_zscore, transform_range_quantile
+    range_avg, range_first, range_last, range_linear_regression, range_mad, range_max,
+    range_median, range_min, range_normalize, range_stddev, range_stdvar, range_sum,
+    range_trim_outliers, range_trim_spikes, range_trim_zscore, range_zscore,
+    transform_range_quantile,
 };
 use remove_resets::remove_resets;
 use round::round;
@@ -56,7 +55,6 @@ use union::union;
 use vector::vector;
 
 pub(crate) use union::handle_union;
-
 
 mod absent;
 mod bitmap;
@@ -75,6 +73,7 @@ mod rand;
 mod range;
 mod remove_resets;
 mod round;
+mod ru;
 mod running;
 mod scalar;
 mod smooth_exponential;
@@ -86,7 +85,6 @@ mod transform_test;
 mod union;
 mod utils;
 mod vector;
-mod ru;
 
 pub(crate) struct TransformFuncArg<'a> {
     pub ec: &'a EvalConfig,
@@ -240,32 +238,32 @@ const fn get_transform_func(f: TransformFunction) -> TransformFuncHandler {
 const fn transform_func_keeps_metric_name(func: TransformFunction) -> bool {
     use TransformFunction::*;
     matches!(
-            func,
-            Ceil | Clamp
-                | ClampMax
-                | ClampMin
-                | Floor
-                | Interpolate
-                | KeepLastValue
-                | KeepNextValue
-                | RangeAvg
-                | RangeFirst
-                | RangeLast
-                | RangeLinearRegression
-                | RangeMax
-                | RangeMedian
-                | RangeMin
-                | RangeNormalize
-                | RangeQuantile
-                | RangeStdDev
-                | RangeStdVar
-                | Round
-                | Ru
-                | RunningAvg
-                | RunningMax
-                | RunningMin
-                | SmoothExponential
-        )
+        func,
+        Ceil | Clamp
+            | ClampMax
+            | ClampMin
+            | Floor
+            | Interpolate
+            | KeepLastValue
+            | KeepNextValue
+            | RangeAvg
+            | RangeFirst
+            | RangeLast
+            | RangeLinearRegression
+            | RangeMax
+            | RangeMedian
+            | RangeMin
+            | RangeNormalize
+            | RangeQuantile
+            | RangeStdDev
+            | RangeStdVar
+            | Round
+            | Ru
+            | RunningAvg
+            | RunningMax
+            | RunningMin
+            | SmoothExponential
+    )
 }
 
 pub(crate) fn exec_transform_fn(
@@ -288,11 +286,12 @@ pub(crate) fn transform_series(
 pub(super) fn do_transform_values(
     arg: &mut Vec<Timeseries>,
     mut tf: impl TransformValuesFn,
-    fe: &FunctionExpr
+    fe: &FunctionExpr,
 ) -> RuntimeResult<Vec<Timeseries>> {
-
     let keep_metric_names = match fe.function {
-        BuiltinFunction::Transform(tfn) => fe.keep_metric_names || transform_func_keeps_metric_name(tfn),
+        BuiltinFunction::Transform(tfn) => {
+            fe.keep_metric_names || transform_func_keeps_metric_name(tfn)
+        }
         _ => fe.keep_metric_names,
     };
 

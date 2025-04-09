@@ -11,8 +11,8 @@ use crate::runtime_error::{RuntimeError, RuntimeResult};
 use ahash::{AHashMap, AHashSet};
 use enquote::enquote;
 use metricsql_common::prelude::Label;
-use metricsql_parser::{parse_metric_name, ParseError, ParseResult};
 use metricsql_parser::prelude::{AggregateModifier, VectorMatchModifier};
+use metricsql_parser::{parse_metric_name, ParseError, ParseResult};
 use serde::{Deserialize, Serialize};
 
 /// The maximum length of label name.
@@ -25,7 +25,6 @@ pub const METRIC_NAME_LABEL: &str = "__name__";
 // for tag manipulation (removing, adding, etc.), name vectors longer than this will be converted to a hashmap
 // for comparison, otherwise we do a linear probe
 const SET_SEARCH_MIN_THRESHOLD: usize = 16;
-
 
 /// MetricName represents a metric name.
 #[derive(Debug, PartialEq, Eq, Clone, Default, Hash, Serialize, Deserialize)]
@@ -158,7 +157,9 @@ impl MetricName {
         if self.labels.len() < 8 {
             return self.labels.iter().position(|x| x.name == name);
         }
-        self.labels.binary_search_by_key(&name, |label| &label.name).ok()
+        self.labels
+            .binary_search_by_key(&name, |label| &label.name)
+            .ok()
     }
 
     /// returns the value for a Label with the given name.
@@ -449,7 +450,11 @@ impl MetricName {
         Signature::from_name_and_labels(group_name, iter)
     }
 
-    pub(crate) fn get_hash_signature(&self, modifier: &Option<VectorMatchModifier>, keep_metric_name: bool) -> Signature {
+    pub(crate) fn get_hash_signature(
+        &self,
+        modifier: &Option<VectorMatchModifier>,
+        keep_metric_name: bool,
+    ) -> Signature {
         match modifier {
             None => {
                 if keep_metric_name {
@@ -457,7 +462,7 @@ impl MetricName {
                 } else {
                     Signature::from_name_and_labels("", self.labels.iter())
                 }
-            },
+            }
             Some(m) => match m {
                 VectorMatchModifier::On(on_tags) => {
                     // removes all the tags not included to on_tags.
@@ -467,7 +472,7 @@ impl MetricName {
                         keep_metric_name
                     };
                     signature_with_labels(self, on_tags.as_ref(), keep_names)
-                },
+                }
                 VectorMatchModifier::Ignoring(labels) => {
                     signature_without_labels(self, labels.as_ref(), keep_metric_name)
                 }
@@ -475,13 +480,16 @@ impl MetricName {
         }
     }
 
-    pub(crate) fn get_aggregate_hash_signature(&self, modifier: &Option<AggregateModifier>) -> Signature {
+    pub(crate) fn get_aggregate_hash_signature(
+        &self,
+        modifier: &Option<AggregateModifier>,
+    ) -> Signature {
         match modifier {
             None => Signature::from_name_and_labels(&self.measurement, self.labels.iter()),
             Some(AggregateModifier::By(by_tags)) => {
                 let keep_name = by_tags.iter().any(|x| x == METRIC_NAME_LABEL);
                 signature_with_labels(self, by_tags, keep_name)
-            },
+            }
             Some(AggregateModifier::Without(labels)) => {
                 // reset metric group as Prometheus does on `aggr(...) without (...)` call.
                 signature_without_labels(self, labels, false)
@@ -490,7 +498,11 @@ impl MetricName {
     }
 }
 
-fn signature_without_labels(mn: &MetricName, labels: &[String], keep_metric_name: bool) -> Signature {
+fn signature_without_labels(
+    mn: &MetricName,
+    labels: &[String],
+    keep_metric_name: bool,
+) -> Signature {
     let group_name = if keep_metric_name {
         &mn.measurement
     } else {
@@ -513,7 +525,6 @@ fn signature_with_labels(mn: &MetricName, labels: &[String], keep_metric_name: b
     let iter = mn.labels.iter().filter(|tag| labels.contains(&tag.name));
     Signature::from_name_and_labels(group_name, iter)
 }
-
 
 impl FromStr for MetricName {
     type Err = ParseError;
@@ -564,7 +575,9 @@ impl Display for MetricName {
 }
 
 impl PartialOrd for MetricName {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(self.cmp(other)) }
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 impl Ord for MetricName {

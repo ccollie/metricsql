@@ -18,8 +18,7 @@
 //! Tree node implementation for Ast expr
 
 use crate::ast::{
-    AggregationExpr, BExpression, BinaryExpr, Expr, FunctionExpr, ParensExpr, RollupExpr,
-    UnaryExpr
+    AggregationExpr, BExpression, BinaryExpr, Expr, FunctionExpr, ParensExpr, RollupExpr, UnaryExpr,
 };
 use crate::common::{TreeNode, VisitRecursion};
 use crate::parser::ParseResult;

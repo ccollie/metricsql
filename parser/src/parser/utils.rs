@@ -17,7 +17,7 @@ const fn is_ident_char(ch: char) -> bool {
 
 pub fn is_valid_identifier(candidate: &str) -> bool {
     // check if the first char is an identifier char
-    if candidate.is_empty() ||!is_first_ident_char(&candidate.chars().next().unwrap()) {
+    if candidate.is_empty() || !is_first_ident_char(&candidate.chars().next().unwrap()) {
         return false;
     }
     // check if the remaining chars are identifier chars
@@ -118,7 +118,9 @@ pub fn extract_string_value(token: &str) -> ParseResult<Cow<str>> {
     // See https://prometheus.io/docs/prometheus/latest/querying/basics/#string-literals
     let mut quote_ch = token.chars().next().unwrap();
     if !['"', '\'', '`'].contains(&quote_ch) {
-        return Err(ParseError::SyntaxError(format!("invalid quote character {quote_ch}")));
+        return Err(ParseError::SyntaxError(format!(
+            "invalid quote character {quote_ch}"
+        )));
     }
 
     let last = token.chars().last().unwrap();

@@ -1,5 +1,5 @@
-use chrono::DateTime;
 use crate::parser::{ParseError, ParseResult};
+use chrono::DateTime;
 
 /// Parses a string into a unix timestamp (milliseconds). Accepts a positive integer or an RFC3339 timestamp.
 /// Included here only to avoid having to include chrono in the public API
@@ -16,7 +16,6 @@ pub fn parse_timestamp(s: &str) -> ParseResult<i64> {
     }
     Ok(value)
 }
-
 
 /// `parse_numeric_timestamp` parses timestamp at s in seconds, milliseconds, microseconds or nanoseconds.
 ///
@@ -54,9 +53,5 @@ pub fn parse_numeric_timestamp(s: &str) -> Result<i64, Box<dyn std::error::Error
     }
 }
 
-
-
 #[cfg(test)]
-mod tests {
-
-}
+mod tests {}

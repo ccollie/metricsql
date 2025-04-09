@@ -3,8 +3,8 @@ use std::cmp::Ordering;
 /// Stat holds values for a single cardinality statistic.
 #[derive(Debug, Clone, Default)]
 pub struct PostingStat {
-    pub name:  String,
-    pub count: u64
+    pub name: String,
+    pub count: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -60,7 +60,7 @@ impl StatsMaxHeap {
         if item.count < self.min_value as u64 {
             return;
         }
-        
+
         self.min_value = item.count as usize;
         self.items[self.min_index] = item;
 

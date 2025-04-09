@@ -1,8 +1,8 @@
+use metricsql_common::prelude::humanize_duration;
+use metricsql_parser::label::Matchers;
 use std::sync::Arc;
 use std::sync::RwLock;
 use std::time::Duration;
-use metricsql_common::prelude::humanize_duration;
-use metricsql_parser::label::Matchers;
 
 use crate::execution::context::Context;
 use crate::provider::Deadline;
@@ -31,7 +31,6 @@ pub(crate) fn validate_max_points_per_timeseries(
     }
 }
 
-
 #[inline]
 fn calc_points(start: Timestamp, end: Timestamp, step: &Duration) -> i64 {
     (end - start).saturating_div((step.as_millis() + 1) as i64)
@@ -42,7 +41,11 @@ fn calc_points(start: Timestamp, end: Timestamp, step: &Duration) -> i64 {
 /// big time ranges.
 const MIN_TIMESERIES_POINTS_FOR_TIME_ROUNDING: i64 = 50;
 
-pub fn adjust_start_end(start: Timestamp, end: Timestamp, step: Duration) -> (Timestamp, Timestamp) {
+pub fn adjust_start_end(
+    start: Timestamp,
+    end: Timestamp,
+    step: Duration,
+) -> (Timestamp, Timestamp) {
     // if disableCache {
     //     // do not adjust start and end values when cache is disabled.
     //     // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/563
@@ -69,7 +72,11 @@ pub fn adjust_start_end(start: Timestamp, end: Timestamp, step: Duration) -> (Ti
     (start, _end)
 }
 
-pub fn align_start_end(start: Timestamp, end: Timestamp, step: &Duration) -> (Timestamp, Timestamp) {
+pub fn align_start_end(
+    start: Timestamp,
+    end: Timestamp,
+    step: &Duration,
+) -> (Timestamp, Timestamp) {
     let step = step.as_millis() as i64;
     // Round start to the nearest smaller value divisible by step.
     let new_start = start - start % step;
@@ -85,7 +92,7 @@ pub fn align_start_end(start: Timestamp, end: Timestamp, step: &Duration) -> (Ti
 pub struct EvalConfig {
     pub start: Timestamp,
     pub end: Timestamp,
-    pub step: Duration, 
+    pub step: Duration,
 
     /// `max_series` is the maximum number of time series which can be scanned by the query.
     /// Zero means 'no limit'
@@ -170,7 +177,10 @@ impl EvalConfig {
             return Err(RuntimeError::from(msg));
         }
         if self.step.is_zero() {
-            let msg = format!("BUG: step must be greater than 0; got {}", self.step.as_millis());
+            let msg = format!(
+                "BUG: step must be greater than 0; got {}",
+                self.step.as_millis()
+            );
             return Err(RuntimeError::from(msg));
         }
         Ok(())
@@ -301,7 +311,10 @@ pub fn get_timestamps(
 ) -> RuntimeResult<Vec<i64>> {
     // Sanity checks.
     if step.is_zero() {
-        let msg = format!("Step must be bigger than 0; got {}", humanize_duration(&step));
+        let msg = format!(
+            "Step must be bigger than 0; got {}",
+            humanize_duration(&step)
+        );
         return Err(RuntimeError::from(msg));
     }
 
@@ -319,7 +332,7 @@ pub fn get_timestamps(
         );
         return Err(RuntimeError::from(msg));
     }
-    
+
     // Prepare timestamps.
     let step = step.as_millis() as i64;
     let n: usize = (1 + (end - start) / step) as usize;

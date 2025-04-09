@@ -41,7 +41,7 @@ pub struct ParseErr {
     pub line_offset: usize,
     pub position_range: (usize, usize),
     pub query: String,
-    pub err: String
+    pub err: String,
 }
 
 impl Display for ParseErr {
@@ -49,7 +49,11 @@ impl Display for ParseErr {
         if !self.err.is_empty() {
             write!(f, "Parse error at line {}: {}", self.line_offset, self.err)
         } else {
-            write!(f, "Parse error at line {}: {}", self.line_offset, self.query)
+            write!(
+                f,
+                "Parse error at line {}: {}",
+                self.line_offset, self.query
+            )
         }
     }
 }
@@ -61,22 +65,21 @@ pub(super) fn raise(line: usize, msg: String) -> ParseErr {
         line_offset: line,
         err: msg,
         position_range: (0, 0),
-        query: "".to_string()
+        query: "".to_string(),
     }
 }
-
 
 #[derive(Debug)]
 pub struct TestAssertionError {
     pub line_offset: usize,
-    pub message: String
+    pub message: String,
 }
 
 impl TestAssertionError {
     pub fn new(line_offset: usize, err: String) -> Self {
         TestAssertionError {
             line_offset,
-            message: err
+            message: err,
         }
     }
 }
@@ -85,6 +88,10 @@ impl Error for TestAssertionError {}
 
 impl Display for TestAssertionError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Assertion error at line {}: {}", self.line_offset, self.message)
+        write!(
+            f,
+            "Assertion error at line {}: {}",
+            self.line_offset, self.message
+        )
     }
 }

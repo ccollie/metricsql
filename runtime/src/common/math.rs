@@ -1,9 +1,9 @@
+use crate::types::Timestamp;
 use chili::Scope;
 use metricsql_common::pool::get_pooled_vec_f64;
 use num_traits::Pow;
 use smallvec::{smallvec, SmallVec};
 use std::ops::DerefMut;
-use crate::types::Timestamp;
 
 /// STALE_NAN_BITS is a bit representation of Prometheus staleness mark (aka stale NaN).
 /// This mark is put by Prometheus at the end of time series for improving staleness detection.
@@ -135,7 +135,10 @@ fn prepare_for_quantile_float64(dst: &mut Vec<f64>, src: &[f64]) {
 }
 
 /// copies items from src to dst but removes NaNs and sorts the dst
-fn prepare_small_vec_for_quantile_float64(dst: &mut SmallVec<f64, SMALL_VEC_THRESHOLD>, src: &[f64]) {
+fn prepare_small_vec_for_quantile_float64(
+    dst: &mut SmallVec<f64, SMALL_VEC_THRESHOLD>,
+    src: &[f64],
+) {
     for v in src.iter().filter(|v| !v.is_nan()) {
         dst.push(*v);
     }
@@ -163,25 +166,36 @@ fn quantiles_sorted_internal(scope: &mut Scope, phis: &[f64], values: &[f64]) ->
         [first, second] => {
             let (v1, v2) = scope.join(
                 |_| quantile_sorted(*first, values),
-                |_| quantile_sorted(*second, values)
+                |_| quantile_sorted(*second, values),
             );
             smallvec![v1, v2]
         }
         [first, second, third] => {
             let ((v1, v2), v3) = scope.join(
-                |s1| s1.join(|_| quantile_sorted(*first, values), |_| quantile_sorted(*second, values)),
-                |_| quantile_sorted(*third, values)
+                |s1| {
+                    s1.join(
+                        |_| quantile_sorted(*first, values),
+                        |_| quantile_sorted(*second, values),
+                    )
+                },
+                |_| quantile_sorted(*third, values),
             );
             smallvec![v1, v2, v3]
         }
         [first, second, third, fourth] => {
             let ((v1, v2), (v3, v4)) = scope.join(
-                |s1| s1.join(
-                    |_| quantile_sorted(*first, values),
-                    |_| quantile_sorted(*second, values)
-                ),
-                |s2| s2.join(|_| quantile_sorted(*third, values), |_| quantile_sorted(*fourth, values))
-
+                |s1| {
+                    s1.join(
+                        |_| quantile_sorted(*first, values),
+                        |_| quantile_sorted(*second, values),
+                    )
+                },
+                |s2| {
+                    s2.join(
+                        |_| quantile_sorted(*third, values),
+                        |_| quantile_sorted(*fourth, values),
+                    )
+                },
             );
             smallvec![v1, v2, v3, v4]
         }
@@ -267,7 +281,7 @@ pub(crate) fn linear_regression(
         tt_sum += dt * dt;
         n += 1;
     }
-    
+
     if n == 0 {
         return (f64::NAN, f64::NAN);
     }

@@ -2,8 +2,8 @@ use std::borrow::Cow;
 
 use crate::execution::EvalConfig;
 use crate::functions::utils::float_to_int_bounded;
-use crate::{RuntimeError, RuntimeResult};
 use crate::types::{QueryValue, Timeseries};
+use crate::{RuntimeError, RuntimeResult};
 
 pub(crate) fn get_string_arg(args: &[QueryValue], arg_num: usize) -> RuntimeResult<Cow<String>> {
     if arg_num > args.len() - 1 {
@@ -32,7 +32,10 @@ pub(crate) fn get_string_arg(args: &[QueryValue], arg_num: usize) -> RuntimeResu
             let res = Cow::Owned(series[0].metric_name.measurement.clone());
             return Ok(res);
         }
-        _ => Err(RuntimeError::ArgumentError(format!("string expected for parameter {} ", arg_num + 1))),
+        _ => Err(RuntimeError::ArgumentError(format!(
+            "string expected for parameter {} ",
+            arg_num + 1
+        ))),
     };
     res
 }

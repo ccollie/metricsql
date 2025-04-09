@@ -6,7 +6,7 @@ use smallvec::SmallVec;
 
 use crate::functions::rollup::TimeSeriesMap;
 use crate::types::{QueryValue, Timestamp};
-use crate::{RuntimeResult};
+use crate::RuntimeResult;
 
 #[derive(Default, Clone, Debug)]
 pub struct RollupFuncArg<'a> {
@@ -40,7 +40,6 @@ pub struct RollupFuncArg<'a> {
 
     pub(super) tsm: Option<Arc<TimeSeriesMap>>, // todo: move to Option<Arc<Box>>, since its not frequently used
 }
-
 
 impl RollupFuncArg<'_> {
     pub(crate) fn get_tsm(&self) -> Arc<TimeSeriesMap> {
@@ -137,7 +136,9 @@ impl RollupHandler {
 impl PartialEq for RollupHandler {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (RollupHandler::Wrapped(left), RollupHandler::Wrapped(right)) => std::ptr::fn_addr_eq(*left, *right),
+            (RollupHandler::Wrapped(left), RollupHandler::Wrapped(right)) => {
+                std::ptr::fn_addr_eq(*left, *right)
+            }
             (RollupHandler::Fake(left), RollupHandler::Fake(right)) => left == right,
             (RollupHandler::FloatArg(left), RollupHandler::FloatArg(right)) => left == right,
             (RollupHandler::VecArg(left), RollupHandler::VecArg(right)) => left == right,

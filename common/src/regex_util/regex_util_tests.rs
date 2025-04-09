@@ -14,13 +14,12 @@
 use rand::Rng;
 use regex::Regex;
 
-
 // Helper function to generate random values
 fn generate_random_values() -> Vec<String> {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let mut texts = Vec::new();
     for _ in 0..10 {
-        texts.push(rng.gen_range(0..10).to_string());
+        texts.push(rng.random_range(0..10).to_string());
     }
     texts
 }
@@ -28,10 +27,12 @@ fn generate_random_values() -> Vec<String> {
 // Test function for FastRegexMatcher
 #[cfg(test)]
 mod tests {
-    use crate::prelude::{dot_plus_dot_plus_match_fn, dot_plus_match_fn, MatchFn};
     use super::*;
-    use crate::regex_util::{string_matcher_from_regex, ContainsMultiStringMatcher, StringMatchHandler};
+    use crate::prelude::{dot_plus_dot_plus_match_fn, dot_plus_match_fn, MatchFn};
     use crate::regex_util::match_handlers::contains_fn;
+    use crate::regex_util::{
+        string_matcher_from_regex, ContainsMultiStringMatcher, StringMatchHandler,
+    };
 
     #[test]
     fn test_fast_regex_matcher_match_string() {
@@ -60,7 +61,7 @@ mod tests {
         fn true_matcher() -> StringMatchHandler {
             StringMatchHandler::any(false)
         }
-        
+
         fn some_true_matcher() -> Option<StringMatchHandler> {
             Some(true_matcher())
         }
@@ -73,7 +74,11 @@ mod tests {
             StringMatchHandler::prefix(s.to_string(), right, true)
         }
 
-        fn contains_multi(substrings: &[&str], left: Option<StringMatchHandler>, right: Option<StringMatchHandler>) -> StringMatchHandler {
+        fn contains_multi(
+            substrings: &[&str],
+            left: Option<StringMatchHandler>,
+            right: Option<StringMatchHandler>,
+        ) -> StringMatchHandler {
             let matches = substrings.iter().map(|s| s.to_string()).collect();
             let matcher = ContainsMultiStringMatcher::new(matches, left, right);
             StringMatchHandler::ContainsMulti(matcher)
@@ -107,9 +112,14 @@ mod tests {
         let cases = vec![
             //
             ("10\\.0\\.(1|2)\\.+", None),
-            ("10\\.0\\.(1|2).+", Some(
-                contains_multi(&["10.0.1", "10.0.2"], None, Some(not_empty(true)))
-            )),
+            (
+                "10\\.0\\.(1|2).+",
+                Some(contains_multi(
+                    &["10.0.1", "10.0.2"],
+                    None,
+                    Some(not_empty(true)),
+                )),
+            ),
             //
             (".*", some_true_matcher()),
             (".*?", None),
@@ -123,142 +133,202 @@ mod tests {
             ("", Some(StringMatchHandler::Empty)),
             ("^$", Some(StringMatchHandler::Empty)),
             ("^foo$", Some(literal("foo"))),
-             ("^(?i:foo)$", Some(insensitive_literal("FOO"))),
-             ("^((?i:foo)|(bar))$", Some(
-                 or_matcher(&[insensitive_literal("FOO"), literal("bar")])
-             )),
-            ("(?i:((foo|bar)))", Some(
-                alternates(&["foo", "bar"], false)
-            )),
-            ("(?i:((foo1|foo2|bar)))", Some(
-                alternates(&["foo1", "foo2", "bar"], false)
-            )),
-              ("^((?i:foo|oo)|(bar))$", Some(
-                   or_matcher(&[insensitive_literal("FOO"), insensitive_literal("OO"), literal("bar")])
-              )),
-              ("(?i:(foo1|foo2|bar))", Some(
-                  alternates(&["foo1", "foo2", "bar"], false)
-              )),
-              (".*foo.*", Some(
-                  match_fn("foo", contains_fn)
-              )),
-               ("(.*)foo.*", Some(
-                   match_fn("foo", contains_fn)
-               )),
-               ("(.*)foo(.*)", Some(
-                   match_fn("foo", contains_fn)
-               )),
-               ("(.+)foo(.*)", Some(
-                   match_fn("foo", dot_plus_match_fn)
-               )),
-               ("^.+foo.+", Some(
-                   match_fn("foo", dot_plus_dot_plus_match_fn)
-               )),
-               ("^(.*)(foo)(.*)$", Some(
-                   match_fn("foo", contains_fn)
-               )),
-               ("^(.*)(foo|foobar)(.*)$", Some(
-                   contains_multi(&["foo", "foobar"], Some(true_matcher()), Some(true_matcher()))
-               )),
-              //("^(.*)(bar|b|buzz)(.*)$",  ))),
-              ("^(.*)(foo|foobar)(.+)$", Some(contains_multi(&["foo", "foobar"], Some(true_matcher()), Some(not_empty(true))))),
-              ("^(.*)(bar|b|buzz)(.+)$", Some(contains_multi(&["bar", "b", "buzz"], Some(true_matcher()), Some(not_empty(true))))),
-              ("10\\.0\\.(1|2)\\.+", None),
-              ("10\\.0\\.(1|2).+", Some(
-                  contains_multi(&["10.0.1", "10.0.2"], None, Some(not_empty(true)))
-              )),
-              ("^.+foo", Some(
-                  suffix("foo", Some(not_empty(true)))
-              )),
-              ("foo-.*$", Some(prefix("foo-", None))),
-              ("(prometheus|api_prom)_api_v1_.+", Some(
-                  contains_multi(&["prometheus_api_v1_", "api_prom_api_v1_"], None, Some(not_empty(true)))
-              )),
-              ("^((.*)(bar|b|buzz)(.+)|foo)$", Some(
-                  or_matcher(&[
-                      contains_multi(&["bar", "b", "buzz"], Some(true_matcher()), Some(not_empty(true))),
-                      literal("foo")
-                  ])
-              )),
-              ("((fo(bar))|.+foo)", Some(
-                  or_matcher(&[or_matcher(&[literal("fobar"), suffix("foo", Some(not_empty(true)))])])
-              )),
-              ("(.+)/(gateway|cortex-gw|cortex-gw-internal)", Some(
-                  contains_multi(&["/gateway", "/cortex-gw", "/cortex-gw-internal"], Some(not_empty(true)), Some(true_matcher()))
-              )),
-               // we don't support case-insensitive matching for contains.
-               // This is because there's no strings.IndexOfFold function.
-               // We can revisit later if this is really popular by using strings.ToUpper.
-               ("^(.*)((?i)foo|foobar)(.*)$", None),
-               ("(api|rpc)_(v1|prom)_((?i)push|query)", None),
-               ("[a-z][a-z]", None),
-               ("[1^3]", None),
-               (".*foo.*bar.*", None),
-               ("\\d*", None),
-               (".", None),
-               ("/|/bar.*", Some(
-                   prefix("/",
-                          Some(or_matcher(&[empty(), prefix("bar", Some(true_matcher()))]))
-                   )
-               )),
-               // This one is not supported because  `stringMatcherFromRegexp` is not reentrant for syntax.OpConcat.
-               // It would make the code too complex to handle it.
-               ("(.+)/(foo.*|bar$)", None),
-               // Case-sensitive alternate with same literal prefix and .* suffix.
-               ("(xyz-016a-ixb-dp.*|xyz-016a-ixb-op.*)", Some(
-                   prefix("xyz-016a-ixb-",
-                          Some(or_matcher(&[prefix("dp", Some(true_matcher())), prefix("op", Some(true_matcher()))]))
-                   )
-               )),
-                // Case-insensitive alternate with same literal prefix and .* suffix.
-                ("(?i:(xyz-016a-ixb-dp.*|xyz-016a-ixb-op.*))",
-                 Some(
-                     prefix("XYZ-016A-IXB-",
-                            Some(
-                                or_matcher(&[prefix("DP", Some(true_matcher())), prefix("OP", Some(true_matcher()))])
-                            )
-                     )
-                 )),
-                ("(?i)(xyz-016a-ixb-dp.*|xyz-016a-ixb-op.*)", Some(
-                     prefix("XYZ-016A-IXB-",
-                            Some(or_matcher(&[
-                                prefix("DP", Some(true_matcher())),
-                                prefix("OP", Some(true_matcher()))
-                            ]))
-                     )
+            ("^(?i:foo)$", Some(insensitive_literal("FOO"))),
+            (
+                "^((?i:foo)|(bar))$",
+                Some(or_matcher(&[insensitive_literal("FOO"), literal("bar")])),
+            ),
+            ("(?i:((foo|bar)))", Some(alternates(&["foo", "bar"], false))),
+            (
+                "(?i:((foo1|foo2|bar)))",
+                Some(alternates(&["foo1", "foo2", "bar"], false)),
+            ),
+            (
+                "^((?i:foo|oo)|(bar))$",
+                Some(or_matcher(&[
+                    insensitive_literal("FOO"),
+                    insensitive_literal("OO"),
+                    literal("bar"),
+                ])),
+            ),
+            (
+                "(?i:(foo1|foo2|bar))",
+                Some(alternates(&["foo1", "foo2", "bar"], false)),
+            ),
+            (".*foo.*", Some(match_fn("foo", contains_fn))),
+            ("(.*)foo.*", Some(match_fn("foo", contains_fn))),
+            ("(.*)foo(.*)", Some(match_fn("foo", contains_fn))),
+            ("(.+)foo(.*)", Some(match_fn("foo", dot_plus_match_fn))),
+            (
+                "^.+foo.+",
+                Some(match_fn("foo", dot_plus_dot_plus_match_fn)),
+            ),
+            ("^(.*)(foo)(.*)$", Some(match_fn("foo", contains_fn))),
+            (
+                "^(.*)(foo|foobar)(.*)$",
+                Some(contains_multi(
+                    &["foo", "foobar"],
+                    Some(true_matcher()),
+                    Some(true_matcher()),
                 )),
-                // Concatenated variable length selectors are not supported.
-                ("foo.*.*", None),
-                ("foo.+.+", None),
-                (".*.*foo", None),
-                (".+.+foo", None),
-                ("aaa.?.?", None),
-                ("aaa.?.*", None),
-                // Regexps with ".?".
-                ("ext.?|xfs", Some(
-                    or_matcher(&[
-                        prefix("ext", Some(zero_or_one_chars(true))),
-                        literal("xfs"),
-                    ])
-                )
-                ),
-                ("(?s)(ext.?|xfs)", Some(
-                    or_matcher(&[prefix("ext", Some(zero_or_one_chars(true))), literal("xfs")])
+            ),
+            //("^(.*)(bar|b|buzz)(.*)$",  ))),
+            (
+                "^(.*)(foo|foobar)(.+)$",
+                Some(contains_multi(
+                    &["foo", "foobar"],
+                    Some(true_matcher()),
+                    Some(not_empty(true)),
                 )),
-                ("foo.?", Some(prefix("foo", Some(zero_or_one_chars(true))))),
-                ("f.?o", None)
+            ),
+            (
+                "^(.*)(bar|b|buzz)(.+)$",
+                Some(contains_multi(
+                    &["bar", "b", "buzz"],
+                    Some(true_matcher()),
+                    Some(not_empty(true)),
+                )),
+            ),
+            ("10\\.0\\.(1|2)\\.+", None),
+            (
+                "10\\.0\\.(1|2).+",
+                Some(contains_multi(
+                    &["10.0.1", "10.0.2"],
+                    None,
+                    Some(not_empty(true)),
+                )),
+            ),
+            ("^.+foo", Some(suffix("foo", Some(not_empty(true))))),
+            ("foo-.*$", Some(prefix("foo-", None))),
+            (
+                "(prometheus|api_prom)_api_v1_.+",
+                Some(contains_multi(
+                    &["prometheus_api_v1_", "api_prom_api_v1_"],
+                    None,
+                    Some(not_empty(true)),
+                )),
+            ),
+            (
+                "^((.*)(bar|b|buzz)(.+)|foo)$",
+                Some(or_matcher(&[
+                    contains_multi(
+                        &["bar", "b", "buzz"],
+                        Some(true_matcher()),
+                        Some(not_empty(true)),
+                    ),
+                    literal("foo"),
+                ])),
+            ),
+            (
+                "((fo(bar))|.+foo)",
+                Some(or_matcher(&[or_matcher(&[
+                    literal("fobar"),
+                    suffix("foo", Some(not_empty(true))),
+                ])])),
+            ),
+            (
+                "(.+)/(gateway|cortex-gw|cortex-gw-internal)",
+                Some(contains_multi(
+                    &["/gateway", "/cortex-gw", "/cortex-gw-internal"],
+                    Some(not_empty(true)),
+                    Some(true_matcher()),
+                )),
+            ),
+            // we don't support case-insensitive matching for contains.
+            // This is because there's no strings.IndexOfFold function.
+            // We can revisit later if this is really popular by using strings.ToUpper.
+            ("^(.*)((?i)foo|foobar)(.*)$", None),
+            ("(api|rpc)_(v1|prom)_((?i)push|query)", None),
+            ("[a-z][a-z]", None),
+            ("[1^3]", None),
+            (".*foo.*bar.*", None),
+            ("\\d*", None),
+            (".", None),
+            (
+                "/|/bar.*",
+                Some(prefix(
+                    "/",
+                    Some(or_matcher(&[empty(), prefix("bar", Some(true_matcher()))])),
+                )),
+            ),
+            // This one is not supported because  `stringMatcherFromRegexp` is not reentrant for syntax.OpConcat.
+            // It would make the code too complex to handle it.
+            ("(.+)/(foo.*|bar$)", None),
+            // Case-sensitive alternate with same literal prefix and .* suffix.
+            (
+                "(xyz-016a-ixb-dp.*|xyz-016a-ixb-op.*)",
+                Some(prefix(
+                    "xyz-016a-ixb-",
+                    Some(or_matcher(&[
+                        prefix("dp", Some(true_matcher())),
+                        prefix("op", Some(true_matcher())),
+                    ])),
+                )),
+            ),
+            // Case-insensitive alternate with same literal prefix and .* suffix.
+            (
+                "(?i:(xyz-016a-ixb-dp.*|xyz-016a-ixb-op.*))",
+                Some(prefix(
+                    "XYZ-016A-IXB-",
+                    Some(or_matcher(&[
+                        prefix("DP", Some(true_matcher())),
+                        prefix("OP", Some(true_matcher())),
+                    ])),
+                )),
+            ),
+            (
+                "(?i)(xyz-016a-ixb-dp.*|xyz-016a-ixb-op.*)",
+                Some(prefix(
+                    "XYZ-016A-IXB-",
+                    Some(or_matcher(&[
+                        prefix("DP", Some(true_matcher())),
+                        prefix("OP", Some(true_matcher())),
+                    ])),
+                )),
+            ),
+            // Concatenated variable length selectors are not supported.
+            ("foo.*.*", None),
+            ("foo.+.+", None),
+            (".*.*foo", None),
+            (".+.+foo", None),
+            ("aaa.?.?", None),
+            ("aaa.?.*", None),
+            // Regexps with ".?".
+            (
+                "ext.?|xfs",
+                Some(or_matcher(&[
+                    prefix("ext", Some(zero_or_one_chars(true))),
+                    literal("xfs"),
+                ])),
+            ),
+            (
+                "(?s)(ext.?|xfs)",
+                Some(or_matcher(&[
+                    prefix("ext", Some(zero_or_one_chars(true))),
+                    literal("xfs"),
+                ])),
+            ),
+            ("foo.?", Some(prefix("foo", Some(zero_or_one_chars(true))))),
+            ("f.?o", None),
         ];
         for (expr, expected_matcher) in cases {
             let matcher = string_matcher_from_regex(expr).unwrap();
             if expected_matcher.is_none() {
                 if !matches!(matcher, StringMatchHandler::Regex(_)) {
-                    assert!(false, "Expected Regex matcher for {}. Found {}", expr, matcher);
+                    assert!(
+                        false,
+                        "Expected Regex matcher for {}. Found {}",
+                        expr, matcher
+                    );
                 }
                 continue;
             } else {
                 let expected_matcher = expected_matcher.unwrap();
-                assert_eq!(matcher, expected_matcher, "Invalid matcher for {expr}. Expected {}, found {}",
-                           expected_matcher, matcher);
+                assert_eq!(
+                    matcher, expected_matcher,
+                    "Invalid matcher for {expr}. Expected {}, found {}",
+                    expected_matcher, matcher
+                );
             }
         }
     }
@@ -304,11 +374,7 @@ mod tests {
                     "XYZ-016a-ixb-opXXX",
                     "xyz-016a-ixb-dp\n",
                 ],
-                expected_not_matches: vec![
-                    "xyz-016a-ixb-d",
-                    "xyz",
-                    "dp",
-                ],
+                expected_not_matches: vec!["xyz-016a-ixb-d", "xyz", "dp"],
             },
             // Nested literal prefixes, case sensitive
             TestConfig {
@@ -345,11 +411,7 @@ mod tests {
                     "XYZ-bbb-444",
                     "xyz-bbb-444XXX",
                 ],
-                expected_not_matches: vec![
-                    "xyz-aaa-11",
-                    "xyz-aaa-222",
-                    "xyz-bbb-111",
-                ],
+                expected_not_matches: vec!["xyz-aaa-11", "xyz-aaa-222", "xyz-bbb-111"],
             },
             // Mixed case sensitivity
             TestConfig {
@@ -363,18 +425,13 @@ mod tests {
                     "xyz-bbb",
                     "xyz-BBBXXX",
                 ],
-                expected_not_matches: vec![
-                    "XYZ-aaa",
-                    "xyz-aa",
-                    "yz-aaa",
-                    "aaa",
-                ],
+                expected_not_matches: vec!["XYZ-aaa", "xyz-aa", "yz-aaa", "aaa"],
             },
         ];
 
         for case in test_cases {
             let re = Regex::new(&case.pattern).unwrap();
-            let matcher= string_matcher_from_regex(&case.pattern).unwrap();
+            let matcher = string_matcher_from_regex(&case.pattern).unwrap();
 
             // Pre-condition check: ensure it contains literalPrefixSensitiveStringMatcher or literalPrefixInsensitiveStringMatcher.
             let mut num_prefix_matchers = 0;
@@ -395,12 +452,14 @@ mod tests {
             for value in &case.expected_matches {
                 assert!(
                     matcher.matches(value),
-                    "Matcher: Pattern - {}, Value: {value} should match", case.pattern
+                    "Matcher: Pattern - {}, Value: {value} should match",
+                    case.pattern
                 );
 
                 assert!(
                     re.is_match(value),
-                    "Regex Pattern: {}, Value: {value} should match", case.pattern
+                    "Regex Pattern: {}, Value: {value} should match",
+                    case.pattern
                 );
             }
 
@@ -408,12 +467,14 @@ mod tests {
             for value in &case.expected_not_matches {
                 assert!(
                     !matcher.matches(value),
-                    "Matcher: Pattern - {}, Value: {value} should not match", case.pattern
+                    "Matcher: Pattern - {}, Value: {value} should not match",
+                    case.pattern
                 );
 
                 assert!(
                     !re.is_match(value),
-                    "Pattern: {}, Value: {value} should not match", case.pattern
+                    "Pattern: {}, Value: {value} should not match",
+                    case.pattern
                 );
             }
         }
@@ -437,10 +498,15 @@ mod tests {
                     "XXXxyz-016a-ixb-dp",
                     "xyz-016a-ixb-op",
                     "XXXxyz-016a-ixb-op",
-                    "\nxyz-016a-ixb-dp"
+                    "\nxyz-016a-ixb-dp",
                 ],
                 expected_not_matches: vec![
-                    "XYZ-016a-ixb-dp", "yz-016a-ixb-dp", "XYZ-016a-ixb-op", "xyz-016a-ixb-o", "xyz", "dp"
+                    "XYZ-016a-ixb-dp",
+                    "yz-016a-ixb-dp",
+                    "XYZ-016a-ixb-op",
+                    "xyz-016a-ixb-o",
+                    "xyz",
+                    "dp",
                 ],
             },
             // Case-insensitive.
@@ -453,22 +519,30 @@ mod tests {
                     "XXXxyz-016a-ixb-dp",
                     "XyZ-016a-ixb-op",
                     "XXXxyz-016a-ixb-op",
-                    "\nxyz-016a-ixb-dp"
+                    "\nxyz-016a-ixb-dp",
                 ],
-                expected_not_matches: vec![
-                    "yz-016a-ixb-dp", "xyz-016a-ixb-o", "xyz", "dp"
-                ],
+                expected_not_matches: vec!["yz-016a-ixb-dp", "xyz-016a-ixb-o", "xyz", "dp"],
             },
             // Nested literal suffixes, case-sensitive.
             TestCase {
                 pattern: "(.*aaa|.*bbb(.*ccc|.*ddd))",
                 expected_literal_suffix_matchers: 3,
                 expected_matches: vec![
-                    "aaa", "XXXaaa", "bbbccc", "XXXbbbccc", "XXXbbbXXXccc", "bbbddd",
-                    "bbbddd", "XXXbbbddd", "XXXbbbXXXddd", "bbbXXXccc", "aaabbbccc", "aaabbbddd"
+                    "aaa",
+                    "XXXaaa",
+                    "bbbccc",
+                    "XXXbbbccc",
+                    "XXXbbbXXXccc",
+                    "bbbddd",
+                    "bbbddd",
+                    "XXXbbbddd",
+                    "XXXbbbXXXddd",
+                    "bbbXXXccc",
+                    "aaabbbccc",
+                    "aaabbbddd",
                 ],
                 expected_not_matches: vec![
-                    "AAA", "aa", "Xaa", "BBBCCC", "bb", "Xbb", "bbccc", "bbbcc", "bbbdd"
+                    "AAA", "aa", "Xaa", "BBBCCC", "bb", "Xbb", "bbccc", "bbbcc", "bbbdd",
                 ],
             },
             // Mixed case sensitivity.
@@ -476,19 +550,23 @@ mod tests {
                 pattern: "(.*aaa|.*bbb((?i)(.*ccc|.*ddd)))",
                 expected_literal_suffix_matchers: 3,
                 expected_matches: vec![
-                    "aaa", "XXXaaa", "bbbccc", "bbbCCC", "bbbXXXCCC",
-                    "bbbddd", "bbbDDD", "bbbXXXddd", "bbbXXXDDD"
+                    "aaa",
+                    "XXXaaa",
+                    "bbbccc",
+                    "bbbCCC",
+                    "bbbXXXCCC",
+                    "bbbddd",
+                    "bbbDDD",
+                    "bbbXXXddd",
+                    "bbbXXXDDD",
                 ],
-                expected_not_matches: vec![
-                    "AAA", "XXXAAA", "BBBccc", "BBBCCC", "aaaBBB"
-                ],
+                expected_not_matches: vec!["AAA", "XXXAAA", "BBBccc", "BBBCCC", "aaaBBB"],
             },
-
         ];
 
         for case in test_cases {
             // Create the matcher
-            let matcher= string_matcher_from_regex(&case.pattern).unwrap();
+            let matcher = string_matcher_from_regex(&case.pattern).unwrap();
 
             // Compile the regex
             let re = Regex::new(&format!("^(?s:{})$", &case.pattern)).unwrap();
@@ -505,25 +583,13 @@ mod tests {
 
             // Test expected matches
             for value in case.expected_matches {
-                assert!(
-                    matcher.matches(value),
-                    "Value: {} should match",
-                    value
-                );
-                assert!(
-                    re.is_match(value),
-                    "Value: {} should match (regex)",
-                    value
-                );
+                assert!(matcher.matches(value), "Value: {} should match", value);
+                assert!(re.is_match(value), "Value: {} should match (regex)", value);
             }
 
             // Test expected not matches
             for value in case.expected_not_matches {
-                assert!(
-                    !matcher.matches(value),
-                    "Value: {} should not match",
-                    value
-                );
+                assert!(!matcher.matches(value), "Value: {} should not match", value);
                 assert!(
                     !re.is_match(value),
                     "Value: {} should not match (regex)",
@@ -547,7 +613,7 @@ mod tests {
                 pattern: "test.?",
                 expected_zero_or_one_matchers: 1,
                 expected_matches: vec!["test\n", "test", "test!"],
-                expected_not_matches: vec!["tes", "test!!"]
+                expected_not_matches: vec!["tes", "test!!"],
             },
             TestCase {
                 pattern: ".?test",
@@ -564,9 +630,7 @@ mod tests {
             TestCase {
                 pattern: ".*aaa.?",
                 expected_zero_or_one_matchers: 1,
-                expected_matches: vec![
-                    "aaa", "Xaaa", "aaaX", "XXXaaa", "XXXaaaX", "XXXaaa\n",
-                ],
+                expected_matches: vec!["aaa", "Xaaa", "aaaX", "XXXaaa", "XXXaaaX", "XXXaaa\n"],
                 expected_not_matches: vec!["aa", "aaaXX", "XXXaaaXXX"],
             },
             TestCase {
@@ -589,7 +653,7 @@ mod tests {
 
             // Pre-condition check: ensure it contains zeroOrOneCharacterStringMatcher.
             let mut num_zero_or_one_matchers = 0;
-            visit_string_matcher(&matcher, &mut num_zero_or_one_matchers,|_, state| {
+            visit_string_matcher(&matcher, &mut num_zero_or_one_matchers, |_, state| {
                 // Placeholder for the logic to count zeroOrOneCharacterStringMatcher.
                 *state += 1;
             });
@@ -631,14 +695,13 @@ mod tests {
                 );
             }
         }
-
     }
 
-
-    fn visit_string_matcher<STATE>(matcher: &StringMatchHandler,
-                                   state: &mut STATE,
-                                   callback: fn(&StringMatchHandler, &mut STATE))
-    {
+    fn visit_string_matcher<STATE>(
+        matcher: &StringMatchHandler,
+        state: &mut STATE,
+        callback: fn(&StringMatchHandler, &mut STATE),
+    ) {
         callback(matcher, state);
 
         match matcher {
@@ -684,5 +747,4 @@ mod tests {
 
         num_prefix_matchers
     }
-
 }

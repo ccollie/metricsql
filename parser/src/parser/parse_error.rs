@@ -1,10 +1,10 @@
 use std::fmt;
 use std::fmt::{Display, Formatter};
 
+use super::tokens::Token;
+use crate::parser::parser::TokenWithLocation;
 use logos::Span;
 use thiserror::Error;
-use crate::parser::parser::TokenWithLocation;
-use super::tokens::{Token};
 
 pub type ParseResult<T> = Result<T, ParseError>;
 

@@ -35,7 +35,7 @@ pub fn encode_with_options<T: Number>(
 ) -> Result<(), Box<dyn Error>> {
     let mut config = ChunkConfig::default();
     config.compression_level = options.compression_level;
-    
+
     if options.delta_encoding_order != 0 {
         config.delta_spec = pco::DeltaSpec::TryConsecutive(options.delta_encoding_order);
     }
@@ -77,7 +77,7 @@ mod tests {
 
         let mut decoded: Vec<f64> = vec![];
         super::decode(&dst, &mut decoded).unwrap();
-        
+
         assert_eq!(src, decoded);
     }
 

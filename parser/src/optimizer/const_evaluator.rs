@@ -173,7 +173,7 @@ fn handle_binop_internal(be: Expr) -> Expr {
             op: be.op,
             modifier: be.modifier,
         };
-        return handle_binary_expr(new_be)
+        return handle_binary_expr(new_be);
     }
     be
 }
@@ -182,9 +182,7 @@ fn handle_binary_expr(be: BinaryExpr) -> Expr {
     let is_bool = be.returns_bool();
 
     match (be.left.as_ref(), be.right.as_ref(), be.op) {
-        (Expr::Duration(ln), Expr::Duration(rn), op)
-            if op == Operator::Add =>
-        {
+        (Expr::Duration(ln), Expr::Duration(rn), op) if op == Operator::Add => {
             handle_duration_duration(ln, rn, op, is_bool)
         }
         (Expr::Duration(ln), Expr::NumberLiteral(NumberLiteral { value }), op)
@@ -206,7 +204,6 @@ fn handle_binary_expr(be: BinaryExpr) -> Expr {
         _ => Expr::BinaryOperator(be),
     }
 }
-
 
 fn handle_duration_duration(
     ln: &DurationExpr,
@@ -465,7 +462,7 @@ mod tests {
             Expr::BinaryOperator(mut be) => {
                 be.modifier = None;
                 Expr::BinaryOperator(be)
-            },
+            }
             _ => expr,
         }
     }
@@ -506,7 +503,10 @@ mod tests {
         // "foo" != bool "foo" --> 0.0
         test_const_simplify(lit("foo").not_eq(lit("foo")), number(0.0));
         // "foo" != "foo" --> NAN
-        test_const_simplify(remove_bool_modifier(lit("foo").not_eq(lit("foo"))), number(f64::NAN));
+        test_const_simplify(
+            remove_bool_modifier(lit("foo").not_eq(lit("foo"))),
+            number(f64::NAN),
+        );
 
         // "foo" != bool "bar" --> 1.0
         test_const_simplify(lit("foo").not_eq(lit("bar")), number(1.0));
@@ -517,7 +517,10 @@ mod tests {
         // "foo" < bool "bar" --> 0.0
         test_const_simplify(lit("foo").lt(lit("bar")), number(0.0));
         // "foo" < "bar" --> NAN
-        test_const_simplify(remove_bool_modifier(lit("foo").lt(lit("bar"))), number(f64::NAN));
+        test_const_simplify(
+            remove_bool_modifier(lit("foo").lt(lit("bar"))),
+            number(f64::NAN),
+        );
 
         // "foo" >= bool "foo" --> 1.0
         test_const_simplify(lit("foo").gt_eq(lit("foo")), number(1.0));

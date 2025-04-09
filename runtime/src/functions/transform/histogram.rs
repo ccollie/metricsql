@@ -2,9 +2,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use ahash::{AHashMap, HashMapExt};
-use smallvec::smallvec;
 use metricsql_common::hash::{IntMap, Signature};
 use metricsql_parser::parse_number;
+use smallvec::smallvec;
 
 use crate::execution::merge_non_overlapping_timeseries;
 use crate::functions::arg_parse::{
@@ -12,8 +12,8 @@ use crate::functions::arg_parse::{
 };
 use crate::functions::transform::utils::{copy_timeseries, is_inf};
 use crate::functions::transform::TransformFuncArg;
-use crate::{RuntimeError, RuntimeResult};
 use crate::types::{FunctionArgs, MetricName, QueryValue, Timeseries};
+use crate::{RuntimeError, RuntimeResult};
 
 static ELLIPSIS: &str = "...";
 static LE: &str = "le";
@@ -193,7 +193,7 @@ pub(crate) fn vmrange_buckets_to_le(tss: Vec<Timeseries>) -> Vec<Timeseries> {
     if tss.is_empty() {
         return tss;
     }
-    
+
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(tss.len());
 
     let mut buckets: IntMap<Signature, Vec<Bucket>> = IntMap::with_capacity(tss.len());
@@ -600,11 +600,11 @@ pub(crate) fn histogram_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
     // Convert buckets with `vmrange` labels to buckets with `le` labels.
     let series = get_series_arg(&tfa.args, 1, tfa.ec)?;
     if series.is_empty() {
-        return Ok(Vec::new());    
+        return Ok(Vec::new());
     }
-    
+
     let mut tss = vmrange_buckets_to_le(series);
-    
+
     let phis: Vec<f64> = get_scalar_arg_as_vec(&tfa.args, 0, tfa.ec)?;
 
     // Parse bounds_label. See https://github.com/prometheus/prometheus/issues/5706 for details.

@@ -10,11 +10,11 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use chrono::{DateTime, Utc};
+use super::parser::TEST_START_TIME;
 use crate::tests::promql_test::types::TestAssertionError;
 use crate::types::{QueryValue, Timeseries};
-use super::parser::TEST_START_TIME;
+use chrono::{DateTime, Utc};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 // Constants
 pub const DEFAULT_EPSILON: f64 = 0.000001; // Relative error allowed for sample values.
@@ -43,8 +43,16 @@ pub(super) fn format_series_result(s: &Timeseries) -> String {
         float_plural = "";
     }
 
-    format!("{} float point{} {}",
-            s.len(), float_plural, s.values.iter().map(|v| format!("{:.3}", v)).collect::<Vec<String>>().join(", "))
+    format!(
+        "{} float point{} {}",
+        s.len(),
+        float_plural,
+        s.values
+            .iter()
+            .map(|v| format!("{:.3}", v))
+            .collect::<Vec<String>>()
+            .join(", ")
+    )
 }
 
 pub fn assert_matrix_sorted(m: &QueryValue) -> Result<(), TestAssertionError> {

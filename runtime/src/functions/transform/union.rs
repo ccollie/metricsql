@@ -1,8 +1,8 @@
-use ahash::AHashSet;
 use crate::execution::{eval_number, EvalConfig};
 use crate::functions::transform::TransformFuncArg;
-use crate::{RuntimeError, RuntimeResult};
 use crate::types::{FunctionArgs, QueryValue, Timeseries};
+use crate::{RuntimeError, RuntimeResult};
+use ahash::AHashSet;
 
 pub(crate) fn union(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     // we don't use args after this
@@ -32,9 +32,7 @@ pub(crate) fn handle_union(
                     rvs.append(v);
                 }
                 _ => {
-                    return Err(RuntimeError::ArgumentError(
-                        "expected scalar".to_string(),
-                    ));
+                    return Err(RuntimeError::ArgumentError("expected scalar".to_string()));
                 }
             }
         }
@@ -43,11 +41,7 @@ pub(crate) fn handle_union(
 
     let mut m: AHashSet<String> = AHashSet::with_capacity(len);
 
-    fn process_vector(
-        v: &mut [Timeseries],
-        m: &mut AHashSet<String>,
-        rvs: &mut Vec<Timeseries>,
-    ) {
+    fn process_vector(v: &mut [Timeseries], m: &mut AHashSet<String>, rvs: &mut Vec<Timeseries>) {
         for ts in v.iter_mut() {
             let key = ts.metric_name.to_string();
             if m.insert(key) {
@@ -55,7 +49,7 @@ pub(crate) fn handle_union(
             }
         }
     }
-    
+
     for arg in args.iter_mut() {
         // done this way to avoid allocating a new vector in the case of a InstantVector
         match arg {
@@ -77,17 +71,15 @@ pub(crate) fn handle_union(
 }
 
 fn are_all_args_scalar(args: &[QueryValue]) -> bool {
-    args.iter().all(|arg| {
-        match arg {
-            QueryValue::Scalar(_) => true,
-            QueryValue::InstantVector(v) => {
-                if v.len() != 1 {
-                    return false;
-                }
-                let mn = &v[0].metric_name;
-                mn.is_empty()
-            },
-            _ => false,
+    args.iter().all(|arg| match arg {
+        QueryValue::Scalar(_) => true,
+        QueryValue::InstantVector(v) => {
+            if v.len() != 1 {
+                return false;
+            }
+            let mn = &v[0].metric_name;
+            mn.is_empty()
         }
+        _ => false,
     })
 }

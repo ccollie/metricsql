@@ -1,6 +1,6 @@
-pub use matcher::*;
 pub use labels::*;
-pub use metricsql_common::types::{Label};
+pub use matcher::*;
+pub use metricsql_common::types::Label;
 
-mod matcher;
 mod labels;
+mod matcher;

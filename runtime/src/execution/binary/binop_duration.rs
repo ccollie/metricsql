@@ -1,7 +1,7 @@
-use std::time::Duration;
-use metricsql_parser::ast::{DurationExpr, Operator};
-use crate::{RuntimeError, RuntimeResult};
 use crate::types::QueryValue;
+use crate::{RuntimeError, RuntimeResult};
+use metricsql_parser::ast::{DurationExpr, Operator};
+use std::time::Duration;
 
 pub(crate) fn eval_duration_scalar_binop(
     dur: &DurationExpr,

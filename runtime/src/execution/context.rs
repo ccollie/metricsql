@@ -1,5 +1,5 @@
-use std::time::Duration;
 use std::sync::Arc;
+use std::time::Duration;
 use tracing::{span_enabled, Level};
 
 use crate::cache::rollup_result_cache::RollupResultCache;
@@ -33,7 +33,7 @@ impl Context {
         self.storage = storage;
         self
     }
-    
+
     pub fn with_config(mut self, config: SessionConfig) -> Self {
         self.config = config;
         self
@@ -191,7 +191,7 @@ pub struct SessionConfig {
     pub max_query_duration: Duration,
 
     /// Whether to optimize the query before execution
-    pub optimize_queries: bool
+    pub optimize_queries: bool,
 }
 
 impl SessionConfig {

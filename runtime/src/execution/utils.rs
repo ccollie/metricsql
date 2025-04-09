@@ -62,7 +62,8 @@ pub(super) fn adjust_eval_range<'a>(
 }
 
 pub(crate) fn duration_value(dur: &Option<DurationExpr>, step: Duration) -> Duration {
-    dur.as_ref().map_or(Duration::ZERO, |ofs| ofs.as_duration(step))
+    dur.as_ref()
+        .map_or(Duration::ZERO, |ofs| ofs.as_duration(step))
 }
 
 pub(crate) fn get_step(expr: &Option<DurationExpr>, step: Duration) -> Duration {

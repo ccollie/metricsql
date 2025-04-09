@@ -1,18 +1,20 @@
-use std::borrow::Cow;
-use std::collections::hash_map::Entry;
+use crate::execution::utils::{remove_empty_series, series_len};
+use crate::execution::Context;
+use crate::prelude::QueryValue;
+use crate::runtime_error::{RuntimeError, RuntimeResult};
+use crate::types::{
+    group_series_by_match_modifier, InstantVector, Timeseries, TimeseriesHashMap, METRIC_NAME_LABEL,
+};
 use ahash::HashMapExt;
-use tracing::{field, trace_span, Span};
 use metricsql_common::hash::{IntMap, Signature};
 use metricsql_parser::ast::{Operator, VectorMatchCardinality, VectorMatchModifier};
 use metricsql_parser::binaryop::{
     get_scalar_binop_handler, get_scalar_comparison_handler, BinopFunc,
 };
 use metricsql_parser::prelude::{BinModifier, Labels};
-use crate::execution::Context;
-use crate::execution::utils::{remove_empty_series, series_len};
-use crate::prelude::QueryValue;
-use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::types::{group_series_by_match_modifier, Timeseries, InstantVector, TimeseriesHashMap, METRIC_NAME_LABEL};
+use std::borrow::Cow;
+use std::collections::hash_map::Entry;
+use tracing::{field, trace_span, Span};
 
 pub struct BinaryOpFuncArg<'a> {
     op: Operator,
@@ -78,7 +80,8 @@ pub fn exec_vector_vector_binop(
         trace_span!("binary op", "op" = op.as_str(), series = field::Empty)
     } else {
         Span::none()
-    }.entered();
+    }
+    .entered();
 
     let mut bfa = BinaryOpFuncArg::new(left, op, right, modifier);
 
@@ -137,7 +140,7 @@ fn binary_op_func_impl(bf: BinopFunc, bfa: &mut BinaryOpFuncArg) -> RuntimeResul
     }
 
     let is_right = is_group_right(bfa.modifier);
-    
+
     for (left_ts, right_ts) in left.iter_mut().zip(right.iter_mut()) {
         if left_ts.values.len() != right_ts.values.len() {
             let msg = format!(
@@ -150,11 +153,20 @@ fn binary_op_func_impl(bf: BinopFunc, bfa: &mut BinaryOpFuncArg) -> RuntimeResul
 
         // todo: how to simplify this?
         if is_right {
-            for (left_val, right_val) in left_ts.values.iter().copied().zip(right_ts.values.iter_mut()) {
+            for (left_val, right_val) in left_ts
+                .values
+                .iter()
+                .copied()
+                .zip(right_ts.values.iter_mut())
+            {
                 *right_val = bf(left_val, *right_val);
             }
         } else {
-            for (left_val, right_val) in left_ts.values.iter_mut().zip(right_ts.values.iter().copied()) {
+            for (left_val, right_val) in left_ts
+                .values
+                .iter_mut()
+                .zip(right_ts.values.iter().copied())
+            {
                 *left_val = bf(*left_val, right_val);
             }
         }
@@ -270,7 +282,11 @@ fn adjust_binary_op_tags(
     Ok((rvs_left, rvs_right))
 }
 
-const fn should_reset_metric_group(op: Operator, keep_metric_names: bool, returns_bool: bool) -> bool {
+const fn should_reset_metric_group(
+    op: Operator,
+    keep_metric_names: bool,
+    returns_bool: bool,
+) -> bool {
     if !returns_bool && op.is_comparison() {
         // Do not reset metric_group for non-boolean `compare` binary ops like Prometheus does.
         return false;
@@ -334,8 +350,8 @@ fn group_join(
 
     let (join_tags, skip_tags) = if let Some(modifier) = bfa.modifier {
         let join = match &modifier.card {
-            VectorMatchCardinality::ManyToOne(labels) |
-            VectorMatchCardinality::OneToMany(labels) => labels,
+            VectorMatchCardinality::ManyToOne(labels)
+            | VectorMatchCardinality::OneToMany(labels) => labels,
             _ => &empty_labels,
         };
         let skip = if let Some(VectorMatchModifier::On(labels)) = &modifier.matching {
@@ -352,7 +368,7 @@ fn group_join(
         left: Timeseries,
         right: Timeseries,
     }
-    
+
     let mut map: IntMap<Signature, TsPair> = IntMap::with_capacity(tss_left.len());
 
     for ts_left in tss_left.iter_mut() {
@@ -380,7 +396,6 @@ fn group_join(
         map.clear();
 
         for mut ts_right in tss_right.drain(..) {
-
             let mut mn = ts_left.metric_name.clone();
             mn.set_labels(
                 empty_prefix,
@@ -430,7 +445,6 @@ fn group_join(
 
     Ok(())
 }
-
 
 pub fn merge_non_overlapping_timeseries(dst: &mut Timeseries, src: &Timeseries) -> bool {
     // Verify whether the time series can be merged.
@@ -527,9 +541,8 @@ fn binary_op_default(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<InstantVector> 
 ///
 /// https://prometheus.io/docs/prometheus/latest/querying/operators/#logical-set-binary-operators
 fn binary_op_or(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-
     remove_empty_series(&mut bfa.left);
-    
+
     if bfa.left.is_empty() {
         // Short-circuit.
         remove_empty_series(&mut bfa.right);
@@ -542,11 +555,11 @@ fn binary_op_or(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
         bfa.left.sort_by(|a, b| a.metric_name.cmp(&b.metric_name));
         return Ok(std::mem::take(&mut bfa.left));
     }
-    
+
     let (mut m_left, m_right) = create_series_map_by_tag_set(bfa);
 
     let mut rvs = Vec::with_capacity(bfa.left.len());
-    
+
     for (k, mut tss_right) in m_right.into_iter() {
         if let Some(tss_left) = m_left.get_mut(&k) {
             fill_left_nans_with_right_values_or_merge(tss_left, &mut tss_right);
@@ -568,9 +581,9 @@ fn binary_op_or(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/5393
     if !rvs.is_empty() {
         rvs.sort_by(|a, b| a.metric_name.cmp(&b.metric_name));
-        left.extend(rvs);   
+        left.extend(rvs);
     }
-    
+
     Ok(left)
 }
 
@@ -641,7 +654,10 @@ fn fill_left_nans_with_right_values(tss_left: &mut [Timeseries], tss_right: &[Ti
 //
 // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/7759
 // https://github.com/VictoriaMetrics/VictoriaMetrics/issues/7640
-fn fill_left_nans_with_right_values_or_merge(tss_left: &mut [Timeseries], tss_right: &mut [Timeseries]) {
+fn fill_left_nans_with_right_values_or_merge(
+    tss_left: &mut [Timeseries],
+    tss_right: &mut [Timeseries],
+) {
     for ts_left in tss_left.iter_mut() {
         let name_left = &ts_left.metric_name;
 
@@ -701,7 +717,7 @@ fn create_series_map_by_tag_set(
 ) -> (TimeseriesHashMap, TimeseriesHashMap) {
     let empty_matching = None;
 
-    let (matching, keep_metric_names)  = if let Some(modifier) = bfa.modifier.as_ref() {
+    let (matching, keep_metric_names) = if let Some(modifier) = bfa.modifier.as_ref() {
         (&modifier.matching, modifier.keep_metric_names)
     } else {
         (&empty_matching, false)
@@ -710,9 +726,10 @@ fn create_series_map_by_tag_set(
     let left = std::mem::take(&mut bfa.left);
     let right = std::mem::take(&mut bfa.right);
 
-    let (m_left, m_right) = chili::Scope::global()
-        .join(|_| group_series_by_match_modifier(left, matching, keep_metric_names),
-              |_| group_series_by_match_modifier(right, matching, keep_metric_names));
+    let (m_left, m_right) = chili::Scope::global().join(
+        |_| group_series_by_match_modifier(left, matching, keep_metric_names),
+        |_| group_series_by_match_modifier(right, matching, keep_metric_names),
+    );
 
     (m_left, m_right)
 }
@@ -751,11 +768,10 @@ fn group_modifier_to_string(modifier: &Option<BinModifier>) -> String {
 
 fn join_modifier_to_string(modifier: &Option<BinModifier>) -> String {
     if let Some(modifier) = modifier {
-        match modifier.card {
-            VectorMatchCardinality::ManyToOne(_) | VectorMatchCardinality::OneToMany(_) => {
-                return modifier.card.to_string()
-            }
-            _ => {}
+        if let VectorMatchCardinality::ManyToOne(_) | VectorMatchCardinality::OneToMany(_) =
+            modifier.card
+        {
+            return modifier.card.to_string();
         }
     }
     "None".to_string()

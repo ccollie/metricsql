@@ -22,7 +22,7 @@ pub(crate) fn limit_offset(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Time
             rvs.drain(0..offset);
         }
     } else {
-        return Ok(vec![])
+        return Ok(vec![]);
     }
     if rvs.len() > limit {
         rvs.truncate(limit);

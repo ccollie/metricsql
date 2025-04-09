@@ -209,11 +209,11 @@ impl Simplifier {
 
         match expr {
             Expr::BinaryOperator(BinaryExpr {
-                                     left,
-                                     right,
-                                     op,
-                                     modifier,
-                                 }) => {
+                left,
+                right,
+                op,
+                modifier,
+            }) => {
                 match op {
                     //
                     // Rules for Add
@@ -238,15 +238,15 @@ impl Simplifier {
                             left.deref(),
                             Expr::MetricExpression(_) | Expr::Rollup(_) | Expr::Aggregation(_)
                         ) =>
-                        {
-                            let two = Expr::from(2.0);
-                            Expr::BinaryOperator(BinaryExpr {
-                                right: Box::new(two),
-                                left,
-                                op: Mul,
-                                modifier,
-                            })
-                        }
+                    {
+                        let two = Expr::from(2.0);
+                        Expr::BinaryOperator(BinaryExpr {
+                            right: Box::new(two),
+                            left,
+                            op: Mul,
+                            modifier,
+                        })
+                    }
 
                     // Rules for OR
                     //

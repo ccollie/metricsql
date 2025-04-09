@@ -16,7 +16,7 @@ use crate::{
 };
 
 /// Default step used if not set.
-const DEFAULT_STEP: Duration = Duration::from_millis( 5 * 60 * 1000);
+const DEFAULT_STEP: Duration = Duration::from_millis(5 * 60 * 1000);
 const TWO_DAYS_MSECS: u64 = 2 * 24 * 3600 * 1000;
 const TWO_DAYS: Duration = Duration::from_millis(TWO_DAYS_MSECS);
 
@@ -72,7 +72,10 @@ impl QueryParams {
         }
 
         if self.step.is_zero() {
-            let msg = format!("BUG: step must be greater than 0; got {}", humanize_duration(&self.step));
+            let msg = format!(
+                "BUG: step must be greater than 0; got {}",
+                humanize_duration(&self.step)
+            );
             return Err(RuntimeError::from(msg));
         }
 
@@ -166,9 +169,7 @@ impl QueryBuilder {
             end = start
         }
 
-        let timeout = self
-            .timeout
-            .unwrap_or(TWO_DAYS);
+        let timeout = self.timeout.unwrap_or(TWO_DAYS);
 
         q.query.clone_from(&self.query);
         q.start = start;
@@ -310,7 +311,9 @@ pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<Query
         Err(err) => {
             let msg = format!(
                 "error executing query={} for (time={start}, step={}): {:?}",
-                &params.query, humanize_duration(&step), err
+                &params.query,
+                humanize_duration(&step),
+                err
             );
             Err(RuntimeError::General(msg))
         }
@@ -354,7 +357,11 @@ pub fn query_range(ctx: &Context, params: &QueryParams) -> RuntimeResult<Vec<Que
         Err(err) => {
             let msg = format!(
                 "error executing query={} on the time range (start={}, end={} step={}): {:?}",
-                &params.query, params.start, params.end, humanize_duration(&step), err
+                &params.query,
+                params.start,
+                params.end,
+                humanize_duration(&step),
+                err
             );
             Err(RuntimeError::General(msg))
         }
@@ -431,7 +438,7 @@ fn adjust_last_points(tss: &mut [QueryResult], start: Timestamp, end: Timestamp)
                 continue;
             }
         }
-        
+
         let mut j = ts.timestamps.iter().rposition(|&v| v <= start).unwrap_or(0);
 
         let mut last_value = f64::NAN;

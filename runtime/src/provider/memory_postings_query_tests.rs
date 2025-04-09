@@ -41,14 +41,17 @@ mod tests {
         labels
     }
 
-    fn add_series(ix: &mut MemoryPostings,
-                  labels_map: &mut HashMap<SeriesRef, Vec<Label>>,
-                  series_ref: SeriesRef, labels: &Vec<Label>) {
+    fn add_series(
+        ix: &mut MemoryPostings,
+        labels_map: &mut HashMap<SeriesRef, Vec<Label>>,
+        series_ref: SeriesRef,
+        labels: &Vec<Label>,
+    ) {
         let mut mn = MetricName::default();
         for label in labels.iter() {
             mn.set(&label.name, &label.value);
         }
-        
+
         ix.add_posting(series_ref, &mn);
         labels_map.insert(series_ref, labels.clone());
     }
@@ -107,7 +110,7 @@ mod tests {
         ]);
 
         for (series_ref, labels) in series_data.iter() {
-            add_series(&mut ix, &mut labels_map,  *series_ref, labels);
+            add_series(&mut ix, &mut labels_map, *series_ref, labels);
         }
 
         struct TestCase {

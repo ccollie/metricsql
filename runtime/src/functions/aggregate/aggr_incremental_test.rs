@@ -9,8 +9,8 @@ mod tests {
 
     use crate::functions::aggregate::IncrementalAggrFuncContext;
     use crate::rayon::iter::ParallelIterator;
-    use crate::{compare_values, RuntimeError, RuntimeResult};
     use crate::types::Timeseries;
+    use crate::{compare_values, RuntimeError, RuntimeResult};
 
     const NAN: f64 = f64::NAN;
 

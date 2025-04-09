@@ -1,3 +1,15 @@
+use super::candlestick::{rollup_close, rollup_high, rollup_low, rollup_open};
+use super::delta::delta_values;
+use super::deriv::deriv_values;
+use super::rollup_fns::{
+    get_rollup_fn, get_rollup_func_by_name, remove_counter_resets, rollup_avg, rollup_max,
+    rollup_min,
+};
+use super::{RollupFuncArg, RollupHandler, TimeSeriesMap};
+use crate::common::math::quantile;
+use crate::execution::validate_max_points_per_timeseries;
+use crate::types::{get_timeseries, Timestamp};
+use crate::{RuntimeError, RuntimeResult};
 use chili::Scope;
 use metricsql_common::prelude::humanize_duration;
 use metricsql_parser::ast::Expr;
@@ -7,23 +19,6 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 use std::time::Duration;
-use blart::AsBytes;
-use super::candlestick::{rollup_close, rollup_high, rollup_low, rollup_open};
-use super::delta::delta_values;
-use super::deriv::deriv_values;
-use super::rollup_fns::{
-    get_rollup_fn,
-    get_rollup_func_by_name,
-    remove_counter_resets,
-    rollup_avg,
-    rollup_max,
-    rollup_min
-};
-use super::{RollupFuncArg, RollupHandler, TimeSeriesMap};
-use crate::common::math::quantile;
-use crate::execution::validate_max_points_per_timeseries;
-use crate::types::{get_timeseries, Timestamp};
-use crate::{RuntimeError, RuntimeResult};
 
 #[cfg(test)]
 use crate::execution::get_timestamps;
@@ -38,13 +33,15 @@ pub(crate) enum PreFunction {
     RemoveCounterResets(i64),
     DerivValues,
     DeltaValues,
-    CalcSampleIntervals
+    CalcSampleIntervals,
 }
 
 impl PreFunction {
     pub(super) fn eval(&self, values: &mut [f64], timestamps: &[Timestamp]) {
         match self {
-            PreFunction::RemoveCounterResets(delta) => remove_counter_resets(values, timestamps, *delta),
+            PreFunction::RemoveCounterResets(delta) => {
+                remove_counter_resets(values, timestamps, *delta)
+            }
             PreFunction::DerivValues => deriv_values(values, timestamps),
             PreFunction::DeltaValues => delta_values_pre_func(values, timestamps),
             PreFunction::CalcSampleIntervals => calc_sample_intervals_pre_fn(values, timestamps),
@@ -58,7 +55,6 @@ pub(crate) fn eval_pre_funcs(fns: &PreFunctionVec, values: &mut [f64], timestamp
         f.eval(values, timestamps)
     }
 }
-
 
 #[inline]
 fn delta_values_pre_func(values: &mut [f64], _: &[Timestamp]) {
@@ -99,7 +95,6 @@ const OPEN: &str = "open";
 const CLOSE: &str = "close";
 const LOW: &str = "low";
 const HIGH: &str = "high";
-
 
 fn get_tag_fn_from_str(key: &str) -> Option<(&'static str, &RollupHandler)> {
     hashify::tiny_map_ignore_case! {
@@ -147,7 +142,6 @@ pub(crate) fn get_rollup_configs(
     lookback_delta: Duration,
     shared_timestamps: &Arc<Vec<i64>>,
 ) -> RuntimeResult<(RollupConfigVec, PreFunctionVec)> {
-
     let mut meta = get_rollup_function_handler_meta(expr, func, rf, lookback_delta)?;
     let pre_funcs = std::mem::take(&mut meta.pre_funcs);
     let rcs = get_rollup_configs_from_meta(
@@ -177,7 +171,6 @@ pub(crate) fn get_rollup_configs_from_meta(
     lookback_delta: Duration,
     shared_timestamps: &Arc<Vec<i64>>,
 ) -> RuntimeResult<RollupConfigVec> {
-
     let new_rollup_config = |rf: RollupHandler, tag_value: &'static str| -> RollupConfig {
         RollupConfig {
             tag_value,
@@ -300,7 +293,6 @@ impl RollupConfig {
         self.exec_internal(dst_values, None, values, timestamps)
     }
 
-
     /// calculates rollup for the given timestamps and values and puts them to tsm.
     /// returns the number of samples scanned
     pub(crate) fn do_timeseries_map(
@@ -338,7 +330,7 @@ impl RollupConfig {
                 max_prev_interval = msi;
             }
         }
-        
+
         let mut window = self.window;
         if window.is_zero() {
             window = self.step;
@@ -355,7 +347,10 @@ impl RollupConfig {
                 window = max_prev_interval;
             }
 
-            if self.is_default_rollup && !self.lookback_delta.is_zero() && window > self.lookback_delta {
+            if self.is_default_rollup
+                && !self.lookback_delta.is_zero()
+                && window > self.lookback_delta
+            {
                 // Implicit window exceeds -search.maxStalenessInterval, so limit it to -search.maxStalenessInterval
                 // according to https://github.com/VictoriaMetrics/VictoriaMetrics/issues/784
                 window = self.lookback_delta;
@@ -374,83 +369,96 @@ impl RollupConfig {
         let mut nj = 0;
 
         // todo: use smallvec
-        let func_args: Vec<_> = self.timestamps.iter().enumerate().map(|(idx, &t_end)| {
-            let t_start = t_end - window_ms;
+        let func_args: Vec<_> = self
+            .timestamps
+            .iter()
+            .enumerate()
+            .map(|(idx, &t_end)| {
+                let t_start = t_end - window_ms;
 
-            ni = seek_first_timestamp_idx_after(&timestamps[i..], t_start, ni);
-            i += ni;
-            if j < i {
-                j = i;
-            }
-
-            nj = seek_first_timestamp_idx_after(&timestamps[j..], t_end, nj);
-            j += nj;
-
-            let mut rfa = RollupFuncArg {
-                window: window_ms,
-                prev_value: f64::NAN,
-                prev_timestamp: t_start - max_prev_interval,
-                real_prev_value: f64::NAN,
-                ..Default::default()
-            };
-
-            if i < sample_len && i > 0 && timestamps[i-1] > rfa.prev_timestamp {
-                // SAFETY: range is checked above
-                unsafe {
-                    let prev_idx = i - 1;
-                    rfa.prev_value = *values.get_unchecked(prev_idx);
-                    rfa.prev_timestamp = *timestamps.get_unchecked(prev_idx);
+                ni = seek_first_timestamp_idx_after(&timestamps[i..], t_start, ni);
+                i += ni;
+                if j < i {
+                    j = i;
                 }
-            }
 
-            rfa.values = &values[i..j];
-            rfa.timestamps = &timestamps[i..j];
-            
-            if i > 0 {
-                let idx = i - 1;
+                nj = seek_first_timestamp_idx_after(&timestamps[j..], t_end, nj);
+                j += nj;
 
-                // SAFETY: i > 0 is checked above
-                unsafe {
-                    let prev_timestamp = timestamps.get_unchecked(idx);
+                let mut rfa = RollupFuncArg {
+                    window: window_ms,
+                    prev_value: f64::NAN,
+                    prev_timestamp: t_start - max_prev_interval,
+                    real_prev_value: f64::NAN,
+                    ..Default::default()
+                };
 
-                    // set real_prev_value if rc.LookbackDelta == 0
-                    // or if distance between datapoint in prev interval and beginning of this interval
-                    // doesn't exceed LookbackDelta.
-                    // https://github.com/VictoriaMetrics/VictoriaMetrics/pull/1381
-                    // https://github.com/VictoriaMetrics/VictoriaMetrics/issues/894
-                    // https://github.com/VictoriaMetrics/VictoriaMetrics/issues/8045
-
-                    if self.lookback_delta.is_zero() || (t_end - prev_timestamp) < max_prev_interval {
-                        let prev_value = values.get_unchecked(idx);
-                        rfa.real_prev_value = *prev_value;
+                if i < sample_len && i > 0 && timestamps[i - 1] > rfa.prev_timestamp {
+                    // SAFETY: range is checked above
+                    unsafe {
+                        let prev_idx = i - 1;
+                        rfa.prev_value = *values.get_unchecked(prev_idx);
+                        rfa.prev_timestamp = *timestamps.get_unchecked(prev_idx);
                     }
                 }
-            }
 
-            rfa.real_next_value = if j < values.len() { values[j] } else { f64::NAN };
-            rfa.curr_timestamp = t_end;
-            rfa.idx = idx;
-            rfa.tsm = tsm.as_ref().map(Arc::clone);
+                rfa.values = &values[i..j];
+                rfa.timestamps = &timestamps[i..j];
 
-            if samples_scanned_per_call > 0 {
-                samples_scanned += samples_scanned_per_call;
-            } else {
-                samples_scanned += rfa.values.len() as u64;
-            }
+                if i > 0 {
+                    let idx = i - 1;
 
-            rfa
-        }).collect(); // todo: collect into a smallvec to avoid heap allocation
+                    // SAFETY: i > 0 is checked above
+                    unsafe {
+                        let prev_timestamp = timestamps.get_unchecked(idx);
+
+                        // set real_prev_value if rc.LookbackDelta == 0
+                        // or if distance between datapoint in prev interval and beginning of this interval
+                        // doesn't exceed LookbackDelta.
+                        // https://github.com/VictoriaMetrics/VictoriaMetrics/pull/1381
+                        // https://github.com/VictoriaMetrics/VictoriaMetrics/issues/894
+                        // https://github.com/VictoriaMetrics/VictoriaMetrics/issues/8045
+
+                        if self.lookback_delta.is_zero()
+                            || (t_end - prev_timestamp) < max_prev_interval
+                        {
+                            let prev_value = values.get_unchecked(idx);
+                            rfa.real_prev_value = *prev_value;
+                        }
+                    }
+                }
+
+                rfa.real_next_value = if j < values.len() {
+                    values[j]
+                } else {
+                    f64::NAN
+                };
+                rfa.curr_timestamp = t_end;
+                rfa.idx = idx;
+                rfa.tsm = tsm.as_ref().map(Arc::clone);
+
+                if samples_scanned_per_call > 0 {
+                    samples_scanned += samples_scanned_per_call;
+                } else {
+                    samples_scanned += rfa.values.len() as u64;
+                }
+
+                rfa
+            })
+            .collect(); // todo: collect into a smallvec to avoid heap allocation
 
         exec_handlers(&self.handler, dst_values, &func_args);
 
         Ok(samples_scanned)
     }
 
-
     fn validate(&self) -> RuntimeResult<()> {
         // Sanity checks.
         if self.step.is_zero() {
-            let msg = format!("BUG: step must be bigger than 0; got {}", humanize_duration(&self.step));
+            let msg = format!(
+                "BUG: step must be bigger than 0; got {}",
+                humanize_duration(&self.step)
+            );
             return Err(RuntimeError::from(msg));
         }
         if self.start > self.end {
@@ -478,7 +486,6 @@ impl RollupConfig {
     }
 }
 
-
 // todo: better heuristics to determine whether to parallelize
 const PARALLEL_THRESHOLD: usize = 6;
 
@@ -496,10 +503,12 @@ fn exec_handlers(handler: &RollupHandler, dest: &mut Vec<f64>, args: &[RollupFun
     }
 }
 
-fn exec_handler_parallel(scope: &mut Scope,
-                         handler: &RollupHandler,
-                         dest: &mut Vec<f64>,
-                         args: &[RollupFuncArg]) {
+fn exec_handler_parallel(
+    scope: &mut Scope,
+    handler: &RollupHandler,
+    dest: &mut Vec<f64>,
+    args: &[RollupFuncArg],
+) {
     match args {
         [] => (),
         [first] => {
@@ -507,25 +516,20 @@ fn exec_handler_parallel(scope: &mut Scope,
             dest.push(v);
         }
         [first, second] => {
-            let (v1, v2) = scope.join(
-                |_| handler.eval(first),
-                |_| handler.eval(second)
-            );
+            let (v1, v2) = scope.join(|_| handler.eval(first), |_| handler.eval(second));
             dest.extend_from_slice(&[v1, v2]);
         }
         [first, second, third] => {
             let ((v1, v2), v3) = scope.join(
                 |s1| s1.join(|_| handler.eval(first), |_| handler.eval(second)),
-                |_| handler.eval(third)
+                |_| handler.eval(third),
             );
             dest.extend_from_slice(&[v1, v2, v3]);
         }
         [first, second, third, fourth] => {
             let ((v1, v2), (v3, v4)) = scope.join(
-                |s1| s1.join(|_| handler.eval(first), |_| handler.eval(second)
-                ),
-                |s2| s2.join(|_| handler.eval(third), |_| handler.eval(fourth))
-
+                |s1| s1.join(|_| handler.eval(first), |_| handler.eval(second)),
+                |s2| s2.join(|_| handler.eval(third), |_| handler.eval(fourth)),
             );
             dest.extend_from_slice(&[v1, v2, v3, v4]);
         }
@@ -586,13 +590,22 @@ fn seek_first_timestamp_idx_after(
     let start_idx = n_hint.saturating_sub(2).min(count - 1);
     let end_idx = (n_hint + 2).min(count);
 
-    let slice_start = if timestamps[start_idx] <= seek_timestamp { start_idx } else { 0 };
-    let slice_end = if end_idx < count && timestamps[end_idx] > seek_timestamp { end_idx } else { count };
+    let slice_start = if timestamps[start_idx] <= seek_timestamp {
+        start_idx
+    } else {
+        0
+    };
+    let slice_end = if end_idx < count && timestamps[end_idx] > seek_timestamp {
+        end_idx
+    } else {
+        count
+    };
 
     let slice = &timestamps[slice_start..slice_end];
 
     if slice.len() < 32 {
-        slice.iter()
+        slice
+            .iter()
             .position(|&t| t > seek_timestamp)
             .map_or(slice.len(), |pos| pos)
     } else {
@@ -651,12 +664,11 @@ const fn get_max_prev_interval(scrape_interval: Duration) -> Duration {
     }
 }
 
-
 fn get_rollup_function_handler_meta(
     expr: &Expr,
     func: RollupFunction,
     rf: &RollupHandler,
-    lookback_delta: Duration
+    lookback_delta: Duration,
 ) -> RuntimeResult<RollupFunctionHandlerMeta> {
     let lookback = lookback_delta.as_millis() as i64;
     let mut pre_funcs: PreFunctionVec = PreFunctionVec::new();
@@ -672,32 +684,34 @@ fn get_rollup_function_handler_meta(
         }
     };
 
-    let new_function_configs =
-        |dst: &mut TagFunctionVec, tag: Option<&String>, valid: &'static [&str]| -> RuntimeResult<()> {
-            if let Some(tag_value) = tag {
-                let (name, func) = get_tag_fn_from_str(tag_value).ok_or_else(|| {
-                    RuntimeError::ArgumentError(format!(
-                        "unexpected rollup tag value {tag_value}; wanted {}",
-                        valid
-                            .iter()
-                            .map(|x| x.to_string())
-                            .collect::<Vec<String>>()
-                            .join(", ")
-                    ))
-                })?;
-                dst.push(new_function_config(func, name));
-            } else {
-                for tag_value in valid {
-                    let (name, func) = get_tag_fn_from_str(tag_value).unwrap();
-                    dst.push(TagFunction {
-                        tag_value: name,
-                        func: func.clone(),
-                    });
-                }
+    let new_function_configs = |dst: &mut TagFunctionVec,
+                                tag: Option<&String>,
+                                valid: &'static [&str]|
+     -> RuntimeResult<()> {
+        if let Some(tag_value) = tag {
+            let (name, func) = get_tag_fn_from_str(tag_value).ok_or_else(|| {
+                RuntimeError::ArgumentError(format!(
+                    "unexpected rollup tag value {tag_value}; wanted {}",
+                    valid
+                        .iter()
+                        .map(|x| x.to_string())
+                        .collect::<Vec<String>>()
+                        .join(", ")
+                ))
+            })?;
+            dst.push(new_function_config(func, name));
+        } else {
+            for tag_value in valid {
+                let (name, func) = get_tag_fn_from_str(tag_value).unwrap();
+                dst.push(TagFunction {
+                    tag_value: name,
+                    func: func.clone(),
+                });
             }
+        }
 
-            Ok(())
-        };
+        Ok(())
+    };
 
     let append_stats_function = |dst: &mut TagFunctionVec, expr: &Expr| -> RuntimeResult<()> {
         static VALID: [&str; 3] = [MIN, MAX, AVG];
@@ -785,7 +799,9 @@ fn get_rollup_tag(expr: &Expr) -> RuntimeResult<Option<&String>> {
         let arg = &fe.args[1];
         if let Expr::StringLiteral(se) = arg {
             if se.is_empty() {
-                return Err(RuntimeError::ArgumentError("unexpected empty rollup tag value".to_string()));
+                return Err(RuntimeError::ArgumentError(
+                    "unexpected empty rollup tag value".to_string(),
+                ));
             }
             Ok(Some(se))
         } else {
@@ -819,15 +835,15 @@ fn get_rollup_aggr_functions(expr: &Expr) -> RuntimeResult<Vec<RollupFunction>> 
 
     fn get_func_from_expr(expr: &Expr, funcs: &mut Vec<RollupFunction>) -> RuntimeResult<()> {
         if let Expr::StringLiteral(name) = expr {
-            funcs.push( get_func_by_name(name.as_str())? );
+            funcs.push(get_func_by_name(name.as_str())?);
         } else if let Expr::Parens(pe) = expr {
             for arg in pe.expressions.iter() {
                 get_func_from_expr(arg, funcs)?;
             }
         } else {
             let msg =
-                    format!("{expr} cannot be passed here; expecting quoted aggregate function name",);
-            return Err(RuntimeError::ArgumentError(msg))
+                format!("{expr} cannot be passed here; expecting quoted aggregate function name",);
+            return Err(RuntimeError::ArgumentError(msg));
         }
         Ok(())
     }

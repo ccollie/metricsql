@@ -29,7 +29,6 @@ pub type LabelName = String;
 
 pub type LabelValue = String;
 
-
 #[derive(
     Default, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Copy, Hash, Serialize, Deserialize,
 )]
@@ -47,10 +46,7 @@ impl MatchOp {
     }
 
     pub fn is_regex(&self) -> bool {
-        matches!(
-            self,
-            MatchOp::RegexEqual | MatchOp::RegexNotEqual
-        )
+        matches!(self, MatchOp::RegexEqual | MatchOp::RegexNotEqual)
     }
 
     pub fn as_str(&self) -> &'static str {
@@ -98,7 +94,7 @@ pub struct Matcher {
     pub value: String,
 
     #[serde(skip)]
-    re: Option<Box<StringMatchHandler>> // boxed to reduce struct size
+    re: Option<Box<StringMatchHandler>>, // boxed to reduce struct size
 }
 
 impl Matcher {
@@ -116,7 +112,7 @@ impl Matcher {
                     .map_err(|_e| ParseError::InvalidRegex(value.clone()))?;
                 Some(Box::new(matcher))
             }
-            _ => None
+            _ => None,
         };
 
         Ok(Self {
@@ -225,7 +221,6 @@ impl Matcher {
         Self::new(op, &self.label, &self.value)
     }
 
-
     pub fn as_string(&self) -> String {
         format!(
             "{}{}{}",
@@ -251,15 +246,15 @@ impl Matcher {
                     if re.is_case_sensitive() {
                         return None;
                     }
-                    return Some(p.prefix.pattern())
-                },
+                    return Some(p.prefix.pattern());
+                }
                 StringMatchHandler::Regex(re) => {
                     if re.prefix.is_empty() {
                         return None;
                     }
                     return Some(&re.prefix);
                 }
-                _ => {},
+                _ => {}
             }
         }
         None
@@ -286,25 +281,23 @@ impl Matcher {
                 StringMatchHandler::Literal(lit) => {
                     let values = vec![lit.pattern().to_string()];
                     Some(Cow::Owned(values))
-                },
+                }
                 StringMatchHandler::Regex(regex) => {
                     if regex.set_matches.is_empty() {
                         return None;
                     }
                     return Some(Cow::Borrowed(&regex.set_matches));
-                },
-                StringMatchHandler::Alternates(alts) => {
-                    Some(Cow::Borrowed(&alts.values))
-                },
+                }
+                StringMatchHandler::Alternates(alts) => Some(Cow::Borrowed(&alts.values)),
                 StringMatchHandler::LiteralMap(map) => {
                     if map.values.is_empty() {
                         return None;
                     }
                     let values = map.values.iter().cloned().collect();
                     return Some(Cow::Owned(values));
-                },
-                _ => None
-            }
+                }
+                _ => None,
+            };
         };
         None
     }
@@ -313,7 +306,10 @@ impl Matcher {
 fn is_empty_regex_matcher(m: &Matcher) -> bool {
     if m.op.is_regex() {
         // cheap check
-        if matches!(m.value.as_str(), "" | "?:" | "^$" | "^.*$" | "^.*" | ".*$" | ".*" | ".^") {
+        if matches!(
+            m.value.as_str(),
+            "" | "?:" | "^$" | "^.*$" | "^.*" | ".*$" | ".*" | ".^"
+        ) {
             return true;
         }
         if let Some(re) = &m.re {
@@ -322,7 +318,6 @@ fn is_empty_regex_matcher(m: &Matcher) -> bool {
     }
     false
 }
-
 
 impl PartialEq<Matcher> for Matcher {
     fn eq(&self, other: &Self) -> bool {
@@ -567,7 +562,6 @@ impl Display for Matchers {
 }
 
 fn join_matchers(f: &mut Formatter<'_>, v: &[Matcher]) -> fmt::Result {
-
     for (i, matcher) in v.iter().enumerate() {
         if i > 0 {
             write!(f, ", ")?;
@@ -577,7 +571,6 @@ fn join_matchers(f: &mut Formatter<'_>, v: &[Matcher]) -> fmt::Result {
 
     Ok(())
 }
-
 
 struct OrIter<'a> {
     matchers: &'a Vec<Matcher>,
@@ -726,15 +719,9 @@ mod tests {
 
     #[test]
     fn test_eq_matcher_equality() {
-        assert_eq!(
-            Matcher::equal("code", "200"),
-            Matcher::equal("code", "200")
-        );
+        assert_eq!(Matcher::equal("code", "200"), Matcher::equal("code", "200"));
 
-        assert_ne!(
-            Matcher::equal("code", "200"),
-            Matcher::equal("code", "201")
-        );
+        assert_ne!(Matcher::equal("code", "200"), Matcher::equal("code", "201"));
 
         assert_ne!(
             Matcher::equal("code", "200"),
@@ -842,7 +829,6 @@ mod tests {
             assert_eq!(result.op, expected.op);
         }
     }
-
 
     #[test]
     fn test_matchers_equality() {

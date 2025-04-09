@@ -2,8 +2,8 @@ use num_traits::FloatConst;
 
 use crate::execution::eval_number;
 use crate::functions::transform::{transform_series, TransformFuncArg};
-use crate::{RuntimeResult};
 use crate::types::Timeseries;
+use crate::RuntimeResult;
 
 macro_rules! math_fn {
     ($name: ident, $func: expr) => {

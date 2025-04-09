@@ -12,8 +12,10 @@
 // limitations under the License.
 use super::types::{Sample, SequenceValue, TestAssertionError};
 use super::utils::{almost_equal, assert_matrix_sorted, format_series_result, DEFAULT_EPSILON};
+use crate::types::{MetricName, QueryValue};
 use crate::{MemoryMetricProvider, RuntimeError};
 use ahash::{HashSet, HashSetExt};
+use metricsql_common::hash::Signature;
 use regex::Regex;
 use std::collections::HashMap;
 use std::convert::Into;
@@ -21,8 +23,6 @@ use std::fmt;
 use std::fmt::Display;
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use metricsql_common::hash::Signature;
-use crate::types::{MetricName, QueryValue};
 
 // Clear command
 #[derive(Debug, Clone)]
@@ -139,7 +139,13 @@ impl EvalCmd {
         }
     }
 
-    pub(crate) fn new_range_eval_cmd(expr: String, start: SystemTime, end: SystemTime, step: Duration, line: usize) -> Self {
+    pub(crate) fn new_range_eval_cmd(
+        expr: String,
+        start: SystemTime,
+        end: SystemTime,
+        step: Duration,
+        line: usize,
+    ) -> Self {
         Self {
             expr,
             start,
@@ -195,19 +201,29 @@ impl EvalCmd {
                     let f = v.values[0];
                     let fp = v.metric_name.signature();
                     if !self.metrics.contains_key(&fp) {
-                        let msg = format!("unexpected metric {} in result, has value {}", v.metric_name, f);
+                        let msg = format!(
+                            "unexpected metric {} in result, has value {}",
+                            v.metric_name, f
+                        );
                         return Err(TestAssertionError::new(self.line, msg));
                     }
                     let exp = &self.expected[&fp];
                     if self.ordered && exp.pos != pos + 1 {
-                        let msg = format!("expected metric {} with {:?} at position {} but was at {}",
-                                          v.metric_name, exp.vals, exp.pos, pos + 1);
+                        let msg = format!(
+                            "expected metric {} with {:?} at position {} but was at {}",
+                            v.metric_name,
+                            exp.vals,
+                            exp.pos,
+                            pos + 1
+                        );
                         return Err(TestAssertionError::new(self.line, msg));
                     }
                     let exp0 = &exp.vals[0];
                     if !almost_equal(exp0.value, f, DEFAULT_EPSILON) {
-                        let msg = format!("expected {:?} for {} but got {f}",
-                                          exp0.value, v.metric_name);
+                        let msg = format!(
+                            "expected {:?} for {} but got {f}",
+                            exp0.value, v.metric_name
+                        );
 
                         return Err(TestAssertionError::new(self.line, msg));
                     }
@@ -216,9 +232,10 @@ impl EvalCmd {
                 }
                 for fp in self.expected.keys() {
                     if !seen.contains(fp) {
-                        let msg = format!("expected metric {} with {:?} not found",
-                                          self.metrics[fp],
-                                          self.expected[fp]);
+                        let msg = format!(
+                            "expected metric {} with {:?} not found",
+                            self.metrics[fp], self.expected[fp]
+                        );
                         return Err(TestAssertionError::new(self.line, msg));
                     }
                 }
@@ -235,7 +252,10 @@ impl EvalCmd {
                 }
 
                 if let Err(err) = assert_matrix_sorted(result) {
-                    let msg = format!("expected sorted matrix result, but got unsorted matrix: {:?}", err);
+                    let msg = format!(
+                        "expected sorted matrix result, but got unsorted matrix: {:?}",
+                        err
+                    );
                     return Err(TestAssertionError::new(self.line, msg));
                 }
 
@@ -243,8 +263,11 @@ impl EvalCmd {
                 for s in val.iter() {
                     let hash = s.metric_name.signature();
                     if !self.metrics.contains_key(&hash) {
-                        let msg = format!("unexpected metric {} in result, has {}",
-                                          s.metric_name, format_series_result(s));
+                        let msg = format!(
+                            "unexpected metric {} in result, has {}",
+                            s.metric_name,
+                            format_series_result(s)
+                        );
                         return Err(TestAssertionError::new(self.line, msg));
                     }
                     seen.insert(hash, true);
@@ -265,13 +288,21 @@ impl EvalCmd {
                         let timestamp = ts.duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
 
                         if !e.omitted {
-                            expected_floats.push(Sample { timestamp, value: e.value, metric: s.metric_name.clone() });
+                            expected_floats.push(Sample {
+                                timestamp,
+                                value: e.value,
+                                metric: s.metric_name.clone(),
+                            });
                         }
                     }
 
                     if expected_floats.len() != s.values.len() {
-                        let msg = format!("expected {} float points for {}, but got {}",
-                                          expected_floats.len(), self.metrics[&hash], format_series_result(s));
+                        let msg = format!(
+                            "expected {} float points for {}, but got {}",
+                            expected_floats.len(),
+                            self.metrics[&hash],
+                            format_series_result(s)
+                        );
                         return Err(TestAssertionError::new(self.line, msg));
                     }
 
@@ -306,7 +337,10 @@ impl EvalCmd {
         Ok(())
     }
 
-    pub(super) fn check_expected_failure(&self, actual: &RuntimeError) -> Result<(), TestAssertionError> {
+    pub(super) fn check_expected_failure(
+        &self,
+        actual: &RuntimeError,
+    ) -> Result<(), TestAssertionError> {
         let error_msg = actual.to_string();
         if let Some(expected) = &self.expected_fail_message {
             if *expected != error_msg {
@@ -329,7 +363,6 @@ impl EvalCmd {
         Ok(())
     }
 }
-
 
 #[derive(Debug, Clone)]
 pub enum TestCommand {

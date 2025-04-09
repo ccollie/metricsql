@@ -1,14 +1,14 @@
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-    use std::time::Duration;
     use metricsql_parser::ast::{AggregationExpr, Expr, FunctionExpr, MetricExpr};
     use metricsql_parser::functions::AggregateFunction;
-    use metricsql_parser::label::{Matcher, MatchOp};
+    use metricsql_parser::label::{MatchOp, Matcher};
+    use std::sync::Arc;
+    use std::time::Duration;
 
     use crate::cache::rollup_result_cache::{merge_timeseries, RollupResultCache};
     use crate::execution::EvalConfig;
-    use crate::{test_timeseries_equal};
+    use crate::test_timeseries_equal;
     use crate::types::{MetricName, Timeseries};
 
     const NAN: f64 = f64::NAN;
@@ -30,8 +30,7 @@ mod tests {
         ec.max_points_per_series = 1e4 as usize;
         ec.set_caching(true);
 
-        let me = MetricExpr::default()
-            .append(Matcher::new(MatchOp::Equal, "aaa", "xxx").unwrap());
+        let me = MetricExpr::default().append(Matcher::new(MatchOp::Equal, "aaa", "xxx").unwrap());
 
         let fe = FunctionExpr::from_single_arg("avg", Expr::MetricExpression(me)).unwrap();
 

@@ -1,13 +1,15 @@
-use regex_syntax::hir::Class::{Unicode, Bytes};
 use super::match_handlers::{get_optimized_literal_matcher, StringMatchHandler};
-use crate::prelude::{ContainsMultiStringMatcher, EqualMultiStringMatcher, RegexMatcher, RepetitionMatcher};
+use crate::prelude::{
+    ContainsMultiStringMatcher, EqualMultiStringMatcher, RegexMatcher, RepetitionMatcher,
+};
+use crate::regex_util::string_pattern::StringPattern;
 use crate::regex_util::{LiteralMapMatcher, Quantifier, StringMatchOptions};
 use regex::{Error as RegexError, Regex};
+use regex_syntax::hir::Class::{Bytes, Unicode};
 use regex_syntax::hir::{Class, Dot, Hir, HirKind, Look, Repetition};
 use regex_syntax::parse as parse_regex;
 use smallvec::SmallVec;
 use std::sync::LazyLock;
-use crate::regex_util::string_pattern::StringPattern;
 
 static ANY_CHAR_EXCEPT_LF: LazyLock<Hir> = LazyLock::new(|| Hir::dot(Dot::AnyCharExceptLF));
 static ANY_CHAR: LazyLock<Hir> = LazyLock::new(|| Hir::dot(Dot::AnyChar));
@@ -53,7 +55,6 @@ pub(super) fn build_hir(pattern: &str) -> Result<Hir, RegexError> {
     parse_regex(pattern).map_err(|err| RegexError::Syntax(err.to_string()))
 }
 
-
 /// `string_matcher_from_regex` tries returning optimized function for matching the given expr.
 ///
 ///    - '.*'
@@ -87,8 +88,10 @@ pub fn string_matcher_from_regex(expr: &str) -> Result<StringMatchHandler, Regex
                 return Ok(StringMatchHandler::not_empty(true));
             }
         }
-        _ => if let Some(res) = optimize_alternating_literals(expr) {
-            return Ok(res);
+        _ => {
+            if let Some(res) = optimize_alternating_literals(expr) {
+                return Ok(res);
+            }
         }
     }
 
@@ -133,7 +136,6 @@ pub(super) fn string_matcher_from_regex_internal(
     expr: &str,
     sre: &Hir,
 ) -> Result<Option<StringMatchHandler>, RegexError> {
-
     // Correctly handling anchors inside a regex is tricky,
     // so in this case we fall back to the regex engine.
     if is_start_anchor(sre) || is_end_anchor(sre) {
@@ -151,7 +153,7 @@ pub(super) fn string_matcher_from_regex_internal(
                 return Ok(Some(StringMatchHandler::not_empty(true)));
             }
             Ok(get_repetition_matcher(sre, rep))
-        },
+        }
         HirKind::Alternation(alts) => Ok(get_alternation_matcher(alts)?),
         HirKind::Capture(cap) => {
             // Remove parenthesis from expr, i.e. '(expr) -> expr'
@@ -202,10 +204,10 @@ fn get_alternation_matcher(hirs: &[Hir]) -> Result<Option<StringMatchHandler>, R
             match &matcher {
                 StringMatchHandler::Literal(_) => {
                     num_values += 1;
-                },
+                }
                 StringMatchHandler::Alternates(values) => {
                     num_values += values.len();
-                },
+                }
                 _ => is_all_literal = false,
             }
 
@@ -229,12 +231,12 @@ fn get_alternation_matcher(hirs: &[Hir]) -> Result<Option<StringMatchHandler>, R
                 match matcher {
                     StringMatchHandler::Literal(lit) => {
                         res.values.insert(lit.into());
-                    },
+                    }
                     StringMatchHandler::Alternates(matcher) => {
                         for value in matcher.values {
                             res.values.insert(value);
                         }
-                    },
+                    }
                     _ => unreachable!("BUG: unexpected matcher (check is_literal)"),
                 }
             }
@@ -246,7 +248,7 @@ fn get_alternation_matcher(hirs: &[Hir]) -> Result<Option<StringMatchHandler>, R
             match matcher {
                 StringMatchHandler::Literal(lit) => {
                     result.push(lit.into());
-                },
+                }
                 StringMatchHandler::Alternates(matcher) => {
                     for value in matcher.values.into_iter() {
                         result.push(value);
@@ -258,10 +260,7 @@ fn get_alternation_matcher(hirs: &[Hir]) -> Result<Option<StringMatchHandler>, R
         return Ok(Some(StringMatchHandler::Alternates(result)));
     }
 
-    let or_matchers = matchers
-        .into_iter()
-        .map(Box::new)
-        .collect::<Vec<_>>();
+    let or_matchers = matchers.into_iter().map(Box::new).collect::<Vec<_>>();
 
     Ok(Some(StringMatchHandler::Or(or_matchers)))
 }
@@ -343,10 +342,13 @@ fn get_concat_matcher(hirs: &[Hir], expr: &str) -> Result<Option<StringMatchHand
         }
     }
 
-    fn get_regex_matcher(expr: &str, matcher: StringMatchHandler) -> Result<StringMatchHandler, RegexError> {
+    fn get_regex_matcher(
+        expr: &str,
+        matcher: StringMatchHandler,
+    ) -> Result<StringMatchHandler, RegexError> {
         let regex = Regex::new(&format!("^(?s:{expr})$"))?;
 
-        let matcher = RegexMatcher{
+        let matcher = RegexMatcher {
             regex,
             prefix: "".to_string(),
             suffix: "".to_string(),
@@ -376,7 +378,7 @@ fn get_concat_matcher(hirs: &[Hir], expr: &str) -> Result<Option<StringMatchHand
                     return Ok(left);
                 }
             } else {
-                return Ok(None)
+                return Ok(None);
             }
         }
         HirKind::Repetition(_) => {
@@ -412,7 +414,7 @@ fn get_concat_matcher(hirs: &[Hir], expr: &str) -> Result<Option<StringMatchHand
                     hirs_new = &hirs_new[0..last_idx];
                     match_len = last_idx + 1;
                     Some(matcher)
-                },
+                }
                 None => None,
             }
         } else {
@@ -436,7 +438,8 @@ fn get_concat_matcher(hirs: &[Hir], expr: &str) -> Result<Option<StringMatchHand
             if let Some(right_matcher) = right {
                 let case_sensitive = lit.is_case_sensitive();
                 let literal: String = lit.into();
-                let handler = StringMatchHandler::prefix(literal, Some(right_matcher), case_sensitive);
+                let handler =
+                    StringMatchHandler::prefix(literal, Some(right_matcher), case_sensitive);
                 return Ok(Some(handler));
             }
         }
@@ -469,9 +472,12 @@ fn get_concat_matcher(hirs: &[Hir], expr: &str) -> Result<Option<StringMatchHand
         if left_quantifier != Quantifier::ZeroOrOne && right_quantifier != Quantifier::ZeroOrOne {
             if let Some((matches, case_sensitive)) = get_set_matches(hirs_new) {
                 if case_sensitive && !expr.is_empty() {
-                    let left= quantifier_matcher(left_quantifier).expect("BUG: Invariant failed. Quantifier is not None");
-                    let right= quantifier_matcher(right_quantifier).expect("BUG: Invariant failed. Quantifier is not None");
-                    let contains_matcher = ContainsMultiStringMatcher::new(matches, Some(left), Some(right));
+                    let left = quantifier_matcher(left_quantifier)
+                        .expect("BUG: Invariant failed. Quantifier is not None");
+                    let right = quantifier_matcher(right_quantifier)
+                        .expect("BUG: Invariant failed. Quantifier is not None");
+                    let contains_matcher =
+                        ContainsMultiStringMatcher::new(matches, Some(left), Some(right));
                     let matcher = StringMatchHandler::ContainsMulti(contains_matcher);
                     // partial match, so fallback to regex
                     let matcher = get_regex_matcher(expr, matcher)?;
@@ -495,10 +501,8 @@ fn get_concat_matcher(hirs: &[Hir], expr: &str) -> Result<Option<StringMatchHand
                 return Ok(None);
             }
             (matches, case_sensitive)
-        },
-        None => {
-            return Ok(None)
         }
+        None => return Ok(None),
     };
 
     // Use the right (and best) matcher based on what we've found.
@@ -585,7 +589,7 @@ pub(super) fn get_case_folded_string(hirs: &[Hir]) -> Option<(String, usize)> {
                 res.push_str(&value);
                 count += 1;
             } else {
-                break
+                break;
             }
         } else {
             break;
@@ -599,7 +603,6 @@ pub(super) fn get_case_folded_string(hirs: &[Hir]) -> Option<(String, usize)> {
     Some((res, count))
 }
 
-
 fn is_literal(sre: &Hir) -> bool {
     match sre.kind() {
         HirKind::Literal(_) => true,
@@ -611,14 +614,12 @@ fn is_literal(sre: &Hir) -> bool {
 pub(super) fn is_dot_star(sre: &Hir) -> bool {
     match sre.kind() {
         HirKind::Capture(cap) => is_dot_star(cap.sub.as_ref()),
-        HirKind::Alternation(alternate) => {
-            alternate.iter().any(is_dot_star)
-        }
+        HirKind::Alternation(alternate) => alternate.iter().any(is_dot_star),
         HirKind::Repetition(repetition) => {
-            repetition.min == 0 &&
-                repetition.max.is_none() &&
-                repetition.greedy &&
-                !sre.properties().is_literal()
+            repetition.min == 0
+                && repetition.max.is_none()
+                && repetition.greedy
+                && !sre.properties().is_literal()
         }
         _ => false,
     }
@@ -627,14 +628,12 @@ pub(super) fn is_dot_star(sre: &Hir) -> bool {
 pub(super) fn is_dot_plus(sre: &Hir) -> bool {
     match sre.kind() {
         HirKind::Capture(cap) => is_dot_plus(cap.sub.as_ref()),
-        HirKind::Alternation(alternate) => {
-            alternate.iter().any(is_dot_plus)
-        }
+        HirKind::Alternation(alternate) => alternate.iter().any(is_dot_plus),
         HirKind::Repetition(repetition) => {
-            repetition.min == 1 &&
-                repetition.max.is_none() &&
-                repetition.greedy &&
-                !sre.properties().is_literal()
+            repetition.min == 1
+                && repetition.max.is_none()
+                && repetition.greedy
+                && !sre.properties().is_literal()
         }
         _ => false,
     }
@@ -681,7 +680,7 @@ pub(super) fn is_dot_question(sre: &Hir) -> bool {
 
 pub(super) fn matches_any_char(hir: &Hir) -> bool {
     if let HirKind::Class(class) = hir.kind() {
-        return is_empty_class(class)
+        return is_empty_class(class);
     }
     false
 }
@@ -691,26 +690,30 @@ pub(super) fn matches_any_character_except_newline(hir: &Hir) -> bool {
         HirKind::Literal(lit) => {
             // Check if the literal is not a newline
             !lit.0.contains(&b'\n')
-        },
+        }
         HirKind::Class(class) => {
             match class {
                 // Check if the class does not include newline
                 Unicode(class) => {
                     let nl = '\n';
-                    class.ranges().iter()
-                        .all(|range| !(range.start() .. range.end()).contains(&nl))
-                },
+                    class
+                        .ranges()
+                        .iter()
+                        .all(|range| !(range.start()..range.end()).contains(&nl))
+                }
                 Bytes(class) => {
                     let nl = b'\n';
-                    class.ranges().iter()
-                        .all(|range| !(range.start() .. range.end()).contains(&nl))
-                },
+                    class
+                        .ranges()
+                        .iter()
+                        .all(|range| !(range.start()..range.end()).contains(&nl))
+                }
             }
-        },
+        }
         HirKind::Repetition(repetition) => {
             // Check the sub-expression of repetition
             matches_any_character_except_newline(&repetition.sub)
-        },
+        }
         _ => false, // Other node types do not match any character except newlines
     }
 }
@@ -727,15 +730,13 @@ pub(super) fn is_end_anchor(sre: &Hir) -> bool {
     is_anchor(sre, Look::End)
 }
 
-
 fn rep_is_dot_star(rep: &Repetition) -> bool {
     rep.min == 0 && rep.max.is_none() && rep.greedy
     // && !sre.properties().is_literal()
 }
 
 fn rep_is_dot_plus(repetition: &Repetition) -> bool {
-    repetition.min == 1 &&
-        repetition.max.is_none()
+    repetition.min == 1 && repetition.max.is_none()
     // rep.min == 1 && rep.max() // && rep.greedy
 }
 
@@ -759,9 +760,7 @@ pub(super) fn get_literal(sre: &Hir) -> Option<String> {
 
 pub(super) fn hir_to_string(sre: &Hir) -> String {
     match sre.kind() {
-        HirKind::Literal(lit) => {
-            String::from_utf8(lit.0.to_vec()).unwrap_or_default()
-        }
+        HirKind::Literal(lit) => String::from_utf8(lit.0.to_vec()).unwrap_or_default(),
         HirKind::Concat(concat) => {
             let mut s = String::new();
             for hir in concat.iter() {
@@ -776,7 +775,7 @@ pub(super) fn hir_to_string(sre: &Hir) -> String {
                     .iter()
                     .map(hir_to_string)
                     .collect::<Vec<_>>()
-                    .join("|")
+                    .join("|");
             }
             let mut s = Vec::with_capacity(alternate.len());
             for hir in alternate.iter() {
@@ -792,9 +791,7 @@ pub(super) fn hir_to_string(sre: &Hir) -> String {
             }
             sre.to_string()
         }
-        _ => {
-            sre.to_string()
-        }
+        _ => sre.to_string(),
     }
 }
 
@@ -811,7 +808,7 @@ fn get_quantifier(sre: &Hir) -> Option<Quantifier> {
                             } else {
                                 Some(Quantifier::ZeroOrMore)
                             }
-                        },
+                        }
                         1 => Some(Quantifier::OneOrMore),
                         _ => None,
                     };
@@ -917,7 +914,7 @@ pub(super) fn optimize_concat_regex(subs: &[Hir]) -> (String, String, Vec<String
         }
     }
 
-    if !prefix.is_empty() && new_subs.len()  == 1 {
+    if !prefix.is_empty() && new_subs.len() == 1 {
         return (prefix, suffix, contains, new_subs);
     }
 
@@ -951,7 +948,7 @@ pub(super) fn find_set_matches_internal(hir: &Hir, base: &str) -> Option<(Vec<St
         HirKind::Literal(_) => {
             let literal = format!("{}{}", base, literal_to_string(hir));
             Some((vec![literal], true))
-        },
+        }
         HirKind::Empty => {
             if !base.is_empty() {
                 Some((vec![base.to_string()], true))
@@ -962,49 +959,48 @@ pub(super) fn find_set_matches_internal(hir: &Hir, base: &str) -> Option<(Vec<St
         HirKind::Alternation(_) => find_set_matches_from_alternate(hir, base),
         HirKind::Capture(hir) => find_set_matches_internal(&hir.sub, base),
         HirKind::Concat(_) => find_set_matches_from_concat(hir, base),
-        HirKind::Class(class) => {
-            match class {
-                Unicode(ranges) => {
-                    let total_set = ranges.iter()
-                        .map(|r| 1 + (r.end() as usize - r.start() as usize))
-                        .sum::<usize>();
+        HirKind::Class(class) => match class {
+            Unicode(ranges) => {
+                let total_set = ranges
+                    .iter()
+                    .map(|r| 1 + (r.end() as usize - r.start() as usize))
+                    .sum::<usize>();
 
-                    if total_set > MAX_SET_MATCHES {
-                        return None;
-                    }
-
-                    let mut matches = Vec::new();
-                    for range in ranges.iter().flat_map(|r| r.start()..=r.end()) {
-                        matches.push(format!("{base}{range}"));
-                    }
-
-                    Some((matches, true))
+                if total_set > MAX_SET_MATCHES {
+                    return None;
                 }
-                Bytes(ranges) => {
-                    let total_set = ranges.iter()
-                        .map(|r| 1 + (r.end() as usize - r.start() as usize))
-                        .sum::<usize>();
 
-                    if total_set > MAX_SET_MATCHES {
-                        return None;
-                    }
-
-                    let mut matches = Vec::new();
-
-                    for ch in ranges.iter().flat_map(|r| r.start()..=r.end()) {
-                        matches.push(format!("{base}{ch}"));
-                    }
-
-                    Some((matches, true))
+                let mut matches = Vec::new();
+                for range in ranges.iter().flat_map(|r| r.start()..=r.end()) {
+                    matches.push(format!("{base}{range}"));
                 }
+
+                Some((matches, true))
             }
-        }
+            Bytes(ranges) => {
+                let total_set = ranges
+                    .iter()
+                    .map(|r| 1 + (r.end() as usize - r.start() as usize))
+                    .sum::<usize>();
+
+                if total_set > MAX_SET_MATCHES {
+                    return None;
+                }
+
+                let mut matches = Vec::new();
+
+                for ch in ranges.iter().flat_map(|r| r.start()..=r.end()) {
+                    matches.push(format!("{base}{ch}"));
+                }
+
+                Some((matches, true))
+            }
+        },
         _ => None,
     }
 }
 
 fn find_set_matches_from_concat(hir: &Hir, base: &str) -> Option<(Vec<String>, bool)> {
-
     if let HirKind::Concat(hirs) = hir.kind() {
         let mut matches = vec![base.to_string()];
         let mut matches_case_sensitive: Option<bool> = None;
@@ -1064,7 +1060,7 @@ fn find_set_matches_from_concat(hir: &Hir, base: &str) -> Option<(Vec<String>, b
             matches = new_matches;
         }
 
-        return Some((matches, matches_case_sensitive.unwrap_or(true)))
+        return Some((matches, matches_case_sensitive.unwrap_or(true)));
     }
 
     None
@@ -1101,9 +1097,7 @@ fn find_set_matches_from_alternate(hir: &Hir, base: &str) -> Option<(Vec<String>
     Some((matches, matches_case_sensitive))
 }
 
-
 fn clear_begin_end_anchor(hir: &mut Hir) {
-
     fn handle_concat(items: &[Hir]) -> Option<Hir> {
         let mut cursor = &items[0..];
 
@@ -1131,14 +1125,14 @@ fn clear_begin_end_anchor(hir: &mut Hir) {
             if let Some(modified) = handle_concat(hirs) {
                 *hir = modified;
             }
-        },
+        }
         HirKind::Capture(capture) => {
             if let HirKind::Concat(hirs) = capture.sub.kind() {
                 if let Some(modified) = handle_concat(hirs) {
                     *hir = modified;
                 }
             }
-        },
+        }
         _ => (),
     }
 }
@@ -1157,31 +1151,30 @@ fn handle_regex(expr: &str, hir: &Hir) -> Result<StringMatchHandler, RegexError>
                 matches = sub_matches;
             }
         }
-        let matcher = RegexMatcher{
+        let matcher = RegexMatcher {
             regex,
             prefix,
             suffix,
             contains,
             string_matcher: None,
-            set_matches: matches
+            set_matches: matches,
         };
         Ok(StringMatchHandler::Regex(matcher))
     } else {
         if let Some((sub_matches, _)) = find_set_matches_internal(hir, "") {
             matches = sub_matches;
         }
-        let matcher = RegexMatcher{
+        let matcher = RegexMatcher {
             regex,
             prefix: "".to_string(),
             suffix: "".to_string(),
             contains: Vec::new(),
             string_matcher: None,
-            set_matches: matches
+            set_matches: matches,
         };
         Ok(StringMatchHandler::Regex(matcher))
     }
 }
-
 
 pub fn get_or_values(pattern: &str) -> Result<Vec<String>, RegexError> {
     let mut values = Vec::new();
@@ -1419,9 +1412,16 @@ mod test {
         for (regex, prefix, suffix, contains) in cases {
             let parsed = build_hir(&format!("^(?s:{})$", regex)).unwrap();
             if let HirKind::Concat(hirs) = &parsed.kind() {
-                let (actual_prefix, actual_suffix, actual_contains, _) = optimize_concat_regex(hirs);
-                assert_eq!(prefix, actual_prefix, "unexpected prefix for regex={regex}. Expected {prefix}, got {actual_prefix}");
-                assert_eq!(suffix, actual_suffix, "unexpected suffix for regex={regex}. Expected {suffix}, got {actual_suffix}");
+                let (actual_prefix, actual_suffix, actual_contains, _) =
+                    optimize_concat_regex(hirs);
+                assert_eq!(
+                    prefix, actual_prefix,
+                    "unexpected prefix for regex={regex}. Expected {prefix}, got {actual_prefix}"
+                );
+                assert_eq!(
+                    suffix, actual_suffix,
+                    "unexpected suffix for regex={regex}. Expected {suffix}, got {actual_suffix}"
+                );
                 assert_eq!(contains, actual_contains);
             } else {
                 panic!("Expected HirKind::Concat, got {:?}", parsed.kind());
@@ -1460,14 +1460,48 @@ mod test {
             // using charclass
             ("[abc]d", vec!["ad", "bd", "cd"], true),
             // high low charset different => A(B[CD]|EF)|BC[XY]
-            ("ABC|ABD|AEF|BCX|BCY", vec!["ABC", "ABD", "AEF", "BCX", "BCY"], true),
+            (
+                "ABC|ABD|AEF|BCX|BCY",
+                vec!["ABC", "ABD", "AEF", "BCX", "BCY"],
+                true,
+            ),
             // triple concat
-            ("api_(v1|prom)_push", vec!["api_v1_push", "api_prom_push"], true),
+            (
+                "api_(v1|prom)_push",
+                vec!["api_v1_push", "api_prom_push"],
+                true,
+            ),
             // triple concat with multiple alternates
-            ("(api|rpc)_(v1|prom)_push", vec!["api_v1_push", "api_prom_push", "rpc_v1_push", "rpc_prom_push"], true),
-            ("(api|rpc)_(v1|prom)_(push|query)", vec!["api_v1_push", "api_v1_query", "api_prom_push", "api_prom_query", "rpc_v1_push", "rpc_v1_query", "rpc_prom_push", "rpc_prom_query"], true),
+            (
+                "(api|rpc)_(v1|prom)_push",
+                vec![
+                    "api_v1_push",
+                    "api_prom_push",
+                    "rpc_v1_push",
+                    "rpc_prom_push",
+                ],
+                true,
+            ),
+            (
+                "(api|rpc)_(v1|prom)_(push|query)",
+                vec![
+                    "api_v1_push",
+                    "api_v1_query",
+                    "api_prom_push",
+                    "api_prom_query",
+                    "rpc_v1_push",
+                    "rpc_v1_query",
+                    "rpc_prom_push",
+                    "rpc_prom_query",
+                ],
+                true,
+            ),
             // class starting with "-"
-            ("[-1-2][a-c]", vec!["-a", "-b", "-c", "1a", "1b", "1c", "2a", "2b", "2c"], true),
+            (
+                "[-1-2][a-c]",
+                vec!["-a", "-b", "-c", "1a", "1b", "1c", "2a", "2b", "2c"],
+                true,
+            ),
             ("[1^3]", vec!["1", "3", "^"], true),
             // OpPlus with concat
             ("(.+)/(foo|bar)", vec![], false),
@@ -1476,7 +1510,7 @@ mod test {
             // case-sensitive wrapper.
             ("(?i)foo", vec!["FOO"], false),
             // case-sensitive wrapper on alternate.
-        //    ("(?i)foo|bar|baz", vec!["FOO", "BAR", "BAZ", "BAr", "BAz"], false),
+            //    ("(?i)foo|bar|baz", vec!["FOO", "BAR", "BAZ", "BAr", "BAz"], false),
             // mixed case sensitivity.
             ("(api|rpc)_(v1|prom)_((?i)push|query)", vec![], false),
             // mixed case sensitivity concatenation only without capture group.
@@ -1498,7 +1532,11 @@ mod test {
         for (pattern, exp_matches, exp_case_sensitive) in cases {
             let mut parsed = build_hir(&format!("^(?s:{})$", pattern)).unwrap();
             let (matches, case_sensitive) = find_set_matches(&mut parsed).unwrap_or_default();
-            assert_eq!(exp_matches, matches, "parsing {pattern} failed. Expected {:?}, got {:?}", exp_matches, matches);
+            assert_eq!(
+                exp_matches, matches,
+                "parsing {pattern} failed. Expected {:?}, got {:?}",
+                exp_matches, matches
+            );
 
             // TODO:
             // if exp_case_sensitive {
@@ -1629,7 +1667,7 @@ mod test {
             ("foo", vec!["foo"]),
             ("^foo$", vec![]),
             ("|foo", vec!["", "foo"]),
-//            ("|foo|", vec!["", "", "foo"]),
+            //            ("|foo|", vec!["", "", "foo"]),
             ("foo.+", vec![]),
             ("foo.*", vec![]),
             (".*", vec![]),
@@ -1644,8 +1682,14 @@ mod test {
             ("[a-d]", vec!["a", "b", "c", "d"]),
             ("x[a-d]we", vec!["xawe", "xbwe", "xcwe", "xdwe"]),
             ("foo(bar|baz)", vec!["foobar", "foobaz"]),
-            ("foo(ba[rz]|(xx|o))", vec!["foobar", "foobaz", "fooo", "fooxx"]),
-            ("foo(?:bar|baz)x(qwe|rt)", vec!["foobarxqwe", "foobarxrt", "foobazxqwe", "foobazxrt"]),
+            (
+                "foo(ba[rz]|(xx|o))",
+                vec!["foobar", "foobaz", "fooo", "fooxx"],
+            ),
+            (
+                "foo(?:bar|baz)x(qwe|rt)",
+                vec!["foobarxqwe", "foobarxrt", "foobazxqwe", "foobazxrt"],
+            ),
             ("foo(bar||baz)", vec!["foo", "foobar", "foobaz"]),
             ("(a|b|c)(d|e|f|0|1|2)(g|h|k|x|y|z)", vec![]),
             ("(?i)foo", vec![]),
@@ -1659,7 +1703,11 @@ mod test {
 
         for (s, expected) in test_cases {
             let result = get_or_values(s).unwrap();
-            assert_eq!(result, expected, "unexpected values for s={}. Got {:?}, want {:?}", s, result, expected);
+            assert_eq!(
+                result, expected,
+                "unexpected values for s={}. Got {:?}, want {:?}",
+                s, result, expected
+            );
         }
     }
 }

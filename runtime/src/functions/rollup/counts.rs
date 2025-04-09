@@ -1,9 +1,9 @@
 use crate::functions::arg_parse::get_float_arg;
 use crate::functions::rollup::{RollupFuncArg, RollupHandler, RollupHandlerFloat};
+use crate::types::QueryValue;
 use crate::{RuntimeError, RuntimeResult};
 use std::io::Cursor;
 use std::io::Write;
-use crate::types::QueryValue;
 
 type FloatPredicate = fn(f64, f64) -> bool;
 
@@ -53,7 +53,9 @@ fn sum_filtered(values: &[f64], limit: f64, pred: FloatPredicate) -> f64 {
 
 fn get_limit(args: &[QueryValue], func_name: &str, param_name: &str) -> RuntimeResult<f64> {
     get_float_arg(args, 1, None).map_err(|_| {
-        RuntimeError::ArgumentError(format!("expecting scalar as {param_name} arg to {func_name}()"))
+        RuntimeError::ArgumentError(format!(
+            "expecting scalar as {param_name} arg to {func_name}()"
+        ))
     })
 }
 
@@ -70,7 +72,12 @@ macro_rules! make_count_fn {
     };
 }
 
-make_count_fn!(new_rollup_count_le, "count_le_over_time", "le", less_or_equal);
+make_count_fn!(
+    new_rollup_count_le,
+    "count_le_over_time",
+    "le",
+    less_or_equal
+);
 make_count_fn!(new_rollup_count_gt, "count_gt_over_time", "gt", greater);
 make_count_fn!(new_rollup_count_eq, "count_eq_over_time", "eq", equal);
 make_count_fn!(new_rollup_count_ne, "count_ne_over_time", "ne", not_equal);
@@ -80,14 +87,19 @@ macro_rules! make_share_fn {
         pub(super) fn $name(args: &[QueryValue]) -> RuntimeResult<RollupHandler> {
             let limit = get_limit(args, $func_name, $param_name)?;
             let handler = |rfa: &RollupFuncArg, limit: &f64| -> f64 {
-               share_filtered(rfa.values, *limit, $predicate_fn)
+                share_filtered(rfa.values, *limit, $predicate_fn)
             };
             Ok(RollupHandler::float_arg(limit, handler))
         }
     };
 }
 
-make_share_fn!(new_rollup_share_le, "share_le_over_time", "le",less_or_equal);
+make_share_fn!(
+    new_rollup_share_le,
+    "share_le_over_time",
+    "le",
+    less_or_equal
+);
 make_share_fn!(new_rollup_share_gt, "share_gt_over_time", "gt", greater);
 make_share_fn!(new_rollup_share_eq, "share_eq_over_time", "eq", equal);
 
@@ -118,8 +130,7 @@ pub(super) fn new_rollup_count_values(args: &[QueryValue]) -> RuntimeResult<Roll
         QueryValue::String(s) => s.to_string(),
         _ => {
             return Err(RuntimeError::ArgumentError(
-                "expecting string for label name parameter in count_values_over_time()"
-                    .to_string(),
+                "expecting string for label name parameter in count_values_over_time()".to_string(),
             ));
         }
     };
@@ -152,7 +163,6 @@ pub(super) fn new_rollup_count_values(args: &[QueryValue]) -> RuntimeResult<Roll
     let handler = RollupHandler::General(Box::new(f));
     Ok(handler)
 }
-
 
 // todo: move to common
 struct F64WriteBuffer {

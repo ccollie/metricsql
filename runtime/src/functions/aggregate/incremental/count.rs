@@ -25,9 +25,12 @@ impl IncrementalAggrHandler for IncrementalAggrCount {
 }
 
 pub fn update_count(iac: &mut IncrementalAggrContext, values: &[f64]) {
-    for (_v, dst) in values.iter().cloned()
+    for (_v, dst) in values
+        .iter()
+        .cloned()
         .zip(iac.ts.values.iter_mut())
-        .filter(|(v, _)| !v.is_nan()) {
+        .filter(|(v, _)| !v.is_nan())
+    {
         *dst += 1.0;
     }
 }

@@ -1,12 +1,11 @@
-use std::cmp::Ordering;
-use std::fmt::Display;
-use std::hash::{Hash, Hasher};
 use get_size::GetSize;
 use integer_encoding::VarInt;
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
+use std::fmt::Display;
+use std::hash::{Hash, Hasher};
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(GetSize)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize, GetSize)]
 pub struct Label {
     pub name: String,
     pub value: String,
@@ -28,18 +27,26 @@ impl Label {
     pub fn unmarshal(src: &[u8]) -> (Self, &[u8]) {
         let (name, src) = read_string(src);
         let (value, src) = read_string(src);
-        (Self { name: name.to_string(), value: value.to_string() }, src)
+        (
+            Self {
+                name: name.to_string(),
+                value: value.to_string(),
+            },
+            src,
+        )
     }
 }
 
 impl PartialOrd for Label {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(self.cmp(other)) }
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 impl Ord for Label {
     fn cmp(&self, other: &Self) -> Ordering {
         let cmp = self.name.cmp(&other.name);
-        if cmp!= Ordering::Equal {
+        if cmp != Ordering::Equal {
             cmp
         } else {
             self.value.cmp(&other.value)
@@ -62,7 +69,6 @@ impl Hash for Label {
         state.write(self.value.as_bytes());
     }
 }
-
 
 fn write_string(buf: &mut Vec<u8>, s: &str) {
     write_int(buf, s.len());

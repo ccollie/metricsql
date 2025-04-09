@@ -129,11 +129,26 @@ mod tests {
     #[test]
     fn test_label_set() {
         // label_set
-        validate_optimized(r#"label_set(foo, "__name__", "bar") + x"#, r#"label_set(foo, "__name__", "bar") + x"#);
-        validate_optimized(r#"label_set(foo, "a", "bar") + x{__name__="y"}"#, r#"label_set(foo, "a", "bar") + x{__name__="y",a="bar"}"#);
-        validate_optimized(r#"label_set(foo{bar="baz"}, "xx", "y") + a{x="y"}"#, r#"label_set(foo{bar="baz",x="y"}, "xx", "y") + a{bar="baz",x="y",xx="y"}"#);
-        validate_optimized(r#"label_set(foo{x="y"}, "q", "b", "x", "qwe") + label_set(bar{q="w"}, "x", "a", "q", "w")"#, r#"label_set(foo{x="y"}, "q", "b", "x", "qwe") + label_set(bar{q="w"}, "x", "a", "q", "w")"#);
-        validate_optimized(r#"label_set(foo{a="b"}, "a", "qwe") + bar{a="x"}"#, r#"label_set(foo{a="b"}, "a", "qwe") + bar{a="qwe",a="x"}"#);
+        validate_optimized(
+            r#"label_set(foo, "__name__", "bar") + x"#,
+            r#"label_set(foo, "__name__", "bar") + x"#,
+        );
+        validate_optimized(
+            r#"label_set(foo, "a", "bar") + x{__name__="y"}"#,
+            r#"label_set(foo, "a", "bar") + x{__name__="y",a="bar"}"#,
+        );
+        validate_optimized(
+            r#"label_set(foo{bar="baz"}, "xx", "y") + a{x="y"}"#,
+            r#"label_set(foo{bar="baz",x="y"}, "xx", "y") + a{bar="baz",x="y",xx="y"}"#,
+        );
+        validate_optimized(
+            r#"label_set(foo{x="y"}, "q", "b", "x", "qwe") + label_set(bar{q="w"}, "x", "a", "q", "w")"#,
+            r#"label_set(foo{x="y"}, "q", "b", "x", "qwe") + label_set(bar{q="w"}, "x", "a", "q", "w")"#,
+        );
+        validate_optimized(
+            r#"label_set(foo{a="b"}, "a", "qwe") + bar{a="x"}"#,
+            r#"label_set(foo{a="b"}, "a", "qwe") + bar{a="qwe",a="x"}"#,
+        );
     }
 
     #[test]
@@ -211,18 +226,30 @@ mod tests {
         // common filters for 'or' filters
         f(r#"{a="b" or c="d",a="b"}"#, r#"{a="b"}"#);
         f(r#"{a="b",c="d" or c="d",a="b"}"#, r#"{a="b", c="d"}"#);
-        f(r#"foo{x="y",a="b",c="d" or c="d",a="b"}"#, r#"{a="b", c="d"}"#);
+        f(
+            r#"foo{x="y",a="b",c="d" or c="d",a="b"}"#,
+            r#"{a="b", c="d"}"#,
+        );
 
         // ifnot
-        f(r#"foo{a="a"} ifnot foo{b="b"}"#, r#"foo{a="a"} ifnot foo{a="a",b="b"}"#);
+        f(
+            r#"foo{a="a"} ifnot foo{b="b"}"#,
+            r#"foo{a="a"} ifnot foo{a="a",b="b"}"#,
+        );
     }
 
     #[test]
     fn test_reserved_words() {
         // reserved words. See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/4422
         validate_optimized("1 + (on)", "1 + (on)");
-        validate_optimized(r#"{a="b"} + (group_left)"#, r#"{a="b"} + (group_left{a="b"})"#);
-        validate_optimized(r#"bool{a="b"} + (ignoring{c="d"})"#, r#"bool{a="b",c="d"} + (ignoring{a="b",c="d"})"#);
+        validate_optimized(
+            r#"{a="b"} + (group_left)"#,
+            r#"{a="b"} + (group_left{a="b"})"#,
+        );
+        validate_optimized(
+            r#"bool{a="b"} + (ignoring{c="d"})"#,
+            r#"bool{a="b",c="d"} + (ignoring{a="b",c="d"})"#,
+        );
     }
 
     #[test]
@@ -522,100 +549,205 @@ mod tests {
     #[test]
     fn test_label_replace() {
         // Label_replace
-        validate_optimized(r#"label_replace(foo, "a", "b", "c", "d") + bar{x="y"}"#, r#"label_replace(foo{x="y"}, "a", "b", "c", "d") + bar{x="y"}"#);
-        validate_optimized(r#"label_replace(foo, "a", "b", "c", "d") + bar{a="y"}"#, r#"label_replace(foo, "a", "b", "c", "d") + bar{a="y"}"#);
-        validate_optimized(r#"label_replace(foo{x="qwe"}, "a", "b", "c", "d") + bar{a="y"}"#, r#"label_replace(foo{x="qwe"}, "a", "b", "c", "d") + bar{a="y",x="qwe"}"#);
-        validate_optimized(r#"label_replace(foo{x="qwe"}, "a", "b", "c", "d") + bar{x="y"}"#, r#"label_replace(foo{x="qwe",x="y"}, "a", "b", "c", "d") + bar{x="qwe",x="y"}"#);
-        validate_optimized(r#"label_replace(foo{aa!="qwe"}, "a", "b", "c", "d") + bar{x="y"}"#, r#"label_replace(foo{aa!="qwe",x="y"}, "a", "b", "c", "d") + bar{aa!="qwe",x="y"}"#);
+        validate_optimized(
+            r#"label_replace(foo, "a", "b", "c", "d") + bar{x="y"}"#,
+            r#"label_replace(foo{x="y"}, "a", "b", "c", "d") + bar{x="y"}"#,
+        );
+        validate_optimized(
+            r#"label_replace(foo, "a", "b", "c", "d") + bar{a="y"}"#,
+            r#"label_replace(foo, "a", "b", "c", "d") + bar{a="y"}"#,
+        );
+        validate_optimized(
+            r#"label_replace(foo{x="qwe"}, "a", "b", "c", "d") + bar{a="y"}"#,
+            r#"label_replace(foo{x="qwe"}, "a", "b", "c", "d") + bar{a="y",x="qwe"}"#,
+        );
+        validate_optimized(
+            r#"label_replace(foo{x="qwe"}, "a", "b", "c", "d") + bar{x="y"}"#,
+            r#"label_replace(foo{x="qwe",x="y"}, "a", "b", "c", "d") + bar{x="qwe",x="y"}"#,
+        );
+        validate_optimized(
+            r#"label_replace(foo{aa!="qwe"}, "a", "b", "c", "d") + bar{x="y"}"#,
+            r#"label_replace(foo{aa!="qwe",x="y"}, "a", "b", "c", "d") + bar{aa!="qwe",x="y"}"#,
+        );
     }
 
     #[test]
     fn test_label_join() {
         // Label_join
-        validate_optimized(r#"label_join(foo, "a", "b", "c") + bar{x="y"}"#, r#"label_join(foo{x="y"}, "a", "b", "c") + bar{x="y"}"#);
-        validate_optimized(r#"label_join(foo, "a", "b", "c") + bar{a="y"}"#, r#"label_join(foo, "a", "b", "c") + bar{a="y"}"#);
-        validate_optimized(r#"label_join(foo{a="qwe"}, "a", "b", "c") + bar{x="y"}"#, r#"label_join(foo{a="qwe",x="y"}, "a", "b", "c") + bar{x="y"}"#);
-        validate_optimized(r#"label_join(foo{q="z"}, "a", "b", "c") + bar{a="y"}"#, r#"label_join(foo{q="z"}, "a", "b", "c") + bar{a="y",q="z"}"#);
-        validate_optimized(r#"label_join(foo{q="z"}, "a", "b", "c") + bar{w="y"}"#, r#"label_join(foo{q="z",w="y"}, "a", "b", "c") + bar{q="z",w="y"}"#);
+        validate_optimized(
+            r#"label_join(foo, "a", "b", "c") + bar{x="y"}"#,
+            r#"label_join(foo{x="y"}, "a", "b", "c") + bar{x="y"}"#,
+        );
+        validate_optimized(
+            r#"label_join(foo, "a", "b", "c") + bar{a="y"}"#,
+            r#"label_join(foo, "a", "b", "c") + bar{a="y"}"#,
+        );
+        validate_optimized(
+            r#"label_join(foo{a="qwe"}, "a", "b", "c") + bar{x="y"}"#,
+            r#"label_join(foo{a="qwe",x="y"}, "a", "b", "c") + bar{x="y"}"#,
+        );
+        validate_optimized(
+            r#"label_join(foo{q="z"}, "a", "b", "c") + bar{a="y"}"#,
+            r#"label_join(foo{q="z"}, "a", "b", "c") + bar{a="y",q="z"}"#,
+        );
+        validate_optimized(
+            r#"label_join(foo{q="z"}, "a", "b", "c") + bar{w="y"}"#,
+            r#"label_join(foo{q="z",w="y"}, "a", "b", "c") + bar{q="z",w="y"}"#,
+        );
     }
 
     #[test]
     fn test_label_map() {
         // Label_map
-        validate_optimized(r#"label_map(foo, "a", "x", "y") + bar{x="y"}"#, r#"label_map(foo{x="y"}, "a", "x", "y") + bar{x="y"}"#);
-        validate_optimized(r#"label_map(foo{a="qwe",b="c"}, "a", "x", "y") + bar{a="rt",x="y"}"#, r#"label_map(foo{a="qwe",b="c",x="y"}, "a", "x", "y") + bar{a="rt",b="c",x="y"}"#);
+        validate_optimized(
+            r#"label_map(foo, "a", "x", "y") + bar{x="y"}"#,
+            r#"label_map(foo{x="y"}, "a", "x", "y") + bar{x="y"}"#,
+        );
+        validate_optimized(
+            r#"label_map(foo{a="qwe",b="c"}, "a", "x", "y") + bar{a="rt",x="y"}"#,
+            r#"label_map(foo{a="qwe",b="c",x="y"}, "a", "x", "y") + bar{a="rt",b="c",x="y"}"#,
+        );
     }
 
     #[test]
     fn test_label_match() {
         // Label_match
-        validate_optimized(r#"label_match(foo, "a", "x", "y") + bar{x="y"}"#, r#"label_match(foo{x="y"}, "a", "x", "y") + bar{x="y"}"#);
-        validate_optimized(r#"label_match(foo{a="qwe",b="c"}, "a", "x", "y") + bar{a="rt",x="y"}"#, r#"label_match(foo{a="qwe",b="c",x="y"}, "a", "x", "y") + bar{a="rt",b="c",x="y"}"#);
+        validate_optimized(
+            r#"label_match(foo, "a", "x", "y") + bar{x="y"}"#,
+            r#"label_match(foo{x="y"}, "a", "x", "y") + bar{x="y"}"#,
+        );
+        validate_optimized(
+            r#"label_match(foo{a="qwe",b="c"}, "a", "x", "y") + bar{a="rt",x="y"}"#,
+            r#"label_match(foo{a="qwe",b="c",x="y"}, "a", "x", "y") + bar{a="rt",b="c",x="y"}"#,
+        );
     }
 
     #[test]
     fn test_label_mismatch() {
         // Label_mismatch
-        validate_optimized(r#"label_mismatch(foo, "a", "x", "y") + bar{x="y"}"#, r#"label_mismatch(foo{x="y"}, "a", "x", "y") + bar{x="y"}"#);
-        validate_optimized(r#"label_mismatch(foo{a="qwe",b="c"}, "a", "x", "y") + bar{a="rt",x="y"}"#, r#"label_mismatch(foo{a="qwe",b="c",x="y"}, "a", "x", "y") + bar{a="rt",b="c",x="y"}"#);
+        validate_optimized(
+            r#"label_mismatch(foo, "a", "x", "y") + bar{x="y"}"#,
+            r#"label_mismatch(foo{x="y"}, "a", "x", "y") + bar{x="y"}"#,
+        );
+        validate_optimized(
+            r#"label_mismatch(foo{a="qwe",b="c"}, "a", "x", "y") + bar{a="rt",x="y"}"#,
+            r#"label_mismatch(foo{a="qwe",b="c",x="y"}, "a", "x", "y") + bar{a="rt",b="c",x="y"}"#,
+        );
     }
 
     #[test]
     fn test_label_transform() {
         // Label_transform
-        validate_optimized(r#"label_transform(foo, "a", "x", "y") + bar{x="y"}"#, r#"label_transform(foo{x="y"}, "a", "x", "y") + bar{x="y"}"#);
-        validate_optimized(r#"label_transform(foo{a="qwe",b="c"}, "a", "x", "y") + bar{a="rt",x="y"}"#, r#"label_transform(foo{a="qwe",b="c",x="y"}, "a", "x", "y") + bar{a="rt",b="c",x="y"}"#);
+        validate_optimized(
+            r#"label_transform(foo, "a", "x", "y") + bar{x="y"}"#,
+            r#"label_transform(foo{x="y"}, "a", "x", "y") + bar{x="y"}"#,
+        );
+        validate_optimized(
+            r#"label_transform(foo{a="qwe",b="c"}, "a", "x", "y") + bar{a="rt",x="y"}"#,
+            r#"label_transform(foo{a="qwe",b="c",x="y"}, "a", "x", "y") + bar{a="rt",b="c",x="y"}"#,
+        );
     }
 
     #[test]
     fn test_optimize_label_copy() {
-        validate_optimized(r#"label_copy(foo{b="w"}, "a", "b") + bar{a="y",b="z"}"#, r#"label_copy(foo{a="y",b="w"}, "a", "b") + bar{a="y",b="z"}"#);
+        validate_optimized(
+            r#"label_copy(foo{b="w"}, "a", "b") + bar{a="y",b="z"}"#,
+            r#"label_copy(foo{a="y",b="w"}, "a", "b") + bar{a="y",b="z"}"#,
+        );
         // Label_copy
-        validate_optimized(r#"label_copy(foo, "a", "b") + bar{x="y"}"#, r#"label_copy(foo{x="y"}, "a", "b") + bar{x="y"}"#);
-        validate_optimized(r#"label_copy(foo, "a", "b", "c", "d") + bar{a="y",b="z"}"#, r#"label_copy(foo{a="y"}, "a", "b", "c", "d") + bar{a="y",b="z"}"#);
-        validate_optimized(r#"label_copy(foo{q="w"}, "a", "b") + bar{a="y",b="z"}"#, r#"label_copy(foo{a="y",q="w"}, "a", "b") + bar{a="y",b="z",q="w"}"#);
-        validate_optimized(r#"label_copy(foo{b="w"}, "a", "b") + bar{a="y",b="z"}"#, r#"label_copy(foo{a="y",b="w"}, "a", "b") + bar{a="y",b="z"}"#);
+        validate_optimized(
+            r#"label_copy(foo, "a", "b") + bar{x="y"}"#,
+            r#"label_copy(foo{x="y"}, "a", "b") + bar{x="y"}"#,
+        );
+        validate_optimized(
+            r#"label_copy(foo, "a", "b", "c", "d") + bar{a="y",b="z"}"#,
+            r#"label_copy(foo{a="y"}, "a", "b", "c", "d") + bar{a="y",b="z"}"#,
+        );
+        validate_optimized(
+            r#"label_copy(foo{q="w"}, "a", "b") + bar{a="y",b="z"}"#,
+            r#"label_copy(foo{a="y",q="w"}, "a", "b") + bar{a="y",b="z",q="w"}"#,
+        );
+        validate_optimized(
+            r#"label_copy(foo{b="w"}, "a", "b") + bar{a="y",b="z"}"#,
+            r#"label_copy(foo{a="y",b="w"}, "a", "b") + bar{a="y",b="z"}"#,
+        );
     }
 
     #[test]
     fn test_label_del() {
         // Label_del
-        validate_optimized(r#"label_del(foo, "a", "b") + bar{x="y"}"#, r#"label_del(foo{x="y"}, "a", "b") + bar{x="y"}"#);
-        validate_optimized(r#"label_del(foo{a="q",b="w",z="d"}, "a", "b") + bar{a="y",b="z",x="y"}"#, r#"label_del(foo{a="q",b="w",x="y",z="d"}, "a", "b") + bar{a="y",b="z",x="y",z="d"}"#);
+        validate_optimized(
+            r#"label_del(foo, "a", "b") + bar{x="y"}"#,
+            r#"label_del(foo{x="y"}, "a", "b") + bar{x="y"}"#,
+        );
+        validate_optimized(
+            r#"label_del(foo{a="q",b="w",z="d"}, "a", "b") + bar{a="y",b="z",x="y"}"#,
+            r#"label_del(foo{a="q",b="w",x="y",z="d"}, "a", "b") + bar{a="y",b="z",x="y",z="d"}"#,
+        );
     }
 
     #[test]
     fn test_label_keep() {
         // Label_keep
-        validate_optimized(r#"label_keep(foo, "a", "b") + bar{x="y"}"#, r#"label_keep(foo, "a", "b") + bar{x="y"}"#);
-        validate_optimized(r#"label_keep(foo{a="q",c="d"}, "a", "b") + bar{x="y",b="z"}"#, r#"label_keep(foo{a="q",b="z",c="d"}, "a", "b") + bar{a="q",b="z",x="y"}"#);
+        validate_optimized(
+            r#"label_keep(foo, "a", "b") + bar{x="y"}"#,
+            r#"label_keep(foo, "a", "b") + bar{x="y"}"#,
+        );
+        validate_optimized(
+            r#"label_keep(foo{a="q",c="d"}, "a", "b") + bar{x="y",b="z"}"#,
+            r#"label_keep(foo{a="q",b="z",c="d"}, "a", "b") + bar{a="q",b="z",x="y"}"#,
+        );
     }
 
     #[test]
     fn test_label_uppercase() {
         // Label_uppercase
-        validate_optimized(r#"label_uppercase(foo, "a", "b") + bar{x="y"}"#, r#"label_uppercase(foo{x="y"}, "a", "b") + bar{x="y"}"#);
-        validate_optimized(r#"label_uppercase(foo{a="q",b="w",z="d"}, "a", "b") + bar{a="y",b="z",x="y"}"#, r#"label_uppercase(foo{a="q",b="w",x="y",z="d"}, "a", "b") + bar{a="y",b="z",x="y",z="d"}"#);
+        validate_optimized(
+            r#"label_uppercase(foo, "a", "b") + bar{x="y"}"#,
+            r#"label_uppercase(foo{x="y"}, "a", "b") + bar{x="y"}"#,
+        );
+        validate_optimized(
+            r#"label_uppercase(foo{a="q",b="w",z="d"}, "a", "b") + bar{a="y",b="z",x="y"}"#,
+            r#"label_uppercase(foo{a="q",b="w",x="y",z="d"}, "a", "b") + bar{a="y",b="z",x="y",z="d"}"#,
+        );
     }
 
     #[test]
     fn test_label_lowercase() {
         // Label_lowercase
-        validate_optimized(r#"label_lowercase(foo, "a", "b") + bar{x="y"}"#, r#"label_lowercase(foo{x="y"}, "a", "b") + bar{x="y"}"#);
-        validate_optimized(r#"label_lowercase(foo{a="q",b="w",z="d"}, "a", "b") + bar{a="y",b="z",x="y"}"#, r#"label_lowercase(foo{a="q",b="w",x="y",z="d"}, "a", "b") + bar{a="y",b="z",x="y",z="d"}"#);
+        validate_optimized(
+            r#"label_lowercase(foo, "a", "b") + bar{x="y"}"#,
+            r#"label_lowercase(foo{x="y"}, "a", "b") + bar{x="y"}"#,
+        );
+        validate_optimized(
+            r#"label_lowercase(foo{a="q",b="w",z="d"}, "a", "b") + bar{a="y",b="z",x="y"}"#,
+            r#"label_lowercase(foo{a="q",b="w",x="y",z="d"}, "a", "b") + bar{a="y",b="z",x="y",z="d"}"#,
+        );
     }
 
     #[test]
     fn test_labels_equal() {
         // Labels_equal
-        validate_optimized(r#"labels_equal(foo, "a", "b") + bar{x="y"}"#, r#"labels_equal(foo{x="y"}, "a", "b") + bar{x="y"}"#);
-        validate_optimized(r#"labels_equal(foo{a="q",b="w",z="d"}, "a", "b") + bar{a="y",b="z",x="y"}"#, r#"labels_equal(foo{a="q",b="w",x="y",z="d"}, "a", "b") + bar{a="y",b="z",x="y",z="d"}"#);
+        validate_optimized(
+            r#"labels_equal(foo, "a", "b") + bar{x="y"}"#,
+            r#"labels_equal(foo{x="y"}, "a", "b") + bar{x="y"}"#,
+        );
+        validate_optimized(
+            r#"labels_equal(foo{a="q",b="w",z="d"}, "a", "b") + bar{a="y",b="z",x="y"}"#,
+            r#"labels_equal(foo{a="q",b="w",x="y",z="d"}, "a", "b") + bar{a="y",b="z",x="y",z="d"}"#,
+        );
     }
 
     #[test]
     fn test_label_graphite_group() {
-        validate_optimized(r#"label_graphite_group(foo, 1, 2) + bar{x="y"}"#, r#"label_graphite_group(foo{x="y"}, 1, 2) + bar{x="y"}"#);
-        validate_optimized(r#"label_graphite_group({a="b",__name__="qwe"}, 1, 2) + {__name__="abc",x="y"}"#, r#"label_graphite_group(qwe{a="b",x="y"}, 1, 2) + abc{a="b",x="y"}"#);
+        validate_optimized(
+            r#"label_graphite_group(foo, 1, 2) + bar{x="y"}"#,
+            r#"label_graphite_group(foo{x="y"}, 1, 2) + bar{x="y"}"#,
+        );
+        validate_optimized(
+            r#"label_graphite_group({a="b",__name__="qwe"}, 1, 2) + {__name__="abc",x="y"}"#,
+            r#"label_graphite_group(qwe{a="b",x="y"}, 1, 2) + abc{a="b",x="y"}"#,
+        );
     }
 
     #[test]
@@ -646,9 +778,14 @@ mod tests {
 
     #[test]
     fn test_vector() {
-        validate_optimized(r#"vector(foo) + bar{a="b"}"#, r#"vector(foo{a="b"}) + bar{a="b"}"#);
-        validate_optimized(r#"vector(foo{x="y"} + a) + bar{a="b"}"#,
-          r#"vector(foo{a="b",x="y"} + a{a="b",x="y"}) + bar{a="b",x="y"}"#);
+        validate_optimized(
+            r#"vector(foo) + bar{a="b"}"#,
+            r#"vector(foo{a="b"}) + bar{a="b"}"#,
+        );
+        validate_optimized(
+            r#"vector(foo{x="y"} + a) + bar{a="b"}"#,
+            r#"vector(foo{a="b",x="y"} + a{a="b",x="y"}) + bar{a="b",x="y"}"#,
+        );
     }
 
     #[test]
@@ -827,14 +964,16 @@ mod tests {
             r#"(foo{baz="a"} / bar{baz="a"}) * 100"#,
         );
 
-        validate_optimized(r#"SCALAR(x) * foo / bar{baz="a"}"#,  r#"(SCALAR(x) * foo{baz="a"}) / bar{baz="a"}"#);
+        validate_optimized(
+            r#"SCALAR(x) * foo / bar{baz="a"}"#,
+            r#"(SCALAR(x) * foo{baz="a"}) / bar{baz="a"}"#,
+        );
 
         validate_optimized(
             r#"100 * on(foo) bar{baz="z"} + a"#,
             r#"(100 * on (foo) bar{baz="z"}) + a"#,
         );
     }
-
 
     fn validate_optimized(q: &str, expected: &str) {
         let e = parse_selector(q);

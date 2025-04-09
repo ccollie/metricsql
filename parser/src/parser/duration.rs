@@ -9,7 +9,6 @@ const MILLIS_PER_DAY: f64 = 24.0 * MILLIS_PER_HOUR;
 const MILLIS_PER_WEEK: f64 = 7.0 * MILLIS_PER_DAY;
 const MILLIS_PER_YEAR: f64 = 365.0 * MILLIS_PER_DAY;
 
-
 /// `positive_duration_value` returns positive duration in milliseconds for the given s
 /// and the given step.
 ///
@@ -102,7 +101,9 @@ fn parse_single_duration(s: &str, step: i64) -> Result<f64, ParseError> {
         "y" => mp = MILLIS_PER_YEAR,
         "i" => mp = step as f64,
         _ => {
-            return Err(ParseError::General(format!("invalid duration suffix in {s}")))
+            return Err(ParseError::General(format!(
+                "invalid duration suffix in {s}"
+            )))
         }
     }
     Ok(mp * f)

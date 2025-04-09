@@ -20,14 +20,16 @@ pub(crate) fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expr> {
     if tok.kind.is_ident_like() {
         name = match tok.kind {
             Token::Identifier => Some(unescape_ident(tok.text)?.to_string()),
-            _ => Some(tok.text.to_string())
+            _ => Some(tok.text.to_string()),
         };
         p.bump();
     }
 
     if !p.at(&Token::LeftBrace) {
         if name.is_none() {
-            return Err(ParseError::InvalidSelector("missing metric name".to_string()));
+            return Err(ParseError::InvalidSelector(
+                "missing metric name".to_string(),
+            ));
         }
         return Ok(Expr::MetricExpression(MetricExpr {
             matchers: Matchers {
@@ -47,7 +49,10 @@ pub(crate) fn parse_metric_expr(p: &mut Parser) -> ParseResult<Expr> {
                 name = Some(metric_name.to_string());
             }
             if matchers.or_matchers.len() == 1 {
-                let mut matcher = matchers.or_matchers.pop().expect("or_matchers is not empty");
+                let mut matcher = matchers
+                    .or_matchers
+                    .pop()
+                    .expect("or_matchers is not empty");
                 std::mem::swap(&mut matchers.matchers, &mut matcher);
             }
             need_normalization = false;
@@ -108,7 +113,7 @@ fn parse_label_filters(p: &mut Parser) -> ParseResult<Matchers> {
             OpOr => {
                 has_or_matchers = true;
                 p.bump()
-            },
+            }
             _ => return Err(unexpected("label filter", tok.text, "OR or }", None)),
         }
     }

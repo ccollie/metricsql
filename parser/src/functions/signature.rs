@@ -157,10 +157,7 @@ impl Signature {
 
     /// exact - Creates a signature which must match the types in exact_types in order, but with
     /// a minimum number of args.
-    pub fn exact_with_min_args(
-        exact_types: Vec<ValueType>,
-        min: usize,
-    ) -> Self {
+    pub fn exact_with_min_args(exact_types: Vec<ValueType>, min: usize) -> Self {
         // todo: panic if out of range
         let min_arg = min.clamp(0, exact_types.len());
         Signature {

@@ -1,16 +1,16 @@
 use std::ops::Deref;
 
-use tracing::{field, trace_span, Span};
-use metricsql_parser::ast::{AggregationExpr, Expr, FunctionExpr, MetricExpr};
-use metricsql_parser::functions::BuiltinFunction;
 use crate::common::cpu::num_cpus;
-use crate::execution::{Context, EvalConfig};
 use crate::execution::exec::{eval_exprs_in_parallel, eval_rollup_func_args};
 use crate::execution::rollups::RollupEvaluator;
+use crate::execution::{Context, EvalConfig};
 use crate::functions::aggregate::{exec_aggregate_fn, AggrFuncArg, IncrementalAggregationHandler};
 use crate::functions::rollup::get_rollup_function_factory;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::types::QueryValue;
+use metricsql_parser::ast::{AggregationExpr, Expr, FunctionExpr, MetricExpr};
+use metricsql_parser::functions::BuiltinFunction;
+use tracing::{field, trace_span, Span};
 
 pub(super) fn eval_aggr_func(
     ctx: &Context,
@@ -26,7 +26,7 @@ pub(super) fn eval_aggr_func(
     } else {
         Span::none()
     }
-        .entered();
+    .entered();
 
     // todo: ensure that this is serialized otherwise the contained block will not be executed
     if ae.can_incrementally_eval() && IncrementalAggregationHandler::handles(ae.function) {
@@ -64,7 +64,7 @@ pub(super) fn eval_aggr_func(
         args,
         ec,
         modifier: &ae.modifier,
-        limit: ae.limit // get_timeseries_limit(ae)?,
+        limit: ae.limit, // get_timeseries_limit(ae)?,
     };
 
     match exec_aggregate_fn(ae.function, &mut afa) {

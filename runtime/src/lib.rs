@@ -30,16 +30,16 @@ pub use query_stats::*;
 pub use runtime_error::*;
 
 pub mod cache;
+mod common;
 pub mod execution;
 mod functions;
 mod histogram;
 pub mod provider;
 pub mod query_stats;
 mod runtime_error;
-pub mod types;
-mod common;
 #[cfg(test)]
 mod tests;
+pub mod types;
 
 #[cfg(test)]
 pub use tests::utils::*;

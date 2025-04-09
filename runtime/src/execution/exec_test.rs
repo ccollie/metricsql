@@ -21,7 +21,8 @@ mod tests {
     const END: Timestamp = 2000000_i64;
     const STEP: Duration = Duration::from_millis(200000_u64);
 
-    const TIMESTAMPS_EXPECTED: [Timestamp; 6] = [1000000, 1200000, 1400000, 1600000, 1800000, 2000000];
+    const TIMESTAMPS_EXPECTED: [Timestamp; 6] =
+        [1000000, 1200000, 1400000, 1600000, 1800000, 2000000];
 
     fn make_result(vals: &[f64]) -> QueryResult {
         let mut start = 1000000;
@@ -150,7 +151,11 @@ mod tests {
             if expected.is_nan() {
                 assert!(actual_value.is_nan(), "expected NaN, got {}", actual_value);
             } else {
-                assert_eq!(actual_value, expected, "expected {}, got {}", expected, actual_value);
+                assert_eq!(
+                    actual_value, expected,
+                    "expected {}, got {}",
+                    expected, actual_value
+                );
             }
         } else {
             panic!("Expected scalar value, got {:?}", actual);
@@ -1608,7 +1613,7 @@ mod tests {
         r.metric.set("foo", "1");
         test_query(q, vec![r]);
     }
-    
+
     #[test]
     fn limit_offset_sort_by_label() {
         let q = r#"limit_offset(5, 0, sort_by_label_numeric_desc((
@@ -1620,22 +1625,22 @@ mod tests {
                     label_set(6, "foo", "1:0:2"),
                     label_set(8, "foo", "9:0:15")
                 ), "foo"))"#;
-        
+
         let mut r1 = make_result(&[8.0, 8.0, 8.0, 8.0, 8.0, 8.0]);
         r1.metric.set("foo", "9:0:15");
-        
+
         let r2 = make_result(&[5.0, 5.0, 5.0, 5.0, 5.0, 5.0]);
         r1.metric.set("foo", "7:0:15");
-        
+
         let mut r3 = make_result(&[4.0, 4.0, 4.0, 4.0, 4.0, 4.0]);
         r3.metric.set("foo", "5:0:15");
-        
+
         let mut r4 = make_result(&[7.0, 7.0, 7.0, 7.0, 7.0, 7.0]);
         r4.metric.set("foo", "3:0:1");
-        
+
         let mut r5 = make_result(&[3.0, 3.0, 3.0, 3.0, 3.0, 3.0]);
         r5.metric.set("foo", "1:0:3");
-        
+
         test_query(q, vec![r1, r2, r3, r4, r5]);
     }
 
@@ -3232,14 +3237,7 @@ mod tests {
     #[test]
     fn quantile_over_time() {
         let q = r#"quantile_over_time(0.9, label_set(round(rand(0), 0.01), "__name__", "foo", "xx", "yy")[200s:5s])"#;
-        let mut r = make_result(&[
-            0.871,
-            0.88,
-            0.852,
-            0.891,
-            0.726,
-            0.827,
-        ]);
+        let mut r = make_result(&[0.871, 0.88, 0.852, 0.891, 0.726, 0.827]);
         r.metric.set_measurement("foo");
         r.metric.set("xx", "yy");
 
@@ -3269,26 +3267,12 @@ mod tests {
         ),
         "phi",
         )"#;
-        let mut r1 = make_result(&[
-            0.355,
-            0.51,
-            0.515,
-            0.56,
-            0.415,
-            0.415
-        ]);
+        let mut r1 = make_result(&[0.355, 0.51, 0.515, 0.56, 0.415, 0.415]);
         r1.metric.set_measurement("foo");
         r1.metric.set("phi", "0.5");
         r1.metric.set("xx", "yy");
 
-        let mut r2 = make_result(&[
-            0.871,
-            0.88,
-            0.852,
-            0.891,
-            0.726,
-            0.827,
-        ]);
+        let mut r2 = make_result(&[0.871, 0.88, 0.852, 0.891, 0.726, 0.827]);
         r2.metric.set_measurement("foo");
         r2.metric.set("phi", "0.9");
         r2.metric.set("xx", "yy");
@@ -4238,9 +4222,7 @@ mod tests {
     #[test]
     fn range_stdvar_1() {
         let q = "round(range_stdvar(time() > 1200 < 1800),0.01)";
-        let r = make_result(&[
-            10_000.0, 10_000.0, 10_000.0, 10_000.0, 10_000.0, 10_000.0,
-        ]);
+        let r = make_result(&[10_000.0, 10_000.0, 10_000.0, 10_000.0, 10_000.0, 10_000.0]);
         test_query(q, vec![r]);
     }
 
@@ -4433,8 +4415,10 @@ mod tests {
 
     #[test]
     fn running_sum_time_ex() {
-        assert_result_eq("running_sum(time()/1e3 > 1.2 < 1.8)",
-                         &[f64::NAN, f64::NAN, 1.4, 3.0, 3.0, 3.0]);
+        assert_result_eq(
+            "running_sum(time()/1e3 > 1.2 < 1.8)",
+            &[f64::NAN, f64::NAN, 1.4, 3.0, 3.0, 3.0],
+        );
     }
 
     #[test]
@@ -4513,7 +4497,8 @@ mod tests {
 
     #[test]
     fn range_normalize_1() {
-        let q = r#"range_normalize(time() > 1200 < 1800,alias(-(time() > 1200 < 2000), "negative"))"#;
+        let q =
+            r#"range_normalize(time() > 1200 < 1800,alias(-(time() > 1200 < 2000), "negative"))"#;
         let r1 = make_result(&[f64::NAN, f64::NAN, 0.0, 1.0, f64::NAN, f64::NAN]);
         let mut r2 = make_result(&[f64::NAN, f64::NAN, 1.0, 0.5, 0.0, f64::NAN]);
         r2.metric.measurement = "negative".to_string();
@@ -4582,12 +4567,18 @@ mod tests {
 
     #[test]
     fn range_linear_regression_time() {
-        assert_result_eq("range_linear_regression(time())",&[1000.0, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
+        assert_result_eq(
+            "range_linear_regression(time())",
+            &[1000.0, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0],
+        );
     }
 
     #[test]
     fn range_linear_regression_negative_time() {
-        assert_result_eq("range_linear_regression(-time())", &[-1000.0, -1200.0, -1400.0, -1600.0, -1800.0, -2000.0]);
+        assert_result_eq(
+            "range_linear_regression(-time())",
+            &[-1000.0, -1200.0, -1400.0, -1600.0, -1800.0, -2000.0],
+        );
     }
 
     #[test]
@@ -4700,7 +4691,6 @@ mod tests {
         r2.metric.set("rollup", "max_over_time");
         test_query(q, vec![r1, r2]);
     }
-
 
     #[test]
     fn rollup_candlestick() {
@@ -5259,7 +5249,6 @@ mod tests {
         test_query(q, vec![r1, r2])
     }
 
-
     #[test]
     #[allow(non_snake_case)]
     fn series_OR_many_series() {
@@ -5531,7 +5520,7 @@ mod tests {
         f("sum(aggr_over_time())");
         f("sum(aggr_over_time(foo))");
         // this is incorrect, but is detected in the runtime instead of the parser
-//       f(r#"count(aggr_over_time("foo", bar, 1))"#);
+        //       f(r#"count(aggr_over_time("foo", bar, 1))"#);
         f("hoeffding_bound_lower()");
         f("hoeffding_bound_lower(1)");
         f("hoeffding_bound_lower(0.99, foo, 1)");
@@ -5575,7 +5564,7 @@ mod tests {
         f("rollup()");
 
         // Invalid argument type
-//        f("median_over_time({}, 2)");
+        //        f("median_over_time({}, 2)");
         f(r#"smooth_exponential(1, 1 or label_set(2, "x", "y"))"#);
         f("count_values(1, 2)");
         f(r#"count_values(1 or label_set(2, "xx", "yy"), 2)"#);
@@ -5703,7 +5692,7 @@ label_set(time()+200, "__name__", "bar", "a", "x"),
         f("sum(sum(http_total))");
 
         f("sum(sum_over_time(http_total[1m] )) by (instance)");
-       // f("sum(up{cluster='a'}[1m] or up{cluster='b'}[1m])");
+        // f("sum(up{cluster='a'}[1m] or up{cluster='b'}[1m])");
         f("(avg_over_time(alarm_test1[1m]) - avg_over_time(alarm_test1[1m] offset 5m)) > 0.1");
         f("http_total[1m] offset 1m");
         f("sum(http_total offset 1m)");

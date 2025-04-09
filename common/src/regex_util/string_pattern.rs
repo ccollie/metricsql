@@ -1,6 +1,6 @@
-use std::fmt::Display;
 use get_size::GetSize;
 use serde_derive::{Deserialize, Serialize};
+use std::fmt::Display;
 
 #[derive(Clone, GetSize, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StringPattern {
@@ -134,15 +134,13 @@ pub struct AsciiCaseInsensitivePattern {
 
 impl AsciiCaseInsensitivePattern {
     fn new(pattern: String) -> Self {
-        Self {
-            pattern,
-        }
+        Self { pattern }
     }
 
     fn matches(&self, s: &str) -> bool {
         self.pattern.eq_ignore_ascii_case(s)
     }
-    
+
     fn starts_with(&self, s: &str) -> bool {
         let pattern = self.pattern.as_str();
         let len = pattern.len();
@@ -152,7 +150,7 @@ impl AsciiCaseInsensitivePattern {
         let prefix = &s[..len];
         prefix.eq_ignore_ascii_case(pattern)
     }
-    
+
     fn ends_with(&self, s: &str) -> bool {
         if self.pattern.len() > s.len() {
             return false;
@@ -169,9 +167,7 @@ pub struct CaseSensitivePattern {
 
 impl CaseSensitivePattern {
     fn new(pattern: String) -> Self {
-        Self {
-            pattern,
-        }
+        Self { pattern }
     }
 
     fn matches(&self, s: &str) -> bool {
@@ -213,21 +209,21 @@ impl CaseInsensitivePattern {
             lowercase_pattern,
         }
     }
-    
+
     fn matches(&self, s: &str) -> bool {
         if s.len() != self.pattern.len() {
             return false;
         }
         self.lowercase_pattern == s.to_lowercase()
     }
-    
+
     fn starts_with(&self, s: &str) -> bool {
         if self.pattern.len() > s.len() {
             return false;
         }
         s.to_lowercase().starts_with(&self.lowercase_pattern)
     }
-    
+
     fn ends_with(&self, s: &str) -> bool {
         if self.pattern.len() > s.len() {
             return false;

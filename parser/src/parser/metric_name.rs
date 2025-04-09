@@ -1,8 +1,8 @@
-use super::tokens::Token;
 use super::parse_error::unexpected;
+use super::tokens::Token;
 use crate::parser::{extract_string_value, ParseErr, ParseError, ParseResult};
 use logos::{Lexer, Logos};
-use metricsql_common::types::{Label};
+use metricsql_common::types::Label;
 
 /// specialized parser for a `Prometheus` compatible metric name (as opposed to a metric selector).
 ///
@@ -46,14 +46,14 @@ fn parse_label_filters(lex: &mut Lexer<Token>, labels: &mut Vec<Label>) -> Parse
                 let contents = extract_string_value(value)?;
                 labels.push(Label::new(name, contents.to_string()));
                 was_ident = true;
-            },
+            }
             Comma => {
                 if !was_ident {
                     return Err(unexpected("metric name", name, "identifier", None));
                 }
                 was_ident = false;
-                continue
-            },
+                continue;
+            }
             RightBrace => {
                 if !was_ident {
                     let count = labels.len() - save_count;
@@ -61,8 +61,8 @@ fn parse_label_filters(lex: &mut Lexer<Token>, labels: &mut Vec<Label>) -> Parse
                         return Err(unexpected("metric name", name, "identifier", None));
                     }
                 }
-                break
-            },
+                break;
+            }
             _ => return Err(unexpected("metric name label", name, ", or }", None)),
         }
     }
@@ -70,7 +70,6 @@ fn parse_label_filters(lex: &mut Lexer<Token>, labels: &mut Vec<Label>) -> Parse
 
     Ok(())
 }
-
 
 fn get_next<'a>(lex: &'a mut Lexer<Token>) -> ParseResult<(Token, &'a str)> {
     match lex.next() {
@@ -105,8 +104,14 @@ mod tests {
     #[test]
     fn test_parse_metric_name() {
         let cases = vec![
-            ("foo{}", vec![Label::new("__name__".to_string(), "foo".to_string())]),
-            ("foo", vec![Label::new("__name__".to_string(), "foo".to_string())]),
+            (
+                "foo{}",
+                vec![Label::new("__name__".to_string(), "foo".to_string())],
+            ),
+            (
+                "foo",
+                vec![Label::new("__name__".to_string(), "foo".to_string())],
+            ),
             (
                 "foo{bar=\"baz\"}",
                 vec![

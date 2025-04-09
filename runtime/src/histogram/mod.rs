@@ -14,7 +14,6 @@ static UPPER_BUCKET_RANGE: LazyLock<String> =
 static LOWER_BUCKET_RANGE: LazyLock<String> =
     LazyLock::new(|| format!("0...{}", format_float(10_f64.powi(E10_MIN))));
 
-
 /// `Histogram` is a histogram for non-negative values with automatically created buckets.
 ///
 /// See https://medium.com/@valyala/improving-histogram-usability-for-prometheus-and-grafana-bc7e5df0e350

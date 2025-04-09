@@ -23,7 +23,7 @@ async-std = { version = "1.13", optional = true }
 async-trait = "0.1"
 enquote.workspace = true
 blart = "0.3"
-clone_dyn = "0.29"
+clone_dyn = "0.30.0"
 chili.workspace = true
 croaring = { version = "2.2" , features = ["alloc"] }
 chrono.workspace = true
@@ -55,6 +55,8 @@ metricsql_common={ path = "../common" }
 metricsql_parser={ path = "../parser" }
 cfg-if = "1.0.0"
 futures = "0.3.31"
+iter-set-ops = { git = "https://github.com/imartayan/iter-set-ops.git" }
+
 
 [features]
 default = ["tokio"]

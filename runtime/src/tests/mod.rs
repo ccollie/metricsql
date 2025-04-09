@@ -1,3 +1,3 @@
+mod promql_test;
 #[cfg(test)]
 pub mod utils;
-mod promql_test;

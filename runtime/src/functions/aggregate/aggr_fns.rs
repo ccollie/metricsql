@@ -5,11 +5,11 @@ use std::ops::DerefMut;
 
 use ahash::{AHashMap, HashMapExt};
 use lockfree_object_pool::LinearReusable;
-use smallvec::SmallVec;
 use metricsql_common::hash::{IntMap, Signature};
 use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_f64_filled};
 use metricsql_parser::ast::AggregateModifier;
 use metricsql_parser::functions::AggregateFunction;
+use smallvec::SmallVec;
 
 use crate::common::math::{mode_no_nans, quantile, quantiles, IQR_PHIS};
 use crate::execution::{eval_number, remove_empty_series, EvalConfig};
@@ -27,7 +27,6 @@ use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::types::{FunctionArgs, QueryValue, Timeseries};
 
 const MAX_SERIES_PER_AGGR_FUNC: usize = 100000;
-
 
 pub struct AggrFuncArg<'a> {
     pub args: FunctionArgs,
@@ -139,7 +138,8 @@ fn aggr_func_impl(
     arg: &mut AggrFuncArg,
 ) -> RuntimeResult<Vec<Timeseries>> {
     let tss = get_aggr_timeseries(arg)?;
-    aggr_func_ext(move |tss: &mut Vec<Timeseries>, _: &Option<AggregateModifier>| {
+    aggr_func_ext(
+        move |tss: &mut Vec<Timeseries>, _: &Option<AggregateModifier>| {
             afe(tss);
             std::mem::take(tss)
         },
@@ -407,7 +407,8 @@ fn aggr_func_min(tss: &mut Vec<Timeseries>) {
     }
 
     for i in 0..tss[0].values.len() {
-        tss[0].values[i] = tss.iter()
+        tss[0].values[i] = tss
+            .iter()
             .map(|ts| ts.values[i])
             .filter(|&v| !v.is_nan())
             .fold(f64::NAN, f64::min);
@@ -567,7 +568,6 @@ fn aggr_func_mode(tss: &mut Vec<Timeseries>) {
 }
 
 fn aggr_func_share(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-
     let afe = |tss: &mut Vec<Timeseries>, _: &Option<AggregateModifier>| -> Vec<Timeseries> {
         for i in 0..tss[0].values.len() {
             // Calculate sum for non-negative points at position i.
@@ -599,7 +599,6 @@ fn aggr_func_share(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
 }
 
 fn aggr_func_zscore(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-
     let afe = |tss: &mut Vec<Timeseries>, _: &Option<AggregateModifier>| {
         for i in 0..tss[0].values.len() {
             // Calculate avg and stddev for tss points at position i.
@@ -679,8 +678,7 @@ fn aggr_func_count_values(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries
         for v in values {
             let mut dst: Timeseries = tss[0].clone();
             dst.metric_name.remove_label(&dst_label);
-            dst.metric_name
-                .set(&dst_label, format!("{}", v).as_str());
+            dst.metric_name.set(&dst_label, format!("{}", v).as_str());
 
             for (i, dst_value) in dst.values.iter_mut().enumerate() {
                 let mut count = 0;
@@ -962,7 +960,6 @@ fn aggr_func_limitk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     aggr_func_ext(afe, series, afa.modifier, afa.limit, true)
 }
 
-
 fn aggr_func_quantiles(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let dst_label = get_string_arg(&afa.args, 0)?.to_string();
 
@@ -973,8 +970,8 @@ fn aggr_func_quantiles(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> 
             "quantiles() must have at least one phi argument".to_string(),
         ));
     }
-    
-    let mut phis : SmallVec<f64, 4> = SmallVec::new();
+
+    let mut phis: SmallVec<f64, 4> = SmallVec::new();
 
     for arg in afa.args[1..afa.args.len() - 1].iter() {
         phis.push(arg.get_scalar()?);
@@ -988,7 +985,7 @@ fn aggr_func_quantiles(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> 
             ts.metric_name.set(&dst_label, &format!("{}", phi));
             tss_dst.push(ts);
         }
-        
+
         let mut qs = get_pooled_vec_f64_filled(phis.len(), 0f64);
 
         let mut values = get_pooled_vec_f64_filled(phis.len(), f64::NAN);

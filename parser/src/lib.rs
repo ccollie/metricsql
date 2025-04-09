@@ -20,14 +20,8 @@ pub mod optimizer;
 mod parser;
 
 pub use crate::parser::{
-    parse,
-    parse_duration_value,
-    parse_number,
-    parse_metric_name,
-    parse_metric_selector,
-    parse_timestamp,
-    parse_numeric_timestamp,
-    ParseErr, ParseError, ParseResult,
+    parse, parse_duration_value, parse_metric_name, parse_metric_selector, parse_number,
+    parse_numeric_timestamp, parse_timestamp, ParseErr, ParseError, ParseResult,
 };
 
 pub mod prelude {

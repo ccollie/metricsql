@@ -99,8 +99,8 @@ impl Histogram {
             let idx = bucket_idx as usize;
             let decimal_bucket_idx = idx / BUCKETS_PER_DECIMAL;
             let offset = idx % BUCKETS_PER_DECIMAL;
-            let db = inner.decimal_buckets[decimal_bucket_idx]
-                .get_or_insert([0; BUCKETS_PER_DECIMAL]);
+            let db =
+                inner.decimal_buckets[decimal_bucket_idx].get_or_insert([0; BUCKETS_PER_DECIMAL]);
             db[offset] = 1;
         }
     }
@@ -114,8 +114,7 @@ impl Histogram {
 
         for (i, db_src) in src_inner.decimal_buckets.iter().enumerate() {
             if let Some(db_src) = db_src {
-                let db_dst =
-                    inner.decimal_buckets[i].get_or_insert([0; BUCKETS_PER_DECIMAL]);
+                let db_dst = inner.decimal_buckets[i].get_or_insert([0; BUCKETS_PER_DECIMAL]);
                 for (j, c) in db_src.iter().enumerate() {
                     db_dst[j] = *c;
                 }

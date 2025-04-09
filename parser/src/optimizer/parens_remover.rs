@@ -1,5 +1,5 @@
 use crate::ast::{
-    AggregationExpr, BinaryExpr, Expr, FunctionExpr, ParensExpr, RollupExpr, UnaryExpr
+    AggregationExpr, BinaryExpr, Expr, FunctionExpr, ParensExpr, RollupExpr, UnaryExpr,
 };
 use crate::common::{RewriteRecursion, TreeNodeRewriter};
 use crate::parser::ParseResult;
@@ -43,7 +43,6 @@ impl ParensRemover {
     }
 }
 
-
 /// remove_parens_expr removes parensExpr for (Expr) case.
 pub fn remove_parens(e: Expr) -> Expr {
     if !should_remove_parens(&e) {
@@ -52,9 +51,7 @@ pub fn remove_parens(e: Expr) -> Expr {
     match e {
         Expr::Rollup(re) => Expr::Rollup(RollupExpr {
             expr: Box::new(remove_parens(*re.expr)),
-            at: re
-                .at
-                .map(|at| Box::new(remove_parens(*at))),
+            at: re.at.map(|at| Box::new(remove_parens(*at))),
             window: re.window,
             step: re.step,
             offset: re.offset,

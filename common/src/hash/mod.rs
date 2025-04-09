@@ -10,7 +10,6 @@ cfg_if!(
     }
 );
 
-
 mod no_hash;
 mod signature;
 

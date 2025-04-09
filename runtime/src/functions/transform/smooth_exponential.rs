@@ -1,7 +1,7 @@
 use crate::functions::arg_parse::{get_float_arg, get_series_arg};
 use crate::functions::transform::TransformFuncArg;
-use crate::{RuntimeResult};
 use crate::types::Timeseries;
+use crate::RuntimeResult;
 
 pub(crate) fn smooth_exponential(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let sf = get_float_arg(&tfa.args, 1, Some(1.0))?;

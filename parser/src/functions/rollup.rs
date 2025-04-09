@@ -190,16 +190,16 @@ impl RollupFunction {
             ZScoreOverTime => "zscore_over_time",
         }
     }
-    
+
     pub fn lookup(name: &str) -> Option<RollupFunction> {
         if let Some(func) = lookup_rollup_fn(name.as_bytes()) {
             Some(func)
-        } else { 
+        } else {
             let lower = name.to_ascii_lowercase();
             lookup_rollup_fn(lower.as_bytes())
         }
     }
-    
+
     /// the signatures supported by the function `fun`.
     pub fn signature(&self) -> Signature {
         use RollupFunction::*;
@@ -212,15 +212,11 @@ impl RollupFunction {
             | ShareLeOverTime | SumEqOverTime | SumGtOverTime | SumLeOverTime | TFirstOverTime => {
                 Signature::exact(vec![RangeVector, Scalar])
             }
-            CountValuesOverTime => {
-                Signature::exact(vec![String, RangeVector])
-            }
+            CountValuesOverTime => Signature::exact(vec![String, RangeVector]),
             HoeffdingBoundLower | HoeffdingBoundUpper => {
                 Signature::exact(vec![Scalar, RangeVector])
             }
-            HoltWinters => {
-                Signature::exact(vec![RangeVector, Scalar, Scalar])
-            }
+            HoltWinters => Signature::exact(vec![RangeVector, Scalar, Scalar]),
             AggrOverTime => {
                 let mut quantile_types: Vec<ValueType> = vec![String; MAX_ARG_COUNT];
                 quantile_types.insert(0, RangeVector);
@@ -383,21 +379,21 @@ impl RollupFunction {
     pub const fn can_adjust_window(&self) -> bool {
         use RollupFunction::*;
         matches!(
-        self,
-        DefaultRollup
-            | Deriv
-            | DerivFast
-            | IDeriv
-            | IRate
-            | Rate
-            | RateOverSum
-            | Rollup
-            | RollupCandlestick
-            | RollupDeriv
-            | RollupRate
-            | RollupScrapeInterval
-            | ScrapeInterval
-            | Timestamp
+            self,
+            DefaultRollup
+                | Deriv
+                | DerivFast
+                | IDeriv
+                | IRate
+                | Rate
+                | RateOverSum
+                | Rollup
+                | RollupCandlestick
+                | RollupDeriv
+                | RollupRate
+                | RollupScrapeInterval
+                | ScrapeInterval
+                | Timestamp
         )
     }
 }
@@ -458,11 +454,13 @@ pub const fn get_rollup_arg_idx(fe: &RollupFunction, arg_count: usize) -> Option
     use RollupFunction::*;
     match fe {
         QuantileOverTime | HoeffdingBoundLower | HoeffdingBoundUpper => Some(1),
-        QuantilesOverTime => if arg_count >= 1 {
-            Some(arg_count - 1)
-        } else {
-            None
-        },
+        QuantilesOverTime => {
+            if arg_count >= 1 {
+                Some(arg_count - 1)
+            } else {
+                None
+            }
+        }
         _ => Some(0),
     }
 }
@@ -493,9 +491,7 @@ pub fn is_rollup_aggregation_over_time(func: RollupFunction) -> bool {
         return true;
     }
 
-    matches!(func, 
-        | Delta
-        | DeltaPrometheus
+    matches!(func, |Delta| DeltaPrometheus
         | Deriv
         | DerivFast
         | IDelta
@@ -512,7 +508,6 @@ pub fn is_rollup_aggregation_over_time(func: RollupFunction) -> bool {
         | RollupIncrease
         | RollupRate)
 }
-
 
 fn lookup_rollup_fn(key: &[u8]) -> Option<RollupFunction> {
     use RollupFunction::*;
@@ -618,7 +613,7 @@ mod tests {
             assert_eq!(rf, found_fn, "invalid entry for {rf}. Found for {found_fn}");
         }
     }
-    
+
     #[test]
     fn test_rollup_function_lookup() {
         for rf in RollupFunction::iter() {
@@ -630,7 +625,11 @@ mod tests {
 
             let upper_key = key.to_uppercase();
             let found_upper_fn = RollupFunction::lookup(&upper_key);
-            assert!(found_upper_fn.is_some(), "missing lookup entry for {}", upper_key);
+            assert!(
+                found_upper_fn.is_some(),
+                "missing lookup entry for {}",
+                upper_key
+            );
             assert_eq!(found_upper_fn.unwrap(), found_fn);
         }
     }

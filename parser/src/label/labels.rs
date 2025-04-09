@@ -102,7 +102,7 @@ impl Labels {
     pub fn get_label(&self, key: &str) -> Option<&String> {
         self.0.iter().find(|l| *l == key)
     }
-    
+
     pub fn into_vec(self) -> Vec<String> {
         self.0.to_vec()
     }
@@ -198,7 +198,7 @@ impl fmt::Display for Labels {
     }
 }
 
-impl From<Labels> for Signature{
+impl From<Labels> for Signature {
     fn from(labels: Labels) -> Self {
         Signature::from_vec(&labels.0)
     }

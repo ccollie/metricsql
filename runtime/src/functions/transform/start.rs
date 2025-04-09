@@ -1,7 +1,7 @@
 use crate::execution::eval_number;
 use crate::functions::transform::TransformFuncArg;
-use crate::{RuntimeResult};
 use crate::types::Timeseries;
+use crate::RuntimeResult;
 
 #[inline]
 pub(crate) fn transform_start(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {

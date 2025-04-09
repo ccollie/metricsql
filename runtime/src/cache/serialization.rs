@@ -271,7 +271,9 @@ fn read_timestamp_page(compressed: &mut &[u8], dst: &mut [i64]) -> RuntimeResult
     let size = read_usize(compressed, "timestamp data size")?;
     let progress = simple_decompress_into(compressed, dst).map_err(map_err)?;
     if !progress.finished {
-        return Err(RuntimeError::SerializationError("incomplete timestamp data".to_string()));
+        return Err(RuntimeError::SerializationError(
+            "incomplete timestamp data".to_string(),
+        ));
     }
     *compressed = &compressed[size..];
     Ok(progress.n_processed)
@@ -281,7 +283,9 @@ fn read_values_page(compressed: &mut &[u8], dst: &mut [f64]) -> RuntimeResult<us
     let size = read_usize(compressed, "value data size")?;
     let progress = simple_decompress_into(compressed, dst).map_err(map_err)?;
     if !progress.finished {
-        return Err(RuntimeError::SerializationError("incomplete value data".to_string()));
+        return Err(RuntimeError::SerializationError(
+            "incomplete value data".to_string(),
+        ));
     }
 
     *compressed = &compressed[size..];

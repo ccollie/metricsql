@@ -4,13 +4,12 @@ use std::time::Duration;
 
 use crate::ast::{DurationExpr, Expr, ParensExpr, StringExpr};
 use crate::parser::expr::parse_expression;
+use crate::parser::tokens::Token::Identifier;
 use crate::parser::tokens::{Token, IDENT_LIKE_TOKENS};
 use crate::parser::{
-    extract_string_value, invalid_token_error, parse_duration_value,
-    parse_number, syntax_error,
+    extract_string_value, invalid_token_error, parse_duration_value, parse_number, syntax_error,
     ParseErr, ParseError, ParseResult,
 };
-use crate::parser::tokens::Token::Identifier;
 use crate::prelude::unescape_ident;
 
 /// A token of MetricSql source.
@@ -156,7 +155,12 @@ impl<'a> Parser<'a> {
             Ok(tok) => Ok(unescape_ident(tok.text)?.to_string()),
             Err(_) => {
                 let span = self.last_token_range().unwrap_or_default();
-                Err(invalid_token_error(&[Identifier], None, &span, "".to_string()))
+                Err(invalid_token_error(
+                    &[Identifier],
+                    None,
+                    &span,
+                    "".to_string(),
+                ))
             }
         }
     }
@@ -215,7 +219,7 @@ impl<'a> Parser<'a> {
                 Ok(DurationExpr::StepValue(value))
             } else {
                 Err(ParseError::InvalidDuration(token.text.to_string()))
-            }
+            };
         }
 
         let millis = parse_duration_value(token.text, 1)?;
@@ -286,7 +290,10 @@ impl<'a> Parser<'a> {
         Ok(values)
     }
 
-    pub(super) fn parse_string_expression(&mut self, accept_identifiers: bool) -> ParseResult<StringExpr> {
+    pub(super) fn parse_string_expression(
+        &mut self,
+        accept_identifiers: bool,
+    ) -> ParseResult<StringExpr> {
         use Token::*;
 
         let mut tok = self.current_token()?;

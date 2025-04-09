@@ -34,7 +34,6 @@ pub(crate) fn sort_by_label_desc(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
     sort_by_label_impl(tfa, true)
 }
 
-
 fn transform_sort_impl(tfa: &TransformFuncArg, is_desc: bool) -> RuntimeResult<Vec<Timeseries>> {
     let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
 
@@ -190,7 +189,7 @@ fn compare_float(a: f64, b: f64) -> Ordering {
         }
         let order = a.total_cmp(&b);
         if order != Ordering::Equal {
-            return order
+            return order;
         }
     } else if !b.is_nan() {
         return Ordering::Less;
@@ -225,7 +224,7 @@ fn compare_string_alphanumeric(a: &str, b: &str) -> Ordering {
         b = &b[b_prefix.len()..];
 
         match (a_prefix.is_empty(), b_prefix.is_empty()) {
-            (true, true) => {},
+            (true, true) => {}
             (true, false) => return Ordering::Greater,
             (false, true) => return Ordering::Less,
             (false, false) => {
@@ -255,7 +254,7 @@ fn get_num_prefix(s: &str) -> &str {
         Some(&'-') | Some(&'+') => {
             iter.next();
             i += 1
-        },
+        }
         _ => {}
     }
 
@@ -297,9 +296,17 @@ mod tests {
 
     fn test_get_num_prefix(s: &str, prefix_expected: &str) {
         let prefix = get_num_prefix(s);
-        assert_eq!(prefix, prefix_expected, "unexpected get_num_prefix({:?}): got {:?}; want {:?}", s, prefix, prefix_expected);
+        assert_eq!(
+            prefix, prefix_expected,
+            "unexpected get_num_prefix({:?}): got {:?}; want {:?}",
+            s, prefix, prefix_expected
+        );
         if !prefix.is_empty() {
-            assert!(prefix.parse::<f64>().is_ok(), "cannot parse num {:?}", prefix);
+            assert!(
+                prefix.parse::<f64>().is_ok(),
+                "cannot parse num {:?}",
+                prefix
+            );
         }
     }
 
@@ -325,12 +332,15 @@ mod tests {
         test_get_num_prefix("-12.-34..", "-12.");
     }
 
-
     #[test]
     fn test_numeric_cmp() {
         fn test_ordering(a: &str, b: &str, want: Ordering) {
             let got = compare_string_alphanumeric(a, b);
-            assert_eq!(got, want, "unexpected numeric_less({:?}, {:?}): got {:?}; want {:?}", a, b, got, want);
+            assert_eq!(
+                got, want,
+                "unexpected numeric_less({:?}, {:?}): got {:?}; want {:?}",
+                a, b, got, want
+            );
         }
 
         // empty strings

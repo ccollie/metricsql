@@ -43,7 +43,10 @@ pub fn get_first_non_nan_index(values: &[f64]) -> usize {
 }
 
 pub fn skip_trailing_nans(values: &[f64]) -> &[f64] {
-    let i = values.iter().rposition(|&v| !v.is_nan()).map_or(0, |i| i + 1);
+    let i = values
+        .iter()
+        .rposition(|&v| !v.is_nan())
+        .map_or(0, |i| i + 1);
     &values[0..i]
 }
 
@@ -90,27 +93,24 @@ pub(crate) fn float_cmp_with_nans_desc(a: f64, b: f64) -> Ordering {
 // todo: can we use SIMD here?
 #[inline]
 pub(crate) fn max_with_nans(values: &[f64]) -> f64 {
-    let max =
-        values
-            .iter()
-            .copied()
-            .filter(|v| !v.is_nan())
-            .max_by(|a, b| a.total_cmp(b))
-            .unwrap_or(f64::NAN);
+    let max = values
+        .iter()
+        .copied()
+        .filter(|v| !v.is_nan())
+        .max_by(|a, b| a.total_cmp(b))
+        .unwrap_or(f64::NAN);
     max
 }
 
 pub(crate) fn min_with_nans(values: &[f64]) -> f64 {
-    let min =
-        values
-            .iter()
-            .copied()
-            .filter(|v| !v.is_nan())
-            .min_by(|a, b| a.total_cmp(b))
-            .unwrap_or(f64::NAN);
+    let min = values
+        .iter()
+        .copied()
+        .filter(|v| !v.is_nan())
+        .min_by(|a, b| a.total_cmp(b))
+        .unwrap_or(f64::NAN);
     min
 }
-
 
 #[cfg(test)]
 mod tests {

@@ -1,7 +1,7 @@
 use crate::common::math::linear_regression;
 use crate::functions::rollup::{RollupFuncArg, RollupHandler};
-use crate::{RuntimeResult};
 use crate::types::{QueryValue, Timestamp};
+use crate::RuntimeResult;
 
 #[inline]
 pub(super) fn new_rollup_rate(_: &[QueryValue]) -> RuntimeResult<RollupHandler> {

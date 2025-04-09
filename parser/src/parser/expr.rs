@@ -220,7 +220,7 @@ pub(super) fn parse_single_expr_without_rollup_suffix(p: &mut Parser) -> ParseRe
                     Some(&tok.span),
                 ))
             }
-        },
+        }
     }
 }
 

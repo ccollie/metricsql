@@ -1,7 +1,7 @@
 use crate::functions::arg_parse::get_scalar_arg_as_vec;
 use crate::functions::transform::{transform_series, TransformFuncArg};
-use crate::{RuntimeError, RuntimeResult};
 use crate::types::{QueryValue, Timeseries};
+use crate::{RuntimeError, RuntimeResult};
 
 pub(crate) fn clamp(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let min_values = get_scalar_arg_as_vec(&tfa.args, 1, tfa.ec)?;

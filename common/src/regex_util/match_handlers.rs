@@ -4,7 +4,6 @@ use regex::Regex;
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 
-
 const MAX_SET_MATCHES: usize = 256;
 /// These cost values are used for sorting tag filters in ascending order or the required CPU
 /// time for execution.
@@ -23,9 +22,9 @@ pub type MatchFn = fn(pattern: &str, candidate: &str) -> bool;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Quantifier {
-    ZeroOrOne, // ?
+    ZeroOrOne,  // ?
     ZeroOrMore, // *
-    OneOrMore, // +
+    OneOrMore,  // +
 }
 
 #[derive(Default)]
@@ -33,15 +32,15 @@ pub struct StringMatchOptions {
     pub anchor_end: bool,
     pub anchor_start: bool,
     pub prefix_quantifier: Option<Quantifier>,
-    pub suffix_quantifier: Option<Quantifier>
+    pub suffix_quantifier: Option<Quantifier>,
 }
 
 impl StringMatchOptions {
     pub fn is_default(&self) -> bool {
-        !self.anchor_end &&
-        !self.anchor_start &&
-        self.prefix_quantifier.is_none() &&
-        self.suffix_quantifier.is_none()
+        !self.anchor_end
+            && !self.anchor_start
+            && self.prefix_quantifier.is_none()
+            && self.suffix_quantifier.is_none()
     }
 }
 
@@ -52,9 +51,7 @@ pub struct MatchAnyMatcher {
 
 impl MatchAnyMatcher {
     pub fn new(ignore_nl: bool) -> Self {
-        Self {
-            ignore_nl
-        }
+        Self { ignore_nl }
     }
 
     fn matches(&self, s: &str) -> bool {
@@ -77,9 +74,7 @@ pub struct NonEmptyStringMatcher {
 
 impl NonEmptyStringMatcher {
     pub fn new(match_nl: bool) -> Self {
-        Self {
-            match_nl
-        }
+        Self { match_nl }
     }
 
     fn matches(&self, s: &str) -> bool {
@@ -161,7 +156,7 @@ impl EqualMultiStringMatcher {
     fn cost(&self) -> usize {
         let match_cost = if self.case_sensitive {
             FULL_MATCH_COST
-        } else if self.is_ascii{
+        } else if self.is_ascii {
             FULL_MATCH_COST * 2
         } else {
             FULL_MATCH_COST * 3
@@ -170,7 +165,6 @@ impl EqualMultiStringMatcher {
     }
 }
 
-
 #[derive(Clone, Debug, GetSize, Eq, PartialEq)]
 pub struct LiteralPrefixMatcher {
     pub prefix: StringPattern,
@@ -178,12 +172,13 @@ pub struct LiteralPrefixMatcher {
 }
 
 impl LiteralPrefixMatcher {
-    pub fn new<S: Into<String>>(prefix: S, right: Option<Box<StringMatchHandler>>, case_sensitive: bool) -> Self {
+    pub fn new<S: Into<String>>(
+        prefix: S,
+        right: Option<Box<StringMatchHandler>>,
+        case_sensitive: bool,
+    ) -> Self {
         let prefix = StringPattern::new(prefix.into(), case_sensitive);
-        Self {
-            prefix,
-            right,
-        }
+        Self { prefix, right }
     }
 
     fn is_case_sensitive(&self) -> bool {
@@ -193,7 +188,7 @@ impl LiteralPrefixMatcher {
     fn cost(&self) -> usize {
         let match_cost = if self.prefix.is_case_sensitive() {
             FULL_MATCH_COST
-        } else if self.prefix.is_ascii(){
+        } else if self.prefix.is_ascii() {
             FULL_MATCH_COST * 2
         } else {
             FULL_MATCH_COST * 2 + 1
@@ -221,12 +216,13 @@ pub struct LiteralSuffixMatcher {
 }
 
 impl LiteralSuffixMatcher {
-    pub fn new<S: Into<String>>(left: Option<Box<StringMatchHandler>>, suffix: S, case_sensitive: bool) -> Self {
+    pub fn new<S: Into<String>>(
+        left: Option<Box<StringMatchHandler>>,
+        suffix: S,
+        case_sensitive: bool,
+    ) -> Self {
         let suffix = StringPattern::new(suffix.into(), case_sensitive);
-        Self {
-            left,
-            suffix,
-        }
+        Self { left, suffix }
     }
 
     fn is_case_sensitive(&self) -> bool {
@@ -251,7 +247,7 @@ impl LiteralSuffixMatcher {
     fn cost(&self) -> usize {
         let match_cost = if self.suffix.is_case_sensitive() {
             FULL_MATCH_COST
-        } else if self.suffix.is_ascii(){
+        } else if self.suffix.is_ascii() {
             FULL_MATCH_COST * 2
         } else {
             FULL_MATCH_COST * 2 + 1
@@ -268,7 +264,11 @@ pub struct ContainsMultiStringMatcher {
 }
 
 impl ContainsMultiStringMatcher {
-    pub(crate) fn new(substrings: Vec<String>, left: Option<StringMatchHandler>, right: Option<StringMatchHandler>) -> Self {
+    pub(crate) fn new(
+        substrings: Vec<String>,
+        left: Option<StringMatchHandler>,
+        right: Option<StringMatchHandler>,
+    ) -> Self {
         let left = left.map(Box::new);
         let right = right.map(Box::new);
         Self {
@@ -313,7 +313,9 @@ impl ContainsMultiStringMatcher {
 
     fn cost(&self) -> usize {
         let match_cost = MIDDLE_MATCH_COST * self.substrings.len();
-        match_cost + self.left.as_ref().map_or(0, |l| l.cost()) + self.right.as_ref().map_or(0, |r| r.cost())
+        match_cost
+            + self.left.as_ref().map_or(0, |l| l.cost())
+            + self.right.as_ref().map_or(0, |r| r.cost())
     }
 }
 
@@ -377,15 +379,11 @@ pub struct RepetitionMatcher {
 
 impl RepetitionMatcher {
     pub fn new(sub: String, min: u32, max: Option<u32>) -> Self {
-        Self {
-            sub,
-            min,
-            max
-        }
+        Self { sub, min, max }
     }
 
     pub fn matches(&self, s: &str) -> bool {
-        if self.min == 0 && s.is_empty(){
+        if self.min == 0 && s.is_empty() {
             return true;
         }
         if self.min == 1 && s == self.sub {
@@ -430,25 +428,28 @@ pub struct RegexMatcher {
     pub suffix: String,
     pub set_matches: Vec<String>,
     pub contains: Vec<String>,
-    pub string_matcher: Option<Box<StringMatchHandler>>
+    pub string_matcher: Option<Box<StringMatchHandler>>,
 }
 
 impl GetSize for RegexMatcher {
     fn get_size(&self) -> usize {
         // TODO: properly calculate a value for the bookkeeping overhead of the regex object
         const REGEX_OVERHEAD: usize = 256;
-        REGEX_OVERHEAD + self.regex.as_str().get_size() + self.prefix.get_size() + self.suffix.get_size()
+        REGEX_OVERHEAD
+            + self.regex.as_str().get_size()
+            + self.prefix.get_size()
+            + self.suffix.get_size()
     }
 }
 
 impl PartialEq for RegexMatcher {
     fn eq(&self, other: &Self) -> bool {
-        self.regex.as_str() == other.regex.as_str() &&
-            self.prefix == other.prefix &&
-            self.suffix == other.suffix &&
-            self.set_matches == other.set_matches &&
-            self.contains == other.contains &&
-            self.string_matcher == other.string_matcher
+        self.regex.as_str() == other.regex.as_str()
+            && self.prefix == other.prefix
+            && self.suffix == other.suffix
+            && self.set_matches == other.set_matches
+            && self.contains == other.contains
+            && self.string_matcher == other.string_matcher
     }
 }
 
@@ -572,16 +573,25 @@ impl StringMatchHandler {
     pub fn literal_fn(value: String, options: &StringMatchOptions) -> Self {
         get_optimized_literal_matcher(value, options)
     }
+
     pub fn equals(value: String) -> Self {
         StringMatchHandler::literal(value, true)
     }
 
     pub fn prefix(value: String, right: Option<StringMatchHandler>, case_sensitive: bool) -> Self {
-        StringMatchHandler::Prefix(LiteralPrefixMatcher::new(value, right.map(Box::new), case_sensitive))
+        StringMatchHandler::Prefix(LiteralPrefixMatcher::new(
+            value,
+            right.map(Box::new),
+            case_sensitive,
+        ))
     }
 
     pub fn suffix(left: Option<StringMatchHandler>, value: String, case_sensitive: bool) -> Self {
-        StringMatchHandler::Suffix(LiteralSuffixMatcher::new(left.map(Box::new), value, case_sensitive))
+        StringMatchHandler::Suffix(LiteralSuffixMatcher::new(
+            left.map(Box::new),
+            value,
+            case_sensitive,
+        ))
     }
 
     pub fn is_case_sensitive(&self) -> bool {
@@ -596,10 +606,12 @@ impl StringMatchHandler {
     }
 
     pub fn is_quantifier(&self) -> bool {
-        matches!(self,
-            StringMatchHandler::Repetition(_) |
-            StringMatchHandler::ZeroOrOneChars(_) |
-            StringMatchHandler::MatchAny(_))
+        matches!(
+            self,
+            StringMatchHandler::Repetition(_)
+                | StringMatchHandler::ZeroOrOneChars(_)
+                | StringMatchHandler::MatchAny(_)
+        )
     }
 
     pub fn matches(&self, s: &str) -> bool {
@@ -611,9 +623,7 @@ impl StringMatchHandler {
             StringMatchHandler::Literal(m) => m.matches(s),
             StringMatchHandler::Empty => s.is_empty(),
             StringMatchHandler::NotEmpty(opts) => opts.matches(s),
-            StringMatchHandler::Or(matchers) => {
-                matchers.iter().any(|m| m.matches(s))
-            }
+            StringMatchHandler::Or(matchers) => matchers.iter().any(|m| m.matches(s)),
             StringMatchHandler::ZeroOrOneChars(m) => m.matches(s),
             StringMatchHandler::Alternates(m) => m.matches(s),
             StringMatchHandler::ContainsMulti(m) => m.matches(s),
@@ -634,9 +644,7 @@ impl StringMatchHandler {
             StringMatchHandler::Literal(_) => LITERAL_MATCH_COST,
             StringMatchHandler::Empty => EMPTY_MATCH_COST,
             StringMatchHandler::NotEmpty(m) => m.cost(),
-            StringMatchHandler::Or(matchers) => {
-                matchers.iter().map(|m| m.cost()).sum()
-            }
+            StringMatchHandler::Or(matchers) => matchers.iter().map(|m| m.cost()).sum(),
             StringMatchHandler::ZeroOrOneChars(m) => m.cost(),
             StringMatchHandler::Alternates(m) => m.cost(),
             StringMatchHandler::ContainsMulti(m) => m.cost(),
@@ -647,7 +655,6 @@ impl StringMatchHandler {
         }
     }
 }
-
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MatchFnHandler {
@@ -682,7 +689,6 @@ impl Display for StringMatchHandler {
 }
 
 const fn get_literal_match_fn(options: &StringMatchOptions) -> MatchFn {
-
     let StringMatchOptions {
         anchor_start,
         anchor_end,
@@ -802,16 +808,12 @@ const fn get_literal_match_fn(options: &StringMatchOptions) -> MatchFn {
                 // ^.+foo.+
                 dot_plus_dot_plus_match_fn
             }
-            (Some(Quantifier::ZeroOrOne), None) => {
-                start_with_zero_or_one_chars_fn
-            }
+            (Some(Quantifier::ZeroOrOne), None) => start_with_zero_or_one_chars_fn,
             (Some(Quantifier::ZeroOrMore), None) => {
                 // ^.*foo
                 contains_fn
             }
-            (None, Some(Quantifier::ZeroOrOne)) => {
-                ends_with_zero_or_one_chars_fn
-            }
+            (None, Some(Quantifier::ZeroOrOne)) => ends_with_zero_or_one_chars_fn,
             (None, Some(Quantifier::ZeroOrMore)) => {
                 // ^foo.*
                 starts_with_fn
@@ -882,7 +884,7 @@ const fn get_literal_match_fn(options: &StringMatchOptions) -> MatchFn {
         }
     } else {
         // no anchors
-        match(prefix_quantifier, suffix_quantifier) {
+        match (prefix_quantifier, suffix_quantifier) {
             (Some(Quantifier::ZeroOrOne), Some(Quantifier::ZeroOrOne)) => {
                 // .?foo.?
                 contains_fn
@@ -927,7 +929,10 @@ const fn get_literal_match_fn(options: &StringMatchOptions) -> MatchFn {
     }
 }
 
-pub(super) fn get_optimized_literal_matcher(value: String, options: &StringMatchOptions) -> StringMatchHandler {
+pub(super) fn get_optimized_literal_matcher(
+    value: String,
+    options: &StringMatchOptions,
+) -> StringMatchHandler {
     let StringMatchOptions {
         anchor_start,
         anchor_end,
@@ -944,9 +949,7 @@ pub(super) fn get_optimized_literal_matcher(value: String, options: &StringMatch
         match (prefix_quantifier, suffix_quantifier) {
             (Some(Quantifier::ZeroOrMore), Some(Quantifier::ZeroOrMore)) => {
                 // ^.*foo.*$
-                StringMatchHandler::MatchFn(
-                    MatchFnHandler::new(value, contains_fn)
-                )
+                StringMatchHandler::MatchFn(MatchFnHandler::new(value, contains_fn))
             }
             (Some(Quantifier::ZeroOrMore), None) => {
                 // ^.*foo$
@@ -960,23 +963,17 @@ pub(super) fn get_optimized_literal_matcher(value: String, options: &StringMatch
                 // ^foobar$
                 StringMatchHandler::literal(value, true)
             }
-            _ => {
-                handle_default(options, value)
-            }
+            _ => handle_default(options, value),
         }
     } else if *anchor_start {
         match (prefix_quantifier, suffix_quantifier) {
             (Some(Quantifier::ZeroOrMore), Some(Quantifier::ZeroOrMore)) => {
                 // ^.*foo.*
-                StringMatchHandler::MatchFn(
-                    MatchFnHandler::new(value, contains_fn)
-                )
+                StringMatchHandler::MatchFn(MatchFnHandler::new(value, contains_fn))
             }
             (Some(Quantifier::ZeroOrMore), None) => {
                 // ^.*foo
-                StringMatchHandler::MatchFn(
-                    MatchFnHandler::new(value, contains_fn)
-                )
+                StringMatchHandler::MatchFn(MatchFnHandler::new(value, contains_fn))
             }
             (None, Some(Quantifier::ZeroOrMore)) => {
                 // ^foo.*
@@ -986,17 +983,13 @@ pub(super) fn get_optimized_literal_matcher(value: String, options: &StringMatch
                 // ^foobar
                 StringMatchHandler::suffix(None, value, true)
             }
-            _ => {
-                handle_default(options, value)
-            }
+            _ => handle_default(options, value),
         }
     } else if *anchor_end {
         match (prefix_quantifier, suffix_quantifier) {
             (Some(Quantifier::ZeroOrMore), Some(Quantifier::ZeroOrMore)) => {
                 // .*foo.*$
-                StringMatchHandler::MatchFn(
-                    MatchFnHandler::new(value, contains_fn)
-                )
+                StringMatchHandler::MatchFn(MatchFnHandler::new(value, contains_fn))
             }
             (Some(Quantifier::ZeroOrMore), None) => {
                 // .*foo$
@@ -1017,18 +1010,14 @@ pub(super) fn get_optimized_literal_matcher(value: String, options: &StringMatch
         }
     } else {
         // no anchors
-        match(prefix_quantifier, suffix_quantifier) {
+        match (prefix_quantifier, suffix_quantifier) {
             (Some(Quantifier::ZeroOrMore), Some(Quantifier::ZeroOrMore)) => {
                 // .*foo.*
-                StringMatchHandler::MatchFn(
-                    MatchFnHandler::new(value, contains_fn)
-                )
+                StringMatchHandler::MatchFn(MatchFnHandler::new(value, contains_fn))
             }
             (Some(Quantifier::ZeroOrMore), None) => {
                 // .*foo
-                StringMatchHandler::Repetition(
-                    RepetitionMatcher::new(value, 0, None)
-                )
+                StringMatchHandler::Repetition(RepetitionMatcher::new(value, 0, None))
             }
             (None, Some(Quantifier::ZeroOrMore)) => {
                 // foo.*
@@ -1049,7 +1038,6 @@ pub(super) fn get_optimized_literal_matcher(value: String, options: &StringMatch
 pub(super) fn equals_fn(needle: &str, haystack: &str) -> bool {
     haystack == needle
 }
-
 
 pub(super) fn contains_fn(needle: &str, haystack: &str) -> bool {
     haystack.contains(needle)
@@ -1085,7 +1073,6 @@ pub(crate) fn dot_plus_match_fn(needle: &str, haystack: &str) -> bool {
 fn dot_plus_ends_with_fn(needle: &str, haystack: &str) -> bool {
     haystack.len() > needle.len() && haystack.ends_with(needle)
 }
-
 
 // ^.+foo.+
 pub(crate) fn dot_plus_dot_plus_match_fn(needle: &str, haystack: &str) -> bool {
@@ -1165,8 +1152,18 @@ mod tests {
         let matcher_invalid_unicode = ZeroOrOneCharsMatcher { match_nl: true };
 
         let require_matches = |s: &str, expected: bool| {
-            assert_eq!(matcher_invalid_unicode.matches(s), expected, "String: {}", s);
-            assert_eq!(re.is_match(s), matcher_invalid_unicode.matches(s), "String: {}", s);
+            assert_eq!(
+                matcher_invalid_unicode.matches(s),
+                expected,
+                "String: {}",
+                s
+            );
+            assert_eq!(
+                re.is_match(s),
+                matcher_invalid_unicode.matches(s),
+                "String: {}",
+                s
+            );
         };
 
         require_matches("\u{FF}", true);
@@ -1207,5 +1204,4 @@ mod tests {
         assert_eq!(false, matcher.matches("bbb"));
         assert_eq!(false, matcher.matches("abcabcabcabc"));
     }
-
 }

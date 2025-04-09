@@ -5,11 +5,7 @@ use std::sync::{Arc, Mutex};
 use lru_time_cache::LruCache;
 
 use metricsql_parser::ast::{Expr, Operator};
-use metricsql_parser::prelude::{
-    adjust_comparison_ops,
-    optimize as optimize_expr,
-    ParseError
-};
+use metricsql_parser::prelude::{adjust_comparison_ops, optimize as optimize_expr, ParseError};
 
 const PARSE_CACHE_MAX_LEN: usize = 500;
 

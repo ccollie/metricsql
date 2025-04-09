@@ -325,7 +325,6 @@ impl<T> UnitVec<T> {
     /// ```
     #[inline]
     pub fn swap_remove(&mut self, index: usize) -> T {
-
         fn assert_failed(index: usize, len: usize) -> ! {
             panic!("swap_remove index (is {index}) should be < len (is {len})");
         }
@@ -483,7 +482,6 @@ impl<T: Clone> From<&[T]> for UnitVec<T> {
     }
 }
 
-
 impl<T: Serialize> Serialize for UnitVec<T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -596,7 +594,6 @@ mod tests {
             assert_eq!(v, v.clone());
         }
     }
-
 
     #[test]
     fn test_serialize_unitvec() {

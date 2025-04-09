@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-    use metricsql_common::prelude::humanize_duration;
     use crate::execution::validate_max_points_per_timeseries;
+    use metricsql_common::prelude::humanize_duration;
+    use std::time::Duration;
 
     #[test]
     fn test_validate_max_points_per_series_failure() {
