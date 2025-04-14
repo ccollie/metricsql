@@ -65,7 +65,7 @@ fn parse_aggregate_modifier(p: &mut Parser) -> ParseResult<AggregateModifier> {
     let res = match tok {
         Token::By => AggregateModifier::By(args),
         Token::Without => AggregateModifier::Without(args),
-        _ => unreachable!(),
+        _ => unreachable!("unexpected aggregate modifier token"),
     };
 
     Ok(res)
