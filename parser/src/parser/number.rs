@@ -9,7 +9,7 @@ fn from_str_radix(str: &str, radix: u32) -> Result<f64, ParseError> {
 
 fn parse_basic(str: &str) -> ParseResult<f64> {
     let (str, multiplier) = if let Some((ending, mult)) = get_number_suffix(str) {
-        (&str[0..str.len() - ending.len()], *mult)
+        (&str[0..str.len() - ending.len()], mult)
     } else {
         (str, 1)
     };
@@ -96,41 +96,44 @@ pub fn parse_number(str: &str) -> ParseResult<f64> {
 }
 
 type SuffixValue = (&'static str, usize);
-const SUFFIXES: [SuffixValue; 16] = [
-    ("kib", 1024),
-    ("ki", 1024),
-    ("kb", 1000),
-    ("k", 1000),
-    ("mib", 1024 * 1024),
-    ("mi", 1024 * 1024),
-    ("mb", 1000 * 1000),
-    ("m", 1000 * 1000),
-    ("gib", 1024 * 1024 * 1024),
-    ("gi", 1024 * 1024 * 1024),
-    ("gb", 1000 * 1000 * 1000),
-    ("g", 1000 * 1000 * 1000),
-    ("tib", 1024 * 1024 * 1024 * 1024),
-    ("ti", 1024 * 1024 * 1024 * 1024),
-    ("tb", 1000 * 1000 * 1000 * 1000),
-    ("t", 1000 * 1000 * 1000 * 1000),
-];
+
+fn get_suffix_value(s: &str) -> Option<SuffixValue> {
+    hashify::tiny_map_ignore_case! {
+        s.as_bytes(),
+        "kib" => ("kib", 1024),
+        "ki" => ("ki", 1024),
+        "kb" => ("kb", 1000),
+        "k" => ("k", 1000),
+        "mib" => ("mib", 1024 * 1024),
+        "mi" => ("mi", 1024 * 1024),
+        "mb" => ("mb", 1000 * 1000),
+        "m" => ("m", 1000 * 1000),
+        "gib" => ("gib", 1024 * 1024 * 1024),
+        "gi" => ("gi", 1024 * 1024 * 1024),
+        "gb" => ("gb", 1000 * 1000 * 1000),
+        "g" => ("g", 1000 * 1000 * 1000),
+        "tib" => ("tib", 1024 * 1024 * 1024 * 1024),
+        "ti" => ("ti", 1024 * 1024 * 1024 * 1024),
+        "tb" => ("tb", 1000 * 1000 * 1000 * 1000),
+        "t" => ("t", 1000 * 1000 * 1000 * 1000)
+    }
+}
 
 // Note: must match above
 const SUFFIX_START_CHARS: [char; 8] = ['k', 'K', 'm', 'M', 'g', 'G', 't', 'T'];
 
-pub fn get_number_suffix(s: &str) -> Option<&'static SuffixValue> {
+pub fn get_number_suffix(s: &str) -> Option<SuffixValue> {
+    // todo: check for !s[0].is_digit() before this
     let suffix = s.trim_start_matches(|x| !SUFFIX_START_CHARS.contains(&x));
     if suffix.is_empty() {
         return None;
     }
-    SUFFIXES.iter().find(|x| x.0.eq_ignore_ascii_case(suffix))
+    get_suffix_value(suffix)
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-
-    use crate::parser::number::{parse_positive_number, SUFFIXES, SUFFIX_START_CHARS};
+    use crate::parser::number::{parse_positive_number};
 
     fn expect_failure(s: &str) {
         match parse_positive_number(s) {
@@ -142,19 +145,6 @@ mod tests {
                 )
             }
         }
-    }
-
-    #[test]
-    fn test_char_suffixes_matches() {
-        let suffixes: HashSet<char> = SUFFIXES
-            .iter()
-            .map(|x| x.0.chars().next().unwrap())
-            .collect();
-
-        SUFFIX_START_CHARS.iter().for_each(|c| {
-            let lower = c.to_ascii_lowercase();
-            assert!(suffixes.contains(&lower), "missing suffix for {}", c);
-        });
     }
 
     #[test]
