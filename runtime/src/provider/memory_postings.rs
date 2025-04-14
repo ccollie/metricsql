@@ -17,6 +17,7 @@ use std::io;
 use std::io::{Read, Write};
 use std::ops::ControlFlow;
 use std::sync::LazyLock;
+use async_trait::async_trait;
 
 pub type SeriesRef = u64;
 use super::posting_stats::{PostingStat, PostingsStats, StatsMaxHeap};
@@ -60,7 +61,7 @@ impl<'a> Iterator for BitmapPostings<'a> {
     }
 }
 
-impl<'a> PostingsIterator<'a> for BitmapPostings<'a> {
+impl<'a> PostingsIterator for BitmapPostings<'a> {
     fn is_empty(&self) -> bool {
         self.len == 0
     }
@@ -286,7 +287,7 @@ impl MemoryPostings {
             return Ok(all_values);
         }
 
-        let p = self.postings_for_matchers_slice(matchers)?;
+        let p = self.postings_for_matchers(matchers)?;
 
         all_values.retain(|v| {
             let postings = self.postings_for_label_value(name, v);
@@ -536,10 +537,11 @@ impl MemoryPostings {
     }
 }
 
+#[async_trait]
 impl IndexReader for MemoryPostings {
-    type Items<'a> = BitmapPostings<'a>;
+    type Postings<'a> = BitmapPostings<'a>;
 
-    async fn all_postings<'a>(&'a self) -> ProviderResult<BitmapPostings<'a>> {
+    async fn all_postings<'a>(&'a self) -> ProviderResult<Self::Postings<'a>> {
         let bmp = self.all_postings();
         let result = BitmapPostings::new(bmp);
         Ok(result)
@@ -589,17 +591,17 @@ impl IndexReader for MemoryPostings {
         Ok(values)
     }
 
-    async fn postings(&self, name: &str, values: &[&str]) -> ProviderResult<BitmapPostings> {
+    async fn postings<'a>(&'a self, name: &str, values: &[&str]) -> ProviderResult<Self::Postings<'a>> {
         let bmp = self.postings(name, values);
         let result = BitmapPostings::new(bmp);
         Ok(result)
     }
 
-    async fn postings_for_label_matching(
-        &self,
+    async fn postings_for_label_matching<'a>(
+        &'a self,
         name: &str,
-        match_fn: impl Fn(&str) -> bool,
-    ) -> ProviderResult<BitmapPostings> {
+        match_fn: impl Fn(&str) -> bool + Send,
+    ) -> ProviderResult<Self::Postings<'a>> {
         let mut res = PostingsBitmap::new();
         let prefix = get_key_for_label_prefix(name);
         let start_pos = prefix.len();
@@ -613,16 +615,16 @@ impl IndexReader for MemoryPostings {
         Ok(result)
     }
 
-    async fn postings_for_all_label_values(&self, name: &str) -> ProviderResult<BitmapPostings> {
+    async fn postings_for_all_label_values<'a>(&'a self, name: &str) -> ProviderResult<Self::Postings<'a>> {
         let res = self.postings_for_all_label_values(name);
         let result = BitmapPostings::new(res);
         Ok(result)
     }
 
-    async fn sorted_postings(
-        &self,
+    async fn sorted_postings<'a>(
+        &'a self,
         _postings: impl Iterator<Item = SeriesRef>,
-    ) -> ProviderResult<BitmapPostings> {
+    ) -> ProviderResult<Self::Postings<'a>> {
         unimplemented!("sorted_postings")
     }
 

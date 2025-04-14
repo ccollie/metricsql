@@ -1,13 +1,13 @@
 use crate::provider::error::ProviderResult;
 use crate::SeriesRef;
-use metricsql_common::hash::{FastHashSet, HashSetExt};
+use metricsql_common::hash::{FastHashSet};
 use smallvec::SmallVec;
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 
 pub type PostingsListVec = SmallVec<SeriesRef, 16>;
 
-pub trait PostingsIterator<'a>: Iterator<Item = SeriesRef> + 'a {
+pub trait PostingsIterator: Iterator<Item = SeriesRef> {
     fn is_empty(&self) -> bool {
         self.size_hint().0 == 0
     }
@@ -23,7 +23,7 @@ pub enum PostingsEnum<T> {
     Wrapped(T),
 }
 
-impl<'a, T: PostingsIterator<'a>> PostingsEnum<T> {
+impl<T: PostingsIterator> PostingsEnum<T> {
     pub(super) fn empty() -> Self {
         PostingsEnum::Empty
     }
@@ -46,7 +46,7 @@ impl<'a, T: PostingsIterator<'a>> PostingsEnum<T> {
     }
 }
 
-impl<'a, T: PostingsIterator<'a>> Iterator for PostingsEnum<T> {
+impl<T: PostingsIterator> Iterator for PostingsEnum<T> {
     type Item = SeriesRef;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -66,7 +66,7 @@ impl<'a, T: PostingsIterator<'a>> Iterator for PostingsEnum<T> {
     }
 }
 
-impl<'a, T: PostingsIterator<'a>> PostingsIterator<'a> for PostingsEnum<T> {
+impl<T: PostingsIterator> PostingsIterator for PostingsEnum<T> {
     fn is_empty(&self) -> bool {
         match self {
             PostingsEnum::Empty => true,
@@ -99,7 +99,7 @@ impl Iterator for EmptyPostings {
     }
 }
 
-impl<'a> PostingsIterator<'_> for EmptyPostings {
+impl PostingsIterator for EmptyPostings {
     fn is_empty(&self) -> bool {
         true
     }
@@ -168,9 +168,9 @@ impl<T: PostingsList> PartialEq for PostingsWrapper<T> {
     }
 }
 
-pub(super) fn find_intersecting_postings<'a, T: PostingsIterator<'a>>(
+pub(super) fn find_intersecting_postings<T: PostingsIterator>(
     p: T,
-    candidates: &[PostingsEnum<T>],
+    candidates: Vec<PostingsEnum<T>>,
 ) -> ProviderResult<FastHashSet<PostingsWithIndex>> {
     let mut set: FastHashSet<PostingsWithIndex> = FastHashSet::with_capacity(candidates.len() * 4);
     if p.is_empty() {
@@ -188,7 +188,7 @@ pub(super) fn find_intersecting_postings<'a, T: PostingsIterator<'a>>(
 
     add_iter(&mut set, usize::MAX, p);
 
-    for (index, it) in candidates.iter().enumerate() {
+    for (index, it) in candidates.into_iter().enumerate() {
         if !it.is_empty() {
             add_iter(&mut set, index, it)
         }

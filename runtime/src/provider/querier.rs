@@ -7,6 +7,8 @@ use metricsql_common::hash::{FastHashSet, HashSetExt};
 use metricsql_parser::label::{MatchOp, Matcher, Matchers};
 use smallvec::SmallVec;
 use std::cmp::Ordering;
+use std::future::Future;
+use std::pin::Pin;
 
 pub struct Querier<T: IndexReader> {
     pub index_reader: T,
@@ -14,13 +16,13 @@ pub struct Querier<T: IndexReader> {
 
 /// `postings_for_matchers` assembles a single postings iterator against the index reader
 /// based on the given matchers. The resulting postings are not ordered by series.
-pub async fn postings_for_matchers<'a, PI, Reader>(
+pub async fn postings_for_matchers<'a, Reader>(
     ix: &'a Reader,
-    matchers: &Matchers,
-) -> ProviderResult<PostingsEnum<PI>>
+    matchers: &'a Matchers,
+) -> ProviderResult<PostingsEnum<Reader::Postings<'a>>>
 where
-    PI: PostingsIterator<'a>,
-    Reader: IndexReader<Items<'a> = PI>,
+    Reader: IndexReader,
+    Reader::Postings<'a>: PostingsIterator,
 {
     if matchers.is_empty() {
         let all = ix.all_postings().await?;
@@ -38,32 +40,31 @@ where
     }
 }
 
-pub async fn postings_for_matcher<'a, P, R>(
+pub fn postings_for_matcher<'a, R>(
     index_reader: &'a R,
     m: &'a Matcher,
-) -> ProviderResult<R::Items<'a>>
+) -> Pin<Box<dyn Future<Output = Result<R::Postings<'a>, ProviderError>> + Send + 'a>>
 where
-    P: PostingsIterator<'a>,
     R: IndexReader,
 {
-    postings_for_matcher_internal::<P, R>(index_reader, m).await
+    postings_for_matcher_internal::<R>(index_reader, m)
 }
 
-async fn postings_for_matcher_internal<'a, P, R>(
+fn postings_for_matcher_internal<'a, R>(
     ix: &'a R,
     m: &'a Matcher,
-) -> ProviderResult<R::Items<'a>>
+) -> Pin<Box<dyn Future<Output = Result<R::Postings<'a>, ProviderError>> + Send + 'a>>
 where
-    P: PostingsIterator<'a>,
     R: IndexReader,
+    R::Postings<'a>: PostingsIterator,
 {
     if m.label.is_empty() && m.value.is_empty() {
-        return ix.all_postings().await;
+        return ix.all_postings();
     }
 
     if m.op == MatchOp::Equal {
         // how to avoid clone ???
-        return ix.postings(&m.label, &[m.value.as_str()]).await;
+        return ix.postings(&m.label, &[m.value.as_str()]);
     }
 
     // Fast-path for set matching.
@@ -72,22 +73,20 @@ where
         if let Some(matches) = set_matches {
             if !matches.is_empty() {
                 let matches: SmallVec<&str, 6> = matches.iter().map(|s| s.as_str()).collect();
-                return ix.postings(&m.label, &matches).await;
+                return ix.postings(&m.label, &matches)
             }
         }
     }
 
-    ix.postings_for_label_matching(&m.label, |s| m.matches(s))
-        .await
+    ix.postings_for_label_matching(&m.label, move |s| m.matches(s))
 }
 
-pub async fn label_values_with_matchers<'a, P, R>(
+pub async fn label_values_with_matchers<'a, R>(
     ix: &R,
     name: &str,
     matchers: Option<&Matchers>,
 ) -> ProviderResult<Vec<String>>
 where
-    P: PostingsIterator<'a>,
     R: IndexReader,
 {
     let mut all_values = ix.label_values(name, matchers).await?;
@@ -148,7 +147,7 @@ where
         .collect();
 
     let postings = try_join_all(values_postings.into_iter()).await?;
-    let indexes = find_intersecting_postings(p, &postings)?;
+    let indexes = find_intersecting_postings(p, postings)?;
     let mut values = Vec::with_capacity(indexes.len());
     for posting in indexes {
         values.push(all_values[posting.index].clone());
@@ -157,25 +156,17 @@ where
     Ok(values)
 }
 
-#[inline]
-async fn empty_postings<'a, P>() -> ProviderResult<PostingsEnum<P>>
-where
-    P: PostingsIterator<'a>,
-{
-    Ok(PostingsEnum::Empty)
-}
-
 //type PostingsResult<'a> = BoxFuture<'a, ProviderResult<impl PostingsList>>;
 
 /// `postings_for_matchers` assembles a single postings iterator against the index
 /// based on the given matchers. The resulting postings are not ordered by series.
-async fn postings_for_matchers_slice<'a, P, R>(
-    ix: &R,
-    ms: &[Matcher],
-) -> ProviderResult<PostingsEnum<P>>
+async fn postings_for_matchers_slice<'a, R>(
+    ix: &'a R,
+    ms: &'a [Matcher],
+) -> ProviderResult<PostingsEnum<R::Postings<'a>>>
 where
-    P: PostingsIterator<'a>,
-    R: IndexReader<Items<'a> = P> + 'a,
+    R: IndexReader,
+    R::Postings<'a>: PostingsIterator
 {
     if ms.len() == 1 {
         let m = &ms[0];
@@ -303,7 +294,7 @@ where
 
     // todo: join! the following 2 statements
     let mut its = try_join_all(its_futures).await?;
-    let mut resolved_not_its = try_join_all(not_its_futures).await?;
+    let resolved_not_its = try_join_all(not_its_futures).await?;
 
     if its.is_empty() {
         return Ok(PostingsEnum::Empty);
@@ -335,13 +326,13 @@ fn is_subtracting_matcher(m: &Matcher, label_must_be_set: &FastHashSet<&str>) ->
     matches!(m.op, MatchOp::NotEqual | MatchOp::RegexNotEqual) && m.matches("")
 }
 
-async fn inverse_postings_for_matcher<'a, P, R>(
+fn inverse_postings_for_matcher<'a, R>(
     ix: &'a R,
-    m: &Matcher,
-) -> ProviderResult<R::Items<'a>>
+    m: &'a Matcher,
+) -> Pin<Box<dyn Future<Output = Result<R::Postings<'a>, ProviderError>> + Send + 'a>>
 where
-    P: PostingsIterator<'a>,
-    R: IndexReader<Items<'a> = P> + 'a,
+    R: IndexReader,
+    R::Postings<'a>: PostingsIterator,
 {
     // Fast-path for RegexNotEqual matching.
     // Inverse of a RegexNotEqual is RegexpEqual (double negation).
@@ -366,19 +357,18 @@ where
         return ix.postings_for_all_label_values(&m.label);
     }
 
-    ix.postings_for_label_matching(&m.label, |s| !m.matches(s))
+    ix.postings_for_label_matching(&m.label, move |s| !m.matches(s))
 }
 
-async fn run_or_matchers<'a, P, R>(
+async fn run_or_matchers<'a, R>(
     ix: &'a R,
-    matchers: &[Vec<Matcher>],
-) -> ProviderResult<PostingsEnum<P>>
+    matchers: &'a [Vec<Matcher>],
+) -> ProviderResult<PostingsEnum<R::Postings<'a>>>
 where
-    P: PostingsIterator<'a>,
-    R: IndexReader<Items<'a> = P>,
+    R: IndexReader,
 {
     if matchers.is_empty() {
-        empty_postings().await
+        Ok(PostingsEnum::Empty)
     } else if matchers.len() == 1 {
         let m = matchers
             .get(0)
