@@ -192,12 +192,7 @@ impl RollupFunction {
     }
 
     pub fn lookup(name: &str) -> Option<RollupFunction> {
-        if let Some(func) = lookup_rollup_fn(name.as_bytes()) {
-            Some(func)
-        } else {
-            let lower = name.to_ascii_lowercase();
-            lookup_rollup_fn(lower.as_bytes())
-        }
+        lookup_rollup_fn(name.as_bytes())
     }
 
     /// the signatures supported by the function `fun`.
@@ -512,7 +507,7 @@ pub fn is_rollup_aggregation_over_time(func: RollupFunction) -> bool {
 fn lookup_rollup_fn(key: &[u8]) -> Option<RollupFunction> {
     use RollupFunction::*;
     // This must be kept in sync with RollupFunction
-    hashify::tiny_map! {
+    hashify::tiny_map_ignore_case! {
         key,
         "absent_over_time" => AbsentOverTime,
         "aggr_over_time" => AggrOverTime,
