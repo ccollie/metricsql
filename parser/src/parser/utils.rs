@@ -12,7 +12,7 @@ const fn is_first_ident_char(ch: &char) -> bool {
 }
 
 const fn is_ident_char(ch: char) -> bool {
-    matches!(ch, 'A'..='Z' | 'a'..='z' | '0'..='9' | '_' | ':' | '.')
+    matches!(ch, 'A'..='Z' | 'a'..='z' | '0'..='9' | '_' | ':' | '.' | '-')
 }
 
 pub fn is_valid_identifier(candidate: &str) -> bool {

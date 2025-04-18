@@ -3,7 +3,6 @@ use std::borrow::BorrowMut;
 use std::time::Duration;
 
 use crate::ast::{DurationExpr, Expr, ParensExpr, StringExpr};
-use crate::parser::expr::parse_expression;
 use crate::parser::tokens::Token::Identifier;
 use crate::parser::tokens::{Token, IDENT_LIKE_TOKENS};
 use crate::parser::{
@@ -253,7 +252,7 @@ impl<'a> Parser<'a> {
     pub(super) fn parse_arg_list(&mut self) -> ParseResult<Vec<Expr>> {
         use Token::*;
         self.expect(&LeftParen)?;
-        self.parse_comma_separated(&[RightParen], parse_expression)
+        self.parse_comma_separated(&[RightParen], |p| p.parse_expression())
     }
 
     /// Parse a comma-separated list of 1+ items accepted by `f`

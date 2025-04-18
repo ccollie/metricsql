@@ -12,15 +12,16 @@ pub(crate) fn eval_string_string_binop(
 ) -> RuntimeResult<QueryValue> {
     match op {
         Operator::Add => {
-            if left.is_empty() {
-                Ok(right.into())
-            } else if right.is_empty() {
-                Ok(left.into())
-            } else {
-                let mut res = String::with_capacity(left.len() + right.len());
-                res += left;
-                res += right;
-                Ok(QueryValue::String(res))
+            match (left.is_empty(), right.is_empty()) {
+                (false, false) => {
+                    let mut res = String::with_capacity(left.len() + right.len());
+                    res += left;
+                    res += right;
+                    Ok(QueryValue::String(res))
+                }
+                (true, false) => Ok(right.into()),
+                (false, true) => Ok(left.into()),
+                (true, true) => Ok(QueryValue::String("".to_string())),
             }
         }
         _ => {

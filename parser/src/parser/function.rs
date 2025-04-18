@@ -4,22 +4,24 @@ use crate::functions::{BuiltinFunction, TypeSignature};
 use crate::parser::tokens::Token;
 use crate::parser::{ParseError, ParseResult, Parser};
 
-pub(super) fn parse_func_expr(p: &mut Parser) -> ParseResult<Expr> {
-    let name = p.expect_identifier()?;
-    let args = p.parse_arg_list()?;
+impl Parser<'_> {
+    pub(super) fn parse_func_expr(&mut self) -> ParseResult<Expr> {
+        let name = self.expect_identifier()?;
+        let args = self.parse_arg_list()?;
 
-    let mut fe = FunctionExpr::new(&name, args)?;
-    fe.keep_metric_names = if p.at(&Token::KeepMetricNames) {
-        p.bump();
-        true
-    } else {
-        false
-    };
+        let mut fe = FunctionExpr::new(&name, args)?;
+        fe.keep_metric_names = if self.at(&Token::KeepMetricNames) {
+            self.bump();
+            true
+        } else {
+            false
+        };
 
-    // TODO: !!!! fix validate args
-    // validate_args(&fe.function, &fe.args)?;
+        // TODO: !!!! fix validate args
+        // validate_args(&fe.function, &fe.args)?;
 
-    Ok(Expr::Function(fe))
+        Ok(Expr::Function(fe))
+    }
 }
 
 /// Note: MetricSQL is much looser than PromQL in terms of function argument types. In particular,

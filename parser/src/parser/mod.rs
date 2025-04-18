@@ -11,7 +11,6 @@ use crate::optimizer::remove_parens;
 use parser::Parser;
 
 use crate::label::Matchers;
-use crate::parser::expr::parse_expression;
 pub use metric_name::parse_metric_name;
 pub use utils::is_valid_identifier;
 
@@ -35,7 +34,7 @@ mod utils;
 
 pub fn parse(input: &str) -> ParseResult<Expr> {
     let mut parser = Parser::new(input)?;
-    let mut expr = parse_expression(&mut parser)?;
+    let mut expr = parser.parse_expression()?;
     if !parser.is_eof() {
         return Err(ParseError::UnparsedData);
     }
@@ -46,7 +45,7 @@ pub fn parse(input: &str) -> ParseResult<Expr> {
 /// Parse a string representing a metric selector expression e.g. latency{service="auth", status~="400|500"}
 pub fn parse_metric_selector(input: &str) -> ParseResult<Matchers> {
     let mut parser = Parser::new(input)?;
-    match parse_expression(&mut parser) {
+    match parser.parse_expression() {
         Ok(expr) => {
             if !parser.is_eof() {
                 return Err(ParseError::UnparsedData);
