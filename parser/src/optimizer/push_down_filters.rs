@@ -6,7 +6,7 @@ use crate::functions::{AggregateFunction, BuiltinFunction, RollupFunction, Trans
 use crate::label::{Matcher, Matchers, NAME_LABEL};
 use crate::parser::{ParseError, ParseResult};
 use crate::prelude::{can_accept_multiple_args_for_aggr_func, VectorMatchCardinality};
-use metricsql_common::hash::{FastHashSet, Signature};
+use metricsql_common::hash::{FastHashSet, HashSetExt, Signature};
 use smallvec::SmallVec;
 use std::borrow::Cow;
 use std::iter::FromIterator;

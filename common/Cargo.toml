@@ -20,7 +20,7 @@ chrono.workspace = true
 chrono-tz.workspace = true
 byte-pool = "0.2"
 futures.workspace = true
-gxhash = { version = "3.4", optional = true }
+gxhash = { version = "3.5", optional = true }
 get-size.workspace = true
 integer-encoding.workspace = true
 lockfree-object-pool = "0.1"

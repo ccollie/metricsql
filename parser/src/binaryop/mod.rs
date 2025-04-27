@@ -204,7 +204,7 @@ pub const fn get_scalar_comparison_handler(op: Operator, is_bool: bool) -> Binop
             Operator::Lt => compare_lt_bool,
             Operator::Gte => compare_gte_bool,
             Operator::Lte => compare_lte_bool,
-            _ => unreachable!(),
+            _ => unreachable!("unexpected operator in comparison"),
         }
     } else {
         match op {
@@ -214,7 +214,7 @@ pub const fn get_scalar_comparison_handler(op: Operator, is_bool: bool) -> Binop
             Operator::Lt => compare_lt,
             Operator::Gte => compare_gte,
             Operator::Lte => compare_lte,
-            _ => unreachable!(),
+            _ => unreachable!("unexpected operator in comparison"),
         }
     }
 }

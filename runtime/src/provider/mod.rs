@@ -16,7 +16,6 @@ mod posting_stats;
 mod postings;
 mod querier;
 mod traits;
-mod index_querier;
 
 pub use error::ProviderError;
 pub use memory_postings::*;

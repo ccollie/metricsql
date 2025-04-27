@@ -158,15 +158,14 @@ where
 
 //type PostingsResult<'a> = BoxFuture<'a, ProviderResult<impl PostingsList>>;
 
-/// `postings_for_matchers` assembles a single postings iterator against the index
-/// based on the given matchers. The resulting postings are not ordered by series.
+/// `postings_for_matchers_slice` assembles a single postings iterator against the index
 async fn postings_for_matchers_slice<'a, R>(
     ix: &'a R,
     ms: &'a [Matcher],
 ) -> ProviderResult<PostingsEnum<R::Postings<'a>>>
 where
     R: IndexReader,
-    R::Postings<'a>: PostingsIterator
+    R::Postings<'a>: PostingsIterator,
 {
     if ms.len() == 1 {
         let m = &ms[0];
@@ -178,14 +177,11 @@ where
 
     let mut not_its_futures: SmallVec<_, 4> = SmallVec::new();
     let mut its_futures: SmallVec<_, 4> = SmallVec::new();
-    let mut not_its: SmallVec<_, 4> = SmallVec::new();
 
     let mut has_subtracting_matchers = false;
     let mut has_intersecting_matchers = false;
 
     let mut sorted_matchers: SmallVec<(&Matcher, bool, bool), 4> = SmallVec::new();
-    // See which label must be non-empty.
-    // Optimization for case like {l=~".", l!="1"}.
     let mut label_must_be_set: FastHashSet<&str> = FastHashSet::with_capacity(ms.len());
     for m in ms {
         let matches_empty = m.matches("");
@@ -201,26 +197,23 @@ where
     }
 
     if has_subtracting_matchers && !has_intersecting_matchers {
-        // If there's nothing to subtract from, add in everything and remove the not_its later.
-        // We prefer to get all_postings so that the base of subtraction (i.e. all_postings)
-        // doesn't include series that may be added to the index reader during this function call.
-        its_futures.push( ix.all_postings() );
+        its_futures.push(ix.all_postings());
     }
 
-    // Sort matchers to have the intersecting matchers first.
-    // This way the base for subtraction is smaller and there is no chance that the set we subtract
-    // from contains postings of series that didn't exist when we constructed the set we subtract by.
-    sorted_matchers.sort_by(|i, j| -> Ordering {
+    sorted_matchers.sort_by(|i, j| {
         let is_i_subtracting = i.2;
         let is_j_subtracting = j.2;
         if !is_i_subtracting && is_j_subtracting {
             return Ordering::Less;
         }
-        // sort by match cost
         let cost_i = i.0.cost();
         let cost_j = j.0.cost();
         cost_i.cmp(&cost_j)
     });
+
+
+    // Store owned inverse matchers here
+    let mut inverse_matchers_storage: SmallVec<Box<Matcher>, 4> = SmallVec::new();
 
     for (m, matches_empty, _is_subtracting) in sorted_matchers {
         let value = &m.value;
@@ -228,31 +221,23 @@ where
         let typ = m.op;
 
         if name.is_empty() && value.is_empty() {
-            // We already handled the case at the top of the function,
-            // and it is unexpected to get all postings again here.
             return Err(ProviderError::MissingMatcher);
         }
 
         match (m.op, m.value.as_str()) {
-            // .* regexp matches any string: do nothing
             (MatchOp::RegexEqual, ".*") => continue,
-            // .* regexp does not match any string: return empty
             (MatchOp::RegexNotEqual, ".*") => {
                 return Ok(PostingsEnum::Empty);
             }
-            // .+ regexp matches any non-empty string
             (MatchOp::RegexEqual, ".+") => {
-                // .+ regexp matches any non-empty string: get postings for all label values.
                 let it = ix.postings_for_all_label_values(&m.label);
                 its_futures.push(it);
             }
             (MatchOp::RegexNotEqual, ".+") => {
-                // .+ regexp matches any non-empty string: get postings for all label values and remove them.
                 let it = ix.postings_for_all_label_values(name);
                 not_its_futures.push(it);
             }
             _ if label_must_be_set.contains(&name.as_str()) => {
-                // If this matcher must be non-empty, we can be smarter.
                 let is_not = typ == MatchOp::NotEqual || m.op == MatchOp::RegexNotEqual;
 
                 if is_not {
@@ -260,39 +245,33 @@ where
                         .inverse()
                         .map_err(|_| ProviderError::InvalidMatcher(m.to_string()))?;
 
-                    // If the label can't be empty and is a Not, then subtract it out at the end.
+                    // Push the owned matcher into storage
+                    inverse_matchers_storage.push(Box::new(inverse));
+
+                    // Get a stable reference to the stored matcher
+                    let inverse_ref: &Matcher = inverse_matchers_storage.last().unwrap().as_ref();
+
                     if matches_empty {
-                        // l!="foo"
-                        // If the label can't be empty and is a Not and the inner matcher
-                        // doesn't match empty, then subtract it out at the end.
-                        // NOTE: we resolve immediately here to avoid borrowing issue with inverse
-                        // TODO: Find a way to handle this
-                        let it = postings_for_matcher_internal(ix, &inverse);
-                        not_its.push(it);
+                        // Instead of resolving here, push the future to not_its_futures
+                        let it = postings_for_matcher_internal(ix, inverse_ref);
+                        not_its_futures.push(it);
                     } else {
-                        // l!=""
-                        // If the label can't be empty and is a Not, but the inner matcher can
-                        // be empty we need to use inverse_postings_for_matcher.
-                        let it = inverse_postings_for_matcher(ix, &inverse);
+                        let it = inverse_postings_for_matcher(ix, inverse_ref);
                         its_futures.push(it);
                     }
                 } else {
-                    // l="a", l=~"a|b", l=~"a.b", etc.
-                    // Non-Not matcher, use normal `postings_for_matcher`.
                     let it = postings_for_matcher_internal(ix, m);
                     its_futures.push(it);
                 }
             }
             _ => {
-                // l="a", l=~"a|b", l=~"a.b", etc.
-                // Non-Not matcher, use normal `postings_for_matcher`.
                 let it = postings_for_matcher_internal(ix, m);
                 its_futures.push(it);
             }
         }
     }
 
-    // todo: join! the following 2 statements
+    // All futures are now resolved together
     let mut its = try_join_all(its_futures).await?;
     let resolved_not_its = try_join_all(not_its_futures).await?;
 

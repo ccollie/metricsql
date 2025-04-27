@@ -29,6 +29,7 @@ use std::borrow::Cow;
 use std::ops::Div;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use chili::Scope;
 use tracing::{field, trace_span, Span};
 
 /// Struct managing state for rollup execution.
@@ -548,6 +549,7 @@ impl<'a> RollupEvaluator<'a> {
             samples_scanned_total: RelaxedU64Counter,
         }
 
+        // todo: smallvec
         let series = Arc::new(Mutex::new(Vec::with_capacity(rss.len() * rcs.len())));
         let ctx = TaskCtx {
             series: Arc::clone(&series),
@@ -559,6 +561,7 @@ impl<'a> RollupEvaluator<'a> {
             samples_scanned_total: Default::default(),
         };
 
+        // todo: chili
         rss.series.par_iter_mut().try_for_each(|rs| {
             if !ctx.no_stale_markers {
                 drop_stale_nans(&ctx.func, &mut rs.values, &mut rs.timestamps);
@@ -742,11 +745,13 @@ fn get_absent_timeseries(ec: &EvalConfig, expr: &Expr) -> RuntimeResult<Vec<Time
     Ok(rvs)
 }
 
+
 /// Executes `f` for each `Timeseries` in `tss` in parallel.
 pub(super) fn do_parallel<F>(tss: &Vec<Timeseries>, f: F) -> RuntimeResult<(Vec<Timeseries>, u64)>
 where
     F: Fn(&Timeseries, &mut [f64], &[i64]) -> RuntimeResult<(Vec<Timeseries>, u64)> + Send + Sync,
 {
+    // todo: chili instead of rayon
     let res: RuntimeResult<Vec<(Vec<Timeseries>, u64)>> = tss
         .par_iter()
         .map(|ts| {
@@ -766,9 +771,9 @@ where
     let mut series: Vec<Timeseries> = Vec::with_capacity(tss.len());
     let tss = res?;
     let mut sample_total = 0_u64;
-    for (timeseries, sample_count) in tss.into_iter() {
+    for (ref mut timeseries, sample_count) in tss.into_iter() {
         sample_total += sample_count;
-        series.extend::<Vec<Timeseries>>(timeseries)
+        series.append(timeseries);
     }
 
     Ok((series, sample_total))

@@ -368,7 +368,7 @@ impl RollupConfig {
         let mut ni = 0;
         let mut nj = 0;
 
-        // todo: use smallvec
+        // todo: use smallvec, or have a pool of these
         let func_args: Vec<_> = self
             .timestamps
             .iter()
@@ -509,6 +509,17 @@ fn exec_handler_parallel(
     dest: &mut Vec<f64>,
     args: &[RollupFuncArg],
 ) {
+
+    #[inline]
+    fn process_two(
+        scope: &mut Scope,
+        handler: &RollupHandler,
+        first: &RollupFuncArg,
+        second: &RollupFuncArg,
+    ) -> (f64, f64) {
+        scope.join(|_| handler.eval(first), |_| handler.eval(second))
+    }
+
     match args {
         [] => (),
         [first] => {
@@ -516,26 +527,27 @@ fn exec_handler_parallel(
             dest.push(v);
         }
         [first, second] => {
-            let (v1, v2) = scope.join(|_| handler.eval(first), |_| handler.eval(second));
+            let (v1, v2) = process_two(scope, handler, first, second);
             dest.extend_from_slice(&[v1, v2]);
         }
         [first, second, third] => {
             let ((v1, v2), v3) = scope.join(
-                |s1| s1.join(|_| handler.eval(first), |_| handler.eval(second)),
+                |s1| process_two(s1, handler, first, second),
                 |_| handler.eval(third),
             );
             dest.extend_from_slice(&[v1, v2, v3]);
         }
         [first, second, third, fourth] => {
             let ((v1, v2), (v3, v4)) = scope.join(
-                |s1| s1.join(|_| handler.eval(first), |_| handler.eval(second)),
-                |s2| s2.join(|_| handler.eval(third), |_| handler.eval(fourth)),
+                |s1| process_two(s1, handler, first, second),
+                |s2| process_two(s2, handler, third, fourth),
             );
             dest.extend_from_slice(&[v1, v2, v3, v4]);
         }
         _ => {
             let mid = args.len() / 2;
             let (head, tail) = args.split_at(mid);
+            // todo: use smallvec, parallelize the following
             exec_handler_parallel(scope, handler, dest, head);
             exec_handler_parallel(scope, handler, dest, tail);
         }
