@@ -29,7 +29,6 @@ use std::borrow::Cow;
 use std::ops::Div;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use chili::Scope;
 use tracing::{field, trace_span, Span};
 
 /// Struct managing state for rollup execution.

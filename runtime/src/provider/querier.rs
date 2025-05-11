@@ -62,9 +62,11 @@ where
         return ix.all_postings();
     }
 
+    let label = m.label.clone();
+
     if m.op == MatchOp::Equal {
         // how to avoid clone ???
-        return ix.postings(&m.label, &[m.value.as_str()]);
+        return ix.postings(label, vec![m.value.clone()]);
     }
 
     // Fast-path for set matching.
@@ -72,13 +74,13 @@ where
         let set_matches = m.set_matches();
         if let Some(matches) = set_matches {
             if !matches.is_empty() {
-                let matches: SmallVec<&str, 6> = matches.iter().map(|s| s.as_str()).collect();
-                return ix.postings(&m.label, &matches)
+                let _matches: Vec<String> = matches.as_ref().to_vec();
+                return ix.postings(label, _matches)
             }
         }
     }
 
-    ix.postings_for_label_matching(&m.label, move |s| m.matches(s))
+    ix.postings_for_label_matching(label, move |s| m.matches(s))
 }
 
 pub async fn label_values_with_matchers<'a, R>(
@@ -89,7 +91,7 @@ pub async fn label_values_with_matchers<'a, R>(
 where
     R: IndexReader,
 {
-    let mut all_values = ix.label_values(name, matchers).await?;
+    let mut all_values = ix.label_values(name.to_string(), matchers).await?;
 
     fn process_matchers(matchers: &[Matcher], name: &str, all_values: &mut Vec<String>) -> bool {
         let mut has_matchers_for_other_labels = false;
@@ -143,7 +145,7 @@ where
 
     let values_postings: Vec<_> = all_values
         .iter()
-        .map(|value| ix.postings(name, &[value.as_str()]))
+        .map(|value| ix.postings(name.to_string(), vec![value.clone()]))
         .collect();
 
     let postings = try_join_all(values_postings.into_iter()).await?;
@@ -211,10 +213,6 @@ where
         cost_i.cmp(&cost_j)
     });
 
-
-    // Store owned inverse matchers here
-    let mut inverse_matchers_storage: SmallVec<Box<Matcher>, 4> = SmallVec::new();
-
     for (m, matches_empty, _is_subtracting) in sorted_matchers {
         let value = &m.value;
         let name = &m.label;
@@ -230,11 +228,11 @@ where
                 return Ok(PostingsEnum::Empty);
             }
             (MatchOp::RegexEqual, ".+") => {
-                let it = ix.postings_for_all_label_values(&m.label);
+                let it = ix.postings_for_all_label_values(name.clone());
                 its_futures.push(it);
             }
             (MatchOp::RegexNotEqual, ".+") => {
-                let it = ix.postings_for_all_label_values(name);
+                let it = ix.postings_for_all_label_values(name.clone());
                 not_its_futures.push(it);
             }
             _ if label_must_be_set.contains(&name.as_str()) => {
@@ -245,18 +243,12 @@ where
                         .inverse()
                         .map_err(|_| ProviderError::InvalidMatcher(m.to_string()))?;
 
-                    // Push the owned matcher into storage
-                    inverse_matchers_storage.push(Box::new(inverse));
-
-                    // Get a stable reference to the stored matcher
-                    let inverse_ref: &Matcher = inverse_matchers_storage.last().unwrap().as_ref();
-
                     if matches_empty {
                         // Instead of resolving here, push the future to not_its_futures
-                        let it = postings_for_matcher_internal(ix, inverse_ref);
+                        let it = postings_for_matcher_internal(ix, &inverse);
                         not_its_futures.push(it);
                     } else {
-                        let it = inverse_postings_for_matcher(ix, inverse_ref);
+                        let it = inverse_postings_for_matcher(ix, inverse);
                         its_futures.push(it);
                     }
                 } else {
@@ -307,20 +299,24 @@ fn is_subtracting_matcher(m: &Matcher, label_must_be_set: &FastHashSet<&str>) ->
 
 fn inverse_postings_for_matcher<'a, R>(
     ix: &'a R,
-    m: &'a Matcher,
+    m: Matcher,
 ) -> Pin<Box<dyn Future<Output = Result<R::Postings<'a>, ProviderError>> + Send + 'a>>
 where
     R: IndexReader,
     R::Postings<'a>: PostingsIterator,
 {
+    let mut m = m;
+
+    let label = std::mem::take(&mut m.label);
+
     // Fast-path for RegexNotEqual matching.
     // Inverse of a RegexNotEqual is RegexpEqual (double negation).
     // Fast-path for set matching.
     if m.op == MatchOp::RegexNotEqual {
         if let Some(matches) = m.set_matches() {
             if !matches.is_empty() {
-                let matches: SmallVec<&str, 6> = matches.iter().map(|s| s.as_str()).collect();
-                return ix.postings(&m.label, &matches);
+                let _matches: Vec<String> = matches.into_owned();
+                return ix.postings(label, _matches);
             }
         }
     }
@@ -328,15 +324,16 @@ where
     // Fast-path for NotEqual matching.
     // Inverse of a NotEqual is Equal (double negation).
     if m.op == MatchOp::NotEqual {
-        return ix.postings(&m.label, &[&m.value]);
+        let value = std::mem::take(&mut m.value);
+        return ix.postings(label, vec![value]);
     }
 
     // If the matcher being inverted is =~"" or ="", we just want all the values.
     if m.value.is_empty() && (m.op == MatchOp::RegexEqual || m.op == MatchOp::Equal) {
-        return ix.postings_for_all_label_values(&m.label);
+        return ix.postings_for_all_label_values(label);
     }
 
-    ix.postings_for_label_matching(&m.label, move |s| !m.matches(s))
+    ix.postings_for_label_matching(label, move |s| !m.matches(s))
 }
 
 async fn run_or_matchers<'a, R>(

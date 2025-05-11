@@ -63,11 +63,12 @@ impl Storage {
     pub fn search(&self, start: i64, end: i64, filters: &Matchers) -> RuntimeResult<QueryResults> {
         let mut results: Vec<QueryResult> = vec![];
         let found = self
-            .postings_for_matchers(filters)
+            .postings
+            .posting_for_metric(filters)
             .map_err(|_| RuntimeError::ProviderError(filters.to_string()))?;
 
         for id in found.iter() {
-            let signature = Signature::from(id);
+            let signature = Signature::from(*id);
             if let Some((metric_name, data)) = self.series.get(&signature) {
                 if let Some(first_idx) = find_first_index(&data, start) {
                     let mut last_idx = first_idx;

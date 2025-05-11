@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-/// humanize converts given number to a human-readable format
+/// humanize converts a given number to a human-readable format
 /// by adding metric prefixes https://en.wikipedia.org/wiki/Metric_prefix
 pub fn humanize(v: f64) -> String {
     let mut v = v;

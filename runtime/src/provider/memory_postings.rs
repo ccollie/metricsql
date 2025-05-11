@@ -29,7 +29,7 @@ use enquote::enquote;
 use get_size::GetSize;
 use integer_encoding::{VarIntReader, VarIntWriter};
 
-const ALL_POSTINGS_KEY: &str = "$_ALL_P0STINGS_";
+const ALL_POSTINGS_KEY: &str = "$_@LL_P0STINGS_";
 static EMPTY_BITMAP: LazyLock<PostingsBitmap> = LazyLock::new(|| PostingsBitmap::new());
 
 pub type PostingsBitmap = Bitmap64;
@@ -70,7 +70,7 @@ impl<'a> PostingsIterator for BitmapPostings<'a> {
 #[derive(Clone, Debug)]
 pub struct MemoryPostings {
     all_postings_key: IndexKey,
-    /// Map from label name and (label name,  label value) to set of timeseries ids.
+    /// Map from label name and (label name, label value) to a set of timeseries ids.
     label_index: PostingsIndex,
 }
 
@@ -274,7 +274,7 @@ impl MemoryPostings {
 
         // If we have a matcher for the label name, we can filter out values that don't match
         // before we fetch postings. This is especially useful for labels with many values.
-        // e.g. __name__ with a selector like {__name__="xyz"}
+        // E.g., __name__ with a selector like {__name__="xyz"}
         let has_matchers_for_other_labels = matchers.iter().any(|m| m.label != name);
         all_values.retain(|v| matchers.iter().all(|m| m.label != name || m.matches(v)));
 
@@ -552,14 +552,14 @@ impl IndexReader for MemoryPostings {
         name: &str,
         matchers: Option<&Matchers>,
     ) -> ProviderResult<Vec<String>> {
-        let mut values = self.label_values(name, matchers);
+        let mut values = <MemoryPostings as IndexReader>::label_values(self, name.to_string(), matchers).await?;
         values.sort();
         Ok(values)
     }
 
     async fn label_values(
         &self,
-        name: &str,
+        name: String,
         matchers: Option<&Matchers>,
     ) -> ProviderResult<Vec<String>> {
         let mut values: Vec<String> = Vec::new();
@@ -568,7 +568,7 @@ impl IndexReader for MemoryPostings {
             let postings = Bitmap64::from_iter(matched_postings);
             if !postings.is_empty() {
                 self.process_label_values(
-                    name,
+                    &name,
                     &mut values,
                     |_, ids| ids.intersect(&postings),
                     |state, value, _| {
@@ -579,7 +579,7 @@ impl IndexReader for MemoryPostings {
             }
         } else {
             self.process_label_values(
-                name,
+                &name,
                 &mut values,
                 |_, _| true,
                 |state, value, _| {
@@ -591,19 +591,19 @@ impl IndexReader for MemoryPostings {
         Ok(values)
     }
 
-    async fn postings<'a>(&'a self, name: &str, values: &[&str]) -> ProviderResult<Self::Postings<'a>> {
-        let bmp = self.postings(name, values);
+    async fn postings<'a>(&'a self, name: String, values: Vec<String>) -> ProviderResult<Self::Postings<'a>> {
+        let bmp = self.postings(&name, &values);
         let result = BitmapPostings::new(bmp);
         Ok(result)
     }
 
     async fn postings_for_label_matching<'a>(
         &'a self,
-        name: &str,
-        match_fn: impl Fn(&str) -> bool + Send,
+        name: String,
+        match_fn: impl Fn(&'a str) -> bool + Send,
     ) -> ProviderResult<Self::Postings<'a>> {
         let mut res = PostingsBitmap::new();
-        let prefix = get_key_for_label_prefix(name);
+        let prefix = get_key_for_label_prefix(&name);
         let start_pos = prefix.len();
         for (key, map) in self.label_index.prefix(prefix.as_bytes()) {
             let value = key.sub_string(start_pos);
@@ -615,16 +615,17 @@ impl IndexReader for MemoryPostings {
         Ok(result)
     }
 
-    async fn postings_for_all_label_values<'a>(&'a self, name: &str) -> ProviderResult<Self::Postings<'a>> {
-        let res = self.postings_for_all_label_values(name);
+    async fn postings_for_all_label_values<'a>(&'a self, name: String) -> ProviderResult<Self::Postings<'a>> {
+        let res = self.postings_for_all_label_values(&name);
         let result = BitmapPostings::new(res);
         Ok(result)
     }
 
     async fn sorted_postings<'a>(
         &'a self,
-        _postings: impl Iterator<Item = SeriesRef>,
+        _postings: impl Iterator<Item = SeriesRef> + Send,
     ) -> ProviderResult<Self::Postings<'a>> {
+        
         unimplemented!("sorted_postings")
     }
 
@@ -659,10 +660,10 @@ impl IndexReader for MemoryPostings {
         Ok(res)
     }
 
-    async fn label_value_for(&self, id: SeriesRef, label: &str) -> ProviderResult<String> {
+    async fn label_value_for(&self, id: SeriesRef, label: String) -> ProviderResult<String> {
         let mut state = ();
         let value = self.process_label_values(
-            label,
+            &label,
             &mut state,
             |_, postings| postings.contains(id),
             |_, value, _| ControlFlow::Break(Some(value.to_string())),

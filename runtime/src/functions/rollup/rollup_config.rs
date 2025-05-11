@@ -305,7 +305,7 @@ impl RollupConfig {
         self.exec_internal(&mut ts.values, Some(tsm), values, timestamps)
     }
 
-    pub(crate) fn exec_internal(
+    pub(super) fn exec_internal(
         &self,
         dst_values: &mut Vec<f64>,
         tsm: Option<Arc<TimeSeriesMap>>,

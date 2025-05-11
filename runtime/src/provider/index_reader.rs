@@ -4,7 +4,7 @@ use crate::provider::postings::PostingsIterator;
 use crate::SeriesRef;
 use metricsql_parser::label::Matchers;
 
-/// IndexReader provides reading access of serialized index data.
+/// IndexReader provides read access to serialized index data.
 #[async_trait]
 pub trait IndexReader {
     type Postings<'a>: PostingsIterator where Self: 'a;
@@ -21,31 +21,31 @@ pub trait IndexReader {
     /// `label_values` returns possible label values which may not be sorted.
     async fn label_values(
         &self,
-        name: &str,
+        name: String,
         matchers: Option<&Matchers>,
     ) -> ProviderResult<Vec<String>>;
 
-    /// returns the postings list iterator for the label pairs.
+    /// Returns the postings list iterator for the label pairs.
     /// Found IDs are not strictly required to point to a valid Series, e.g. during background garbage collections.
-    async fn postings<'a>(&'a self, name: &str, values: &[&str])
+    async fn postings<'a>(&'a self, name: String, values: Vec<String>)
         -> ProviderResult<Self::Postings<'a>>;
 
     /// `postings_for_label_matching` returns a sorted iterator over postings having a label with the given name and a value for which match returns true.
     /// If no postings are found having at least one matching label, an empty iterator is returned.
     async fn postings_for_label_matching<'a>(
         &'a self,
-        name: &str,
-        match_fn: impl Fn(&str) -> bool + Send,
+        name: String,
+        match_fn: impl Fn(&'a str) -> bool + Send,
     ) -> ProviderResult<Self::Postings<'a>>;
 
     /// `postings_for_all_label_values` returns a sorted iterator over all postings having a label with the given name.
     /// If no postings are found with the label in question, an empty iterator is returned.
     async fn postings_for_all_label_values<'a>(
         &'a self,
-        name: &str,
+        name: String,
     ) -> ProviderResult<Self::Postings<'a>>;
 
-    /// `sorted_postings` returns a postings list that is reordered to be sorted by the label set of the underlying series.
+    /// `sorted_postings` returns a posting list reordered to be sorted by the label set of the underlying series.
     async fn sorted_postings<'a>(
         &'a self,
         postings: impl Iterator<Item = SeriesRef>,
@@ -58,8 +58,8 @@ pub trait IndexReader {
 
     /// `label_value_for` returns the label value for the given label name in the series referred to by ID.
     /// If the series couldn't be found or the series doesn't have the requested label a
-    /// storage.ErrNotFound is returned as error.
-    async fn label_value_for(&self, id: SeriesRef, label: &str) -> ProviderResult<String>;
+    /// storage.ErrNotFound is returned as an error.
+    async fn label_value_for(&self, id: SeriesRef, label: String) -> ProviderResult<String>;
 
     /// `label_names_for` returns all the label names for the series referred to by the postings.
     /// The names returned are sorted.
