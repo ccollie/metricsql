@@ -698,7 +698,7 @@ pub(super) fn rollup_changes_prometheus(rfa: &RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
 
-    // do not take into account rfa.prev_value like Prometheus does.
+    // Do not take into account rfa.prev_value like Prometheus does.
     // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/1962
     if rfa.values.is_empty() {
         return NAN;
@@ -708,7 +708,7 @@ pub(super) fn rollup_changes_prometheus(rfa: &RollupFuncArg) -> f64 {
     for v in rfa.values.iter().copied().skip(1) {
         if v != prev_value {
             if change_below_tolerance(v, prev_value) {
-                // This may be precision error. See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/767#issuecomment-1650932203
+                // This may be a precision error. See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/767#issuecomment-1650932203
                 continue;
             }
             n += 1;
@@ -737,7 +737,7 @@ pub(super) fn rollup_changes(rfa: &RollupFuncArg) -> f64 {
     for v in values.iter() {
         if *v != prev_value {
             if change_below_tolerance(*v, prev_value) {
-                // This may be precision error. See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/767#issuecomment-1650932203
+                // This may be a precision error. See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/767#issuecomment-1650932203
                 continue;
             }
             n += 1;
@@ -925,7 +925,7 @@ pub(crate) fn rollup_default(rfa: &RollupFuncArg) -> f64 {
         return NAN;
     }
     // Intentionally do not skip the possible last Prometheus staleness mark.
-    // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/1526 .
+    // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/1526.
     *values.last().unwrap()
 }
 

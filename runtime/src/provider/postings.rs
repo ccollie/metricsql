@@ -199,8 +199,8 @@ pub(super) fn find_intersecting_postings<T: PostingsIterator>(
     Ok(set)
 }
 
-/// postingsWithIndex is used as postingsWithIndexHeap elements by FindIntersectingPostings,
-/// keeping track of the original index of each postings while they move inside the heap.
+/// PostingsWithIndex is used as postingsWithIndexHeap elements by FindIntersectingPostings,
+/// keeping track of the original index of each posting while they move inside the heap.
 #[derive(Eq, PartialEq)]
 pub(super) struct PostingsWithIndex {
     pub(super) index: usize,

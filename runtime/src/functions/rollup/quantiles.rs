@@ -17,7 +17,7 @@ pub(super) fn new_rollup_quantiles(args: &[QueryValue]) -> RuntimeResult<RollupH
     let mut phi_labels: Vec<String> = Vec::with_capacity(cap);
 
     for i in 1..args.len() {
-        // unwrap should be safe, since parameters types are checked before calling the function
+        // unwrap should be safe, since parameter types are checked before calling the function
         let v = get_scalar_param_value(args, i, "quantiles", "phi")?;
         phis.push(v);
         phi_labels.push(format!("{}", v));
