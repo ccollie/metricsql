@@ -288,7 +288,7 @@ pub(super) fn remove_counter_resets(
 
         if d < 0.0 {
             if (-d * 8.0) < prev_value {
-                // This is likely a partial counter reset.
+                // This is likely a partial counter-reset.
                 // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/2787
                 correction += prev_value - v;
             } else {
@@ -310,7 +310,7 @@ pub(super) fn remove_counter_resets(
         let new_value = v + correction;
         values[i] = new_value;
 
-        // Check again, there could be precision error in float operations.
+        // Check again, there could be a precision error in float operations.
         // SAFETY: the i > 0 check ensures that both indices are valid
         unsafe {
             if i > 0 {
@@ -774,7 +774,7 @@ pub(super) fn rollup_increases(rfa: &RollupFuncArg) -> f64 {
     for val in values.iter().copied() {
         if val > prev_value {
             if change_below_tolerance(val, prev_value) {
-                // This may be precision error. See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/767#issuecomment-1650932203
+                // This may be a precision error. See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/767#issuecomment-1650932203
                 continue;
             }
             n += 1;
@@ -814,7 +814,7 @@ pub(super) fn rollup_resets(rfa: &RollupFuncArg) -> f64 {
     for val in values.iter().copied() {
         if val < prev_value {
             if change_below_tolerance(val, prev_value) {
-                // This may be precision error. See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/767#issuecomment-1650932203
+                // This may be a precision error. See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/767#issuecomment-1650932203
                 continue;
             }
             n += 1;

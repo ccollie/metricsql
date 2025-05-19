@@ -33,7 +33,7 @@ pub(super) fn eval_aggr_func(
         if let Some(fe) = try_get_arg_rollup_func_with_metric_expr(ae)? {
             // There is an optimized path for calculating `AggrFuncExpr` over: RollupFunc
             // over MetricExpr.
-            // The optimized path saves RAM for aggregates over big number of time series.
+            // The optimized path saves RAM for aggregates over a big number of time series.
             let (args, re, _) = eval_rollup_func_args(ctx, ec, &fe)?;
 
             let rf = match fe.function {
@@ -79,7 +79,7 @@ pub(super) fn eval_aggr_func(
     }
 }
 
-// todo: move to metricsql crate - optimize phase
+// todo: move to parser optimize phase
 fn try_get_arg_rollup_func_with_metric_expr(
     ae: &AggregationExpr,
 ) -> RuntimeResult<Option<FunctionExpr>> {
@@ -178,7 +178,7 @@ pub(super) fn get_timeseries_limit(aggr_expr: &AggregationExpr) -> RuntimeResult
         timeseries_len * aggr_expr.limit
     } else {
         // Increase the number of timeseries for non-empty group list: `aggr() by (something)`,
-        // since each group can have own set of time series in memory.
+        // since each group can have its own set of time series in memory.
         timeseries_len * 1000
     };
 

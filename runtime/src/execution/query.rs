@@ -223,7 +223,7 @@ pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<Query
             start -= offset;
             end = start;
             start = end - window;
-            // Do not include data point with a timestamp matching the lower boundary of the window as
+            // Do not include a data point with a timestamp matching the lower boundary of the window as
             // Prometheus does.
             start += 1;
             if end < start {
@@ -287,7 +287,7 @@ pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<Query
 
     let mut query_offset = get_latency_offset_milliseconds(context) as i64;
     if params.may_cache && ct - start < query_offset && start - ct < query_offset {
-        // Adjust start time only if `nocache` arg isn't set.
+        // Adjust the start time only if `nocache` arg isn't set.
         // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/241
         let start_prev = start;
         start = ct - query_offset;
@@ -433,7 +433,7 @@ fn adjust_last_points(tss: &mut [QueryResult], start: Timestamp, end: Timestamp)
         if let Some(&last_timestamp) = ts.timestamps.last() {
             if last_timestamp > end {
                 // It looks like the `offset` is used in the query, which shifts time range beyond the `end`.
-                // Leave such a time series as is, since it is unclear which points may be incomplete in it.
+                // Leave such a time series as-is, since it is unclear which points may be incomplete in it.
                 // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/625
                 continue;
             }
@@ -519,7 +519,7 @@ fn get_latency_offset_milliseconds(ctx: &Context) -> u64 {
     std::cmp::min(ctx.config.latency_offset.as_millis() as u64, 1000)
 }
 
-/// get_deadline_for_query returns deadline for the given query r.
+/// get_deadline_for_query returns the deadline for the given query r.
 fn get_deadline_for_query<T, D>(
     ctx: &Context,
     start_time: T,

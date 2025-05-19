@@ -233,8 +233,8 @@ impl RollupFunction {
         }
     }
 
-    /// These functions don't change physical meaning of input time series,
-    /// so they don't drop metric name
+    /// These functions don't change the physical meaning of the input time series,
+    /// so they don't drop the metric name
     pub const fn keep_metric_name(&self) -> bool {
         use RollupFunction::*;
         matches!(
@@ -328,8 +328,8 @@ impl RollupFunction {
         )
     }
 
-    /// All rollup functions which do not rely on the previous sample
-    /// before the lookbehind window (aka prev_value), do not need silence interval.
+    /// All rollup functions that do not rely on the previous sample
+    /// before the lookbehind window (aka prev_value) do not need a silence interval.
     pub const fn need_silence_interval(&self) -> bool {
         use RollupFunction::*;
         !matches!(
@@ -337,7 +337,7 @@ impl RollupFunction {
             AscentOverTime
                 | Changes
                 | DecreasesOverTime
-            // The default_rollup implicitly relies on the previous samples in order to fill gaps.
+            // The default_rollup implicitly relies on the previous samples to fill gaps.
 	        // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/5388
                 | DefaultRollup
                 | Delta
@@ -366,7 +366,7 @@ impl RollupFunction {
         )
     }
 
-    /// We can extend lookbehind window for these functions in order to make sure it contains enough
+    /// We can extend the lookbehind window for these functions to make sure it contains enough
     /// points for returning non-empty results.
     ///
     /// This is needed for returning the expected non-empty graphs when zooming in the graph in Grafana,
@@ -431,14 +431,18 @@ impl FromStr for RollupTag {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            s if s.eq_ignore_ascii_case(MIN) => Ok(RollupTag::Min),
-            s if s.eq_ignore_ascii_case(MAX) => Ok(RollupTag::Max),
-            s if s.eq_ignore_ascii_case(AVG) => Ok(RollupTag::Avg),
-            _ => Err(ParseError::InvalidFunction(format!(
-                "invalid rollup tag::{s}",
-            ))),
+        if s.len() == 3 {
+            let h = s.as_bytes()[2].to_ascii_lowercase();
+            match h {
+                b'i' => if s.eq_ignore_ascii_case(MIN) { return Ok(RollupTag::Min) },
+                b'a' => if s.eq_ignore_ascii_case(MAX) { return Ok(RollupTag::Max) },
+                b'v' => if s.eq_ignore_ascii_case(AVG) { return Ok(RollupTag::Avg) },
+                _ => {}
+            };
         }
+        Err(ParseError::InvalidFunction(format!(
+            "invalid rollup tag::{s}",
+        )))
     }
 }
 

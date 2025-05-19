@@ -46,7 +46,7 @@ fn running_func_impl(
         // skip leading NaN values
         let mut start = get_first_non_nan_index(&ts.values);
 
-        // make sure there's at least 2 items remaining
+        // make sure there are at least 2 items remaining
         if ts.values.len() - start < 2 {
             continue;
         }

@@ -9,10 +9,9 @@ use crate::provider::Deadline;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::types::{Timeseries, Timestamp, TimestampTrait};
 
-/// validate_max_points_per_timeseries checks the maximum number of points that
-/// may be returned per each time series.
+/// Checks the maximum number of points that may be returned per each time series.
 ///
-/// The number mustn't exceed max_points_per_timeseries.
+/// The number mustn't exceed `max_points_per_timeseries`.
 pub(crate) fn validate_max_points_per_timeseries(
     start: Timestamp,
     end: Timestamp,
@@ -37,7 +36,7 @@ fn calc_points(start: Timestamp, end: Timestamp, step: &Duration) -> i64 {
 }
 
 /// The minimum number of points per timeseries for enabling time rounding.
-/// This improves cache hit ratio for frequently requested queries over
+/// This improves the cache hit ratio for frequently requested queries over
 /// big time ranges.
 const MIN_TIMESERIES_POINTS_FOR_TIME_ROUNDING: i64 = 50;
 
@@ -53,11 +52,11 @@ pub fn adjust_start_end(
     // }
     let points = calc_points(start, end, &step);
     if points < MIN_TIMESERIES_POINTS_FOR_TIME_ROUNDING {
-        // Too small number of points for rounding.
+        // Too small a number of points for rounding.
         return (start, end);
     }
 
-    // Round start and end to values divisible by step in order
+    // Round start and end to values divisible by step 
     // to enable response caching (see EvalConfig.mayCache).
     let (start, end) = align_start_end(start, end, &step);
 
@@ -89,9 +88,13 @@ pub fn align_start_end(
     (new_start, new_end)
 }
 
+/// Configuration Options to fine-tune query evaluation.
 pub struct EvalConfig {
+    /// `start` is the range start time for the query.
     pub start: Timestamp,
+    /// `end` is the range end time for the query.
     pub end: Timestamp,
+    /// `step` is the time step for the query.
     pub step: Duration,
 
     /// `max_series` is the maximum number of time series which can be scanned by the query.
@@ -101,6 +104,7 @@ pub struct EvalConfig {
     /// quoted remote address.
     pub quoted_remote_addr: Option<String>,
 
+    /// `deadline` is the maximum time allowed for the query to run.
     pub deadline: Deadline,
 
     /// lookback_delta is analog to `-query.lookback-delta` from Prometheus.
@@ -357,7 +361,7 @@ pub(crate) fn eval_number(ec: &EvalConfig, n: f64) -> RuntimeResult<Vec<Timeseri
 
 pub(crate) fn eval_time(ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
     let mut rv = eval_number(ec, f64::NAN)?;
-    let timestamps = rv[0].timestamps.clone(); // this is an Arc, so it's cheap to clone
+    let timestamps = rv[0].timestamps.clone(); // this is an Arc, so it's inexpensive to clone
     for (ts, val) in timestamps.iter().zip(rv[0].values.iter_mut()) {
         *val = (*ts as f64) / 1e3_f64;
     }

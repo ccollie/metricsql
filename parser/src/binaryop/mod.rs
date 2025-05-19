@@ -274,7 +274,7 @@ pub fn string_compare(a: &str, b: &str, op: Operator, is_bool: bool) -> ParseRes
 /// Supported operation between two float type values.
 /// For one-off operations. This differs from the `get_scalar_binop_handler` in that it
 /// is optimized for a single operation. The `get_scalar_binop_handler` is optimized for
-/// a single operation that is applied to many values (it minimizes the number of branches).
+/// a single operation applied to many values (it minimizes the number of branches).
 pub fn scalar_binary_operation(
     lhs: f64,
     rhs: f64,

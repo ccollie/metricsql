@@ -389,7 +389,7 @@ mod tests {
         test_ordering("a01b001", "a001b01", Ordering::Equal);
         // highest char and number
         test_ordering("a1", "a1x", Ordering::Less);
-        // highest number reverse chars
+        // highest number of reverse chars
         test_ordering("1b", "1ax", Ordering::Greater);
         // numbers with leading zero
         test_ordering("082", "83", Ordering::Less);

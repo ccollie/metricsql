@@ -393,7 +393,7 @@ fn eval_parens_op(ctx: &Context, ec: &EvalConfig, pe: &ParensExpr) -> RuntimeRes
 
 fn exec_binary_op(ctx: &Context, ec: &EvalConfig, be: &BinaryExpr) -> RuntimeResult<QueryValue> {
     let is_tracing = ctx.trace_enabled();
-    // first are cheap binary ops that can be handled without invoking rayon/chili overhead
+    // first are inexpensive binary ops that can be handled without invoking rayon/chili overhead
     let res = match (be.left.as_ref(), be.right.as_ref()) {
         // vector op vector needs special handling where both vectors contain selectors
         (Expr::MetricExpression(_), Expr::MetricExpression(_))

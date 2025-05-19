@@ -211,7 +211,7 @@ fn transform_label_copy_ext(
             }
             let value = value.unwrap();
             if value.is_empty() {
-                // do not remove destination label if the source label doesn't exist.
+                // do not remove the destination label if the source label doesn't exist.
                 continue;
             }
 

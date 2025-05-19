@@ -53,7 +53,7 @@ pub(crate) fn buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
     for ts in tss.into_iter() {
         let le_str = ts.metric_name.label_value(LE).unwrap_or(&empty_str);
 
-        // Skip time series without `le` tag.
+        // Skip time series without the ` le ` tag.
         if le_str.is_empty() {
             continue;
         }
@@ -69,7 +69,7 @@ pub(crate) fn buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
                 .or_default()
                 .push(Bucket { le, hits: 0.0, ts });
         } else {
-            // Skip time series with invalid `le` tag.
+            // Skip time series with an invalid ` le ` tag.
             continue;
         }
     }

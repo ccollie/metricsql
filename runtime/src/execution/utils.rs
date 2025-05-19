@@ -36,7 +36,7 @@ pub(super) fn adjust_eval_range<'a>(
         ec_new = Cow::Owned(result);
         // There is no need in calling adjust_start_end() on ec_new if ecNew.may_cache is set to true,
         // since the time range alignment has been already performed by the caller,
-        // so cache hit rate should be quite good.
+        // so the cache hit rate should be quite good.
         // See also https://github.com/VictoriaMetrics/VictoriaMetrics/issues/976
     }
 

@@ -936,9 +936,9 @@ fn aggr_func_limitk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
             index: usize,
         }
 
-        // Sort series by metric_name hash in order to get consistent set of output series
+        // Sort series by metric_name hash to get a consistent set of output series
         // across multiple calls to limitk() function.
-        // Sort series by hash in order to guarantee uniform selection across series.
+        // Sort series by hash to guarantee uniform selection across series.
         let mut hss = tss
             .iter()
             .enumerate()
@@ -1047,7 +1047,7 @@ fn new_aggr_quantile_func(phis: &[f64]) -> impl AggrFnExt + '_ {
 fn aggr_func_outliers_iqr(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let afe = move |tss: &mut Vec<Timeseries>, _: &Option<AggregateModifier>| -> Vec<Timeseries> {
         // Calculate lower and upper bounds for interquartile range per each point across tss
-        // according to Outliers section at https://en.wikipedia.org/wiki/Interquartile_range
+        // according to the Outliers section at https://en.wikipedia.org/wiki/Interquartile_range
         let (lower, upper) = get_per_point_iqr_bounds(tss);
         // Leave only time series with outliers above upper bound or below lower bound
         let mut tss_dst = Vec::with_capacity(tss.len());
