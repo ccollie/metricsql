@@ -15,7 +15,6 @@ pub mod error;
 pub mod hash;
 pub mod histogram;
 pub mod humanize;
-pub mod interner;
 pub mod pool;
 pub mod regex_util;
 pub mod threads;
@@ -30,7 +29,6 @@ pub mod prelude {
     pub use crate::hash::*;
     pub use crate::histogram::*;
     pub use crate::humanize::*;
-    pub use crate::interner::*;
     pub use crate::pool::*;
     pub use crate::regex_util::*;
     pub use crate::threads::*;
