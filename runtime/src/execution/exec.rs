@@ -514,7 +514,7 @@ fn eval_transform_func(
     exec_transform_fn(func, &mut tfa).map_err(|err| map_error(err, fe))
 }
 
-pub(super) fn eval_exprs_sequentially(
+fn eval_exprs_sequentially(
     ctx: &Context,
     ec: &EvalConfig,
     args: &[Expr],
