@@ -283,7 +283,7 @@ impl<'a> RollupEvaluator<'a> {
             return eval_number(ec, f64::NAN);
         }
 
-        // Search for partial results in cache.
+        // Search for partial results in the cache.
         let tss_cached: Vec<Timeseries>;
         let start: i64;
         {
@@ -304,7 +304,7 @@ impl<'a> RollupEvaluator<'a> {
             ctx.rollup_result_cache.misses.inc();
         }
 
-        // Obtain rollup configs before fetching data from db,
+        // Get rollup configs before fetching data from db,
         // so type errors can be caught earlier.
         let shared_timestamps = Arc::new(get_timestamps(
             start,

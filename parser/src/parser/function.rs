@@ -28,7 +28,7 @@ impl Parser<'_> {
 /// 1. MetricSQL allows scalar arguments to be passed to functions that expect vector arguments.
 /// 2. For rollup function arguments without a lookbehind window, an implicit [1i] is added, which
 ///    essentially converts vectors into ranges
-/// 3. non-rollup series selectors are wrapped in a default_rollup()
+/// 3. Non-rollup series selectors are wrapped in a default_rollup()
 ///    see https://docs.victoriametrics.com/MetricsQL.html
 ///
 ///    https://docs.victoriametrics.com/MetricsQL.html#implicit-query-conversions

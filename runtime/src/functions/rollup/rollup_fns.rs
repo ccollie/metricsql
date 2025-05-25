@@ -829,7 +829,7 @@ pub(super) fn rollup_mode_over_time(rfa: &RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
 
-    // Copy rfa.values to a, since modeNoNaNs modifies a contents.
+    // Copy rfa.values to `a`, since modeNoNaNs modifies `a` contents.
     if rfa.values.is_empty() {
         let mut a = vec![];
         return mode_no_nans(rfa.prev_value, &mut a);

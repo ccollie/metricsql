@@ -28,7 +28,7 @@ const EMPTY_STRING: &str = "";
 /// The maximum interval without previous rows.
 pub const MAX_SILENCE_INTERVAL: Duration = Duration::from_secs(5);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub(crate) enum PreFunction {
     RemoveCounterResets(i64),
     DerivValues,
@@ -160,7 +160,7 @@ pub(crate) fn get_rollup_configs(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn get_rollup_configs_from_meta(
+fn get_rollup_configs_from_meta(
     meta: RollupFunctionHandlerMeta,
     start: Timestamp,
     end: Timestamp,
@@ -200,7 +200,7 @@ pub(crate) fn get_rollup_configs_from_meta(
 
 #[derive(Clone)]
 pub(crate) struct RollupConfig {
-    /// This tag value must be added to "rollup" tag if non-empty.
+    /// This tag value must be added to the `rollup` tag if non-empty.
     pub tag_value: &'static str,
     pub handler: RollupHandler,
     pub start: Timestamp,
@@ -208,16 +208,16 @@ pub(crate) struct RollupConfig {
     pub step: Duration,
     pub window: Duration,
 
-    /// Whether window may be adjusted to 2 x interval between data points.
+    /// Whether the window may be adjusted to 2 x interval between data points.
     /// This is needed for functions which have dt in the denominator
     /// such as rate, deriv, etc.
-    /// Without the adjustment their value would jump in unexpected directions
-    /// when using window smaller than 2 x scrape_interval.
+    /// Without the adjustment, their value would jump in unexpected directions
+    /// when using a window smaller than 2 x scrape_interval.
     pub may_adjust_window: bool,
 
     pub timestamps: Arc<Vec<i64>>,
 
-    /// lookback_delta is the analog to `-query.lookback-delta` from Prometheus world.
+    /// lookback_delta is the analog to `-query.lookback-delta` from the Prometheus world.
     pub lookback_delta: Duration,
 
     /// Whether default_rollup is used.
@@ -315,7 +315,7 @@ impl RollupConfig {
         self.validate()?;
         dst_values.reserve(self.timestamps.len());
 
-        // Use step as the scrape interval for instant queries (when start == end).
+        // Use `step` as the scrape interval for instant queries (when start == end).
         let mut max_prev_interval = self.step;
         if self.start < self.end {
             let scrape_interval = get_scrape_interval(timestamps);
@@ -336,8 +336,8 @@ impl RollupConfig {
             window = self.step;
 
             if self.may_adjust_window && window < max_prev_interval {
-                // Adjust lookbehind window only if it isn't set explicitly, e.g. rate(foo).
-                // In the case of missing lookbehind window it should be adjusted in order to return non-empty graph
+                // Adjust the lookbehind window only if it isn't set explicitly, e.g. rate(foo).
+                // In the case of a missing lookbehind window, it should be adjusted to return a non-empty graph
                 // when the window doesn't cover at least two raw samples (this is what most users expect).
                 //
                 // If the user explicitly sets the lookbehind window to some fixed value, e.g. rate(foo[1s]),
@@ -413,7 +413,7 @@ impl RollupConfig {
                         let prev_timestamp = timestamps.get_unchecked(idx);
 
                         // set real_prev_value if rc.LookbackDelta == 0
-                        // or if distance between datapoint in prev interval and beginning of this interval
+                        // or if the distance between datapoint in prev interval and beginning of this interval
                         // doesn't exceed LookbackDelta.
                         // https://github.com/VictoriaMetrics/VictoriaMetrics/pull/1381
                         // https://github.com/VictoriaMetrics/VictoriaMetrics/issues/894
@@ -652,7 +652,7 @@ fn get_scrape_interval(timestamps: &[Timestamp]) -> Duration {
 
 const fn get_max_prev_interval(scrape_interval: Duration) -> Duration {
     let scrape_interval = scrape_interval.as_millis() as i64;
-    // Increase scrape_interval more for smaller scrape intervals in order to hide possible gaps
+    // Increase scrape_interval more for smaller scrape intervals to hide possible gaps
     // when high jitter is present.
     // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/139 .
     let interval = if scrape_interval <= 2_000i64 {
@@ -861,7 +861,7 @@ fn get_rollup_aggr_functions(expr: &Expr) -> RuntimeResult<Vec<RollupFunction>> 
     }
 
     let expr = if let Expr::Aggregation(afe) = expr {
-        // This is for incremental aggregate function case:
+        // This is for the incremental aggregate function case:
         //
         //     sum(aggr_over_time(...))
         // See aggr_incremental.rs for details.

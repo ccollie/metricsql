@@ -16,14 +16,14 @@ pub struct RollupFuncArg<'a> {
     /// The timestamp for prev_value.
     pub(super) prev_timestamp: Timestamp,
 
-    /// Values that fit window ending at curr_timestamp.
+    /// Values that fit the window ending at curr_timestamp.
     pub(crate) values: &'a [f64],
 
     /// Timestamps for values.
     pub(crate) timestamps: &'a [Timestamp],
 
     /// Real value preceding value
-    /// Populated if preceding value is within the staleness interval.
+    /// Populated if the preceding value is within the staleness interval.
     pub(super) real_prev_value: f64,
 
     /// Real value which goes after values.
@@ -32,7 +32,7 @@ pub struct RollupFuncArg<'a> {
     /// Current timestamp for rollup evaluation.
     pub(super) curr_timestamp: Timestamp,
 
-    /// Index for the currently evaluated point relative to time range for query evaluation.
+    /// Index for the currently evaluated point relative to the time range for query evaluation.
     pub(super) idx: usize,
 
     /// Time window for rollup calculations.
@@ -54,7 +54,7 @@ impl RollupFuncArg<'_> {
 pub(crate) type RollupFunc = fn(rfa: &RollupFuncArg) -> f64;
 
 #[clone_dyn]
-/// RollupFunc must return rollup value for the given rfa.
+/// RollupFunc must return the rollup value for the given rfa.
 ///
 /// prev_value may be NAN, values and timestamps may be empty.
 pub trait RollupFn: Fn(&RollupFuncArg) -> f64 + Send + Sync {}
