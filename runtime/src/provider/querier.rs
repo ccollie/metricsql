@@ -3,7 +3,7 @@ use super::index_reader::IndexReader;
 use crate::provider::postings::{find_intersecting_postings, PostingsEnum, PostingsIterator};
 use futures::future::try_join_all;
 use iter_set_ops::{intersect_iters, subtract_iters};
-use metricsql_common::hash::{FastHashSet, HashSetExt};
+use metricsql_common::hash::FastHashSet;
 use metricsql_parser::label::{MatchOp, Matcher, Matchers};
 use smallvec::SmallVec;
 use std::cmp::Ordering;
@@ -19,10 +19,10 @@ pub struct Querier<T: IndexReader> {
 pub async fn postings_for_matchers<'a, Reader>(
     ix: &'a Reader,
     matchers: &'a Matchers,
-) -> ProviderResult<PostingsEnum<Reader::Postings<'a>>>
+) -> ProviderResult<PostingsEnum<Reader::Postings>>
 where
     Reader: IndexReader,
-    Reader::Postings<'a>: PostingsIterator,
+    Reader::Postings: PostingsIterator,
 {
     if matchers.is_empty() {
         let all = ix.all_postings().await?;
@@ -43,7 +43,7 @@ where
 pub fn postings_for_matcher<'a, R>(
     index_reader: &'a R,
     m: &'a Matcher,
-) -> Pin<Box<dyn Future<Output = Result<R::Postings<'a>, ProviderError>> + Send + 'a>>
+) -> Pin<Box<dyn Future<Output = Result<R::Postings, ProviderError>> + Send + 'a>>
 where
     R: IndexReader,
 {
@@ -53,10 +53,10 @@ where
 fn postings_for_matcher_internal<'a, R>(
     ix: &'a R,
     m: &'a Matcher,
-) -> Pin<Box<dyn Future<Output = Result<R::Postings<'a>, ProviderError>> + Send + 'a>>
+) -> Pin<Box<dyn Future<Output = Result<R::Postings, ProviderError>> + Send + 'a>>
 where
     R: IndexReader,
-    R::Postings<'a>: PostingsIterator,
+    R::Postings: PostingsIterator,
 {
     if m.label.is_empty() && m.value.is_empty() {
         return ix.all_postings();
@@ -148,11 +148,15 @@ where
         .map(|value| ix.postings(name.to_string(), vec![value.clone()]))
         .collect();
 
-    let postings = try_join_all(values_postings.into_iter()).await?;
-    let indexes = find_intersecting_postings(p, postings)?;
+    let postings = try_join_all(values_postings.into_iter()).await?
+        .into_iter().map(|x| PostingsEnum::wrap(x))
+        .collect();
+    
+    let indexes = find_intersecting_postings(p, postings);
     let mut values = Vec::with_capacity(indexes.len());
     for posting in indexes {
-        values.push(all_values[posting.index].clone());
+        let value = std::mem::take(all_values.get_mut(posting.index).expect("Out of bounds error in label_values_with_matchers"));
+        values.push(value);
     }
 
     Ok(values)
@@ -164,10 +168,10 @@ where
 async fn postings_for_matchers_slice<'a, R>(
     ix: &'a R,
     ms: &'a [Matcher],
-) -> ProviderResult<PostingsEnum<R::Postings<'a>>>
+) -> ProviderResult<PostingsEnum<R::Postings>>
 where
     R: IndexReader,
-    R::Postings<'a>: PostingsIterator,
+    R::Postings: PostingsIterator,
 {
     if ms.len() == 1 {
         let m = &ms[0];
@@ -212,6 +216,8 @@ where
         let cost_j = j.0.cost();
         cost_i.cmp(&cost_j)
     });
+    
+    let mut not_its: SmallVec<_, 4> = SmallVec::new();
 
     for (m, matches_empty, _is_subtracting) in sorted_matchers {
         let value = &m.value;
@@ -244,9 +250,10 @@ where
                         .map_err(|_| ProviderError::InvalidMatcher(m.to_string()))?;
 
                     if matches_empty {
-                        // Instead of resolving here, push the future to not_its_futures
-                        let it = postings_for_matcher_internal(ix, &inverse);
-                        not_its_futures.push(it);
+                        // TODO: Instead of resolving here, push the future to not_its_futures
+                        // figure out how to resolve this without resolving (it causes a 'inverse does not live long enough' otherwise)
+                        let it = postings_for_matcher_internal(ix, &inverse).await?;
+                        not_its.push(it);
                     } else {
                         let it = inverse_postings_for_matcher(ix, inverse);
                         its_futures.push(it);
@@ -265,8 +272,10 @@ where
 
     // All futures are now resolved together
     let mut its = try_join_all(its_futures).await?;
-    let resolved_not_its = try_join_all(not_its_futures).await?;
+    let mut resolved_not_its = try_join_all(not_its_futures).await?;
 
+    resolved_not_its.extend(not_its);
+    
     if its.is_empty() {
         return Ok(PostingsEnum::Empty);
     }
@@ -300,10 +309,10 @@ fn is_subtracting_matcher(m: &Matcher, label_must_be_set: &FastHashSet<&str>) ->
 fn inverse_postings_for_matcher<'a, R>(
     ix: &'a R,
     m: Matcher,
-) -> Pin<Box<dyn Future<Output = Result<R::Postings<'a>, ProviderError>> + Send + 'a>>
+) -> Pin<Box<dyn Future<Output = Result<R::Postings, ProviderError>> + Send + 'a>>
 where
     R: IndexReader,
-    R::Postings<'a>: PostingsIterator,
+    R::Postings: PostingsIterator,
 {
     let mut m = m;
 
@@ -339,7 +348,7 @@ where
 async fn run_or_matchers<'a, R>(
     ix: &'a R,
     matchers: &'a [Vec<Matcher>],
-) -> ProviderResult<PostingsEnum<R::Postings<'a>>>
+) -> ProviderResult<PostingsEnum<R::Postings>>
 where
     R: IndexReader,
 {
