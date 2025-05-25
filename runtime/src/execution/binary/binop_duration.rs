@@ -17,7 +17,7 @@ pub(crate) fn eval_duration_scalar_binop(
         }
         Operator::Sub => {
             let millis = scalar as i64 * 1000_i64;
-            Ok(QueryValue::Scalar((d - millis) as f64))
+            Ok(QueryValue::Scalar((d.saturating_sub(millis)) as f64))
         }
         Operator::Mul => {
             let n = d as f64 * scalar; // todo: saturating_mul
@@ -44,7 +44,7 @@ pub(crate) fn eval_duration_duration_binop(
     let b = dur_b.value(step);
     match op {
         Operator::Add => Ok(QueryValue::Scalar((a + b) as f64)),
-        Operator::Sub => Ok(QueryValue::Scalar((a - b) as f64)),
+        Operator::Sub => Ok(QueryValue::Scalar((a.saturating_sub(b)) as f64)),
         _ => Err(RuntimeError::NotImplemented(format!(
             "Invalid operation: {dur_a} {op} {dur_b}"
         ))),
