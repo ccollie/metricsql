@@ -18,6 +18,7 @@ mod tests {
     use crate::types::MetricName;
     use crate::{MemoryPostings, SeriesRef};
     use ahash::AHashSet;
+    use futures::FutureExt;
     use metricsql_parser::label::{Label, MatchOp, Matcher, Matchers};
     use std::collections::{HashMap, HashSet};
 
@@ -73,9 +74,10 @@ mod tests {
         series_data: &HashMap<SeriesRef, Vec<Label>>,
     ) -> Vec<Vec<Label>> {
         let filter = Matchers::new(Vec::from(matchers.clone()));
-        let p = ix.postings_for_matchers(&filter).unwrap();
+        // Use the standalone function from querier.rs
+        let p = crate::provider::querier::postings_for_matchers(ix, &filter).now_or_never().unwrap().unwrap();
+        // PostingsEnum implements Iterator directly, so we don't need to call iter()
         let actual: Vec<_> = p
-            .iter()
             .flat_map(|id| series_data.get(&id))
             .cloned()
             .collect();

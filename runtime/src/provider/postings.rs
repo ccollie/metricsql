@@ -1,6 +1,5 @@
-use crate::provider::error::ProviderResult;
 use crate::SeriesRef;
-use metricsql_common::hash::{FastHashSet};
+use metricsql_common::hash::FastHashSet;
 use smallvec::SmallVec;
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
@@ -170,11 +169,11 @@ impl<T: PostingsList> PartialEq for PostingsWrapper<T> {
 
 pub(super) fn find_intersecting_postings<T: PostingsIterator>(
     p: T,
-    candidates: Vec<PostingsEnum<T>>,
-) -> ProviderResult<FastHashSet<PostingsWithIndex>> {
+    candidates: Vec<T>,
+) -> FastHashSet<PostingsWithIndex> {
     let mut set: FastHashSet<PostingsWithIndex> = FastHashSet::with_capacity(candidates.len() * 4);
     if p.is_empty() {
-        return Ok(set);
+        return set;
     }
 
     fn add_iter(
@@ -196,7 +195,7 @@ pub(super) fn find_intersecting_postings<T: PostingsIterator>(
 
     set.retain(|x| x.index != usize::MAX);
 
-    Ok(set)
+    set
 }
 
 /// PostingsWithIndex is used as postingsWithIndexHeap elements by FindIntersectingPostings,

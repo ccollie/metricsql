@@ -4,12 +4,12 @@ use super::index_key::{
     get_key_for_label_value, IndexKey,
 };
 use crate::types::{MetricName, METRIC_NAME_LABEL};
-use ahash::HashMapExt;
+use async_trait::async_trait;
 use blart::map::Entry as ARTEntry;
 use blart::TreeMap;
 use croaring::bitmap64::Bitmap64Iterator;
 use metricsql_common::hash::FastHashMap;
-use metricsql_parser::label::{Label, Matcher, Matchers, NAME_LABEL};
+use metricsql_parser::label::{Label, Matchers, NAME_LABEL};
 use std::borrow::Cow;
 use std::collections::hash_map::Entry;
 use std::collections::BTreeSet;
@@ -17,7 +17,6 @@ use std::io;
 use std::io::{Read, Write};
 use std::ops::ControlFlow;
 use std::sync::LazyLock;
-use async_trait::async_trait;
 
 pub type SeriesRef = u64;
 use super::posting_stats::{PostingStat, PostingsStats, StatsMaxHeap};
@@ -37,23 +36,41 @@ pub type PostingsBitmap = Bitmap64;
 // label=value
 pub type PostingsIndex = TreeMap<IndexKey, PostingsBitmap>;
 
-pub struct BitmapPostings<'a> {
-    cursor: Bitmap64Iterator<'a>,
+pub struct BitmapPostings {
+    bitmap: PostingsBitmap,
+    cursor: Option<Bitmap64Iterator<'static>>, // We'll use transmute to make this work
     len: usize,
 }
 
-impl<'a> BitmapPostings<'a> {
+// Explicitly implement Send for BitmapPostings
+// This is safe because the cursor is only used internally and never exposed
+unsafe impl Send for BitmapPostings {}
+
+impl BitmapPostings {
     pub fn new(bitmap: PostingsBitmap) -> Self {
-        let cursor = bitmap.iter();
         let len = bitmap.cardinality() as usize;
-        BitmapPostings { cursor, len }
+        // Create a static lifetime iterator that actually points to our owned bitmap
+        // SAFETY: This is safe because the iterator is bound to the lifetime of bitmap,
+        // which we own and keep alive for the entire lifetime of this struct
+        let cursor = unsafe {
+            let iter = bitmap.iter();
+            std::mem::transmute::<Bitmap64Iterator<'_>, Bitmap64Iterator<'static>>(iter)
+        };
+
+        BitmapPostings {
+            bitmap,
+            cursor: Some(cursor),
+            len,
+        }
     }
 }
-impl<'a> Iterator for BitmapPostings<'a> {
+
+impl Iterator for BitmapPostings {
     type Item = SeriesRef;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.cursor.next()
+        // Unwrap is safe here as we never set cursor to None except after consuming it
+        self.cursor.as_mut().and_then(|cursor| cursor.next())
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -61,7 +78,7 @@ impl<'a> Iterator for BitmapPostings<'a> {
     }
 }
 
-impl<'a> PostingsIterator for BitmapPostings<'a> {
+impl PostingsIterator for BitmapPostings {
     fn is_empty(&self) -> bool {
         self.len == 0
     }
@@ -242,7 +259,7 @@ impl MemoryPostings {
     }
 
     /// `postings_for_label_matching` returns postings having a label with the given name and a value
-    /// for which match returns true. If no postings are found having at least one matching label,
+    /// for which the match returns true. If no postings are found having at least one matching label,
     /// an empty bitmap is returned.
     pub fn postings_for_label_matching(
         &self,
@@ -259,42 +276,6 @@ impl MemoryPostings {
             }
         }
         result
-    }
-
-    fn label_values_for_matcher_slice(
-        &self,
-        name: &str,
-        matchers: &[Matcher],
-    ) -> ProviderResult<Vec<String>> {
-        let mut all_values = self.label_values(name);
-
-        if all_values.is_empty() {
-            return Ok(all_values);
-        }
-
-        // If we have a matcher for the label name, we can filter out values that don't match
-        // before we fetch postings. This is especially useful for labels with many values.
-        // E.g., __name__ with a selector like {__name__="xyz"}
-        let has_matchers_for_other_labels = matchers.iter().any(|m| m.label != name);
-        all_values.retain(|v| matchers.iter().all(|m| m.label != name || m.matches(v)));
-
-        if all_values.is_empty() {
-            return Ok(all_values);
-        }
-
-        // If we don't have any matchers for other labels, then we're done.
-        if !has_matchers_for_other_labels {
-            return Ok(all_values);
-        }
-
-        let p = self.postings_for_matchers(matchers)?;
-
-        all_values.retain(|v| {
-            let postings = self.postings_for_label_value(name, v);
-            postings.intersect(&p)
-        });
-
-        Ok(all_values)
     }
 
     /// label_names returns all the unique label names.
@@ -324,28 +305,6 @@ impl MemoryPostings {
         values.sort();
 
         values
-    }
-
-    pub fn label_values_for_matchers(
-        &self,
-        name: &str,
-        matchers: &Matchers,
-    ) -> ProviderResult<Vec<String>> {
-        if !matchers.matchers.is_empty() {
-            return self.label_values_for_matcher_slice(name, &matchers.matchers);
-        }
-
-        if !matchers.or_matchers.is_empty() {
-            let mut set = BTreeSet::new();
-            for filter in matchers.or_matchers.iter() {
-                let result = self.label_values_for_matcher_slice(name, filter)?;
-                set.extend(result);
-            }
-            let result = set.into_iter().collect();
-            Ok(result)
-        } else {
-            Ok(vec![])
-        }
     }
 
     /// This exists primarily to ensure that we disallow duplicate metric names
@@ -496,7 +455,7 @@ impl MemoryPostings {
         let mut metrics = StatsMaxHeap::new(limit);
         let prefix = get_key_for_label_value(METRIC_NAME_LABEL, prefix.unwrap_or(""));
         for (key, bmp) in self.label_index.prefix(prefix.as_bytes()) {
-            // keys and values are expected to be utf-8. If we panic, we have bigger issues
+            // Keys and values are expected to be utf-8. If we panic, we have bigger issues
             if let Some((_name, value)) = key.split() {
                 metrics.push(PostingStat {
                     name: value.to_string(),
@@ -539,11 +498,11 @@ impl MemoryPostings {
 
 #[async_trait]
 impl IndexReader for MemoryPostings {
-    type Postings<'a> = BitmapPostings<'a>;
+    type Postings = BitmapPostings;
 
-    async fn all_postings<'a>(&'a self) -> ProviderResult<Self::Postings<'a>> {
+    async fn all_postings(&self) -> ProviderResult<Self::Postings> {
         let bmp = self.all_postings();
-        let result = BitmapPostings::new(bmp);
+        let result = BitmapPostings::new(bmp.clone());
         Ok(result)
     }
 
@@ -552,7 +511,8 @@ impl IndexReader for MemoryPostings {
         name: &str,
         matchers: Option<&Matchers>,
     ) -> ProviderResult<Vec<String>> {
-        let mut values = <MemoryPostings as IndexReader>::label_values(self, name.to_string(), matchers).await?;
+        let mut values =
+            <MemoryPostings as IndexReader>::label_values(self, name.to_string(), matchers).await?;
         values.sort();
         Ok(values)
     }
@@ -591,17 +551,20 @@ impl IndexReader for MemoryPostings {
         Ok(values)
     }
 
-    async fn postings<'a>(&'a self, name: String, values: Vec<String>) -> ProviderResult<Self::Postings<'a>> {
+    async fn postings(&self, name: String, values: Vec<String>) -> ProviderResult<Self::Postings> {
         let bmp = self.postings(&name, &values);
         let result = BitmapPostings::new(bmp);
         Ok(result)
     }
 
-    async fn postings_for_label_matching<'a>(
+    async fn postings_for_label_matching<'a, F>(
         &'a self,
         name: String,
-        match_fn: impl Fn(&'a str) -> bool + Send,
-    ) -> ProviderResult<Self::Postings<'a>> {
+        match_fn: F,
+    ) -> ProviderResult<Self::Postings>
+    where
+        F: Fn(&str) -> bool + Send,
+    {
         let mut res = PostingsBitmap::new();
         let prefix = get_key_for_label_prefix(&name);
         let start_pos = prefix.len();
@@ -615,17 +578,16 @@ impl IndexReader for MemoryPostings {
         Ok(result)
     }
 
-    async fn postings_for_all_label_values<'a>(&'a self, name: String) -> ProviderResult<Self::Postings<'a>> {
+    async fn postings_for_all_label_values(&self, name: String) -> ProviderResult<Self::Postings> {
         let res = self.postings_for_all_label_values(&name);
         let result = BitmapPostings::new(res);
         Ok(result)
     }
 
-    async fn sorted_postings<'a>(
-        &'a self,
+    async fn sorted_postings(
+        &self,
         _postings: impl Iterator<Item = SeriesRef> + Send,
-    ) -> ProviderResult<Self::Postings<'a>> {
-        
+    ) -> ProviderResult<Self::Postings> {
         unimplemented!("sorted_postings")
     }
 
@@ -633,13 +595,13 @@ impl IndexReader for MemoryPostings {
         let mut set: BTreeSet<String> = BTreeSet::new();
         if let Some(matchers) = matchers {
             let postings = postings_for_matchers(self, matchers).await?;
-            let matched_bitmap = Bitmap64::from_iter(postings);
-            if !matched_bitmap.is_empty() {
+            if !postings.is_empty() {
+                let matched = Bitmap64::from_iter(postings);
                 for (k, postings) in self.label_index.iter() {
                     if let Some((key, _)) = k.split() {
                         if key != ALL_POSTINGS_KEY
                             && !set.contains(key)
-                            && postings.intersect(&matched_bitmap)
+                            && postings.intersect(&matched)
                         {
                             set.insert(key.to_string());
                         }
@@ -677,7 +639,7 @@ impl IndexReader for MemoryPostings {
 
     async fn label_names_for(
         &self,
-        postings: impl Iterator<Item = SeriesRef>,
+        postings: impl Iterator<Item = SeriesRef> + Send,
     ) -> ProviderResult<Vec<String>> {
         let bitmap: Bitmap64 = Bitmap64::from_iter(postings);
         // Slow
@@ -737,7 +699,7 @@ fn read_key<R: Read>(reader: &mut R) -> io::Result<IndexKey> {
     Ok(key)
 }
 
-// Note - assumes that labels is sorted
+// Note - assumes that labels are sorted
 fn format_metric_name(name: &str, labels: &[Label]) -> String {
     let size_hint = name.len()
         + labels

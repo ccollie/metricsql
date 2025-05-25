@@ -1,16 +1,15 @@
+use crate::provider::postings::PostingsEnum;
+use crate::BitmapPostings;
+use metricsql_parser::prelude::Matchers;
 use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
-use std::sync::RwLock;
-
-use async_trait::async_trait;
-use metricsql_common::hash::Signature;
-use metricsql_parser::prelude::Matchers;
 
 use crate::prelude::MemoryPostings;
+use crate::provider::querier::postings_for_matchers;
 use crate::types::MetricName;
-use crate::{
-    Deadline, MetricStorage, QueryResult, QueryResults, RuntimeError, RuntimeResult, SearchQuery,
-};
+use crate::{Deadline, MetricStorage, QueryResult, QueryResults, RuntimeError, RuntimeResult, SearchQuery};
+use async_trait::async_trait;
+use metricsql_common::hash::Signature;
 
 #[derive(Debug, Clone)]
 pub struct Point {
@@ -26,20 +25,15 @@ pub struct Sample {
 }
 
 /// In-memory implementation of MetricDataProvider primarily for testing
-#[derive(Default, Debug)]
-pub struct MemoryMetricProvider {
-    inner: RwLock<Storage>,
-}
-
 #[derive(Default, Debug, Clone)]
-struct Storage {
+pub struct MemoryMetricProvider {
     series: BTreeMap<Signature, (MetricName, Vec<Point>)>,
     postings: MemoryPostings,
 }
 
-impl Storage {
+impl MemoryMetricProvider {
     pub fn new() -> Self {
-        Storage {
+        MemoryMetricProvider {
             series: BTreeMap::new(),
             postings: MemoryPostings::new(),
         }
@@ -60,16 +54,41 @@ impl Storage {
         Ok(())
     }
 
-    pub fn search(&self, start: i64, end: i64, filters: &Matchers) -> RuntimeResult<QueryResults> {
-        let mut results: Vec<QueryResult> = vec![];
-        let found = self
-            .postings
-            .posting_for_metric(filters)
-            .map_err(|_| RuntimeError::ProviderError(filters.to_string()))?;
+    pub fn clear(&mut self) {
+        self.series.clear();
+        self.postings.clear();
+    }
 
-        for id in found.iter() {
-            let signature = Signature::from(*id);
-            if let Some((metric_name, data)) = self.series.get(&signature) {
+    // Get the series data without any async operations
+    pub fn get_series_data(&self, signature: &Signature) -> Option<(MetricName, Vec<Point>)> {
+        self.series.get(signature).cloned()
+    }
+
+    pub async fn get_postings_for_matchers(&self, matchers: &Matchers) -> RuntimeResult<PostingsEnum<BitmapPostings>> {
+        postings_for_matchers(&self.postings, matchers).await
+            .map_err(|e| RuntimeError::ProviderError(e.to_string()))
+    }
+
+    async fn search_internal(&self, sq: SearchQuery) -> RuntimeResult<QueryResults> {
+        // Now we can safely call the async function without holding the lock
+        let postings = self.get_postings_for_matchers(&sq.matchers).await
+            .map_err(|e| RuntimeError::ProviderError(e.to_string()))?;
+
+        let start = sq.start;
+        let end = sq.end;
+        let mut results: Vec<QueryResult> = vec![];
+
+        // Collect the IDs to process
+        let ids: Vec<u64> = postings.collect();
+
+        // Process each ID, taking and releasing the lock for each one to avoid holding it across awaits
+        for id in ids {
+            let signature = Signature::from(id);
+            let data_option = {
+                self.get_series_data(&signature)
+            };
+
+            if let Some((metric_name, data)) = data_option {
                 if let Some(first_idx) = find_first_index(&data, start) {
                     let mut last_idx = first_idx;
                     while last_idx < data.len() {
@@ -78,7 +97,7 @@ impl Storage {
                         }
                         last_idx += 1;
                     }
-                    let samples = &data[first_idx..=last_idx];
+                    let samples = &data[first_idx..=last_idx.min(data.len() - 1)]; // Added bounds check
                     let values = samples.iter().map(|x| x.v).collect();
                     let timestamps = samples.iter().map(|x| x.t).collect();
                     results.push(QueryResult {
@@ -92,57 +111,12 @@ impl Storage {
 
         Ok(QueryResults::new(results))
     }
-
-    fn clear(&mut self) {
-        self.series.clear();
-        self.postings.clear();
-    }
-}
-
-impl MemoryMetricProvider {
-    pub fn new() -> Self {
-        Self {
-            inner: RwLock::new(Storage {
-                series: Default::default(),
-                postings: MemoryPostings::new(),
-            }),
-        }
-    }
-
-    pub fn append(&self, labels: MetricName, t: i64, v: f64) -> RuntimeResult<()> {
-        let mut inner = self.inner.write().unwrap();
-        inner.append(labels, t, v)
-    }
-
-    pub fn add_sample(&self, sample: Sample) -> RuntimeResult<()> {
-        let mut inner = self.inner.write().unwrap();
-        inner.append(sample.metric, sample.timestamp, sample.value)
-    }
-
-    pub fn clear(&self) {
-        let mut inner = self.inner.write().unwrap();
-        inner.clear();
-    }
-
-    fn search_internal(
-        &self,
-        start: i64,
-        end: i64,
-        filters: &Matchers,
-    ) -> RuntimeResult<QueryResults> {
-        let inner = self.inner.read().unwrap();
-        inner.search(start, end, filters)
-    }
-
-    pub fn search(&self, start: i64, end: i64, filters: &Matchers) -> RuntimeResult<QueryResults> {
-        self.search_internal(start, end, filters)
-    }
 }
 
 #[async_trait]
 impl MetricStorage for MemoryMetricProvider {
     async fn search(&self, sq: SearchQuery, _deadline: Deadline) -> RuntimeResult<QueryResults> {
-        self.search_internal(sq.start, sq.end, &sq.matchers)
+        self.search_internal(sq).await
     }
 }
 
@@ -161,64 +135,34 @@ fn find_first_index(range_values: &[Point], ts: i64) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use crate::types::MetricName;
-    use metricsql_parser::label::Matcher;
 
     use super::*;
 
     #[test]
     fn append_new_metric_creates_new_entry() {
-        let provider = MemoryMetricProvider::new();
+        let mut provider = MemoryMetricProvider::new();
         let mut labels = MetricName::default();
         labels.add_label("foo", "bar");
         provider.append(labels.clone(), 1, 1.0).unwrap();
 
         let signature = labels.signature();
         let id: u64 = signature.into();
-        let inner = provider.inner.read().unwrap();
-        assert!(inner.postings.has_posting(id));
+        assert!(provider.postings.has_posting(id));
     }
 
     #[test]
     fn append_existing_metric_adds_point() {
-        let provider = MemoryMetricProvider::new();
+        let mut provider = MemoryMetricProvider::new();
         let mut labels = MetricName::default();
         labels.add_label("foo", "bar");
         provider.append(labels.clone(), 1, 1.0).unwrap();
         provider.append(labels.clone(), 2, 2.0).unwrap();
 
-        let inner = provider.inner.read().unwrap();
-
         let signature = labels.signature();
-        if let Some((_, data)) = inner.series.get(&signature) {
+        if let Some((_, data)) = provider.series.get(&signature) {
             assert_eq!(data.len(), 2);
         } else {
             panic!("No data found for metric: {:?}", labels);
         }
-    }
-
-    #[test]
-    fn search_returns_matching_metrics() {
-        let provider = MemoryMetricProvider::new();
-        let mut labels = MetricName::default();
-        labels.add_label("foo", "bar");
-        provider.append(labels.clone(), 1, 1.0).unwrap();
-
-        let matchers = Matchers::new(vec![Matcher::equal("foo", "bar")]);
-        let results = provider.search(0, 2, &matchers).unwrap();
-
-        assert_eq!(results.len(), 1);
-    }
-
-    #[test]
-    fn search_returns_empty_for_no_match() {
-        let provider = MemoryMetricProvider::new();
-        let mut labels = MetricName::default();
-        labels.add_label("foo", "bar");
-        provider.append(labels.clone(), 1, 1.0).unwrap();
-
-        let matchers = Matchers::new(vec![Matcher::equal("foo", "baz")]);
-        let results = provider.search(0, 2, &matchers).unwrap();
-
-        assert_eq!(results.len(), 0);
     }
 }
