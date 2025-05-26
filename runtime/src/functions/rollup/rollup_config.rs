@@ -96,7 +96,7 @@ const CLOSE: &str = "close";
 const LOW: &str = "low";
 const HIGH: &str = "high";
 
-fn get_tag_fn_from_str(key: &str) -> Option<(&'static str, &RollupHandler)> {
+fn get_tag_fn_from_str(key: &str) -> Option<(&'static str, &'static RollupHandler)> {
     hashify::tiny_map_ignore_case! {
         key.as_bytes(),
         "avg" => (AVG, &FN_AVG),
@@ -654,7 +654,7 @@ const fn get_max_prev_interval(scrape_interval: Duration) -> Duration {
     let scrape_interval = scrape_interval.as_millis() as i64;
     // Increase scrape_interval more for smaller scrape intervals to hide possible gaps
     // when high jitter is present.
-    // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/139 .
+    // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/139
     let interval = if scrape_interval <= 2_000i64 {
         scrape_interval + 4 * scrape_interval
     } else if scrape_interval <= 4_000i64 {
@@ -689,32 +689,35 @@ fn get_rollup_function_handler_meta(
         pre_funcs.push(PreFunction::RemoveCounterResets(lookback));
     }
 
-    let new_function_config = |func: &RollupHandler, tag_value: &'static str| -> TagFunction {
+    fn new_function_config(func: &RollupHandler, tag_value: &'static str) -> TagFunction {
         TagFunction {
             tag_value,
             func: func.clone(),
         }
-    };
+    }
 
-    let new_function_configs = |dst: &mut TagFunctionVec,
+    fn get_tag_fn(tag_value: &str, valid: &'static [&str]) -> Result<(&'static str, &'static RollupHandler), RuntimeError> {
+        get_tag_fn_from_str(tag_value).ok_or_else(|| {
+            RuntimeError::ArgumentError(format!(
+                "unexpected rollup tag value {tag_value}; wanted {}",
+                valid
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<String>>()
+                    .join(", ")
+            ))
+        })
+    }
+
+    fn new_function_configs(dst: &mut TagFunctionVec,
                                 tag: Option<&String>,
-                                valid: &'static [&str]|
-     -> RuntimeResult<()> {
+                                valid: &'static [&str]) -> RuntimeResult<()> {
         if let Some(tag_value) = tag {
-            let (name, func) = get_tag_fn_from_str(tag_value).ok_or_else(|| {
-                RuntimeError::ArgumentError(format!(
-                    "unexpected rollup tag value {tag_value}; wanted {}",
-                    valid
-                        .iter()
-                        .map(|x| x.to_string())
-                        .collect::<Vec<String>>()
-                        .join(", ")
-                ))
-            })?;
+            let (name, func) = get_tag_fn(tag_value, valid)?;
             dst.push(new_function_config(func, name));
         } else {
             for tag_value in valid {
-                let (name, func) = get_tag_fn_from_str(tag_value).unwrap();
+                let (name, func) = get_tag_fn(tag_value, valid)?;
                 dst.push(TagFunction {
                     tag_value: name,
                     func: func.clone(),
@@ -723,13 +726,13 @@ fn get_rollup_function_handler_meta(
         }
 
         Ok(())
-    };
+    }
 
-    let append_stats_function = |dst: &mut TagFunctionVec, expr: &Expr| -> RuntimeResult<()> {
+    fn append_stats_function(dst: &mut TagFunctionVec, expr: &Expr) -> RuntimeResult<()> {
         static VALID: [&str; 3] = [MIN, MAX, AVG];
         let tag = get_rollup_tag(expr)?;
         new_function_configs(dst, tag, &VALID)
-    };
+    }
 
     let mut funcs: TagFunctionVec = TagFunctionVec::new();
     match func {
