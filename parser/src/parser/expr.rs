@@ -39,7 +39,7 @@ impl Parser<'_> {
             let mut op_token = token.kind;
 
             // Hack incoming:
-            // there is some ambiguity because of how the lexer handles negative numbers. In other words
+            // there is some ambiguity because of how the lexer handles negative numbers. In other words,
             // -25 is parsed as [-25] as opposed to [Operator(Minus), 25]. So for example `time()-1` is
             // parsed as [time(), -1]. So we need to check for this case here.
             let mut right_scalar: Option<Expr> = None;
@@ -242,7 +242,7 @@ impl Parser<'_> {
         Ok(str)
     }
 
-    /// parses expressions starting with `identifier` token. 
+    /// parses expressions starting with the `identifier` token. 
     fn parse_ident_expr(&mut self) -> ParseResult<Expr> {
         use Token::*;
 
@@ -253,7 +253,7 @@ impl Parser<'_> {
 
         let name = self.expect_identifier_ex()?;
 
-        // Look into the next token in order to determine how to parse
+        // Look into the next token to determine how to parse
         // the current Expr.
         let kind = self.peek_kind();
         match kind {

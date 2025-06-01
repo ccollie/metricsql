@@ -124,7 +124,7 @@ fn binary_op_func_impl(bf: BinopFunc, bfa: &mut BinaryOpFuncArg) -> RuntimeResul
     // todo: should this also be applied to scalar/vector and vector/scalar?
     if bfa.op.is_comparison() {
         // Do not remove empty series for comparison operations,
-        // since this may lead to missing result.
+        // since this may lead to a missing result.
     } else {
         remove_empty_series(&mut bfa.left);
         remove_empty_series(&mut bfa.right);
@@ -244,7 +244,7 @@ fn adjust_binary_op_tags(
                 let group_tags = match matching {
                     Some(VectorMatchModifier::On(labels)) => {
                         is_on = true;
-                        // Add `__name__` to group_tags if metric name must be preserved.
+                        // Add `__name__` to group_tags if the metric name must be preserved.
                         if keep_metric_names {
                             let mut changed = labels.clone();
                             changed.push(METRIC_NAME_LABEL.to_string());
@@ -464,7 +464,7 @@ pub fn merge_non_overlapping_timeseries(dst: &mut Timeseries, src: &Timeseries) 
         }
     }
 
-    // do not merge time series with too small number of data points.
+    // Do not merge time series with too small a number of data points.
     // This can be the case during evaluation of instant queries (alerting or recording rules).
     // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/1141
     if src.values.len() <= 2 && dst.values.len() <= 2 {
@@ -537,7 +537,7 @@ fn binary_op_default(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<InstantVector> 
 }
 
 /// `vector1 or vector2` results in a vector that contains all original elements (label sets + values)
-/// of vector1 and additionally all elements of vector2 which do not have matching label sets in vector1.
+/// of vector1 and additionally all elements of vector2 that do not have matching label sets in vector1.
 ///
 /// https://prometheus.io/docs/prometheus/latest/querying/operators/#logical-set-binary-operators
 fn binary_op_or(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
@@ -648,7 +648,7 @@ fn fill_left_nans_with_right_values(tss_left: &mut [Timeseries], tss_right: &[Ti
     }
 }
 
-// fill gaps in tss_left with values from tss_right when labels match
+// Fill gaps in tss_left with values from tss_right when labels match
 // Set NaNs to tss_right when tss_left has corresponding values
 // or if tss_left and tss_right can be merged.
 //

@@ -6,9 +6,9 @@ use smallvec::{smallvec, SmallVec};
 use std::ops::DerefMut;
 
 /// STALE_NAN_BITS is a bit representation of Prometheus staleness mark (aka stale NaN).
-/// This mark is put by Prometheus at the end of time series for improving staleness detection.
+/// Prometheus puts this mark at the end of time series for improving staleness detection.
 /// See https://www.robustperception.io/staleness-and-promql
-/// StaleNaN is a special NaN value which is used as Prometheus staleness mark.
+/// StaleNaN is a special NaN value that is used as the Prometheus staleness mark.
 pub const STALE_NAN_BITS: u64 = 0x7ff0000000000002;
 pub const STALE_NAN: f64 = f64::from_bits(STALE_NAN_BITS);
 
@@ -312,7 +312,7 @@ pub(crate) fn are_const_values(values: &[f64]) -> bool {
     true
 }
 
-/// rounds f to the given number of decimal digits after the point.
+/// Rounds f to the given number of decimal digits after the point.
 ///
 /// See also round_to_decimal_digits.
 pub fn round_to_decimal_digits(f: f64, digits: i16) -> f64 {

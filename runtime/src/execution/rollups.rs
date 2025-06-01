@@ -712,7 +712,7 @@ fn get_at_timestamp(ctx: &Context, ec: &EvalConfig, expr: &Expr) -> RuntimeResul
     }
 }
 
-/// aggregate_absent_over_time collapses tss to a single time series with 1 and nan values.
+/// `aggregate_absent_over_time` collapses tss to a single time series with 1 and nan values.
 ///
 /// Values for returned series are set to nan if at least a single tss series contains nan at that point.
 /// This means that tss contains a series with non-empty results at that point.

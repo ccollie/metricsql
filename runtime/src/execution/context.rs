@@ -172,7 +172,7 @@ pub struct SessionConfig {
     /// This option allows limiting memory usage
     pub max_response_series: usize,
 
-    /// Synonym to -provider.lookback-delta from Prometheus.
+    /// Synonym to `-provider.lookback-delta` from Prometheus.
     /// The value is dynamically detected from the interval between time series data-points if not set.
     /// It can be overridden on a per-query basis via max_lookback arg.
     /// See also the `max_staleness_interval` flag, which has the same meaning due to historical reasons

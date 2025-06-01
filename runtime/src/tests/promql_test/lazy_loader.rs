@@ -49,7 +49,7 @@ impl LazyLoader {
     pub fn parse(&mut self, input: &str) -> Result<(), Box<dyn Error>> {
         let lines = get_lines(input);
         let mut i: usize = 0;
-        // Accepts only 'load' command.
+        // Accepts only `load` command.
         while i < lines.len() {
             let line = lines[i].trim();
             if line.is_empty() {

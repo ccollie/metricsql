@@ -234,7 +234,7 @@ mod tests {
                     Some(true_matcher()),
                 )),
             ),
-            // we don't support case-insensitive matching for contains.
+            // We don't support case-insensitive matching for contains.
             // This is because there's no strings.IndexOfFold function.
             // We can revisit later if this is really popular by using strings.ToUpper.
             ("^(.*)((?i)foo|foobar)(.*)$", None),
@@ -251,10 +251,10 @@ mod tests {
                     Some(or_matcher(&[empty(), prefix("bar", Some(true_matcher()))])),
                 )),
             ),
-            // This one is not supported because  `stringMatcherFromRegexp` is not reentrant for syntax.OpConcat.
+            // This one is not supported because `stringMatcherFromRegexp` is not reentrant for syntax.OpConcat.
             // It would make the code too complex to handle it.
             ("(.+)/(foo.*|bar$)", None),
-            // Case-sensitive alternate with same literal prefix and .* suffix.
+            // Case-sensitive alternate with the same literal prefix and .* suffix.
             (
                 "(xyz-016a-ixb-dp.*|xyz-016a-ixb-op.*)",
                 Some(prefix(
@@ -265,7 +265,7 @@ mod tests {
                     ])),
                 )),
             ),
-            // Case-insensitive alternate with same literal prefix and .* suffix.
+            // Case-insensitive alternate with the same literal prefix and .* suffix.
             (
                 "(?i:(xyz-016a-ixb-dp.*|xyz-016a-ixb-op.*))",
                 Some(prefix(
