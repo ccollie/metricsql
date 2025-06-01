@@ -989,6 +989,46 @@ mod tests {
             &[80, 90, 100, 110, 120, 130, 140],
         );
     }
+    
+    #[test]
+    fn test_issue_8935() {
+        // https://github.com/VictoriaMetrics/VictoriaMetrics/issues/8935
+        // The below dataset has a gap that exceeds LookbackDelta.
+        // The step is picked in a way that on [60e3-90e3] window
+        // the prevValue will be NaN, but 60e3-55e3 still matches
+        // timestamp=10e3 and stores its value as realPrevValue.
+        // This results into delta=1-50=-49 increase result.
+        // The fix makes it to deduct LookbackDelta not from window start
+        // but from the first captured data point in the window, so it becomes 70e3-55e3=15e3.
+        // And realPrevValue becomes NaN due to staleness detection.
+        let timestamps = vec![0, 10000, 70000, 80000];
+        let values = vec![50.0, 50.0, 1.0, 1.0];
+
+        let mut rc = RollupConfig {
+            handler: RollupHandler::Wrapped(rollup_delta),
+            start: 0,
+            end: 90e3 as i64,
+            step: Duration::from_millis(30e3 as u64),
+            max_points_per_series: 10_000,
+            lookback_delta: Duration::from_millis(55e3 as u64),
+            ..Default::default()
+        };
+
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
+        let mut dst_values: Vec<f64> = vec![];
+        let samples_scanned = rc
+            .exec_internal(&mut dst_values, None, &values, &timestamps)
+            .expect("failed to exec");
+        
+        let values_expected = vec![0.0, 0.0, 0.0, 1.0];
+        let timestamps_expected = vec![0, 30000, 60000, 90000];
+        test_rows_equal(
+            &dst_values,
+            &rc.timestamps,
+            &values_expected,
+            &timestamps_expected,
+        );
+    }
 
     #[test]
     fn test_rollup_delta_with_staleness_step_gt_gap() {

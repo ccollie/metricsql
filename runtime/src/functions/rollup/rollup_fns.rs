@@ -625,16 +625,22 @@ pub(super) fn rollup_increase_pure(rfa: &RollupFuncArg) -> f64 {
 
     let values = rfa.values;
     let count = values.len();
-
-    // restore to the real value because of potential staleness reset
-    let mut prev_value = rfa.real_prev_value;
+    
+    let mut prev_value = rfa.prev_value;
 
     if prev_value.is_nan() {
         if count == 0 {
             return NAN;
         }
+
         // Assume the counter starts from 0.
         prev_value = 0.0;
+        
+        if !rfa.real_prev_value.is_nan() {
+            // Assume that the value didn't change during the current gap
+            // if realPrevValue exists.
+            prev_value = rfa.real_prev_value
+        }
     }
 
     if rfa.values.is_empty() {

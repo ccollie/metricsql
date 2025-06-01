@@ -212,7 +212,7 @@ pub(crate) struct RollupConfig {
     /// This is needed for functions which have dt in the denominator
     /// such as rate, deriv, etc.
     /// Without the adjustment, their value would jump in unexpected directions
-    /// when using a window smaller than 2 x scrape_interval.
+    /// when using a window smaller than 2 x `scrape_interval`.
     pub may_adjust_window: bool,
 
     pub timestamps: Arc<Vec<i64>>,
@@ -368,7 +368,7 @@ impl RollupConfig {
         let mut ni = 0;
         let mut nj = 0;
 
-        // todo: use smallvec, or have a pool of these
+        // todo: use smallvec, or have a pool of vecs
         let func_args: Vec<_> = self
             .timestamps
             .iter()
@@ -418,13 +418,20 @@ impl RollupConfig {
                         // https://github.com/VictoriaMetrics/VictoriaMetrics/pull/1381
                         // https://github.com/VictoriaMetrics/VictoriaMetrics/issues/894
                         // https://github.com/VictoriaMetrics/VictoriaMetrics/issues/8045
-
-                        if self.lookback_delta.is_zero()
-                            || (t_end - prev_timestamp) < max_prev_interval
+                        // https://github.com/VictoriaMetrics/VictoriaMetrics/issues/8935
+                        
+                        let mut curr_timestamp = t_start;
+                        if !rfa.timestamps.is_empty() {
+                            curr_timestamp = rfa.timestamps[0];
+                        }
+                        
+                        if self.lookback_delta.is_zero() || 
+                            (curr_timestamp - *prev_timestamp) < self.lookback_delta.as_millis() as i64
                         {
                             let prev_value = values.get_unchecked(idx);
                             rfa.real_prev_value = *prev_value;
                         }
+                        
                     }
                 }
 
