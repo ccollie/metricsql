@@ -594,7 +594,7 @@ fn binary_op_or(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
 /// https://prometheus.io/docs/prometheus/latest/querying/operators/#logical-set-binary-operators
 fn binary_op_unless(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<InstantVector> {
     // If right is empty, we simply return the left
-    // if left is empty we will return it anyway.
+    // if left is empty, we will return it anyway.
     if bfa.right.is_empty() || bfa.left.is_empty() {
         return Ok(std::mem::take(&mut bfa.left));
     }

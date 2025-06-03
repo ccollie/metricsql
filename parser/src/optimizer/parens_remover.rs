@@ -13,7 +13,7 @@ impl TreeNodeRewriter for ParensRemover {
     type N = Expr;
 
     /// Invoked before (Preorder) any children of `node` are rewritten /
-    /// visited. Default implementation returns `Ok(Recursion::Continue)`
+    /// visited. The default implementation returns `Ok(Recursion::Continue)`
     fn pre_visit(&mut self, node: &Self::N) -> ParseResult<RewriteRecursion> {
         if !should_remove_parens(node) {
             Ok(RewriteRecursion::Stop)

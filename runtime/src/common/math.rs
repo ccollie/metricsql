@@ -6,7 +6,7 @@ use smallvec::{smallvec, SmallVec};
 use std::ops::DerefMut;
 
 /// STALE_NAN_BITS is a bit representation of Prometheus staleness mark (aka stale NaN).
-/// Prometheus puts this mark at the end of time series for improving staleness detection.
+/// Prometheus puts this mark at the end of a time series for improving staleness detection.
 /// See https://www.robustperception.io/staleness-and-promql
 /// StaleNaN is a special NaN value that is used as the Prometheus staleness mark.
 pub const STALE_NAN_BITS: u64 = 0x7ff0000000000002;

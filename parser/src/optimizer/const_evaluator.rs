@@ -21,7 +21,7 @@ use crate::parser::{parse_number, ParseError, ParseResult};
 pub struct ConstEvaluator {
     /// `can_evaluate` is used during the depth-first-provider of the
     /// `Expr` tree to track if any siblings (or their descendants) were
-    /// non-evaluatable (e.g. had a column reference or volatile
+    /// non-evaluatable (e.g., had a column reference or volatile
     /// function)
     ///
     /// Specifically, `can_evaluate[N]` represents the state of
@@ -92,8 +92,8 @@ impl ConstEvaluator {
 pub(super) fn can_evaluate(expr: &Expr) -> bool {
     // check for reasons we can't evaluate this node
     //
-    // NOTE all expr types are listed here so when new ones are
-    // added they can be checked for their ability to be evaluated
+    // NOTE all expr types are listed here, so when new ones are
+    //  added, they can be checked for their ability to be evaluated
     // at plan time
     match expr {
         Expr::Aggregation(_) | Expr::Rollup(_) => false,
@@ -314,7 +314,7 @@ fn handle_function_expr(fe: FunctionExpr) -> Expr {
                 _ => {
                     let expr = const_simplify(arg.clone());
                     // `Scalar(q)` returns q if q contains only a single time series. Otherwise, it returns nothing.
-                    // It's difficult to determine if a time series is a single time series from a vector selector.
+                    // It's challenging to determine if a time series is a single time series from a vector selector.
                     match expr {
                         Expr::NumberLiteral(_) | Expr::Duration(_) | Expr::StringLiteral(_) => expr,
                         Expr::BinaryOperator(_) => handle_binop_internal(expr),

@@ -12,7 +12,7 @@ const MILLIS_PER_YEAR: f64 = 365.0 * MILLIS_PER_DAY;
 /// `positive_duration_value` returns positive duration in milliseconds for the given s
 /// and the given step.
 ///
-/// Duration in s may be combined, i.e. 2h5m or 2h-5m.
+/// Duration in s may be combined, i.e., 2h5m or 2h-5m.
 ///
 /// Error is returned if the duration in s is negative.
 pub fn parse_positive_duration_value(s: &str, step: i64) -> Result<i64, ParseError> {
@@ -28,7 +28,7 @@ pub fn parse_positive_duration_value(s: &str, step: i64) -> Result<i64, ParseErr
 /// `parse_duration_value` returns the duration in milliseconds for the given s
 /// and the given step.
 ///
-/// Duration in s may be combined, i.e. 2h5m, -2h5m or 2h-5m.
+/// Duration in s may be combined, i.e., 2h5m, -2h5m or 2h-5m.
 ///
 /// The returned duration value can be negative.
 pub fn parse_duration_value(s: &str, step: i64) -> ParseResult<i64> {
@@ -108,9 +108,9 @@ fn parse_single_duration(s: &str, step: i64) -> Result<f64, ParseError> {
     Ok(mp * f)
 }
 
-/// scan_duration scans duration, which must start with positive num.
+/// `scan_duration` scans duration, which must start with a positive number.
 ///
-/// I.e. 123h, 3h5m or 3.4d-35.66s
+/// I.e., 123h, 3h5m or 3.4d-35.66s
 #[allow(dead_code)]
 pub fn scan_duration(s: &str) -> i32 {
     // The first part must be non-negative

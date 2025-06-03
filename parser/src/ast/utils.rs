@@ -25,7 +25,7 @@ use crate::functions::{get_rollup_arg_idx, BuiltinFunction};
 
 /// Create a selector expression based on a qualified or unqualified column name
 ///
-/// example:
+/// Example:
 /// ``` rust
 /// use crate::metricsql_parser::ast::utils::*;
 /// let c = selector("latency");
@@ -42,8 +42,8 @@ pub fn number(val: f64) -> Expr {
     Expr::from(val)
 }
 
-/// returns true if `needle` is found in a chain of `search_op`
-/// expressions. Such as: `(A AND B) AND C`
+/// Returns true if `needle` is found in a chain of `search_op`
+/// expressions, such as `(A AND B) AND C`
 pub fn expr_contains(expr: &Expr, needle: &Expr, search_op: Operator) -> bool {
     match expr {
         Expr::BinaryOperator(BinaryExpr {

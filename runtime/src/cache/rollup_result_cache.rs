@@ -638,7 +638,7 @@ pub(crate) fn merge_timeseries(
         merged_series.push(merged_ts);
     }
 
-    // Handle remaining series in `a` that weren't in `b`.
+    // Handle the remaining series in `a` that weren't in `b`.
     let mut b_nans = Vec::new();
     for (_, ts_a) in a_map {
         let mut merged_ts = Timeseries {

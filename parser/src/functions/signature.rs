@@ -32,10 +32,10 @@ pub enum TypeSignature {
     /// second element is the min number of arguments
     /// A function such as `concat` is `Variadic(vec![ValueType::String, ValueType::Float], 1)`
     Variadic(Vec<ValueType>, usize),
-    /// arbitrary number of arguments of an arbitrary but equal type, with possible minimum
+    /// arbitrary number of arguments of an arbitrary but equal type, with a possible minimum
     /// A function such as `array` is `VariadicEqual`
     VariadicEqual(ValueType, usize),
-    /// arbitrary number of arguments of any type, with possible minimum
+    /// arbitrary number of arguments of any type, with a possible minimum
     VariadicAny(usize),
     /// fixed number of arguments of an arbitrary type out of a list of valid types
     /// A function of one argument of f64 is `Uniform(1, ValueType::Scalar)`
