@@ -284,13 +284,16 @@ impl TryFrom<&str> for GroupModifierOp {
     fn try_from(op: &str) -> Result<Self, Self::Error> {
         use GroupModifierOp::*;
 
-        match op {
-            op if op.eq_ignore_ascii_case("on") => Ok(On),
-            op if op.eq_ignore_ascii_case("ignoring") => Ok(Ignoring),
-            _ => Err(ParseError::General(format!(
-                "Unknown group_modifier op: {op}",
-            ))),
+        match op.len() {
+            2 => if op.eq_ignore_ascii_case("on") {
+                return Ok(On);
+            },
+            8 => if op.eq_ignore_ascii_case("ignoring") {
+                return Ok(Ignoring);
+            },
+            _ => {}
         }
+        Err(ParseError::General(format!("Unknown group_modifier op: {op}")))
     }
 }
 
@@ -387,14 +390,17 @@ impl TryFrom<&str> for JoinModifierOp {
     fn try_from(op: &str) -> Result<Self, Self::Error> {
         use JoinModifierOp::*;
 
-        match op {
-            op if op.eq_ignore_ascii_case("group_left") => Ok(GroupLeft),
-            op if op.eq_ignore_ascii_case("group_right") => Ok(GroupRight),
-            _ => {
-                let msg = format!("Unknown join_modifier op: {op}");
-                Err(ParseError::General(msg))
-            }
+        match op.len() { 
+            10 => if op.eq_ignore_ascii_case("group_left") {
+                return Ok(GroupLeft);
+            },
+            11 => if op.eq_ignore_ascii_case("group_right") {
+                return Ok(GroupRight);
+            },
+            _ => {}
         }
+        let msg = format!("Unknown join_modifier op: {op}");
+        Err(ParseError::General(msg))
     }
 }
 
@@ -403,7 +409,7 @@ pub trait ExpressionNode {
     fn cast(self) -> Expr;
 }
 
-/// NumberExpr represents number expression.
+/// NumberExpr represents a number expression.
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct NumberLiteral {
     /// value is the parsed number, i.e. `1.23`, `-234`, etc.
@@ -808,7 +814,7 @@ impl Display for MetricExpr {
     }
 }
 
-/// directly create an instant vector with only METRIC_NAME matcher.
+/// Directly create an instant vector with only METRIC_NAME matcher.
 ///
 /// # Examples
 ///
