@@ -32,7 +32,7 @@ use std::time::Duration;
 use tracing::{field, trace_span, Span};
 
 /// Struct managing state for rollup execution.
-pub(crate) struct RollupEvaluator<'a> {
+pub(super) struct RollupEvaluator<'a> {
     /// Source expression
     expr: &'a Expr,
     re: Cow<'a, RollupExpr>,
@@ -41,12 +41,12 @@ pub(crate) struct RollupEvaluator<'a> {
     is_tracing: bool,
     keep_metric_names: bool,
     /// Max number of timeseries to return
-    pub(crate) timeseries_limit: usize,
-    pub(crate) is_incr_aggregate: bool,
+    pub(super) timeseries_limit: usize,
+    pub(super) is_incr_aggregate: bool,
 }
 
 impl<'a> RollupEvaluator<'a> {
-    pub(crate) fn new(
+    pub(super) fn new(
         function: RollupFunction,
         handler: RollupHandler,
         // expr may contain:
@@ -68,7 +68,7 @@ impl<'a> RollupEvaluator<'a> {
         }
     }
 
-    pub(crate) fn eval(&mut self, ctx: &Context, ec: &EvalConfig) -> RuntimeResult<QueryValue> {
+    pub(super) fn eval(&mut self, ctx: &Context, ec: &EvalConfig) -> RuntimeResult<QueryValue> {
         self.is_tracing = ctx.trace_enabled();
         let _ = if self.is_tracing {
             trace_span!(
