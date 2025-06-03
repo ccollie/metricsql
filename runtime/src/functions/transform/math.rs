@@ -7,7 +7,7 @@ use crate::RuntimeResult;
 
 macro_rules! math_fn {
     ($name: ident, $func: expr) => {
-        pub(crate) fn $name(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
+        pub(super) fn $name(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
             math_func_impl(tfa, $func)
         }
     };
