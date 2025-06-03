@@ -75,7 +75,7 @@ pub fn run_test(input: &str) -> Result<(), TestAssertionError> {
     Ok(())
 }
 
-// test is a sequence of read and write commands that are run
+// `Test` is a sequence of read and write commands that are run
 // against a test storage.
 pub struct Test {
     pub(super) cmds: Vec<TestCommand>,
@@ -211,7 +211,7 @@ impl Test {
         let eval_time = timestamp_from_system_time(&iq.eval_time);
         cmd.compare_result(&res)?;
 
-        // Check query returns same result in range mode,
+        // Check query returns the same result in range mode,
         // by checking against the middle step.
         let start = eval_time - ONE_MINUTE_AS_MILLIS;
         let end = eval_time + ONE_MINUTE_AS_MILLIS;

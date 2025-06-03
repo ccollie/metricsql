@@ -12,9 +12,9 @@ mod memory_postings;
 #[cfg(test)]
 mod memory_postings_query_tests;
 pub mod memory_provider;
-mod posting_stats;
-mod postings;
-mod querier;
+pub mod posting_stats;
+pub mod postings;
+pub mod querier;
 mod traits;
 
 pub use error::ProviderError;

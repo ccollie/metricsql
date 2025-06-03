@@ -10,13 +10,12 @@ use blart::TreeMap;
 use croaring::bitmap64::Bitmap64Iterator;
 use metricsql_common::hash::FastHashMap;
 use metricsql_parser::label::{Label, Matchers, NAME_LABEL};
-use std::borrow::Cow;
 use std::collections::hash_map::Entry;
 use std::collections::BTreeSet;
 use std::io;
 use std::io::{Read, Write};
 use std::ops::ControlFlow;
-use std::sync::LazyLock;
+use std::sync::{LazyLock, RwLock};
 
 pub type SeriesRef = u64;
 use super::posting_stats::{PostingStat, PostingsStats, StatsMaxHeap};
@@ -29,7 +28,7 @@ use get_size::GetSize;
 use integer_encoding::{VarIntReader, VarIntWriter};
 
 const ALL_POSTINGS_KEY: &str = "$_@LL_P0STINGS_";
-static EMPTY_BITMAP: LazyLock<PostingsBitmap> = LazyLock::new(|| PostingsBitmap::new());
+static EMPTY_BITMAP: LazyLock<PostingsBitmap> = LazyLock::new(PostingsBitmap::new);
 
 pub type PostingsBitmap = Bitmap64;
 // label
@@ -84,16 +83,30 @@ impl PostingsIterator for BitmapPostings {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct MemoryPostings {
     all_postings_key: IndexKey,
-    /// Map from label name and (label name, label value) to a set of timeseries ids.
-    label_index: PostingsIndex,
+    // Map from label name and (label name, label value) to a set of timeseries ids.
+    label_index: RwLock<PostingsIndex>,
 }
 
 impl Default for MemoryPostings {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Clone for MemoryPostings {
+    fn clone(&self) -> Self {
+        let copy = self
+            .label_index
+            .read()
+            .expect("Failed to read label index from RWLock")
+            .clone();
+        MemoryPostings {
+            all_postings_key: self.all_postings_key.clone(),
+            label_index: RwLock::new(copy),
+        }
     }
 }
 
@@ -105,52 +118,105 @@ impl MemoryPostings {
         index.insert(all_postings_key.clone(), PostingsBitmap::default());
         MemoryPostings {
             all_postings_key,
-            label_index: index,
+            label_index: RwLock::new(index),
         }
     }
 
-    pub fn clear(&mut self) {
-        self.label_index.clear();
+    #[inline]
+    fn read_index(&self) -> std::sync::RwLockReadGuard<PostingsIndex> {
+        self.label_index
+            .read()
+            .expect("Failed to read label index from RWLock")
     }
 
-    pub fn label_index(&mut self) -> &PostingsIndex {
-        &self.label_index
+    fn write_index(&self) -> std::sync::RwLockWriteGuard<PostingsIndex> {
+        self.label_index
+            .write()
+            .expect("Failed to write label index from RWLock")
     }
 
-    pub fn add_posting(&mut self, id: SeriesRef, metric_name: &MetricName) {
+    pub fn clear(&self) {
+        let mut index = self.write_index();
+        index.clear();
+    }
+
+    pub fn label_index(&self) -> std::sync::RwLockReadGuard<PostingsIndex> {
+        self.label_index.read().unwrap()
+    }
+
+    pub fn add_posting(&self, id: SeriesRef, metric_name: &MetricName) {
         debug_assert!(id != 0);
 
+        let mut index = self.write_index();
+
         if !metric_name.measurement.is_empty() {
-            self.add_posting_for_label_value(id, METRIC_NAME_LABEL, &metric_name.measurement);
+            Self::add_posting_for_label_value_internal(
+                &mut index,
+                id,
+                METRIC_NAME_LABEL,
+                &metric_name.measurement,
+            );
         }
 
         for Label { name, value } in metric_name.labels.iter() {
-            self.add_posting_for_label_value(id, name, value);
+            Self::add_posting_for_label_value_internal(&mut index, id, name, value);
         }
 
-        self.add_id_to_all_postings(id);
+        Self::add_id_to_all_postings_internal(&mut index, id, &self.all_postings_key);
     }
 
-    pub fn reindex_posting(&mut self, id: SeriesRef, metric_name: &MetricName) {
-        self.remove_posting_by_id_and_labels(id, &metric_name.measurement, &metric_name.labels);
-        self.add_posting(id, &metric_name);
+    pub fn reindex_posting(&self, id: SeriesRef, metric_name: &MetricName) {
+        let mut index = self.write_index();
+        Self::remove_posting_by_id_and_labels_internal(
+            &mut index,
+            id,
+            &metric_name.measurement,
+            &metric_name.labels,
+            &self.all_postings_key,
+        );
+
+        if !metric_name.measurement.is_empty() {
+            Self::add_posting_for_label_value_internal(
+                &mut index,
+                id,
+                METRIC_NAME_LABEL,
+                &metric_name.measurement,
+            );
+        }
+
+        for Label { name, value } in metric_name.labels.iter() {
+            Self::add_posting_for_label_value_internal(&mut index, id, name, value);
+        }
+
+        Self::add_id_to_all_postings_internal(&mut index, id, &self.all_postings_key);
     }
 
     pub fn has_posting(&self, id: SeriesRef) -> bool {
-        self.all_postings().contains(id)
+        let index = self.read_index();
+        index
+            .get(&self.all_postings_key)
+            .is_some_and(|bitmap| bitmap.contains(id))
     }
 
-    pub fn remove_posting(&mut self, id: SeriesRef, metric_name: &MetricName) {
-        self.remove_posting_by_id_and_labels(id, &metric_name.measurement, &metric_name.labels)
+    pub fn remove_posting(&self, id: SeriesRef, metric_name: &MetricName) {
+        let mut index = self.write_index();
+        Self::remove_posting_by_id_and_labels_internal(
+            &mut index,
+            id,
+            &metric_name.measurement,
+            &metric_name.labels,
+            &self.all_postings_key,
+        );
     }
 
-    fn remove_posting_by_id_and_labels(
-        &mut self,
+    fn remove_posting_by_id_and_labels_internal(
+        index: &mut PostingsIndex,
         id: SeriesRef,
         metric_name: &str,
         labels: &[Label],
+        all_postings_key: &IndexKey,
     ) {
-        self.remove_id_from_all_postings(id);
+        Self::remove_id_from_all_postings_internal(index, id, all_postings_key);
 
         // should never happen, but just in case
         if metric_name.is_empty() && labels.is_empty() {
@@ -158,22 +224,33 @@ impl MemoryPostings {
         }
 
         if !metric_name.is_empty() {
-            self.remove_posting_for_label_value(METRIC_NAME_LABEL, metric_name, id);
+            Self::remove_posting_for_label_value_internal(
+                index,
+                METRIC_NAME_LABEL,
+                metric_name,
+                id,
+            );
         }
 
         for Label { name, value } in labels.iter() {
-            self.remove_posting_for_label_value(name, value, id);
+            Self::remove_posting_for_label_value_internal(index, name, value, id);
         }
     }
 
     pub fn has_label(&self, label: &str) -> bool {
+        let index = self.read_index();
         let prefix = get_key_for_label_prefix(label);
-        self.label_index.prefix(prefix.as_bytes()).next().is_some()
+        index.prefix(prefix.as_bytes()).next().is_some()
     }
 
-    fn add_posting_for_label_value(&mut self, ts_id: SeriesRef, label: &str, value: &str) -> bool {
+    fn add_posting_for_label_value_internal(
+        index: &mut PostingsIndex,
+        ts_id: SeriesRef,
+        label: &str,
+        value: &str,
+    ) -> bool {
         let key = IndexKey::for_label_value(label, value);
-        match self.label_index.entry(key) {
+        match index.entry(key) {
             ARTEntry::Occupied(mut entry) => {
                 entry.get_mut().add(ts_id);
                 false
@@ -187,47 +264,66 @@ impl MemoryPostings {
         }
     }
 
-    fn remove_posting_for_label_value(&mut self, label: &str, value: &str, ts_id: SeriesRef) {
+    fn remove_posting_for_label_value_internal(
+        index: &mut PostingsIndex,
+        label: &str,
+        value: &str,
+        ts_id: SeriesRef,
+    ) {
         let key = IndexKey::for_label_value(label, value);
-        if let Some(bmp) = self.label_index.get_mut(&key) {
+        if let Some(bmp) = index.get_mut(&key) {
             bmp.remove(ts_id);
             if bmp.is_empty() {
-                self.label_index.remove(&key);
+                index.remove(&key);
             }
         }
     }
 
     pub fn postings_for_all_label_values(&self, label_name: &str) -> PostingsBitmap {
+        let index = self.read_index();
         let prefix = get_key_for_label_prefix(label_name);
         let mut result = PostingsBitmap::new();
-        for (_, map) in self.label_index.prefix(prefix.as_bytes()) {
+        for (_, map) in index.prefix(prefix.as_bytes()) {
             result |= map;
         }
         result
     }
 
-    pub fn all_postings(&self) -> &PostingsBitmap {
-        self.label_index
+    pub fn all_postings(&self) -> PostingsBitmap {
+        let index = self.read_index();
+        index
             .get(&self.all_postings_key)
-            .unwrap_or(&*EMPTY_BITMAP)
+            .map_or_else(|| EMPTY_BITMAP.clone(), |bitmap| bitmap.clone())
     }
 
     pub fn max_id(&self) -> SeriesRef {
-        self.all_postings().maximum().unwrap_or_default()
+        let index = self.read_index();
+        index
+            .get(&self.all_postings_key)
+            .and_then(|bitmap| bitmap.maximum())
+            .unwrap_or_default()
     }
 
-    fn add_id_to_all_postings(&mut self, id: SeriesRef) {
-        if let Some(bitmap) = self.label_index.get_mut(&self.all_postings_key) {
+    fn add_id_to_all_postings_internal(
+        index: &mut PostingsIndex,
+        id: SeriesRef,
+        all_postings_key: &IndexKey,
+    ) {
+        if let Some(bitmap) = index.get_mut(all_postings_key) {
             bitmap.add(id);
         } else {
             let mut bmp = PostingsBitmap::new();
             bmp.add(id);
-            self.label_index.insert(self.all_postings_key.clone(), bmp);
+            index.insert(all_postings_key.clone(), bmp);
         }
     }
 
-    fn remove_id_from_all_postings(&mut self, id: SeriesRef) {
-        if let Some(bmp) = self.label_index.get_mut(&self.all_postings_key) {
+    fn remove_id_from_all_postings_internal(
+        index: &mut PostingsIndex,
+        id: SeriesRef,
+        all_postings_key: &IndexKey,
+    ) {
+        if let Some(bmp) = index.get_mut(all_postings_key) {
             bmp.remove(id);
         }
     }
@@ -235,27 +331,23 @@ impl MemoryPostings {
     /// `postings` returns the postings list iterator for the label pairs.
     /// The postings here contain the ids to the series inside the index.
     pub fn postings(&self, name: &str, values: &[String]) -> PostingsBitmap {
+        let index = self.read_index();
         let mut result = PostingsBitmap::new();
         for value in values {
             let key = IndexKey::for_label_value(name, value);
-            if let Some(bmp) = self.label_index.get(&key) {
+            if let Some(bmp) = index.get(&key) {
                 result |= bmp;
             }
         }
         result
     }
 
-    pub fn postings_for_label_value<'a>(
-        &'a self,
-        name: &str,
-        value: &str,
-    ) -> Cow<'a, PostingsBitmap> {
+    pub fn postings_for_label_value(&self, name: &str, value: &str) -> PostingsBitmap {
+        let index = self.read_index();
         let key = IndexKey::for_label_value(name, value);
-        if let Some(bmp) = self.label_index.get(&key) {
-            Cow::Borrowed(bmp)
-        } else {
-            Cow::Owned(PostingsBitmap::default())
-        }
+        index
+            .get(&key)
+            .map_or_else(PostingsBitmap::default, |bmp| bmp.clone())
     }
 
     /// `postings_for_label_matching` returns postings having a label with the given name and a value
@@ -266,10 +358,11 @@ impl MemoryPostings {
         name: &str,
         match_fn: fn(&str) -> bool,
     ) -> PostingsBitmap {
+        let index = self.read_index();
         let prefix = get_key_for_label_prefix(name);
         let start_pos = prefix.len();
         let mut result = PostingsBitmap::new();
-        for (key, map) in self.label_index.prefix(prefix.as_bytes()) {
+        for (key, map) in index.prefix(prefix.as_bytes()) {
             let value = key.sub_string(start_pos);
             if match_fn(value) {
                 result |= map;
@@ -280,8 +373,9 @@ impl MemoryPostings {
 
     /// label_names returns all the unique label names.
     pub fn label_names(&self) -> Vec<String> {
+        let index = self.read_index();
         let mut set: BTreeSet<String> = BTreeSet::new();
-        for key in self.label_index.keys() {
+        for key in index.keys() {
             if let Some((label, _)) = key.split() {
                 if !label.is_empty() {
                     set.insert(label.to_string());
@@ -313,14 +407,15 @@ impl MemoryPostings {
         metric: &str,
         labels: &[Label],
     ) -> ProviderResult<Option<SeriesRef>> {
+        let index = self.read_index();
         let mut key: String = String::new();
         format_key_for_metric_name(&mut key, metric);
-        if let Some(measurement_bmp) = self.label_index.get(key.as_bytes()) {
+        if let Some(measurement_bmp) = index.get(key.as_bytes()) {
             let mut first = true;
             let mut acc = PostingsBitmap::new();
             for label in labels.iter() {
                 format_key_for_label_value(&mut key, &label.name, &label.value);
-                if let Some(bmp) = self.label_index.get(key.as_bytes()) {
+                if let Some(bmp) = index.get(key.as_bytes()) {
                     if bmp.is_empty() {
                         break;
                     }
@@ -360,9 +455,10 @@ impl MemoryPostings {
         F: Fn(&mut CONTEXT, &str, &PostingsBitmap) -> ControlFlow<Option<T>>,
         PRED: Fn(&str, &PostingsBitmap) -> bool,
     {
+        let index = self.read_index();
         let prefix = get_key_for_label_prefix(label);
         let start_pos = prefix.len();
-        for (key, map) in self.label_index.prefix(prefix.as_bytes()) {
+        for (key, map) in index.prefix(prefix.as_bytes()) {
             let value = key.sub_string(start_pos);
             if predicate(value, map) {
                 match f(ctx, value, map) {
@@ -377,6 +473,7 @@ impl MemoryPostings {
     }
 
     pub fn stats(&self, label: &str, limit: usize) -> PostingsStats {
+        let index = self.read_index();
         #[derive(Clone, Copy)]
         struct SizeAccumulator {
             size: usize,
@@ -390,7 +487,7 @@ impl MemoryPostings {
         let mut label_value_pairs = StatsMaxHeap::new(limit);
         let mut num_label_pairs = 0;
 
-        for (key, bitmap) in self.label_index.iter() {
+        for (key, bitmap) in index.iter() {
             let count = bitmap.cardinality();
             if let Some((name, value)) = key.split() {
                 let size = key.get_size() + get_bitmap_size(bitmap);
@@ -407,7 +504,7 @@ impl MemoryPostings {
                 }
 
                 label_value_pairs.push(PostingStat {
-                    name: format!("{}={}", name, value),
+                    name: format!("{name}={value}"),
                     count,
                 });
                 num_label_pairs += 1;
@@ -452,9 +549,10 @@ impl MemoryPostings {
         limit: usize,
         prefix: Option<&str>,
     ) -> Vec<(String, usize)> {
+        let index = self.read_index();
         let mut metrics = StatsMaxHeap::new(limit);
         let prefix = get_key_for_label_value(METRIC_NAME_LABEL, prefix.unwrap_or(""));
-        for (key, bmp) in self.label_index.prefix(prefix.as_bytes()) {
+        for (key, bmp) in index.prefix(prefix.as_bytes()) {
             // Keys and values are expected to be utf-8. If we panic, we have bigger issues
             if let Some((_name, value)) = key.split() {
                 metrics.push(PostingStat {
@@ -472,10 +570,11 @@ impl MemoryPostings {
     }
 
     pub fn serialize_into<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+        let index = self.read_index();
         // todo: version
-        writer.write_varint(self.label_index.len() as u64)?;
+        writer.write_varint(index.len() as u64)?;
         let mut buffer = Vec::new();
-        for (key, bitmap) in self.label_index.iter() {
+        for (key, bitmap) in index.iter() {
             write_key(key, &mut *writer)?;
             write_bitmap(writer, &mut buffer, bitmap)?;
         }
@@ -485,14 +584,20 @@ impl MemoryPostings {
     pub fn deserialize_from<R: Read>(reader: &mut R) -> io::Result<Self> {
         let len = reader.read_varint::<u64>()?;
 
-        let mut result = MemoryPostings::new();
+        let mut index: PostingsIndex = Default::default();
+        let all_postings_key = IndexKey::from(ALL_POSTINGS_KEY);
+
         let mut buffer = Vec::new();
         for _ in 0..len {
             let key = read_key(&mut *reader)?;
             let bitmap = read_bitmap(reader, &mut buffer)?;
-            result.label_index.insert(key, bitmap);
+            index.insert(key, bitmap);
         }
-        Ok(result)
+
+        Ok(MemoryPostings {
+            all_postings_key,
+            label_index: RwLock::new(index),
+        })
     }
 }
 
@@ -502,7 +607,7 @@ impl IndexReader for MemoryPostings {
 
     async fn all_postings(&self) -> ProviderResult<Self::Postings> {
         let bmp = self.all_postings();
-        let result = BitmapPostings::new(bmp.clone());
+        let result = BitmapPostings::new(bmp);
         Ok(result)
     }
 
@@ -568,7 +673,7 @@ impl IndexReader for MemoryPostings {
         let mut res = PostingsBitmap::new();
         let prefix = get_key_for_label_prefix(&name);
         let start_pos = prefix.len();
-        for (key, map) in self.label_index.prefix(prefix.as_bytes()) {
+        for (key, map) in self.label_index.read().unwrap().prefix(prefix.as_bytes()) {
             let value = key.sub_string(start_pos);
             if match_fn(value) {
                 res |= map;
@@ -597,7 +702,7 @@ impl IndexReader for MemoryPostings {
             let postings = postings_for_matchers(self, matchers).await?;
             if !postings.is_empty() {
                 let matched = Bitmap64::from_iter(postings);
-                for (k, postings) in self.label_index.iter() {
+                for (k, postings) in self.label_index.read().unwrap().iter() {
                     if let Some((key, _)) = k.split() {
                         if key != ALL_POSTINGS_KEY
                             && !set.contains(key)
@@ -609,7 +714,7 @@ impl IndexReader for MemoryPostings {
                 }
             }
         } else {
-            for k in self.label_index.keys() {
+            for k in self.label_index.read().unwrap().keys() {
                 if let Some((key, _)) = k.split() {
                     if !set.contains(key) && key != ALL_POSTINGS_KEY {
                         set.insert(key.to_string());
@@ -645,7 +750,7 @@ impl IndexReader for MemoryPostings {
         // Slow
         let mut set: BTreeSet<String> = BTreeSet::new();
         if !bitmap.is_empty() {
-            for (k, postings) in self.label_index.iter() {
+            for (k, postings) in self.label_index.read().unwrap().iter() {
                 if let Some((key, _)) = k.split() {
                     if key != ALL_POSTINGS_KEY && !set.contains(key) && postings.intersect(&bitmap)
                     {
@@ -681,7 +786,7 @@ fn read_bitmap<R: Read>(reader: &mut R, buf: &mut Vec<u8>) -> io::Result<Posting
 
     reader.read_exact(buf)?;
     // Not sure how I feel about the possible silent failure
-    Ok(PostingsBitmap::deserialize::<Portable>(&buf))
+    Ok(PostingsBitmap::deserialize::<Portable>(buf))
 }
 
 fn write_key<W: Write>(key: &IndexKey, mut writer: W) -> io::Result<()> {

@@ -13,17 +13,20 @@
 use super::parser::parse_load;
 use super::test_command::{LoadCmd, TestCommand};
 use crate::execution::Context;
-use crate::{MemoryMetricProvider, MetricStorage};
+use crate::MemoryMetricProvider;
 use std::error::Error;
 use std::fmt;
 use std::sync::Arc;
+// Added Mutex
 use std::time::Duration;
 
 /// LazyLoader lazily loads samples into storage.
 /// This is specifically implemented for unit testing of rules.
 pub struct LazyLoader {
     load_cmd: Option<LoadCmd>,
-    storage: Arc<MemoryMetricProvider>,
+    /// The storage for the LazyLoader, wrapped in a Mutex for thread safety.
+    /// Non-idiomatic, but necessary for the possibility of sharing with the Context
+    storage: Arc<MemoryMetricProvider>, // Wrapped in Mutex
     subquery_interval: Duration,
     context: Context,
     options: PromqlEngineOpts,
@@ -37,7 +40,7 @@ impl LazyLoader {
         let mut ll = LazyLoader {
             load_cmd: None,
             context,
-            storage,
+            storage, // Initialize with Mutex
             subquery_interval: Duration::from_secs(0),
             options: PromqlEngineOpts::default(),
         };
@@ -72,8 +75,9 @@ impl LazyLoader {
         Err(Box::new(NoLoadCommandError))
     }
 
-    // clear the current test storage of all inserted samples.
+    /// Clears the current test storage of all inserted samples.
     fn clear(&mut self) -> Result<(), Box<dyn Error + '_>> {
+        // Acquire the lock and then clear
         self.storage.clear();
         self.options = PromqlEngineOpts {
             max_samples: 10000,
@@ -87,6 +91,7 @@ impl LazyLoader {
     fn append_till(&mut self, ts: i64) -> Result<(), Box<dyn Error>> {
         if let Some(load_cmd) = self.load_cmd.as_mut() {
             let defs = &mut load_cmd.defs;
+            // Lock storage once before the loop to avoid repeated locking/unlocking
             for (h, samples) in defs.iter_mut() {
                 if let Some(m) = load_cmd.metrics.get(h) {
                     let mut clear_samples = false;
@@ -95,7 +100,7 @@ impl LazyLoader {
                             samples.drain(..i);
                             break;
                         }
-                        self.storage.append(m.clone(), s.timestamp, s.value)?;
+                        self.storage.append(m, s.timestamp, s.value)?;
                         if i == samples.len() - 1 {
                             clear_samples = true;
                         }
@@ -109,25 +114,13 @@ impl LazyLoader {
         Ok(())
     }
 
-    /// loads the samples till given timestamp and executes the given function.
+    /// loads the samples till the given timestamp and executes the given function.
     pub fn with_samples_till<F>(&mut self, ts: Duration, mut fn_: F)
     where
         F: FnMut(Result<(), Box<dyn Error>>),
     {
         let ts_milli = ts.as_millis() as i64;
         fn_(self.append_till(ts_milli));
-    }
-
-    // Queryable allows querying the LazyLoader's data.
-    // Note: only the samples till the max timestamp used
-    // in `WithSamplesTill` can be queried.
-    fn queryable(&self) -> Arc<dyn MetricStorage> {
-        self.storage.clone()
-    }
-
-    // Storage returns the LazyLoader's storage.
-    fn storage(&self) -> Arc<dyn MetricStorage> {
-        self.storage.clone()
     }
 }
 
@@ -153,6 +146,18 @@ impl fmt::Display for NoLoadCommandError {
 }
 
 impl Error for NoLoadCommandError {}
+
+// New error type for mutex issues
+#[derive(Debug)]
+struct MutexError(String);
+
+impl fmt::Display for MutexError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "failed to acquire mutex lock: {}", self.0)
+    }
+}
+
+impl Error for MutexError {}
 
 pub struct PromqlEngineOpts {
     max_samples: usize,

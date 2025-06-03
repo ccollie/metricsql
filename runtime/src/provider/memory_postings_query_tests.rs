@@ -75,12 +75,12 @@ mod tests {
     ) -> Vec<Vec<Label>> {
         let filter = Matchers::new(Vec::from(matchers.clone()));
         // Use the standalone function from querier.rs
-        let p = crate::provider::querier::postings_for_matchers(ix, &filter).now_or_never().unwrap().unwrap();
+        let p = crate::provider::querier::postings_for_matchers(ix, &filter)
+            .now_or_never()
+            .unwrap()
+            .unwrap();
         // PostingsEnum implements Iterator directly, so we don't need to call iter()
-        let actual: Vec<_> = p
-            .flat_map(|id| series_data.get(&id))
-            .cloned()
-            .collect();
+        let actual: Vec<_> = p.flat_map(|id| series_data.get(&id)).cloned().collect();
 
         actual
     }

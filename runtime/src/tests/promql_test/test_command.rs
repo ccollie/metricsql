@@ -12,12 +12,15 @@
 // limitations under the License.
 use super::types::{Sample, SequenceValue, TestAssertionError};
 use super::utils::{almost_equal, assert_matrix_sorted, format_series_result, DEFAULT_EPSILON};
+use crate::postings::PostingsEnum;
+use crate::querier::postings_for_matchers;
 use crate::types::{MetricName, QueryValue};
-use crate::{MemoryMetricProvider, RuntimeError};
+use crate::{BitmapPostings, MemoryMetricProvider, MemoryPostings, RuntimeError, RuntimeResult};
 use ahash::{HashSet, HashSetExt};
 use metricsql_common::hash::Signature;
+use metricsql_parser::label::Matchers;
 use regex::Regex;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::convert::Into;
 use std::fmt;
 use std::fmt::Display;
@@ -39,6 +42,8 @@ pub(crate) struct LoadCmd {
     pub(super) gap: Duration,
     pub(super) metrics: HashMap<Signature, MetricName>,
     pub(super) defs: HashMap<Signature, Vec<Sample>>,
+    series: BTreeMap<Signature, (MetricName, Vec<Sample>)>,
+    postings: MemoryPostings,
 }
 
 impl Display for LoadCmd {
@@ -53,6 +58,8 @@ impl LoadCmd {
             gap,
             metrics: HashMap::new(),
             defs: HashMap::new(),
+            series: Default::default(),
+            postings: MemoryPostings::new(),
         }
     }
 
@@ -79,10 +86,19 @@ impl LoadCmd {
         for (h, smpls) in self.defs.iter() {
             if let Some(m) = self.metrics.get(h) {
                 for s in smpls.iter() {
-                    storage.append(m.clone(), s.timestamp, s.value).unwrap();
+                    storage.append(m, s.timestamp, s.value).unwrap();
                 }
             }
         }
+    }
+
+    async fn get_postings_for_matchers(
+        &self,
+        matchers: &Matchers,
+    ) -> RuntimeResult<PostingsEnum<BitmapPostings>> {
+        postings_for_matchers(&self.postings, matchers)
+            .await
+            .map_err(|e| RuntimeError::ProviderError(e.to_string()))
     }
 }
 
