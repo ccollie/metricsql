@@ -420,9 +420,9 @@ pub enum RollupTag {
 impl Display for RollupTag {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            RollupTag::Min => write!(f, "{}", MIN),
-            RollupTag::Max => write!(f, "{}", MAX),
-            RollupTag::Avg => write!(f, "{}", AVG),
+            RollupTag::Min => write!(f, "{MIN}"),
+            RollupTag::Max => write!(f, "{MAX}"),
+            RollupTag::Avg => write!(f, "{AVG}"),
         }
     }
 }
@@ -434,9 +434,21 @@ impl FromStr for RollupTag {
         if s.len() == 3 {
             let h = s.as_bytes()[2].to_ascii_lowercase();
             match h {
-                b'i' => if s.eq_ignore_ascii_case(MIN) { return Ok(RollupTag::Min) },
-                b'a' => if s.eq_ignore_ascii_case(MAX) { return Ok(RollupTag::Max) },
-                b'v' => if s.eq_ignore_ascii_case(AVG) { return Ok(RollupTag::Avg) },
+                b'i' => {
+                    if s.eq_ignore_ascii_case(MIN) {
+                        return Ok(RollupTag::Min);
+                    }
+                }
+                b'a' => {
+                    if s.eq_ignore_ascii_case(MAX) {
+                        return Ok(RollupTag::Max);
+                    }
+                }
+                b'v' => {
+                    if s.eq_ignore_ascii_case(AVG) {
+                        return Ok(RollupTag::Avg);
+                    }
+                }
                 _ => {}
             };
         }

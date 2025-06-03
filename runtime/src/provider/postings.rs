@@ -82,12 +82,6 @@ impl PostingsList for EmptyPostings {
     }
 }
 
-impl EmptyPostings {
-    pub fn new() -> Self {
-        EmptyPostings {}
-    }
-}
-
 impl Iterator for EmptyPostings {
     type Item = SeriesRef;
     fn next(&mut self) -> Option<Self::Item> {
@@ -105,7 +99,7 @@ impl PostingsIterator for EmptyPostings {
 }
 
 #[derive(Clone)]
-pub(super) struct ListPostings {
+pub struct ListPostings {
     list: PostingsListVec,
     idx: usize,
 }

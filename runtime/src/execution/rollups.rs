@@ -685,7 +685,7 @@ fn process_result(
 fn get_at_timestamp(ctx: &Context, ec: &EvalConfig, expr: &Expr) -> RuntimeResult<i64> {
     match eval_expr(ctx, ec, expr) {
         Err(err) => {
-            let msg = format!("cannot evaluate `@` modifier: {:?}", err);
+            let msg = format!("cannot evaluate `@` modifier: {err:?}");
             Err(RuntimeError::from(msg))
         }
         Ok(tss_at) => {
@@ -743,7 +743,6 @@ fn get_absent_timeseries(ec: &EvalConfig, expr: &Expr) -> RuntimeResult<Vec<Time
     }
     Ok(rvs)
 }
-
 
 /// Executes `f` for each `Timeseries` in `tss` in parallel.
 pub(super) fn do_parallel<F>(tss: &Vec<Timeseries>, f: F) -> RuntimeResult<(Vec<Timeseries>, u64)>

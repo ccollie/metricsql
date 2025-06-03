@@ -213,7 +213,7 @@ impl RollupResultCache {
             ec.start,
             ec.end,
         ).map_err(|err| {
-            let msg = format!("BUG: cannot deserialize from RollupResultCache: {:?}; it looks like it was improperly saved", err);
+            let msg = format!("BUG: cannot deserialize from RollupResultCache: {err:?}; it looks like it was improperly saved");
             RuntimeError::SerializationError(msg)
         })?;
 
@@ -495,7 +495,7 @@ fn marshal_rollup_result_cache_key_internal(
     hasher.write_u8(cache_type);
     hasher.write_u128(window.as_millis());
     hasher.write_u128(step.as_millis());
-    hasher.write(format!("{}", expr).as_bytes());
+    hasher.write(format!("{expr}").as_bytes());
 
     if let Some(etfs) = etfs {
         for etf in etfs.iter() {
@@ -693,7 +693,7 @@ impl RollupResultCacheMetaInfo {
         let mut i = 0;
         while i < entries_len {
             let (v, tail) = RollupResultCacheMetaInfoEntry::read(src).map_err(|err| {
-                RuntimeError::from(format!("cannot unmarshal entry #{}: {:?}", i, err))
+                RuntimeError::from(format!("cannot unmarshal entry #{i}: {err:?}"))
             })?;
             src = tail;
             entries.push(v);
@@ -721,7 +721,7 @@ impl RollupResultCacheMetaInfo {
     fn covers_time_range(&self, start: i64, end: i64) -> bool {
         if start > end {
             // todo: remove panic. return Result instead
-            panic!("BUG: start cannot exceed end; got {} vs {}", start, end)
+            panic!("BUG: start cannot exceed end; got {start} vs {end}")
         }
         self.entries
             .iter()
@@ -731,8 +731,7 @@ impl RollupResultCacheMetaInfo {
     fn get_best_key(&self, start: i64, end: i64) -> RuntimeResult<RollupResultCacheKey> {
         if start > end {
             return Err(RuntimeError::ArgumentError(format!(
-                "BUG: start cannot exceed end; got {} vs {}",
-                start, end
+                "BUG: start cannot exceed end; got {start} vs {end}"
             )));
         }
         let mut best_key: RollupResultCacheKey = RollupResultCacheKey::default();
@@ -756,8 +755,7 @@ impl RollupResultCacheMetaInfo {
     fn add_key(&mut self, key: RollupResultCacheKey, start: i64, end: i64) -> RuntimeResult<()> {
         if start > end {
             return Err(RuntimeError::ArgumentError(format!(
-                "BUG: start cannot exceed end; got {} vs {}",
-                start, end
+                "BUG: start cannot exceed end; got {start} vs {end}"
             )));
         }
 
@@ -846,8 +844,7 @@ impl RollupResultCacheKey {
         let (mut src, version) = read_u64(src, "result cache version")?;
         if version != ROLLUP_RESULT_CACHE_VERSION as u64 {
             return Err(RuntimeError::SerializationError(format!(
-                "invalid result cache version: {}",
-                version
+                "invalid result cache version: {version}"
             )));
         }
 

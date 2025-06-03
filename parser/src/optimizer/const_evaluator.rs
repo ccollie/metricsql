@@ -132,7 +132,7 @@ fn handle_unary_expr(ue: UnaryExpr) -> Expr {
     let mut ue = ue;
     match ue.expr.as_mut() {
         Expr::NumberLiteral(n) => {
-            return Expr::from(n.value * -1.0);
+            return Expr::from(-n.value);
         }
         Expr::Duration(d) => {
             return match d {

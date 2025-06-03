@@ -78,7 +78,8 @@ impl Parser<'_> {
                 let token = self.current_token()?;
                 if [Token::GroupLeft, Token::GroupRight].contains(&token.kind) {
                     if operator.is_set_operator() {
-                        let msg = format!("modifier {} cannot be applied to {operator}", token.text);
+                        let msg =
+                            format!("modifier {} cannot be applied to {operator}", token.text);
                         return Err(self.syntax_error(&msg));
                     }
                     self.parse_vector_match_cardinality(&mut modifier)?;
@@ -108,12 +109,14 @@ impl Parser<'_> {
                         op: Operator::Sub,
                         modifier: None,
                     }),
-                    Expr::NumberLiteral(num) if num.value < 0.0 => Expr::BinaryOperator(BinaryExpr {
-                        left: Box::new(Expr::from(0.0)),
-                        right: Box::new(Expr::from(num.value * -1.0)),
-                        op: Operator::Sub,
-                        modifier: None,
-                    }),
+                    Expr::NumberLiteral(num) if num.value < 0.0 => {
+                        Expr::BinaryOperator(BinaryExpr {
+                            left: Box::new(Expr::from(0.0)),
+                            right: Box::new(Expr::from(-num.value)),
+                            op: Operator::Sub,
+                            modifier: None,
+                        })
+                    }
                     _ => left,
                 }
             }
@@ -226,8 +229,7 @@ impl Parser<'_> {
         let rt = expr.return_type();
         if !matches!(rt, InstantVector | Scalar) {
             let msg = format!(
-                "unary Expr only allowed on expressions of type scalar or instant vector, got {:?}",
-                rt
+                "unary Expr only allowed on expressions of type scalar or instant vector, got {rt}"
             );
             return Err(unexpected("", &rt.to_string(), &msg, Some(&span)));
         }
@@ -242,7 +244,7 @@ impl Parser<'_> {
         Ok(str)
     }
 
-    /// parses expressions starting with the `identifier` token. 
+    /// parses expressions starting with the `identifier` token.
     fn parse_ident_expr(&mut self) -> ParseResult<Expr> {
         use Token::*;
 

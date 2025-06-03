@@ -76,14 +76,14 @@ impl From<String> for RuntimeError {
 
 impl<E: std::error::Error + 'static> From<(String, E)> for RuntimeError {
     fn from((message, err): (String, E)) -> Self {
-        let msg = format!("{}: {}", message, err);
+        let msg = format!("{message}: {err}");
         RuntimeError::General(msg)
     }
 }
 
 impl<E: std::error::Error + 'static> From<(&str, E)> for RuntimeError {
     fn from((message, err): (&str, E)) -> Self {
-        let msg = format!("{}: {}", message, err);
+        let msg = format!("{message}: {err}");
         RuntimeError::General(msg)
     }
 }
@@ -158,7 +158,7 @@ impl Display for ArgCountError {
         }
 
         if let Some(pos) = self.pos {
-            write!(f, " at position {}", pos)?;
+            write!(f, " at position {pos}")?;
         }
 
         Ok(())

@@ -152,7 +152,7 @@ impl Display for FunctionMeta {
                 }
                 write!(f, ", ")?;
             }
-            write!(f, "{}", arg)?;
+            write!(f, "{arg}")?;
         }
 
         if bracket_written {
@@ -331,8 +331,7 @@ impl BuiltinFunction {
                         _ => {
                             // invalid arg
                             Err(ParseError::General(format!(
-                                "aggregation over time is not valid with Expr returning {:?}",
-                                kind
+                                "aggregation over time is not valid with Expr returning {kind:?}",
                             )))
                         }
                     }
@@ -349,9 +348,9 @@ impl Display for BuiltinFunction {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         use BuiltinFunction::*;
         match self {
-            Aggregate(af) => write!(f, "{}", af),
-            Rollup(rf) => write!(f, "{}", rf),
-            Transform(tf) => write!(f, "{}", tf),
+            Aggregate(af) => write!(f, "{af}"),
+            Rollup(rf) => write!(f, "{rf}"),
+            Transform(tf) => write!(f, "{tf}"),
         }
     }
 }

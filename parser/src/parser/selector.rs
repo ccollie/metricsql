@@ -202,10 +202,7 @@ impl Parser<'_> {
 
         Matcher::new(op, label, value)
     }
-
 }
-
-
 
 fn normalize_matcher_list(matchers: &mut Vec<Vec<Matcher>>) -> Option<String> {
     // if we have a __name__ filter, we need to ensure that all matchers have the same name

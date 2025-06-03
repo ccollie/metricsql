@@ -145,8 +145,7 @@ pub(crate) fn get_string_param_value(
     let param = args.get(arg_num);
     if param.is_none() {
         let msg = format!(
-            "expected string arg for parameter \"{}\" of function {}; Got None",
-            param_name, func_name
+            "expected string arg for parameter \"{param_name}\" of function {func_name}; Got None",
         );
         return Err(RuntimeError::TypeCastError(msg));
     }
@@ -155,8 +154,7 @@ pub(crate) fn get_string_param_value(
         QueryValue::String(val) => Ok(val.clone()),
         _ => {
             let msg = format!(
-                "expected string arg for parameter \"{param_name}\" of function {func_name}; Got {}",
-                param
+                "expected string arg for parameter \"{param_name}\" of function {func_name}; Got {param}",
             );
             Err(RuntimeError::TypeCastError(msg))
         }

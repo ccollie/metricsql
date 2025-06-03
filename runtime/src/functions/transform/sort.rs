@@ -261,7 +261,7 @@ fn get_num_prefix(s: &str) -> &str {
     let mut has_num = false;
     let mut has_dot = false;
     for ch in iter {
-        if !ch.is_digit(10) {
+        if !ch.is_ascii_digit() {
             if !has_dot && ch == '.' {
                 has_dot = true;
                 i += 1;
@@ -282,8 +282,8 @@ fn get_num_prefix(s: &str) -> &str {
 }
 
 fn get_non_num_prefix(s: &str) -> &str {
-    for (i, ch) in s.chars().enumerate() {
-        if ch.is_digit(10) {
+    for (i, ch) in s.char_indices() {
+        if ch.is_ascii_digit() {
             return &s[..i];
         }
     }

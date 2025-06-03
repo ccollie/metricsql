@@ -73,7 +73,7 @@ pub(super) fn eval_aggr_func(
             Ok(QueryValue::InstantVector(res))
         }
         Err(e) => {
-            let res = format!("cannot evaluate {}: {:?}", ae, e);
+            let res = format!("cannot evaluate {ae}: {e:?}");
             Err(RuntimeError::General(res))
         }
     }
@@ -116,8 +116,7 @@ fn try_get_arg_rollup_func_with_metric_expr(
 
         match FunctionExpr::from_single_arg(func_name, expr.clone()) {
             Err(e) => Err(RuntimeError::General(format!(
-                "Error creating function {func_name}: {:?}",
-                e
+                "Error creating function {func_name}: {e:?}"
             ))),
             Ok(fe) => Ok(Some(fe)),
         }

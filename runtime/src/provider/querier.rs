@@ -75,7 +75,7 @@ where
         if let Some(matches) = set_matches {
             if !matches.is_empty() {
                 let _matches: Vec<String> = matches.as_ref().to_vec();
-                return ix.postings(label, _matches)
+                return ix.postings(label, _matches);
             }
         }
     }
@@ -83,7 +83,7 @@ where
     ix.postings_for_label_matching(label, move |s| m.matches(s))
 }
 
-pub async fn label_values_with_matchers<'a, R>(
+pub async fn label_values_with_matchers<R>(
     ix: &R,
     name: &str,
     matchers: Option<&Matchers>,
@@ -148,14 +148,20 @@ where
         .map(|value| ix.postings(name.to_string(), vec![value.clone()]))
         .collect();
 
-    let postings = try_join_all(values_postings.into_iter()).await?
-        .into_iter().map(|x| PostingsEnum::wrap(x))
+    let postings = try_join_all(values_postings.into_iter())
+        .await?
+        .into_iter()
+        .map(PostingsEnum::wrap)
         .collect();
-    
+
     let indexes = find_intersecting_postings(p, postings);
     let mut values = Vec::with_capacity(indexes.len());
     for posting in indexes {
-        let value = std::mem::take(all_values.get_mut(posting.index).expect("Out of bounds error in label_values_with_matchers"));
+        let value = std::mem::take(
+            all_values
+                .get_mut(posting.index)
+                .expect("Out of bounds error in label_values_with_matchers"),
+        );
         values.push(value);
     }
 
@@ -216,7 +222,7 @@ where
         let cost_j = j.0.cost();
         cost_i.cmp(&cost_j)
     });
-    
+
     let mut not_its: SmallVec<_, 4> = SmallVec::new();
 
     for (m, matches_empty, _is_subtracting) in sorted_matchers {
@@ -275,7 +281,7 @@ where
     let mut resolved_not_its = try_join_all(not_its_futures).await?;
 
     resolved_not_its.extend(not_its);
-    
+
     if its.is_empty() {
         return Ok(PostingsEnum::Empty);
     }
@@ -356,9 +362,9 @@ where
         Ok(PostingsEnum::Empty)
     } else if matchers.len() == 1 {
         let m = matchers
-            .get(0)
+            .first()
             .expect("Out of bounds error running matchers");
-        postings_for_matchers_slice(ix, &m).await
+        postings_for_matchers_slice(ix, m).await
     } else {
         let futures: Vec<_> = matchers
             .iter()

@@ -75,7 +75,7 @@ impl Display for ParseErr {
         let line = self.line_offset + 1;
 
         let col = pos - last_line_break;
-        let position_str = format!("{}:{}:", line, col).to_string();
+        let position_str = format!("{line}:{col}:").to_string();
         write!(f, "{} parse error: {}", position_str, self.err)?;
         Ok(())
     }
@@ -89,7 +89,7 @@ pub(crate) fn invalid_token_error(
 ) -> ParseError {
     let mut res = String::with_capacity(100);
     if !context.is_empty() {
-        res.push_str(format!("{} :", context).as_str())
+        res.push_str(format!("{context} :").as_str())
     }
     if found.is_none() {
         res.push_str("unexpected end of stream");
@@ -107,18 +107,18 @@ pub(crate) fn invalid_token_error(
     res.push_str("expected ");
 
     for (idx, expected) in expected.iter().enumerate() {
-        let item = format!("\"{}\"", expected);
+        let item = format!("\"{expected}\"");
         if is_first(idx) {
             res.push_str(item.as_str());
         } else if is_last(idx) {
-            res.push_str(format!(" or {}", item).as_str());
+            res.push_str(format!(" or {item}").as_str());
         } else {
-            res.push_str(format!(", {}", item).as_str());
+            res.push_str(format!(", {item}").as_str());
         }
     }
 
     if let Some(found) = found {
-        res.push_str(format!(", but found {}", found).as_str());
+        res.push_str(format!(", but found {found}").as_str());
     }
 
     ParseError::SyntaxError(res)
@@ -127,7 +127,7 @@ pub(crate) fn invalid_token_error(
 pub(crate) fn syntax_error(msg: &str, range: &Span, context: String) -> ParseError {
     let mut res = String::with_capacity(100);
     if !context.is_empty() {
-        res.push_str(format!("{} :", context).as_str())
+        res.push_str(format!("{context} :").as_str())
     }
 
     res.push_str(format!("error at {}..{}: {}", range.start, range.end, msg).as_str());
@@ -254,7 +254,7 @@ impl Display for ArgCountError {
         }
 
         if let Some(pos) = self.pos {
-            write!(f, " at position {}", pos)?;
+            write!(f, " at position {pos}")?;
         }
 
         Ok(())

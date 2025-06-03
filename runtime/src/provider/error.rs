@@ -72,14 +72,14 @@ impl From<String> for ProviderError {
 
 impl<E: std::error::Error + 'static> From<(String, E)> for ProviderError {
     fn from((message, err): (String, E)) -> Self {
-        let msg = format!("{}: {}", message, err);
+        let msg = format!("{message}: {err}");
         ProviderError::General(msg)
     }
 }
 
 impl<E: std::error::Error + 'static> From<(&str, E)> for ProviderError {
     fn from((message, err): (&str, E)) -> Self {
-        let msg = format!("{}: {}", message, err);
+        let msg = format!("{message}: {err}");
         ProviderError::General(msg)
     }
 }

@@ -25,7 +25,7 @@ impl Display for StringSegment {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             StringSegment::Literal(lit) => write!(f, "{}", enquote::enquote('"', lit))?,
-            StringSegment::Ident(ident) => write!(f, "{}", ident)?,
+            StringSegment::Ident(ident) => write!(f, "{ident}")?,
         }
         Ok(())
     }
@@ -159,8 +159,7 @@ impl StringExpr {
                         res.push_str(&ident_value);
                     } else {
                         let msg = format!(
-                            "unknown identifier {:?} in string expression of {:?}",
-                            ident, self
+                            "unknown identifier {ident:?} in string expression of {self:?}"
                         );
                         return Err(ParseError::General(msg));
                     }
@@ -250,7 +249,7 @@ impl Display for StringExpr {
             if i > 0 {
                 write!(f, " + ")?;
             }
-            write!(f, "{}", segment)?;
+            write!(f, "{segment}")?;
         }
         Ok(())
     }

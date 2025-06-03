@@ -92,7 +92,7 @@ pub fn parse_number(str: &str) -> ParseResult<f64> {
         };
     }
 
-    parse_positive_number(str).map(|value| if is_negative { -1.0 * value } else { value })
+    parse_positive_number(str).map(|value| if is_negative { -value } else { value })
 }
 
 type SuffixValue = (&'static str, usize);
@@ -133,7 +133,7 @@ pub fn get_number_suffix(s: &str) -> Option<SuffixValue> {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::number::{parse_positive_number};
+    use crate::parser::number::parse_positive_number;
 
     fn expect_failure(s: &str) {
         match parse_positive_number(s) {

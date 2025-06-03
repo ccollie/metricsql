@@ -261,7 +261,7 @@ impl Display for RollupConfig {
         write!(
             f,
             "RollupConfig(start={}, end={}, step={}, window={}, points={}, max_points_per_series={})",
-            self.start, self.end, humanize_duration(&self.step), humanize_duration(&self.window), 
+            self.start, self.end, humanize_duration(&self.step), humanize_duration(&self.window),
             self.timestamps.len(), self.max_points_per_series
         )
     }
@@ -419,19 +419,19 @@ impl RollupConfig {
                         // https://github.com/VictoriaMetrics/VictoriaMetrics/issues/894
                         // https://github.com/VictoriaMetrics/VictoriaMetrics/issues/8045
                         // https://github.com/VictoriaMetrics/VictoriaMetrics/issues/8935
-                        
+
                         let mut curr_timestamp = t_start;
                         if !rfa.timestamps.is_empty() {
                             curr_timestamp = rfa.timestamps[0];
                         }
-                        
-                        if self.lookback_delta.is_zero() || 
-                            (curr_timestamp - *prev_timestamp) < self.lookback_delta.as_millis() as i64
+
+                        if self.lookback_delta.is_zero()
+                            || (curr_timestamp - *prev_timestamp)
+                                < self.lookback_delta.as_millis() as i64
                         {
                             let prev_value = values.get_unchecked(idx);
                             rfa.real_prev_value = *prev_value;
                         }
-                        
                     }
                 }
 
@@ -483,8 +483,7 @@ impl RollupConfig {
         ) {
             Err(err) => {
                 let msg = format!(
-                    "BUG: {:?}; this must be validated before the call to rollupConfig.exec",
-                    err
+                    "BUG: {err:?}; this must be validated before the call to rollupConfig.exec",
                 );
                 Err(RuntimeError::from(msg))
             }
@@ -516,7 +515,6 @@ fn exec_handler_parallel(
     dest: &mut Vec<f64>,
     args: &[RollupFuncArg],
 ) {
-
     #[inline]
     fn process_two(
         scope: &mut Scope,
@@ -703,7 +701,10 @@ fn get_rollup_function_handler_meta(
         }
     }
 
-    fn get_tag_fn(tag_value: &str, valid: &'static [&str]) -> Result<(&'static str, &'static RollupHandler), RuntimeError> {
+    fn get_tag_fn(
+        tag_value: &str,
+        valid: &'static [&str],
+    ) -> Result<(&'static str, &'static RollupHandler), RuntimeError> {
         get_tag_fn_from_str(tag_value).ok_or_else(|| {
             RuntimeError::ArgumentError(format!(
                 "unexpected rollup tag value {tag_value}; wanted {}",
@@ -716,9 +717,11 @@ fn get_rollup_function_handler_meta(
         })
     }
 
-    fn new_function_configs(dst: &mut TagFunctionVec,
-                                tag: Option<&String>,
-                                valid: &'static [&str]) -> RuntimeResult<()> {
+    fn new_function_configs(
+        dst: &mut TagFunctionVec,
+        tag: Option<&String>,
+        valid: &'static [&str],
+    ) -> RuntimeResult<()> {
         if let Some(tag_value) = tag {
             let (name, func) = get_tag_fn(tag_value, valid)?;
             dst.push(new_function_config(func, name));

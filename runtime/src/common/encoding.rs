@@ -49,7 +49,7 @@ pub fn unmarshal_var_usize(src: &[u8]) -> RuntimeResult<(usize, &[u8])> {
 }
 
 fn map_unmarshal_err(e: RuntimeError, what: &str) -> RuntimeError {
-    let msg = format!("error reading {}: {:?}", what, e);
+    let msg = format!("error reading {what}: {e:?}");
     RuntimeError::SerializationError(msg)
 }
 
@@ -88,8 +88,7 @@ pub(crate) fn read_string<'a>(slice: &'a [u8], what: &str) -> RuntimeResult<(&'a
         Ok((tail, s))
     } else {
         Err(RuntimeError::SerializationError(format!(
-            "cannot decode varint from {}",
-            what
+            "cannot decode varint from {what}"
         )))
     }
 }

@@ -103,8 +103,7 @@ impl ParseCache {
                                 expr: None,
                                 optimized: None,
                                 err: Some(ParseError::General(format!(
-                                    "Error optimizing expression: {:?}",
-                                    e
+                                    "Error optimizing expression: {e:?}",
                                 ))),
                                 has_subquery: false,
                                 sort_results: false,

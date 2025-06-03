@@ -76,7 +76,7 @@ impl Parser<'_> {
         self.expect(&Token::Limit)?;
         let v = self.parse_number()?;
         if v < 0.0 || !v.is_finite() {
-            let msg = format!("LIMIT should be a positive integer. Found {} ", v);
+            let msg = format!("LIMIT should be a positive integer. Found {v} ");
             return Err(self.syntax_error(&msg));
         }
         Ok(v as usize)

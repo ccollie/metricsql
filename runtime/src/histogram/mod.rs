@@ -125,7 +125,7 @@ impl Histogram {
             let tag = format!("vmrange={}", item.vm_range);
             let metric_name = add_tag(prefix, tag);
             let (name, labels) = split_metric_name(&metric_name);
-            dst.push_str(format!("{}_bucket${} {}\n", name, labels, count).as_str());
+            dst.push_str(format!("{name}_bucket${labels} {count}\n").as_str());
             count_total += count;
         }
 
@@ -138,10 +138,10 @@ impl Histogram {
             let msg = format!("{}_sum{} {}\n", name, labels, sum.floor());
             dst.push_str(&msg);
         } else {
-            let msg = format!("{}_sum{} {}\n", name, labels, sum);
+            let msg = format!("{name}_sum{labels} {sum}\n");
             dst.push_str(&msg);
         }
-        dst.push_str(&format!("{}_count{} {}\n", name, labels, count_total));
+        dst.push_str(&format!("{name}_count{labels} {count_total}\n"));
     }
 
     /// Get an iterator over this histogram's buckets.
@@ -272,7 +272,7 @@ impl<'a> Iterator for NonZeroBuckets<'a> {
 // support formatting padded exponents out of the box.
 fn format_float(number: f64) -> String {
     // Step 1: Format the number in scientific notation
-    let formatted = format!("{:.3e}", number); // Two decimal places for mantissa
+    let formatted = format!("{number:.3e}"); // Two decimal places for mantissa
 
     // Step 2: Split into mantissa and exponent
     let parts: Vec<&str> = formatted.split('e').collect();
@@ -283,7 +283,7 @@ fn format_float(number: f64) -> String {
     let padded_exponent = format!("{:+03}", exponent.parse::<i32>().unwrap()); // Ensures two digits
 
     // Step 4: Combine mantissa and padded exponent
-    let final_output = format!("{}e{}", mantissa, padded_exponent);
+    let final_output = format!("{mantissa}e{padded_exponent}");
     final_output
 }
 
@@ -298,7 +298,7 @@ fn init_bucket_ranges() -> Box<[String; BUCKETS_COUNT]> {
     for i in 0..BUCKETS_COUNT {
         v *= bucket_multiplier;
         let end = format_float(v);
-        ranges[i] = format!("{}...{}", start, end);
+        ranges[i] = format!("{start}...{end}");
         start = end;
     }
     ranges
@@ -331,7 +331,7 @@ fn add_tag(name: &str, tag: String) -> String {
     };
 
     if need_braces {
-        return format!("{}{{{}}}", name, tag);
+        return format!("{name}{{{tag}}}");
     }
     let mut chars = name.chars();
     chars.next_back();

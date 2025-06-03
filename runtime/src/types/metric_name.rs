@@ -264,7 +264,7 @@ impl MetricName {
             match src.label_value(tag_name) {
                 Some(tag_value) => {
                     if !prefix.is_empty() {
-                        let key = format!("{prefix}{}", tag_name);
+                        let key = format!("{prefix}{tag_name}");
                         self.set(&key, tag_value);
                     } else {
                         self.set(tag_name, tag_value);

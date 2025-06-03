@@ -67,7 +67,7 @@ impl Context {
                 match res {
                     Ok(res) => res,
                     Err(_elapsed) => {
-                        let msg = format!("search timeout after {} ms", timeout_ms);
+                        let msg = format!("search timeout after {timeout_ms} ms");
                         Err(RuntimeError::DeadlineExceededError(msg))
                     }
                 }

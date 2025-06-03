@@ -74,8 +74,7 @@ pub(crate) fn timezone_offset(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<T
     let tz_name = match get_string_arg(&tfa.args, 0) {
         Err(e) => {
             return Err(RuntimeError::ArgumentError(format!(
-                "cannot get timezone name from arg: {:?}",
-                e
+                "cannot get timezone name from arg: {e:?}",
             )))
         }
         Ok(s) => s,
@@ -84,8 +83,7 @@ pub(crate) fn timezone_offset(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<T
     let zone = match parse_timezone(&tz_name) {
         Err(e) => {
             return Err(RuntimeError::ArgumentError(format!(
-                "cannot load timezone {tz_name}: {:?}",
-                e
+                "cannot load timezone {tz_name}: {e:?}"
             )))
         }
         Ok(res) => res,

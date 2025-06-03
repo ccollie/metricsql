@@ -157,7 +157,7 @@ mod tests {
             &timestamps_expected,
         );
 
-        // verify how partial counter reset is handled.
+        // Verify how partial counter reset is handled.
         // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/2787
         let mut values = vec![100.0, 95.0, 120.0, 119.0, 139.0, 50.0];
         let timestamps_expected = vec![0, 1, 2, 3, 4, 5];
@@ -170,7 +170,7 @@ mod tests {
             &timestamps_expected,
         );
 
-        // verify that staleness interval is respected during resets
+        // verify that the staleness interval is respected during resets,
         // see https://github.com/VictoriaMetrics/VictoriaMetrics/issues/8072
         let mut values = vec![10.0, 12.0, 14.0, 4.0, 6.0, 8.0, 6.0, 8.0, 4.0, 6.0];
         let mut timestamps = vec![10, 20, 30, 60, 70, 80, 90, 100, 120, 130];
@@ -989,7 +989,7 @@ mod tests {
             &[80, 90, 100, 110, 120, 130, 140],
         );
     }
-    
+
     #[test]
     fn test_issue_8935() {
         // https://github.com/VictoriaMetrics/VictoriaMetrics/issues/8935
@@ -1019,7 +1019,7 @@ mod tests {
         let samples_scanned = rc
             .exec_internal(&mut dst_values, None, &values, &timestamps)
             .expect("failed to exec");
-        
+
         let values_expected = vec![0.0, 0.0, 0.0, 1.0];
         let timestamps_expected = vec![0, 30000, 60000, 90000];
         test_rows_equal(
@@ -1927,7 +1927,7 @@ mod tests {
         f(NAN, NAN, NAN, &[1000.0], 0.0);
         f(NAN, NAN, NAN, &[1000.0, 1000.0], 0.0);
 
-        // Big initial value with small delta after that.
+        // Big initial value with a small delta after that.
         f(NAN, NAN, NAN, &[1000.0, 1001.0, 1002.0], 2_f64);
 
         // Non-NAN real_prev_value

@@ -154,10 +154,10 @@ impl Histogram {
     pub fn marshal_to<W: std::io::Write>(&self, prefix: &str, w: &mut W) {
         let mut count_total = 0;
         self.visit_non_zero_buckets(|vmrange, count| {
-            let tag = format!("vmrange=\"{}\"", vmrange);
+            let tag = format!("vmrange=\"{vmrange}\"");
             let metric_name = add_tag(prefix, &tag);
             let (name, labels) = split_metric_name(&metric_name);
-            writeln!(w, "{}_bucket{} {}", name, labels, count).unwrap();
+            writeln!(w, "{name}_bucket{labels} {count}").unwrap();
             count_total += count;
         });
         if count_total == 0 {
@@ -168,9 +168,9 @@ impl Histogram {
         if sum.floor() == sum {
             writeln!(w, "{}_sum{} {}", name, labels, sum as i64).unwrap();
         } else {
-            writeln!(w, "{}_sum{} {:.6}", name, labels, sum).unwrap();
+            writeln!(w, "{name}_sum{labels} {sum:.6}").unwrap();
         }
-        writeln!(w, "{}_count{} {}", name, labels, count_total).unwrap();
+        writeln!(w, "{name}_count{labels} {count_total}").unwrap();
     }
 
     pub fn get_sum(&self) -> f64 {
@@ -181,7 +181,7 @@ impl Histogram {
 
 #[inline]
 fn format_float(f: f64) -> String {
-    format!("{:.3e}", f)
+    format!("{f:.3e}")
 }
 
 fn init_bucket_ranges() -> Box<[String; BUCKETS_COUNT]> {
@@ -192,7 +192,7 @@ fn init_bucket_ranges() -> Box<[String; BUCKETS_COUNT]> {
     for i in 0..BUCKETS_COUNT {
         v *= *BUCKET_MULTIPLIER;
         let end = format_float(v);
-        ranges[i] = format!("{}...{}", start, end);
+        ranges[i] = format!("{start}...{end}");
         start = end;
     }
     ranges
@@ -204,9 +204,9 @@ fn get_vm_range(bucket_idx: usize) -> String {
 
 fn add_tag(prefix: &str, tag: &str) -> String {
     if prefix.contains('{') {
-        format!("{},{}", prefix, tag)
+        format!("{prefix},{tag}")
     } else {
-        format!("{{{},{}}}", prefix, tag)
+        format!("{{{prefix},{tag}}}")
     }
 }
 

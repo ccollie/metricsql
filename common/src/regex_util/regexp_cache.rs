@@ -116,14 +116,14 @@ pub fn compile_regexp_anchored(expr: &str) -> Result<(StringMatchHandler, usize)
         // no need to allocate
         compile_regexp(expr)
     } else {
-        let anchored = format!("^{}$", cursor);
+        let anchored = format!("^{cursor}$");
         compile_regexp(&anchored)
     }
 }
 
 fn compile_regexp_ex(expr: &str) -> Result<RegexpCacheValue, String> {
-    let matcher = string_matcher_from_regex(expr)
-        .map_err(|_| format!("cannot build regexp from {}", expr))?;
+    let matcher =
+        string_matcher_from_regex(expr).map_err(|_| format!("cannot build regexp from {expr}"))?;
 
     // heuristic for rcv in-memory size
     let size_bytes = matcher.get_size();

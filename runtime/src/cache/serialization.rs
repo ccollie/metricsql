@@ -313,7 +313,7 @@ fn write_usize(slice: &mut Vec<u8>, size: usize) {
 fn read_usize(input: &mut &[u8], field: &str) -> RuntimeResult<usize> {
     let (int_bytes, rest) = input.split_at(size_of::<usize>());
     let buf = int_bytes.try_into().map_err(|_| {
-        RuntimeError::SerializationError(format!("invalid usize reading {}", field).to_string())
+        RuntimeError::SerializationError(format!("invalid usize reading {field}").to_string())
     })?;
 
     *input = rest;

@@ -620,10 +620,7 @@ impl Bucket {
             panic!("max_bytes cannot be zero");
         }
         if max_bytes >= MAX_BUCKET_SIZE {
-            panic!(
-                "too big max_bytes={}; should be smaller than {}",
-                max_bytes, MAX_BUCKET_SIZE
-            );
+            panic!("too big max_bytes={max_bytes}; should be smaller than {MAX_BUCKET_SIZE}");
         }
         let max_chunks = max_bytes.div_ceil(CHUNK_SIZE);
         let data = BucketInner::new(max_chunks);

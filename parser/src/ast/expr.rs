@@ -33,8 +33,8 @@ impl Display for VectorMatchModifier {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         use VectorMatchModifier::*;
         match self {
-            On(labels) => write!(f, "on({:?})", labels)?,
-            Ignoring(labels) => write!(f, "ignoring({:?})", labels)?,
+            On(labels) => write!(f, "on({labels:?})")?,
+            Ignoring(labels) => write!(f, "ignoring({labels:?})")?,
         }
         Ok(())
     }
@@ -355,11 +355,11 @@ impl Display for VectorMatchCardinality {
         use VectorMatchCardinality::*;
         let str = match self {
             OneToOne => "OneToOne".to_string(),
-            OneToMany(labels) => format!("group_right({:?})", labels),
-            ManyToOne(labels) => format!("group_left({:?})", labels),
+            OneToMany(labels) => format!("group_right({labels:?})"),
+            ManyToOne(labels) => format!("group_left({labels:?})"),
             ManyToMany => "ManyToMany".to_string(),
         };
-        write!(f, "{}", str)?;
+        write!(f, "{str}")?;
         Ok(())
     }
 }
@@ -391,7 +391,7 @@ impl TryFrom<&str> for JoinModifierOp {
             op if op.eq_ignore_ascii_case("group_left") => Ok(GroupLeft),
             op if op.eq_ignore_ascii_case("group_right") => Ok(GroupRight),
             _ => {
-                let msg = format!("Unknown join_modifier op: {}", op);
+                let msg = format!("Unknown join_modifier op: {op}");
                 Err(ParseError::General(msg))
             }
         }
@@ -1118,7 +1118,7 @@ impl Display for AggregationExpr {
             write_comma_separated(&mut self.args.iter(), f, true)?;
         }
         if let Some(modifier) = &self.modifier {
-            write!(f, " {}", modifier)?;
+            write!(f, " {modifier}")?;
         }
         if self.limit > 0 {
             write!(f, " limit {}", self.limit)?;
@@ -1133,7 +1133,7 @@ impl Prettier for AggregationExpr {
         let mut s = format!("{spaces}{}(\n", self.get_op_string());
         let args = prettify_args(&self.args, level + 1, max);
         if !args.is_empty() {
-            writeln!(s, "{}", args).unwrap();
+            writeln!(s, "{args}").unwrap();
         }
         write!(s, "{spaces})").unwrap();
         if self.limit > 0 {
@@ -1253,18 +1253,18 @@ impl RollupExpr {
         if self.window.is_some() || self.inherit_step || self.step.is_some() {
             s.push('[');
             if let Some(win) = &self.window {
-                write!(s, "{}", win)?;
+                write!(s, "{win}")?;
             }
             if let Some(step) = &self.step {
                 s.push(':');
-                write!(s, "{}", step)?;
+                write!(s, "{step}")?;
             } else if self.inherit_step {
                 s.push(':');
             }
             s.push(']');
         }
         if let Some(offset) = &self.offset {
-            write!(s, " offset {}", offset)?;
+            write!(s, " offset {offset}")?;
         }
         if let Some(at) = &self.at {
             let parens_needed = at.is_binary_op();
@@ -1272,7 +1272,7 @@ impl RollupExpr {
             if parens_needed {
                 s.push('(');
             }
-            write!(s, "{}", at)?;
+            write!(s, "{at}")?;
             if parens_needed {
                 s.push(')');
             }
@@ -1298,7 +1298,7 @@ impl Display for RollupExpr {
         }
         let suffix = self.get_time_suffix_string().map_err(|_| fmt::Error)?;
 
-        write!(f, "{}", suffix)?;
+        write!(f, "{suffix}")?;
         Ok(())
     }
 }
@@ -1966,17 +1966,17 @@ impl Expr {
 impl Display for Expr {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
-            Expr::Aggregation(a) => write!(f, "{}", a)?,
-            Expr::UnaryOperator(ue) => write!(f, "{}", ue)?,
-            Expr::BinaryOperator(be) => write!(f, "{}", be)?,
-            Expr::Duration(d) => write!(f, "{}", d)?,
-            Expr::Function(func) => write!(f, "{}", func)?,
-            Expr::NumberLiteral(n) => write!(f, "{}", n)?,
-            Expr::MetricExpression(me) => write!(f, "{}", me)?,
-            Expr::Parens(p) => write!(f, "{}", p)?,
-            Expr::Rollup(re) => write!(f, "{}", re)?,
+            Expr::Aggregation(a) => write!(f, "{a}")?,
+            Expr::UnaryOperator(ue) => write!(f, "{ue}")?,
+            Expr::BinaryOperator(be) => write!(f, "{be}")?,
+            Expr::Duration(d) => write!(f, "{d}")?,
+            Expr::Function(func) => write!(f, "{func}")?,
+            Expr::NumberLiteral(n) => write!(f, "{n}")?,
+            Expr::MetricExpression(me) => write!(f, "{me}")?,
+            Expr::Parens(p) => write!(f, "{p}")?,
+            Expr::Rollup(re) => write!(f, "{re}")?,
             Expr::StringLiteral(s) => write!(f, "{}", enquote('"', s))?,
-            Expr::StringExpr(s) => write!(f, "{}", s)?,
+            Expr::StringExpr(s) => write!(f, "{s}")?,
         }
         Ok(())
     }

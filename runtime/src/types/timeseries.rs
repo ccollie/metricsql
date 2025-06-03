@@ -178,7 +178,7 @@ pub(crate) fn assert_identical_timestamps(tss: &[Timeseries], step: Duration) ->
         }
         for (ts, golden) in ts.timestamps.iter().zip(ts_golden.timestamps.iter()) {
             if ts != golden {
-                let msg = format!("BUG: timestamps mismatch; got {}; want {};", ts, golden);
+                let msg = format!("BUG: timestamps mismatch; got {ts}; want {golden};");
                 return Err(RuntimeError::from(msg));
             }
         }

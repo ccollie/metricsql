@@ -124,7 +124,7 @@ impl RollupHandler {
         match self {
             RollupHandler::Wrapped(wrapped) => wrapped(arg),
             RollupHandler::Fake(name) => {
-                panic!("BUG: {} shouldn't be called", name);
+                panic!("BUG: {name} shouldn't be called");
             }
             RollupHandler::General(df) => df(arg),
             RollupHandler::FloatArg(f) => f.eval(arg),

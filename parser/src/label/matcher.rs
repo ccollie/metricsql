@@ -566,7 +566,7 @@ fn join_matchers(f: &mut Formatter<'_>, v: &[Matcher]) -> fmt::Result {
         if i > 0 {
             write!(f, ", ")?;
         }
-        write!(f, "{}", matcher)?;
+        write!(f, "{matcher}")?;
     }
 
     Ok(())

@@ -274,8 +274,7 @@ pub(crate) fn label_transform(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<T
     // todo: would it be useful to use a cache ?
     let r = match Regex::new(&regex) {
         Err(err) => Err(RuntimeError::from(format!(
-            "cannot compile regex {regex}: {:?}",
-            err
+            "cannot compile regex {regex}: {err:?}"
         ))),
         Ok(regex) => Ok(regex),
     }?;
@@ -372,11 +371,10 @@ fn process_anchored_regex<F>(
 where
     F: Fn(&mut TransformFuncArg, &Regex) -> RuntimeResult<Vec<Timeseries>>,
 {
-    let anchored = format!("^(?:{})$", re);
+    let anchored = format!("^(?:{re})$");
     match Regex::new(&anchored) {
         Err(e) => Err(RuntimeError::from(format!(
-            "cannot compile regexp {re} : {}",
-            e
+            "cannot compile regexp {re} : {e:?}"
         ))),
         Ok(ref r) => handler(tfa, r),
     }
@@ -500,11 +498,10 @@ fn get_label<'a>(
     tfa: &'a TransformFuncArg,
     name: &str,
     arg_num: usize,
-) -> RuntimeResult<Cow<'a, String>> {
+) -> Result<Cow<'a, String>, RuntimeError> {
     get_string_arg(&tfa.args, arg_num).map_err(|e| {
         RuntimeError::ArgumentError(format!(
-            "cannot get {name} label name from arg #{arg_num}: {:?}",
-            e
+            "cannot get {name} label name from arg #{arg_num}: {e:?}"
         ))
     })
 }

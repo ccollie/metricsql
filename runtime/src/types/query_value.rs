@@ -382,10 +382,10 @@ impl Clone for QueryValue {
 impl Display for QueryValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            QueryValue::RangeVector(m) => write!(f, "{:?}", m),
-            QueryValue::InstantVector(series) => write!(f, "{:?}", series),
+            QueryValue::RangeVector(m) => write!(f, "{m:?}"),
+            QueryValue::InstantVector(series) => write!(f, "{series:?}"),
             QueryValue::Scalar(n) => format_number(f, *n),
-            QueryValue::String(s) => write!(f, "{}", s),
+            QueryValue::String(s) => write!(f, "{s}"),
         }
     }
 }

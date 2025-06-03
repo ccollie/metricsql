@@ -185,7 +185,7 @@ impl TryFrom<&str> for Operator {
         if let Some(operator) = lookup_operator(op) {
             return Ok(operator);
         }
-        Err(ParseError::General(format!("Unknown binary op {}", op)))
+        Err(ParseError::General(format!("Unknown binary op {op}")))
     }
 }
 

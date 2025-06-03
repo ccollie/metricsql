@@ -5,7 +5,7 @@ use std::time::Duration;
 pub fn humanize(v: f64) -> String {
     let mut v = v;
     if v == 0f64 || v.is_nan() || v.is_infinite() {
-        return format!("{:.4}", v);
+        return format!("{v:.4}");
     }
     let mut prefix: &str;
     if v.abs() >= 1.0 {
@@ -17,7 +17,7 @@ pub fn humanize(v: f64) -> String {
             prefix = p;
             v /= 1000.0;
         }
-        return format!("{:.4}{prefix}", v);
+        return format!("{v:.4}{prefix}");
     }
     prefix = "";
     for p in ["m", "u", "n", "p", "f", "a", "z", "y"] {
@@ -27,13 +27,13 @@ pub fn humanize(v: f64) -> String {
         prefix = p;
         v *= 1000.0;
     }
-    format!("{:.4}{prefix}", v)
+    format!("{v:.4}{prefix}")
 }
 
 pub fn humanize_duration_ms(v: i64) -> String {
     let mut v = v;
     if v == 0 {
-        return format!("{}ms", v);
+        return format!("{v}ms");
     }
     let mut prefix: &str;
     if v.abs() >= 1_000 {
@@ -45,7 +45,7 @@ pub fn humanize_duration_ms(v: i64) -> String {
             prefix = p;
             v /= 1_000;
         }
-        return format!("{}{}", v, prefix);
+        return format!("{v}{prefix}");
     }
     prefix = "";
     for p in ["ms", "us", "ns", "ps", "fs", "as", "zs", "ys"] {
@@ -55,7 +55,7 @@ pub fn humanize_duration_ms(v: i64) -> String {
         prefix = p;
         v *= 1_000;
     }
-    format!("{}{}", v, prefix)
+    format!("{v}{prefix}")
 }
 
 pub fn humanize_duration(v: &Duration) -> String {
@@ -72,7 +72,7 @@ pub fn humanize_bytes(size: f64) -> String {
         suffix = p;
         size /= 1024.0
     }
-    format!("{:.4}{suffix}", size)
+    format!("{size:.4}{suffix}")
 }
 
 const TB: u64 = 1 << 40;

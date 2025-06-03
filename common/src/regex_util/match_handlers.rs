@@ -684,7 +684,7 @@ impl MatchFnHandler {
 
 impl Display for StringMatchHandler {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 

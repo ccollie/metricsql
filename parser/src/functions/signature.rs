@@ -230,7 +230,7 @@ impl Signature {
 impl Display for Signature {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let (types, min) = self.expand_types();
-        write!(f, "Signature({:?}, min: {})", types, min)
+        write!(f, "Signature({types:?}, min: {min})")
     }
 }
 

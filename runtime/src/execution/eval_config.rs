@@ -56,7 +56,7 @@ pub fn adjust_start_end(
         return (start, end);
     }
 
-    // Round start and end to values divisible by step 
+    // Round start and end to values divisible by step
     // to enable response caching (see EvalConfig.mayCache).
     let (start, end) = align_start_end(start, end, &step);
 
@@ -330,10 +330,7 @@ pub fn get_timestamps(
     if let Err(err) =
         validate_max_points_per_timeseries(start, end, step, max_timestamps_per_timeseries)
     {
-        let msg = format!(
-            "BUG: {:?}; this must be validated before the call to get_timestamps",
-            err
-        );
+        let msg = format!("BUG: {err:?}; this must be validated before the call to get_timestamps");
         return Err(RuntimeError::from(msg));
     }
 

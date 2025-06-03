@@ -178,7 +178,7 @@ impl F64WriteBuffer {
     fn write(&mut self, value: f64) -> &str {
         let mut cursor = Cursor::new(&mut self.buf[..]);
         // Note: write! does not panic, so unwrap is safe here
-        write!(cursor, "{}", value).unwrap();
+        write!(cursor, "{value}").unwrap();
         let pos = cursor.position() as usize;
         // Note: unwrap is safe here, because we are writing valid utf8
         std::str::from_utf8(&self.buf[..pos]).unwrap()

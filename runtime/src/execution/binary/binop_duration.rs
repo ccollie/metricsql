@@ -28,8 +28,7 @@ pub(crate) fn eval_duration_scalar_binop(
             Ok(QueryValue::Scalar(n))
         }
         _ => Err(RuntimeError::NotImplemented(format!(
-            "Invalid operator for duration: {:?}",
-            op
+            "Invalid operator for duration: {op}"
         ))),
     }
 }

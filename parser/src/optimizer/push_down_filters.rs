@@ -6,13 +6,13 @@ use crate::functions::{AggregateFunction, BuiltinFunction, RollupFunction, Trans
 use crate::label::{Matcher, Matchers, NAME_LABEL};
 use crate::parser::{ParseError, ParseResult};
 use crate::prelude::{can_accept_multiple_args_for_aggr_func, VectorMatchCardinality};
-use metricsql_common::hash::{FastHashSet, HashSetExt, Signature};
+use metricsql_common::hash::{FastHashSet, Signature};
 use smallvec::SmallVec;
 use std::borrow::Cow;
 use std::iter::FromIterator;
 use std::vec::Vec;
 
-/// `push_down_filters` optimizes e in order to improve its performance.
+/// `push_down_filters` optimizes e to improve its performance.
 ///
 /// It performs the following optimizations:
 ///
@@ -781,7 +781,7 @@ fn get_aggr_arg_idx_for_optimization(
         Quantiles => Ok(Some(args.len() - 1)),
         _ => {
             if func.can_accept_multiple_args() {
-                let msg = format!("BUG: {} must be already handled", func);
+                let msg = format!("BUG: {func} must be already handled");
                 return Err(ParseError::ArgumentError(msg));
             }
             Ok(Some(0))
@@ -815,7 +815,7 @@ fn get_transform_arg_idx_for_optimization(
         LabelCopy | LabelDel | LabelJoin | LabelKeep | LabelLowercase | LabelMap | LabelMatch
         | LabelMismatch | LabelMove | LabelReplace | LabelSet | LabelTransform | LabelUppercase
         | LabelsEqual | RangeNormalize | Union => {
-            let msg = format!("BUG: {} must be already handled", func_name);
+            let msg = format!("BUG: {func_name} must be already handled");
             // todo: different error type
             Err(ParseError::ArgumentError(msg))
         }

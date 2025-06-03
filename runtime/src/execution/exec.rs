@@ -274,7 +274,7 @@ pub(crate) fn remove_empty_series(tss: &mut Vec<Timeseries>) {
 }
 
 fn map_error<E: Display>(err: RuntimeError, e: E) -> RuntimeError {
-    RuntimeError::General(format!("cannot evaluate {e}: {}", err))
+    RuntimeError::General(format!("cannot evaluate {e}: {err}"))
 }
 
 pub fn eval_expr(ctx: &Context, ec: &EvalConfig, expr: &Expr) -> RuntimeResult<QueryValue> {
@@ -334,8 +334,7 @@ pub fn eval_expr(ctx: &Context, ec: &EvalConfig, expr: &Expr) -> RuntimeResult<Q
         Expr::Function(fe) => eval_function(ctx, ec, expr, fe),
         Expr::UnaryOperator(ue) => eval_unary_op(ctx, ec, ue),
         _ => Err(RuntimeError::NotImplemented(format!(
-            "No handler for {:?}",
-            expr
+            "No handler for {expr:?}"
         ))),
     }
 }
@@ -482,7 +481,7 @@ fn eval_unary_op(ctx: &Context, ec: &EvalConfig, ue: &UnaryExpr) -> RuntimeResul
     let value = eval_expr(ctx, ec, &ue.expr)?;
 
     match value {
-        QueryValue::Scalar(left) => Ok((-1.0 * left).into()),
+        QueryValue::Scalar(left) => Ok(QueryValue::Scalar(-left)),
         QueryValue::InstantVector(vector) => {
             eval_scalar_vector_binop(-1.0, Operator::Mul, vector, false, false, is_tracing)
         }
@@ -657,7 +656,7 @@ fn get_rollup_expr_arg(arg: &Expr) -> RuntimeResult<Cow<RollupExpr>> {
             Expr::MetricExpression(_) => {
                 let arg = Expr::Rollup(RollupExpr::new(*re.expr.clone()));
                 let fe = FunctionExpr::default_rollup(arg)
-                    .map_err(|e| RuntimeError::General(format!("{:?}", e)))?;
+                    .map_err(|e| RuntimeError::General(format!("{e:?}")))?;
 
                 let mut new_re = re.clone();
                 new_re.expr = Box::new(Expr::Function(fe));

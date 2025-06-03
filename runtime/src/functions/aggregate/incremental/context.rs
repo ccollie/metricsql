@@ -36,7 +36,7 @@ impl TryFrom<&str> for IncrementalAggrFuncKind {
             value if value.eq_ignore_ascii_case("sum2") => Ok(IncrementalAggrFuncKind::Sum2),
             value if value.eq_ignore_ascii_case("any") => Ok(IncrementalAggrFuncKind::Any),
             value if value.eq_ignore_ascii_case("group") => Ok(IncrementalAggrFuncKind::Group),
-            _ => Err(format!("unknown incremental aggregate function: {}", value)),
+            _ => Err(format!("unknown incremental aggregate function: {value}")),
         }
     }
 }
@@ -55,10 +55,7 @@ impl TryFrom<AggregateFunction> for IncrementalAggrFuncKind {
             AggregateFunction::Sum2 => Ok(IncrementalAggrFuncKind::Sum2),
             AggregateFunction::Any => Ok(IncrementalAggrFuncKind::Any),
             AggregateFunction::Group => Ok(IncrementalAggrFuncKind::Group),
-            _ => Err(format!(
-                "unknown incremental aggregate function: {:?}",
-                value
-            )),
+            _ => Err(format!("unknown incremental aggregate function: {value:?}")),
         }
     }
 }
@@ -98,8 +95,7 @@ impl<'a> IncrementalAggrFuncContext<'a> {
         let m: AHashMap<u64, AHashMap<Signature, IncrementalAggrContext>> = AHashMap::new();
         let handler = IncrementalAggregationHandler::try_from(ae.function).map_err(|e| {
             RuntimeError::General(format!(
-                "cannot create incremental aggregation handler: {}",
-                e
+                "cannot create incremental aggregation handler: {e}"
             ))
         })?;
         Ok(Self {

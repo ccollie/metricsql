@@ -20,7 +20,7 @@ pub(super) fn new_rollup_quantiles(args: &[QueryValue]) -> RuntimeResult<RollupH
         // unwrap should be safe, since parameter types are checked before calling the function
         let v = get_scalar_param_value(args, i, "quantiles", "phi")?;
         phis.push(v);
-        phi_labels.push(format!("{}", v));
+        phi_labels.push(format!("{v}"));
     }
 
     let f = Box::new(move |rfa: &RollupFuncArg| -> f64 {

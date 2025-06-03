@@ -26,7 +26,7 @@ pub fn hash_f64<H: Hasher>(state: &mut H, value: f64) {
 
 pub fn write_number(f: &mut Formatter<'_>, value: f64) -> fmt::Result {
     if value.is_finite() {
-        write!(f, "{}", value)
+        write!(f, "{value}")
     } else if value.is_nan() {
         write!(f, "NaN")
     } else if value.is_sign_positive() {
@@ -48,7 +48,7 @@ pub(crate) fn write_comma_separated<T: Display>(
         if i > 0 {
             write!(f, ", ")?;
         }
-        write!(f, "{}", arg)?;
+        write!(f, "{arg}")?;
     }
     if use_parens {
         write!(f, ")")?;

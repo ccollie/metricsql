@@ -19,8 +19,7 @@ pub fn parse_positive_duration_value(s: &str, step: i64) -> Result<i64, ParseErr
     let d = parse_duration_value(s, step)?;
     if d < 0 {
         return Err(ParseError::InvalidDuration(format!(
-            "duration cannot be negative; got {}",
-            s
+            "duration cannot be negative; got {s}"
         )));
     }
     Ok(d)
@@ -59,7 +58,7 @@ pub fn parse_duration_value(s: &str, step: i64) -> ParseResult<i64> {
             cursor = &cursor[n as usize..];
         }
         if d.abs() > (1_i64 << (62 - 1)) as f64 {
-            let msg = format!("duration {} is too large", s);
+            let msg = format!("duration {s} is too large");
             return Err(ParseError::General(msg));
         }
         Ok(d as i64)

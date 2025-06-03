@@ -68,8 +68,7 @@ pub(crate) fn parse_timezone(tz_name: &str) -> RuntimeResult<Tz> {
     match tz_name.parse() {
         Ok(zone) => Ok(zone),
         Err(e) => Err(RuntimeError::ArgumentError(format!(
-            "unable to parse tz: {:?}",
-            e
+            "unable to parse tz: {e:?}",
         ))),
     }
 }

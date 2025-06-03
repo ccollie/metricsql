@@ -580,7 +580,7 @@ pub(crate) fn histogram_quantiles(tfa: &mut TransformFuncArg) -> RuntimeResult<V
 
         match histogram_quantile(&mut tfa_tmp) {
             Err(e) => {
-                let msg = format!("cannot calculate quantile {}: {:?}", phi_str, e);
+                let msg = format!("cannot calculate quantile {phi_str}: {e:?}");
                 return Err(RuntimeError::General(msg));
             }
             Ok(mut tss_tmp) => {
@@ -612,7 +612,7 @@ pub(crate) fn histogram_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
         match tfa.args[2].get_string() {
             Ok(s) => s,
             Err(err) => {
-                let msg = format!("cannot parse boundsLabel (arg #3): {:?}", err);
+                let msg = format!("cannot parse boundsLabel (arg #3): {err:?}");
                 return Err(RuntimeError::ArgumentError(msg));
             }
         }
