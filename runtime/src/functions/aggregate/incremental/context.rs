@@ -26,18 +26,21 @@ impl TryFrom<&str> for IncrementalAggrFuncKind {
     type Error = String;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
-            value if value.eq_ignore_ascii_case("count") => Ok(IncrementalAggrFuncKind::Count),
-            value if value.eq_ignore_ascii_case("geomean") => Ok(IncrementalAggrFuncKind::Geomean),
-            value if value.eq_ignore_ascii_case("min") => Ok(IncrementalAggrFuncKind::Min),
-            value if value.eq_ignore_ascii_case("max") => Ok(IncrementalAggrFuncKind::Max),
-            value if value.eq_ignore_ascii_case("avg") => Ok(IncrementalAggrFuncKind::Avg),
-            value if value.eq_ignore_ascii_case("sum") => Ok(IncrementalAggrFuncKind::Sum),
-            value if value.eq_ignore_ascii_case("sum2") => Ok(IncrementalAggrFuncKind::Sum2),
-            value if value.eq_ignore_ascii_case("any") => Ok(IncrementalAggrFuncKind::Any),
-            value if value.eq_ignore_ascii_case("group") => Ok(IncrementalAggrFuncKind::Group),
-            _ => Err(format!("unknown incremental aggregate function: {value}")),
+        let kind = hashify::tiny_map_ignore_case! { value.as_bytes(), 
+            "count" => IncrementalAggrFuncKind::Count,
+            "geomean" => IncrementalAggrFuncKind::Geomean,
+            "min" => IncrementalAggrFuncKind::Min,
+            "max" => IncrementalAggrFuncKind::Max,
+            "avg" => IncrementalAggrFuncKind::Avg,
+            "sum" => IncrementalAggrFuncKind::Sum,
+            "sum2" => IncrementalAggrFuncKind::Sum2,
+            "any" => IncrementalAggrFuncKind::Any,
+            "group" => IncrementalAggrFuncKind::Group,
+        };
+        if let Some(kind) = kind {
+            return Ok(kind);
         }
+        Err(format!("unknown incremental aggregate function: {value}"))
     }
 }
 
