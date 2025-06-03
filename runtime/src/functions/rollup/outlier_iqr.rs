@@ -5,7 +5,7 @@ pub(crate) fn rollup_outlier_iqr(rfa: &RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup funcs.
 
-    // See Outliers section at https://en.wikipedia.org/wiki/Interquartile_range
+    // See the Outliers section at https://en.wikipedia.org/wiki/Interquartile_range
     let values = rfa.values;
     if values.len() < 2 {
         return f64::NAN;

@@ -217,7 +217,7 @@ fn aggr_prepare_series(
 ) -> IntMap<Signature, Vec<Timeseries>> {
     let mut arg_orig = arg_orig;
 
-    // Remove empty time series, e.g. series with all NaN samples,
+    // Remove empty time series, e.g., series with all NaN samples,
     // since such series are ignored by aggregate functions.
     remove_empty_series(&mut arg_orig);
 
@@ -570,7 +570,7 @@ fn aggr_func_mode(tss: &mut Vec<Timeseries>) {
 fn aggr_func_share(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let afe = |tss: &mut Vec<Timeseries>, _: &Option<AggregateModifier>| -> Vec<Timeseries> {
         for i in 0..tss[0].values.len() {
-            // Calculate sum for non-negative points at position i.
+            // Calculate the sum for non-negative points at position i.
             let mut sum: f64 = 0.0;
             for ts in tss.iter() {
                 // todo(perf): how to eliminate bounds check ?
@@ -580,7 +580,7 @@ fn aggr_func_share(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
                 }
                 sum += v;
             }
-            // Divide every non-negative value at position i by sum in order to get its share.
+            // Divide every non-negative value at position i by sum to get its share.
             for ts in tss.iter_mut() {
                 let v = ts.values[i];
                 ts.values[i] = if v.is_nan() || v < 0.0 {

@@ -379,7 +379,7 @@ mod tests {
         test_ordering("ab", "abc", Ordering::Less);
         // multiple zeroes after equal char
         test_ordering("a0001", "a0000001", Ordering::Equal);
-        // short first string with numbers and highest rank
+        // short first string with numbers and the highest rank
         test_ordering("a10", "abcdefgh2", Ordering::Less);
         // less as second string
         test_ordering("a1b", "a01b", Ordering::Equal);

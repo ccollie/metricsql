@@ -1923,7 +1923,7 @@ mod tests {
 
         f(NAN, NAN, NAN, &[100.0, 100.0], 0.0);
 
-        // Big initial value with zero delta after that.
+        // Big initial value with a zero delta after that.
         f(NAN, NAN, NAN, &[1000.0], 0.0);
         f(NAN, NAN, NAN, &[1000.0, 1000.0], 0.0);
 

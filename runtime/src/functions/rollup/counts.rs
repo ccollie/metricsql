@@ -142,7 +142,7 @@ pub(super) fn new_rollup_count_values(args: &[QueryValue]) -> RuntimeResult<Roll
 
         let mut buf = F64WriteBuffer::new();
 
-        // Note: the code below may create very big number of time series
+        // Note: the code below may create a very big number of time series
         // if the number of unique values in rfa.values is big.
         for v in rfa.values {
             let label_value = buf.write(*v);

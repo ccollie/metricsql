@@ -412,9 +412,9 @@ impl RollupConfig {
                     unsafe {
                         let prev_timestamp = timestamps.get_unchecked(idx);
 
-                        // set real_prev_value if rc.LookbackDelta == 0
-                        // or if the distance between datapoint in prev interval and beginning of this interval
-                        // doesn't exceed LookbackDelta.
+                        // set real_prev_value if rc.lookback_delta == 0
+                        // or if the distance between datapoint in the prev interval and the beginning of this interval
+                        // doesn't exceed lookback_delta.
                         // https://github.com/VictoriaMetrics/VictoriaMetrics/pull/1381
                         // https://github.com/VictoriaMetrics/VictoriaMetrics/issues/894
                         // https://github.com/VictoriaMetrics/VictoriaMetrics/issues/8045
@@ -638,7 +638,7 @@ fn get_scrape_interval(timestamps: &[Timestamp]) -> Duration {
         return MAX_SILENCE_INTERVAL;
     }
 
-    // Estimate scrape interval as 0.6 quantile for the first 20 intervals.
+    // Estimate the scrape interval as 0.6 quantile for the first 20 intervals.
     let mut ts_prev = timestamps[0];
     let timestamps = &timestamps[1..];
     let len = timestamps.len().clamp(0, 20);

@@ -233,7 +233,7 @@ const fn get_transform_func(f: TransformFunction) -> TransformFuncHandler {
     }
 }
 
-/// These functions don't change physical meaning of input time series,
+/// These functions don't change the physical meaning of input time series,
 /// so they don't drop metric name
 const fn transform_func_keeps_metric_name(func: TransformFunction) -> bool {
     use TransformFunction::*;

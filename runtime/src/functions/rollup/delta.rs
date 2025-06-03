@@ -95,7 +95,7 @@ pub(super) fn rollup_delta_prometheus(rfa: &RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
     // before calling rollup fns.
     let count = rfa.values.len();
-    // Just return the difference between the last and the first sample like Prometheus does.
+    // Return the difference between the last and the first sample like Prometheus does.
     // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/1962
     if count < 2 {
         return f64::NAN;

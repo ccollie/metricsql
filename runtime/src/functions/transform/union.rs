@@ -51,7 +51,7 @@ pub(crate) fn handle_union(
     }
 
     for arg in args.iter_mut() {
-        // done this way to avoid allocating a new vector in the case of a InstantVector
+        // done this way to avoid allocating a new vector in the case of an InstantVector
         match arg {
             QueryValue::Scalar(v) => {
                 let mut ts = eval_number(ec, *v)?;

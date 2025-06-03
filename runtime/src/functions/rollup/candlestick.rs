@@ -1,6 +1,6 @@
 use crate::functions::rollup::RollupFuncArg;
 
-/// get_candlestick_values returns a subset of rfa.values suitable for rollup_candlestick
+/// Returns a subset of rfa.values suitable for rollup_candlestick
 ///
 /// See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/309 for details.
 fn get_candlestick_values<'a>(rfa: &'a RollupFuncArg<'a>) -> &'a [f64] {

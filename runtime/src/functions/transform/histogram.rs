@@ -79,7 +79,7 @@ pub(crate) fn buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
     for le_group in bucket_map.values_mut() {
         if le_group.len() <= limit as usize {
             // Fast path - the number of buckets doesn't exceed the given limit.
-            // Keep all the buckets as is.
+            // Keep all the buckets as-is.
 
             // To properly remove items by index, we need to do it in reverse order.
             let series = le_group
@@ -269,7 +269,7 @@ pub(crate) fn vmrange_buckets_to_le(tss: Vec<Timeseries>) -> Vec<Timeseries> {
                 // Skip buckets with zero values - they will be merged into a single bucket
                 // when the next non-zero bucket appears.
 
-                // Do not store xs in xsPrev in order to properly create `le` time series
+                // Do not store xs in xsPrev to properly create `le` time series
                 // for zero buckets.
                 // See https://github.com/VictoriaMetrics/VictoriaMetrics/pull/4021
                 continue;
@@ -366,7 +366,7 @@ pub(crate) fn histogram_share(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<T
     // Group metrics by all tags excluding "le"
     let m = group_le_timeseries(&mut tss);
 
-    // Calculate share for les
+    // Calculate share for `les`
     let share = |i: usize, les: &[f64], xss: &mut Vec<LeTimeseries>| -> (f64, f64, f64) {
         let le_req = les[i];
         if le_req.is_nan() || xss.is_empty() {
@@ -759,7 +759,7 @@ fn group_le_timeseries(tss: &mut [Timeseries]) -> IntMap<Signature, Vec<LeTimese
 pub(super) fn fix_broken_buckets(i: usize, xss: &mut [LeTimeseries]) {
     // Buckets are already sorted by le, so their values must be in ascending order,
     // since the next bucket includes all the previous buckets.
-    // If the next bucket has lower value than the current bucket,
+    // If the next bucket has a lower value than the current bucket,
     // then the current bucket must be substituted with the next bucket value.
     // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/2819
     if xss.len() < 2 {

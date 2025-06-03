@@ -47,7 +47,7 @@ pub(crate) fn round(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>
 }
 
 fn prometheus_round(vals: &mut [f64], nearest: &[f64]) {
-    // round returns a number rounded to to_nearest.
+    // Round returns a number rounded to to_nearest.
     // Ties are solved by rounding up.
     if nearest.len() == 1 {
         let to_nearest = nearest[0];
