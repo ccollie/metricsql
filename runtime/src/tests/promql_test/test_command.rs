@@ -10,7 +10,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-use super::types::{Sample, SequenceValue, TestAssertionError};
+use super::types::{is_info, is_warning, Annotations, ExpectCmd, ExpectCmdType, Sample, SequenceValue, TestAssertionError};
 use super::utils::{almost_equal, assert_matrix_sorted, format_series_result, DEFAULT_EPSILON};
 use crate::postings::PostingsEnum;
 use crate::querier::postings_for_matchers;
@@ -113,12 +113,14 @@ pub(crate) struct EvalCmd {
     pub is_range: bool,
     pub fail: bool,
     pub warn: bool,
+    pub info: bool,
     pub ordered: bool,
     pub expected_fail_message: Option<String>,
     pub expected_fail_regexp: Option<Regex>,
     pub metrics: HashMap<Signature, MetricName>,
     pub expect_scalar: bool,
     pub expected: HashMap<Signature, Entry>,
+    pub expected_cmds: HashMap<ExpectCmdType, Vec<ExpectCmd>>,
 }
 
 impl Display for EvalCmd {
@@ -146,12 +148,14 @@ impl EvalCmd {
             is_range: false,
             fail: false,
             warn: false,
+            info: false,
             ordered: false,
             expected_fail_message: None,
             expected_fail_regexp: None,
             metrics: HashMap::new(),
             expect_scalar: false,
             expected: HashMap::new(),
+            expected_cmds: Default::default(),
         }
     }
 
@@ -171,12 +175,34 @@ impl EvalCmd {
             is_range: true,
             fail: false,
             warn: false,
+            info: false,
             ordered: false,
             expected_fail_message: None,
             expected_fail_regexp: None,
             metrics: HashMap::new(),
             expect_scalar: false,
             expected: HashMap::new(),
+            expected_cmds: Default::default(),
+        }
+    }
+
+    pub fn is_ordered(&self) -> bool {
+        if self.ordered {
+            return true;
+        }
+        match self.expected_cmds.get(&ExpectCmdType::Ordered) {
+            Some(cmds) => !cmds.is_empty(),
+            None => false,
+        }
+    }
+
+    pub fn is_fail(&self) -> bool {
+        if self.fail {
+            return true;
+        }
+        match self.expected_cmds.get(&ExpectCmdType::Fail) {
+            Some(cmds) => !cmds.is_empty(),
+            None => false,
         }
     }
 
@@ -257,7 +283,7 @@ impl EvalCmd {
                 }
             }
             QueryValue::RangeVector(val) => {
-                if self.ordered {
+                if self.is_ordered() {
                     let msg = "expected ordered result, but query returned a matrix".to_string();
                     return Err(TestAssertionError::new(self.line, msg));
                 }
@@ -374,10 +400,141 @@ impl EvalCmd {
             }
         }
 
+        if let Some(cmds) = self.expected_cmds.get(&ExpectCmdType::Fail) {
+            if let Some(cmd) = cmds.first() {
+                if !cmd.matches(&error_msg) {
+                    let msg = format!("expected error matching pattern {cmd} evaluating query {} (line {}), but got: {error_msg}",
+                                      self.expr, self.line);
+                    return Err(TestAssertionError::new(self.line, msg));
+                }
+            }
+        }
+
         // We're not expecting a particular error, or we got the error we expected.
         // This test passes.
         Ok(())
     }
+
+    pub(super) fn check_annotations(&self, expr: &str, annos: &Annotations) -> Result<(), TestAssertionError> {
+        let (count_warnings, count_info) = annos.count_warnings_and_infos();
+        if self.warn && count_warnings == 0 {
+            return Err(TestAssertionError::new(
+                self.line,
+                format!("expected at least one warning for query {expr} (line {})", self.line),
+            ));
+        }
+        if self.info && count_info == 0 {
+            return Err(TestAssertionError::new(
+                self.line,
+                format!("expected at least one info message for query {expr} (line {})", self.line),
+            ));
+        }
+        
+        let mut warnings = Vec::new();
+        let mut infos = Vec::new();
+        for (_, err) in annos.iter() {
+            if is_warning(err) {
+                warnings.push(err.to_string());
+            } else if is_info(err) {
+                infos.push(err.to_string());
+            }
+            else if !err.is_empty() {
+                return Err(TestAssertionError::new(
+                    self.line,
+                    format!("unexpected annotation type, must be either enfo or warn, but got {err} (line {})", self.line),
+                ));
+            }
+        }
+        
+        if self.warn {
+            validate_expected_annotations_of_type(
+                &self.expr,
+                &self.expected_cmds.get(&ExpectCmdType::Warn).unwrap_or(&Vec::new()),
+                &warnings,
+                self.line,
+                "warning",
+                annos,
+            )?;
+        }
+        
+        if self.info {
+            validate_expected_annotations_of_type(
+                &self.expr,
+                &self.expected_cmds.get(&ExpectCmdType::Info).unwrap_or(&Vec::new()),
+                &infos,
+                self.line,
+                "info",
+                annos,
+            )?;
+        }
+        
+        if !warnings.is_empty() {
+            match self.expected_cmds.get(&ExpectCmdType::NoWarn) {
+                Some(expected) if !expected.is_empty() => {
+                    return Err(TestAssertionError::new(
+                        self.line,
+                        format!("unexpected warnings evaluating query {} (line {}): {:?}", 
+                                self.expr, self.line, warnings),
+                    ));
+                }
+                _ => {}
+            }
+        }
+        if !infos.is_empty() {
+            match self.expected_cmds.get(&ExpectCmdType::NoInfo) {
+                Some(expected) if !expected.is_empty() => {
+                    return Err(TestAssertionError::new(
+                        self.line,
+                        format!("unexpected info messages evaluating query {} (line {}): {:?}", 
+                                self.expr, self.line, infos),
+                    ));
+                }
+                _ => {}
+            }
+        }
+
+        Ok(())
+    }
+}
+
+/// validate_expected_annotations_of_type validates expected messages and regex match actual annotations.
+fn validate_expected_annotations_of_type(expr: &str,
+                                         expected_annotations: &[ExpectCmd],
+                                         actual_annotations: &[String],
+                                         line: usize,
+                                         annotation_type: &str,
+                                         all_annos: &Annotations) -> Result<(), TestAssertionError> {
+    if expected_annotations.is_empty() {
+        return Ok(())
+    }
+
+    if actual_annotations.is_empty() {
+        let msg = format!("expected {annotation_type} annotations but none were found for query {expr} (line {line}), expected: {:?}, found: {:?}",
+                               expected_annotations, all_annos);
+        return Err(TestAssertionError::new(line, msg));
+    }
+
+    // Check if all expected annotations are found in actual.
+    for e in expected_annotations {
+        let match_found = actual_annotations.iter().find(|s| e.matches(s));
+        if !match_found {
+            let msg = format!("expected {annotation_type} annotation matching {} {e} but no matching annotation was found for query {expr} (line {line}), found: {:?}",
+                               e.type_name(), all_annos);
+            return Err(TestAssertionError::new(line, msg));
+        }
+    }
+
+    // Check if all actual annotations have a corresponding expected annotation.
+    for anno in actual_annotations {
+        let match_found = expected_annotations.iter().find(|e| e.matches(anno));
+        if !match_found {
+            let msg = format!("unexpected {annotation_type} annotation {anno} found for query {expr} (line {line}), expected: {:?}, found: {:?}",
+                               expected_annotations, all_annos);
+            return Err(TestAssertionError::new(line, msg));
+        }
+    }
+
+    Ok(())
 }
 
 #[derive(Debug, Clone)]

@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 use super::test_command::{EvalCmd, LoadCmd, TestCommand};
-use super::types::{raise, ParseErr, SequenceValue};
+use super::types::{raise, ExpectCmd, ExpectCmdType, ParseErr, SequenceValue};
 use crate::types::MetricName;
 use metricsql_common::time::current_time_millis;
 use metricsql_parser::ast::Expr;
@@ -28,18 +28,22 @@ use std::time::{Duration, SystemTime};
 pub const TEST_START_TIME: SystemTime = SystemTime::UNIX_EPOCH;
 
 // Regex patterns
-static PAT_EVAL_INSTANT: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^eval(?:_(fail|warn|ordered))?\s+instant\s+(?:at\s+(.+?))?\s+(.+)$")
-        .expect("failed to compile regex pattern")
-});
-
-static PAT_EVAL_RANGE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^eval(?:_(fail|warn))?\s+range\s+from\s+(.+)\s+to\s+(.+)\s+step\s+(.+?)\s+(.+)$")
-        .expect("failed to compile regex pattern")
-});
-
-static PAT_LOAD: LazyLock<Regex> =
+pub static PAT_LOAD: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^load(?:_(with_nhcb))?\s+(.+?)$").unwrap());
+pub static PAT_EVAL_INSTANT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^eval(?:_(fail|warn|ordered|info))?\s+instant\s+(?:at\s+(.+?))?\s+(.+)$").unwrap()
+});
+pub static PAT_EVAL_RANGE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"^eval(?:_(fail|warn|info))?\s+range\s+from\s+(.+)\s+to\s+(.+)\s+step\s+(.+?)\s+(.+)$",
+    )
+    .unwrap()
+});
+pub static PAT_EXPECT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^expect\s+(ordered|fail|warn|no_warn|info|no_info)(?:\s+(regex|msg):(.+))?$")
+        .unwrap()
+});
+pub static PAT_MATCH_ANY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^.*$").unwrap());
 
 // Implementation of parse_duration function
 pub(super) fn parse_duration(s: &str) -> Result<Duration, Box<dyn Error>> {
@@ -51,7 +55,7 @@ pub(super) fn enrich_parse_error(err: &mut ParseErr, f: impl FnOnce(&mut ParseEr
     f(err);
 }
 
-// Implementation of parse_number function
+// Implementation of the parse_number function
 pub(super) fn parse_number(s: &str) -> Result<f64, Box<dyn Error>> {
     metricsql_parser::prelude::parse_number(s).map_err(|e| e.into())
 }
@@ -62,7 +66,7 @@ pub(super) fn parse_expr(s: &str) -> Result<Expr, Box<dyn Error>> {
 
 fn parse_timestamp(timestamp: Option<&str>) -> Result<i64, Box<dyn Error>> {
     // Parse value or skip
-    // Parse timestamp or use given sample time
+    // Parse timestamp or use the given sample time
     if let Some(time) = timestamp.and_then(|x| x.parse::<i64>().ok()) {
         Ok(time)
     } else {
@@ -105,7 +109,67 @@ pub(super) fn parse_series(
     }
 }
 
-// Implementation of parse_load function
+fn parse_expect(def_line: &str) -> Result<(ExpectCmdType, ExpectCmd), String> {
+    let def_line = def_line.trim();
+    let caps = PAT_EXPECT.captures(def_line);
+
+    let mut exp_cmd = ExpectCmd::default();
+
+    if caps.is_none() {
+        return Err("invalid expect statement, must match `expect <type> <match_type>: <string>` format".to_string());
+    }
+    let caps = caps.unwrap();
+
+    let mode = caps.get(1).unwrap().as_str();
+    let has_optional_part = caps.get(2).is_some();
+
+    let expect_type = ExpectCmdType::try_from(mode)
+        .map_err(|_| format!("invalid expected error/annotation type {mode}"))?;
+
+    if has_optional_part {
+        match caps.get(2).unwrap().as_str() {
+            "msg" => {
+                exp_cmd.message = caps.get(3).unwrap().as_str().trim().to_string();
+            }
+            "regex" => {
+                let pattern = caps.get(3).unwrap().as_str().trim();
+                let regex = Regex::new(pattern)
+                    .map_err(|_| format!("invalid regex {} for {}", pattern, mode))?;
+                exp_cmd.regex = Some(regex);
+            }
+            other => {
+                return Err(format!("invalid token {} after {}", other, mode));
+            }
+        }
+    } else {
+        exp_cmd.regex = Some(PAT_MATCH_ANY.clone());
+    }
+
+    Ok((expect_type, exp_cmd))
+}
+
+fn validate_expected_cmds(cmd :&EvalCmd) -> Result<(), String> {
+    fn has_expected_cmds(cmd: &EvalCmd, cmd_type: ExpectCmdType) -> bool {
+        match cmd.expected_cmds.get(&cmd_type) {  
+            Some(expected) => !expected.is_empty(),
+            None => false,
+        }
+    }
+    if has_expected_cmds(cmd, ExpectCmdType::Info) && has_expected_cmds(cmd, ExpectCmdType::NoInfo) {
+        return Err("invalid expect lines, info and no_info cannot be used together".to_string());
+    }
+    if has_expected_cmds(cmd, ExpectCmdType::Warn) && has_expected_cmds(cmd, ExpectCmdType::NoWarn) {
+        return Err("invalid expect lines, warn and no_warn cannot be used together".to_string());
+    }
+    match cmd.expected_cmds.get(&ExpectCmdType::Fail) {
+        Some(expected) if expected.len() > 1 => {
+            return Err("invalid expect lines, multiple expect fail lines are not allowed".to_string());
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 pub fn parse_load(lines: &[String], i: usize) -> Result<(usize, TestCommand), ParseErr> {
     if !PAT_LOAD.is_match(&lines[i]) {
         return Err(raise(
@@ -235,9 +299,12 @@ pub fn parse_eval(lines: &[String], mut i: usize) -> Result<(usize, TestCommand)
     };
 
     match mod_str {
+        // Ordered results are not supported for range queries, but the regex for range query commands does not allow
+        // asserting an ordered result, so we don't need to do any error checking here.
         "ordered" => cmd.ordered = true,
         "fail" => cmd.fail = true,
         "warn" => cmd.warn = true,
+        "info" => cmd.info = true,
         _ => {}
     }
 
@@ -266,6 +333,29 @@ pub fn parse_eval(lines: &[String], mut i: usize) -> Result<(usize, TestCommand)
                 .map_err(|e| raise(i, format!("invalid regex pattern in line {i}: {:?}", e)))?;
             cmd.expected_fail_regexp = Some(regex);
             break;
+        }
+
+        // This would still allow a metric named 'expect' if it is written as 'expect{}'.
+        let parts: Vec<&str> = def_line.split_whitespace().collect();
+        if let Some(first) = parts.first() {
+            if *first != "expect" {
+                // Not an `expect` line, continue parsing metrics
+                continue;
+            }
+            
+            let (anno_type, expected_anno) = parse_expect(def_line)
+                .map_err(|e| raise(i, e))?;
+            
+            cmd.expected_cmds
+                .entry(anno_type)
+                .or_insert_with(Vec::new)
+                .push(expected_anno);
+            
+            j -= 1;
+            validate_expected_cmds(&cmd)
+                .map_err(|e| raise(i, e))?;
+            
+            continue
         }
 
         if let Ok(f) = parse_number(def_line) {

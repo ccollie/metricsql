@@ -1,3 +1,4 @@
+use std::fmt::Display;
 // Copyright 2015 The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +13,7 @@
 // limitations under the License.
 use super::parser::{parse_eval, parse_expr, parse_load};
 use super::test_command::{ClearCmd, EvalCmd, TestCommand};
-use super::types::{ParseErr, Sample, TestAssertionError};
+use super::types::{Annotations, ParseErr, Sample, TestAssertionError};
 use super::utils::{assert_matrix_sorted, timestamp_from_system_time, unix_millis_to_system_time};
 use crate::execution::{exec_internal, Context, EvalConfig};
 use crate::types::QueryValue;
@@ -161,7 +162,7 @@ impl Test {
 
     fn exec_eval(&mut self, cmd: &EvalCmd) -> Result<(), TestAssertionError> {
         if cmd.is_range {
-            return self.exec_range_eval(cmd);
+            return self.exec_range(cmd);
         }
 
         self.exec_instant_eval(cmd)
@@ -282,7 +283,7 @@ impl Test {
         Ok(())
     }
 
-    fn exec_range_eval(&self, cmd: &EvalCmd) -> Result<(), TestAssertionError> {
+    fn exec_range(&self, cmd: &EvalCmd) -> Result<(), TestAssertionError> {
         let start = timestamp_from_system_time(&cmd.start);
         let end = timestamp_from_system_time(&cmd.end);
         let mut ec = EvalConfig::new(start, end, cmd.step);
@@ -290,7 +291,7 @@ impl Test {
         let res = self.exec_internal(&mut ec, &cmd.expr);
         let value = match &res {
             Ok(v) => {
-                if cmd.fail {
+                if cmd.is_fail() {
                     let msg = format!(
                         "expected error evaluating query {} (line {}) but got none",
                         cmd.expr, cmd.line
@@ -300,7 +301,7 @@ impl Test {
                 v
             }
             Err(e) => {
-                if cmd.fail {
+                if cmd.is_fail() {
                     cmd.check_expected_failure(e)?;
                 }
                 let msg = format!(
@@ -310,6 +311,10 @@ impl Test {
                 return Err(TestAssertionError::new(cmd.line, msg));
             }
         };
+        
+        let annotations = Annotations::new(); //??
+        cmd.check_annotations(&cmd.expr, &annotations)?;
+        
         cmd.compare_result(&value)
     }
 
