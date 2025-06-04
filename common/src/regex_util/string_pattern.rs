@@ -118,9 +118,9 @@ impl Into<String> for StringPattern {
 impl Display for StringPattern {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::CaseSensitive(p) => write!(f, "CaseSensitive{}", p.pattern),
-            Self::CaseInsensitive(p) => write!(f, "CaseInsensitive{}", p.pattern),
-            Self::AsciiCaseInsensitive(p) => write!(f, "AsciiCaseInsensitive{}", p.pattern),
+            Self::CaseSensitive(p) => write!(f, "CaseSensitive({})", p.pattern),
+            Self::CaseInsensitive(p) => write!(f, "CaseInsensitive({})", p.pattern),
+            Self::AsciiCaseInsensitive(p) => write!(f, "AsciiCaseInsensitive({})", p.pattern),
         }
     }
 }
