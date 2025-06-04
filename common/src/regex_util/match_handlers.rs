@@ -389,18 +389,18 @@ impl RepetitionMatcher {
         if self.min == 1 && s == self.sub {
             return true;
         }
-        if let Some(max) = &self.max {
+        if let Some(max) = self.max {
             let pat_len = self.sub.len();
             let mut cursor = s;
             let mut i = 0;
 
-            while i <= (*max + 1) {
+            while i <= (max + 1) {
                 if !cursor.starts_with(&self.sub) {
                     // mismatch at the beginning when min == 0 is handled above
                     return i > self.min;
                 }
                 i += 1;
-                if i > *max {
+                if i > max {
                     return false;
                 }
                 cursor = &cursor[pat_len..];
