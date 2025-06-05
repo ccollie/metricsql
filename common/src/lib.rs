@@ -20,6 +20,7 @@ pub mod regex_util;
 pub mod threads;
 pub mod time;
 pub mod types;
+pub mod set;
 
 pub mod prelude {
     pub use crate::async_runtime::*;
@@ -31,6 +32,7 @@ pub mod prelude {
     pub use crate::humanize::*;
     pub use crate::pool::*;
     pub use crate::regex_util::*;
+    pub use crate::set::*;
     pub use crate::threads::*;
     pub use crate::time;
     pub use crate::time::*;
