@@ -156,7 +156,7 @@ impl BigStats {
 
 /// FastCache is a fast thread-safe in-memory cache optimized for big number of entries.
 ///
-/// It has much lower impact on alloc/fragmentation comparing to a simple `HashMap<str,[u8]>`.
+/// It has a much lower impact on alloc/fragmentation comparing to a simple `HashMap<str,[u8]>`.
 ///
 /// Multiple threads may call any methods on the same cache instance.
 ///
@@ -167,9 +167,9 @@ pub struct FastCache {
     big_stats: BigStats,
 }
 
-/// new() returns new cache with the given maxBytes capacity in bytes.
+/// Returns a new cache with the given maxBytes capacity in bytes.
 ///
-/// max_bytes must be smaller than the available RAM size for the app,
+/// `max_bytes` must be smaller than the available RAM size for the app,
 /// since the cache holds data in memory.
 ///
 /// If max_bytes is less than MIN_CACHE_SIZE, then the minimum cache capacity is MIN_CACHE_SIZE.
@@ -209,13 +209,13 @@ impl FastCache {
     ///
     /// The stored entry may be evicted at any time either due to cache
     /// overflow or due to unlikely hash collision.
-    /// Pass higher maxBytes value to `new` if the added items disappear
+    /// Pass a higher max_bytes value to `new` if the added items disappear
     /// frequently.
     ///
     /// (k, v) entries with summary size exceeding 64KB aren't stored in the cache.
-    /// set_big can be used for storing entries exceeding 64KB.
+    /// Set_big can be used for storing entries exceeding 64KB.
     ///
-    /// k and v contents may be modified after returning from Set.
+    /// K and v contents may be modified after returning from Set.
     pub fn set(&self, k: &[u8], v: &[u8]) {
         let h = fast_hash64(k);
         let bucket = self._get_bucket(h);
@@ -228,12 +228,12 @@ impl FastCache {
     ///
     /// The stored entry may be evicted at any time either due to cache
     /// overflow or due to unlikely hash collision.
-    /// Pass higher maxBytes value to New if the added items disappear
+    /// Pass a higher maxBytes value to New if the added items disappear
     /// frequently.
     ///
     /// It is safe to store entries smaller than 64KB with set_big.
     ///
-    /// k and v contents may be modified after returning from set_big.
+    /// `k` and `v` contents may be modified after returning from set_big.
     pub fn set_big(&mut self, k: &[u8], v: &[u8]) {
         self.big_stats.set_big_calls.fetch_add(1, Ordering::Relaxed);
         if k.len() > MAX_KEY_LEN {
@@ -417,11 +417,11 @@ fn unmarshal_meta(src: &[u8]) -> Option<(u64, usize)> {
 }
 
 struct BucketInner {
-    /// chunks is a ring buffer with encoded (k, v) pairs.
+    /// `chunks` is a ring buffer with encoded (k, v) pairs.
     /// It consists of 64KB chunks.
     chunks: Vec<Vec<u8>>,
 
-    /// maps hash(k) to idx of (k, v) pair in chunks.
+    /// maps hash(k) to idx of (k, v) pairs in chunks.
     hash_idx_map: IntMap<u64, usize>,
 
     /// idx points to chunks for writing the next (k, v) pair.
@@ -492,7 +492,7 @@ impl BucketInner {
     fn set(&mut self, k: &[u8], v: &[u8], h: u64) {
         self.set_calls += 1;
         if k.len() >= (1 << 16) || v.len() >= (1 << 16) {
-            // Too big key or value - its length cannot be encoded
+            // Too big a key or value - its length cannot be encoded
             // with 2 bytes (see below). Skip the entry.
             return;
         }

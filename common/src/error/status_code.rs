@@ -33,7 +33,7 @@ pub enum StatusCode {
     Internal = 1003,
     /// Invalid arguments.
     InvalidArguments = 1004,
-    /// The task is cancelled.
+    /// The task is canceled.
     Cancelled = 1005,
     /// The task is timed out
     TimedOut = 1006,

@@ -234,7 +234,7 @@ mod tests {
                     Some(true_matcher()),
                 )),
             ),
-            // We don't support case-insensitive matching for contains.
+            // We don't support case-insensitive matching for `contains`.
             // This is because there's no strings.IndexOfFold function.
             // We can revisit later if this is really popular by using strings.ToUpper.
             ("^(.*)((?i)foo|foobar)(.*)$", None),

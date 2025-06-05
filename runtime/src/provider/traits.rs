@@ -12,7 +12,7 @@ pub struct AppendOptions {
 /// It must be completed with a call to commit or rollback.
 ///
 ///
-/// The type of samples (float64, histogram, etc) appended for a given series must remain same within an Appender.
+/// The type of samples (float64, histogram, etc.) appended for a given series must remain the same within an Appender.
 /// The behaviour is undefined if samples of different types are appended to the same series in a single Commit().
 pub trait Appender {
     /// `append` adds a sample pair for the given series.
@@ -53,7 +53,7 @@ pub struct LabelHints {
 #[async_trait]
 pub trait LabelQuerier {
     /// `label_values` returns all potential values for a label name in sorted order.
-    /// If matchers are specified the returned result set is reduced
+    /// If matchers are specified, the returned result set is reduced
     /// to label values of metrics matching the matchers.
     async fn label_values(
         &self,
@@ -63,7 +63,7 @@ pub trait LabelQuerier {
     ) -> ProviderResult<Vec<String>>;
 
     /// `label_names` returns all the unique label names present in the block in sorted order.
-    /// If matchers are specified the returned result set is reduced to label names of metrics matching the matchers.
+    /// If matchers are specified, the returned result set is reduced to label names of metrics matching the matchers.
     async fn label_names(
         &self,
         name: &str,
@@ -95,7 +95,7 @@ pub trait Series: Sized {
     /// Labels returns the complete set of labels. For series it means all labels identifying the series.
     fn labels(&self) -> Labels;
 
-    /// Iterator returns an iterator of the data of the series.
+    /// Iterator returns an iterator of the series data.
     fn iterator(&self) -> impl Iterator<Item = Sample>;
 }
 
@@ -103,7 +103,7 @@ pub trait Series: Sized {
 pub trait Querier<S: Series>: LabelQuerier + Send + Sync {
     /// `select` returns a set of series that matches the given label matchers.
     /// Results are not checked whether they match. Results that do not match may cause undefined behavior.
-    /// It allows passing hints that can help in optimising select, but it's up to implementation how
+    /// It allows passing hints that can help in optimizing select, but it's up to implementation how
     /// this is used if used at all.
     async fn select(&self, hints: &SelectOptions, matchers: &[Matcher]) -> ProviderResult<Vec<S>>;
 }
