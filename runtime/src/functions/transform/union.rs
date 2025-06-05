@@ -2,13 +2,16 @@ use crate::execution::{eval_number, EvalConfig};
 use crate::functions::transform::TransformFuncArg;
 use crate::types::{FunctionArgs, QueryValue, Timeseries};
 use crate::{RuntimeError, RuntimeResult};
-use ahash::AHashSet;
+use metricsql_common::hash::{BuildNoHashHasher, Signature};
+use metricsql_common::set::SmallSet;
 
 pub(crate) fn union(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     // we don't use args after this
     let mut args = std::mem::take(&mut tfa.args);
     handle_union(&mut args, tfa.ec)
 }
+
+type SignatureSet = SmallSet<16, Signature, BuildNoHashHasher<Signature>>;
 
 pub(crate) fn handle_union(
     args: &mut FunctionArgs,
@@ -22,6 +25,8 @@ pub(crate) fn handle_union(
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(len);
 
     if are_all_args_scalar(args) {
+        // Special case for (v1,...,vN) where vX are scalars - return all the scalars as time series.
+        // This is needed for "q == (v1,...,vN)" and "q != (v1,...,vN)" cases, where vX are numeric constants.
         for arg in args.into_iter() {
             match arg {
                 QueryValue::Scalar(v) => {
@@ -38,12 +43,12 @@ pub(crate) fn handle_union(
         }
         return Ok(rvs);
     }
+    
+    let mut set: SignatureSet = SmallSet::new();
 
-    let mut m: AHashSet<String> = AHashSet::with_capacity(len);
-
-    fn process_vector(v: &mut [Timeseries], m: &mut AHashSet<String>, rvs: &mut Vec<Timeseries>) {
+    fn process_vector(v: &mut [Timeseries], m: &mut SignatureSet, rvs: &mut Vec<Timeseries>) {
         for ts in v.iter_mut() {
-            let key = ts.metric_name.to_string();
+            let key = ts.metric_name.signature();
             if m.insert(key) {
                 rvs.push(std::mem::take(ts));
             }
@@ -55,10 +60,10 @@ pub(crate) fn handle_union(
         match arg {
             QueryValue::Scalar(v) => {
                 let mut ts = eval_number(ec, *v)?;
-                process_vector(&mut ts, &mut m, &mut rvs);
+                process_vector(&mut ts, &mut set, &mut rvs);
             }
-            QueryValue::InstantVector(v) => process_vector(v, &mut m, &mut rvs),
-            QueryValue::RangeVector(v) => process_vector(v, &mut m, &mut rvs),
+            QueryValue::InstantVector(v) => process_vector(v, &mut set, &mut rvs),
+            QueryValue::RangeVector(v) => process_vector(v, &mut set, &mut rvs),
             _ => {
                 return Err(RuntimeError::ArgumentError(
                     "expected instant or range vector".to_string(),
