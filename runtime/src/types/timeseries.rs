@@ -1,22 +1,16 @@
 use super::{MetricName, Sample, Timestamp};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use ahash::HashMapExt;
-use metricsql_common::hash::{IntMap, Signature};
+use metricsql_common::hash::Signature;
 use metricsql_common::prelude::humanize_duration;
-use metricsql_parser::ast::VectorMatchModifier;
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::fmt::Debug;
 use std::sync::Arc;
 use std::time::Duration;
-
-pub type TimeseriesHashMap = IntMap<Signature, Vec<Timeseries>>;
-pub type TimeseriesHashMapRef<'a> = IntMap<Signature, &'a [Timeseries]>;
 
 #[derive(Default, Debug, Clone, PartialEq)]
 pub struct Timeseries {
     pub metric_name: MetricName,
     pub values: Vec<f64>,
-    pub timestamps: Arc<Vec<Timestamp>>, //Arc used vs Rc since Rc is !Send
+    pub timestamps: Arc<Vec<Timestamp>>, //Arc used vs. Rc since Rc is !Send
 }
 
 impl Timeseries {
@@ -193,34 +187,3 @@ pub(crate) fn get_timeseries() -> Timeseries {
 
 /// The minimum threshold of timeseries tags to process in parallel when computing signatures.
 pub(crate) const SIGNATURE_PARALLELIZATION_THRESHOLD: usize = 8;
-
-pub fn group_series_by_match_modifier(
-    series: Vec<Timeseries>,
-    modifier: &Option<VectorMatchModifier>,
-    with_metric_name: bool,
-) -> TimeseriesHashMap {
-    let mut m: TimeseriesHashMap = IntMap::with_capacity(series.len());
-    if series.len() >= SIGNATURE_PARALLELIZATION_THRESHOLD {
-        for (sig, ts) in series
-            .into_par_iter()
-            .map(|timeseries| {
-                let sig = timeseries
-                    .metric_name
-                    .get_hash_signature(modifier, with_metric_name);
-                (sig, timeseries)
-            })
-            .collect::<Vec<_>>()
-        {
-            m.entry(sig).or_default().push(ts);
-        }
-    } else {
-        for timeseries in series.into_iter() {
-            let sig = timeseries
-                .metric_name
-                .get_hash_signature(modifier, with_metric_name);
-            m.entry(sig).or_default().push(timeseries);
-        }
-    }
-
-    m
-}

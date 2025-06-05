@@ -1,12 +1,10 @@
 use crate::execution::utils::{remove_empty_series, series_len};
 use crate::execution::Context;
-use crate::prelude::QueryValue;
+use crate::prelude::{QueryValue, SIGNATURE_PARALLELIZATION_THRESHOLD};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
-use crate::types::{
-    group_series_by_match_modifier, InstantVector, Timeseries, TimeseriesHashMap, METRIC_NAME_LABEL,
-};
+use crate::types::{InstantVector, Timeseries, METRIC_NAME_LABEL};
 use ahash::HashMapExt;
-use metricsql_common::hash::{IntMap, Signature};
+use metricsql_common::hash::{BuildNoHashHasher, IntMap, Signature};
 use metricsql_parser::ast::{Operator, VectorMatchCardinality, VectorMatchModifier};
 use metricsql_parser::binaryop::{
     get_scalar_binop_handler, get_scalar_comparison_handler, BinopFunc,
@@ -14,6 +12,9 @@ use metricsql_parser::binaryop::{
 use metricsql_parser::prelude::{BinModifier, Labels};
 use std::borrow::Cow;
 use std::collections::hash_map::Entry;
+use rayon::iter::IntoParallelIterator;
+use rayon::iter::ParallelIterator;
+use small_map::SmallMap;
 use tracing::{field, trace_span, Span};
 
 pub struct BinaryOpFuncArg<'a> {
@@ -44,6 +45,8 @@ impl<'a> BinaryOpFuncArg<'a> {
 }
 
 pub type BinaryOpFuncResult = RuntimeResult<InstantVector>;
+
+type TimeseriesHashMap = SmallMap<6, Signature, Vec<Timeseries>, BuildNoHashHasher<Signature>>;
 
 macro_rules! make_binary_func {
     ($name: ident, $op: expr) => {
@@ -188,9 +191,8 @@ fn adjust_binary_op_tags(
     InstantVector, // right
 )> {
     // `vector op vector` or `foo op {on|ignoring} {group_left|group_right} bar`
-    let (mut m_left, mut m_right) = create_series_map_by_tag_set(bfa);
-
-    // TODO: I think if we wanted we could reuse bfa.left and bfa.right here
+    let (m_left, mut m_right) = create_series_map_by_tag_set(bfa);
+    
     let mut rvs_left = std::mem::take(&mut bfa.left);
     let mut rvs_right = std::mem::take(&mut bfa.right);
 
@@ -212,8 +214,8 @@ fn adjust_binary_op_tags(
 
     let reset_metric_group = should_reset_metric_group(bfa.op, keep_metric_names, return_bool);
 
-    for (k, tss_left) in m_left.iter_mut() {
-        let mut tss_right = m_right.remove(k).unwrap_or(vec![]);
+    for (k, ref mut tss_left) in m_left {
+        let mut tss_right = m_right.remove(&k).unwrap_or(vec![]);
         if tss_right.is_empty() {
             continue;
         }
@@ -336,6 +338,13 @@ fn ensure_single_timeseries(
     Ok(acc)
 }
 
+struct GroupJoinPair {
+    left: Timeseries,
+    right: Timeseries,
+}
+
+type GroupJoinMap= SmallMap<4, Signature, GroupJoinPair, BuildNoHashHasher<Signature>>;
+
 fn group_join(
     single_timeseries_side: &str,
     bfa: &BinaryOpFuncArg,
@@ -364,12 +373,7 @@ fn group_join(
         (&empty_labels, &empty_labels)
     };
 
-    struct TsPair {
-        left: Timeseries,
-        right: Timeseries,
-    }
-
-    let mut map: IntMap<Signature, TsPair> = IntMap::with_capacity(tss_left.len());
+    let mut map: IntMap<Signature, GroupJoinPair> = IntMap::with_capacity(tss_left.len());
 
     for ts_left in tss_left.iter_mut() {
         if reset_metric_group {
@@ -413,7 +417,7 @@ fn group_join(
                         values: ts_left.values.clone(),
                         timestamps: ts_left.timestamps.clone(),
                     };
-                    entry.insert(TsPair {
+                    entry.insert(GroupJoinPair {
                         left: copy,
                         right: ts_right,
                     });
@@ -480,11 +484,11 @@ pub fn merge_non_overlapping_timeseries(dst: &mut Timeseries, src: &Timeseries) 
 }
 
 fn binary_op_if(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<InstantVector> {
-    let (mut m_left, m_right) = create_series_map_by_tag_set(bfa);
+    let (m_left, m_right) = create_series_map_by_tag_set(bfa);
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(m_left.len());
 
-    for (k, tss_left) in m_left.iter_mut() {
-        if let Some(tss_right) = series_by_key(&m_right, k) {
+    for (k, ref mut tss_left) in m_left {
+        if let Some(tss_right) = series_by_key(&m_right, &k) {
             add_right_nans_to_left(tss_left, tss_right);
             rvs.append(tss_left)
         }
@@ -523,11 +527,11 @@ fn binary_op_default(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<InstantVector> 
         return Ok(std::mem::take(&mut bfa.right)); // Short-circuit: default with nothing is nothing.
     }
 
-    let (mut m_left, m_right) = create_series_map_by_tag_set(bfa);
+    let (m_left, m_right) = create_series_map_by_tag_set(bfa);
 
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(m_left.len());
-    for (k, tss_left) in m_left.iter_mut() {
-        if let Some(tss_right) = series_by_key(&m_right, k) {
+    for (k, ref mut tss_left) in m_left.into_iter() {
+        if let Some(tss_right) = series_by_key(&m_right, &k) {
             fill_left_nans_with_right_values(tss_left, tss_right);
         }
         rvs.append(tss_left);
@@ -572,7 +576,12 @@ fn binary_op_or(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
         }
     }
 
-    let mut left = m_left.into_values().flatten().collect::<Vec<Timeseries>>();
+    let mut left = m_left
+        .into_iter()
+        .map(|(_, v)| v)
+        .flatten()
+        .collect::<Vec<Timeseries>>();
+    
     // Sort left-hand-side series by metric name as Prometheus does.
     // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/5393
     left.sort_by(|a, b| a.metric_name.cmp(&b.metric_name));
@@ -734,6 +743,49 @@ fn create_series_map_by_tag_set(
     (m_left, m_right)
 }
 
+fn group_series_by_match_modifier(
+    series: Vec<Timeseries>,
+    modifier: &Option<VectorMatchModifier>,
+    with_metric_name: bool,
+) -> TimeseriesHashMap {
+    let mut m: TimeseriesHashMap = TimeseriesHashMap::with_capacity(series.len());
+    if series.len() >= SIGNATURE_PARALLELIZATION_THRESHOLD {
+        // todo: use chili instead of rayon
+        for (sig, ts) in series
+            .into_par_iter()
+            .map(|timeseries| {
+                let sig = timeseries
+                    .metric_name
+                    .get_hash_signature(modifier, with_metric_name);
+                (sig, timeseries)
+            })
+            .collect::<Vec<_>>()
+        {
+            match m.get_mut(&sig) {
+                Some(existing) => existing.push(ts),
+                None => {
+                    m.insert(sig, vec![ts]);
+                }
+            }
+        }
+    } else {
+        for timeseries in series.into_iter() {
+            let sig = timeseries
+                .metric_name
+                .get_hash_signature(modifier, with_metric_name);
+            match m.get_mut(&sig) {
+                Some(existing) => existing.push(timeseries),
+                None => {
+                    m.insert(sig, vec![timeseries]);
+                }
+            }
+        }
+    }
+
+    m
+}
+
+
 fn is_scalar(arg: &[Timeseries]) -> bool {
     arg.len() == 1 && arg[0].metric_name.is_empty()
 }
@@ -745,7 +797,7 @@ fn series_by_key<'a>(m: &'a TimeseriesHashMap, key: &Signature) -> Option<&'a Ve
     if m.len() != 1 {
         return None;
     }
-    if let Some(tss) = m.values().next() {
+    if let Some((_k, tss)) = m.iter().next() {
         if is_scalar(tss) {
             return Some(tss);
         }

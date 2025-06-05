@@ -43,6 +43,7 @@ rand_distr.workspace = true
 rayon.workspace = true
 regex.workspace = true
 serde.workspace = true
+small-map.workspace = true
 smallvec.workspace = true
 thiserror.workspace = true
 topologic = "1.1"
