@@ -192,7 +192,7 @@ fn adjust_binary_op_tags(
 )> {
     // `vector op vector` or `foo op {on|ignoring} {group_left|group_right} bar`
     let (m_left, mut m_right) = create_series_map_by_tag_set(bfa);
-    
+
     let mut rvs_left = std::mem::take(&mut bfa.left);
     let mut rvs_right = std::mem::take(&mut bfa.right);
 
@@ -214,8 +214,8 @@ fn adjust_binary_op_tags(
 
     let reset_metric_group = should_reset_metric_group(bfa.op, keep_metric_names, return_bool);
 
-    for (k, ref mut tss_left) in m_left {
-        let mut tss_right = m_right.remove(&k).unwrap_or(vec![]);
+    for (k, tss_left) in m_left {
+        let tss_right = m_right.remove(&k).unwrap_or(vec![]);
         if tss_right.is_empty() {
             continue;
         }
@@ -229,7 +229,7 @@ fn adjust_binary_op_tags(
                 &mut rvs_left,
                 &mut rvs_right,
                 tss_left,
-                &mut tss_right,
+                tss_right,
             )?,
             // group_right
             VectorMatchCardinality::OneToMany(_) => group_join(
@@ -238,7 +238,7 @@ fn adjust_binary_op_tags(
                 reset_metric_group,
                 &mut rvs_right,
                 &mut rvs_left,
-                &mut tss_right,
+                tss_right,
                 tss_left,
             )?,
             _ => {
@@ -262,7 +262,7 @@ fn adjust_binary_op_tags(
 
                 let mut ts_left = ensure_single_timeseries("left", bfa.op, bfa.modifier, tss_left)?;
                 let ts_right =
-                    ensure_single_timeseries("right", bfa.op, bfa.modifier, &mut tss_right)?;
+                    ensure_single_timeseries("right", bfa.op, bfa.modifier, tss_right)?;
 
                 if reset_metric_group {
                     ts_left.metric_name.reset_measurement();
@@ -311,7 +311,7 @@ fn ensure_single_timeseries(
     side: &str,
     op: Operator,
     modifier: &Option<BinModifier>,
-    tss: &mut Vec<Timeseries>,
+    tss: Vec<Timeseries>,
 ) -> RuntimeResult<Timeseries> {
     if tss.is_empty() {
         return Err(RuntimeError::General(
@@ -319,6 +319,7 @@ fn ensure_single_timeseries(
         ));
     }
 
+    let mut tss = tss;
     let mut acc = tss.pop().unwrap();
 
     for ts in tss.iter() {
@@ -343,16 +344,16 @@ struct GroupJoinPair {
     right: Timeseries,
 }
 
-type GroupJoinMap= SmallMap<4, Signature, GroupJoinPair, BuildNoHashHasher<Signature>>;
+type GroupJoinMap = SmallMap<6, Signature, GroupJoinPair, BuildNoHashHasher<Signature>>;
 
 fn group_join(
-    single_timeseries_side: &str,
+    single_timeseries_side: &'static str,
     bfa: &BinaryOpFuncArg,
     reset_metric_group: bool,
     rvs_left: &mut InstantVector,
     rvs_right: &mut InstantVector,
-    tss_left: &mut [Timeseries],
-    tss_right: &mut InstantVector,
+    tss_left: Vec<Timeseries>,
+    tss_right: Vec<Timeseries>,
 ) -> RuntimeResult<()> {
     let empty_prefix = "";
     let empty_labels = Labels::default();
@@ -373,8 +374,9 @@ fn group_join(
         (&empty_labels, &empty_labels)
     };
 
-    let mut map: IntMap<Signature, GroupJoinPair> = IntMap::with_capacity(tss_left.len());
-
+    let mut tss_left = tss_left;
+    let mut tss_right = tss_right;
+    
     for ts_left in tss_left.iter_mut() {
         if reset_metric_group {
             ts_left.metric_name.reset_measurement();
@@ -382,12 +384,12 @@ fn group_join(
 
         // Easy case - right part contains only a single matching time series.
         if tss_right.len() == 1 {
-            let mut right = tss_right.remove(0);
+            let right = tss_right.remove(0);
             ts_left.metric_name.set_labels(
                 empty_prefix,
                 join_tags.as_ref(),
                 skip_tags.as_ref(),
-                &mut right.metric_name,
+                &right.metric_name,
             );
 
             rvs_left.push(std::mem::take(ts_left));
@@ -397,33 +399,24 @@ fn group_join(
 
         // Hard case - right part contains multiple matching time series.
         // Verify it doesn't result in duplicate MetricName values after adding missing tags.
-        map.clear();
 
-        for mut ts_right in tss_right.drain(..) {
+        // SmallMap doesn't support `clear` or `drain`, so we create each time. It starts out stack-allocated
+        // and grows to heap-allocated if needed. This is only a problem if the number of joined series is large.
+        let mut map = GroupJoinMap::with_capacity(tss_right.len());
+
+        for ts_right in tss_right.drain(..) {
             let mut mn = ts_left.metric_name.clone();
             mn.set_labels(
                 empty_prefix,
                 join_tags.as_ref(),
                 skip_tags.as_ref(),
-                &mut ts_right.metric_name,
+                &ts_right.metric_name,
             );
 
             let key = mn.signature();
 
-            match map.entry(key) {
-                Entry::Vacant(entry) => {
-                    let copy = Timeseries {
-                        metric_name: mn,
-                        values: ts_left.values.clone(),
-                        timestamps: ts_left.timestamps.clone(),
-                    };
-                    entry.insert(GroupJoinPair {
-                        left: copy,
-                        right: ts_right,
-                    });
-                }
-                Entry::Occupied(entry) => {
-                    let pair = entry.into_mut();
+            match map.get_mut(&key) {
+                Some(pair) => {
                     // Try merging pair.right with ts_right if they don't overlap.
                     if !merge_non_overlapping_timeseries(&mut pair.right, &ts_right) {
                         let err = format!(
@@ -438,12 +431,19 @@ fn group_join(
                         return Err(RuntimeError::from(err));
                     }
                 }
+                None => {
+                    ts_left.metric_name = mn;
+                    map.insert(key, GroupJoinPair {
+                        left: std::mem::take(ts_left),
+                        right: ts_right,
+                    });
+                }
             }
         }
 
-        for (_, pair) in map.iter_mut() {
-            rvs_left.push(std::mem::take(&mut pair.left));
-            rvs_right.push(std::mem::take(&mut pair.right));
+        for (_, pair) in map.into_iter() {
+            rvs_left.push(pair.left);
+            rvs_right.push(pair.right);
         }
     }
 
@@ -581,7 +581,7 @@ fn binary_op_or(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
         .map(|(_, v)| v)
         .flatten()
         .collect::<Vec<Timeseries>>();
-    
+
     // Sort left-hand-side series by metric name as Prometheus does.
     // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/5393
     left.sort_by(|a, b| a.metric_name.cmp(&b.metric_name));
