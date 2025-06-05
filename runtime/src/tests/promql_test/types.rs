@@ -51,7 +51,7 @@ impl TryFrom<&str> for ExpectCmdType {
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         let val = hashify::tiny_map_ignore_case! {
-            value.to_bytes(),
+            value.as_bytes(),
             "ordered" => ExpectCmdType::Ordered,
             "fail" => ExpectCmdType::Fail,
             "warn" => ExpectCmdType::Warn,

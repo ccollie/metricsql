@@ -516,7 +516,7 @@ fn validate_expected_annotations_of_type(expr: &str,
 
     // Check if all expected annotations are found in actual.
     for e in expected_annotations {
-        let match_found = actual_annotations.iter().find(|s| e.matches(s));
+        let match_found = actual_annotations.iter().any(|s| e.matches(s));
         if !match_found {
             let msg = format!("expected {annotation_type} annotation matching {} {e} but no matching annotation was found for query {expr} (line {line}), found: {:?}",
                                e.type_name(), all_annos);
@@ -526,7 +526,7 @@ fn validate_expected_annotations_of_type(expr: &str,
 
     // Check if all actual annotations have a corresponding expected annotation.
     for anno in actual_annotations {
-        let match_found = expected_annotations.iter().find(|e| e.matches(anno));
+        let match_found = expected_annotations.iter().any(|e| e.matches(anno));
         if !match_found {
             let msg = format!("unexpected {annotation_type} annotation {anno} found for query {expr} (line {line}), expected: {:?}, found: {:?}",
                                expected_annotations, all_annos);
