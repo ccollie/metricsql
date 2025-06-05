@@ -10,7 +10,7 @@ use crate::common::encoding::{read_string, read_usize, write_string, write_usize
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use ahash::{AHashMap, AHashSet};
 use enquote::enquote;
-use metricsql_common::prelude::Label;
+use metricsql_common::prelude::{ASmallSet, Label};
 use metricsql_parser::prelude::{AggregateModifier, VectorMatchModifier};
 use metricsql_parser::{parse_metric_name, ParseError, ParseResult};
 use serde::{Deserialize, Serialize};
@@ -196,7 +196,7 @@ impl MetricName {
             return;
         }
         if on_tags.len() > SET_SEARCH_MIN_THRESHOLD {
-            let set: AHashSet<_> = AHashSet::from_iter(on_tags);
+            let set: ASmallSet<8, _> = on_tags.iter().collect();
             self.labels.retain(|tag| set.contains(&tag.name));
         } else {
             self.labels.retain(|tag| on_tags.contains(&tag.name));

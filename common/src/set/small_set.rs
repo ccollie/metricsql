@@ -147,6 +147,20 @@ where
     {
         other.is_subset(self)
     }
+
+    pub fn intersection<S2>(&self, other: &SmallSet<N, T, S2>) -> SmallSet<N, T, S2>
+    where
+        T: Eq + Hash + Clone,
+        S2: BuildHasher + Default,
+    {
+        let mut result = SmallSet::with_capacity(self.len().min(other.len()));
+        for value in self.iter() {
+            if other.contains(value) {
+                result.insert(value.clone());
+            }
+        }
+        result
+    }
 }
 
 impl<const N: usize, T, S> Default for SmallSet<N, T, S>
@@ -283,6 +297,7 @@ where
     }
 }
 
+
 impl<const N: usize, T, S1, S2> BitAnd<&SmallSet<N, T, S2>> for &SmallSet<N, T, S1>
 where
     T: Eq + Hash + Clone,
@@ -345,7 +360,7 @@ where
     }
 }
 
-pub type ASmallSet<const N: usize, K> = SmallMap<N, K, BuildHasherDefault<AHasher>>;
+pub type ASmallSet<const N: usize, K> = SmallSet<N, K, BuildHasherDefault<AHasher>>;
 
 // Convenience tests to verify implementation
 #[cfg(test)]
@@ -354,7 +369,7 @@ mod tests {
 
     #[test]
     fn test_basic_operations() {
-        let mut set = SmallSet::new();
+        let mut set = SmallSet::<8, _>::new();
         assert_eq!(set.len(), 0);
         assert!(set.is_empty());
 
@@ -406,7 +421,7 @@ mod tests {
         assert!(intersection.contains(&3));
         assert!(!set1.is_disjoint(&set2));
 
-        let set3: SmallSet<6, i32> = [6, 7].iter().cloned().collect();
+        let set3: SmallSet<16, i32> = [6, 7].iter().cloned().collect();
         assert!(set1.is_disjoint(&set3));
 
         assert!(set1.is_subset(&union));

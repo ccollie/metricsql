@@ -1,7 +1,8 @@
-use ahash::{AHashMap, AHashSet};
-use regex::escape;
-
+use ahash::{AHashSet, AHasher};
 use metricsql_parser::prelude::{BinaryExpr, Expr, Matcher, Operator};
+use regex::escape;
+use small_map::SmallMap;
+use std::hash::BuildHasherDefault;
 
 use crate::types::{Label, Timeseries};
 
@@ -21,13 +22,19 @@ pub(crate) fn can_push_down_common_filters(be: &BinaryExpr) -> bool {
 }
 
 pub(crate) fn get_common_label_filters(tss: &[Timeseries]) -> Vec<Matcher> {
-    let mut kv_map: AHashMap<String, AHashSet<String>> = AHashMap::new();
+    let mut kv_map: SmallMap<16, String, AHashSet<String>, BuildHasherDefault<AHasher>> = SmallMap::new();
     for ts in tss.iter() {
         for Label { name: k, value: v } in ts.metric_name.labels.iter() {
-            kv_map
-                .entry(k.to_string())
-                .or_default()
-                .insert(v.to_string());
+            match kv_map.get_mut(k) {
+                Some(set) => {
+                    set.insert(v.to_string());
+                }
+                None => {
+                    let mut set = AHashSet::with_capacity(8);
+                    set.insert(v.to_string());
+                    kv_map.insert(k.to_string(), set);
+                }
+            }
         }
     }
 

@@ -17,11 +17,10 @@
 
 //! Utility functions for expression simplification
 
-use ahash::AHashSet;
-
 use crate::ast::visitor::{walk_expr, ExprVisitor};
 use crate::ast::{BinaryExpr, Expr, MetricExpr, NumberLiteral, Operator, ParensExpr};
 use crate::functions::{get_rollup_arg_idx, BuiltinFunction};
+use metricsql_common::prelude::ASmallSet;
 
 /// Create a selector expression based on a qualified or unqualified column name
 ///
@@ -147,7 +146,7 @@ pub(super) fn string_vecs_equal_unordered(a: &[String], b: &[String]) -> bool {
     if a.len() != b.len() {
         return false;
     }
-    let hash_a: AHashSet<_> = a.iter().collect();
+    let hash_a: ASmallSet<8, _> = a.iter().collect();
     b.iter().all(|x| hash_a.contains(x))
 }
 

@@ -11,6 +11,7 @@ use smallvec::SmallVec;
 use std::borrow::Cow;
 use std::iter::FromIterator;
 use std::vec::Vec;
+use metricsql_common::set::ASmallSet;
 
 /// `push_down_filters` optimizes e to improve its performance.
 ///
@@ -726,7 +727,7 @@ fn drop_label_filters_for_label_name(lfs: &[Matcher], label_name: &Expr) -> Vec<
 
 fn filter_label_filters_on(lfs: &mut Vec<Matcher>, args: &[String]) {
     if !args.is_empty() {
-        let m: FastHashSet<&String> = FastHashSet::from_iter(args.iter());
+        let m: ASmallSet<8, &String> = args.iter().collect();
         lfs.retain(|x| m.contains(&x.label))
     } else {
         lfs.clear()
@@ -735,7 +736,7 @@ fn filter_label_filters_on(lfs: &mut Vec<Matcher>, args: &[String]) {
 
 fn filter_label_filters_ignoring(lfs: &mut Vec<Matcher>, args: &[String]) {
     if !args.is_empty() {
-        let m: FastHashSet<&String> = FastHashSet::from_iter(args.iter());
+        let m: ASmallSet<8, &String> = args.iter().collect();
         lfs.retain(|x| !m.contains(&x.label))
     }
 }
