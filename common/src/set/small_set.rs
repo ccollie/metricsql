@@ -78,10 +78,10 @@ where
     }
 
     /// Returns `true` if the set contains the specified value.
-    pub fn contains<Q: ?Sized>(&self, value: &Q) -> bool
+    pub fn contains<Q>(&self, value: &Q) -> bool
     where
         T: Borrow<Q>,
-        Q: Hash + Eq,
+        Q: Hash + Eq + ?Sized,
     {
         self.inner.get(value).is_some()
     }
@@ -96,10 +96,10 @@ where
     /// Removes a value from the set.
     ///
     /// Returns `true` if the set contained the value.
-    pub fn remove<Q: ?Sized>(&mut self, value: &Q) -> bool
+    pub fn remove<Q>(&mut self, value: &Q) -> bool
     where
         T: Borrow<Q>,
-        Q: Hash + Eq,
+        Q: Hash + Eq + ?Sized,
     {
         self.inner.remove(value).is_some()
     }
@@ -108,15 +108,6 @@ where
     pub fn iter(&self) -> impl Iterator<Item = &T> {
         self.inner.iter().map(|(k, _)| k)
     }
-
-
-    /// Retains only the elements specified by the predicate.
-    // pub fn retain<F>(&mut self, f: F)
-    // where
-    //     F: FnMut(&T) -> bool,
-    // {
-    //     self.inner.retain(|k, _| f(k));
-    // }
 
     /// Returns the number of elements the set can hold without reallocating.
     pub fn capacity(&self) -> usize {

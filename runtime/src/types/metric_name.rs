@@ -247,7 +247,7 @@ impl MetricName {
         prefix: &str,
         add_labels: &[String],
         skip_labels: &[String],
-        src: &mut MetricName,
+        src: &MetricName,
     ) {
         if add_labels.len() == 1 && add_labels[0] == "*" {
             // Special case for copying all the tags except of skipTags from src to mn.

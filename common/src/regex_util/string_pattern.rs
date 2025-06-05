@@ -105,12 +105,12 @@ impl From<&StringPattern> for String {
 }
 
 /// Take ownership of the pattern and return a String
-impl Into<String> for StringPattern {
-    fn into(self) -> String {
-        match self {
-            Self::CaseSensitive(p) => p.pattern,
-            Self::CaseInsensitive(p) => p.pattern,
-            Self::AsciiCaseInsensitive(p) => p.pattern,
+impl From<StringPattern> for String {
+    fn from(val: StringPattern) -> Self {
+        match val {
+            StringPattern::CaseSensitive(p) => p.pattern,
+            StringPattern::CaseInsensitive(p) => p.pattern,
+            StringPattern::AsciiCaseInsensitive(p) => p.pattern,
         }
     }
 }

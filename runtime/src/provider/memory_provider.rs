@@ -203,7 +203,7 @@ mod tests {
 
     #[test]
     fn append_existing_metric_adds_point() {
-        let mut provider = MemoryMetricProvider::new();
+        let provider = MemoryMetricProvider::new();
         let mut labels = MetricName::default();
         labels.add_label("foo", "bar");
         provider.append(&labels, 1, 1.0).unwrap();

@@ -3,15 +3,13 @@ use crate::execution::Context;
 use crate::prelude::{QueryValue, SIGNATURE_PARALLELIZATION_THRESHOLD};
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::types::{InstantVector, Timeseries, METRIC_NAME_LABEL};
-use ahash::HashMapExt;
-use metricsql_common::hash::{BuildNoHashHasher, IntMap, Signature};
+use metricsql_common::hash::{BuildNoHashHasher, Signature};
 use metricsql_parser::ast::{Operator, VectorMatchCardinality, VectorMatchModifier};
 use metricsql_parser::binaryop::{
     get_scalar_binop_handler, get_scalar_comparison_handler, BinopFunc,
 };
 use metricsql_parser::prelude::{BinModifier, Labels};
 use std::borrow::Cow;
-use std::collections::hash_map::Entry;
 use rayon::iter::IntoParallelIterator;
 use rayon::iter::ParallelIterator;
 use small_map::SmallMap;
@@ -376,7 +374,7 @@ fn group_join(
 
     let mut tss_left = tss_left;
     let mut tss_right = tss_right;
-    
+
     for ts_left in tss_left.iter_mut() {
         if reset_metric_group {
             ts_left.metric_name.reset_measurement();
