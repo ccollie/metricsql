@@ -1,6 +1,9 @@
 use chili::Scope;
 
-pub fn par_join_slice<T: Send + Sync, F, R>(slice: &[T], f: F) -> Vec<R>
+/// This is a utility function to perform parallel processing on a slice of items using `chili`,
+/// since it only supports a `join()` function that 2 items at a time. It is written so verbosely
+/// to minimize the number of allocations for intermediate sub-lists of items.
+pub fn par_iter_map<T: Send + Sync, F, R>(slice: &[T], f: F) -> Vec<R>
 where
     F: Fn(&T) -> R + Send + Sync,
     R: Clone + Send,
@@ -131,9 +134,82 @@ where
             let mut result: Vec<R> = Vec::with_capacity(slice.len());
             result.extend_from_slice(&[one, two, three, four, five, six]);
 
-            let mut right = par_join_slice(rest, f);
+            let mut right = par_iter_map(rest, f);
             result.append(&mut right);
             result
         }
     }
+}
+
+pub fn par_try_for_each<T: Send + Sync, F, E>(slice: &[T], f: F) -> Result<(), E>
+where
+    F: Fn(&T) -> Result<(), E> + Send + Sync,
+    E: Send,
+{
+    fn for_each_internal<E, T, F>(scope: &mut Scope<'_>, slice: &[T], f: &F) -> Result<(), E>
+    where
+        F: Fn(&T) -> Result<(), E> + Send + Sync, 
+        E: Send, T: Sync
+    {
+        match slice {
+            [] => Ok(()),
+            [first] => f(first),
+            [first, second] => {
+                let (l, r) = scope.join(|_| f(first), |_| f(second));
+                l?;
+                r?;
+                Ok(())
+            }
+            _ => {
+                let (left, right) = slice.split_at(slice.len() / 2);
+                let (l, r) = scope.join(
+                    |s| for_each_internal(s, left, f),
+                    |s| for_each_internal(s, right, f),
+                );
+                l?;
+                r?;
+                Ok(())
+            }
+        }
+    }
+
+    let mut scope = Scope::global();
+    for_each_internal(&mut scope, slice, &f)
+}
+
+pub fn par_try_for_each_mut<T: Send, F, E>(slice: &mut [T], f: F) -> Result<(), E>
+where
+    F: Fn(&mut T) -> Result<(), E> + Send + Sync,
+    E: Send,
+{
+    fn for_each_internal<E, T, F>(scope: &mut Scope<'_>, slice: &mut [T], f: &F) -> Result<(), E>
+    where
+        F: Fn(&mut T) -> Result<(), E> + Send + Sync, 
+        E: Send, T: Send
+    {
+        match slice {
+            [] => Ok(()),
+            [first] => f(first),
+            [first, second] => {
+                let (l, r) = scope.join(|_| f(first), |_| f(second));
+                l?;
+                r?;
+                Ok(())
+            }
+            _ => {
+                let mid = slice.len() / 2;
+                let (left, right) = slice.split_at_mut(mid);
+                let (l, r) = scope.join(
+                    |s| for_each_internal(s, left, f),
+                    |s| for_each_internal(s, right, f),
+                );
+                l?;
+                r?;
+                Ok(())
+            }
+        }
+    }
+
+    let mut scope = Scope::global();
+    for_each_internal(&mut scope, slice, &f)
 }
