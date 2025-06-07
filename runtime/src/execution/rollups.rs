@@ -30,6 +30,8 @@ use std::ops::Div;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::{field, trace_span, Span};
+use metricsql_common::prelude::{par_try_for_each, par_try_for_each_mut};
+
 
 /// Struct managing state for rollup execution.
 pub(super) struct RollupEvaluator<'a> {
@@ -210,7 +212,7 @@ impl<'a> RollupEvaluator<'a> {
 
                 eval_pre_funcs(&pre_funcs, values, timestamps);
                 let mut scanned_total = 0_u64;
-
+                
                 for rc in rcs.iter() {
                     if let Some(tsm) = new_timeseries_map(
                         self.func,
@@ -224,7 +226,7 @@ impl<'a> RollupEvaluator<'a> {
                         continue;
                     }
 
-                    let mut ts: Timeseries = Default::default();
+                    let mut ts: Timeseries = Timeseries::default();
 
                     let scanned_samples = do_rollup_for_timeseries(
                         self.keep_metric_names,
@@ -559,14 +561,15 @@ impl<'a> RollupEvaluator<'a> {
             timestamps: shared_timestamps,
             samples_scanned_total: Default::default(),
         };
-
-        // todo: chili
-        rss.series.par_iter_mut().try_for_each(|rs| {
+        
+        
+        par_try_for_each_mut(&mut rss.series, |rs| {
             if !ctx.no_stale_markers {
                 drop_stale_nans(&ctx.func, &mut rs.values, &mut rs.timestamps);
             }
             pre_func(&mut rs.values, &rs.timestamps);
-            for rc in ctx.rcs.iter() {
+            
+            par_try_for_each(&ctx.rcs, |rc| {
                 let samples_scanned = process_result(
                     rs,
                     ctx.func,
@@ -577,7 +580,9 @@ impl<'a> RollupEvaluator<'a> {
                 )?;
 
                 ctx.samples_scanned_total.add(samples_scanned);
-            }
+                Ok::<(), RuntimeError>(())                
+            })?;
+
             Ok::<(), RuntimeError>(())
         })?;
 
@@ -652,7 +657,7 @@ fn new_timeseries_map(
 }
 
 fn process_result(
-    rs: &mut QueryResult,
+    rs: &QueryResult,
     func: RollupFunction,
     rc: &RollupConfig,
     series: Arc<Mutex<Vec<Timeseries>>>,
@@ -745,36 +750,54 @@ fn get_absent_timeseries(ec: &EvalConfig, expr: &Expr) -> RuntimeResult<Vec<Time
 }
 
 /// Executes `f` for each `Timeseries` in `tss` in parallel.
-pub(super) fn do_parallel<F>(tss: &Vec<Timeseries>, f: F) -> RuntimeResult<(Vec<Timeseries>, u64)>
+fn do_parallel<F>(tss: &Vec<Timeseries>, f: F) -> RuntimeResult<(Vec<Timeseries>, u64)>
 where
     F: Fn(&Timeseries, &mut [f64], &[i64]) -> RuntimeResult<(Vec<Timeseries>, u64)> + Send + Sync,
 {
-    // todo: chili instead of rayon
-    let res: RuntimeResult<Vec<(Vec<Timeseries>, u64)>> = tss
-        .par_iter()
-        .map(|ts| {
-            let len = ts.values.len();
-            // todo: should we have an upper limit here to avoid OOM? Or explicitly size down
-            // afterward if needed?
-            let mut values = get_pooled_vec_f64(len);
-            let mut timestamps = get_pooled_vec_i64(len);
+    #[derive(Default)]
+    struct Context {
+        count: u64,
+        err: Option<RuntimeError>,
+        result: Vec<Timeseries>,
+    }
+    
+    let ctx: Mutex<Context> = Mutex::new(Context::default());
+    par_try_for_each(&tss, |ts| {
+        let len = ts.values.len();
+        // todo: should we have an upper limit here to avoid OOM? Or explicitly size down
+        // afterward if needed?
+        let mut values = get_pooled_vec_f64(len);
+        let mut timestamps = get_pooled_vec_i64(len);
 
-            // todo(perf): have param for if values have NaNs
-            remove_nan_values(&mut values, &mut timestamps, &ts.values, &ts.timestamps);
-
-            f(ts, &mut values, &mut timestamps)
-        })
-        .collect();
-
-    let mut series: Vec<Timeseries> = Vec::with_capacity(tss.len());
-    let tss = res?;
-    let mut sample_total = 0_u64;
-    for (ref mut timeseries, sample_count) in tss.into_iter() {
-        sample_total += sample_count;
-        series.append(timeseries);
+        // todo(perf): have param for if values have NaNs
+        remove_nan_values(&mut values, &mut timestamps, &ts.values, &ts.timestamps);
+        
+        let mut ctx = ctx.lock().expect("do_parallel: cannot acquire context");
+        return match f(ts, &mut values, &mut timestamps) {
+            Ok((mut timeseries, sample_count)) => {
+                ctx.count += sample_count;
+                if !timeseries.is_empty() {
+                    if ctx.result.is_empty() {
+                        ctx.result = timeseries;
+                    } else {
+                        ctx.result.append(&mut timeseries);
+                    }
+                }
+                Ok(())
+            }
+            Err(err) => {
+                ctx.err = Some(err.clone());
+                Err(err)
+            }
+        }
+    })?;
+    
+    let mut context = ctx.into_inner().expect("do_parallel: cannot acquire context");
+    if let Some(err) = context.err {
+        return Err(err);
     }
 
-    Ok((series, sample_total))
+    Ok((context.result, context.count))
 }
 
 fn remove_nan_values(
