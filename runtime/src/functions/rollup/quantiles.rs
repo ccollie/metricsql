@@ -1,5 +1,5 @@
 use std::ops::DerefMut;
-
+use smallvec::SmallVec;
 use metricsql_common::pool::get_pooled_vec_f64_filled;
 
 use crate::common::math::{quantile, quantiles};
@@ -12,9 +12,8 @@ pub(super) fn new_rollup_quantiles(args: &[QueryValue]) -> RuntimeResult<RollupH
     let phi_label = get_string_param_value(args, 0, "quantiles", "phi_label")?;
     let cap = args.len() - 1;
 
-    let mut phis = Vec::with_capacity(cap);
-    // todo: smallvec ??
-    let mut phi_labels: Vec<String> = Vec::with_capacity(cap);
+    let mut phis: SmallVec<f64, 8> = SmallVec::new();
+    let mut phi_labels: SmallVec<String, 8> = SmallVec::new();
 
     for i in 1..args.len() {
         // unwrap should be safe, since parameter types are checked before calling the function
