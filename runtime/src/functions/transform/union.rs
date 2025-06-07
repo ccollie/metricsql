@@ -43,7 +43,7 @@ pub(crate) fn handle_union(
         }
         return Ok(rvs);
     }
-    
+
     let mut set: SignatureSet = SmallSet::new();
 
     fn process_vector(v: &mut [Timeseries], m: &mut SignatureSet, rvs: &mut Vec<Timeseries>) {

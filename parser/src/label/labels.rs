@@ -74,7 +74,11 @@ impl Labels {
     pub fn intersect(&self, ls: &Labels) -> Labels {
         let s1: SmallSet<8, &String> = self.0.iter().collect();
         let s2: SmallSet<8, &String> = ls.0.iter().collect();
-        let labels = s1.intersection(&s2).into_iter().map(|s| s.to_string()).collect();
+        let labels = s1
+            .intersection(&s2)
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect();
 
         Self(labels)
     }

@@ -17,10 +17,10 @@ pub mod histogram;
 pub mod humanize;
 pub mod pool;
 pub mod regex_util;
+pub mod set;
 pub mod threads;
 pub mod time;
 pub mod types;
-pub mod set;
 
 pub mod prelude {
     pub use crate::async_runtime::*;

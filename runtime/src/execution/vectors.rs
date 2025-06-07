@@ -33,7 +33,7 @@ pub(super) fn vector_vector_binop(
 
     let (left, right) = if expr.op == Operator::And || expr.op == Operator::If {
         // Fetch right-side series at first, since it usually contains
-        // lower number of time series for `and` and `if` operator.
+        // a lower number of time series for `and` and `if` operator.
         // This should produce more specific label filters for the left side of the query.
         // This, in turn, should reduce the time to select series for the left side of the query.
         exec_binary_op_args(ctx, ec, &expr.right, &expr.left, expr)?
@@ -85,7 +85,7 @@ fn exec_binary_op_args(
         };
     }
 
-    // Execute binary operation in the following way:
+    // Execute the binary operation in the following way:
     //
     // 1) execute the expr_first
     // 2) get common label filters for series returned at step 1
@@ -141,7 +141,7 @@ fn push_down_filters<'a>(
     Ok(Cow::Borrowed(dest))
 }
 
-/// trims lfs by the specified be.group_modifier.op (e.g. on() or ignoring()).
+/// Trims lfs by the specified be.group_modifier.op (e.g., on() or ignoring()).
 ///
 /// The following cases are possible:
 /// - It returns lfs as is if be doesn't contain any group modifier

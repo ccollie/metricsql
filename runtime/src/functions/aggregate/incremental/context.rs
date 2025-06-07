@@ -26,7 +26,7 @@ impl TryFrom<&str> for IncrementalAggrFuncKind {
     type Error = String;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        let kind = hashify::tiny_map_ignore_case! { value.as_bytes(), 
+        let kind = hashify::tiny_map_ignore_case! { value.as_bytes(),
             "count" => IncrementalAggrFuncKind::Count,
             "geomean" => IncrementalAggrFuncKind::Geomean,
             "min" => IncrementalAggrFuncKind::Min,

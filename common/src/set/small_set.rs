@@ -1,3 +1,4 @@
+use ahash::AHasher;
 use core::borrow::Borrow;
 use core::fmt::{self, Debug};
 use core::hash::{BuildHasher, Hash};
@@ -6,7 +7,6 @@ use core::ops::{BitAnd, BitOr, BitXor, Sub};
 use small_map::SmallMap;
 use std::collections::hash_map::RandomState;
 use std::hash::BuildHasherDefault;
-use ahash::AHasher;
 
 /// A set implementation optimized for small collections, based on `SmallMap` from the small-map crate.
 ///
@@ -296,7 +296,6 @@ where
         result
     }
 }
-
 
 impl<const N: usize, T, S1, S2> BitAnd<&SmallSet<N, T, S2>> for &SmallSet<N, T, S1>
 where

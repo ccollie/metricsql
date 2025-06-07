@@ -37,7 +37,8 @@ impl MemoryLimiter {
         if n > *inner {
             // todo: better error enum
             return Err(RuntimeError::from(format!(
-                "MemoryLimiter: n={n} cannot exceed {}", *inner
+                "MemoryLimiter: n={n} cannot exceed {}",
+                *inner
             )));
         }
         *inner -= n;

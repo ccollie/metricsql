@@ -242,7 +242,7 @@ fn aggr_prepare_series(
         match m.entry(k) {
             Entry::Vacant(entry) => {
                 if max_series > 0 && len >= max_series {
-                    // We already reached time series limit after grouping. Skip other time series.
+                    // We already reached the time series limit after grouping. Skip other time series.
                     continue;
                 }
                 let mut tss: Vec<Timeseries> = Vec::with_capacity(4);

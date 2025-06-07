@@ -310,10 +310,10 @@ impl Test {
                 return Err(TestAssertionError::new(cmd.line, msg));
             }
         };
-        
+
         let annotations = Annotations::new(); //??
         cmd.check_annotations(&cmd.expr, &annotations)?;
-        
+
         cmd.compare_result(&value)
     }
 

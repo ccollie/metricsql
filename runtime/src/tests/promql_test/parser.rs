@@ -116,7 +116,10 @@ fn parse_expect(def_line: &str) -> Result<(ExpectCmdType, ExpectCmd), String> {
     let mut exp_cmd = ExpectCmd::default();
 
     if caps.is_none() {
-        return Err("invalid expect statement, must match `expect <type> <match_type>: <string>` format".to_string());
+        return Err(
+            "invalid expect statement, must match `expect <type> <match_type>: <string>` format"
+                .to_string(),
+        );
     }
     let caps = caps.unwrap();
 
@@ -148,22 +151,26 @@ fn parse_expect(def_line: &str) -> Result<(ExpectCmdType, ExpectCmd), String> {
     Ok((expect_type, exp_cmd))
 }
 
-fn validate_expected_cmds(cmd :&EvalCmd) -> Result<(), String> {
+fn validate_expected_cmds(cmd: &EvalCmd) -> Result<(), String> {
     fn has_expected_cmds(cmd: &EvalCmd, cmd_type: ExpectCmdType) -> bool {
-        match cmd.expected_cmds.get(&cmd_type) {  
+        match cmd.expected_cmds.get(&cmd_type) {
             Some(expected) => !expected.is_empty(),
             None => false,
         }
     }
-    if has_expected_cmds(cmd, ExpectCmdType::Info) && has_expected_cmds(cmd, ExpectCmdType::NoInfo) {
+    if has_expected_cmds(cmd, ExpectCmdType::Info) && has_expected_cmds(cmd, ExpectCmdType::NoInfo)
+    {
         return Err("invalid expect lines, info and no_info cannot be used together".to_string());
     }
-    if has_expected_cmds(cmd, ExpectCmdType::Warn) && has_expected_cmds(cmd, ExpectCmdType::NoWarn) {
+    if has_expected_cmds(cmd, ExpectCmdType::Warn) && has_expected_cmds(cmd, ExpectCmdType::NoWarn)
+    {
         return Err("invalid expect lines, warn and no_warn cannot be used together".to_string());
     }
     match cmd.expected_cmds.get(&ExpectCmdType::Fail) {
         Some(expected) if expected.len() > 1 => {
-            return Err("invalid expect lines, multiple expect fail lines are not allowed".to_string());
+            return Err(
+                "invalid expect lines, multiple expect fail lines are not allowed".to_string(),
+            );
         }
         _ => {}
     }
@@ -342,20 +349,18 @@ pub fn parse_eval(lines: &[String], mut i: usize) -> Result<(usize, TestCommand)
                 // Not an `expect` line, continue parsing metrics
                 continue;
             }
-            
-            let (anno_type, expected_anno) = parse_expect(def_line)
-                .map_err(|e| raise(i, e))?;
-            
+
+            let (anno_type, expected_anno) = parse_expect(def_line).map_err(|e| raise(i, e))?;
+
             cmd.expected_cmds
                 .entry(anno_type)
                 .or_insert_with(Vec::new)
                 .push(expected_anno);
-            
+
             j -= 1;
-            validate_expected_cmds(&cmd)
-                .map_err(|e| raise(i, e))?;
-            
-            continue
+            validate_expected_cmds(&cmd).map_err(|e| raise(i, e))?;
+
+            continue;
         }
 
         if let Ok(f) = parse_number(def_line) {

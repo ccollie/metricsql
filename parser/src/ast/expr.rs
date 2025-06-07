@@ -285,15 +285,21 @@ impl TryFrom<&str> for GroupModifierOp {
         use GroupModifierOp::*;
 
         match op.len() {
-            2 => if op.eq_ignore_ascii_case("on") {
-                return Ok(On);
-            },
-            8 => if op.eq_ignore_ascii_case("ignoring") {
-                return Ok(Ignoring);
-            },
+            2 => {
+                if op.eq_ignore_ascii_case("on") {
+                    return Ok(On);
+                }
+            }
+            8 => {
+                if op.eq_ignore_ascii_case("ignoring") {
+                    return Ok(Ignoring);
+                }
+            }
             _ => {}
         }
-        Err(ParseError::General(format!("Unknown group_modifier op: {op}")))
+        Err(ParseError::General(format!(
+            "Unknown group_modifier op: {op}"
+        )))
     }
 }
 
@@ -390,13 +396,17 @@ impl TryFrom<&str> for JoinModifierOp {
     fn try_from(op: &str) -> Result<Self, Self::Error> {
         use JoinModifierOp::*;
 
-        match op.len() { 
-            10 => if op.eq_ignore_ascii_case("group_left") {
-                return Ok(GroupLeft);
-            },
-            11 => if op.eq_ignore_ascii_case("group_right") {
-                return Ok(GroupRight);
-            },
+        match op.len() {
+            10 => {
+                if op.eq_ignore_ascii_case("group_left") {
+                    return Ok(GroupLeft);
+                }
+            }
+            11 => {
+                if op.eq_ignore_ascii_case("group_right") {
+                    return Ok(GroupRight);
+                }
+            }
             _ => {}
         }
         let msg = format!("Unknown join_modifier op: {op}");

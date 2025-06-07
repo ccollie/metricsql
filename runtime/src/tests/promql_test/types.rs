@@ -11,10 +11,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 use crate::types::MetricName;
-use std::error::Error;
-use std::fmt::{Debug, Display, Formatter};
 use ahash::HashMap;
 use regex::Regex;
+use std::error::Error;
+use std::fmt::{Debug, Display, Formatter};
 
 #[derive(Debug, Clone)]
 pub struct Sample {
@@ -30,7 +30,7 @@ pub(super) enum ExpectCmdType {
     Warn,
     NoWarn,
     Info,
-    NoInfo
+    NoInfo,
 }
 
 impl ExpectCmdType {
@@ -128,7 +128,7 @@ pub struct SeriesDescription {
 
 pub struct Entry {
     pub pos: usize,
-    pub vals: Vec<SequenceValue>
+    pub vals: Vec<SequenceValue>,
 }
 
 #[derive(Debug)]
@@ -226,19 +226,25 @@ impl Annotations {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
-    
+
     pub fn count_warnings(&self) -> usize {
-        self.0.iter().filter(|(_, v)| v.contains(PROMQL_WARNING)).count()
+        self.0
+            .iter()
+            .filter(|(_, v)| v.contains(PROMQL_WARNING))
+            .count()
     }
-    
+
     pub fn count_infos(&self) -> usize {
-        self.0.iter().filter(|(_, v)| v.contains(PROMQL_INFO)).count()
+        self.0
+            .iter()
+            .filter(|(_, v)| v.contains(PROMQL_INFO))
+            .count()
     }
-    
+
     pub fn count_warnings_and_infos(&self) -> (usize, usize) {
         (self.count_warnings(), self.count_infos())
     }
-    
+
     pub fn iter(&self) -> impl Iterator<Item = (&String, &String)> {
         self.0.iter()
     }

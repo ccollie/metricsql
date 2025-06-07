@@ -22,7 +22,8 @@ pub(crate) fn can_push_down_common_filters(be: &BinaryExpr) -> bool {
 }
 
 pub(crate) fn get_common_label_filters(tss: &[Timeseries]) -> Vec<Matcher> {
-    let mut kv_map: SmallMap<16, String, AHashSet<String>, BuildHasherDefault<AHasher>> = SmallMap::new();
+    let mut kv_map: SmallMap<16, String, AHashSet<String>, BuildHasherDefault<AHasher>> =
+        SmallMap::new();
     for ts in tss.iter() {
         for Label { name: k, value: v } in ts.metric_name.labels.iter() {
             match kv_map.get_mut(k) {

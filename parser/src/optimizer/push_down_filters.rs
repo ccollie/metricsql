@@ -7,11 +7,11 @@ use crate::label::{Matcher, Matchers, NAME_LABEL};
 use crate::parser::{ParseError, ParseResult};
 use crate::prelude::{can_accept_multiple_args_for_aggr_func, VectorMatchCardinality};
 use metricsql_common::hash::{FastHashSet, Signature};
+use metricsql_common::set::ASmallSet;
 use smallvec::SmallVec;
 use std::borrow::Cow;
 use std::iter::FromIterator;
 use std::vec::Vec;
-use metricsql_common::set::ASmallSet;
 
 /// `push_down_filters` optimizes e to improve its performance.
 ///
