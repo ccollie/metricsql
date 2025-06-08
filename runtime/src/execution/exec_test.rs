@@ -4727,13 +4727,13 @@ mod tests {
     #[test]
     fn rollup_increase() {
         let q = "sort(rollup_increase(time()))";
-        let mut r1 = make_result(&[200_f64, 200.0, 200.0, 200.0, 200.0, 200.0]);
-        r1.metric.set("rollup", "min");
-        let mut r2 = make_result(&[200_f64, 200.0, 200.0, 200.0, 200.0, 200.0]);
-        r2.metric.set("rollup", "max");
-        let mut r3 = make_result(&[200_f64, 200.0, 200.0, 200.0, 200.0, 200.0]);
-        r3.metric.set("rollup", "avg");
-        test_query(q, vec![r1, r2, r3]);
+        let mut r_min = make_result(&[200_f64, 200.0, 200.0, 200.0, 200.0, 200.0]);
+        r_min.metric.set("rollup", "min");
+        let mut r_max = make_result(&[200_f64, 200.0, 200.0, 200.0, 200.0, 200.0]);
+        r_max.metric.set("rollup", "max");
+        let mut r_avg = make_result(&[200_f64, 200.0, 200.0, 200.0, 200.0, 200.0]);
+        r_avg.metric.set("rollup", "avg");
+        test_query(q, vec![r_avg, r_max, r_min]);
     }
 
     #[test]
@@ -4793,13 +4793,13 @@ mod tests {
     #[test]
     fn rollup_deriv() {
         let q = "sort(rollup_deriv(time()[100s:50s]))";
-        let mut r1 = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
-        r1.metric.set("rollup", "min");
-        let mut r2 = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
-        r2.metric.set("rollup", "max");
-        let mut r3 = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
-        r3.metric.set("rollup", "avg");
-        test_query(q, vec![r1, r2, r3]);
+        let mut r_min = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
+        r_min.metric.set("rollup", "min");
+        let mut r_max = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
+        r_max.metric.set("rollup", "max");
+        let mut r_avg = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
+        r_avg.metric.set("rollup", "avg");
+        test_query(q, vec![r_avg, r_max, r_min]);
     }
 
     #[test]
