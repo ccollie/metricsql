@@ -23,6 +23,7 @@ async-std = { version = "1.13", optional = true }
 async-trait.workspace = true
 enquote.workspace = true
 blart = "0.3"
+byte-pool.workspace = true
 clone_dyn = "0.32.0"
 chili.workspace = true
 croaring = { version = "2.3" , features = ["alloc"] }

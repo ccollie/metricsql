@@ -367,93 +367,90 @@ impl RollupConfig {
         let mut j = 0;
         let mut ni = 0;
         let mut nj = 0;
+        
+        // todo: get from a pool
+        let mut func_args = Vec::with_capacity(self.timestamps.len());
 
-        // todo: use smallvec, or have a pool of vecs
-        let func_args: Vec<_> = self
-            .timestamps
-            .iter()
-            .enumerate()
-            .map(|(idx, &t_end)| {
-                let t_start = t_end - window_ms;
+        for (idx, &t_end) in self.timestamps.iter().enumerate() {
+            let t_start = t_end - window_ms;
 
-                ni = seek_first_timestamp_idx_after(&timestamps[i..], t_start, ni);
-                i += ni;
-                if j < i {
-                    j = i;
+            ni = seek_first_timestamp_idx_after(&timestamps[i..], t_start, ni);
+            i += ni;
+            if j < i {
+                j = i;
+            }
+
+            nj = seek_first_timestamp_idx_after(&timestamps[j..], t_end, nj);
+            j += nj;
+
+            let mut rfa = RollupFuncArg {
+                window: window_ms,
+                prev_value: f64::NAN,
+                prev_timestamp: t_start - max_prev_interval,
+                real_prev_value: f64::NAN,
+                ..Default::default()
+            };
+
+            if i < sample_len && i > 0 && timestamps[i - 1] > rfa.prev_timestamp {
+                // SAFETY: range is checked above
+                unsafe {
+                    let prev_idx = i - 1;
+                    rfa.prev_value = *values.get_unchecked(prev_idx);
+                    rfa.prev_timestamp = *timestamps.get_unchecked(prev_idx);
                 }
+            }
 
-                nj = seek_first_timestamp_idx_after(&timestamps[j..], t_end, nj);
-                j += nj;
+            rfa.values = &values[i..j];
+            rfa.timestamps = &timestamps[i..j];
 
-                let mut rfa = RollupFuncArg {
-                    window: window_ms,
-                    prev_value: f64::NAN,
-                    prev_timestamp: t_start - max_prev_interval,
-                    real_prev_value: f64::NAN,
-                    ..Default::default()
-                };
+            if i > 0 {
+                let idx = i - 1;
 
-                if i < sample_len && i > 0 && timestamps[i - 1] > rfa.prev_timestamp {
-                    // SAFETY: range is checked above
-                    unsafe {
-                        let prev_idx = i - 1;
-                        rfa.prev_value = *values.get_unchecked(prev_idx);
-                        rfa.prev_timestamp = *timestamps.get_unchecked(prev_idx);
+                // SAFETY: i > 0 is checked above
+                unsafe {
+                    let prev_timestamp = timestamps.get_unchecked(idx);
+
+                    // set real_prev_value if rc.lookback_delta == 0
+                    // or if the distance between datapoint in the prev interval and the beginning of this interval
+                    // doesn't exceed lookback_delta.
+                    // https://github.com/VictoriaMetrics/VictoriaMetrics/pull/1381
+                    // https://github.com/VictoriaMetrics/VictoriaMetrics/issues/894
+                    // https://github.com/VictoriaMetrics/VictoriaMetrics/issues/8045
+                    // https://github.com/VictoriaMetrics/VictoriaMetrics/issues/8935
+
+                    let mut curr_timestamp = t_start;
+                    if !rfa.timestamps.is_empty() {
+                        curr_timestamp = rfa.timestamps[0];
+                    }
+
+                    if self.lookback_delta.is_zero()
+                        || (curr_timestamp - *prev_timestamp)
+                        < self.lookback_delta.as_millis() as i64
+                    {
+                        let prev_value = values.get_unchecked(idx);
+                        rfa.real_prev_value = *prev_value;
                     }
                 }
+            }
 
-                rfa.values = &values[i..j];
-                rfa.timestamps = &timestamps[i..j];
+            rfa.real_next_value = if j < values.len() {
+                values[j]
+            } else {
+                f64::NAN
+            };
+            rfa.curr_timestamp = t_end;
+            rfa.idx = idx;
+            rfa.tsm = tsm.as_ref().map(Arc::clone);
 
-                if i > 0 {
-                    let idx = i - 1;
+            if samples_scanned_per_call > 0 {
+                samples_scanned += samples_scanned_per_call;
+            } else {
+                samples_scanned += rfa.values.len() as u64;
+            }
 
-                    // SAFETY: i > 0 is checked above
-                    unsafe {
-                        let prev_timestamp = timestamps.get_unchecked(idx);
-
-                        // set real_prev_value if rc.lookback_delta == 0
-                        // or if the distance between datapoint in the prev interval and the beginning of this interval
-                        // doesn't exceed lookback_delta.
-                        // https://github.com/VictoriaMetrics/VictoriaMetrics/pull/1381
-                        // https://github.com/VictoriaMetrics/VictoriaMetrics/issues/894
-                        // https://github.com/VictoriaMetrics/VictoriaMetrics/issues/8045
-                        // https://github.com/VictoriaMetrics/VictoriaMetrics/issues/8935
-
-                        let mut curr_timestamp = t_start;
-                        if !rfa.timestamps.is_empty() {
-                            curr_timestamp = rfa.timestamps[0];
-                        }
-
-                        if self.lookback_delta.is_zero()
-                            || (curr_timestamp - *prev_timestamp)
-                                < self.lookback_delta.as_millis() as i64
-                        {
-                            let prev_value = values.get_unchecked(idx);
-                            rfa.real_prev_value = *prev_value;
-                        }
-                    }
-                }
-
-                rfa.real_next_value = if j < values.len() {
-                    values[j]
-                } else {
-                    f64::NAN
-                };
-                rfa.curr_timestamp = t_end;
-                rfa.idx = idx;
-                rfa.tsm = tsm.as_ref().map(Arc::clone);
-
-                if samples_scanned_per_call > 0 {
-                    samples_scanned += samples_scanned_per_call;
-                } else {
-                    samples_scanned += rfa.values.len() as u64;
-                }
-
-                rfa
-            })
-            .collect(); // todo: collect into a smallvec to avoid heap allocation
-
+            func_args.push(rfa);           
+        }
+        
         exec_handlers(&self.handler, dst_values, &func_args);
 
         Ok(samples_scanned)
@@ -490,6 +487,7 @@ impl RollupConfig {
             _ => Ok(()),
         }
     }
+    
 }
 
 // todo: better heuristics to determine whether to parallelize
@@ -509,6 +507,8 @@ fn exec_handlers(handler: &RollupHandler, dest: &mut Vec<f64>, args: &[RollupFun
     }
 }
 
+// Done with iteration (and many branches) instead of recursion because of the dest vector (passed in to 
+// minimize temporary allocations). Rollup handling is considered to be in the hot path
 fn exec_handler_parallel(
     scope: &mut Scope,
     handler: &RollupHandler,
@@ -525,6 +525,36 @@ fn exec_handler_parallel(
         scope.join(|_| handler.eval(first), |_| handler.eval(second))
     }
 
+    #[inline]
+    fn process_three(
+        s: &mut Scope,
+        handler: &RollupHandler,
+        first: &RollupFuncArg,
+        second: &RollupFuncArg,
+        third: &RollupFuncArg,
+    ) -> (f64, f64, f64)
+    {
+        let ((one, two), three) = s.join(|s1| process_two(s1, handler, first, second), |_| handler.eval(third));
+        (one, two, three)
+    }
+
+    #[inline]
+    fn process_four(
+        scope: &mut Scope,
+        handler: &RollupHandler,
+        first: &RollupFuncArg,
+        second: &RollupFuncArg,
+        third: &RollupFuncArg,
+        fourth: &RollupFuncArg,
+    ) -> (f64, f64, f64, f64)
+    {
+        let ((v1, v2), (v3, v4)) = scope.join(
+            |s1| process_two(s1, handler, first, second),
+            |s2| process_two(s2, handler, third, fourth),
+        );
+        (v1, v2, v3, v4)
+    }
+
     match args {
         [] => (),
         [first] => {
@@ -536,18 +566,26 @@ fn exec_handler_parallel(
             dest.extend_from_slice(&[v1, v2]);
         }
         [first, second, third] => {
-            let ((v1, v2), v3) = scope.join(
-                |s1| process_two(s1, handler, first, second),
-                |_| handler.eval(third),
-            );
+            let (v1, v2, v3) = process_three(scope, handler, first, second, third);
             dest.extend_from_slice(&[v1, v2, v3]);
         }
         [first, second, third, fourth] => {
-            let ((v1, v2), (v3, v4)) = scope.join(
-                |s1| process_two(s1, handler, first, second),
-                |s2| process_two(s2, handler, third, fourth),
-            );
+            let (v1, v2, v3, v4) = process_four(scope, handler, first, second, third, fourth);
             dest.extend_from_slice(&[v1, v2, v3, v4]);
+        }
+        [p1, p2, p3, p4, p5] => {
+            let ((v1, v2, v3, v4), v5) = scope.join(
+                |s| process_four(s, handler, p1, p2, p3, p4),
+                |s| handler.eval(p5)
+            );
+            dest.extend_from_slice(&[v1, v2, v3, v4, v5]);
+        }
+        [p1, p2, p3, p4, p5, p6] => {
+            let ((v1, v2, v3, v4), (v5, v6)) = scope.join(
+                |s| process_four(s, handler, p1, p2, p3, p4),
+                |s| process_two(s, handler, p5, p6)
+            );
+            dest.extend_from_slice(&[v1, v2, v3, v4, v5, v6]);
         }
         _ => {
             let mid = args.len() / 2;
