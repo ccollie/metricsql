@@ -1,11 +1,13 @@
-use crate::hash::{FastHasher, IsEnabled};
+use crate::hash::{BuildNoHashHasher, FastHasher, IsEnabled};
 use crate::types::Label;
 use std::fmt::Display;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
+use crate::prelude::SmallSet;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Copy, Ord, PartialOrd)]
 pub struct Signature(u64);
+pub type SignatureSet = SmallSet<32, Signature, BuildNoHashHasher<Signature>>;
 
 /// implement hash which returns the value of the inner u64
 impl Hash for Signature {

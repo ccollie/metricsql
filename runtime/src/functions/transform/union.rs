@@ -2,16 +2,12 @@ use crate::execution::{eval_number, EvalConfig};
 use crate::functions::transform::TransformFuncArg;
 use crate::types::{FunctionArgs, QueryValue, Timeseries};
 use crate::{RuntimeError, RuntimeResult};
-use metricsql_common::hash::{BuildNoHashHasher, Signature};
-use metricsql_common::set::SmallSet;
+use metricsql_common::prelude::SignatureSet;
 
 pub(crate) fn union(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    // we don't use args after this
     let mut args = std::mem::take(&mut tfa.args);
     handle_union(&mut args, tfa.ec)
 }
-
-type SignatureSet = SmallSet<16, Signature, BuildNoHashHasher<Signature>>;
 
 pub(crate) fn handle_union(
     args: &mut FunctionArgs,
@@ -44,7 +40,7 @@ pub(crate) fn handle_union(
         return Ok(rvs);
     }
 
-    let mut set: SignatureSet = SmallSet::new();
+    let mut set = SignatureSet::new();
 
     fn process_vector(v: &mut [Timeseries], m: &mut SignatureSet, rvs: &mut Vec<Timeseries>) {
         for ts in v.iter_mut() {
