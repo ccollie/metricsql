@@ -1,6 +1,6 @@
 use std::fmt;
 use std::fmt::Display;
-use std::ops::Range;
+use std::ops::{Deref, Range};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -170,6 +170,14 @@ impl QueryResults {
 
     pub fn is_empty(&self) -> bool {
         self.series.is_empty()
+    }
+}
+
+impl Deref for QueryResults {
+    type Target = Vec<QueryResult>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.series
     }
 }
 
