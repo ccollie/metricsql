@@ -33,6 +33,96 @@ use tracing::{field, trace_span, Span};
 use metricsql_common::prelude::{par_try_for_each, par_try_for_each_mut};
 
 
+struct RollupConfigEvalCtx<'a> {
+    series: Arc<Mutex<Vec<Timeseries>>>,
+    keep_metric_names: bool,
+    func: RollupFunction,
+    rcs: &'a RollupConfigVec,
+    timestamps: &'a Arc<Vec<i64>>,
+    samples_scanned_total: RelaxedU64Counter,
+}
+
+impl<'a> RollupConfigEvalCtx<'a> {
+    /// Creates a new RollupConfigEvalCtx.
+    fn new(
+        configs: &'a RollupConfigVec,
+        func: RollupFunction,
+        keep_metric_names: bool,
+        timestamps: &'a Arc<Vec<i64>>,
+    ) -> Self {
+        Self {
+            series: Arc::new(Mutex::new(Vec::new())),
+            keep_metric_names,
+            func,
+            rcs: configs,
+            timestamps,
+            samples_scanned_total: Default::default(),
+        }
+    }
+    fn exec(&self, results: &[QueryResult]) -> RuntimeResult<()> {
+        par_try_for_each(&results, |rs| {
+            par_try_for_each(&self.rcs, |rc| {
+                let _ = self.exec_one_internal(rc, &rs.metric, &rs.values, &rs.timestamps)?;
+                Ok::<(), RuntimeError>(())
+            })
+        })
+    }
+
+    fn exec_ts(&self, ts: &Timeseries) -> RuntimeResult<()> {
+        par_try_for_each(&self.rcs, |rc| {
+            self.exec_one_internal(rc, &ts.metric_name, &ts.values, &ts.timestamps)
+        })
+    }
+
+    fn exec_internal(&self, metric: &MetricName, values: &[f64], timestamps: &[Timestamp]) -> RuntimeResult<()> {
+        par_try_for_each(&self.rcs, |rc| {
+           self.exec_one_internal(rc, metric, values, timestamps)
+        })
+    }
+
+    fn exec_one_internal(
+        &self,
+        rc: &RollupConfig,
+        metric: &MetricName,
+        values: &[f64],
+        timestamps: &[i64],
+    ) -> RuntimeResult<()> {
+        if let Some(tsm) = new_timeseries_map(self.func, self.keep_metric_names, self.timestamps, metric) {
+            rc.do_timeseries_map(tsm.clone(), values, timestamps)?;
+            let mut tss = self.series.lock().unwrap();
+            tsm.as_ref().append_timeseries_to(&mut tss);
+            Ok(())
+        } else {
+            let mut ts: Timeseries = Timeseries::default();
+            let samples_scanned = do_rollup_for_timeseries(
+                self.keep_metric_names,
+                rc,
+                &mut ts,
+                &metric,
+                &values,
+                &timestamps,
+                self.timestamps,
+            )?;
+            self.samples_scanned_total.add(samples_scanned);
+            let mut tss = self.series.lock().unwrap();
+            tss.push(ts);
+            Ok(())
+        }
+    }
+
+    fn unwrap(self) -> (Vec<Timeseries>, u64) {
+        // https://users.rust-lang.org/t/how-to-move-the-content-of-mutex-wrapped-by-arc/10259/7
+        let series = Arc::try_unwrap(self.series)
+            .expect("Error unwrapping series in RollupConfigEvalCtx")
+            .into_inner()
+            .expect("RollupConfigEvalCtx failed to unwrap Arc");
+        (
+            series,
+            self.samples_scanned_total.get(),
+        )
+    }
+}
+
 /// Struct managing state for rollup execution.
 pub(super) struct RollupEvaluator<'a> {
     /// Source expression
@@ -139,7 +229,7 @@ impl<'a> RollupEvaluator<'a> {
     fn eval_with_subquery(&self, ctx: &Context, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
         // TODO: determine whether to use rollup result cache here.
 
-        let span = if self.is_tracing {
+        let span = if ctx.trace_enabled() {
             let function = self.func.name();
             trace_span!(
                 "subquery",
@@ -204,46 +294,21 @@ impl<'a> RollupEvaluator<'a> {
 
         let (res, samples_scanned_total) = do_parallel(
             &tss_sq,
-            move |ts_sq: &Timeseries,
-                  values: &mut [f64],
-                  timestamps: &[i64]|
+            move |ts_sq: &Timeseries, values: &mut [f64], timestamps: &[i64]|
                   -> RuntimeResult<(Vec<Timeseries>, u64)> {
-                let mut res: Vec<Timeseries> = Vec::with_capacity(ts_sq.len());
 
                 eval_pre_funcs(&pre_funcs, values, timestamps);
-                let mut scanned_total = 0_u64;
-                
-                for rc in rcs.iter() {
-                    if let Some(tsm) = new_timeseries_map(
-                        self.func,
-                        self.keep_metric_names,
-                        &shared_timestamps,
-                        &ts_sq.metric_name,
-                    ) {
-                        scanned_total += rc.do_timeseries_map(tsm.clone(), values, timestamps)?;
-                        tsm.as_ref().append_timeseries_to(&mut res);
 
-                        continue;
-                    }
+                let mut ctx = RollupConfigEvalCtx::new(
+                    &rcs,
+                    self.func,
+                    self.keep_metric_names,
+                    &shared_timestamps,
+                );
 
-                    let mut ts: Timeseries = Timeseries::default();
+                ctx.exec_internal(&ts_sq.metric_name, values, timestamps)?;
 
-                    let scanned_samples = do_rollup_for_timeseries(
-                        self.keep_metric_names,
-                        rc,
-                        &mut ts,
-                        &ts_sq.metric_name,
-                        values,
-                        timestamps,
-                        &shared_timestamps,
-                    )?;
-
-                    scanned_total += scanned_samples;
-
-                    res.push(ts);
-                }
-
-                Ok((res, scanned_total))
+                Ok(ctx.unwrap())
             },
         )?;
 
@@ -540,57 +605,26 @@ impl<'a> RollupEvaluator<'a> {
         }
         .entered();
 
-        struct TaskCtx<'a> {
-            series: Arc<Mutex<Vec<Timeseries>>>,
-            keep_metric_names: bool,
-            func: RollupFunction,
-            rcs: RollupConfigVec,
-            timestamps: &'a Arc<Vec<i64>>,
-            no_stale_markers: bool,
-            samples_scanned_total: RelaxedU64Counter,
-        }
+        let ctx = RollupConfigEvalCtx::new(
+            &rcs,
+            self.func,
+            self.keep_metric_names,
+            shared_timestamps,
+        );
 
-        // todo: smallvec
-        let series = Arc::new(Mutex::new(Vec::with_capacity(rss.len() * rcs.len())));
-        let ctx = TaskCtx {
-            series: Arc::clone(&series),
-            keep_metric_names: self.keep_metric_names,
-            func: self.func,
-            rcs,
-            no_stale_markers,
-            timestamps: shared_timestamps,
-            samples_scanned_total: Default::default(),
-        };
-        
-        
         par_try_for_each_mut(&mut rss.series, |rs| {
-            if !ctx.no_stale_markers {
+            if !no_stale_markers {
                 drop_stale_nans(&ctx.func, &mut rs.values, &mut rs.timestamps);
             }
             pre_func(&mut rs.values, &rs.timestamps);
-            
-            par_try_for_each(&ctx.rcs, |rc| {
-                let samples_scanned = process_result(
-                    rs,
-                    ctx.func,
-                    rc,
-                    ctx.series.clone(),
-                    ctx.timestamps,
-                    ctx.keep_metric_names,
-                )?;
 
-                ctx.samples_scanned_total.add(samples_scanned);
-                Ok::<(), RuntimeError>(())                
-            })?;
-
-            Ok::<(), RuntimeError>(())
+            ctx.exec_internal(&rs.metric, &rs.values, &rs.timestamps)
         })?;
 
         // https://users.rust-lang.org/t/how-to-move-the-content-of-mutex-wrapped-by-arc/10259/7
-        let res = Arc::try_unwrap(series).unwrap().into_inner().unwrap();
+        let (res, samples_scanned) = ctx.unwrap();
 
         if self.is_tracing {
-            let samples_scanned = ctx.samples_scanned_total.get();
             span.record("series", res.len());
             span.record("samples_scanned", samples_scanned);
         }
@@ -654,37 +688,6 @@ fn new_timeseries_map(
     }
     let map = TimeSeriesMap::new(keep_metric_names, shared_timestamps, mn);
     Some(Arc::new(map))
-}
-
-fn process_result(
-    rs: &QueryResult,
-    func: RollupFunction,
-    rc: &RollupConfig,
-    series: Arc<Mutex<Vec<Timeseries>>>,
-    timestamps: &Arc<Vec<i64>>,
-    keep_metric_names: bool,
-) -> RuntimeResult<u64> {
-    if let Some(tsm) = new_timeseries_map(func, keep_metric_names, timestamps, &rs.metric) {
-        rc.do_timeseries_map(tsm.clone(), &rs.values, &rs.timestamps)?;
-        let mut tss = series.lock().unwrap();
-        tsm.as_ref().append_timeseries_to(&mut tss);
-        Ok(0_u64)
-    } else {
-        let mut ts: Timeseries = Timeseries::default();
-        let samples_scanned = do_rollup_for_timeseries(
-            keep_metric_names,
-            rc,
-            &mut ts,
-            &rs.metric,
-            &rs.values,
-            &rs.timestamps,
-            timestamps,
-        )?;
-
-        let mut tss = series.lock().unwrap();
-        tss.push(ts);
-        Ok(samples_scanned)
-    }
 }
 
 fn get_at_timestamp(ctx: &Context, ec: &EvalConfig, expr: &Expr) -> RuntimeResult<i64> {
@@ -760,7 +763,7 @@ where
         err: Option<RuntimeError>,
         result: Vec<Timeseries>,
     }
-    
+
     let ctx: Mutex<Context> = Mutex::new(Context::default());
     par_try_for_each(&tss, |ts| {
         let len = ts.values.len();
@@ -771,7 +774,7 @@ where
 
         // todo(perf): have param for if values have NaNs
         remove_nan_values(&mut values, &mut timestamps, &ts.values, &ts.timestamps);
-        
+
         let mut ctx = ctx.lock().expect("do_parallel: cannot acquire context");
         return match f(ts, &mut values, &mut timestamps) {
             Ok((mut timeseries, sample_count)) => {
@@ -791,7 +794,7 @@ where
             }
         }
     })?;
-    
+
     let mut context = ctx.into_inner().expect("do_parallel: cannot acquire context");
     if let Some(err) = context.err {
         return Err(err);
@@ -867,7 +870,7 @@ fn mul_no_overflow(a: i64, b: i64) -> i64 {
     a.saturating_mul(b)
 }
 
-pub(crate) fn drop_stale_nans(
+fn drop_stale_nans(
     func: &RollupFunction,
     values: &mut Vec<f64>,
     timestamps: &mut Vec<i64>,

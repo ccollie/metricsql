@@ -1016,7 +1016,7 @@ mod tests {
 
         rc.ensure_timestamps().expect("failed to ensure timestamps");
         let mut dst_values: Vec<f64> = vec![];
-        let samples_scanned = rc
+        let _samples_scanned = rc
             .exec_internal(&mut dst_values, None, &values, &timestamps)
             .expect("failed to exec");
 
