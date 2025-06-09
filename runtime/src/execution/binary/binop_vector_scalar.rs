@@ -32,29 +32,6 @@ pub(crate) fn eval_vector_scalar_binop(
 
     let mut vector = vector;
 
-    if op == Operator::Eql || op == Operator::NotEq {
-        // (1,2,3) != scalar or (1,2,3) == scalar
-        let is_equals = op == Operator::Eql;
-
-        for v in vector.iter_mut() {
-            if reset_metric_group {
-                v.metric_name.reset_measurement();
-            }
-
-            if is_equals {
-                for value in v.values.iter_mut().filter(|val| **val != scalar) {
-                    *value = f64::NAN;
-                }
-            } else {
-                for value in v.values.iter_mut().filter(|val| **val == scalar) {
-                    *value = f64::NAN;
-                }
-            }
-        }
-
-        return Ok(InstantVector(vector))
-    }
-
     let is_unless = op == Operator::Unless;
 
     let handler = get_scalar_binop_handler(op, bool_modifier);
