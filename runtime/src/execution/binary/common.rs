@@ -3,8 +3,9 @@ use metricsql_parser::prelude::{BinaryExpr, Expr, Matcher, Operator};
 use regex::escape;
 use small_map::SmallMap;
 use std::hash::BuildHasherDefault;
-
-use crate::types::{Label, Timeseries};
+use crate::prelude::InstantVector;
+use crate::{RuntimeError, RuntimeResult};
+use crate::types::{Label, QueryValue, Timeseries};
 
 pub(crate) fn can_push_down_common_filters(be: &BinaryExpr) -> bool {
     if be.op == Operator::Or || be.op == Operator::Default {
@@ -79,4 +80,43 @@ fn join_regexp_values(a: &[&String]) -> String {
         }
     }
     res
+}
+
+pub(super) fn contains_value_at(tss: &[Timeseries], v: f64, idx: usize) -> bool {
+    tss.iter().any(|ts| ts.values[idx] == v)
+}
+
+pub(super) fn not_contains_value_at(tss: &[Timeseries], v: f64, idx: usize) -> bool {
+    !contains_value_at(tss, v, idx)
+}
+
+pub(super) fn handle_vector_scalar_list_equality(
+    vector: InstantVector,
+    scalar: f64,
+    op: Operator,
+) -> RuntimeResult<QueryValue> {
+    let mut vector = vector;
+
+    if op == Operator::Eql || op == Operator::NotEq {
+        // scalar != (1,2,3) or scalar == (1,2,3)
+        let is_equals = op == Operator::Eql;
+
+        for ts in vector.iter_mut() {
+            if is_equals {
+                for v in ts.values.iter_mut().filter(|val| *val != &scalar) {
+                    *v = f64::NAN;
+                }
+            } else {
+                for v in ts.values.iter_mut().filter(|val| *val == &scalar) {
+                    *v = f64::NAN;
+                }
+            }
+        }
+    } else {
+        return Err(RuntimeError::ArgumentError(
+            "expected equality or inequality operator for scalar vector list comparison".to_string(),
+        ));
+    }
+
+    Ok(QueryValue::InstantVector(vector))
 }

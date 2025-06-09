@@ -11,8 +11,7 @@ use crate::prelude::binary::scalar_binary_operation;
 use crate::prelude::{eval_number, QueryValue, Timeseries};
 use crate::types::{FunctionArgs, InstantVector};
 use crate::{QueryResult, RuntimeError, RuntimeResult};
-use metricsql_common::hash::{HashSetExt, IntSet, Signature};
-use metricsql_common::prelude::current_time_millis;
+use metricsql_common::prelude::{current_time_millis, SignatureSet};
 use metricsql_parser::ast::{
     BinaryExpr, Expr, FunctionExpr, Operator, ParensExpr, RollupExpr, UnaryExpr,
 };
@@ -237,7 +236,7 @@ pub(crate) fn timeseries_to_result(
     }
 
     let mut result: Vec<QueryResult> = Vec::with_capacity(tss.len());
-    let mut m: IntSet<Signature> = IntSet::with_capacity(tss.len());
+    let mut m: SignatureSet = SignatureSet::new();
 
     for ts in tss.iter_mut() {
         ts.metric_name.sort_labels();
@@ -390,6 +389,29 @@ fn eval_parens_op(ctx: &Context, ec: &EvalConfig, pe: &ParensExpr) -> RuntimeRes
     Ok(val)
 }
 
+fn is_vector_list_comparison(op: Operator, l: &Expr, r: &Expr) -> Option<bool> {
+    if !matches!(op, Operator::Eql | Operator::NotEq) {
+        return None;
+    }
+    match (is_union_func(l), is_union_func(r)) {
+        (false, false) => None,
+        (true, _) => Some(true),
+        _ => Some(false)
+    }
+}
+
+fn is_scalar_vector_list_comparison(op: Operator, expr: &Expr) -> bool {
+    matches!(op, Operator::Eql | Operator::NotEq) && is_union_func(expr)
+}
+
+fn is_union_func(e: &Expr) -> bool {
+    match e {
+        Expr::Function(fe) => fe.is_transform_function(TransformFunction::Union),
+        Expr::Parens(_) => true,
+        _ => false,
+    }
+}
+
 fn exec_binary_op(ctx: &Context, ec: &EvalConfig, be: &BinaryExpr) -> RuntimeResult<QueryValue> {
     let is_tracing = ctx.trace_enabled();
     // first are inexpensive binary ops that can be handled without invoking rayon/chili overhead
@@ -426,6 +448,10 @@ fn exec_binary_op(ctx: &Context, ec: &EvalConfig, be: &BinaryExpr) -> RuntimeRes
                     Ok(Value::Scalar(value))
                 }
                 (QueryValue::InstantVector(left), QueryValue::InstantVector(right)) => {
+                    if let Some(is_left) = is_vector_list_comparison(be.op, &be.left, &be.right) {
+                        let vector = binary_op_list_compare(be.op, left, right, is_left)?;
+                        return Ok(QueryValue::InstantVector(vector));
+                    }
                     exec_vector_vector_binop(ctx, left, right, be.op, &be.modifier)
                 }
                 (QueryValue::InstantVector(vector), QueryValue::Scalar(scalar)) => {
@@ -433,6 +459,9 @@ fn exec_binary_op(ctx: &Context, ec: &EvalConfig, be: &BinaryExpr) -> RuntimeRes
                         let right = eval_number(ec, scalar)?;
                         exec_vector_vector_binop(ctx, vector, right, be.op, &be.modifier)
                     } else {
+                        if is_scalar_vector_list_comparison(be.op, left) {
+                            return eval_vector_scalar_list_equality(vector, be.op, scalar, is_tracing);
+                        }
                         eval_vector_scalar_binop(
                             vector,
                             be.op,
@@ -448,6 +477,9 @@ fn exec_binary_op(ctx: &Context, ec: &EvalConfig, be: &BinaryExpr) -> RuntimeRes
                         let left = eval_number(ec, scalar)?;
                         exec_vector_vector_binop(ctx, left, vector, be.op, &be.modifier)
                     } else {
+                        if is_scalar_vector_list_comparison(be.op, right) {
+                            return eval_scalar_vector_list_equality(scalar, be.op, vector, is_tracing);
+                        }
                         eval_scalar_vector_binop(
                             scalar,
                             be.op,

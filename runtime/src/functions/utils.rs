@@ -5,6 +5,7 @@ use chrono_tz::Tz;
 use metricsql_common::time::get_local_tz;
 
 use crate::{RuntimeError, RuntimeResult};
+use crate::prelude::QueryValue;
 
 pub fn remove_nan_values_in_place(values: &mut Vec<f64>, timestamps: &mut Vec<i64>) {
     let len = values.len();
@@ -110,6 +111,21 @@ pub(crate) fn min_with_nans(values: &[f64]) -> f64 {
         .unwrap_or(f64::NAN);
     min
 }
+
+pub(crate) fn are_all_args_scalar(args: &[QueryValue]) -> bool {
+    args.iter().all(|arg| match arg {
+        QueryValue::Scalar(_) => true,
+        QueryValue::InstantVector(v) => {
+            if v.len() != 1 {
+                return false;
+            }
+            let mn = &v[0].metric_name;
+            mn.is_empty()
+        }
+        _ => false,
+    })
+}
+
 
 #[cfg(test)]
 mod tests {

@@ -6,14 +6,15 @@ use crate::types::{InstantVector, Timeseries, METRIC_NAME_LABEL};
 use metricsql_common::hash::{BuildNoHashHasher, Signature};
 use metricsql_parser::ast::{Operator, VectorMatchCardinality, VectorMatchModifier};
 use metricsql_parser::binaryop::{
-    get_scalar_binop_handler, get_scalar_comparison_handler, BinopFunc,
+    get_scalar_binop_handler, BinopFunc,
 };
 use metricsql_parser::prelude::{BinModifier, Labels};
-use std::borrow::Cow;
 use rayon::iter::IntoParallelIterator;
 use rayon::iter::ParallelIterator;
 use small_map::SmallMap;
+use std::borrow::Cow;
 use tracing::{field, trace_span, Span};
+use super::common::{contains_value_at, not_contains_value_at};
 
 pub struct BinaryOpFuncArg<'a> {
     op: Operator,
@@ -63,9 +64,46 @@ make_binary_func!(binary_op_div, Operator::Div);
 make_binary_func!(binary_op_mod, Operator::Mod);
 make_binary_func!(binary_op_pow, Operator::Pow);
 
-fn binary_op_comparison(bfa: &mut BinaryOpFuncArg) -> BinaryOpFuncResult {
-    let bf = get_scalar_comparison_handler(bfa.op, bfa.returns_bool());
-    binary_op_func_impl(bf, bfa)
+// Special case for `q = (1,2,3)` or `(1,2,3) = q`
+// or `q != (1,2,3)` or `(1,2,3) != q`
+// where `q` is a vector.
+pub(crate) fn binary_op_list_compare(
+    op: Operator,
+    left: InstantVector,
+    right: InstantVector,
+    is_left: bool,
+) -> BinaryOpFuncResult {
+    if left.is_empty() || right.is_empty() {
+        // If either side is empty, return an empty vector.
+        return Ok(vec![]);
+    }
+
+    let (mut left, right) = if is_left {
+        (right, left)
+    } else {
+        (left, right)
+    };
+
+    let cmp = match op {
+        Operator::Eql => not_contains_value_at,
+        Operator::NotEq => contains_value_at,
+        _ => {
+            return Err(RuntimeError::InvalidState(format!(
+                "BUG: unexpected operator {op} for binary_op_list_compare"
+            )));
+        }
+    };
+
+    for ts_left in left.iter_mut() {
+        for (j, v) in ts_left.values.iter_mut().enumerate() {
+            if cmp(&right, *v, j) {
+                *v = f64::NAN;
+            }
+        }
+    }
+    // Do not remove time series containing only NaNs, since then the `(foo op bar) default N`
+    // won't work as expected if `(foo op bar)` results in NaN series.
+    Ok(left)
 }
 
 pub fn exec_vector_vector_binop(
@@ -106,14 +144,16 @@ pub(crate) fn exec_binop(bfa: &mut BinaryOpFuncArg) -> BinaryOpFuncResult {
         Div => binary_op_div(bfa),
         Mod => binary_op_mod(bfa),
         Pow => binary_op_pow(bfa),
-        // comparison operators
-        Eql | NotEq | Gt | Gte | Lt | Lte => binary_op_comparison(bfa),
         And => binary_op_and(bfa),
         Or => binary_op_or(bfa),
         Unless => binary_op_unless(bfa),
         If => binary_op_if(bfa),
         IfNot => binary_op_if_not(bfa),
         Default => binary_op_default(bfa),
+        _=> {
+            let func = get_scalar_binop_handler(bfa.op, bfa.returns_bool());
+            binary_op_func_impl(func, bfa)
+        }
     }
 }
 
@@ -259,8 +299,7 @@ fn adjust_binary_op_tags(
                 };
 
                 let mut ts_left = ensure_single_timeseries("left", bfa.op, bfa.modifier, tss_left)?;
-                let ts_right =
-                    ensure_single_timeseries("right", bfa.op, bfa.modifier, tss_right)?;
+                let ts_right = ensure_single_timeseries("right", bfa.op, bfa.modifier, tss_right)?;
 
                 if reset_metric_group {
                     ts_left.metric_name.reset_measurement();
@@ -294,11 +333,6 @@ const fn should_reset_metric_group(
     if keep_metric_names {
         // Do not reset metric_group if it is explicitly requested via `foo op bar keep_metric_names`
         // See https://docs.victoriametrics.com/MetricsQL.html#keep_metric_names
-        return false;
-    }
-
-    // in the original code, the metric group is not reset for logical ops
-    if op.is_logical_op() {
         return false;
     }
 
@@ -431,10 +465,13 @@ fn group_join(
                 }
                 None => {
                     ts_left.metric_name = mn;
-                    map.insert(key, GroupJoinPair {
-                        left: std::mem::take(ts_left),
-                        right: ts_right,
-                    });
+                    map.insert(
+                        key,
+                        GroupJoinPair {
+                            left: std::mem::take(ts_left),
+                            right: ts_right,
+                        },
+                    );
                 }
             }
         }
@@ -459,7 +496,7 @@ pub fn merge_non_overlapping_timeseries(dst: &mut Timeseries, src: &Timeseries) 
         if !dst_val.is_nan() {
             overlaps += 1;
             // Allow up to two overlapping data points, which can appear due to staleness algorithm,
-            // which can add a few data points in the end of time series.
+            // which can add a few data points at the end of time series.
             if overlaps > 2 {
                 return false;
             }
@@ -576,8 +613,7 @@ fn binary_op_or(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
 
     let mut left = m_left
         .into_iter()
-        .map(|(_, v)| v)
-        .flatten()
+        .flat_map(|(_, v)| v)
         .collect::<Vec<Timeseries>>();
 
     // Sort left-hand-side series by metric name as Prometheus does.
@@ -782,7 +818,6 @@ fn group_series_by_match_modifier(
 
     m
 }
-
 
 fn is_scalar(arg: &[Timeseries]) -> bool {
     arg.len() == 1 && arg[0].metric_name.is_empty()

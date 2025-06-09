@@ -3,6 +3,7 @@ use tracing::{field, trace_span, Span};
 use crate::types::{InstantVector, QueryValue};
 use crate::RuntimeResult;
 use metricsql_parser::prelude::{get_scalar_binop_handler, Operator};
+use super::common::handle_vector_scalar_list_equality;
 
 /// Evaluates scalar op vector
 /// Ex:
@@ -27,9 +28,9 @@ pub(crate) fn eval_scalar_vector_binop(
     }
     .entered();
 
-    let handler = get_scalar_binop_handler(op, bool_modifier);
-
     let mut vector = vector;
+
+    let handler = get_scalar_binop_handler(op, bool_modifier);
 
     for ts in vector.iter_mut() {
         if reset_metric_group {
@@ -42,4 +43,25 @@ pub(crate) fn eval_scalar_vector_binop(
     }
 
     Ok(QueryValue::InstantVector(vector))
+}
+
+/// Evaluate scalar != (1,2,3) or scalar == (1,2,3)
+pub(crate) fn eval_scalar_vector_list_equality(
+    scalar: f64,
+    op: Operator,
+    vector: InstantVector,
+    is_tracing: bool
+) -> RuntimeResult<QueryValue> {
+    let _ = if is_tracing {
+        trace_span!(
+            "scalar vector binary op",
+            "op" = op.as_str(),
+            series = field::Empty
+        )
+    } else {
+        Span::none()
+    }
+        .entered();
+
+    handle_vector_scalar_list_equality(vector, scalar, op)
 }

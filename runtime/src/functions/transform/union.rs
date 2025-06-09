@@ -3,6 +3,7 @@ use crate::functions::transform::TransformFuncArg;
 use crate::types::{FunctionArgs, QueryValue, Timeseries};
 use crate::{RuntimeError, RuntimeResult};
 use metricsql_common::prelude::SignatureSet;
+use crate::functions::utils::are_all_args_scalar;
 
 pub(crate) fn union(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let mut args = std::mem::take(&mut tfa.args);
@@ -69,18 +70,4 @@ pub(crate) fn handle_union(
     }
 
     Ok(rvs)
-}
-
-fn are_all_args_scalar(args: &[QueryValue]) -> bool {
-    args.iter().all(|arg| match arg {
-        QueryValue::Scalar(_) => true,
-        QueryValue::InstantVector(v) => {
-            if v.len() != 1 {
-                return false;
-            }
-            let mn = &v[0].metric_name;
-            mn.is_empty()
-        }
-        _ => false,
-    })
 }

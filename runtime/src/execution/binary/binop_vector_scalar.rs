@@ -3,6 +3,7 @@ use tracing::{field, trace_span, Span};
 use crate::types::{InstantVector, QueryValue};
 use crate::RuntimeResult;
 use metricsql_parser::prelude::{get_scalar_binop_handler, Operator};
+use crate::execution::binary::common::handle_vector_scalar_list_equality;
 
 /// `eval_vector_scalar_binop` evaluates binary operation between vector and scalar.
 /// Ex:
@@ -31,6 +32,29 @@ pub(crate) fn eval_vector_scalar_binop(
 
     let mut vector = vector;
 
+    if op == Operator::Eql || op == Operator::NotEq {
+        // (1,2,3) != scalar or (1,2,3) == scalar
+        let is_equals = op == Operator::Eql;
+
+        for v in vector.iter_mut() {
+            if reset_metric_group {
+                v.metric_name.reset_measurement();
+            }
+
+            if is_equals {
+                for value in v.values.iter_mut().filter(|val| **val != scalar) {
+                    *value = f64::NAN;
+                }
+            } else {
+                for value in v.values.iter_mut().filter(|val| **val == scalar) {
+                    *value = f64::NAN;
+                }
+            }
+        }
+
+        return Ok(InstantVector(vector))
+    }
+
     let is_unless = op == Operator::Unless;
 
     let handler = get_scalar_binop_handler(op, bool_modifier);
@@ -51,4 +75,24 @@ pub(crate) fn eval_vector_scalar_binop(
     }
 
     Ok(InstantVector(vector))
+}
+
+/// Evaluate scalar != (1,2,3) or scalar == (1,2,3)
+pub(crate) fn eval_vector_scalar_list_equality(
+    vector: InstantVector,
+    op: Operator,
+    scalar: f64,
+    is_tracing: bool
+) -> RuntimeResult<QueryValue> {
+    let _ = if is_tracing {
+        trace_span!(
+            "vector op scalar",
+            "op" = op.as_str(),
+            series = field::Empty
+        )
+    } else {
+        Span::none()
+    }
+        .entered();
+    handle_vector_scalar_list_equality(vector, scalar, op)
 }

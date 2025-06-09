@@ -3243,6 +3243,33 @@ mod tests {
 
         test_query(q, vec![r]);
     }
+    
+    #[test]
+    fn equal_list() {
+        let q = r#"time() == (100, 1000, 1400, 600)"#;
+        assert_result_eq(q, &[1000.0, NAN, 1400.0, NAN, NAN, NAN]);
+    }
+    
+    #[test]
+    fn equal_list_reverse() {
+        let q = r#"(100, 1000, 1400, 600) == time()"#;
+        assert_result_eq(q, &[1000.0, NAN, 1400.0, NAN, NAN, NAN]);
+    }
+    
+    #[test]
+    fn not_equal_list() {
+        let q = r#"alias(time(), "foobar") != UNIon(100, 1000, 1400, 600)"#;
+        let mut r = make_result(&[NAN, 1200.0, NAN, 1600.0, 1800.0, 2000.0]);
+        r.metric.set_measurement("foobar");
+        test_query(q, vec![r]);
+    }
+
+    #[test]
+    fn not_equal_list_reverse() {
+        let q = r#"(100, 1000, 1400, 600) != time()"#;
+        let expected = &[NAN, 1200.0, NAN, 1600.0, 1800.0, 2000.0];
+        assert_result_eq(q, expected);
+    }
 
     #[test]
     fn quantiles_over_time_single_sample() {
