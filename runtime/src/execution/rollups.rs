@@ -60,22 +60,22 @@ impl<'a> RollupConfigEvalCtx<'a> {
         }
     }
     fn exec(&self, results: &[QueryResult]) -> RuntimeResult<()> {
-        par_try_for_each(&results, |rs| {
-            par_try_for_each(&self.rcs, |rc| {
-                let _ = self.exec_one_internal(rc, &rs.metric, &rs.values, &rs.timestamps)?;
+        par_try_for_each(results, |rs| {
+            par_try_for_each(self.rcs, |rc| {
+                self.exec_one_internal(rc, &rs.metric, &rs.values, &rs.timestamps)?;
                 Ok::<(), RuntimeError>(())
             })
         })
     }
 
     fn exec_ts(&self, ts: &Timeseries) -> RuntimeResult<()> {
-        par_try_for_each(&self.rcs, |rc| {
+        par_try_for_each(self.rcs, |rc| {
             self.exec_one_internal(rc, &ts.metric_name, &ts.values, &ts.timestamps)
         })
     }
 
     fn exec_internal(&self, metric: &MetricName, values: &[f64], timestamps: &[Timestamp]) -> RuntimeResult<()> {
-        par_try_for_each(&self.rcs, |rc| {
+        par_try_for_each(self.rcs, |rc| {
            self.exec_one_internal(rc, metric, values, timestamps)
         })
     }
@@ -98,9 +98,9 @@ impl<'a> RollupConfigEvalCtx<'a> {
                 self.keep_metric_names,
                 rc,
                 &mut ts,
-                &metric,
-                &values,
-                &timestamps,
+                metric,
+                values,
+                timestamps,
                 self.timestamps,
             )?;
             self.samples_scanned_total.add(samples_scanned);
@@ -299,7 +299,7 @@ impl<'a> RollupEvaluator<'a> {
 
                 eval_pre_funcs(&pre_funcs, values, timestamps);
 
-                let mut ctx = RollupConfigEvalCtx::new(
+                let ctx = RollupConfigEvalCtx::new(
                     &rcs,
                     self.func,
                     self.keep_metric_names,
@@ -753,7 +753,7 @@ fn get_absent_timeseries(ec: &EvalConfig, expr: &Expr) -> RuntimeResult<Vec<Time
 }
 
 /// Executes `f` for each `Timeseries` in `tss` in parallel.
-fn do_parallel<F>(tss: &Vec<Timeseries>, f: F) -> RuntimeResult<(Vec<Timeseries>, u64)>
+fn do_parallel<F>(tss: &[Timeseries], f: F) -> RuntimeResult<(Vec<Timeseries>, u64)>
 where
     F: Fn(&Timeseries, &mut [f64], &[i64]) -> RuntimeResult<(Vec<Timeseries>, u64)> + Send + Sync,
 {
@@ -765,7 +765,7 @@ where
     }
 
     let ctx: Mutex<Context> = Mutex::new(Context::default());
-    par_try_for_each(&tss, |ts| {
+    par_try_for_each(tss, |ts| {
         let len = ts.values.len();
         // todo: should we have an upper limit here to avoid OOM? Or explicitly size down
         // afterward if needed?
@@ -776,7 +776,7 @@ where
         remove_nan_values(&mut values, &mut timestamps, &ts.values, &ts.timestamps);
 
         let mut ctx = ctx.lock().expect("do_parallel: cannot acquire context");
-        return match f(ts, &mut values, &mut timestamps) {
+        match f(ts, &mut values, &mut timestamps) {
             Ok((mut timeseries, sample_count)) => {
                 ctx.count += sample_count;
                 if !timeseries.is_empty() {
@@ -795,7 +795,7 @@ where
         }
     })?;
 
-    let mut context = ctx.into_inner().expect("do_parallel: cannot acquire context");
+    let context = ctx.into_inner().expect("do_parallel: cannot acquire context");
     if let Some(err) = context.err {
         return Err(err);
     }
