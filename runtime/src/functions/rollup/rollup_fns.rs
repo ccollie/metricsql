@@ -932,6 +932,7 @@ pub(crate) fn rollup_default(rfa: &RollupFuncArg) -> f64 {
     }
     // Intentionally do not skip the possible last Prometheus staleness mark.
     // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/1526.
+    // SAFETY: is_empty check above ensures that `values` is not empty.
     *values.last().unwrap()
 }
 

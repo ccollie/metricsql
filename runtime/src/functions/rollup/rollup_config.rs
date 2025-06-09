@@ -576,7 +576,7 @@ fn exec_handler_parallel(
         [p1, p2, p3, p4, p5] => {
             let ((v1, v2, v3, v4), v5) = scope.join(
                 |s| process_four(s, handler, p1, p2, p3, p4),
-                |s| handler.eval(p5)
+                |_| handler.eval(p5)
             );
             dest.extend_from_slice(&[v1, v2, v3, v4, v5]);
         }

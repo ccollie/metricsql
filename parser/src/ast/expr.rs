@@ -66,7 +66,7 @@ impl VectorMatchModifier {
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BinModifier {
     /// The matching behavior for the operation if both operands are Vectors.
-    /// If they are not this field is None.
+    /// If they are not, this field is None.
     pub card: VectorMatchCardinality,
 
     /// on/ignoring on labels.
@@ -972,7 +972,7 @@ impl Prettier for FunctionExpr {
     }
 }
 
-/// `AggregationExpr` represents aggregate function such as `sum(...) by (...)`
+/// `AggregationExpr` represents an aggregate function such as `sum(...) by (...)`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AggregationExpr {
     /// function is the aggregation function.
@@ -985,10 +985,10 @@ pub struct AggregationExpr {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub modifier: Option<AggregateModifier>,
 
-    /// optional limit for the number of output time series.
-    /// This is an MetricsQL extension.
+    /// Optional limit for the number of output time series.
+    /// This is a MetricsQL extension.
     ///
-    /// Example: `sum(...) by (...) limit 10` would return maximum 10 time series.
+    /// Example: `sum(...) by (...) limit 10` would return a maximum of 10 time series.
     #[serde(default, skip_serializing_if = "is_default")]
     pub limit: usize,
 
@@ -1163,29 +1163,29 @@ impl Prettier for AggregationExpr {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-/// `RollupExpr` represents an MetricsQL expression which contains at least `offset` or `[...]` part.
+/// `RollupExpr` represents a MetricsQL expression which contains at least `offset` or `[...]` part.
 pub struct RollupExpr {
     /// The expression for the rollup. Usually it is MetricExpr, but may be arbitrary expr
     /// if subquery is used. https://prometheus.io/blog/2019/01/28/subquery-support/
     pub expr: BExpression,
 
-    /// window contains optional window value from square brackets. Equivalent to `range` in
+    /// `window` contains an optional window value from square brackets. Equivalent to `range` in
     /// prometheus terminology
     ///
-    /// For example, `http_requests_total[5m]` will have window value `5m`.
+    /// For example, `http_requests_total[5m]` will have a window value of `5m`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub window: Option<DurationExpr>,
 
-    /// step contains optional step value from square brackets. Equivalent to `resolution`
+    /// `step` contains an optional step value from square brackets. Equivalent to `resolution`
     /// in the `prometheus` docs
     ///
     /// For example, `foobar[1h:3m]` will have step value `3m`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub step: Option<DurationExpr>,
 
-    /// offset contains optional value from `offset` part.
+    /// `offset` contains an optional value from the `offset` part.
     ///
-    /// For example, `foobar{baz="aa"} offset 5m` will have offset value `5m`.
+    /// For example, `foobar{baz="aa"} offset 5m` will have an offset value of `5m`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offset: Option<DurationExpr>,
 
@@ -1193,7 +1193,7 @@ pub struct RollupExpr {
     #[serde(default, skip_serializing_if = "is_default")]
     pub inherit_step: bool,
 
-    /// at contains an optional expression after `@` modifier.
+    /// `at` contains an optional expression after the `@` modifier.
     ///
     /// For example, `foo @ end()` or `bar[5m] @ 12345`
     /// See https://prometheus.io/docs/prometheus/latest/querying/basics/#modifier
@@ -1238,7 +1238,7 @@ impl RollupExpr {
     }
 
     fn validate(&self) -> Result<(), String> {
-        // range + subquery is not allowed (however this is syntactically invalid)
+        // range + subquery is not allowed (however, this is syntactically invalid)
         // if self.window.is_some() && self.for_subquery() {
         //     return Err(
         //         "range and subquery are not allowed together in a rollup expression".to_string(),
@@ -1470,7 +1470,7 @@ impl BinaryExpr {
         }
     }
 
-    /// indicates whether `bool` modifier is present.
+    /// Indicates whether `bool` modifier is present.
     /// For example, `foo > bool bar`.
     pub fn returns_bool(&self) -> bool {
         matches!(&self.modifier, Some(modifier) if modifier.return_bool)
@@ -1611,7 +1611,7 @@ impl ParensExpr {
     }
 
     /// Return the innermost expression wrapped by a `ParensExpr` if the `ParensExpr` contains
-    /// exactly one expression. For example : (((x + y))) would return a ref to `x + y`
+    /// exactly one expression. For example, (((x + y))) would return a ref to `x + y`
     pub fn innermost_expr(&self) -> Option<&Expr> {
         match self.len() {
             0 => None,

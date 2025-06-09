@@ -10,7 +10,6 @@ use crate::RuntimeResult;
 
 pub(super) fn new_rollup_quantiles(args: &[QueryValue]) -> RuntimeResult<RollupHandler> {
     let phi_label = get_string_param_value(args, 0, "quantiles", "phi_label")?;
-    let cap = args.len() - 1;
 
     let mut phis: SmallVec<f64, 8> = SmallVec::new();
     let mut phi_labels: SmallVec<String, 8> = SmallVec::new();
