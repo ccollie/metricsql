@@ -22,9 +22,12 @@ use std::str::FromStr;
 
 use metricsql_common::prelude::SmallSet;
 use serde::{Deserialize, Serialize};
+use smallvec::SmallVec;
+
+type LabelsInner = SmallVec<String, 4>;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Eq)]
-pub struct Labels(Vec<String>);
+pub struct Labels(LabelsInner);
 
 impl Labels {
     pub fn append(mut self, l: String) -> Self {
@@ -33,7 +36,7 @@ impl Labels {
     }
 
     pub fn new(ls: Vec<&str>) -> Self {
-        let mut labels: Vec<String> = ls.iter().map(|s| s.to_string()).collect();
+        let mut labels: LabelsInner = ls.iter().map(|s| s.to_string()).collect();
         labels.sort();
         Self(labels)
     }
@@ -51,7 +54,7 @@ impl Labels {
     where
         I: IntoIterator<Item = String>,
     {
-        let mut labels: Vec<String> = iter.into_iter().collect();
+        let mut labels: LabelsInner = iter.into_iter().collect();
         labels.sort();
         Self(labels)
     }
@@ -176,7 +179,7 @@ impl FromStr for Labels {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut labels: Vec<String> = s.split(',').map(|s| s.to_string()).collect();
+        let mut labels: LabelsInner = s.split(',').map(|s| s.to_string()).collect();
         labels.sort();
         Ok(Self(labels))
     }
@@ -184,7 +187,7 @@ impl FromStr for Labels {
 
 impl From<Vec<String>> for Labels {
     fn from(ls: Vec<String>) -> Self {
-        let mut labels = ls;
+        let mut labels: LabelsInner = ls.into();
         labels.sort();
         Self(labels)
     }
@@ -204,7 +207,7 @@ impl fmt::Display for Labels {
 
 impl From<Labels> for Signature {
     fn from(labels: Labels) -> Self {
-        Signature::from_vec(&labels.0)
+        Signature::create_from_iter(labels.iter())
     }
 }
 
