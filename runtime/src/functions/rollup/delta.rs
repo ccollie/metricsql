@@ -1,3 +1,4 @@
+use crate::common::math::is_stale_nan;
 use super::RollupFuncArg;
 use crate::functions::rollup::RollupHandler;
 use crate::types::QueryValue;
@@ -41,8 +42,15 @@ pub(crate) fn delta_values(values: &mut [f64]) {
 
 pub(super) fn rollup_delta(rfa: &RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
-    // before calling rollup fns.
+    // before calling rollup fns. Only StaleNaNs could remain in values - see drop_stale_nans().
     let mut values = &rfa.values[0..];
+    
+    if !values.is_empty() && is_stale_nan(values[values.len() - 1]) {
+        // If the last sample on the interval is a staleness marker, then the selected series is expected
+        // to stop rendering immediately. See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/8891
+        return f64::NAN;
+    }
+    
     let mut prev_value = rfa.prev_value;
     if prev_value.is_nan() {
         if values.is_empty() {

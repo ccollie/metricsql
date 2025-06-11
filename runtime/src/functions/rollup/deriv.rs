@@ -1,4 +1,4 @@
-use crate::common::math::linear_regression;
+use crate::common::math::{is_stale_nan, linear_regression};
 use crate::functions::rollup::{RollupFuncArg, RollupHandler};
 use crate::types::{QueryValue, Timestamp};
 use crate::RuntimeResult;
@@ -67,8 +67,15 @@ pub(super) fn rollup_deriv_slow(rfa: &RollupFuncArg) -> f64 {
 
 pub(super) fn rollup_deriv_fast(rfa: &RollupFuncArg) -> f64 {
     // There is no need in handling NaNs here, since they must be cleaned up
-    // before calling rollup fns.
+    // before calling rollup fns. Only stale NaNs could remain in values - see - see drop_stale_nans().
     let values = rfa.values;
+
+    if !values.is_empty() && is_stale_nan(values[values.len() - 1]) {
+        // If the last sample on the interval is a staleness marker, then the selected series is expected
+        // to stop rendering immediately. See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/8891
+        return f64::NAN;
+    }
+    
     let timestamps = rfa.timestamps;
     let mut prev_value = rfa.prev_value;
     let mut prev_timestamp = rfa.prev_timestamp;
@@ -103,13 +110,13 @@ pub(super) fn rollup_ideriv(rfa: &RollupFuncArg) -> f64 {
             // It is impossible to determine the duration during which the value changed
             // from 0 to the current value.
             // The following attempts didn't work well:
-            // - using scrape interval as the duration. It fails on Prometheus restarts when it
+            // - using the scrape interval as the duration. It fails on Prometheus restarts when it
             //   skips scraping for the counter. This results in too high rate() value for the first point
             //   after Prometheus restarts.
             // - using window or step as the duration. It results in too small rate() values for the first
             //   points of time series.
             //
-            // So just return NAN
+            // So return NAN
             return f64::NAN;
         }
         return (values[0] - rfa.prev_value)
