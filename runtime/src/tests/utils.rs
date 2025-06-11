@@ -3,6 +3,7 @@ use metricsql_parser::prelude::Value;
 
 use crate::types::{MetricName, QueryValue, Timeseries};
 use crate::{QueryResult, RuntimeResult};
+use crate::common::math::is_stale_nan;
 
 pub fn test_results_equal(result: &[QueryResult], result_expected: &[QueryResult]) {
     assert_eq!(
@@ -99,9 +100,25 @@ pub fn test_rows_equal(
             i, ts, ts_expected, timestamps, timestamps_expected
         );
 
+        if is_stale_nan(*val) {
+            assert!(is_stale_nan(*val_expected),
+                    "unexpected stale NAN value at values[{}]; got {}; want stale nan\nvalues=\n{:?}\nvalues_expected=\n{:?}",
+                    i, val, values, values_expected);
+            continue;
+        }
+
+        // staleNaNBits == NaN, but is_stale_nan(NaN) == false
+        // so we check for is_stale_nan first.
+        if is_stale_nan(*val_expected) {
+            assert!(is_stale_nan(*val),
+                    "unexpected stale NAN value at values[{}]; got {}; want stale nan\nvalues=\n{:?}\nvalues_expected=\n{:?}",
+                    i, val, values, values_expected);
+            continue;
+        }
+        
         if val.is_nan() {
             assert!(val_expected.is_nan(),
-                    "unexpected nan value at values[{}]; want %{}\nvalues=\n{:?}\nvalues_expected=\n{:?}",
+                    "unexpected NAN value at values[{}]; want %{}\nvalues=\n{:?}\nvalues_expected=\n{:?}",
                     i, val_expected, values, values_expected);
             continue;
         }

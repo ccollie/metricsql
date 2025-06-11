@@ -186,6 +186,14 @@ mod tests {
         remove_counter_resets(&mut values, &mut timestamps, 10);
         test_rows_equal(&values, &timestamps, &values_expected, &timestamps);
 
+        // verify that staleNaNs are respected
+        // it is important to have counter reset in values below to trigger correction logic
+        let mut values = vec![2.0, 4.0, 2.0, STALE_NAN];
+        let mut timestamps = vec![10, 20, 30, 40];
+        let values_expected = vec![2.0, 4.0, 6.0, STALE_NAN];
+        remove_counter_resets(&mut values, &mut timestamps, 10);
+        test_rows_equal(&values, &timestamps, &values_expected, &timestamps);
+
         // verify results always increase monotonically with possible float operations precision error
         let mut values = vec![
             34.094223, 2.7518, 2.140669, 0.044878, 1.887095, 2.546569, 2.490149, 0.045, 0.035684,
@@ -1148,7 +1156,36 @@ mod tests {
             &timestamps_expected,
         );
     }
+    
+    #[test]
+    fn test_rollup_delta_with_staleness_last_sample_stale() {
+        let timestamps = vec![0, 15000, 30000, 70000];
+        let values = vec![0.0, 0.0, 10.0, STALE_NAN];
 
+        // step < gap ; lookback_delta=0
+        let mut rc = RollupConfig {
+            handler: RollupHandler::Wrapped(rollup_delta),
+            start: 40001,
+            end: 40001,
+            step: Duration::from_millis(5000),
+            window: Duration::ZERO,
+            max_points_per_series: 10_000,
+            lookback_delta: Duration::ZERO,
+            ..Default::default()
+        };
+
+        rc.ensure_timestamps().expect("failed to ensure timestamps");
+        let mut dst_values: Vec<f64> = vec![];
+        let samples_scanned = rc
+            .exec_internal(&mut dst_values, None, &values, &timestamps)
+            .expect("failed to exec");
+        
+        assert_eq!(samples_scanned, 10, "expected 10 samples scanned, got {}", samples_scanned);
+        let values_expected = vec![f64::NAN];
+        let timestamps_expected = vec![40001];
+        test_rows_equal(&dst_values, &rc.timestamps, &values_expected, &timestamps_expected)
+    }
+    
     #[test]
     fn test_rollup_increase_with_staleness_step_gt_gap() {
         // there is a gap between samples in the dataset below
@@ -1408,6 +1445,80 @@ mod tests {
             &values_expected,
             &timestamps_expected,
         );
+    }
+
+    fn test_rollup_deriv_fast_with_staleness_no_stale_marker() {
+        let timestamps = vec![0, 10000, 20000, 30000, 40000];
+        let values = vec![0.0, 0.0, 0.0, 0.0, 10.0];
+
+        let mut rc = RollupConfig {
+            handler: RollupHandler::Wrapped(rollup_deriv_fast),
+            start: 40001,
+            end: 40001,
+            step: Duration::from_millis(50000),
+            window: Duration::ZERO,
+            max_points_per_series: 1e4usize,
+            ..Default::default()
+        };
+        rc.ensure_timestamps()
+            .expect("Could not generate timestamps");
+ 
+        let mut dst_values: Vec<f64> = vec![];
+        let samples_scanned = rc
+            .exec_internal(&mut dst_values, None, &values, &timestamps)
+            .expect("failed to exec");
+        
+        if samples_scanned != 10 {
+            panic!(
+                "expecting 10 samples_scanned from rollupConfig.Do; got {}",
+                samples_scanned
+            )
+        }
+        let values_expected = vec![0.25];
+        let timestamps_expected = vec![40001];
+        test_rows_equal(
+            &dst_values,
+            &rc.timestamps,
+            &values_expected,
+            &timestamps_expected,
+        )
+    }
+
+    fn test_rollup_deriv_fast_with_staleness_last_point_stale_nan() {
+        let timestamps = vec![0, 10000, 20000, 30000, 40000];
+        // the last sample is stale NaN
+        let values = vec![0.0, 0.0, 0.0, 10.0, STALE_NAN];
+        let mut rc = RollupConfig {
+            handler: RollupHandler::Wrapped(rollup_deriv_fast),
+            start: 40001,
+            end: 40001,
+            step: Duration::from_millis(50000),
+            window: Duration::ZERO,
+            max_points_per_series: 1e4usize,
+            ..Default::default()
+        };
+        rc.ensure_timestamps()
+            .expect("Could not generate timestamps");
+        
+        let mut dst_values: Vec<f64> = vec![];
+        let samples_scanned = rc
+            .exec_internal(&mut dst_values, None, &values, &timestamps)
+            .expect("failed to exec");
+        
+        if samples_scanned != 10 {
+            panic!(
+                "expecting 10 samples_scanned from rollupConfig.Do; got {}",
+                samples_scanned
+            )
+        }
+        let values_expected = vec![NAN];
+        let timestamps_expected = vec![40001];
+        test_rows_equal(
+            &dst_values,
+            &rc.timestamps,
+            &values_expected,
+            &timestamps_expected,
+        )
     }
 
     #[test]

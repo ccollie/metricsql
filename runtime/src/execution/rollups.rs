@@ -875,11 +875,15 @@ fn drop_stale_nans(
     values: &mut Vec<f64>,
     timestamps: &mut Vec<i64>,
 ) {
-    if *func == RollupFunction::DefaultRollup || *func == RollupFunction::StaleSamplesOverTime {
-        // do not drop Prometheus staleness marks (aka stale NaNs) for default_rollup() function,
+    use RollupFunction::*;
+
+    if matches!(*func, DefaultRollup | StaleSamplesOverTime | Increase | Rate) {
+        // Do not drop Prometheus staleness marks (aka stale NaNs) for default_rollup() function,
         // since it uses them for Prometheus-style staleness detection.
         // do not drop staleness marks for stale_samples_over_time() function, since it needs
         // to calculate the number of staleness markers.
+        // Also do not drop staleness marks for increase() and rate() function, so they could stopAdd commentMore actions
+        // returning results for stale series. See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/8891
         return;
     }
     // Remove Prometheus staleness marks, so non-default rollup functions don't hit NaN values.

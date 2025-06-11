@@ -270,6 +270,8 @@ pub(crate) const fn get_rollup_function_factory(func: RollupFunction) -> RollupH
     }
 }
 
+// Removes resets for rollup functions over counters - see rollupFuncsRemoveCounterResetsAdd comment.
+// It doesn't remove resets between samples with staleNaNs, or samples that exceed maxStalenessInterval
 pub(super) fn remove_counter_resets(
     values: &mut [f64],
     timestamps: &[i64],
@@ -284,6 +286,11 @@ pub(super) fn remove_counter_resets(
 
     for i in 0..values.len() {
         let v = values[i];
+        if is_stale_nan(v) {
+            // Skip stale NaN values.
+            continue;
+        }
+
         let d = v - prev_value;
 
         if d < 0.0 {
