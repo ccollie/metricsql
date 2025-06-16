@@ -67,6 +67,7 @@ pub enum RollupFunction {
     RangeOverTime,
     Rate,
     RateOverSum,
+    RatePrometheus,
     Resets,
     Rollup,
     RollupCandlestick,
@@ -160,6 +161,7 @@ impl RollupFunction {
             RangeOverTime => "range_over_time",
             Rate => "rate",
             RateOverSum => "rate_over_sum",
+            RatePrometheus => "rate_prometheus",
             Resets => "resets",
             Rollup => "rollup",
             RollupCandlestick => "rollup_candlestick",
@@ -269,6 +271,7 @@ impl RollupFunction {
                 | IncreasePure
                 | IRate
                 | Rate
+                | RatePrometheus
                 | RollupIncrease
                 | RollupRate
         )
@@ -577,6 +580,7 @@ fn lookup_rollup_fn(key: &[u8]) -> Option<RollupFunction> {
         "range_over_time" => RangeOverTime,
         "rate" => Rate,
         "rate_over_sum" => RateOverSum,
+        "rate_prometheus" => RatePrometheus,
         "resets" => Resets,
         "rollup" => Rollup,
         "rollup_candlestick" => RollupCandlestick,

@@ -1,5 +1,6 @@
 use crate::common::math::{is_stale_nan, linear_regression};
 use crate::functions::rollup::{RollupFuncArg, RollupHandler};
+use crate::functions::rollup::delta::rollup_delta_prometheus;
 use crate::types::{QueryValue, Timestamp};
 use crate::RuntimeResult;
 
@@ -94,6 +95,14 @@ pub(super) fn rollup_deriv_fast(rfa: &RollupFuncArg) -> f64 {
     let dv = v_end - prev_value;
     let dt = (t_end - prev_timestamp) as f64 / 1e3_f64;
     dv / dt
+}
+
+pub(super) fn rollup_deriv_fast_prometheus(rfa: &RollupFuncArg) -> f64 {
+    let delta = rollup_delta_prometheus(rfa);
+    if delta.is_nan() || rfa.window == 0 {
+        return f64::NAN;
+    }
+    delta / (rfa.window as f64 / 1e3)
 }
 
 pub(super) fn rollup_ideriv(rfa: &RollupFuncArg) -> f64 {

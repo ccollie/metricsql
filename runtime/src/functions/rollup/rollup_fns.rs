@@ -18,6 +18,7 @@ use crate::functions::rollup::{
     deriv::{
         new_rollup_deriv, new_rollup_deriv_fast, new_rollup_ideriv, new_rollup_irate,
         new_rollup_rate, rollup_deriv_fast, rollup_deriv_slow, rollup_ideriv,
+        rollup_deriv_fast_prometheus
     },
     duration_over_time::new_rollup_duration_over_time,
     hoeffding_bound::{new_rollup_hoeffding_bound_lower, new_rollup_hoeffding_bound_upper},
@@ -28,7 +29,6 @@ use crate::functions::rollup::{
     types::RollupHandlerFactory,
     RollupFunc, RollupFuncArg, RollupHandler, RollupHandlerFloat,
 };
-
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::types::QueryValue;
 
@@ -75,6 +75,7 @@ pub(super) fn get_rollup_fn(f: &RollupFunction) -> RuntimeResult<RollupFunc> {
         RangeOverTime => rollup_range,
         Rate => rollup_deriv_fast,
         RateOverSum => rollup_rate_over_sum,
+        RatePrometheus => rollup_deriv_fast_prometheus,
         Resets => rollup_resets,
         ScrapeInterval => rollup_scrape_interval,
         StaleSamplesOverTime => rollup_stale_samples,
@@ -121,7 +122,7 @@ macro_rules! fake_wrapper {
     ( $funcName: ident, $name: expr ) => {
         #[inline]
         fn $funcName(_: &[QueryValue]) -> RuntimeResult<RollupHandler> {
-            Ok(RollupHandler::fake($name))
+            Ok(RollupHandler::Fake($name))
         }
     };
 }
@@ -155,6 +156,7 @@ make_factory!(new_rollup_outlier_iqr_over_time, rollup_outlier_iqr);
 make_factory!(new_rollup_present_over_time, rollup_present);
 make_factory!(new_rollup_range_over_time, rollup_range);
 make_factory!(new_rollup_rate_over_sum, rollup_rate_over_sum);
+make_factory!(new_rollup_rate_prometheus, rollup_deriv_fast_prometheus);
 make_factory!(new_rollup_resets, rollup_resets);
 make_factory!(new_rollup_scrape_interval, rollup_scrape_interval);
 make_factory!(new_rollup_stale_samples_over_time, rollup_stale_samples);
@@ -239,6 +241,7 @@ pub(crate) const fn get_rollup_function_factory(func: RollupFunction) -> RollupH
         RangeOverTime => new_rollup_range_over_time,
         Rate => new_rollup_rate,
         RateOverSum => new_rollup_rate_over_sum,
+        RatePrometheus => new_rollup_rate_prometheus,
         Resets => new_rollup_resets,
         Rollup => new_rollup,
         RollupCandlestick => new_rollup_candlestick,

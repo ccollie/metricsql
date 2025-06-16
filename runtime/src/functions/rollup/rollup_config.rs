@@ -110,7 +110,7 @@ fn get_tag_fn_from_str(key: &str) -> Option<(&'static str, &'static RollupHandle
 }
 
 #[derive(Clone, Debug)]
-pub struct TagFunction {
+struct TagFunction {
     pub tag_value: &'static str,
     pub func: RollupHandler, // COW ???
 }
@@ -120,7 +120,7 @@ pub type TagFunctionVec = SmallVec<TagFunction, 4>;
 pub type RollupConfigVec = SmallVec<RollupConfig, 4>;
 
 #[derive(Clone, Default, Debug)]
-pub struct RollupFunctionHandlerMeta {
+struct RollupFunctionHandlerMeta {
     may_adjust_window: bool,
     samples_scanned_per_call: usize,
     is_default_rollup: bool,
@@ -240,7 +240,7 @@ impl Default for RollupConfig {
     fn default() -> Self {
         Self {
             tag_value: EMPTY_STRING,
-            handler: RollupHandler::Fake("uninitialized"),
+            handler: RollupHandler::default(),
             start: 0,
             end: 0,
             step: Duration::ZERO,
@@ -623,6 +623,7 @@ const fn rollup_samples_scanned_per_call(rf: RollupFunction) -> usize {
         Lifetime => 2,
         PresentOverTime => 1,
         Rate => 2,
+        RatePrometheus => 2,
         ScrapeInterval => 2,
         TFirstOverTime => 1,
         Timestamp => 1,
@@ -650,6 +651,7 @@ fn seek_first_timestamp_idx_after(
     } else {
         0
     };
+    
     let slice_end = if end_idx < count && timestamps[end_idx] > seek_timestamp {
         end_idx
     } else {

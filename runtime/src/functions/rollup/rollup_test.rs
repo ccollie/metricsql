@@ -709,6 +709,7 @@ mod tests {
         f("irate", 0_f64);
         f("outlier_iqr_over_time", NAN);
         f("rate", 2200_f64);
+        f("rate_prometheus", 2200_f64);
         f("resets", 5_f64);
         f("range_over_time", 111_f64);
         f("avg_over_time", 47.083333333333336);
@@ -1036,6 +1037,30 @@ mod tests {
             &values_expected,
             &timestamps_expected,
         );
+    }
+
+    #[test]
+    fn test_rollup_deriv_fast_prometheus() {
+        fn f(values: &[f64], window: i64, result_expected: f64) {
+            let rfa = &RollupFuncArg{
+                values,
+                window,
+                ..Default::default()
+            };
+            let result = rollup_deriv_fast_prometheus(rfa);
+            if result.is_nan() {
+                assert!(result_expected.is_nan(), "unexpected result; got {result}; want {result_expected}");
+            }
+            assert_eq!(result, result_expected, "unexpected result; got {result}; want {result_expected}");
+        }
+
+        f(&[], 0, f64::NAN);
+        f(&[], 10, f64::NAN);
+        f(&[0.0, 10.0], 0, f64::NAN);
+        f(&[10.0], 10, f64::NAN);
+
+        f(&[0.0, 20.0], 10000, 2.0);
+        f(&[0.0, 10.0, 20.0], 10000, 2.0);
     }
 
     #[test]
@@ -1457,7 +1482,7 @@ mod tests {
             end: 40001,
             step: Duration::from_millis(50000),
             window: Duration::ZERO,
-            max_points_per_series: 1e4usize,
+            max_points_per_series: 10000,
             ..Default::default()
         };
         rc.ensure_timestamps()
@@ -1494,7 +1519,7 @@ mod tests {
             end: 40001,
             step: Duration::from_millis(50000),
             window: Duration::ZERO,
-            max_points_per_series: 1e4usize,
+            max_points_per_series: 1000,
             ..Default::default()
         };
         rc.ensure_timestamps()
