@@ -14,7 +14,7 @@ use chili::Scope;
 use metricsql_common::prelude::humanize_duration;
 use metricsql_parser::ast::Expr;
 use metricsql_parser::functions::RollupFunction;
-use smallvec::SmallVec;
+use smallvec::{smallvec, SmallVec};
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
@@ -507,94 +507,44 @@ fn exec_handlers(handler: &RollupHandler, dest: &mut Vec<f64>, args: &[RollupFun
     }
 }
 
-// Done with iteration (and many branches) instead of recursion because of the dest vector (passed in to 
-// minimize temporary allocations). Rollup handling is considered to be in the hot path
+
 fn exec_handler_parallel(
     scope: &mut Scope,
     handler: &RollupHandler,
     dest: &mut Vec<f64>,
     args: &[RollupFuncArg],
 ) {
-    #[inline]
-    fn process_two(
+    const RESULT_VEC_LEN: usize = 32;
+
+    fn handle_internal(
         scope: &mut Scope,
         handler: &RollupHandler,
-        first: &RollupFuncArg,
-        second: &RollupFuncArg,
-    ) -> (f64, f64) {
-        scope.join(|_| handler.eval(first), |_| handler.eval(second))
-    }
-
-    #[inline]
-    fn process_three(
-        s: &mut Scope,
-        handler: &RollupHandler,
-        first: &RollupFuncArg,
-        second: &RollupFuncArg,
-        third: &RollupFuncArg,
-    ) -> (f64, f64, f64)
-    {
-        let ((one, two), three) = s.join(|s1| process_two(s1, handler, first, second), |_| handler.eval(third));
-        (one, two, three)
-    }
-
-    #[inline]
-    fn process_four(
-        scope: &mut Scope,
-        handler: &RollupHandler,
-        first: &RollupFuncArg,
-        second: &RollupFuncArg,
-        third: &RollupFuncArg,
-        fourth: &RollupFuncArg,
-    ) -> (f64, f64, f64, f64)
-    {
-        let ((v1, v2), (v3, v4)) = scope.join(
-            |s1| process_two(s1, handler, first, second),
-            |s2| process_two(s2, handler, third, fourth),
-        );
-        (v1, v2, v3, v4)
-    }
-
-    match args {
-        [] => (),
-        [first] => {
-            let v = handler.eval(first);
-            dest.push(v);
-        }
-        [first, second] => {
-            let (v1, v2) = process_two(scope, handler, first, second);
-            dest.extend_from_slice(&[v1, v2]);
-        }
-        [first, second, third] => {
-            let (v1, v2, v3) = process_three(scope, handler, first, second, third);
-            dest.extend_from_slice(&[v1, v2, v3]);
-        }
-        [first, second, third, fourth] => {
-            let (v1, v2, v3, v4) = process_four(scope, handler, first, second, third, fourth);
-            dest.extend_from_slice(&[v1, v2, v3, v4]);
-        }
-        [p1, p2, p3, p4, p5] => {
-            let ((v1, v2, v3, v4), v5) = scope.join(
-                |s| process_four(s, handler, p1, p2, p3, p4),
-                |_| handler.eval(p5)
-            );
-            dest.extend_from_slice(&[v1, v2, v3, v4, v5]);
-        }
-        [p1, p2, p3, p4, p5, p6] => {
-            let ((v1, v2, v3, v4), (v5, v6)) = scope.join(
-                |s| process_four(s, handler, p1, p2, p3, p4),
-                |s| process_two(s, handler, p5, p6)
-            );
-            dest.extend_from_slice(&[v1, v2, v3, v4, v5, v6]);
-        }
-        _ => {
-            let mid = args.len() / 2;
-            let (head, tail) = args.split_at(mid);
-            // todo: use smallvec, parallelize the following
-            exec_handler_parallel(scope, handler, dest, head);
-            exec_handler_parallel(scope, handler, dest, tail);
+        args: &[RollupFuncArg],
+    ) -> SmallVec<f64, RESULT_VEC_LEN> {
+        match args {
+            [] => smallvec![],
+            [first] => {
+                smallvec![handler.eval(first)]
+            }
+            [first, second] => {
+                let (v1, v2) = scope.join(|_| handler.eval(first), |_| handler.eval(second));
+                smallvec![v1, v2]
+            }
+            _ => {
+                let mid = args.len() / 2;
+                let (head, tail) = args.split_at(mid);
+                let (mut left, mut right) = scope.join(
+                    |s1| handle_internal(s1, handler, head), 
+                    |s2| handle_internal(s2, handler, tail)
+                );
+                left.append(&mut right);
+                left
+            }
         }
     }
+    
+    let res = handle_internal(scope, handler, args);
+    dest.extend(res);
 }
 
 /// `rollup_samples_scanned_per_call` contains functions which scan a lower number of samples
