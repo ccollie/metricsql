@@ -46,24 +46,32 @@ impl StringMatchOptions {
 
 #[derive(Clone, Debug, GetSize, Eq, PartialEq)]
 pub struct MatchAnyMatcher {
-    ignore_nl: bool,
+    match_nl: bool,
 }
 
 impl MatchAnyMatcher {
-    pub fn new(ignore_nl: bool) -> Self {
-        Self { ignore_nl }
+    pub fn new(match_nl: bool) -> Self {
+        Self { match_nl }
     }
 
     fn matches(&self, s: &str) -> bool {
-        if !self.ignore_nl {
-            !s.contains('\n')
-        } else {
+        if self.match_nl {
             true
+        } else {
+            !s.contains('\n')
         }
     }
 
     fn cost(&self) -> usize {
         FULL_MATCH_COST
+    }
+}
+
+impl Default for MatchAnyMatcher {
+    fn default() -> Self {
+        Self {
+            match_nl: true,
+        }
     }
 }
 
@@ -97,10 +105,11 @@ pub struct ZeroOrOneCharsMatcher {
 
 impl ZeroOrOneCharsMatcher {
     fn matches(&self, s: &str) -> bool {
+        let empty = s.is_empty();
         if self.match_nl {
-            s.is_empty() || s.chars().count() == 1
+            empty || s.chars().count() == 1
         } else {
-            s.is_empty() || (s.chars().count() == 1 && !s.starts_with('\n'))
+            empty || (s.chars().count() == 1 && !s.starts_with('\n'))
         }
     }
 
@@ -166,6 +175,85 @@ impl EqualMultiStringMatcher {
 }
 
 #[derive(Clone, Debug, GetSize, Eq, PartialEq)]
+pub struct LiteralBracketedMatcher {
+    pub left: Option<StringPattern>,
+    pub matcher: Box<StringMatchHandler>,
+    pub right: Option<StringPattern>
+}
+
+impl LiteralBracketedMatcher {
+    pub fn new(
+        left: StringPattern,
+        matcher: StringMatchHandler,
+        right: StringPattern,
+    ) -> Self {
+        Self { left: Some(left), matcher: Box::new(matcher), right: Some(right) }
+    }
+
+    pub fn with_prefix(matcher: StringMatchHandler, prefix: StringPattern) -> Self {
+        Self {
+            left: Some(prefix),
+            matcher: Box::new(matcher),
+            right: None,
+        }
+    }
+
+    pub fn with_suffix(matcher: StringMatchHandler, suffix: StringPattern) -> Self {
+        Self {
+            left: None,
+            matcher: Box::new(matcher),
+            right: Some(suffix),
+        }
+    }
+
+    fn is_case_sensitive(&self) -> bool {
+        let is_sensitive = self.matcher.is_case_sensitive();
+        match (self.left.as_ref(), self.right.as_ref()) {
+            (Some(left), Some(right)) => {
+                is_sensitive && left.is_case_sensitive() && right.is_case_sensitive()
+            }
+            (Some(left), None) => is_sensitive && left.is_case_sensitive(),
+            (None, Some(right)) => is_sensitive && right.is_case_sensitive(),
+            (None, None) => is_sensitive,
+        }
+    }
+
+    fn matches(&self, s: &str) -> bool {
+        let mut s = s;
+        if let Some(left) = &self.left {
+            if !left.starts_with(s) {
+                return false;
+            }
+            s = &s[left.len()..];
+        }
+        if let Some(right) = &self.right {
+            if !right.ends_with(s) {
+                return false;
+            }
+            s = &s[..s.len() - right.len()];
+        }
+        self.matcher.matches(s)
+    }
+
+    fn pattern_cost(&self) -> usize {
+        let left_cost = self.left.as_ref().map_or(0, |l| l.len());
+        let right_cost = self.right.as_ref().map_or(0, |r| r.len());
+        left_cost + right_cost
+    }
+    
+    fn cost(&self) -> usize {
+        self.matcher.cost() + self.pattern_cost()
+    }
+}
+
+#[derive(Clone, Debug, GetSize, Eq, PartialEq)]
+pub struct LiteralMatcher {
+    pub left: Option<Box<StringMatchHandler>>,
+    pattern: StringPattern,
+    pub right: Option<Box<StringMatchHandler>>,
+}
+
+#[derive(Clone, Debug, GetSize, Eq, PartialEq)]
 pub struct LiteralPrefixMatcher {
     pub prefix: StringPattern,
     pub right: Option<Box<StringMatchHandler>>,
@@ -186,7 +274,7 @@ impl LiteralPrefixMatcher {
     }
 
     fn cost(&self) -> usize {
-        let match_cost = if self.prefix.is_case_sensitive() {
+        let match_cost = if self.is_case_sensitive() {
             FULL_MATCH_COST
         } else if self.prefix.is_ascii() {
             FULL_MATCH_COST * 2
@@ -197,15 +285,16 @@ impl LiteralPrefixMatcher {
     }
 
     fn matches(&self, s: &str) -> bool {
-        if !self.prefix.starts_with(s) {
+        if !self.prefix.is_prefix_of(s) {
             return false;
         }
-        if let Some(right) = &self.right {
-            let right_part = &s[self.prefix.len()..];
-            right.matches(right_part)
-        } else {
-            true
-        }
+
+        let Some(suffix) = &self.right else {
+            return true;
+        };
+
+        let right_part = &s[self.prefix.len()..];
+        suffix.matches(right_part)
     }
 }
 
@@ -230,18 +319,20 @@ impl LiteralSuffixMatcher {
     }
 
     fn matches(&self, s: &str) -> bool {
-        if !self.suffix.ends_with(s) {
+        if !self.suffix.is_suffix_of(s) {
             return false;
         }
-        if let Some(left) = &self.left {
-            if s.len() < self.suffix.len() {
-                return false;
-            }
-            let left_part = &s[..s.len() - self.suffix.len()];
-            left.matches(left_part)
-        } else {
-            true
+        let Some(left) = self.left.as_ref() else {
+            return true;
+        };
+
+        let suffix_len = self.suffix.len();
+        if s.len() < suffix_len {
+            return false;
         }
+
+        let left_part = &s[..s.len() - suffix_len];
+        left.matches(left_part)
     }
 
     fn cost(&self) -> usize {
@@ -279,25 +370,31 @@ impl ContainsMultiStringMatcher {
     }
 
     fn matches(&self, s: &str) -> bool {
-        for substr in &self.substrings {
+        for substr in self.substrings.iter() {
+            let len = substr.len();
             match (self.left.as_ref(), self.right.as_ref()) {
                 (Some(left), Some(right)) => {
                     let mut search_start_pos = 0;
                     while let Some(pos) = s[search_start_pos..].find(substr) {
                         let pos = pos + search_start_pos;
-                        if left.matches(&s[..pos]) && right.matches(&s[pos + substr.len()..]) {
+                        let remainder = &s[pos + len..];
+                        if left.matches(&s[..pos]) && right.matches(remainder) {
                             return true;
                         }
                         search_start_pos = pos + 1;
                     }
                 }
                 (Some(left), None) => {
-                    if s.ends_with(substr) && left.matches(&s[..s.len() - substr.len()]) {
+                    if !s.ends_with(substr) {
+                        continue;
+                    }
+                    let left_part = &s[..s.len() - len];
+                    if left.matches(left_part) {
                         return true;
                     }
                 }
                 (None, Some(right)) => {
-                    if s.starts_with(substr) && right.matches(&s[substr.len()..]) {
+                    if s.starts_with(substr) && right.matches(&s[len..]) {
                         return true;
                     }
                 }
@@ -494,35 +591,111 @@ impl RegexMatcher {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, GetSize)]
+pub struct ConsecutiveLiterals {
+    pub(super) prefix: Option<Box<StringMatchHandler>>,
+    pub(super) suffix: Option<Box<StringMatchHandler>>,
+    pub(super) literals: Vec<StringPattern>,
+    _len: usize
+}
+
+impl ConsecutiveLiterals {
+    pub fn new(prefix: Option<StringMatchHandler>, literals: Vec<StringPattern>, suffix: Option<StringMatchHandler>) -> Self {
+        let prefix = prefix.map(Box::new);
+        let suffix = suffix.map(Box::new);
+        let _len = literals.iter().map(|x| x.len()).sum();
+        Self { 
+            literals,
+            prefix,
+            suffix,
+            _len
+        }
+    }
+
+    pub fn with_prefix(prefix: StringMatchHandler, literals: Vec<StringPattern>) -> Self {
+        let prefix = Box::new(prefix);
+        let _len = literals.iter().map(|x| x.len()).sum();
+        Self { literals, prefix: Some(prefix), suffix: None, _len }
+    }
+    
+    pub fn matches(&self, s: &str) -> bool {
+        let mut cursor = s;
+        let pattern_count = self.literals.len();
+        let len = self._len;
+
+        if let Some(prefix) = &self.prefix {
+            if s.len() < len {
+                return false;
+            }
+            let left_part = &s[..s.len() - len];
+            if prefix.matches(left_part) {
+                return true;
+            }
+        }
+
+        for (i, pattern) in self.literals.iter().enumerate() {
+            if pattern.starts_with(cursor) {
+                let p_len = pattern.len();
+                // prevent an out-of-bounds error
+                if i < pattern_count && p_len >= cursor.len() {
+                    return false;
+                }
+                cursor = &cursor[p_len..]
+            } else {
+                return false;
+            }
+        }
+        if let Some(suffix) = &self.suffix {
+            return suffix.matches(cursor)
+        }
+        true
+    }
+    
+    pub fn cost(&self) -> usize {
+        (self.literals.len() * LITERAL_MATCH_COST) +
+            self.suffix.as_ref().map_or(0, |s| s.cost())
+    }
+
+    pub fn len(&self) -> usize {
+        self._len
+    }
+
+    pub fn is_case_sensitive(&self) -> bool {
+        self.literals.iter().all(|l| l.is_case_sensitive())
+    }
+}
+
+
 #[derive(Clone, Debug, GetSize, Eq, PartialEq)]
 pub enum StringMatchHandler {
-    MatchAny(MatchAnyMatcher),
-    MatchNone,
-    Empty,
-    NotEmpty(NonEmptyStringMatcher),
-    Literal(StringPattern),
-    /// Alteration of literals
     Alternates(EqualMultiStringMatcher),
-    LiteralMap(LiteralMapMatcher),
+    Bracketed(Box<LiteralBracketedMatcher>),
+    ConsecutiveLiterals(ConsecutiveLiterals),
     ContainsMulti(ContainsMultiStringMatcher),
+    Empty,
+    Literal(StringPattern),
+    LiteralMap(LiteralMapMatcher),
+    MatchAny(MatchAnyMatcher),
+    MatchFn(MatchFnHandler),
+    MatchNone,
+    NotEmpty(NonEmptyStringMatcher),
+    Or(Vec<StringMatchHandler>),
     Prefix(LiteralPrefixMatcher),
-    Suffix(LiteralSuffixMatcher),
     Regex(RegexMatcher),
     Repetition(RepetitionMatcher),
-    MatchFn(MatchFnHandler),
-    Or(Vec<Box<StringMatchHandler>>),
+    Suffix(LiteralSuffixMatcher),
     ZeroOrOneChars(ZeroOrOneCharsMatcher),
 }
 
 impl Default for StringMatchHandler {
     fn default() -> Self {
-        Self::MatchAny(MatchAnyMatcher { ignore_nl: false })
+        Self::MatchAny(MatchAnyMatcher { match_nl: false })
     }
 }
 
 impl StringMatchHandler {
-    pub fn any(ignore_nl: bool) -> Self {
-        Self::MatchAny(MatchAnyMatcher::new(ignore_nl))
+    pub fn any(match_nl: bool) -> Self {
+        Self::MatchAny(MatchAnyMatcher::new(match_nl))
     }
 
     #[allow(dead_code)]
@@ -593,14 +766,31 @@ impl StringMatchHandler {
             case_sensitive,
         ))
     }
+    
+    pub fn contains(substring: String) -> Self {
+        StringMatchHandler::match_fn(substring, contains_fn)
+    }
+    
+    pub fn consecutive_literals(prefix: Option<StringMatchHandler>, literals: Vec<StringPattern>, suffix: Option<StringMatchHandler>) -> Self {
+        if literals.len() == 1 && prefix.is_none() && suffix.is_none() {
+            let mut literals = literals;
+            let pattern = literals.pop().unwrap();
+            return StringMatchHandler::Literal(pattern);
+        }
+        StringMatchHandler::ConsecutiveLiterals(ConsecutiveLiterals::new(prefix, literals, suffix))
+    }
 
     pub fn is_case_sensitive(&self) -> bool {
         match self {
+            StringMatchHandler::Alternates(p) => p.is_case_sensitive(),
+            StringMatchHandler::Bracketed(p) => p.is_case_sensitive(),
+            StringMatchHandler::ConsecutiveLiterals(p) => {
+                p.literals.iter().any(|l| l.is_case_sensitive())
+            }
             StringMatchHandler::Literal(p) => p.is_case_sensitive(),
+            StringMatchHandler::LiteralMap(p) => p.is_case_sensitive(),
             StringMatchHandler::Prefix(p) => p.is_case_sensitive(),
             StringMatchHandler::Suffix(p) => p.is_case_sensitive(),
-            StringMatchHandler::LiteralMap(p) => p.is_case_sensitive(),
-            StringMatchHandler::Alternates(p) => p.is_case_sensitive(),
             _ => true,
         }
     }
@@ -611,47 +801,52 @@ impl StringMatchHandler {
             StringMatchHandler::Repetition(_)
                 | StringMatchHandler::ZeroOrOneChars(_)
                 | StringMatchHandler::MatchAny(_)
+                | StringMatchHandler::MatchNone
         )
     }
 
     pub fn matches(&self, s: &str) -> bool {
         match self {
-            StringMatchHandler::MatchAny(m) => m.matches(s),
-            StringMatchHandler::MatchNone => false,
-            StringMatchHandler::MatchFn(m) => m.matches(s),
-            StringMatchHandler::Regex(r) => r.matches(s),
-            StringMatchHandler::Literal(m) => m.matches(s),
+            StringMatchHandler::Alternates(m) => m.matches(s),
+            StringMatchHandler::Bracketed(p) => p.matches(s),
+            StringMatchHandler::ConsecutiveLiterals(m) => m.matches(s),
+            StringMatchHandler::ContainsMulti(m) => m.matches(s),
             StringMatchHandler::Empty => s.is_empty(),
+            StringMatchHandler::Literal(m) => m.matches(s),
+            StringMatchHandler::LiteralMap(m) => m.matches(s),
+            StringMatchHandler::MatchAny(m) => m.matches(s),
+            StringMatchHandler::MatchFn(m) => m.matches(s),
+            StringMatchHandler::MatchNone => false,
             StringMatchHandler::NotEmpty(opts) => opts.matches(s),
             StringMatchHandler::Or(matchers) => matchers.iter().any(|m| m.matches(s)),
-            StringMatchHandler::ZeroOrOneChars(m) => m.matches(s),
-            StringMatchHandler::Alternates(m) => m.matches(s),
-            StringMatchHandler::ContainsMulti(m) => m.matches(s),
             StringMatchHandler::Prefix(m) => m.matches(s),
-            StringMatchHandler::Suffix(m) => m.matches(s),
-            StringMatchHandler::LiteralMap(m) => m.matches(s),
+            StringMatchHandler::Regex(r) => r.matches(s),
             StringMatchHandler::Repetition(m) => m.matches(s),
+            StringMatchHandler::Suffix(m) => m.matches(s),
+            StringMatchHandler::ZeroOrOneChars(m) => m.matches(s),
         }
     }
 
     pub fn cost(&self) -> usize {
         match self {
-            StringMatchHandler::MatchAny(m) => m.cost(),
-            StringMatchHandler::MatchNone => EMPTY_MATCH_COST,
-            StringMatchHandler::MatchFn(_) => FN_MATCH_COST,
-            StringMatchHandler::Regex(r) => r.cost(),
+            StringMatchHandler::Alternates(m) => m.cost(),
+            StringMatchHandler::Bracketed(m) => m.cost(),
+            StringMatchHandler::ConsecutiveLiterals(m) => m.cost(),
+            StringMatchHandler::ContainsMulti(m) => m.cost(),
+            StringMatchHandler::Empty => EMPTY_MATCH_COST,
             // todo: case-insensitive literals should have a higher cost
             StringMatchHandler::Literal(_) => LITERAL_MATCH_COST,
-            StringMatchHandler::Empty => EMPTY_MATCH_COST,
+            StringMatchHandler::LiteralMap(m) => m.cost(),
+            StringMatchHandler::MatchAny(m) => m.cost(),
+            StringMatchHandler::MatchFn(_) => FN_MATCH_COST,
+            StringMatchHandler::MatchNone => EMPTY_MATCH_COST,
             StringMatchHandler::NotEmpty(m) => m.cost(),
             StringMatchHandler::Or(matchers) => matchers.iter().map(|m| m.cost()).sum(),
-            StringMatchHandler::ZeroOrOneChars(m) => m.cost(),
-            StringMatchHandler::Alternates(m) => m.cost(),
-            StringMatchHandler::ContainsMulti(m) => m.cost(),
             StringMatchHandler::Prefix(m) => m.cost(),
-            StringMatchHandler::Suffix(m) => m.cost(),
-            StringMatchHandler::LiteralMap(m) => m.cost(),
+            StringMatchHandler::Regex(r) => r.cost(),
             StringMatchHandler::Repetition(m) => m.cost(),
+            StringMatchHandler::Suffix(m) => m.cost(),
+            StringMatchHandler::ZeroOrOneChars(m) => m.cost(),
         }
     }
 }
@@ -688,7 +883,7 @@ impl Display for StringMatchHandler {
     }
 }
 
-const fn get_literal_match_fn(options: &StringMatchOptions) -> MatchFn {
+pub(super) const fn get_literal_match_fn(options: &StringMatchOptions) -> MatchFn {
     let StringMatchOptions {
         anchor_start,
         anchor_end,
@@ -697,37 +892,37 @@ const fn get_literal_match_fn(options: &StringMatchOptions) -> MatchFn {
     } = options;
 
     // ^foobar.+
-    fn start_with_dot_plus_fn(needle: &str, haystack: &str) -> bool {
-        haystack.len() > needle.len() && haystack.starts_with(needle)
+    fn start_with_dot_plus_fn(pattern: &str, needle: &str) -> bool {
+        needle.len() > pattern.len() && needle.starts_with(pattern)
     }
 
     // ^.?foo
-    fn start_with_zero_or_one_chars_fn(needle: &str, haystack: &str) -> bool {
-        if haystack.is_empty() || haystack.chars().count() == 1 {
-            if needle.is_empty() {
-                return true;
-            }
-            if let Some(pos) = haystack.find(needle) {
-                return pos == 0 || pos == 1;
-            }
+    fn start_with_zero_or_one_chars_fn(haystack: &str, needle: &str) -> bool {
+        if needle == haystack {
+            return true;
         }
+
+        if needle.len() == haystack.len() + 1 && needle.ends_with(haystack) {
+            return true;
+        }
+
         false
     }
 
-    fn ends_with_zero_or_one_chars_fn(needle: &str, haystack: &str) -> bool {
-        if haystack.len() < needle.len() {
+    fn ends_with_zero_or_one_chars_fn(haystack: &str, needle: &str) -> bool {
+        if needle == haystack {
+            return true;
+        }
+
+        if haystack.len() + 1 != needle.len() {
             return false;
         }
-        if let Some(pos) = haystack.rfind(needle) {
-            let end = pos + needle.len();
-            end == haystack.len() || end == haystack.len() - 1
-        } else {
-            false
-        }
+
+        needle.starts_with(haystack)
     }
 
     // .?foo.?$
-    fn zero_or_one_chars_anchors_fn(needle: &str, haystack: &str) -> bool {
+    fn zero_or_one_chars_anchors_fn(haystack: &str, needle: &str) -> bool {
         if haystack.len() < needle.len() {
             return false;
         }
@@ -744,6 +939,14 @@ const fn get_literal_match_fn(options: &StringMatchOptions) -> MatchFn {
             (Some(Quantifier::ZeroOrOne), Some(Quantifier::ZeroOrOne)) => {
                 // ^.?foo.?$
                 zero_or_one_chars_anchors_fn
+            }
+            (Some(Quantifier::ZeroOrMore), Some(Quantifier::ZeroOrOne)) => {
+                // ^.*foo.?$
+                contains_dot_quest_fn
+            }
+            (Some(Quantifier::ZeroOrMore), Some(Quantifier::ZeroOrMore)) => {
+                // ^.*foo.*$
+                contains_fn
             }
             (Some(Quantifier::ZeroOrMore), Some(Quantifier::OneOrMore)) => {
                 // ^.*foo.+$
@@ -796,6 +999,10 @@ const fn get_literal_match_fn(options: &StringMatchOptions) -> MatchFn {
                 // ^.*foo.*
                 contains_fn
             }
+            (Some(Quantifier::ZeroOrMore), Some(Quantifier::ZeroOrOne)) => {
+                // ^.*foo.?
+                contains_dot_quest_fn
+            }
             (Some(Quantifier::ZeroOrMore), Some(Quantifier::OneOrMore)) => {
                 // ^.*foo.+
                 contains_dot_plus_fn
@@ -840,6 +1047,10 @@ const fn get_literal_match_fn(options: &StringMatchOptions) -> MatchFn {
             (Some(Quantifier::ZeroOrMore), Some(Quantifier::ZeroOrMore)) => {
                 // .*foo.*$
                 contains_fn
+            }
+            (Some(Quantifier::ZeroOrMore), Some(Quantifier::ZeroOrOne)) => {
+                // .*foo.?$
+                contains_dot_quest_fn
             }
             (Some(Quantifier::ZeroOrMore), Some(Quantifier::OneOrMore)) => {
                 // .*foo.+$
@@ -896,6 +1107,10 @@ const fn get_literal_match_fn(options: &StringMatchOptions) -> MatchFn {
             (Some(Quantifier::ZeroOrMore), Some(Quantifier::OneOrMore)) => {
                 // .*foo.+
                 contains_dot_plus_fn
+            }
+            (Some(Quantifier::ZeroOrMore), Some(Quantifier::ZeroOrOne)) => {
+                // .*foo.?
+                contains_dot_quest_fn
             }
             (Some(Quantifier::OneOrMore), Some(Quantifier::ZeroOrMore)) => {
                 // .+foo.*
@@ -1035,24 +1250,24 @@ pub(super) fn get_optimized_literal_matcher(
     }
 }
 
-pub(super) fn equals_fn(needle: &str, haystack: &str) -> bool {
+pub(super) fn equals_fn(haystack: &str, needle: &str) -> bool {
     haystack == needle
 }
 
-pub(super) fn contains_fn(needle: &str, haystack: &str) -> bool {
-    haystack.contains(needle)
+pub(super) fn contains_fn(pattern: &str, needle: &str) -> bool {
+    needle.contains(pattern)
 }
 
-pub(super) fn starts_with_fn(needle: &str, haystack: &str) -> bool {
-    haystack.starts_with(needle)
+pub(super) fn starts_with_fn(pattern: &str, needle: &str) -> bool {
+    needle.starts_with(pattern)
 }
 
-pub(super) fn ends_with_fn(needle: &str, haystack: &str) -> bool {
-    haystack.ends_with(needle)
+pub(super) fn ends_with_fn(pattern: &str, needle: &str) -> bool {
+    needle.ends_with(pattern)
 }
 
 // foobar.+
-pub(super) fn prefix_dot_plus_fn(needle: &str, haystack: &str) -> bool {
+pub(super) fn prefix_dot_plus_fn(haystack: &str, needle: &str) -> bool {
     if let Some(pos) = haystack.find(needle) {
         pos + needle.len() < haystack.len() - 1
     } else {
@@ -1061,36 +1276,52 @@ pub(super) fn prefix_dot_plus_fn(needle: &str, haystack: &str) -> bool {
 }
 
 // .+foobar.*
-pub(crate) fn dot_plus_match_fn(needle: &str, haystack: &str) -> bool {
-    if let Some(pos) = haystack.find(needle) {
-        pos > 0
-    } else {
-        false
+pub(crate) fn dot_plus_match_fn(pattern: &str, needle: &str) -> bool {
+    let mut cursor = &needle[0..];
+    while let Some(pos) = cursor.find(pattern) {
+        if pos > 0 {
+            return true;
+        }
+        cursor = &cursor[pos + pattern.len()..];
     }
+    false
 }
 
 // ^.+(foo|bar)$ / .+(foo|bar)$
-fn dot_plus_ends_with_fn(needle: &str, haystack: &str) -> bool {
-    haystack.len() > needle.len() && haystack.ends_with(needle)
+fn dot_plus_ends_with_fn(pattern: &str, needle: &str) -> bool {
+    needle.len() > pattern.len() && needle.ends_with(pattern)
 }
 
 // ^.+foo.+
-pub(crate) fn dot_plus_dot_plus_match_fn(needle: &str, haystack: &str) -> bool {
-    if let Some(pos) = haystack.find(needle) {
-        pos > 0 && pos + needle.len() < haystack.len()
+pub(crate) fn dot_plus_dot_plus_match_fn(pattern: &str, needle: &str) -> bool {
+    if let Some(pos) = needle.find(pattern) {
+        pos > 0 && pos + pattern.len() < needle.len()
     } else {
         false
     }
 }
 
 // something like .*foo.+$
-pub(super) fn contains_dot_plus_fn(needle: &str, haystack: &str) -> bool {
+pub(super) fn contains_dot_plus_fn(haystack: &str, needle: &str) -> bool {
     if let Some(pos) = haystack.find(needle) {
         let end = pos + needle.len();
         end < haystack.len()
     } else {
         false
     }
+}
+
+/// handle  .*aaa.?
+pub(super) fn contains_dot_quest_fn(pattern: &str, needle: &str) -> bool {
+    let mut needle = needle;
+    while let Some(pos) = needle.find(pattern) {
+        let remainder = &needle[pos + pattern.len()..];
+        if remainder.len() <= 1 {
+            return true;
+        }
+        needle = remainder;
+    }
+    false
 }
 
 pub fn contains_in_order(s: &str, contains: &[String]) -> bool {
@@ -1125,7 +1356,7 @@ mod tests {
         assert!(!matcher_match_nl.matches("xx"));
         assert!(!matcher_match_nl.matches("\n\n"));
 
-        // Test case: do not match newline
+        // Test case: do not match a newline
         let matcher_no_match_nl = ZeroOrOneCharsMatcher { match_nl: false };
         assert!(matcher_no_match_nl.matches(""));
         assert!(matcher_no_match_nl.matches("x"));
