@@ -1629,8 +1629,8 @@ mod tests {
         let mut r1 = make_result(&[8.0, 8.0, 8.0, 8.0, 8.0, 8.0]);
         r1.metric.set("foo", "9:0:15");
 
-        let r2 = make_result(&[5.0, 5.0, 5.0, 5.0, 5.0, 5.0]);
-        r1.metric.set("foo", "7:0:15");
+        let mut r2 = make_result(&[5.0, 5.0, 5.0, 5.0, 5.0, 5.0]);
+        r2.metric.set("foo", "7:0:15");
 
         let mut r3 = make_result(&[4.0, 4.0, 4.0, 4.0, 4.0, 4.0]);
         r3.metric.set("foo", "5:0:15");
@@ -2142,7 +2142,7 @@ mod tests {
     fn vector_multiplied_by_on_foo_group_right() {
         let q = r#"sort(label_set(time()/10, "foo", "bar", "xx", "yy", "__name__", "qwert") + on(foo) group_right(xx) (
         label_set(time(), "foo", "bar", "__name__", "aaa"),
-        label_set(time()+3, "foo", "bar", "__name__", "yyy","ppp", "123"),
+        label_set(time()+3, "foo", "bar", "__name__", "yyy", "ppp", "123"),
         ))"#;
         let mut r1 = make_result(&[1100_f64, 1320.0, 1540.0, 1760.0, 1980.0, 2200.0]);
         r1.metric.set("foo", "bar");
@@ -3491,7 +3491,7 @@ mod tests {
             12.0,
             13.333333333333334,
         ]);
-        r1.metric.set("xbaz", "sss");
+        r1.metric.set("foo", "bar");
         test_query(q, vec![r1]);
     }
 
