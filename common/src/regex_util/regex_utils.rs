@@ -4,16 +4,12 @@ use crate::regex_util::string_pattern::StringPattern;
 use crate::regex_util::{LiteralBracketedMatcher, LiteralMapMatcher, MatchFnHandler, Quantifier, StringMatchOptions};
 use regex::{Error as RegexError, Regex};
 use regex_syntax::hir::Class::{Bytes, Unicode};
-use regex_syntax::hir::{Class, Dot, Hir, HirKind, Look, Repetition};
+use regex_syntax::hir::{Class, Hir, HirKind, Look, Repetition};
 use regex_syntax::{hir, parse as parse_regex};
-use std::sync::LazyLock;
 
-static ANY_CHAR_EXCEPT_LF: LazyLock<Hir> = LazyLock::new(|| Hir::dot(Dot::AnyCharExceptLF));
-static ANY_CHAR: LazyLock<Hir> = LazyLock::new(|| Hir::dot(Dot::AnyChar));
-
-const MAX_SET_MATCHES: usize = 256;
+const MAX_SET_MATCHES: usize = 64;
 // Beyond this, it's better to use regexp.
-const MAX_OR_VALUES: usize = 256;
+const MAX_OR_VALUES: usize = 64;
 
 /// The minimum number of alternate values a regex should have to trigger
 /// the optimization done by `optimize_equal_or_prefix_string_matchers()` to use a map
@@ -96,28 +92,6 @@ pub fn string_matcher_from_regex(expr: &str) -> Result<StringMatchHandler, Regex
     // let debug_str = format!("{:?}, {}", sre, hir_to_string(&sre));
     //
     // println!("expr {}", debug_str);
-
-    // remove anchor if it exists
-    if let HirKind::Concat(subs) = sre.kind() {
-        let mut concat = &subs[..];
-
-        if !subs.is_empty() {
-            if let HirKind::Look(_) = subs[0].kind() {
-                concat = &concat[1..];
-            }
-            if let HirKind::Look(_) = subs[subs.len() - 1].kind() {
-                concat = &concat[..concat.len() - 1];
-            }
-        }
-
-        if concat.len() != subs.len() {
-            if concat.len() == 1 {
-                sre = concat[0].clone();
-            } else {
-                sre = Hir::concat(Vec::from(concat));
-            }
-        }
-    }
 
     // Prepare a fast string matcher for re_match.
     if let Some(match_func) = string_matcher_from_regex_internal(expr, &sre)? {
@@ -510,8 +484,6 @@ fn get_simple_concat_matcher(expr: &str, hirs: &[Hir], anchored: bool) -> Result
         Ok(Some(matcher))
     }
 
-    // todo: handle more cases like:
-    // alternate - 
 
     match hirs {
         [h1] => string_matcher_from_regex_internal(expr, h1),
@@ -800,8 +772,8 @@ fn get_case_folded_string(hirs: &[Hir]) -> Option<(String, usize)> {
             res.push(ch);
             count += 1;
         } else if let HirKind::Literal(lit) = hir.kind() {
-            // We may have character classes followed by a non-alphanumeric literal (e.g. (?i)xyz-abc).
-            // Here we'll have classes for xyz, then a literal for '-' and then classes for abc.
+            // We may have character classes followed by a non-alphanumeric literal (e.g. (?i)xyz-123).
+            // Here we'll have classes for xyz, then a literal for '-123'.
             // We coalesce these literals and character classes together. Note that we are not being
             // exhaustive here and only handle common cases.
 
@@ -1315,17 +1287,14 @@ fn collect_simple_alternates(
                     let left_kind = h1.kind();
                     let right_kind = h3.kind();
                     let middle_kind = h2.kind();
-                    match (left_kind, middle_kind, right_kind) {
-                        (HirKind::Literal(_), HirKind::Alternation(alts), HirKind::Literal(_)) => {
-                            let prefix = hir_to_string(h1);
-                            let suffix = hir_to_string(h3);
-                            for sub in alts.iter() {
-                                let mid = hir_to_string(sub);
-                                let opt = format!("{base}{prefix}{mid}{suffix}");
-                                matches.push(opt);
-                            }
+                    if let (HirKind::Literal(_), HirKind::Alternation(alts), HirKind::Literal(_)) = (left_kind, middle_kind, right_kind) {
+                        let prefix = hir_to_string(h1);
+                        let suffix = hir_to_string(h3);
+                        for sub in alts.iter() {
+                            let mid = hir_to_string(sub);
+                            let opt = format!("{base}{prefix}{mid}{suffix}");
+                            matches.push(opt);
                         }
-                        _ => {}
                     }
                 },
                 _=> {}
@@ -1470,12 +1439,12 @@ fn clear_begin_end_anchor(hir: &mut Hir) {
     }
 
     fn handle_concat(items: &[Hir]) -> Option<Hir> {
-        let items = handle_vec(&items.to_vec())?;
+        let items = handle_vec(items)?;
         Some(Hir::concat(items))
     }
 
     fn handle_alts(items: &[Hir]) -> Option<Hir> {
-        let items = handle_vec(&items.to_vec())?;
+        let items = handle_vec(items)?;
         Some(Hir::alternation(items))
     }
 
@@ -1543,7 +1512,9 @@ fn handle_regex(expr: &str, hir: &Hir) -> Result<StringMatchHandler, RegexError>
 pub fn get_or_values(pattern: &str) -> Result<Vec<String>, RegexError> {
     let mut values = Vec::new();
     let sre = build_hir(pattern)?;
-    get_or_values_ext(&sre, &mut values);
+    if !get_or_values_ext(&sre, &mut values) {
+        values.clear();
+    } 
     Ok(values)
 }
 
@@ -1975,8 +1946,8 @@ mod test {
             ),
             ("foo(bar||baz)", vec!["foo", "foobar", "foobaz"]),
             ("(a|b|c)(d|e|f|0|1|2)(g|h|k|x|y|z)", vec![]),
-            ("(?i)foo", vec![]),
-            ("(?i)(foo|bar)", vec![]),
+            ("(?i)foo", vec!["FOO", "FOo", "FoO", "Foo", "fOO", "fOo", "foO", "foo"]),
+            ("(?i)(foo|bar)", vec!["BAR", "BAr", "BaR", "Bar", "FOO", "FOo", "FoO", "Foo", "bAR", "bAr", "baR", "bar", "fOO", "fOo", "foO", "foo"]),
             ("^foo|bar$", vec![]),
             ("^(foo|bar)$", vec![]),
             ("^a(foo|b(?:a|r))$", vec![]),
@@ -1985,7 +1956,11 @@ mod test {
         ];
 
         for (s, expected) in test_cases {
-            let result = get_or_values(s).unwrap();
+            let mut result = get_or_values(s).unwrap();
+            let mut expected = expected.into_iter().map(|s| s.to_string()).collect::<Vec<_>>();
+            result.sort();
+            expected.sort();
+            
             assert_eq!(
                 result, expected,
                 "unexpected values for s={}. Got {:?}, want {:?}",
