@@ -115,9 +115,9 @@ struct TagFunction {
     pub func: RollupHandler, // COW ???
 }
 
-pub type PreFunctionVec = SmallVec<PreFunction, 4>;
-pub type TagFunctionVec = SmallVec<TagFunction, 4>;
-pub type RollupConfigVec = SmallVec<RollupConfig, 4>;
+pub(super) type PreFunctionVec = SmallVec<PreFunction, 4>;
+pub(super) type TagFunctionVec = SmallVec<TagFunction, 4>;
+pub(crate) type RollupConfigVec = SmallVec<RollupConfig, 4>;
 
 #[derive(Clone, Default, Debug)]
 struct RollupFunctionHandlerMeta {
