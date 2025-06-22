@@ -15,7 +15,7 @@ use metricsql_parser::prelude::{AggregateModifier, VectorMatchModifier};
 use metricsql_parser::{parse_metric_name, ParseError, ParseResult};
 use serde::{Deserialize, Serialize};
 
-/// The maximum length of label name.
+/// The maximum length of a label name.
 ///
 /// Longer names are truncated.
 pub const MAX_LABEL_NAME_LEN: usize = 256;
@@ -92,7 +92,7 @@ impl MetricName {
         self.measurement = value.to_string();
     }
 
-    /// adds new label to mn with the given key and value.
+    /// adds a new label to mn with the given key and value.
     pub fn add_label(&mut self, key: &str, value: &str) {
         if key == METRIC_NAME_LABEL {
             self.measurement = value.into();
@@ -128,7 +128,7 @@ impl MetricName {
         }
     }
 
-    /// adds new tag to mn with the given key and value.
+    /// adds a new tag to mn with the given key and value.
     pub fn set(&mut self, key: &str, value: &str) {
         if key == METRIC_NAME_LABEL {
             self.measurement = value.into();
@@ -366,7 +366,7 @@ impl MetricName {
                 }
                 AggregateModifier::Without(labels) => {
                     self.remove_labels(labels);
-                    // Reset metric group as Prometheus does on `aggr(...) without (...)` call.
+                    // Reset the metric group as Prometheus does on `aggr(...) without (...)` call.
                     self.reset_measurement();
                 }
             }
@@ -481,7 +481,7 @@ impl MetricName {
                 signature_with_labels(self, by_tags, keep_name)
             }
             Some(AggregateModifier::Without(labels)) => {
-                // reset metric group as Prometheus does on `aggr(...) without (...)` call.
+                // reset the metric group as Prometheus does on `aggr(...) without (...)` call.
                 signature_without_labels(self, labels, false)
             }
         }

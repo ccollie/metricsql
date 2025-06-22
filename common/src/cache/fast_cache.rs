@@ -17,24 +17,24 @@ const MAX_GEN: u64 = (1 << GEN_SIZE_BITS) - 1;
 const GEN_BIT_MASK: u64 = (1 << GEN_SIZE_BITS) - 1;
 const MAX_BUCKET_SIZE: usize = 1 << BUCKET_SIZE_BITS;
 
-/// MAX_SUB_VALUE_LEN is the maximum size of sub value chunk.
+/// MAX_SUB_VALUE_LEN is the maximum size of a sub value chunk.
 ///
-/// - 16 bytes are for sub key encoding
+/// - 16 bytes are for subkey encoding
 /// - 4 bytes are for key.len()+value.len() encoding
-/// - 1 byte is implementation detail of FastCache
+/// - 1 byte is an implementation detail of FastCache
 const MAX_SUB_VALUE_LEN: usize = CHUNK_SIZE - 16 - 4 - 1;
 
-/// MAX_KEY_LEN is the maximum size of key.
+/// MAX_KEY_LEN is the maximum size of a key.
 ///
 /// - 16 bytes are for (hash + value_len)
 /// - 4 bytes are for encoding key.len()+sub_key.len()
-/// - 1 byte is implementation detail of FastCache
+/// - 1 byte is an implementation detail of FastCache
 const MAX_KEY_LEN: usize = CHUNK_SIZE - 16 - 4 - 1;
 const SMALL_CACHE_SIZE_MIN: usize = 4 * 1024 * 1024;
 
 /// Stats represents cache stats.
 ///
-/// Use Cache.update_stats for obtaining fresh stats from the cache.
+/// Use Cache.update_stats to get fresh stats from the cache.
 #[derive(Default)]
 pub struct Stats {
     /// get_calls is the number of Get calls.
@@ -49,12 +49,12 @@ pub struct Stats {
     /// collisions is the number of cache collisions.
     ///
     /// Usually the number of collisions must be close to zero.
-    /// High number of collisions suggest something wrong with cache.
+    /// A high number of collisions suggest something wrong with cache.
     pub collisions: u64,
 
     /// Corruptions is the number of detected corruptions of the cache.
     ///
-    /// Corruptions may occur when corrupted cache is loaded from file.
+    /// Corruptions may occur when a corrupted cache is loaded from file.
     pub corruptions: u64,
 
     /// entries_count is the current number of entries in the cache.
@@ -120,14 +120,14 @@ pub struct BigStats {
     pub too_big_key_errors: AtomicU64,
 
     /// invalid_meta_value_errors is the number of calls to GetBig resulting
-    /// to invalid meta value.
+    /// in an invalid meta-value.
     pub invalid_meta_value_errors: AtomicU64,
 
-    /// invalid_value_len_errors is the number of calls to GetBig resulting
+    /// `invalid_value_len_errors` is the number of calls to get_big resulting
     /// to a chunk with invalid length.
     pub invalid_value_len_errors: AtomicU64,
 
-    /// invalid_value_hash_errors is the number of calls to GetBig resulting
+    /// invalid_value_hash_errors is the number of calls to get_big resulting
     /// to a chunk with invalid hash value.
     pub invalid_value_hash_errors: AtomicU64,
 }
