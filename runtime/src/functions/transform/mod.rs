@@ -3,7 +3,6 @@ use metricsql_parser::functions::{BuiltinFunction, TransformFunction};
 pub(crate) use utils::{extract_labels_from_expr, get_timezone_offset};
 
 use crate::execution::EvalConfig;
-use crate::functions::arg_parse::get_series_arg;
 use crate::functions::transform::math::{
     abs, acos, acosh, asin, asinh, atan, atanh, ceil, cos, cosh, deg, exp, floor, ln, log10, log2,
     rad, sgn, sin, sinh, sqrt, tan, tanh, transform_pi,
@@ -54,6 +53,8 @@ use step::step;
 use union::union;
 use vector::vector;
 
+use crate::prelude::QueryValue;
+use crate::RuntimeError;
 pub(crate) use union::handle_union;
 
 mod absent;
@@ -90,6 +91,92 @@ pub(crate) struct TransformFuncArg<'a> {
     pub ec: &'a EvalConfig,
     pub fe: &'a FunctionExpr,
     pub args: FunctionArgs,
+}
+
+impl<'a> TransformFuncArg<'a> {
+    
+    fn function_name(&self) -> &str {
+        self.fe.function.name()
+    }
+    
+    fn get_arg(&self, arg_num: usize, name: &str) -> RuntimeResult<&QueryValue> {
+        let Some(arg) = self.args.get(arg_num) else {
+            let msg = format!("error getting {name} arg calling {}()", self.fe.function.name());
+            return Err(RuntimeError::ArgumentError(msg))
+        };
+        Ok(arg)
+    }
+    
+    // Get a series argument by its index (takes ownership of the argument).
+    pub(super) fn get_param_series(&mut self, arg_num: usize) -> RuntimeResult<Vec<Timeseries>> {
+        if let Some(arg) = self.args.get_mut(arg_num) {
+            let arg = std::mem::take(arg);
+            return arg.into_instant_vector(self.ec);
+        }
+        let msg = format!("missing series arg # {}", arg_num + 1);
+        Err(RuntimeError::ArgumentError(msg))
+    }
+
+    pub(super) fn get_param_scalar(&self, arg_num: usize, name: &str, default_value: Option<f64>) -> RuntimeResult<f64> {
+        // todo: check bounds
+        let arg = self.get_arg(arg_num, name)?;
+        match arg {
+            QueryValue::Scalar(val) => return Ok(*val),
+            QueryValue::InstantVector(s) => {
+                let len = s.len();
+                if len == 0 {
+                    if let Some(default) = default_value {
+                        return Ok(default);
+                    }
+                }
+                if len != 1 {
+                    let msg = format!(
+                        "arg # {} must contain a single timeseries; got {} timeseries",
+                        arg_num + 1,
+                        s.len()
+                    );
+                    return Err(RuntimeError::ArgumentError(msg));
+                }
+                return Ok(s[0].values[0]);
+            }
+            _ => {}
+        }
+
+        let msg = format!(
+            "expected a scalar {name} value for arg # {} calling {}; got a {}",
+            arg_num + 1,
+            self.fe.function,
+            arg.data_type()
+        );
+        Err(RuntimeError::ArgumentError(msg))
+    }
+    
+    pub(super) fn get_param_usize(&self, arg_num: usize, name: &str) -> RuntimeResult<usize> {
+        let value = self.get_param_scalar(arg_num, name, None)?;
+        if value < 0.0 {
+            return Err(RuntimeError::ArgumentError(format!(
+                "{name} must be a non-negative integer; got {value}"
+            )));
+        }
+        Ok(value as usize)
+    }
+
+    pub(super) fn take_param_string(&mut self, arg_num: usize, name: &str) -> RuntimeResult<String> {
+        if let Some(arg) = self.args.get_mut(arg_num) {
+            let arg = std::mem::take(arg);
+            if let QueryValue::String(s) = arg {
+                return Ok(s);
+            }
+            
+            if let Ok(s) = arg.get_string() {
+                return Ok(s);
+            }
+        }
+        Err(RuntimeError::ArgumentError(format!(
+                "error getting string argument {name} calling function {}",
+                self.function_name()
+            )))
+    }
 }
 
 // https://stackoverflow.com/questions/57937436/how-to-alias-an-impl-trait
@@ -278,7 +365,7 @@ pub(crate) fn transform_series(
     tfa: &mut TransformFuncArg,
     tf: impl TransformValuesFn,
 ) -> RuntimeResult<Vec<Timeseries>> {
-    let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
+    let mut series = tfa.get_param_series(0)?;
     do_transform_values(&mut series, tf, tfa.fe)
 }
 

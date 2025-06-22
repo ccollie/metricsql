@@ -1,4 +1,3 @@
-use crate::functions::arg_parse::get_series_arg;
 use crate::functions::transform::TransformFuncArg;
 use crate::functions::utils::get_first_non_nan_index;
 use crate::{types::Timeseries, RuntimeResult};
@@ -39,7 +38,7 @@ fn running_func_impl(
     tfa: &mut TransformFuncArg,
     rf: fn(a: f64, b: f64, idx: usize) -> f64,
 ) -> RuntimeResult<Vec<Timeseries>> {
-    let mut res = get_series_arg(&tfa.args, 0, tfa.ec)?;
+    let mut res = tfa.get_param_series(0)?;
     for ts in res.iter_mut() {
         ts.metric_name.reset_measurement();
 

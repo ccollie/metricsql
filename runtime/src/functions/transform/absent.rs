@@ -1,11 +1,10 @@
 use crate::execution::{eval_number, EvalConfig};
-use crate::functions::arg_parse::get_series_arg;
 use crate::functions::transform::TransformFuncArg;
 use crate::types::{InstantVector, Timeseries};
 use crate::RuntimeResult;
 
 pub(crate) fn transform_absent(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let series = get_series_arg(&tfa.args, 0, tfa.ec)?;
+    let series = tfa.get_param_series(0)?;
     let rvs = handle_absent(&series, tfa.ec)?;
     // set_labels_from_arg(&mut rvs, &tfa.fe.args[0]);
     Ok(rvs)

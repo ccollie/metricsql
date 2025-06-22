@@ -8,7 +8,7 @@ use smallvec::smallvec;
 
 use crate::execution::merge_non_overlapping_timeseries;
 use crate::functions::arg_parse::{
-    get_float_arg, get_int_arg, get_scalar_arg_as_vec, get_series_arg,
+    get_float_arg, get_int_arg, get_scalar_arg_as_vec,
 };
 use crate::functions::transform::utils::{copy_timeseries, is_inf};
 use crate::functions::transform::TransformFuncArg;
@@ -28,7 +28,7 @@ pub(crate) fn buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
         // Preserve the first and the last bucket for better accuracy for min and max values.
         limit = 3
     }
-    let series = get_series_arg(&tfa.args, 1, tfa.ec)?;
+    let series = tfa.get_param_series(1)?;
     let tss = vmrange_buckets_to_le(series);
     let tss_len = tss.len();
 
@@ -132,7 +132,7 @@ pub(crate) fn buckets_limit(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
 }
 
 pub(crate) fn prometheus_buckets(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let series = get_series_arg(&tfa.args, 0, tfa.ec)?;
+    let series = tfa.get_param_series(0)?;
     let rvs = vmrange_buckets_to_le(series);
     Ok(rvs)
 }
@@ -353,7 +353,7 @@ pub(crate) fn histogram_share(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<T
     let les: Vec<f64> = get_scalar_arg_as_vec(&tfa.args, 0, tfa.ec)?;
 
     // Convert buckets with `vmrange` labels to buckets with `le` labels.
-    let series = get_series_arg(&tfa.args, 1, tfa.ec)?;
+    let series = tfa.get_param_series(1)?;
     let mut tss = vmrange_buckets_to_le(series);
 
     // Parse bounds_label. See https://github.com/prometheus/prometheus/issues/5706 for details.
@@ -449,7 +449,7 @@ pub(crate) fn histogram_share(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<T
 }
 
 pub(crate) fn histogram_avg(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let series = get_series_arg(&tfa.args, 0, tfa.ec)?;
+    let series = tfa.get_param_series(0)?;
     let mut tss = vmrange_buckets_to_le(series);
     let mut m = group_le_timeseries(&mut tss);
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(m.len());
@@ -465,7 +465,7 @@ pub(crate) fn histogram_avg(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
 }
 
 pub(crate) fn histogram_stddev(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let series = get_series_arg(&tfa.args, 0, tfa.ec)?;
+    let series = tfa.get_param_series(0)?;
     let mut tss = vmrange_buckets_to_le(series);
     let m = group_le_timeseries(&mut tss);
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(m.len());
@@ -482,7 +482,7 @@ pub(crate) fn histogram_stddev(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<
 }
 
 pub(crate) fn histogram_stdvar(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let series = get_series_arg(&tfa.args, 0, tfa.ec)?;
+    let series = tfa.get_param_series(0)?;
     let mut tss = vmrange_buckets_to_le(series);
     let m = group_le_timeseries(&mut tss);
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(m.len());
@@ -598,7 +598,7 @@ pub(crate) fn histogram_quantiles(tfa: &mut TransformFuncArg) -> RuntimeResult<V
 
 pub(crate) fn histogram_quantile(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     // Convert buckets with `vmrange` labels to buckets with `le` labels.
-    let series = get_series_arg(&tfa.args, 1, tfa.ec)?;
+    let series = tfa.get_param_series(1)?;
     if series.is_empty() {
         return Ok(Vec::new());
     }

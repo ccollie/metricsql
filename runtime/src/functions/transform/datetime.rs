@@ -3,7 +3,7 @@ use chrono::Utc;
 use metricsql_common::time::{datetime_part, timestamp_secs_to_utc_datetime, DateTimePart};
 
 use crate::execution::{eval_number, eval_time};
-use crate::functions::arg_parse::{get_series_arg, get_string_arg};
+use crate::functions::arg_parse::get_string_arg;
 use crate::functions::transform::{do_transform_values, get_timezone_offset, TransformFuncArg};
 use crate::functions::utils::parse_timezone;
 use crate::types::{MetricName, Timeseries};
@@ -64,7 +64,7 @@ fn transform_datetime_impl(
     let mut arg = if tfa.args.is_empty() {
         eval_time(tfa.ec)?
     } else {
-        get_series_arg(&tfa.args, 0, tfa.ec)?
+        tfa.get_param_series(0)?
     };
 
     do_transform_values(&mut arg, tf, tfa.fe)

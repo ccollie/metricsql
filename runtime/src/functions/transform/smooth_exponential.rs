@@ -1,13 +1,12 @@
-use crate::functions::arg_parse::{get_float_arg, get_series_arg};
 use crate::functions::transform::TransformFuncArg;
 use crate::types::Timeseries;
 use crate::RuntimeResult;
 
 pub(crate) fn smooth_exponential(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let sf = get_float_arg(&tfa.args, 1, Some(1.0))?;
+    let sf = tfa.get_param_scalar(1, "sf", Some(1.0))?;
     let sf_val = if sf.is_nan() { 1.0 } else { sf.clamp(0.0, 1.0) };
-
-    let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
+    
+    let mut series = tfa.get_param_series(0)?;
 
     for ts in series.iter_mut() {
         let mut iter = ts.values.iter_mut();

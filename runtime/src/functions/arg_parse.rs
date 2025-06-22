@@ -1,16 +1,15 @@
 use std::borrow::Cow;
-
+use crate::types::QueryValue;
+use crate::{RuntimeError, RuntimeResult};
 use crate::execution::EvalConfig;
 use crate::functions::utils::float_to_int_bounded;
-use crate::types::{QueryValue, Timeseries};
-use crate::{RuntimeError, RuntimeResult};
 
-pub(crate) fn get_string_arg(args: &[QueryValue], arg_num: usize) -> RuntimeResult<Cow<String>> {
+pub(crate) fn get_string_arg(args: &[QueryValue], arg_num: usize) -> RuntimeResult<Cow<str>> {
     if arg_num > args.len() - 1 {
         let msg = format!("missing string arg # {}", arg_num + 1);
         return Err(RuntimeError::ArgumentError(msg));
     }
-    let res = match &args[arg_num] {
+    match &args[arg_num] {
         QueryValue::String(s) => Ok(Cow::Borrowed(s)),
         QueryValue::Scalar(f) => Ok(Cow::Owned(f.to_string())),
         QueryValue::InstantVector(series) => {
@@ -28,28 +27,15 @@ pub(crate) fn get_string_arg(args: &[QueryValue], arg_num: usize) -> RuntimeResu
                     return Err(RuntimeError::ArgumentError(msg));
                 }
             }
-            // todo: return reference
+            // Use the String directly as a Cow<str> instead of creating a Cow<String>
             let res = Cow::Owned(series[0].metric_name.measurement.clone());
-            return Ok(res);
+            Ok(res)// This now returns Cow<str> as expected
         }
         _ => Err(RuntimeError::ArgumentError(format!(
             "string expected for parameter {} ",
             arg_num + 1
         ))),
-    };
-    res
-}
-
-pub(crate) fn get_series_arg(
-    args: &[QueryValue],
-    arg_num: usize,
-    ec: &EvalConfig,
-) -> RuntimeResult<Vec<Timeseries>> {
-    if let Some(arg) = args.get(arg_num) {
-        return arg.get_instant_vector(ec);
     }
-    let msg = format!("missing series arg # {}", arg_num + 1);
-    Err(RuntimeError::ArgumentError(msg))
 }
 
 // TODO: COW, or return Iterator

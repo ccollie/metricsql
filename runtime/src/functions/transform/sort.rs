@@ -1,4 +1,3 @@
-use crate::functions::arg_parse::get_series_arg;
 use crate::functions::transform::TransformFuncArg;
 use crate::types::Timeseries;
 use crate::{RuntimeError, RuntimeResult};
@@ -6,7 +5,7 @@ use rayon::prelude::ParallelSliceMut;
 use std::cmp::Ordering;
 
 /// The threshold for switching to a parallel sort implementation.
-const THREAD_SORT_THRESHOLD: usize = 6;
+const THREAD_SORT_THRESHOLD: usize = 16;
 
 pub(crate) fn sort(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     transform_sort_impl(tfa, false)
@@ -34,8 +33,8 @@ pub(crate) fn sort_by_label_desc(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
     sort_by_label_impl(tfa, true)
 }
 
-fn transform_sort_impl(tfa: &TransformFuncArg, is_desc: bool) -> RuntimeResult<Vec<Timeseries>> {
-    let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
+fn transform_sort_impl(tfa: &mut TransformFuncArg, is_desc: bool) -> RuntimeResult<Vec<Timeseries>> {
+    let mut series = tfa.get_param_series(0)?;
 
     fn sort(a: &Timeseries, b: &Timeseries, is_desc: bool) -> Ordering {
         let iter_a = a.values.iter().rev().copied();
@@ -63,7 +62,7 @@ const EMPTY_STRING_REF: &String = &EMPTY_STRING;
 
 fn sort_by_label_impl(tfa: &mut TransformFuncArg, is_desc: bool) -> RuntimeResult<Vec<Timeseries>> {
     let mut labels: Vec<String> = Vec::with_capacity(tfa.args.len() - 1);
-    let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
+    let mut series = tfa.get_param_series(0)?;
 
     for arg in tfa.args.iter().skip(1) {
         let label = arg.get_string()?;
@@ -71,14 +70,15 @@ fn sort_by_label_impl(tfa: &mut TransformFuncArg, is_desc: bool) -> RuntimeResul
     }
 
     fn sort(a: &Timeseries, b: &Timeseries, labels: &[String], is_desc: bool) -> Ordering {
+        let cmp = if is_desc {
+            compare_string_desc
+        } else {
+            compare_string
+        };
         for label in labels.iter() {
             let a = a.metric_name.label_value(label);
             let b = b.metric_name.label_value(label);
-            let order = if is_desc {
-                compare_string(b, a)
-            } else {
-                compare_string(a, b)
-            };
+            let order = cmp(a, b); 
             if order != Ordering::Equal {
                 return order;
             }
@@ -132,7 +132,7 @@ fn label_alpha_numeric_sort_impl(
         Ordering::Equal
     }
 
-    let mut series = get_series_arg(&tfa.args, 0, tfa.ec)?;
+    let mut series = tfa.get_param_series(0)?;
 
     if series.len() >= THREAD_SORT_THRESHOLD {
         series.par_sort_by(|first, second| sort(first, second, &labels, is_desc));
@@ -203,6 +203,13 @@ fn compare_string(a: Option<&String>, b: Option<&String>) -> Ordering {
     let a = a.unwrap_or(EMPTY_STRING_REF);
     let b = b.unwrap_or(EMPTY_STRING_REF);
     a.cmp(b)
+}
+
+#[inline]
+fn compare_string_desc(a: Option<&String>, b: Option<&String>) -> Ordering {
+    let a = a.unwrap_or(EMPTY_STRING_REF);
+    let b = b.unwrap_or(EMPTY_STRING_REF);
+    b.cmp(a)
 }
 
 fn compare_string_alphanumeric(a: &str, b: &str) -> Ordering {

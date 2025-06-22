@@ -1,18 +1,12 @@
 use crate::execution::remove_empty_series;
-use crate::functions::arg_parse::{get_int_arg, get_series_arg};
 use crate::functions::transform::TransformFuncArg;
-use crate::{types::Timeseries, RuntimeError, RuntimeResult};
+use crate::{types::Timeseries, RuntimeResult};
 
 pub(crate) fn limit_offset(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let limit = tfa.args[0].get_int()? as usize;
-    let offset = match get_int_arg(&tfa.args, 1) {
-        Err(_) => {
-            return Err(RuntimeError::from("cannot obtain offset arg"));
-        }
-        Ok(v) => v as usize,
-    };
-
-    let mut rvs = get_series_arg(&tfa.args, 2, tfa.ec)?;
+    let limit = tfa.get_param_usize(0, "limit")?;
+    let offset = tfa.get_param_usize(1, "offset")?;
+    let mut rvs = tfa.get_param_series(2)?;
+    
     // remove_empty_series so offset will be calculated after empty series
     // were filtered out.
     remove_empty_series(&mut rvs);
@@ -28,5 +22,5 @@ pub(crate) fn limit_offset(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Time
         rvs.truncate(limit);
     }
 
-    Ok(std::mem::take(&mut rvs))
+    Ok(rvs)
 }

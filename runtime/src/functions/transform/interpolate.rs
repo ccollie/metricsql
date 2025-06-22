@@ -1,9 +1,8 @@
-use crate::functions::arg_parse::get_series_arg;
 use crate::functions::transform::TransformFuncArg;
 use crate::{types::Timeseries, RuntimeResult};
 
 pub(crate) fn interpolate(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let mut tss = get_series_arg(&tfa.args, 0, tfa.ec)?;
+    let mut tss = tfa.get_param_series(0)?;
     for ts in tss.iter_mut() {
         if ts.is_empty() {
             continue;

@@ -14,7 +14,7 @@ use smallvec::SmallVec;
 use crate::common::math::{mode_no_nans, quantile, quantiles, IQR_PHIS};
 use crate::execution::{eval_number, remove_empty_series, EvalConfig};
 use crate::functions::arg_parse::{
-    get_float_arg, get_int_arg, get_scalar_arg_as_vec, get_series_arg, get_string_arg,
+    get_float_arg, get_int_arg, get_scalar_arg_as_vec,
 };
 use crate::functions::skip_trailing_nans;
 use crate::functions::transform::vmrange_buckets_to_le;
@@ -33,6 +33,34 @@ pub struct AggrFuncArg<'a> {
     pub ec: &'a EvalConfig,
     pub modifier: &'a Option<AggregateModifier>,
     pub limit: usize,
+}
+
+impl<'a> AggrFuncArg<'a> {
+    /// Get a series argument by its index (takes ownership of the argument).
+    pub(super) fn get_param_series(&mut self, arg_num: usize) -> RuntimeResult<Vec<Timeseries>> {
+        if let Some(arg) = self.args.get_mut(arg_num) {
+            let arg = std::mem::take(arg);
+            return arg.into_instant_vector(self.ec);
+        }
+        let msg = format!("missing series arg # {}", arg_num + 1);
+        Err(RuntimeError::ArgumentError(msg))
+    }
+
+    pub(super) fn get_param_string(&mut self, arg_num: usize, name: &str) -> RuntimeResult<String> {
+        if let Some(arg) = self.args.get_mut(arg_num) {
+            let arg = std::mem::take(arg);
+            if let QueryValue::String(s) = arg {
+                return Ok(s);
+            }
+
+            if let Ok(s) = arg.get_string() {
+                return Ok(s);
+            }
+        }
+        Err(RuntimeError::ArgumentError(format!(
+            "error getting string argument {name}"
+        )))
+    }
 }
 
 macro_rules! make_aggr_fn {
@@ -642,7 +670,7 @@ fn aggr_func_zscore(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
 }
 
 fn aggr_func_count_values(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let dst_label = get_string_arg(&afa.args, 0)?.to_string();
+    let dst_label = afa.get_param_string(0, "dst_label")?;
 
     // Remove dst_label from grouping like Prometheus does.
     let modifier = if let Some(modifier) = &afa.modifier {
@@ -695,7 +723,7 @@ fn aggr_func_count_values(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries
         rvs
     };
 
-    let series = get_series_arg(&afa.args, 1, afa.ec)?;
+    let series = afa.get_param_series(1)?;
     let mut series_by_labels = aggr_prepare_series(series, afa.modifier, afa.limit, false);
 
     let mut rvs: Vec<Timeseries> = Vec::with_capacity(series_by_labels.len());
@@ -736,8 +764,8 @@ fn func_topk_impl(afa: &mut AggrFuncArg, is_reverse: bool) -> RuntimeResult<Vec<
 
             std::mem::take(tss)
         };
-
-    let series = get_series_arg(&afa.args, 1, afa.ec)?;
+    
+    let series = afa.get_param_series(1)?;
     aggr_func_ext(afe, series, afa.modifier, afa.limit, true)
 }
 
@@ -750,7 +778,7 @@ fn range_topk_impl(
     let ks: Vec<f64> = get_scalar_arg_as_vec(&afa.args, 0, afa.ec)?;
 
     let remaining_sum_tag_name = if args_len == 3 {
-        get_string_arg(&afa.args, 2)?.to_string()
+        afa.get_param_string(2, "sum_tag_name")?
     } else {
         "".to_string()
     };
@@ -759,7 +787,7 @@ fn range_topk_impl(
         get_range_topk_timeseries(tss, modifier, &ks, &remaining_sum_tag_name, f, is_reverse)
     };
 
-    let series = get_series_arg(&afa.args, 1, afa.ec)?;
+    let series = afa.get_param_series(1)?;
     aggr_func_ext(afe, series, afa.modifier, afa.limit, true)
 }
 
@@ -917,7 +945,7 @@ fn aggr_func_outliersk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> 
         get_range_topk_timeseries(tss, afa.modifier, &ks, "", f, false)
     };
 
-    let series = get_series_arg(&afa.args, 1, afa.ec)?;
+    let series = afa.get_param_series(1)?;
     aggr_func_ext(afe, series, afa.modifier, afa.limit, true)
 }
 
@@ -955,12 +983,12 @@ fn aggr_func_limitk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
             .collect::<Vec<_>>()
     };
 
-    let series = get_series_arg(&afa.args, 1, afa.ec)?;
+    let series = afa.get_param_series(1)?;
     aggr_func_ext(afe, series, afa.modifier, afa.limit, true)
 }
 
 fn aggr_func_quantiles(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let dst_label = get_string_arg(&afa.args, 0)?.to_string();
+    let dst_label = afa.get_param_string( 0, "dst_label")?;
 
     // todo: I'm sure this should have been checked in the parser
     let phi_count = afa.args.len() - 2;
@@ -1013,7 +1041,7 @@ fn aggr_func_quantiles(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> 
 fn aggr_func_quantile(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let phis = get_scalar_arg_as_vec(&afa.args, 0, afa.ec)?;
     let afe = new_aggr_quantile_func(&phis);
-    let series = get_series_arg(&afa.args, 1, afa.ec)?;
+    let series = afa.get_param_series(1)?;
     aggr_func_ext(afe, series, afa.modifier, afa.limit, false)
 }
 
@@ -1061,7 +1089,7 @@ fn aggr_func_outliers_iqr(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries
         tss_dst
     };
 
-    let series = get_series_arg(&afa.args, 0, afa.ec)?;
+    let series = afa.get_param_series(0)?;
     aggr_func_ext(afe, series, afa.modifier, afa.limit, true)
 }
 
@@ -1130,7 +1158,7 @@ fn aggr_func_outliers_mad(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries
         std::mem::take(tss)
     };
 
-    let series = get_series_arg(&afa.args, 1, afa.ec)?;
+    let series = afa.get_param_series(1)?;
     aggr_func_ext(afe, series, afa.modifier, afa.limit, true)
 }
 
