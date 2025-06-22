@@ -110,13 +110,13 @@ fn get_tag_fn_from_str(key: &str) -> Option<(&'static str, &'static RollupHandle
 }
 
 #[derive(Clone, Debug)]
-struct TagFunction {
+pub(crate) struct TagFunction {
     pub tag_value: &'static str,
     pub func: RollupHandler, // COW ???
 }
 
 pub(super) type PreFunctionVec = SmallVec<PreFunction, 4>;
-pub(super) type TagFunctionVec = SmallVec<TagFunction, 4>;
+pub(crate) type TagFunctionVec = SmallVec<TagFunction, 4>;
 pub(crate) type RollupConfigVec = SmallVec<RollupConfig, 4>;
 
 #[derive(Clone, Default, Debug)]
