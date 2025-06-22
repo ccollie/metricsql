@@ -10,7 +10,7 @@ use crate::common::encoding::{read_string, read_usize, write_string, write_usize
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use ahash::{AHashMap, AHashSet};
 use enquote::enquote;
-use metricsql_common::prelude::{ASmallSet, Label};
+use metricsql_common::prelude::Label;
 use metricsql_parser::prelude::{AggregateModifier, VectorMatchModifier};
 use metricsql_parser::{parse_metric_name, ParseError, ParseResult};
 use serde::{Deserialize, Serialize};
@@ -23,7 +23,7 @@ pub const MAX_LABEL_NAME_LEN: usize = 256;
 pub const METRIC_NAME_LABEL: &str = "__name__";
 
 // for tag manipulation (removing, adding, etc.), name vectors longer than this will be converted to a hashmap
-// for comparison, otherwise we do a linear probe
+// for comparison; otherwise we do a linear probe
 const SET_SEARCH_MIN_THRESHOLD: usize = 16;
 
 /// MetricName represents a metric name.
@@ -186,21 +186,10 @@ impl MetricName {
 
     /// removes all the tags not included in on_tags.
     /// don't stare too deeply. Just convince yourself that this is the correct behavior.
+    /// 
     /// https://github.com/VictoriaMetrics/VictoriaMetrics/blob/cde5029bcecac116b59e245330f6caf625e75eea/lib/storage/metric_name.go#L247
     pub fn remove_labels_on(&mut self, on_tags: &[String]) {
-        if !on_tags.iter().any(|x| *x == METRIC_NAME_LABEL) {
-            self.reset_measurement()
-        }
-        if on_tags.is_empty() {
-            self.labels.clear();
-            return;
-        }
-        if on_tags.len() > SET_SEARCH_MIN_THRESHOLD {
-            let set: ASmallSet<8, _> = on_tags.iter().collect();
-            self.labels.retain(|tag| set.contains(&tag.name));
-        } else {
-            self.labels.retain(|tag| on_tags.contains(&tag.name));
-        }
+        self.retain_labels(on_tags);
     }
 
     /// remove_tags_ignoring removes all the tags included in ignoring_tags.
@@ -250,7 +239,7 @@ impl MetricName {
         src: &MetricName,
     ) {
         if add_labels.len() == 1 && add_labels[0] == "*" {
-            // Special case for copying all the tags except of skipTags from src to mn.
+            // Special case for copying all the tags except for skip_tags from src to mn.
             self.set_all_labels(prefix, skip_labels, src);
             return;
         }
@@ -264,6 +253,7 @@ impl MetricName {
             match src.label_value(tag_name) {
                 Some(tag_value) => {
                     if !prefix.is_empty() {
+                        // todo: format into a buf to avoid alloc
                         let key = format!("{prefix}{tag_name}");
                         self.set(&key, tag_value);
                     } else {

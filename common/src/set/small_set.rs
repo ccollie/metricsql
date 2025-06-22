@@ -290,7 +290,8 @@ where
     type Output = SmallSet<N, T, S>;
 
     fn bitor(self, rhs: &SmallSet<N, T, S2>) -> Self::Output {
-        let mut result = SmallSet::with_capacity(self.len() + rhs.len());
+        let new_len = self.len() + rhs.len();
+        let mut result = SmallSet::with_capacity(new_len);
         result.extend(self.iter().cloned());
         result.extend(rhs.iter().cloned());
         result

@@ -22,11 +22,11 @@ pub static IQR_PHIS: [f64; 2] = [0.25, 0.75];
 
 const SMALL_VEC_THRESHOLD: usize = 64;
 
-/// `mode_no_nans` returns mode for a.
+/// `mode_no_nans` returns mode for `a`.
 ///
 /// It is expected that a doesn't contain NaNs.
 ///
-/// The function modifies contents for a, so the caller must prepare it accordingly.
+/// The function modifies contents for `a`, so the caller must prepare it accordingly.
 ///
 /// See https://en.wikipedia.org/wiki/Mode_(statistics)
 pub fn mode_no_nans(prev_value: f64, a: &mut [f64]) -> f64 {

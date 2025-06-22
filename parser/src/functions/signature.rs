@@ -37,8 +37,8 @@ pub enum TypeSignature {
     VariadicEqual(ValueType, usize),
     /// arbitrary number of arguments of any type, with a possible minimum
     VariadicAny(usize),
-    /// fixed number of arguments of an arbitrary type out of a list of valid types
-    /// A function of one argument of f64 is `Uniform(1, ValueType::Scalar)`
+    /// A fixed number of arguments of an arbitrary type.
+    /// For example, a function containing a single f64 argument is `Uniform(1, ValueType::Scalar)`
     Uniform(ValueType, usize),
     /// arguments of an exact type with an optional minimum
     Exact(Vec<ValueType>, Option<usize>),

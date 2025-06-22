@@ -89,11 +89,6 @@ impl TimeSeriesMap {
         }
     }
 
-    pub fn series_len(&self) -> usize {
-        let inner = self.inner.read().unwrap();
-        inner.series.len()
-    }
-
     pub(crate) fn process_rollup(&self, values: &[f64], rollup_idx: usize) {
         let mut inner = self.inner.write().unwrap();
         inner.reset();
