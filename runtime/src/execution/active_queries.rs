@@ -1,16 +1,15 @@
 use std::sync::RwLock;
 
-use ahash::AHashMap;
-use chrono::Utc;
-use std::time::Duration;
-
 use crate::execution::EvalConfig;
 use crate::types::{Timestamp, TimestampTrait};
+use chrono::Utc;
+use metricsql_common::hash::IntMap;
+use std::time::Duration;
 
 #[derive(Debug)]
 struct Inner {
     id: u64,
-    data: AHashMap<u64, ActiveQueryEntry>,
+    data: IntMap<u64, ActiveQueryEntry>,
 }
 
 #[derive(Debug)]
@@ -35,7 +34,7 @@ impl ActiveQueries {
         let id = Utc::now().timestamp_nanos_opt().unwrap() as u64; // todo: uuid
         let inner = Inner {
             id,
-            data: AHashMap::new(),
+            data: IntMap::default(),
         };
         ActiveQueries {
             inner: RwLock::new(inner),
