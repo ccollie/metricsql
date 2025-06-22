@@ -24,7 +24,7 @@ async-trait.workspace = true
 enquote.workspace = true
 blart = "0.3"
 byte-pool.workspace = true
-clone_dyn = "0.32.0"
+clone_dyn = "0.33.0"
 chili.workspace = true
 croaring = { version = "2.3" , features = ["alloc"] }
 chrono.workspace = true
@@ -55,7 +55,7 @@ tracing.workspace = true
 xxhash-rust.workspace = true
 metricsql_common={ path = "../common" }
 metricsql_parser={ path = "../parser" }
-cfg-if = "1.0.0"
+cfg-if = "1.0"
 futures.workspace = true
 iter-set-ops = "0.2"
 
