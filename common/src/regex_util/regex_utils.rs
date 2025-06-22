@@ -87,7 +87,7 @@ pub fn string_matcher_from_regex(expr: &str) -> Result<StringMatchHandler, Regex
         _ => {}
     }
 
-    let mut sre = build_hir(expr)?;
+    let sre = build_hir(expr)?;
 
     // let debug_str = format!("{:?}, {}", sre, hir_to_string(&sre));
     //

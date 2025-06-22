@@ -659,6 +659,10 @@ impl ConsecutiveLiterals {
     pub fn len(&self) -> usize {
         self._len
     }
+    
+    pub fn is_empty(&self) -> bool {
+        self.literals.is_empty() && self.prefix.is_none() && self.suffix.is_none()
+    }
 
     pub fn is_case_sensitive(&self) -> bool {
         self.literals.iter().all(|l| l.is_case_sensitive())
@@ -744,7 +748,8 @@ impl StringMatchHandler {
     }
 
     pub fn literal_fn(value: String, options: &StringMatchOptions) -> Self {
-        get_optimized_literal_matcher(value, options)
+        let match_fn = get_literal_match_fn(options);
+        StringMatchHandler::MatchFn(MatchFnHandler::new(value, match_fn))
     }
 
     pub fn equals(value: String) -> Self {
@@ -1139,112 +1144,6 @@ pub(super) const fn get_literal_match_fn(options: &StringMatchOptions) -> MatchF
             _ => {
                 // foobar
                 contains_fn
-            }
-        }
-    }
-}
-
-pub(super) fn get_optimized_literal_matcher(
-    value: String,
-    options: &StringMatchOptions,
-) -> StringMatchHandler {
-    let StringMatchOptions {
-        anchor_start,
-        anchor_end,
-        prefix_quantifier,
-        suffix_quantifier,
-    } = options;
-
-    fn handle_default(options: &StringMatchOptions, value: String) -> StringMatchHandler {
-        let match_fn = get_literal_match_fn(options);
-        StringMatchHandler::MatchFn(MatchFnHandler::new(value, match_fn))
-    }
-
-    if *anchor_start && *anchor_end {
-        match (prefix_quantifier, suffix_quantifier) {
-            (Some(Quantifier::ZeroOrMore), Some(Quantifier::ZeroOrMore)) => {
-                // ^.*foo.*$
-                StringMatchHandler::MatchFn(MatchFnHandler::new(value, contains_fn))
-            }
-            (Some(Quantifier::ZeroOrMore), None) => {
-                // ^.*foo$
-                StringMatchHandler::suffix(None, value, true)
-            }
-            (None, Some(Quantifier::ZeroOrMore)) => {
-                // ^foo.*$
-                StringMatchHandler::prefix(value, None, true)
-            }
-            (None, None) => {
-                // ^foobar$
-                StringMatchHandler::literal(value, true)
-            }
-            _ => handle_default(options, value),
-        }
-    } else if *anchor_start {
-        match (prefix_quantifier, suffix_quantifier) {
-            (Some(Quantifier::ZeroOrMore), Some(Quantifier::ZeroOrMore)) => {
-                // ^.*foo.*
-                StringMatchHandler::MatchFn(MatchFnHandler::new(value, contains_fn))
-            }
-            (Some(Quantifier::ZeroOrMore), None) => {
-                // ^.*foo
-                StringMatchHandler::MatchFn(MatchFnHandler::new(value, contains_fn))
-            }
-            (None, Some(Quantifier::ZeroOrMore)) => {
-                // ^foo.*
-                StringMatchHandler::prefix(value, None, true)
-            }
-            (None, None) => {
-                // ^foobar
-                StringMatchHandler::suffix(None, value, true)
-            }
-            _ => handle_default(options, value),
-        }
-    } else if *anchor_end {
-        match (prefix_quantifier, suffix_quantifier) {
-            (Some(Quantifier::ZeroOrMore), Some(Quantifier::ZeroOrMore)) => {
-                // .*foo.*$
-                StringMatchHandler::MatchFn(MatchFnHandler::new(value, contains_fn))
-            }
-            (Some(Quantifier::ZeroOrMore), None) => {
-                // .*foo$
-                StringMatchHandler::suffix(None, value, true)
-            }
-            (None, Some(Quantifier::ZeroOrMore)) => {
-                // foo.*$
-                StringMatchHandler::prefix(value, None, true)
-            }
-            (None, None) => {
-                // foobar$
-                StringMatchHandler::suffix(None, value, true)
-            }
-            _ => {
-                // foobar$
-                handle_default(options, value)
-            }
-        }
-    } else {
-        // no anchors
-        match (prefix_quantifier, suffix_quantifier) {
-            (Some(Quantifier::ZeroOrMore), Some(Quantifier::ZeroOrMore)) => {
-                // .*foo.*
-                StringMatchHandler::MatchFn(MatchFnHandler::new(value, contains_fn))
-            }
-            (Some(Quantifier::ZeroOrMore), None) => {
-                // .*foo
-                StringMatchHandler::Repetition(RepetitionMatcher::new(value, 0, None))
-            }
-            (None, Some(Quantifier::ZeroOrMore)) => {
-                // foo.*
-                StringMatchHandler::prefix(value, None, true)
-            }
-            (None, None) => {
-                // foobar
-                StringMatchHandler::literal(value, true)
-            }
-            _ => {
-                // foobar
-                handle_default(options, value)
             }
         }
     }
