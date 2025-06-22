@@ -47,23 +47,6 @@ pub type BinaryOpFuncResult = RuntimeResult<InstantVector>;
 
 type TimeseriesHashMap = SmallMap<6, Signature, Vec<Timeseries>, BuildNoHashHasher<Signature>>;
 
-macro_rules! make_binary_func {
-    ($name: ident, $op: expr) => {
-        fn $name(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<InstantVector> {
-            const FUNC: BinopFunc = get_scalar_binop_handler($op, false);
-            binary_op_func_impl(FUNC, bfa)
-        }
-    };
-}
-
-make_binary_func!(binary_op_add, Operator::Add);
-make_binary_func!(binary_op_atan2, Operator::Atan2);
-make_binary_func!(binary_op_sub, Operator::Sub);
-make_binary_func!(binary_op_mul, Operator::Mul);
-make_binary_func!(binary_op_div, Operator::Div);
-make_binary_func!(binary_op_mod, Operator::Mod);
-make_binary_func!(binary_op_pow, Operator::Pow);
-
 // Special case for `q = (1,2,3)` or `(1,2,3) = q`
 // or `q != (1,2,3)` or `(1,2,3) != q`
 // where `q` is a vector.
@@ -137,13 +120,6 @@ pub fn exec_vector_vector_binop(
 pub(crate) fn exec_binop(bfa: &mut BinaryOpFuncArg) -> BinaryOpFuncResult {
     use Operator::*;
     match bfa.op {
-        Add => binary_op_add(bfa),
-        Atan2 => binary_op_atan2(bfa),
-        Sub => binary_op_sub(bfa),
-        Mul => binary_op_mul(bfa),
-        Div => binary_op_div(bfa),
-        Mod => binary_op_mod(bfa),
-        Pow => binary_op_pow(bfa),
         And => binary_op_and(bfa),
         Or => binary_op_or(bfa),
         Unless => binary_op_unless(bfa),
@@ -253,10 +229,10 @@ fn adjust_binary_op_tags(
     let reset_metric_group = should_reset_metric_group(bfa.op, keep_metric_names, return_bool);
 
     for (k, tss_left) in m_left {
-        let tss_right = m_right.remove(&k).unwrap_or(vec![]);
-        if tss_right.is_empty() {
+        let Some(tss_right) = m_right.remove(&k) else {
+            // No matching time series on the right side, so we can skip this left side.
             continue;
-        }
+        };
 
         match grouping {
             // group_left
@@ -376,7 +352,7 @@ struct GroupJoinPair {
     right: Timeseries,
 }
 
-type GroupJoinMap = SmallMap<6, Signature, GroupJoinPair, BuildNoHashHasher<Signature>>;
+type GroupJoinMap = SmallMap<8, Signature, GroupJoinPair, BuildNoHashHasher<Signature>>;
 
 fn group_join(
     single_timeseries_side: &'static str,
@@ -436,7 +412,7 @@ fn group_join(
         // and grows to heap-allocated if needed. This is only a problem if the number of joined series is large.
         let mut map = GroupJoinMap::with_capacity(tss_right.len());
 
-        for ts_right in tss_right.drain(..) {
+        for ts_right in tss_right.drain(0..) {
             let mut mn = ts_left.metric_name.clone();
             mn.set_labels(
                 empty_prefix,
