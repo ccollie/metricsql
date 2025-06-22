@@ -125,41 +125,33 @@ fn try_get_arg_rollup_func_with_metric_expr(
     match expr {
         Expr::MetricExpression(me) => create_func(me, expr, "", false),
         Expr::Rollup(re) => {
-            match re.expr.deref() {
-                Expr::MetricExpression(me) => {
-                    // e = metricExpr[d]
-                    create_func(me, expr, "", re.for_subquery())
-                }
-                _ => Ok(None),
-            }
+            let Expr::MetricExpression(me) = &*re.expr else {
+                return Ok(None);
+            };
+            create_func(me, expr, "", re.for_subquery())
         }
         Expr::Function(fe) => {
-            match fe.function {
-                BuiltinFunction::Rollup(_) => {
-                    if let Some(arg) = fe.arg_for_optimization() {
-                        match arg {
-                            Expr::MetricExpression(me) => create_func(me, expr, fe.name(), false),
-                            Expr::Rollup(re) => {
-                                match &*re.expr {
-                                    Expr::MetricExpression(me) => {
-                                        if me.is_empty() || re.for_subquery() {
-                                            Ok(None)
-                                        } else {
-                                            // e = RollupFunc(metricExpr[d])
-                                            // todo: use COW to avoid clone
-                                            Ok(Some(fe.clone()))
-                                        }
-                                    }
-                                    _ => Ok(None),
-                                }
-                            }
-                            _ => Ok(None),
-                        }
-                    } else {
-                        // Incorrect number of args for rollup func.
-                        // TODO: this should be an error
-                        // all rollup functions should have a value for this
+            if !fe.is_rollup() {
+                return Ok(None);
+            }
+            let Some(arg) = fe.arg_for_optimization() else {
+                // Incorrect number of args for rollup func.
+                // TODO: this should be an error
+                // all rollup functions should have a value for this
+                return Ok(None)
+            };
+            match arg {
+                Expr::MetricExpression(me) => create_func(me, expr, fe.name(), false),
+                Expr::Rollup(re) => {
+                    let Expr::MetricExpression(ref me) = *re.expr else {
+                        return Ok(None);
+                    };
+                    if me.is_empty() || re.for_subquery() {
                         Ok(None)
+                    } else {
+                        // e = RollupFunc(metricExpr[d])
+                        // todo: use COW to avoid clone
+                        Ok(Some(fe.clone()))
                     }
                 }
                 _ => Ok(None),
