@@ -13,28 +13,28 @@ macro_rules! math_fn {
     };
 }
 
-math_fn!(abs, |x: f64| x.abs());
-math_fn!(acos, |x: f64| x.acos());
-math_fn!(acosh, |x: f64| x.acosh());
-math_fn!(asin, |x: f64| x.asin());
-math_fn!(asinh, |x: f64| x.asinh());
-math_fn!(atan, |x: f64| x.atan());
-math_fn!(atanh, |x: f64| x.atanh());
-math_fn!(ceil, |x: f64| x.ceil());
-math_fn!(cos, |x: f64| x.cos());
-math_fn!(cosh, |x: f64| x.cosh());
-math_fn!(deg, |x: f64| x.to_degrees());
-math_fn!(exp, |x: f64| x.exp());
-math_fn!(floor, |x: f64| x.floor());
-math_fn!(ln, |x: f64| x.ln());
-math_fn!(log2, |x: f64| x.log2());
-math_fn!(log10, |x: f64| x.log10());
-math_fn!(rad, |x: f64| x.to_radians());
-math_fn!(sin, |x: f64| x.sin());
-math_fn!(sinh, |x: f64| x.sinh());
-math_fn!(sqrt, |x: f64| x.sqrt());
-math_fn!(tan, |x: f64| x.tan());
-math_fn!(tanh, |x: f64| x.tanh());
+math_fn!(abs, f64::abs);
+math_fn!(acos, f64::acos);
+math_fn!(acosh, f64::acosh);
+math_fn!(asin, f64::asin);
+math_fn!(asinh, f64::asinh);
+math_fn!(atan, f64::atan);
+math_fn!(atanh, f64::atanh);
+math_fn!(ceil, f64::ceil);
+math_fn!(cos, f64::cos);
+math_fn!(cosh, f64::cosh);
+math_fn!(deg, f64::to_degrees);
+math_fn!(exp, f64::exp);
+math_fn!(floor, f64::floor);
+math_fn!(ln, f64::ln);
+math_fn!(log2, f64::log2);
+math_fn!(log10, f64::log10);
+math_fn!(rad, f64::to_radians);
+math_fn!(sin, f64::sin);
+math_fn!(sinh, f64::sinh);
+math_fn!(sqrt, f64::sqrt);
+math_fn!(tan, f64::tan);
+math_fn!(tanh, f64::tanh);
 
 fn math_func_impl(
     tfa: &mut TransformFuncArg,
