@@ -21,6 +21,7 @@ mod tests {
     use futures::FutureExt;
     use metricsql_parser::label::{Label, MatchOp, Matcher, Matchers};
     use std::collections::{HashMap, HashSet};
+    use crate::querier::postings_for_matchers;
 
     fn hash_labels(labels: &[Label]) -> AHashSet<String> {
         labels.iter().map(|l| l.to_string()).collect()
@@ -75,7 +76,7 @@ mod tests {
     ) -> Vec<Vec<Label>> {
         let filter = Matchers::new(Vec::from(matchers.clone()));
         // Use the standalone function from querier.rs
-        let p = crate::provider::querier::postings_for_matchers(ix, &filter)
+        let p = postings_for_matchers(ix, &filter)
             .now_or_never()
             .unwrap()
             .unwrap();
