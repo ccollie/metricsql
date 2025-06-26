@@ -137,7 +137,7 @@ pub(crate) fn exec_binop(bfa: &mut BinaryOpFuncArg) -> BinaryOpFuncResult {
 
 fn binary_op_func_impl(bf: BinopFunc, bfa: &mut BinaryOpFuncArg) -> RuntimeResult<InstantVector> {
     if bfa.left.is_empty() || bfa.right.is_empty() {
-        return Ok(vec![]);
+        return Ok(InstantVector::default());
     }
 
     // todo: should this also be applied to scalar/vector and vector/scalar?
@@ -216,9 +216,6 @@ fn adjust_binary_op_tags(
 
     let (matching, grouping, keep_metric_names, return_bool) = if let Some(modifier) = bfa.modifier
     {
-        let temp = modifier.to_string();
-        println!("{temp}");
-
         let keep_metric_names = modifier.keep_metric_names;
         (
             &modifier.matching,
@@ -419,7 +416,7 @@ fn group_join(
             if i == left_len - 1 {
                 // See if we can take the value and avoid cloning.
                 let r = shared_right.remove(0);
-                let right = Rc::try_unwrap(r).unwrap_or_else(|rc| rc.as_ref().clone());
+                let right = Rc::unwrap_or_clone(r);
                 rvs_right.push(right);
                 break;
             }
@@ -436,7 +433,7 @@ fn group_join(
         // and grows to heap-allocated if needed. This is only a problem if the number of joined series is large.
         let mut map = GroupJoinMap::with_capacity(right_len);
 
-        for ts_right in shared_right.iter_mut() {
+        for (j, ts_right) in shared_right.iter_mut().enumerate() {
             let mut mn = ts_left.metric_name.clone();
             mn.set_labels(
                 empty_prefix,
@@ -447,13 +444,23 @@ fn group_join(
 
             let key = mn.signature();
             let Some(pair) = map.get_mut(&key) else {
-                // No existing pair for this key, so we can insert it.
-                ts_left.metric_name = mn;
+                let right = ts_right.clone();
+                let mut left = {
+                    if j == right_len - 1{
+                        // If this is the last pair, we can take the value and avoid cloning.
+                        std::mem::take(ts_left)
+                    } else {
+                        // Otherwise, clone the left-hand side.
+                        ts_left.clone()
+                    }
+                };
+                left.metric_name = mn;
+                
                 map.insert(
                     key,
                     GroupJoinPair {
-                        left: std::mem::take(ts_left),
-                        right: ts_right.clone(),
+                        left,
+                        right,
                     },
                 );
                 continue;
