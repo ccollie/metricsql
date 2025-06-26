@@ -156,17 +156,6 @@ impl Display for BinModifier {
         if self.return_bool {
             write!(f, "bool")?;
         }
-        match &self.card {
-            ManyToOne(labels) => {
-                write!(f, " group_left")?;
-                write_comma_separated(labels.iter(), f, true)?;
-            }
-            OneToMany(labels) => {
-                write!(f, " group_right")?;
-                write_comma_separated(labels.iter(), f, true)?;
-            }
-            _ => {}
-        }
         if let Some(matching) = &self.matching {
             match matching {
                 VectorMatchModifier::On(labels) => {
@@ -178,6 +167,17 @@ impl Display for BinModifier {
                     write_comma_separated(labels.iter(), f, true)?;
                 }
             }
+        }
+        match &self.card {
+            ManyToOne(labels) => {
+                write!(f, " group_left")?;
+                write_comma_separated(labels.iter(), f, true)?;
+            }
+            OneToMany(labels) => {
+                write!(f, " group_right")?;
+                write_comma_separated(labels.iter(), f, true)?;
+            }
+            _ => {}
         }
         if self.keep_metric_names {
             write!(f, " keep_metric_names")?;

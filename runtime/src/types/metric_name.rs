@@ -184,15 +184,15 @@ impl MetricName {
         None
     }
 
-    /// removes all the tags not included in on_tags.
-    /// don't stare too deeply. Just convince yourself that this is the correct behavior.
+    /// Remove all the tags not included in on_tags.
+    /// Don't stare too deeply. Just convince yourself that this is the correct behavior.
     /// 
     /// https://github.com/VictoriaMetrics/VictoriaMetrics/blob/cde5029bcecac116b59e245330f6caf625e75eea/lib/storage/metric_name.go#L247
     pub fn remove_labels_on(&mut self, on_tags: &[String]) {
         self.retain_labels(on_tags);
     }
 
-    /// remove_tags_ignoring removes all the tags included in ignoring_tags.
+    /// `remove_tags_ignoring` removes all the tags included in ignoring_tags.
     pub fn remove_labels_ignoring(&mut self, ignoring_tags: &[String]) {
         self.remove_labels(ignoring_tags);
     }
@@ -249,20 +249,18 @@ impl MetricName {
                 continue;
             }
 
-            // todo: use iterators instead
-            match src.label_value(tag_name) {
-                Some(tag_value) => {
-                    if !prefix.is_empty() {
-                        // todo: format into a buf to avoid alloc
-                        let key = format!("{prefix}{tag_name}");
-                        self.set(&key, tag_value);
-                    } else {
-                        self.set(tag_name, tag_value);
-                    }
-                }
-                None => {
-                    self.remove_label(tag_name);
-                }
+            let Some(value) = src.label_value(tag_name) else {
+                // If the tag is not present in src, remove it.
+                self.remove_label(tag_name);
+                continue;
+            };
+            
+            if !prefix.is_empty() {
+                // todo: format into a buf to avoid alloc
+                let key = format!("{prefix}{tag_name}");
+                self.set(&key, value);
+            } else {
+                self.set(tag_name, value);
             }
         }
     }
@@ -325,7 +323,7 @@ impl MetricName {
     /// marshal appends marshaled mn to dst.
     ///
     /// `self.sort_labels` must be called before calling this function
-    /// in order to sort and de-duplicate labels.
+    ///  to sort and de-duplicate labels.
     pub fn marshal(&self, dst: &mut Vec<u8>) {
         // Calculate the required size and pre-allocate space in dst
         let required_size = self.measurement.len() + 8;
@@ -440,7 +438,7 @@ impl MetricName {
         Signature::from_name_and_labels(group_name, iter)
     }
 
-    pub(crate) fn get_hash_signature(
+    pub(crate) fn get_modifier_signature(
         &self,
         modifier: &Option<VectorMatchModifier>,
         keep_metric_name: bool,
@@ -456,8 +454,8 @@ impl MetricName {
             Some(m) => match m {
                 VectorMatchModifier::On(on_tags) => {
                     // removes all the tags not included to on_tags.
-                    let keep_names = if !on_tags.contains(METRIC_NAME_LABEL) {
-                        false
+                    let keep_names = if on_tags.contains(METRIC_NAME_LABEL) {
+                        true
                     } else {
                         keep_metric_name
                     };
@@ -467,23 +465,6 @@ impl MetricName {
                     signature_without_labels(self, labels.as_ref(), keep_metric_name)
                 }
             },
-        }
-    }
-
-    pub(crate) fn get_aggregate_hash_signature(
-        &self,
-        modifier: &Option<AggregateModifier>,
-    ) -> Signature {
-        match modifier {
-            None => Signature::from_name_and_labels(&self.measurement, self.labels.iter()),
-            Some(AggregateModifier::By(by_tags)) => {
-                let keep_name = by_tags.iter().any(|x| x == METRIC_NAME_LABEL);
-                signature_with_labels(self, by_tags, keep_name)
-            }
-            Some(AggregateModifier::Without(labels)) => {
-                // reset the metric group as Prometheus does on `aggr(...) without (...)` call.
-                signature_without_labels(self, labels, false)
-            }
         }
     }
 }
@@ -585,7 +566,7 @@ impl Ord for MetricName {
 
         for (i, a) in ats.iter().enumerate() {
             if i >= other_len {
-                // self contains more tags than other and all the previous tags were identical,
+                // self contains more tags than other, and all the previous tags were identical,
                 // so self is considered bigger than other.
                 return Ordering::Greater;
             }

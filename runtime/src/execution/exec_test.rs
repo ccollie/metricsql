@@ -16,7 +16,6 @@ mod tests {
     const NAN: f64 = f64::NAN;
     const INF: f64 = f64::INFINITY;
     const NEG_INF: f64 = f64::NEG_INFINITY;
-
     const START: Timestamp = 1000000_i64;
     const END: Timestamp = 2000000_i64;
     const STEP: Duration = Duration::from_millis(200000_u64);
@@ -1837,7 +1836,6 @@ mod tests {
         assert_result_eq("1 != bool NAN", &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
     }
 
-    #[test]
     fn compare_to_nan_left() {
         assert_result_eq("NAN != bool 1", &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
     }

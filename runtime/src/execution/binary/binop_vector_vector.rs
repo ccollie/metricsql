@@ -13,6 +13,8 @@ use rayon::iter::IntoParallelIterator;
 use rayon::iter::ParallelIterator;
 use small_map::SmallMap;
 use std::borrow::Cow;
+use std::rc::Rc;
+use smallvec::SmallVec;
 use tracing::{field, trace_span, Span};
 use super::common::{contains_value_at, not_contains_value_at};
 
@@ -168,7 +170,6 @@ fn binary_op_func_impl(bf: BinopFunc, bfa: &mut BinaryOpFuncArg) -> RuntimeResul
             return Err(RuntimeError::InvalidState(msg));
         }
 
-        // todo: how to simplify this?
         if is_right {
             for (left_val, right_val) in left_ts
                 .values
@@ -215,6 +216,9 @@ fn adjust_binary_op_tags(
 
     let (matching, grouping, keep_metric_names, return_bool) = if let Some(modifier) = bfa.modifier
     {
+        let temp = modifier.to_string();
+        println!("{temp}");
+
         let keep_metric_names = modifier.keep_metric_names;
         (
             &modifier.matching,
@@ -227,6 +231,24 @@ fn adjust_binary_op_tags(
     };
 
     let reset_metric_group = should_reset_metric_group(bfa.op, keep_metric_names, return_bool);
+
+    let mut is_on = false;
+    let group_tags = match matching {
+        Some(VectorMatchModifier::On(labels)) => {
+            is_on = true;
+            // Add `__name__` to group_tags if the metric name must be preserved.
+            if keep_metric_names {
+                let mut changed = labels.clone();
+                changed.push(METRIC_NAME_LABEL.to_string());
+                changed.sort();
+                Cow::Owned(changed)
+            } else {
+                Cow::Borrowed(labels)
+            }
+        }
+        Some(VectorMatchModifier::Ignoring(labels)) => Cow::Borrowed(labels),
+        None => Cow::Owned(Labels::default()),
+    };
 
     for (k, tss_left) in m_left {
         let Some(tss_right) = m_right.remove(&k) else {
@@ -256,23 +278,6 @@ fn adjust_binary_op_tags(
                 tss_left,
             )?,
             _ => {
-                let mut is_on = false;
-                let group_tags = match matching {
-                    Some(VectorMatchModifier::On(labels)) => {
-                        is_on = true;
-                        // Add `__name__` to group_tags if the metric name must be preserved.
-                        if keep_metric_names {
-                            let mut changed = labels.clone();
-                            changed.push(METRIC_NAME_LABEL.to_string());
-                            changed.sort();
-                            Cow::Owned(changed)
-                        } else {
-                            Cow::Borrowed(labels)
-                        }
-                    }
-                    Some(VectorMatchModifier::Ignoring(labels)) => Cow::Borrowed(labels),
-                    None => Cow::Owned(Labels::default()),
-                };
 
                 let mut ts_left = ensure_single_timeseries("left", bfa.op, bfa.modifier, tss_left)?;
                 let ts_right = ensure_single_timeseries("right", bfa.op, bfa.modifier, tss_right)?;
@@ -333,8 +338,7 @@ fn ensure_single_timeseries(
     for ts in tss.iter() {
         if !merge_non_overlapping_timeseries(&mut acc, ts) {
             let msg = format!(
-                "duplicate time series on the {side} side of {} {}: {} and {}",
-                op,
+                "duplicate time series on the {side} side of {op} {}: {} and {}",
                 group_modifier_to_string(modifier),
                 acc.metric_name,
                 ts.metric_name
@@ -347,12 +351,14 @@ fn ensure_single_timeseries(
     Ok(acc)
 }
 
+type SharedTimeseries = Rc<Timeseries>;
+
 struct GroupJoinPair {
     left: Timeseries,
-    right: Timeseries,
+    right: SharedTimeseries,
 }
 
-type GroupJoinMap = SmallMap<8, Signature, GroupJoinPair, BuildNoHashHasher<Signature>>;
+type GroupJoinMap<'a> = SmallMap<8, Signature, GroupJoinPair, BuildNoHashHasher<Signature>>;
 
 fn group_join(
     single_timeseries_side: &'static str,
@@ -367,32 +373,40 @@ fn group_join(
     let empty_labels = Labels::default();
 
     let (join_tags, skip_tags) = if let Some(modifier) = bfa.modifier {
-        let join = match &modifier.card {
-            VectorMatchCardinality::ManyToOne(labels)
-            | VectorMatchCardinality::OneToMany(labels) => labels,
-            _ => &empty_labels,
-        };
         let skip = if let Some(VectorMatchModifier::On(labels)) = &modifier.matching {
             labels
         } else {
             &empty_labels
         };
-        (join, skip)
+
+        let join = match &modifier.card {
+            VectorMatchCardinality::ManyToOne(labels) |
+            VectorMatchCardinality::OneToMany(labels) => labels,
+            _ => &empty_labels
+        };
+
+       (join, skip)
     } else {
         (&empty_labels, &empty_labels)
     };
 
-    let mut tss_left = tss_left;
-    let mut tss_right = tss_right;
+    let mut shared_right: SmallVec<SharedTimeseries, 4> = tss_right
+        .into_iter()
+        .map(|ts| Rc::new(ts))
+        .collect::<SmallVec<SharedTimeseries, 4>>();
 
-    for ts_left in tss_left.iter_mut() {
+    let mut tss_left = tss_left;
+    let right_len = shared_right.len();
+    let left_len = tss_left.len();
+
+    for (i, ts_left) in tss_left.iter_mut().enumerate() {
         if reset_metric_group {
             ts_left.metric_name.reset_measurement();
         }
 
         // Easy case - right part contains only a single matching time series.
-        if tss_right.len() == 1 {
-            let right = tss_right.remove(0);
+        if right_len == 1 {
+            let right = shared_right.first().unwrap();
             ts_left.metric_name.set_labels(
                 empty_prefix,
                 join_tags.as_ref(),
@@ -401,7 +415,17 @@ fn group_join(
             );
 
             rvs_left.push(std::mem::take(ts_left));
-            rvs_right.push(right);
+
+            if i == left_len - 1 {
+                // See if we can take the value and avoid cloning.
+                let r = shared_right.remove(0);
+                let right = Rc::try_unwrap(r).unwrap_or_else(|rc| rc.as_ref().clone());
+                rvs_right.push(right);
+                break;
+            }
+
+            let cloned_right = right.as_ref().clone();
+            rvs_right.push(cloned_right);
             continue;
         }
 
@@ -410,9 +434,9 @@ fn group_join(
 
         // SmallMap doesn't support `clear` or `drain`, so we create each time. It starts out stack-allocated
         // and grows to heap-allocated if needed. This is only a problem if the number of joined series is large.
-        let mut map = GroupJoinMap::with_capacity(tss_right.len());
+        let mut map = GroupJoinMap::with_capacity(right_len);
 
-        for ts_right in tss_right.drain(0..) {
+        for ts_right in shared_right.iter_mut() {
             let mut mn = ts_left.metric_name.clone();
             mn.set_labels(
                 empty_prefix,
@@ -422,39 +446,43 @@ fn group_join(
             );
 
             let key = mn.signature();
+            let Some(pair) = map.get_mut(&key) else {
+                // No existing pair for this key, so we can insert it.
+                ts_left.metric_name = mn;
+                map.insert(
+                    key,
+                    GroupJoinPair {
+                        left: std::mem::take(ts_left),
+                        right: ts_right.clone(),
+                    },
+                );
+                continue;
+            };
 
-            match map.get_mut(&key) {
-                Some(pair) => {
-                    // Try merging pair.right with ts_right if they don't overlap.
-                    if !merge_non_overlapping_timeseries(&mut pair.right, &ts_right) {
-                        let err = format!(
-                            "duplicate time series on the {} side of `{} {} {}`: {} and {}",
-                            single_timeseries_side,
-                            bfa.op,
-                            group_modifier_to_string(bfa.modifier),
-                            join_modifier_to_string(bfa.modifier),
-                            pair.right.metric_name,
-                            ts_right.metric_name
-                        );
-                        return Err(RuntimeError::from(err));
-                    }
-                }
-                None => {
-                    ts_left.metric_name = mn;
-                    map.insert(
-                        key,
-                        GroupJoinPair {
-                            left: std::mem::take(ts_left),
-                            right: ts_right,
-                        },
-                    );
-                }
+            // Try merging pair.right with ts_right if they don't overlap.
+
+            // Ensure we have a unique pair.right value to avoid modifying the original
+            // right-hand side.
+            let mut right = Rc::make_mut(&mut pair.right);
+
+            if !merge_non_overlapping_timeseries(&mut right, &ts_right) {
+                let err = format!(
+                    "duplicate time series on the {} side of `{} {} {}`: {} and {}",
+                    single_timeseries_side,
+                    bfa.op,
+                    group_modifier_to_string(bfa.modifier),
+                    join_modifier_to_string(bfa.modifier),
+                    pair.right.metric_name,
+                    ts_right.metric_name
+                );
+                return Err(RuntimeError::from(err));
             }
         }
 
         for (_, pair) in map.into_iter() {
+            let right = Rc::unwrap_or_clone(pair.right);
             rvs_left.push(pair.left);
-            rvs_right.push(pair.right);
+            rvs_right.push(right);
         }
     }
 
@@ -667,12 +695,13 @@ fn fill_left_nans_with_right_values(tss_left: &mut [Timeseries], tss_right: &[Ti
     }
 }
 
-// Fill gaps in tss_left with values from tss_right when labels match
-// Set NaNs to tss_right when tss_left has corresponding values
-// or if tss_left and tss_right can be merged.
-//
-// See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/7759
-// https://github.com/VictoriaMetrics/VictoriaMetrics/issues/7640
+/// Fill gaps in tss_left with values from tss_right when labels match.
+/// Set NaNs to tss_right when tss_left has corresponding values
+/// or if tss_left and tss_right can be merged.
+///
+/// See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/7759
+///
+/// https://github.com/VictoriaMetrics/VictoriaMetrics/issues/7640
 fn fill_left_nans_with_right_values_or_merge(
     tss_left: &mut [Timeseries],
     tss_right: &mut [Timeseries],
@@ -766,7 +795,7 @@ fn group_series_by_match_modifier(
             .map(|timeseries| {
                 let sig = timeseries
                     .metric_name
-                    .get_hash_signature(modifier, with_metric_name);
+                    .get_modifier_signature(modifier, with_metric_name);
                 (sig, timeseries)
             })
             .collect::<Vec<_>>()
@@ -782,7 +811,7 @@ fn group_series_by_match_modifier(
         for timeseries in series.into_iter() {
             let sig = timeseries
                 .metric_name
-                .get_hash_signature(modifier, with_metric_name);
+                .get_modifier_signature(modifier, with_metric_name);
             match m.get_mut(&sig) {
                 Some(existing) => existing.push(timeseries),
                 None => {
