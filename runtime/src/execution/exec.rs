@@ -527,7 +527,7 @@ fn eval_unary_op(ctx: &Context, ec: &EvalConfig, ue: &UnaryExpr) -> RuntimeResul
 #[inline]
 fn should_parallelize_fn(func: TransformFunction) -> bool {
     // range_normalize can take multiple series selectors as arguments
-    func == TransformFunction::Union || func == TransformFunction::RangeNormalize
+    matches!(func, TransformFunction::Union | TransformFunction::RangeNormalize)
 }
 
 fn eval_transform_func(
