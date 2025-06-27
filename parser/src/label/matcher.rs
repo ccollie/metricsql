@@ -18,9 +18,10 @@ use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 
 use crate::parser::{escape_ident, quote, ParseError, ParseResult};
-use ahash::AHashMap;
+use metricsql_common::hash::BuildNoHashHasher;
 use metricsql_common::prelude::{string_matcher_from_regex, LITERAL_MATCH_COST};
 use metricsql_common::regex_util::StringMatchHandler;
+use metricsql_common::set::SmallSet;
 use serde::{Deserialize, Serialize};
 use xxhash_rust::xxh3::Xxh3;
 
@@ -87,10 +88,10 @@ pub struct Matcher {
     #[cfg_attr(feature = "serde", serde(rename = "type"))]
     pub op: MatchOp,
 
-    /// label contains label name for the filter.
+    /// The name for the filter.
     pub label: String,
 
-    /// value contains unquoted value for the filter.
+    /// The unquoted value for the filter.
     pub value: String,
 
     #[serde(skip)]
@@ -149,12 +150,12 @@ impl Matcher {
         Matcher::new(MatchOp::RegexNotEqual, key, value)
     }
 
-    /// is_regexp represents whether the filter is regexp, i.e. `=~` or `!~`.
+    /// `is_regexp` represents whether the filter is regexp, i.e. `=~` or `!~`.
     pub fn is_regexp(&self) -> bool {
         self.op.is_regex()
     }
 
-    /// is_negative represents whether the filter is negative, i.e. '!=' or '!~'.
+    /// `is_negative` represents whether the filter is negative, i.e. '!=' or '!~'.
     pub fn is_negative(&self) -> bool {
         self.op.is_negative()
     }
@@ -190,7 +191,7 @@ impl Matcher {
             MatchOp::Equal => self.value.eq(str),
             MatchOp::NotEqual => self.value.ne(str),
             MatchOp::RegexEqual => {
-                // slight optimization for frequent case
+                // slight optimization for a frequent case
                 if str.is_empty() {
                     return is_empty_regex_matcher(self);
                 }
@@ -445,8 +446,8 @@ impl Matchers {
                 .all(|m| m.matches(""))
     }
 
-    /// find the matcher's value whose name equals the specified name. This function
-    /// is designed to prepare error message of invalid promql expression.
+    /// Find the matcher's value whose name equals the specified name. This function
+    /// is designed to prepare an error message of invalid promql expression.
     #[allow(dead_code)]
     pub(crate) fn find_matcher_value(&self, name: &str) -> Option<&String> {
         self.matchers
@@ -618,13 +619,15 @@ pub(crate) fn remove_duplicate_label_filters(filters: &mut Vec<Matcher>) {
     }
 
     let mut hasher = Xxh3::new();
-    let mut hash_map: AHashMap<u64, bool> = AHashMap::with_capacity(filters.len());
+    let mut hash_map: SmallSet<16, u64, BuildNoHashHasher<u64>> = SmallSet::with_capacity(filters.len());
 
     for i in (0..filters.len()).rev() {
         let hash = get_hash(&mut hasher, &filters[i]);
-        if let std::collections::hash_map::Entry::Vacant(e) = hash_map.entry(hash) {
-            e.insert(true);
+        if !hash_map.contains(&hash) {
+            // insert the hash into the map
+            hash_map.insert(hash);
         } else {
+            // remove the duplicate matcher
             filters.remove(i);
         }
     }
@@ -633,7 +636,7 @@ pub(crate) fn remove_duplicate_label_filters(filters: &mut Vec<Matcher>) {
 /// Go and Rust handle the repeat pattern differently
 /// in Go the following is valid: `aaa{bbb}ccc`
 /// in Rust {bbb} is seen as an invalid repeat and must be escaped \{bbb}
-/// This escapes the opening "{" if it's not followed by a valid repeat pattern (e.g. 4,6).
+/// This escapes the opening `{` if it's not followed by a valid repeat pattern (e.g., 4,6).
 pub fn try_escape_for_repeat_re(re: &str) -> String {
     fn is_repeat(chars: &mut std::str::Chars<'_>) -> (bool, String) {
         let mut buf = String::new();
