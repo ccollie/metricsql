@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use ahash::AHashMap;
 use regex::Regex;
-
+use smallvec::SmallVec;
 use crate::functions::arg_parse::get_string_arg;
 use crate::functions::transform::TransformFuncArg;
 use crate::types::{MetricName, Timeseries, METRIC_NAME_LABEL};
@@ -234,7 +234,7 @@ pub(crate) fn label_join(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timese
     let separator = tfa.take_param_string(2, "separator")?;
 
     // todo: user something like SmallVec/StaticVec/ArrayVec
-    let mut src_labels: Vec<String> = Vec::with_capacity(tfa.args.len() - 3);
+    let mut src_labels: SmallVec<String, 6> = SmallVec::new();
     for i in 3..tfa.args.len() {
         let src_label = tfa.take_param_string(i, "label")?;
         src_labels.push(src_label);
