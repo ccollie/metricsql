@@ -383,8 +383,8 @@ fn eval_parens_op(ctx: &Context, ec: &EvalConfig, pe: &ParensExpr) -> RuntimeRes
     if pe.expressions.len() == 1 {
         return eval_expr(ctx, ec, &pe.expressions[0]);
     }
-    let mut args = eval_exprs_in_parallel(ctx, ec, &pe.expressions)?;
-    let rv = handle_union(&mut args, ec)?;
+    let args = eval_exprs_in_parallel(ctx, ec, &pe.expressions)?;
+    let rv = handle_union(args, ec)?;
     let val = QueryValue::InstantVector(rv);
     Ok(val)
 }
