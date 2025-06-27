@@ -3058,15 +3058,15 @@ mod tests {
     fn histogram_scalar() {
         let q = r#"sort(histogram(123)+(
         label_set(0, "le", "1.000e2"),
-        label_set(0, "le", "1.136e2"),
-        label_set(0, "le", "1.292e2"),
+        label_set(0, "le", "1.136e+02"),
+        label_set(0, "le", "1.292e+02"),
         label_set(1, "le", "+Inf"),
         ))"#;
         let mut r1 = make_result(&[0_f64, 0.0, 0.0, 0.0, 0.0, 0.0]);
-        r1.metric.set("le", "1.136e2");
+        r1.metric.set("le", "1.136e+02");
 
         let mut r2 = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
-        r2.metric.set("le", "1.292e2");
+        r2.metric.set("le", "1.292e+02");
 
         let mut r3 = make_result(&[2_f64, 2.0, 2.0, 2.0, 2.0, 2.0]);
         r3.metric.set("le", "+Inf");
