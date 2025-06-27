@@ -369,7 +369,6 @@ pub(crate) fn transform_series(
     do_transform_values(&mut series, tf, tfa.fe)
 }
 
-#[inline]
 pub(super) fn do_transform_values(
     arg: &mut Vec<Timeseries>,
     mut tf: impl TransformValuesFn,
