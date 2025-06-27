@@ -170,7 +170,7 @@ impl<'a> Parser<'a> {
         if let Some(TokenWithLocation { kind, span, .. }) = current_token {
             invalid_token_error(expected, Some(*kind), span, "".to_string())
         } else {
-            // If we’re at the end of the input we use the range of the very last token in the input.
+            // If we’re at the end of the input, we use the range of the very last token in the input.
             let span = self.last_token_range().unwrap_or_default();
             invalid_token_error(expected, None, &span, "".to_string())
         }
@@ -225,14 +225,14 @@ impl<'a> Parser<'a> {
         Ok(DurationExpr::new(millis))
     }
 
-    /// returns positive duration in milliseconds for the given s
+    /// Returns positive duration in milliseconds for the given s
     /// and the given step.
     ///
     /// Duration in s may be combined, i.e. 2h5m or 2h-5m.
     ///
     /// Error is returned if the duration in s is negative.
     pub fn parse_positive_duration(&mut self) -> ParseResult<DurationExpr> {
-        // Verify the duration in seconds without explicit suffix.
+        // Verify the duration in seconds without an explicit suffix.
         let duration = self.parse_duration()?;
         let val = duration.value(Duration::from_millis(1));
         if val < 0 {

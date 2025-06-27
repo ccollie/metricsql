@@ -36,7 +36,7 @@ static LOWER_BUCKET_RANGE: LazyLock<String> =
 ///
 ///     prometheus_buckets(request_duration_bucket)
 ///
-/// Time series produced by the Histogram have better compression ratio comparing to
+/// Time series produced by the Histogram have a better compression ratio compared to
 /// Prometheus histogram buckets with `le` labels, since they don't include counters
 /// for all the previous buckets.
 ///
@@ -52,7 +52,7 @@ pub struct Histogram {
 }
 
 impl Histogram {
-    // returns new fast histogram.
+    // returns a new fast histogram.
     pub fn new() -> Self {
         Self::with_capacity(DECIMAL_BUCKETS_COUNT as usize)
     }
@@ -82,9 +82,9 @@ impl Histogram {
         self.values.clear();
     }
 
-    // Update updates h with v.
-    //
-    // Negative values and NaNs are ignored.
+    /// Update updates h with v.
+    ///
+    /// Negative values and NaNs are ignored.
     pub fn update(&mut self, v: f64) {
         if v.is_nan() || v < 0.0 {
             // Skip NaNs and negative values.
@@ -154,9 +154,9 @@ impl Histogram {
         }
     }
 
-    /// visit_non_zero_buckets calls `f` for all buckets with non-zero counters.
+    /// `visit_non_zero_buckets` calls `f` for all buckets with non-zero counters.
     ///
-    /// vmrange contains "<start>...<end>" string with bucket bounds. The lower bound
+    /// `vmrange` contains "<start>...<end>" string with bucket bounds. The lower bound
     /// isn't included in the bucket, while the upper bound is included.
     /// This is required to be compatible with Prometheus-style histogram buckets
     /// with `le` (less or equal) labels.
