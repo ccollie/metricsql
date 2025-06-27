@@ -32,8 +32,7 @@ pub(crate) fn get_string_arg(args: &[QueryValue], arg_num: usize) -> RuntimeResu
             Ok(res)// This now returns Cow<str> as expected
         }
         _ => Err(RuntimeError::ArgumentError(format!(
-            "string expected for parameter {} ",
-            arg_num + 1
+            "string expected for parameter {arg_num}",
         ))),
     }
 }

@@ -112,12 +112,20 @@ impl ListPostings {
 
         ListPostings { list, idx: 0 }
     }
+    
+    pub fn len(&self) -> usize {
+        self.list.len()
+    }
+    
+    pub fn is_empty(&self) -> bool {
+        self.list.is_empty()
+    }
 }
 
 impl Iterator for ListPostings {
     type Item = SeriesRef;
     fn next(&mut self) -> Option<Self::Item> {
-        if self.idx < self.list.len() {
+        if !self.is_empty() && self.idx < self.list.len() {
             // SAFETY: we know that the index is within bounds because of the above check
             unsafe {
                 let res = self.list.get_unchecked(self.idx);
