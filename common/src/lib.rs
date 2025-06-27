@@ -6,7 +6,7 @@ extern crate gxhash;
 extern crate lockfree_object_pool;
 extern crate rand;
 extern crate serde_regex;
-extern crate xxhash_rust;
+
 pub mod async_runtime;
 pub mod atomic_counter;
 pub mod cache;

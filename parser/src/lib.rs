@@ -9,7 +9,6 @@ extern crate serde;
 extern crate strum;
 extern crate strum_macros;
 extern crate thiserror;
-extern crate xxhash_rust;
 
 pub mod ast;
 pub mod binaryop;
