@@ -97,9 +97,10 @@ pub(super) fn handle_vector_scalar_list_equality(
 ) -> RuntimeResult<QueryValue> {
     let mut vector = vector;
 
-    if op == Operator::Eql || op == Operator::NotEq {
+    let is_equals = op == Operator::Eql;
+    
+    if is_equals || op == Operator::NotEq {
         // scalar != (1,2,3) or scalar == (1,2,3)
-        let is_equals = op == Operator::Eql;
 
         for ts in vector.iter_mut() {
             if is_equals {
