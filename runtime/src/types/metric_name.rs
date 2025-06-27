@@ -454,11 +454,16 @@ impl MetricName {
             Some(m) => match m {
                 VectorMatchModifier::On(on_tags) => {
                     // removes all the tags not included to on_tags.
-                    let keep_names = if on_tags.contains(METRIC_NAME_LABEL) {
-                        true
+                    let keep_names = if !on_tags.contains(METRIC_NAME_LABEL) {
+                        // If the metric name is not in on_tags, we don't keep it.
+                        // This is different from the behavior of `keep_metric_name`.
+                        // So we pass an empty string as the group name.
+                        false
                     } else {
+                        // If the metric name is in on_tags, we keep it.
                         keep_metric_name
                     };
+
                     signature_with_labels(self, on_tags.as_ref(), keep_names)
                 }
                 VectorMatchModifier::Ignoring(labels) => {
