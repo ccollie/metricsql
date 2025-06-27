@@ -7,7 +7,6 @@ license.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
-ahash.workspace = true
 chrono.workspace = true
 enquote.workspace = true
 hashify.workspace = true
