@@ -3081,18 +3081,21 @@ mod tests {
         label_set(1.1, "xx", "yy"),
         alias(1.15, "foobar"),
         ))+(
-        label_set(0, "le", "8.799e1"),
+        label_set(0, "le", "8.799e-01"),
         label_set(0, "le", "1.000e+00"),
         label_set(0, "le", "1.292e+00"),
         label_set(1, "le", "+Inf"),
         ))"#;
+
         let mut r1 = make_result(&[0_f64, 0.0, 0.0, 0.0, 0.0, 0.0]);
-        r1.metric.set("le", "8.799e1");
+        r1.metric.set("le", "8.799e-01");
 
         let mut r2 = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r2.metric.set("le", "1.000e+00");
+
         let mut r3 = make_result(&[3_f64, 3.0, 3.0, 3.0, 3.0, 3.0]);
         r3.metric.set("le", "1.292e+00");
+
         let mut r4 = make_result(&[4_f64, 4.0, 4.0, 4.0, 4.0, 4.0]);
         r4.metric.set("le", "+Inf");
 
