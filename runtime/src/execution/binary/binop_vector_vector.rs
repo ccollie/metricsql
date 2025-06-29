@@ -586,59 +586,48 @@ fn binary_op_default(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<InstantVector> 
     Ok(rvs)
 }
 
-/// `vector1 or vector2` results in a vector that contains all original elements (label sets + values)
+/// `vector1 or vector2` results in a vector that contains all original elements (label sets and values)
 /// of vector1 and additionally all elements of vector2 that do not have matching label sets in vector1.
 ///
 /// https://prometheus.io/docs/prometheus/latest/querying/operators/#logical-set-binary-operators
 fn binary_op_or(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    remove_empty_series(&mut bfa.left);
+    
+    let mut left = std::mem::take(&mut bfa.left);
+    let right = std::mem::take(&mut bfa.right);
+    
+    remove_empty_series(&mut left);
 
-    if bfa.left.is_empty() {
-        // Short-circuit.
-        remove_empty_series(&mut bfa.right);
-        bfa.right.sort_by(|a, b| a.metric_name.cmp(&b.metric_name));
-        return Ok(std::mem::take(&mut bfa.right));
-    }
-
-    if bfa.right.is_empty() {
-        // Short-circuit
-        bfa.left.sort_by(|a, b| a.metric_name.cmp(&b.metric_name));
-        return Ok(std::mem::take(&mut bfa.left));
-    }
-
-    let (mut m_left, m_right) = create_series_map_by_tag_set(bfa);
-
-    let mut rvs = Vec::with_capacity(bfa.left.len());
-
+    let mut m_left = group_series_by_match_modifier(left, bfa.modifier);
+    let m_right = group_series_by_match_modifier(right, bfa.modifier);
+    let mut right_series = Vec::with_capacity(m_right.len());
+    
     for (k, mut tss_right) in m_right.into_iter() {
         if let Some(tss_left) = m_left.get_mut(&k) {
-            fill_left_nans_with_right_values_or_merge(tss_left, &mut tss_right);
+            fill_left_nans_with_right_values_or_merge(tss_left.as_mut(), tss_right.as_mut());
+            // tss_right might be filled with NaNs after merge
             remove_empty_series(&mut tss_right);
-            if !tss_right.is_empty() {
-                rvs.extend(tss_right);
-            }
-        } else {
-            rvs.extend(tss_right);
+            right_series.extend(tss_right);
+            continue;
         }
+        right_series.extend(tss_right);
     }
-
-    let mut left = m_left
-        .into_iter()
-        .flat_map(|(_, v)| v)
-        .collect::<Vec<Timeseries>>();
-
-    // Sort left-hand-side series by metric name as Prometheus does.
-    // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/5393
-    left.sort_by(|a, b| a.metric_name.cmp(&b.metric_name));
-
+    
     // Sort the added right-hand-side series by metric name as Prometheus does.
     // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/5393
-    if !rvs.is_empty() {
-        rvs.sort_by(|a, b| a.metric_name.cmp(&b.metric_name));
-        left.extend(rvs);
+    right_series.sort_by(|a, b| a.metric_name.cmp(&b.metric_name));
+    
+    let mut left_series: Vec<Timeseries> = Vec::with_capacity(m_left.len() + right_series.len());
+    for (_, mut tss_left) in m_left.into_iter() {
+        left_series.append(&mut tss_left)
     }
+    
+    // Sort left-hand-side series by metric name as Prometheus does.
+    // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/5393
+    left_series.sort_by(|a, b| a.metric_name.cmp(&b.metric_name));
+    
+    left_series.append(&mut right_series);
 
-    Ok(left)
+    Ok(left_series)
 }
 
 /// `vector1 unless vector2` results in a vector consisting of the elements of vector1
@@ -682,7 +671,6 @@ fn binary_op_if_not(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<InstantVector> {
     Ok(rvs)
 }
 
-#[inline]
 /// Fill gaps in tss_left with values from tss_right as Prometheus does.
 /// See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/552
 fn fill_left_nans_with_right_values(tss_left: &mut [Timeseries], tss_right: &[Timeseries]) {
@@ -770,20 +758,12 @@ fn add_left_nans_if_no_right_nans(tss_left: &mut Vec<Timeseries>, tss_right: &Ve
 fn create_series_map_by_tag_set(
     bfa: &mut BinaryOpFuncArg,
 ) -> (TimeseriesHashMap, TimeseriesHashMap) {
-    let empty_matching = None;
-
-    let (matching, keep_metric_names) = if let Some(modifier) = bfa.modifier.as_ref() {
-        (&modifier.matching, modifier.keep_metric_names)
-    } else {
-        (&empty_matching, false)
-    };
-
     let left = std::mem::take(&mut bfa.left);
     let right = std::mem::take(&mut bfa.right);
 
     let (m_left, m_right) = chili::Scope::global().join(
-        |_| group_series_by_match_modifier(left, matching, keep_metric_names),
-        |_| group_series_by_match_modifier(right, matching, keep_metric_names),
+        |_| group_series_by_match_modifier(left, bfa.modifier),
+        |_| group_series_by_match_modifier(right, bfa.modifier),
     );
 
     (m_left, m_right)
@@ -791,10 +771,17 @@ fn create_series_map_by_tag_set(
 
 fn group_series_by_match_modifier(
     series: Vec<Timeseries>,
-    modifier: &Option<VectorMatchModifier>,
-    with_metric_name: bool,
+    modifier: &Option<BinModifier>,
 ) -> TimeseriesHashMap {
     let mut m: TimeseriesHashMap = TimeseriesHashMap::with_capacity(series.len());
+
+    let empty_matching = None;
+    let (match_modifier, with_metric_names) = if let Some(modifier) = modifier {
+        (&modifier.matching, modifier.keep_metric_names)
+    } else {
+        (&empty_matching, false)
+    };
+
     if series.len() >= SIGNATURE_PARALLELIZATION_THRESHOLD {
         // todo: use chili instead of rayon
         for (sig, ts) in series
@@ -802,7 +789,7 @@ fn group_series_by_match_modifier(
             .map(|timeseries| {
                 let sig = timeseries
                     .metric_name
-                    .get_modifier_signature(modifier, with_metric_name);
+                    .get_modifier_signature(match_modifier, with_metric_names);
                 (sig, timeseries)
             })
             .collect::<Vec<_>>()
@@ -818,7 +805,7 @@ fn group_series_by_match_modifier(
         for timeseries in series.into_iter() {
             let sig = timeseries
                 .metric_name
-                .get_modifier_signature(modifier, with_metric_name);
+                .get_modifier_signature(match_modifier, with_metric_names);
             match m.get_mut(&sig) {
                 Some(existing) => existing.push(timeseries),
                 None => {

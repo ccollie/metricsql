@@ -2194,7 +2194,7 @@ mod tests {
         let q = r#"(
 		  (label_set(time(), "t1", "v1", "__name__", "q1") or label_set(10, "t2", "v2", "__name__", "q2"))
 		    +
-		  (label_set(100, "t1", "v1", "__name__", "q3") or label_set(time(), "t2", "v3"))
+		  (label_set(100, "t1", "v1", "__name__", "q1") or label_set(time(), "t2", "v3"))
 		) keep_metric_names
         "#;
         let mut r = make_result(&[1100_f64, 1300.0, 1500.0, 1700.0, 1900.0, 2100.0]);
@@ -3481,7 +3481,7 @@ mod tests {
     #[test]
     fn limitk_1() {
         // NOTE: the answer here is dependent on the hashing algo used to preserve consistent
-        // ordering of the series. As such it depends on the hash and not the data. If the
+        // ordering of the series. As such, it depends on the hash and not the data. If the
         // implementation changes, it's legit to change the answer here.
         let q = r#"limitk(1, label_set(10, "foo", "bar") or label_set(time()/150, "xbaz", "sss"))"#;
         let mut r1 = make_result(&[
@@ -3492,7 +3492,7 @@ mod tests {
             12.0,
             13.333333333333334,
         ]);
-        r1.metric.set("foo", "bar");
+        r1.metric.set("xbaz", "sss");
         test_query(q, vec![r1]);
     }
 
@@ -4755,10 +4755,10 @@ mod tests {
     #[test]
     fn rollup_increase() {
         let q = "sort(rollup_increase(time()))";
-        let mut r_min = make_result(&[200_f64, 200.0, 200.0, 200.0, 200.0, 200.0]);
-        r_min.metric.set("rollup", "min");
         let mut r_max = make_result(&[200_f64, 200.0, 200.0, 200.0, 200.0, 200.0]);
         r_max.metric.set("rollup", "max");
+        let mut r_min = make_result(&[200_f64, 200.0, 200.0, 200.0, 200.0, 200.0]);
+        r_min.metric.set("rollup", "min");
         let mut r_avg = make_result(&[200_f64, 200.0, 200.0, 200.0, 200.0, 200.0]);
         r_avg.metric.set("rollup", "avg");
         test_query(q, vec![r_avg, r_max, r_min]);

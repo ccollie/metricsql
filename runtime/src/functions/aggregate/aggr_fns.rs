@@ -976,9 +976,9 @@ fn aggr_func_limitk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
             .collect::<Vec<_>>();
 
         hss.sort_by(|a, b| a.hash.cmp(&b.hash));
-        hss.truncate(limit);
 
         hss.iter()
+            .take(limit)
             .map(|f| std::mem::take(tss.get_mut(f.index).unwrap()))
             .collect::<Vec<_>>()
     };
