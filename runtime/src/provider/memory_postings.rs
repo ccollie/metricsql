@@ -123,13 +123,13 @@ impl MemoryPostings {
     }
 
     #[inline]
-    fn read_index(&self) -> std::sync::RwLockReadGuard<PostingsIndex> {
+    fn read_index(&self) -> std::sync::RwLockReadGuard<'_, PostingsIndex> {
         self.label_index
             .read()
             .expect("Failed to read label index from RWLock")
     }
 
-    fn write_index(&self) -> std::sync::RwLockWriteGuard<PostingsIndex> {
+    fn write_index(&self) -> std::sync::RwLockWriteGuard<'_, PostingsIndex> {
         self.label_index
             .write()
             .expect("Failed to write label index from RWLock")
@@ -140,7 +140,7 @@ impl MemoryPostings {
         index.clear();
     }
 
-    pub fn label_index(&self) -> std::sync::RwLockReadGuard<PostingsIndex> {
+    pub fn label_index(&self) -> std::sync::RwLockReadGuard<'_, PostingsIndex> {
         self.label_index.read().unwrap()
     }
 

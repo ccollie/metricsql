@@ -178,13 +178,13 @@ pub fn duration_ns_to_duration(v: i64) -> Duration {
 }
 
 pub fn is_leap_year(y: u32) -> bool {
-    if y % 4 != 0 {
+    if !y.is_multiple_of(4) {
         return false;
     }
-    if y % 100 != 0 {
+    if !y.is_multiple_of(100) {
         return true;
     }
-    y % 400 == 0
+    y.is_multiple_of(400)
 }
 
 pub fn days_in_month<Tz: TimeZone>(t: DateTime<Tz>) -> u8 {

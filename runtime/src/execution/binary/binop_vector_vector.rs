@@ -389,7 +389,7 @@ fn group_join(
 
     let mut shared_right: SmallVec<SharedTimeseries, 4> = tss_right
         .into_iter()
-        .map(|ts| Rc::new(ts))
+        .map(Rc::new)
         .collect::<SmallVec<SharedTimeseries, 4>>();
 
     let mut tss_left = tss_left;
@@ -470,9 +470,9 @@ fn group_join(
 
             // Ensure we have a unique pair.right value to avoid modifying the original
             // right-hand side.
-            let mut right = Rc::make_mut(&mut pair.right);
+            let right = Rc::make_mut(&mut pair.right);
 
-            if !merge_non_overlapping_timeseries(&mut right, &ts_right) {
+            if !merge_non_overlapping_timeseries(right, ts_right) {
                 let err = format!(
                     "duplicate time series on the {} side of `{} {} {}`: {} and {}",
                     single_timeseries_side,

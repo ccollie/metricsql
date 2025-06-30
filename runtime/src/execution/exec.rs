@@ -681,7 +681,7 @@ pub(super) fn eval_rollup_func_args<'a>(
 
 // todo; This can be done during the optimization phase
 
-fn get_rollup_expr_arg(arg: &Expr) -> RuntimeResult<Cow<RollupExpr>> {
+fn get_rollup_expr_arg(arg: &Expr) -> RuntimeResult<Cow<'_, RollupExpr>> {
     match arg {
         Expr::Rollup(re) if !re.for_subquery() => Ok(Cow::Borrowed(re)),
         Expr::Rollup(re) => match re.expr.as_ref() {

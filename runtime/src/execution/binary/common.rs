@@ -8,15 +8,12 @@ use crate::{RuntimeError, RuntimeResult};
 use crate::types::{Label, QueryValue, Timeseries};
 
 pub(crate) fn can_push_down_common_filters(be: &BinaryExpr) -> bool {
-    if be.op == Operator::Or || be.op == Operator::Default {
+    if matches!(be.op, Operator::Or | Operator::Default) {
         return false;
     }
     match (&be.left.as_ref(), &be.right.as_ref()) {
         (Expr::Aggregation(left), Expr::Aggregation(right)) => {
-            if left.is_non_grouping() || right.is_non_grouping() {
-                return false;
-            }
-            true
+            !(left.is_non_grouping() || right.is_non_grouping())
         }
         _ => true,
     }

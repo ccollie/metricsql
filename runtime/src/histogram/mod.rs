@@ -145,7 +145,7 @@ impl Histogram {
     }
 
     /// Get an iterator over this histogram's buckets.
-    pub fn non_zero_buckets(&self) -> NonZeroBuckets {
+    pub fn non_zero_buckets(&self) -> NonZeroBuckets<'_> {
         NonZeroBuckets {
             histogram: self,
             index: 0,

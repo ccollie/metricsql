@@ -35,7 +35,7 @@ const fn op_and(left: f64, right: f64) -> f64 {
     }
 }
 
-// return the first non-NaN item. If both left and right are NaN, it returns NaN.
+// Return the first non-NaN item. If both left and right are NaN, it returns NaN.
 #[inline]
 const fn op_or(left: f64, right: f64) -> f64 {
     if !left.is_nan() {
@@ -120,7 +120,7 @@ const fn op_default(left: f64, right: f64) -> f64 {
     left
 }
 
-/// returns left if right is not NaN. Otherwise, NaN is returned.
+/// Returns `left` if `right` is not NaN. Otherwise, NaN is returned.
 #[inline]
 const fn op_if(left: f64, right: f64) -> f64 {
     if right.is_nan() {
@@ -129,7 +129,7 @@ const fn op_if(left: f64, right: f64) -> f64 {
     left
 }
 
-/// if_not returns left if right is NaN. Otherwise, NaN is returned.
+/// Returns left if right is NaN. Otherwise, NaN is returned.
 #[inline]
 pub const fn op_if_not(left: f64, right: f64) -> f64 {
     if right.is_nan() {

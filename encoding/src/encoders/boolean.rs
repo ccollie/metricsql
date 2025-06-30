@@ -20,7 +20,7 @@ pub fn encode(src: &[bool], dst: &mut Vec<u8>) -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
-    let size = HEADER_LEN + 8 + ((src.len() + 7) / 8); // Header + Num bools + bool data.
+    let size = HEADER_LEN + 8 + src.len().div_ceil(8); // Header + Num bools + bool data.
     dst.resize(size, 0);
 
     // Store the encoding type in the 4 high bits of the first byte

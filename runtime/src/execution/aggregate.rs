@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 use crate::common::cpu::num_cpus;
 use crate::execution::exec::{eval_exprs_in_parallel, eval_rollup_func_args};
 use crate::execution::rollups::RollupEvaluator;

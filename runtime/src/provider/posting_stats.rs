@@ -17,19 +17,6 @@ pub struct PostingsStats {
     pub num_labels: usize,
 }
 
-impl PostingsStats {
-    fn new() -> Self {
-        PostingsStats {
-            cardinality_metrics_stats: Vec::new(),
-            cardinality_label_stats: Vec::new(),
-            label_value_stats: Vec::new(),
-            label_value_pairs_stats: Vec::new(),
-            num_label_pairs: 0,
-            num_labels: 0,
-        }
-    }
-}
-
 #[derive(Debug)]
 pub(super) struct StatsMaxHeap {
     max_length: usize,

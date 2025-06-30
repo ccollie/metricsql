@@ -17,7 +17,7 @@ pub(crate) fn eval_duration_scalar_binop(
         }
         Operator::Sub => {
             let millis = scalar as i64 * 1000_i64;
-            Ok(QueryValue::Scalar((d.saturating_sub(millis)) as f64))
+            Ok(QueryValue::Scalar(d.saturating_sub(millis) as f64))
         }
         Operator::Mul => {
             let n = d as f64 * scalar; // todo: saturating_mul

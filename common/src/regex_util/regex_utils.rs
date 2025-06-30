@@ -1471,8 +1471,9 @@ fn clear_begin_end_anchor(hir: &mut Hir) {
 }
 
 fn handle_regex(expr: &str, hir: &Hir) -> Result<StringMatchHandler, RegexError> {
+    let expr = format!("^(?s:{expr})$");
     // todo: ensure anchor
-    let regex = Regex::new(&format!("^(?s:{expr})$"))?;
+    let regex = Regex::new(&expr)?;
 
     let mut matches = Vec::new();
 
@@ -1684,7 +1685,7 @@ mod test {
         ];
 
         for (regex, prefix, suffix, contains) in cases {
-            let parsed = build_hir(&format!("^(?s:{})$", regex)).unwrap();
+            let parsed = build_hir((&format!("^(?s:{})$", regex)).as_ref()).unwrap();
             if let HirKind::Concat(hirs) = &parsed.kind() {
                 let (actual_prefix, actual_suffix, actual_contains, _) =
                     optimize_concat_regex(hirs);
@@ -1804,7 +1805,7 @@ mod test {
         ];
 
         for (pattern, exp_matches, exp_case_sensitive) in cases {
-            let mut parsed = build_hir(&format!("^(?s:{})$", pattern)).unwrap();
+            let mut parsed = build_hir((&format!("^(?s:{})$", pattern)).as_ref()).unwrap();
             let (matches, case_sensitive) = find_set_matches(&mut parsed).unwrap_or_default();
             assert_eq!(
                 exp_matches, matches,

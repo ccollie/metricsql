@@ -519,7 +519,7 @@ fn get_string_pairs(
     }
     let args = &tfa.args[start..];
     let arg_len = args.len();
-    if arg_len % 2 != 0 {
+    if !arg_len.is_multiple_of(2) {
         return Err(RuntimeError::ArgumentError(format!(
             "the number of string args must be even; got {arg_len}"
         )));

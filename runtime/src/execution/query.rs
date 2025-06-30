@@ -478,7 +478,7 @@ struct DeconstructedRollup<'a> {
     expr: &'a Expr,
 }
 
-fn get_rollup(expr: &Expr) -> Option<DeconstructedRollup> {
+fn get_rollup(expr: &Expr) -> Option<DeconstructedRollup<'_>> {
     match &expr {
         Expr::Rollup(re) => {
             if let Some(window) = &re.window {
@@ -508,7 +508,7 @@ fn get_rollup(expr: &Expr) -> Option<DeconstructedRollup> {
     None
 }
 
-fn get_duration_expr(offset: &Option<DurationExpr>) -> Cow<DurationExpr> {
+fn get_duration_expr(offset: &Option<DurationExpr>) -> Cow<'_, DurationExpr> {
     match &offset {
         Some(ofs) => Cow::Borrowed(ofs),
         None => Cow::Owned(DurationExpr::default()),

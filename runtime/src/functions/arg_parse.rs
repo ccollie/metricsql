@@ -4,7 +4,7 @@ use crate::{RuntimeError, RuntimeResult};
 use crate::execution::EvalConfig;
 use crate::functions::utils::float_to_int_bounded;
 
-pub(crate) fn get_string_arg(args: &[QueryValue], arg_num: usize) -> RuntimeResult<Cow<str>> {
+pub(crate) fn get_string_arg(args: &[QueryValue], arg_num: usize) -> RuntimeResult<Cow<'_, str>> {
     if arg_num > args.len() - 1 {
         let msg = format!("missing string arg # {}", arg_num + 1);
         return Err(RuntimeError::ArgumentError(msg));

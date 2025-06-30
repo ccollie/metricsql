@@ -19,7 +19,7 @@ use std::vec::Vec;
 ///
 /// - Adds missing filters to `foo{filters1} op bar{filters2}`
 ///   according to https://utcc.utoronto.ca/~cks/space/blog/sysadmin/PrometheusLabelNonOptimization
-pub fn push_down_filters(expr: &Expr) -> Cow<Expr> {
+pub fn push_down_filters(expr: &Expr) -> Cow<'_, Expr> {
     if can_pushdown_filters(expr) {
         let mut clone = expr.clone();
         optimize_in_place(&mut clone);
@@ -423,7 +423,7 @@ fn get_label_filters_without_metric_name(lfs: &[Matcher]) -> Vec<Matcher> {
 ///
 /// The `{x="y"}` cannot be pushed down to `sum(bar)`, since this
 /// may change binary operation results.
-pub fn pushdown_binary_op_filters(expr: &Expr, common_filters: Vec<Matcher>) -> Cow<Expr> {
+pub fn pushdown_binary_op_filters(expr: &Expr, common_filters: Vec<Matcher>) -> Cow<'_, Expr> {
     // according to pushdown_binary_op_filters_in_place, only the following types need to be
     // handled, so exit otherwise
     if common_filters.is_empty() || !can_pushdown_op_filters(expr) {

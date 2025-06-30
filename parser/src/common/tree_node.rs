@@ -46,7 +46,7 @@ pub trait TreeNode: Sized {
     }
 
     /// Visit the tree node using the given [TreeNodeVisitor]
-    /// It performs a depth first walk of a node and its children.
+    /// It performs a depth-first walk of a node and its children.
     ///
     /// For a node tree such as
     /// ```text
@@ -93,7 +93,7 @@ pub trait TreeNode: Sized {
         visitor.post_visit(self)
     }
 
-    /// Convenience utils for writing optimizers rule: recursively apply the given `op` to the node tree.
+    /// Convenience utils for writing optimizer rules: recursively apply the given `op` to the node tree.
     /// When `op` does not apply to a given node, it is left unchanged.
     /// The default tree traversal direction is transform_up(Postorder Traversal).
     fn transform<F>(self, op: &F) -> ParseResult<Self>
@@ -128,7 +128,7 @@ pub trait TreeNode: Sized {
     }
 
     /// Transform the tree node using the given [TreeNodeRewriter]
-    /// It performs a depth first walk of a node and its children.
+    /// It performs a depth-first walk of a node and its children.
     ///
     /// For a node tree such as
     /// ```text
@@ -216,14 +216,14 @@ pub trait TreeNodeVisitor: Sized {
     /// Invoked before any children of `node` are visited.
     fn pre_visit(&mut self, node: &Self::N) -> ParseResult<VisitRecursion>;
 
-    /// Invoked after all children of `node` are visited. Default
+    /// Invoked after all children of `node` are visited. The default
     /// implementation does nothing.
     fn post_visit(&mut self, _node: &Self::N) -> ParseResult<VisitRecursion> {
         Ok(VisitRecursion::Continue)
     }
 }
 
-/// Trait for potentially recursively transform an [`TreeNode`] node
+/// Trait for potentially recursively transform a [` TreeNode `] node
 /// tree. When passed to `TreeNode::rewrite`, `TreeNodeRewriter::mutate` is
 /// invoked recursively on all nodes of a tree.
 pub trait TreeNodeRewriter: Sized {
@@ -231,7 +231,7 @@ pub trait TreeNodeRewriter: Sized {
     type N: TreeNode;
 
     /// Invoked before (Preorder) any children of `node` are rewritten /
-    /// visited. Default implementation returns `Ok(Recursion::Continue)`
+    /// visited. The default implementation returns `Ok(Recursion::Continue)`
     fn pre_visit(&mut self, _node: &Self::N) -> ParseResult<RewriteRecursion> {
         Ok(RewriteRecursion::Continue)
     }
@@ -244,7 +244,7 @@ pub trait TreeNodeRewriter: Sized {
 /// Controls how the [`TreeNode`] recursion should proceed for [`TreeNode::rewrite`].
 #[derive(Debug)]
 pub enum RewriteRecursion {
-    /// Continue rewrite this node tree.
+    /// Continue to rewrite this node tree.
     Continue,
     /// Call 'op' immediately and return.
     Mutate,

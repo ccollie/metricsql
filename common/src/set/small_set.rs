@@ -289,6 +289,7 @@ where
 {
     type Output = SmallSet<N, T, S>;
 
+    #[allow(clippy::suspicious_arithmetic_impl)]
     fn bitor(self, rhs: &SmallSet<N, T, S2>) -> Self::Output {
         let new_len = self.len() + rhs.len();
         let mut result = SmallSet::with_capacity(new_len);

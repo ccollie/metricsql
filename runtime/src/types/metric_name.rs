@@ -47,7 +47,7 @@ impl MetricName {
 
     /// from_strings creates new labels from pairs of strings.
     pub fn from_strings(ss: &[&str]) -> RuntimeResult<Self> {
-        if ss.len() % 2 != 0 {
+        if !ss.len().is_multiple_of(2) {
             return Err(RuntimeError::from("invalid number of strings"));
         }
 

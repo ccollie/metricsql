@@ -42,7 +42,7 @@ mod tests {
         for r in regexes {
             let matcher = string_matcher_from_regex(r).unwrap();
             for v in &test_values {
-                let re = Regex::new(&format!("^(?s:{})$", r)).unwrap();
+                let re = Regex::new((&format!("^(?s:{})$", r)).as_ref()).unwrap();
                 assert_eq!(re.is_match(v), matcher.matches(v));
             }
         }

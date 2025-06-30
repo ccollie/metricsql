@@ -52,7 +52,7 @@ pub fn quote(str: &str) -> String {
     enquote('\"', str)
 }
 
-pub fn unescape_ident(s: &str) -> ParseResult<Cow<str>> {
+pub fn unescape_ident(s: &str) -> ParseResult<Cow<'_, str>> {
     let v = s.find('\\');
     if v.is_none() {
         return Ok(Cow::Borrowed(s));
@@ -105,7 +105,7 @@ pub fn unescape_ident(s: &str) -> ParseResult<Cow<str>> {
 ///
 /// Special-casing for single quotes was removed and single quoted strings are now treated the
 /// same as double-quoted ones.
-pub fn extract_string_value(token: &str) -> ParseResult<Cow<str>> {
+pub fn extract_string_value(token: &str) -> ParseResult<Cow<'_, str>> {
     let n = token.len();
 
     if n < 2 {

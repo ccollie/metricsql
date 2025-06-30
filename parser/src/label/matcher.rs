@@ -273,7 +273,7 @@ impl Matcher {
     /// For examples the regex `a(b|f)` will return "ab" and "af".
     /// Returns None if we can't replace the regex by only equality matchers.
     /// TODO: maybe return an iterator instead of a vector to avoid allocations.
-    pub fn set_matches(&self) -> Option<Cow<Vec<String>>> {
+    pub fn set_matches(&self) -> Option<Cow<'_, Vec<String>>> {
         if let Some(matcher) = &self.re {
             if !matcher.is_case_sensitive() {
                 return None;

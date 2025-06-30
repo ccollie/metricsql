@@ -269,7 +269,7 @@ impl QueryValue {
         }
     }
 
-    pub fn as_instant_vec(&self, ec: &EvalConfig) -> RuntimeResult<Cow<Vec<Timeseries>>> {
+    pub fn as_instant_vec(&self, ec: &EvalConfig) -> RuntimeResult<Cow<'_, Vec<Timeseries>>> {
         match self {
             QueryValue::InstantVector(v) => Ok(Cow::Borrowed(v)),
             QueryValue::Scalar(n) => Ok(Cow::Owned(eval_number(ec, *n)?)),
