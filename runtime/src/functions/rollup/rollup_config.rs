@@ -142,7 +142,7 @@ pub(crate) fn get_rollup_configs(
     lookback_delta: Duration,
     shared_timestamps: &Arc<Vec<i64>>,
 ) -> RuntimeResult<(RollupConfigVec, PreFunctionVec)> {
-    let mut meta = get_rollup_function_handler_meta(expr, func, rf, lookback_delta)?;
+    let mut meta = get_rollup_function_handler_meta(expr, func, rf, lookback_delta, window)?;
     let pre_funcs = std::mem::take(&mut meta.pre_funcs);
     let rcs = get_rollup_configs_from_meta(
         meta,
@@ -171,6 +171,7 @@ fn get_rollup_configs_from_meta(
     lookback_delta: Duration,
     shared_timestamps: &Arc<Vec<i64>>,
 ) -> RuntimeResult<RollupConfigVec> {
+    
     let new_rollup_config = |rf: RollupHandler, tag_value: &'static str| -> RollupConfig {
         RollupConfig {
             tag_value,
@@ -676,11 +677,22 @@ fn get_rollup_function_handler_meta(
     func: RollupFunction,
     rf: &RollupHandler,
     lookback_delta: Duration,
+    window: Duration,
 ) -> RuntimeResult<RollupFunctionHandlerMeta> {
-    let lookback = lookback_delta.as_millis() as i64;
     let mut pre_funcs: PreFunctionVec = PreFunctionVec::new();
 
+    let mut lookback = lookback_delta.as_millis() as i64;
     if func.should_remove_counter_resets() {
+        let mut staleness_interval = lookback_delta;
+        if !staleness_interval.is_zero() {
+            // If stalenessInterval was set, it should additionally account for [window] range to cover following cases:
+            // * window > stalenessInterval, see https://github.com/VictoriaMetrics/VictoriaMetrics/issues/8342
+            // * window captures prevValue in doInternal while removeCounterResets does not,
+            //   see https://github.com/VictoriaMetrics/VictoriaMetrics/issues/8935#issuecomment-3000735468
+            staleness_interval += window
+        }
+        
+        lookback = staleness_interval.as_millis() as i64;
         pre_funcs.push(PreFunction::RemoveCounterResets(lookback));
     }
 
