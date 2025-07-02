@@ -578,7 +578,6 @@ pub(super) fn eval_exprs_in_parallel(
     }
 }
 
-#[inline]
 fn eval_parallel_internal(
     scope: &mut chili::Scope,
     ctx: &Context,
