@@ -273,8 +273,8 @@ pub(crate) const fn get_rollup_function_factory(func: RollupFunction) -> RollupH
     }
 }
 
-// Removes resets for rollup functions over counters - see rollupFuncsRemoveCounterResetsAdd comment.
-// It doesn't remove resets between samples with staleNaNs, or samples that exceed maxStalenessInterval
+/// Removes resets for rollup functions over counters - see rollupFuncsRemoveCounterResetsAdd comment.
+/// It doesn't remove resets between samples with staleNaNs, or samples that exceed maxStalenessInterval
 pub(super) fn remove_counter_resets(
     values: &mut [f64],
     timestamps: &[i64],
@@ -353,13 +353,13 @@ pub(super) fn rollup_histogram(rfa: &RollupFuncArg) -> f64 {
     map.process_rollup(rfa.values, rfa.idx);
     NAN
 }
+// NOTE: there is no need in handling NaNs in rollup functions, since they must be cleaned up
+// before calling rollup fns.
 
 pub(super) fn rollup_avg(rfa: &RollupFuncArg) -> f64 {
     // do not use `Rapid calculation methods` at https://en.wikipedia.org/wiki/Standard_deviation,
     // since it is slower and has no significant benefits in precision.
 
-    // There is no need in handling NaNs here, since they must be cleaned up
-    // before calling rollup fns.
     if rfa.values.is_empty() {
         // do not take into account rfa.prev_value, since it may lead
         // to inconsistent results comparing to Prometheus on broken time series
@@ -371,8 +371,6 @@ pub(super) fn rollup_avg(rfa: &RollupFuncArg) -> f64 {
 }
 
 pub(super) fn rollup_min(rfa: &RollupFuncArg) -> f64 {
-    // There is no need in handling NaNs here, since they must be cleaned up
-    // before calling rollup fns.
     if rfa.values.is_empty() {
         // do not take into account rfa.prev_value, since it may lead
         // to inconsistent results comparing to Prometheus on broken time series
@@ -390,14 +388,10 @@ pub(super) fn rollup_min(rfa: &RollupFuncArg) -> f64 {
 }
 
 pub(crate) fn rollup_mad(rfa: &RollupFuncArg) -> f64 {
-    // There is no need in handling NaNs here, since they must be cleaned up
-    // before calling rollup funcs.
     mad(rfa.values)
 }
 
 pub(super) fn rollup_max(rfa: &RollupFuncArg) -> f64 {
-    // There is no need in handling NaNs here, since they must be cleaned up
-    // before calling rollup fns.
     if rfa.values.is_empty() {
         // do not take into account rfa.prev_value, since it may lead
         // to inconsistent results comparing to Prometheus on broken time series
@@ -412,8 +406,6 @@ pub(super) fn rollup_max(rfa: &RollupFuncArg) -> f64 {
 }
 
 pub(super) fn rollup_median(rfa: &RollupFuncArg) -> f64 {
-    // There is no need in handling NaNs here, since they must be cleaned up
-    // before calling rollup fns.
     if rfa.values.is_empty() {
         // do not take into account rfa.prev_value, since it may lead
         // to inconsistent results comparing to Prometheus on broken time series
@@ -424,8 +416,6 @@ pub(super) fn rollup_median(rfa: &RollupFuncArg) -> f64 {
 }
 
 pub(super) fn rollup_tmin(rfa: &RollupFuncArg) -> f64 {
-    // There is no need in handling NaNs here, since they must be cleaned up
-    // before calling rollup fns.
     let values = rfa.values;
     if values.is_empty() {
         return NAN;
@@ -448,9 +438,6 @@ pub(super) fn rollup_tmin(rfa: &RollupFuncArg) -> f64 {
 }
 
 pub(super) fn rollup_tmax(rfa: &RollupFuncArg) -> f64 {
-    // There is no need in handling NaNs here, since they must be cleaned up
-    // before calling rollup fns.
-
     if rfa.values.is_empty() {
         return NAN;
     }
@@ -475,8 +462,6 @@ pub(super) fn rollup_tmax(rfa: &RollupFuncArg) -> f64 {
 }
 
 pub(super) fn rollup_tfirst(rfa: &RollupFuncArg) -> f64 {
-    // There is no need in handling NaNs here, since they must be cleaned up
-    // before calling rollup fns.
     if rfa.timestamps.is_empty() {
         // do not take into account rfa.prev_timestamp, since it may lead
         // to inconsistent results comparing to Prometheus on broken time series
@@ -487,8 +472,6 @@ pub(super) fn rollup_tfirst(rfa: &RollupFuncArg) -> f64 {
 }
 
 pub(super) fn rollup_tlast(rfa: &RollupFuncArg) -> f64 {
-    // There is no need in handling NaNs here, since they must be cleaned up
-    // before calling rollup fns.
     let timestamps = rfa.timestamps;
     if timestamps.is_empty() {
         // do not take into account rfa.prev_timestamp, since it may lead
@@ -500,8 +483,6 @@ pub(super) fn rollup_tlast(rfa: &RollupFuncArg) -> f64 {
 }
 
 pub(super) fn rollup_tlast_change(rfa: &RollupFuncArg) -> f64 {
-    // There is no need in handling NaNs here, since they must be cleaned up
-    // before calling rollup fns.
     if rfa.values.is_empty() {
         return NAN;
     }
@@ -525,9 +506,6 @@ pub(super) fn rollup_tlast_change(rfa: &RollupFuncArg) -> f64 {
 }
 
 pub(super) fn rollup_sum(rfa: &RollupFuncArg) -> f64 {
-    // There is no need in handling NaNs here, since they must be cleaned up
-    // before calling rollup fns.
-
     if rfa.values.is_empty() {
         // do not take into account rfa.prev_value, since it may lead
         // to inconsistent results comparing to Prometheus on broken time series
@@ -538,9 +516,7 @@ pub(super) fn rollup_sum(rfa: &RollupFuncArg) -> f64 {
     rfa.values.iter().fold(0.0, |r, x| r + *x)
 }
 
-pub(super) fn rollup_rate_over_sum(rfa: &RollupFuncArg) -> f64 {
-    // There is no need in handling NaNs here, since they must be cleaned up
-    // before calling rollup fns.
+pub(super) fn rollup_rate_over_sum(rfa: &RollupFuncArg) -> f64 { 
     let timestamps = rfa.timestamps;
     if timestamps.is_empty() {
         return NAN;
@@ -564,8 +540,6 @@ pub(super) fn rollup_range(rfa: &RollupFuncArg) -> f64 {
 }
 
 pub(super) fn rollup_sum2(rfa: &RollupFuncArg) -> f64 {
-    // There is no need in handling NaNs here, since they must be cleaned up
-    // before calling rollup fns.
     if rfa.values.is_empty() {
         return NAN;
     }
@@ -573,8 +547,6 @@ pub(super) fn rollup_sum2(rfa: &RollupFuncArg) -> f64 {
 }
 
 pub(super) fn rollup_geomean(rfa: &RollupFuncArg) -> f64 {
-    // There is no need in handling NaNs here, since they must be cleaned up
-    // before calling rollup fns.
     let len = rfa.values.len();
     if len == 0 {
         return NAN;
@@ -592,8 +564,6 @@ pub(super) fn rollup_absent(rfa: &RollupFuncArg) -> f64 {
 }
 
 pub(super) fn rollup_present(rfa: &RollupFuncArg) -> f64 {
-    // There is no need in handling NaNs here, since they must be cleaned up
-    // before calling rollup fns.
     if !rfa.values.is_empty() {
         return 1.0;
     }
@@ -601,8 +571,6 @@ pub(super) fn rollup_present(rfa: &RollupFuncArg) -> f64 {
 }
 
 pub(super) fn rollup_count(rfa: &RollupFuncArg) -> f64 {
-    // There is no need in handling NaNs here, since they must be cleaned up
-    // before calling rollup fns.
     if rfa.values.is_empty() {
         return NAN;
     }
@@ -630,9 +598,6 @@ pub(super) fn rollup_stdvar(rfa: &RollupFuncArg) -> f64 {
 }
 
 pub(super) fn rollup_increase_pure(rfa: &RollupFuncArg) -> f64 {
-    // There is no need in handling NaNs here, since they must be cleaned up
-    // before calling rollup fns.
-
     let values = rfa.values;
     let count = values.len();
 
@@ -711,9 +676,6 @@ fn change_below_tolerance(v: f64, prev_value: f64) -> bool {
 }
 
 pub(super) fn rollup_changes_prometheus(rfa: &RollupFuncArg) -> f64 {
-    // There is no need in handling NaNs here, since they must be cleaned up
-    // before calling rollup fns.
-
     // Do not take into account rfa.prev_value like Prometheus does.
     // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/1962
     if rfa.values.is_empty() {
@@ -736,8 +698,6 @@ pub(super) fn rollup_changes_prometheus(rfa: &RollupFuncArg) -> f64 {
 }
 
 pub(super) fn rollup_changes(rfa: &RollupFuncArg) -> f64 {
-    // There is no need in handling NaNs here, since they must be cleaned up
-    // before calling rollup fns.
     let mut n = 0;
     let mut values = &rfa.values[0..];
     let mut prev_value = rfa.prev_value;
@@ -765,8 +725,6 @@ pub(super) fn rollup_changes(rfa: &RollupFuncArg) -> f64 {
 }
 
 pub(super) fn rollup_increases(rfa: &RollupFuncArg) -> f64 {
-    // There is no need in handling NaNs here, since they must be cleaned up
-    // before calling rollup fns.
     let mut prev_value = rfa.prev_value;
     let mut values = &rfa.values[0..];
 
@@ -805,9 +763,6 @@ pub(super) fn rollup_increases(rfa: &RollupFuncArg) -> f64 {
 const ROLLUP_DECREASES: RollupFunc = rollup_resets;
 
 pub(super) fn rollup_resets(rfa: &RollupFuncArg) -> f64 {
-    // There is no need in handling NaNs here, since they must be cleaned up
-    // before calling rollup fns.
-
     let mut values = &rfa.values[0..];
     if values.is_empty() {
         if rfa.prev_value.is_nan() {
@@ -842,9 +797,6 @@ pub(super) fn rollup_resets(rfa: &RollupFuncArg) -> f64 {
 }
 
 pub(super) fn rollup_mode_over_time(rfa: &RollupFuncArg) -> f64 {
-    // There is no need in handling NaNs here, since they must be cleaned up
-    // before calling rollup fns.
-
     // Copy rfa.values to `a`, since modeNoNaNs modifies `a` contents.
     if rfa.values.is_empty() {
         let mut a = vec![];
@@ -856,8 +808,6 @@ pub(super) fn rollup_mode_over_time(rfa: &RollupFuncArg) -> f64 {
 }
 
 pub(super) fn rollup_ascent_over_time(rfa: &RollupFuncArg) -> f64 {
-    // There is no need in handling NaNs here, since they must be cleaned up
-    // before calling rollup fns.
     let values = rfa.values;
     let mut prev_value = rfa.prev_value;
     let mut start: usize = 0;
@@ -880,8 +830,6 @@ pub(super) fn rollup_ascent_over_time(rfa: &RollupFuncArg) -> f64 {
 }
 
 pub(super) fn rollup_descent_over_time(rfa: &RollupFuncArg) -> f64 {
-    // There is no need in handling NaNs here, since they must be cleaned up
-    // before calling rollup fns.
     let mut ofs = 0;
     let mut prev_value = rfa.prev_value;
     if prev_value.is_nan() {
@@ -920,8 +868,6 @@ pub(super) fn rollup_zscore_over_time(rfa: &RollupFuncArg) -> f64 {
 }
 
 pub(super) fn rollup_first(rfa: &RollupFuncArg) -> f64 {
-    // There is no need in handling NaNs here, since they must be cleaned up
-    // before calling rollup fns.
     let values = rfa.values;
     if values.is_empty() {
         // do not take into account rfa.prev_value, since it may lead
@@ -947,8 +893,6 @@ pub(crate) fn rollup_default(rfa: &RollupFuncArg) -> f64 {
 }
 
 pub(super) fn rollup_distinct(rfa: &RollupFuncArg) -> f64 {
-    // There is no need in handling NaNs here, since they must be cleaned up
-    // before calling rollup fns.
     if rfa.values.is_empty() {
         return NAN;
     }
