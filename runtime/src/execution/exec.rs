@@ -414,17 +414,19 @@ fn is_union_func(e: &Expr) -> bool {
 
 fn exec_binary_op(ctx: &Context, ec: &EvalConfig, be: &BinaryExpr) -> RuntimeResult<QueryValue> {
     let is_tracing = ctx.trace_enabled();
-    // first are inexpensive binary ops that can be handled without invoking rayon/chili overhead
-    let res = match (be.left.as_ref(), be.right.as_ref()) {
-        // vector op vector needs special handling where both vectors contain selectors
+
+    // Handle inexpensive binary ops that can be processed without rayon/chili overhead
+    match (be.left.as_ref(), be.right.as_ref()) {
+        // Vector operations need special handling
         (Expr::MetricExpression(_), Expr::MetricExpression(_))
         | (Expr::Rollup(_), Expr::Rollup(_))
         | (Expr::MetricExpression(_), Expr::Rollup(_))
         | (Expr::Rollup(_), Expr::MetricExpression(_)) => vector_vector_binop(be, ctx, ec),
-        // the following cases can be handled cheaply without invoking rayon overhead (or maybe not :-) )
+
+        // Direct literal operations
         (Expr::NumberLiteral(left), Expr::NumberLiteral(right)) => {
             let value = scalar_binary_operation(be.op, left.value, right.value, be.returns_bool())?;
-            Ok(Value::Scalar(value))
+            Ok(QueryValue::Scalar(value))
         }
         (Expr::Duration(left), Expr::Duration(right)) => {
             eval_duration_duration_binop(left, right, be.op, ec.step)
@@ -438,73 +440,116 @@ fn exec_binary_op(ctx: &Context, ec: &EvalConfig, be: &BinaryExpr) -> RuntimeRes
         (Expr::StringLiteral(left), Expr::StringLiteral(right)) => {
             eval_string_string_binop(be.op, left, right, be.returns_bool())
         }
+        // Complex expressions requiring evaluation
         (left, right) => {
             let (lhs, rhs) = chili::Scope::global()
                 .join(|_| eval_expr(ctx, ec, left), |_| eval_expr(ctx, ec, right));
-
-            match (lhs?, rhs?) {
-                (QueryValue::Scalar(left), QueryValue::Scalar(right)) => {
-                    let value = scalar_binary_operation(be.op, left, right, be.returns_bool())?;
-                    Ok(Value::Scalar(value))
-                }
-                (QueryValue::InstantVector(left), QueryValue::InstantVector(right)) => {
-                    if let Some(is_left) = is_vector_list_comparison(be.op, &be.left, &be.right) {
-                        let vector = binary_op_list_compare(be.op, left, right, is_left)?;
-                        return Ok(QueryValue::InstantVector(vector));
-                    }
-                    exec_vector_vector_binop(ctx, left, right, be.op, &be.modifier)
-                }
-                (QueryValue::InstantVector(vector), QueryValue::Scalar(scalar)) => {
-                    if be.op.is_logical_op() {
-                        let right = eval_number(ec, scalar)?;
-                        exec_vector_vector_binop(ctx, vector, right, be.op, &be.modifier)
-                    } else {
-                        if is_scalar_vector_list_comparison(be.op, left) {
-                            return eval_vector_scalar_list_equality(vector, be.op, scalar, is_tracing);
-                        }
-                        eval_vector_scalar_binop(
-                            vector,
-                            be.op,
-                            scalar,
-                            be.returns_bool(),
-                            be.should_reset_metric_name(),
-                            is_tracing,
-                        )
-                    }
-                }
-                (QueryValue::Scalar(scalar), QueryValue::InstantVector(vector)) => {
-                    if be.op.is_logical_op() {
-                        let left = eval_number(ec, scalar)?;
-                        exec_vector_vector_binop(ctx, left, vector, be.op, &be.modifier)
-                    } else {
-                        if is_scalar_vector_list_comparison(be.op, right) {
-                            return eval_scalar_vector_list_equality(scalar, be.op, vector, is_tracing);
-                        }
-                        eval_scalar_vector_binop(
-                            scalar,
-                            be.op,
-                            vector,
-                            be.returns_bool(),
-                            be.should_reset_metric_name(),
-                            is_tracing,
-                        )
-                    }
-                }
-                (QueryValue::String(left), QueryValue::String(right)) => {
-                    eval_string_string_binop(be.op, &left, &right, be.returns_bool())
-                }
-                _ => {
-                    return Err(RuntimeError::NotImplemented(format!(
-                        "invalid binary operation: {} {} {}",
-                        be.left.variant_name(),
-                        be.op,
-                        be.right.variant_name()
-                    )));
-                }
-            }
+            handle_evaluated_values(ctx, ec, be, lhs?, rhs?, is_tracing)
         }
-    };
-    res
+    }
+}
+
+fn handle_evaluated_values(
+    ctx: &Context,
+    ec: &EvalConfig,
+    be: &BinaryExpr,
+    lhs: QueryValue,
+    rhs: QueryValue,
+    is_tracing: bool,
+) -> RuntimeResult<QueryValue> {
+    match (lhs, rhs) {
+        (QueryValue::Scalar(left), QueryValue::Scalar(right)) => {
+            let value = scalar_binary_operation(be.op, left, right, be.returns_bool())?;
+            Ok(QueryValue::Scalar(value))
+        }
+        (QueryValue::InstantVector(left), QueryValue::InstantVector(right)) => {
+            handle_vector_vector_operation(ctx, be, left, right)
+        }
+        (QueryValue::InstantVector(vector), QueryValue::Scalar(scalar)) => {
+            handle_vector_scalar_operation(ctx, ec, be, vector, scalar, &be.left, is_tracing)
+        }
+        (QueryValue::Scalar(scalar), QueryValue::InstantVector(vector)) => {
+            handle_scalar_vector_operation(ctx, ec, be, scalar, vector, &be.right, is_tracing)
+        }
+        (QueryValue::String(left), QueryValue::String(right)) => {
+            eval_string_string_binop(be.op, &left, &right, be.returns_bool())
+        }
+        _ => Err(RuntimeError::NotImplemented(format!(
+            "invalid binary operation: {} {} {}",
+            be.left.variant_name(),
+            be.op,
+            be.right.variant_name()
+        ))),
+    }
+}
+
+fn handle_vector_vector_operation(
+    ctx: &Context,
+    be: &BinaryExpr,
+    left: InstantVector,
+    right: InstantVector,
+) -> RuntimeResult<QueryValue> {
+    if let Some(is_left) = is_vector_list_comparison(be.op, &be.left, &be.right) {
+        let vector = binary_op_list_compare(be.op, left, right, is_left)?;
+        return Ok(QueryValue::InstantVector(vector));
+    }
+    exec_vector_vector_binop(ctx, left, right, be.op, &be.modifier)
+}
+
+fn handle_vector_scalar_operation(
+    ctx: &Context,
+    ec: &EvalConfig,
+    be: &BinaryExpr,
+    vector: InstantVector,
+    scalar: f64,
+    left_expr: &Expr,
+    is_tracing: bool,
+) -> RuntimeResult<QueryValue> {
+    if be.op.is_logical_op() {
+        let right = eval_number(ec, scalar)?;
+        return exec_vector_vector_binop(ctx, vector, right, be.op, &be.modifier);
+    }
+
+    if is_scalar_vector_list_comparison(be.op, left_expr) {
+        return eval_vector_scalar_list_equality(vector, be.op, scalar, is_tracing);
+    }
+
+    eval_vector_scalar_binop(
+        vector,
+        be.op,
+        scalar,
+        be.returns_bool(),
+        be.should_reset_metric_name(),
+        is_tracing,
+    )
+}
+
+fn handle_scalar_vector_operation(
+    ctx: &Context,
+    ec: &EvalConfig,
+    be: &BinaryExpr,
+    scalar: f64,
+    vector: InstantVector,
+    right_expr: &Expr,
+    is_tracing: bool,
+) -> RuntimeResult<QueryValue> {
+    if be.op.is_logical_op() {
+        let left = eval_number(ec, scalar)?;
+        return exec_vector_vector_binop(ctx, left, vector, be.op, &be.modifier);
+    }
+
+    if is_scalar_vector_list_comparison(be.op, right_expr) {
+        return eval_scalar_vector_list_equality(scalar, be.op, vector, is_tracing);
+    }
+
+    eval_scalar_vector_binop(
+        scalar,
+        be.op,
+        vector,
+        be.returns_bool(),
+        be.should_reset_metric_name(),
+        is_tracing,
+    )
 }
 
 fn eval_unary_op(ctx: &Context, ec: &EvalConfig, ue: &UnaryExpr) -> RuntimeResult<QueryValue> {

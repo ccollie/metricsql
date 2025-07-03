@@ -107,7 +107,7 @@ pub struct EvalConfig {
     /// `deadline` is the maximum time allowed for the query to run.
     pub deadline: Deadline,
 
-    /// lookback_delta is analog to `-query.lookback-delta` from Prometheus.
+    /// `lookback_delta` is analog to `-query.lookback-delta` from Prometheus.
     pub lookback_delta: Duration,
 
     /// How many decimal digits after the point to leave in response.
