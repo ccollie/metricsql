@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::hash::Hasher;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
+use blart::AsBytes;
 use tracing::span::EnteredSpan;
 use tracing::{field, info, span_enabled, trace_span, Level, Span};
 use xxhash_rust::xxh3::Xxh3;
@@ -500,9 +501,9 @@ fn marshal_rollup_result_cache_key_internal(
     if let Some(etfs) = etfs {
         for etf in etfs.iter() {
             for f in etf.iter() {
-                hasher.write_str(&f.label);
-                hasher.write_str(f.op.as_str());
-                hasher.write_str(&f.value);
+                hasher.write(f.label.as_ref());
+                hasher.write(f.op.as_str().as_ref());
+                hasher.write(f.value.as_ref());
             }
         }
     }
@@ -882,10 +883,10 @@ fn metric_name_hash_sorted(metric_name: &MetricName) -> u64 {
 
     labels.sort_unstable();
 
-    hasher.write_str(&metric_name.measurement);
+    hasher.write(metric_name.measurement.as_ref());
     for label in labels.iter() {
-        hasher.write_str(&label.name);
-        hasher.write_str(&label.value);
+        hasher.write(label.name.as_ref());
+        hasher.write(label.value.as_ref());
     }
 
     hasher.finish()

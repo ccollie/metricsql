@@ -1,4 +1,3 @@
-#![feature(hasher_prefixfree_extras)]
 extern crate ahash;
 extern crate async_trait;
 extern crate blart;
