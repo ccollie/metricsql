@@ -6,8 +6,11 @@ use metricsql_parser::prelude::{get_scalar_binop_handler, Operator};
 use crate::execution::binary::common::handle_vector_scalar_list_equality;
 
 /// `eval_vector_scalar_binop` evaluates binary operation between vector and scalar.
+/// 
 /// Ex:
+/// 
 ///   http_requests_total{} * 2
+/// 
 ///   http_requests_total{method="GET"} / 10
 pub(crate) fn eval_vector_scalar_binop(
     vector: InstantVector,

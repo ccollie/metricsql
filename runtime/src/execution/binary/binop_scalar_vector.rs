@@ -6,8 +6,11 @@ use metricsql_parser::prelude::{get_scalar_binop_handler, Operator};
 use super::common::handle_vector_scalar_list_equality;
 
 /// Evaluates scalar op vector
+///
 /// Ex:
+///
 ///   2 * http_requests_total{}
+///
 ///   42 - http_requests_total{method="GET"}
 pub(crate) fn eval_scalar_vector_binop(
     scalar: f64,
@@ -45,7 +48,7 @@ pub(crate) fn eval_scalar_vector_binop(
     Ok(QueryValue::InstantVector(vector))
 }
 
-/// Evaluate scalar != (1,2,3) or scalar == (1,2,3)
+/// Evaluate `scalar != (1,2,3)` or `scalar == (1,2,3)`
 pub(crate) fn eval_scalar_vector_list_equality(
     scalar: f64,
     op: Operator,
