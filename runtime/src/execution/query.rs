@@ -251,8 +251,8 @@ pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<Query
 
             return match export_handler(context, cp) {
                 Err(err) => {
-                    let msg = format!("error when exporting data for query={} on the time range (start={}, end={}): {:?}",
-                                      rollup.expr, start, end, err);
+                    let msg = format!("error when exporting data for query={} on the time range (start={start}, end={end}): {:?}",
+                                      rollup.expr, err);
                     return Err(RuntimeError::General(msg));
                 }
                 Ok(v) => Ok(v.series),
@@ -479,33 +479,32 @@ struct DeconstructedRollup<'a> {
 }
 
 fn get_rollup(expr: &Expr) -> Option<DeconstructedRollup<'_>> {
-    match &expr {
-        Expr::Rollup(re) => {
-            if let Some(window) = &re.window {
-                let mut res = DeconstructedRollup {
-                    filters: None,
-                    window,
-                    offset: get_duration_expr(&re.offset),
-                    step: get_duration_expr(&re.step),
-                    expr: &re.expr,
-                };
+    let Expr::Rollup(re) = expr else {
+        return None;
+    };
 
-                if re.step.is_none() {
-                    // check whether expr contains PromQL metric selector wrapped into rollup.
-                    if let Expr::MetricExpression(me) = &re.expr.as_ref() {
-                        if !me.matchers.is_empty() {
-                            res.filters = Some(&me.matchers);
-                        }
-                    }
-                    // todo: see if we have default_rollup(metric{job="email"})
-                }
-                return Some(res);
-            }
-        }
-        _ => return None,
+    let window = re.window.as_ref()?;
+
+    let filters = if re.step.is_none() {
+        extract_metric_filters(&re.expr)
+    } else {
+        None
+    };
+
+    Some(DeconstructedRollup {
+        filters,
+        window,
+        offset: get_duration_expr(&re.offset),
+        step: get_duration_expr(&re.step),
+        expr: &re.expr,
+    })
+}
+
+fn extract_metric_filters(expr: &Expr) -> Option<&Matchers> {
+    match expr {
+        Expr::MetricExpression(me) if !me.matchers.is_empty() => Some(&me.matchers),
+        _ => None,
     }
-
-    None
 }
 
 fn get_duration_expr(offset: &Option<DurationExpr>) -> Cow<'_, DurationExpr> {
