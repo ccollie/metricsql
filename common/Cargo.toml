@@ -34,10 +34,12 @@ serde_regex.workspace = true
 small-map.workspace = true
 strum.workspace = true
 thiserror.workspace = true
+futures-util.workspace = true
 
 [dev-dependencies]
 test-case = "3.3"
 serde_json = "1.0"
+tokio = "1.46"
 
 [features]
 default = ["tokio"]

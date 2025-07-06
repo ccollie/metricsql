@@ -29,7 +29,8 @@ chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
 cfg-if = "1.0"
 enquote = "1.1"
-futures = "0.3"
+futures = {  version = "0.3", features = ["bilock", "unstable"] }
+futures-util = {  version = "0.3" }
 get-size = { version = "^0.1", features = ["derive"] }
 hashify = { version = "^0.2" }
 integer-encoding = "4.0"

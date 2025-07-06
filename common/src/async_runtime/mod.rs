@@ -1,3 +1,5 @@
+mod manual_future;
+
 use crate::error::{ErrorExt, StatusCode};
 use agnostic_lite::{AsyncBlockingSpawner, AsyncSpawner, RuntimeLite};
 use cfg_if::cfg_if;
@@ -6,6 +8,8 @@ use std::future::Future;
 use std::sync::LazyLock;
 use std::time::Duration;
 use thiserror::Error;
+
+pub use manual_future::ManualFuture;
 
 cfg_if! {
     if #[cfg(feature = "tokio")] {
