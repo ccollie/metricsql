@@ -774,7 +774,7 @@ fn get_case_folded_string(hirs: &[Hir]) -> Option<(String, usize)> {
         } else if let HirKind::Literal(lit) = hir.kind() {
             // We may have character classes followed by a non-alphanumeric literal (e.g. (?i)xyz-123).
             // Here we'll have classes for xyz, then a literal for '-123'.
-            // We coalesce these literals and character classes together. Note that we are not being
+            // We coalesce these literal and character classes together. Note that we are not being
             // exhaustive here and only handle common cases.
 
             // we do this only if we've already seen a case-insensitive class

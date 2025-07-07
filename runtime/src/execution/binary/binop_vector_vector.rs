@@ -587,7 +587,7 @@ fn binary_op_default(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<InstantVector> 
 }
 
 /// `vector1 or vector2` results in a vector that contains all original elements (label sets and values)
-/// of vector1 and additionally all elements of vector2 that do not have matching label sets in vector1.
+/// of vector1 and additionally, all elements of vector2 that do not have matching label sets in vector1.
 ///
 /// https://prometheus.io/docs/prometheus/latest/querying/operators/#logical-set-binary-operators
 fn binary_op_or(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
