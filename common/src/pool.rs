@@ -1,4 +1,4 @@
-use std::sync::{LazyLock, OnceLock};
+use std::sync::LazyLock;
 
 use byte_pool::{Block, BytePool};
 
@@ -14,12 +14,11 @@ pub fn get_pooled_buffer(size: usize) -> PooledBuffer {
     buf
 }
 
-static INT64_POOL: OnceLock<BytePool<Vec<i64>>> = OnceLock::new();
+static INT64_POOL: LazyLock<BytePool<Vec<i64>>> = LazyLock::new(BytePool::new);
 
 /// get_pooled_vec_i64 returns an int64 slice with the given size.
 pub fn get_pooled_vec_i64(size: usize) -> PooledVecI64 {
-    let pool = INT64_POOL.get_or_init(BytePool::new);
-    let mut v = pool.alloc(size);
+    let mut v = INT64_POOL.alloc(size);
     v.clear();
     v.reserve(size);
     v
@@ -32,12 +31,11 @@ pub fn get_pool_vec_i64_filled(size: usize, value: i64) -> PooledVecI64 {
     v
 }
 
-static F64_POOL: OnceLock<BytePool<Vec<f64>>> = OnceLock::new();
+static F64_POOL: LazyLock<BytePool<Vec<f64>>> = LazyLock::new(BytePool::new);
 
 /// get_pooled_vec_f64 returns a f64 slice with the given size.
 pub fn get_pooled_vec_f64(size: usize) -> PooledVecF64 {
-    let pool = F64_POOL.get_or_init(BytePool::new);
-    let mut v = pool.alloc(size);
+    let mut v = F64_POOL.alloc(size);
     v.clear();
     v.reserve(size);
     v
