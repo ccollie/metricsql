@@ -23,9 +23,6 @@ use std::sync::Arc;
 use tracing::info;
 use tracing::{field, trace, trace_span, Span};
 
-// see git branch fd75173
-type Value = QueryValue;
-
 pub(crate) fn parse_promql_internal(
     context: &Context,
     query: &str,
@@ -396,7 +393,7 @@ fn is_vector_list_comparison(op: Operator, l: &Expr, r: &Expr) -> Option<bool> {
     match (is_union_func(l), is_union_func(r)) {
         (false, false) => None,
         (true, _) => Some(true),
-        _ => Some(false)
+        _ => Some(false),
     }
 }
 
@@ -572,7 +569,10 @@ fn eval_unary_op(ctx: &Context, ec: &EvalConfig, ue: &UnaryExpr) -> RuntimeResul
 #[inline]
 fn should_parallelize_fn(func: TransformFunction) -> bool {
     // range_normalize can take multiple series selectors as arguments
-    matches!(func, TransformFunction::Union | TransformFunction::RangeNormalize)
+    matches!(
+        func,
+        TransformFunction::Union | TransformFunction::RangeNormalize
+    )
 }
 
 fn eval_transform_func(
