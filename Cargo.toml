@@ -16,7 +16,7 @@ members = [
     "parser",
     "runtime"
 ]
-resolver = "2"
+resolver = "3"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [workspace.dependencies]

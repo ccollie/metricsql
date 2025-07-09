@@ -1,13 +1,13 @@
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use crate::execution::{exec, exec_raw};
     use crate::execution::{Context, EvalConfig};
-    use crate::functions::parse_timezone;
     use crate::functions::transform::get_timezone_offset;
     use crate::types::{MetricName, QueryValue, Timestamp};
     use crate::{test_results_equal, Deadline, QueryResult, RuntimeResult};
+    use chrono_tz::Tz;
+    use futures::future::try_join_all;
+    use metricsql_common::async_runtime::block_on;
     use metricsql_common::types::Label;
     use metricsql_parser::parse;
     use metricsql_parser::prelude::utils::is_likely_invalid;
@@ -52,100 +52,107 @@ mod tests {
         (context, ec)
     }
 
-    fn test_query(q: &str, expected: Vec<QueryResult>) {
-        let (context, mut ec) = setup_context();
+    async fn test_query(q: &str, expected: Vec<QueryResult>) {
+        let (context, ec) = setup_context();
 
-        for _ in 0..TEST_ITERATIONS {
-            match exec(&context, &mut ec, q, false) {
-                Ok(result) => test_results_equal(&result, &expected),
-                Err(e) => {
-                    panic!("{}", e)
-                }
-            }
+        async fn run_once(context: &Context, ec: &EvalConfig, q: &str) -> RuntimeResult<Vec<QueryResult>> {
+            let mut cloned_ec = ec.clone();
+            exec(&context, &mut cloned_ec, q, false).await
+        }
+
+        let futures = (0..TEST_ITERATIONS)
+            .map(|_| run_once(&context, &ec, q))
+            .collect::<Vec<_>>();
+
+        let values = try_join_all(futures).await.unwrap();
+        for value in values.iter() {
+            test_results_equal(value, &expected);
         }
     }
 
-    fn exec_query(q: &str) -> Vec<QueryResult> {
+    async fn exec_query(q: &str) -> Vec<QueryResult> {
         let (context, mut ec) = setup_context();
-        exec(&context, &mut ec, q, false).unwrap()
+        exec(&context, &mut ec, q, false)
+            .await
+            .unwrap()
     }
 
-    fn exec_raw_query(q: &str) -> RuntimeResult<QueryValue> {
+    async fn exec_raw_query(q: &str) -> RuntimeResult<QueryValue> {
         let (context, mut ec) = setup_context();
-        exec_raw(&context, &mut ec, q)
+        exec_raw(&context, &mut ec, q).await
     }
 
-    fn assert_result_eq(q: &str, values: &[f64]) {
+    async fn assert_result_eq(q: &str, values: &[f64]) {
         let r = make_result(values);
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn simple_number() {
+    #[tokio::test]
+    async fn simple_number() {
         let q = "123";
-        assert_result_eq(q, &[123.0, 123.0, 123.0, 123.0, 123.0, 123.0]);
+        assert_result_eq(q, &[123.0, 123.0, 123.0, 123.0, 123.0, 123.0]).await;
     }
 
-    #[test]
-    fn duration_constant() {
+    #[tokio::test]
+    async fn duration_constant() {
         let q = "1h23m5s";
-        assert_result_eq(q, &[4985.0, 4985.0, 4985.0, 4985.0, 4985.0, 4985.0]);
+        assert_result_eq(q, &[4985.0, 4985.0, 4985.0, 4985.0, 4985.0, 4985.0]).await;
     }
 
-    #[test]
-    fn num_with_suffix_1() {
+    #[tokio::test]
+    async fn num_with_suffix_1() {
         let n = 123e6f64;
-        assert_result_eq("123M", &[n, n, n, n, n, n]);
+        assert_result_eq("123M", &[n, n, n, n, n, n]).await;
     }
 
-    #[test]
-    fn num_with_suffix_2() {
+    #[tokio::test]
+    async fn num_with_suffix_2() {
         let n = 1.23e12;
-        assert_result_eq("1.23TB", &[n, n, n, n, n, n]);
+        assert_result_eq("1.23TB", &[n, n, n, n, n, n]).await;
     }
 
-    #[test]
-    fn num_with_suffix_3() {
+    #[tokio::test]
+    async fn num_with_suffix_3() {
         let n = 1.23 * (1 << 20) as f64;
-        assert_result_eq("1.23Mib", &[n, n, n, n, n, n]);
+        assert_result_eq("1.23Mib", &[n, n, n, n, n, n]).await;
     }
 
-    #[test]
-    fn num_with_suffix_4() {
+    #[tokio::test]
+    async fn num_with_suffix_4() {
         let n = 1.23 * (1 << 20) as f64;
-        assert_result_eq("1.23mib", &[n, n, n, n, n, n]);
+        assert_result_eq("1.23mib", &[n, n, n, n, n, n]).await;
     }
 
-    #[test]
-    fn num_with_suffix_5() {
+    #[tokio::test]
+    async fn num_with_suffix_5() {
         let n = 1234e6;
-        assert_result_eq("1_234M", &[n, n, n, n, n, n]);
+        assert_result_eq("1_234M", &[n, n, n, n, n, n]).await;
     }
 
-    #[test]
-    fn simple_arithmetic() {
+    #[tokio::test]
+    async fn simple_arithmetic() {
         assert_result_eq(
             "-1+2 *3 ^ 4+5%6",
             &[166.0, 166.0, 166.0, 166.0, 166.0, 166.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn simple_string() {
+    #[tokio::test]
+    async fn simple_string() {
         let q = r#""foobar""#;
-        let actual = exec_raw_query(q).unwrap();
+        let actual = exec_raw_query(q).await.unwrap();
         assert_eq!(actual, QueryValue::String("foobar".to_string()));
     }
 
-    #[test]
-    fn string_concat() {
+    #[tokio::test]
+    async fn string_concat() {
         let q = r#""foo" + "-" + "bar""#;
-        let actual = exec_raw_query(q).unwrap();
+        let actual = exec_raw_query(q).await.unwrap();
         assert_eq!(actual, QueryValue::String("foo-bar".to_string()));
     }
 
-    fn assert_string_comparison(q: &str, expected: f64) {
-        let actual = exec_raw_query(q).unwrap();
+    async fn assert_string_comparison(q: &str, expected: f64) {
+        let actual = exec_raw_query(q).await.unwrap();
         if let QueryValue::Scalar(actual_value) = actual {
             if expected.is_nan() {
                 assert!(actual_value.is_nan(), "expected NaN, got {}", actual_value);
@@ -161,571 +168,481 @@ mod tests {
         }
     }
 
-    #[test]
-    fn string_comparison_equal() {
+    #[tokio::test]
+    async fn string_comparison_equal() {
         let q = r#""foo" == "foo""#;
-        assert_string_comparison(q, 1.0);
+        assert_string_comparison(q, 1.0).await;
 
         let q = r#""foo" == bool "foo""#;
-        assert_string_comparison(q, 1.0);
+        assert_string_comparison(q, 1.0).await;
 
         let q = r#""foo" == "bar""#;
-        assert_string_comparison(q, NAN);
+        assert_string_comparison(q, NAN).await;
 
         let q = r#""foo" == bool "bar""#;
-        assert_string_comparison(q, 0.0);
+        assert_string_comparison(q, 0.0).await;
     }
 
-    #[test]
-    fn string_comparison_not_equal() {
+    #[tokio::test]
+    async fn string_comparison_not_equal() {
         let q = r#""foo"!= "foo""#;
-        assert_string_comparison(q, NAN);
+        assert_string_comparison(q, NAN).await;
 
         let q = r#""foo"!= bool "foo""#;
-        assert_string_comparison(q, 0.0);
+        assert_string_comparison(q, 0.0).await;
 
         let q = r#""foo"!= "bar""#;
-        assert_string_comparison(q, 1.0);
+        assert_string_comparison(q, 1.0).await;
 
         let q = r#""foo"!= bool "bar""#;
-        assert_string_comparison(q, 1.0);
+        assert_string_comparison(q, 1.0).await;
     }
 
-    #[test]
-    fn string_comparison_less() {
+    #[tokio::test]
+    async fn string_comparison_less() {
         let q = r#""foo" < "bar""#;
-        assert_string_comparison(q, NAN);
+        assert_string_comparison(q, NAN).await;
 
         let q = r#""foo" < bool "bar""#;
-        assert_string_comparison(q, 0.0);
+        assert_string_comparison(q, 0.0).await;
 
         let q = r#""foo" < "zzz""#;
-        assert_string_comparison(q, 1.0);
+        assert_string_comparison(q, 1.0).await;
 
         let q = r#""foo" < bool "zzz""#;
-        assert_string_comparison(q, 1.0);
+        assert_string_comparison(q, 1.0).await;
     }
 
-    #[test]
-    fn string_comparison_greater() {
+    #[tokio::test]
+    async fn string_comparison_greater() {
         let q = r#""foo" > "bar""#;
-        assert_string_comparison(q, 1.0);
+        assert_string_comparison(q, 1.0).await;
 
         let q = r#""foo" > bool "bar""#;
-        assert_string_comparison(q, 1.0);
+        assert_string_comparison(q, 1.0).await;
 
         let q = r#""foo" > "zzz""#;
-        assert_string_comparison(q, NAN);
+        assert_string_comparison(q, NAN).await;
 
         let q = r#""foo" > bool "zzz""#;
-        assert_string_comparison(q, 0.0);
+        assert_string_comparison(q, 0.0).await;
     }
 
-    #[test]
-    fn string_comparison_less_equal() {
+    #[tokio::test]
+    async fn string_comparison_less_equal() {
         let q = r#""foo" <= "bar""#;
-        assert_string_comparison(q, NAN);
+        assert_string_comparison(q, NAN).await;
 
         let q = r#""foo" <= bool "bar""#;
-        assert_string_comparison(q, 0.0);
+        assert_string_comparison(q, 0.0).await;
 
         let q = r#""foo" <= "zzz""#;
-        assert_string_comparison(q, 1.0);
+        assert_string_comparison(q, 1.0).await;
 
         let q = r#""foo" <= bool "zzz""#;
-        assert_string_comparison(q, 1.0);
+        assert_string_comparison(q, 1.0).await;
     }
 
-    #[test]
-    fn string_comparison_greater_equal() {
+    #[tokio::test]
+    async fn string_comparison_greater_equal() {
         let q = r#""foo" >= "bar""#;
-        assert_string_comparison(q, 1.0);
+        assert_string_comparison(q, 1.0).await;
 
         let q = r#""foo" >= bool "bar""#;
-        assert_string_comparison(q, 1.0);
+        assert_string_comparison(q, 1.0).await;
 
         let q = r#""foo" >= "zzz""#;
-        assert_string_comparison(q, NAN);
+        assert_string_comparison(q, NAN).await;
 
         let q = r#""foo" >= bool "zzz""#;
-        assert_string_comparison(q, 0.0);
+        assert_string_comparison(q, 0.0).await;
     }
 
-    #[test]
-    fn scalar_vector_arithmetic() {
+    #[tokio::test]
+    async fn scalar_vector_arithmetic() {
         let q = "scalar(-1)+2 *vector(3) ^ scalar(4)+5";
-        assert_result_eq(q, &[166.0, 166.0, 166.0, 166.0, 166.0, 166.0]);
+        assert_result_eq(q, &[166.0, 166.0, 166.0, 166.0, 166.0, 166.0]).await;
     }
 
-    #[test]
-    fn scalar_string_non_number() {
+    #[tokio::test]
+    async fn scalar_string_non_number() {
         let q = r#"scalar("fooobar")"#;
-        test_query(q, vec![])
+        test_query(q, vec![]).await;
     }
 
-    #[test]
-    fn scalar_string_num() {
-        assert_result_eq(
-            r#"scalar("-12.34")"#,
-            &[-12.34, -12.34, -12.34, -12.34, -12.34, -12.34],
-        );
-    }
-
-    //
-    #[test]
-    fn seeded_rand_normal() {
-        let q = "rand_normal(0)";
-        assert_result_eq(
-            q,
-            &[
-                0.7128130103834549,
-                0.85833144681790008,
-                -2.4362438894664367,
-                0.1633442588933682,
-                -1.2750102039848832,
-                1.2871709906391997,
-            ],
-        );
-    }
-
-    #[test]
-    fn bitmap_and() {
+    #[tokio::test]
+    async fn bitmap_and() {
         assert_result_eq(
             "bitmap_and(0xB3, 0x11)",
             &[17.0, 17.0, 17.0, 17.0, 17.0, 17.0],
-        );
+        ).await;
         assert_result_eq(
             "bitmap_and(time(), 0x11)",
             &[0.0, 16.0, 16.0, 0.0, 0.0, 16.0],
-        );
+        ).await;
 
-        test_query("bitmap_and(NaN, 1)", vec![]);
+        test_query("bitmap_and(NaN, 1)", vec![]).await;
     }
 
-    #[test]
-    fn bitmap_or() {
+    #[tokio::test]
+    async fn bitmap_or() {
         assert_result_eq(
             "bitmap_or(0xA2, 0x11)",
             &[179.0, 179.0, 179.0, 179.0, 179.0, 179.0],
-        );
+        ).await;
+
         assert_result_eq(
             "bitmap_or(time(), 0x11)",
             &[1017.0, 1201.0, 1401.0, 1617.0, 1817.0, 2001.0],
-        );
+        ).await;
 
-        test_query("bitmap_or(NaN, 1)", vec![]);
+        test_query("bitmap_or(NaN, 1)", vec![]).await;
     }
 
-    #[test]
-    fn bitmap_xor() {
+    #[tokio::test]
+    async fn bitmap_xor() {
         assert_result_eq(
             "bitmap_xor(0xB3, 0x11)",
             &[162.0, 162.0, 162.0, 162.0, 162.0, 162.0],
-        );
+        ).await;
+
         assert_result_eq(
             "bitmap_xor(time(), 0x11)",
             &[1017.0, 1185.0, 1385.0, 1617.0, 1817.0, 1985.0],
-        );
+        ).await;
 
-        test_query("bitmap_xor(NaN, 1)", vec![]);
+        test_query("bitmap_xor(NaN, 1)", vec![]).await;
     }
 
-    #[test]
-    fn timezone_offset_utc() {
-        assert_result_eq(r#"timezone_offset("UTC")"#, &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
-    }
-
-    #[test]
-    fn test_timezone_offset_america_new_york() {
-        let q = r#"timezone_offset("America/New_York")"#;
-        let tz = parse_timezone("America/New_York").unwrap();
-        let offset = get_timezone_offset(&tz, TIMESTAMPS_EXPECTED[0]);
-        assert_ne!(offset, None);
-
+    #[tokio::test]
+    async fn timezone_offset_utc() {
+        let q = r#"timezone_offset("UTC")"#;
+        let offset = get_timezone_offset(&Tz::UTC, TIMESTAMPS_EXPECTED[0]);
         let off = offset.unwrap() as f64;
         let r = make_result(&[off, off, off, off, off, off]);
         let result_expected: Vec<QueryResult> = vec![r];
-        test_query(q, result_expected)
+        test_query(q, result_expected).await;
     }
 
-    #[test]
-    fn timezone_offset_local() {
-        let q = r#"timezone_offset("Local")"#;
-        let tz = parse_timezone("Local").unwrap();
+    #[tokio::test]
+    async fn test_timezone_offset_america_new_york() {
+        let q = r#"timezone_offset("America/New_York")"#;
+        let tz = "America/New_York".parse::<Tz>().unwrap();
         let offset = get_timezone_offset(&tz, TIMESTAMPS_EXPECTED[0]).unwrap();
         let off = offset as f64;
         let r = make_result(&[off, off, off, off, off, off]);
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn test_time() {
-        assert_result_eq(
-            "time()",
-            &[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0],
-        );
-        assert_result_eq(
-            "time()[300s]",
-            &[1000.0, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0],
-        );
-        assert_result_eq(
-            "time()[300s] offset 100s",
-            &[800.0, 1000.0, 1200.0, 1400.0, 1600.0, 1800.0],
-        );
-        assert_result_eq(
-            "time()[300s:100s] offset 100s",
-            &[900.0, 1100.0, 1300.0, 1500.0, 1700.0, 1900.0],
-        );
-        assert_result_eq(
-            "time()[300:100] offset 100",
-            &[900.0, 1100.0, 1300.0, 1500.0, 1700.0, 1900.0],
-        );
-
-        assert_result_eq(
-            "time() offset 0s",
-            &[1000.0, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0],
-        );
-        assert_result_eq(
-            "time()[:100s] offset 0s",
-            &[1000.0, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0],
-        );
-        assert_result_eq(
-            "time()[:100s] offset 100s",
-            &[900.0, 1100.0, 1300.0, 1500.0, 1700.0, 1900.0],
-        );
-
-        assert_result_eq(
-            "time()[:100] offset 0",
-            &[1000.0, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0],
-        );
-        assert_result_eq(
-            "time() offset 1h40s0ms",
-            &[-2800.0, -2600.0, -2400.0, -2200.0, -2000.0, -1800.0],
-        );
-
-        assert_result_eq(
-            "time() offset 3640",
-            &[-2800.0, -2600.0, -2400.0, -2200.0, -2000.0, -1800.0],
-        );
-        assert_result_eq(
-            "time() offset -1h40s0ms",
-            &[4600.0, 4800.0, 5000.0, 5200.0, 5400.0, 5600.0],
-        );
-        assert_result_eq(
-            "time() offset -100s",
-            &[1000.0, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0],
-        );
-
-        assert_result_eq(
-            "time()[1.5i:0.5i] offset 0.5i",
-            &[900.0, 1100.0, 1300.0, 1500.0, 1700.0, 1900.0],
-        );
-
-        assert_result_eq("1e3/time()*2*9*7", &[126.0, 105.0, 90.0, 78.75, 70.0, 63.0]);
-
-        assert_result_eq(
-            "time() + time()",
-            &[2000.0, 2400.0, 2800.0, 3200.0, 3600.0, 4000.0],
-        );
-    }
-
-    #[test]
-    fn test_offset() {
-        // (a, b) offset 0s
-        let q = r#"sort((label_set(time(), "foo", "bar"), label_set(time()+10, "foo", "baz")) offset 0s)"#;
+    #[tokio::test]
+    async fn test_offset() {
+        // (a, b)
+        let q = r#"sort((label_set(time(), "foo", "bar"), label_set(time()+10, "foo", "baz")))"#;
         let mut r1 = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r1.metric.set("foo", "bar");
         let mut r2 = make_result(&[1010_f64, 1210.0, 1410.0, 1610.0, 1810.0, 2010.0]);
         r2.metric.set("foo", "baz");
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
 
         // (a, b) offset 100s
         let q = r#"sort((label_set(time(), "foo", "bar"), label_set(time()+10, "foo", "baz")) offset 100s)"#;
-        let mut r1 = make_result(&[800_f64, 1000.0, 1200.0, 1400.0, 1600.0, 1800.0]);
+        let mut r1 = make_result(&[900_f64, 1100.0, 1300.0, 1500.0, 1700.0, 1900.0]);
         r1.metric.set("foo", "bar");
         let mut r2 = make_result(&[810_f64, 1010.0, 1210.0, 1410.0, 1610.0, 1810.0]);
         r2.metric.set("foo", "baz");
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
 
         // (a offset 100s, b offset 50s
         let q = r#"sort((label_set(time() offset 100s, "foo", "bar"), label_set(time()+10, "foo", "baz") offset 50s))"#;
-        let mut r1 = make_result(&[800_f64, 1000.0, 1200.0, 1400.0, 1600.0, 1800.0]);
+        let mut r1 = make_result(&[900_f64, 1100.0, 1300.0, 1500.0, 1700.0, 1900.0]);
         r1.metric.set("foo", "bar");
         let mut r2 = make_result(&[810_f64, 1010.0, 1210.0, 1410.0, 1610.0, 1810.0]);
         r2.metric.set("foo", "baz");
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
 
         // (a offset 100s, b offset 50s) offset 400s
         let q = r#"sort((label_set(time() offset 100s, "foo", "bar"), label_set(time()+10, "foo", "baz") offset 50s) offset 400s)"#;
-        let mut r1 = make_result(&[400_f64, 600.0, 800.0, 1000.0, 1200.0, 1400.0]);
+        let mut r1 = make_result(&[500_f64, 700.0, 900.0, 1100.0, 1300.0, 1500.0]);
         r1.metric.set("foo", "bar");
-        let mut r2 = make_result(&[410_f64, 610.0, 810.0, 1010.0, 1210.0, 1410.0]);
+        let mut r2 = make_result(&[560_f64, 760.0, 960.0, 1160.0, 1360.0, 1560.0]);
         r2.metric.set("foo", "baz");
-        test_query(q, vec![r1, r2]);
-
-        // (a offset -100s, b offset -50s) offset -400s
-        let q = r#"sort((label_set(time() offset -100s, "foo", "bar"), label_set(time()+10, "foo", "baz") offset -50s) offset -400s)"#;
-        let mut r1 = make_result(&[1400_f64, 1600.0, 1800.0, 2000.0, 2200.0, 2400.0]);
-        r1.metric.set("foo", "bar");
-        let mut r2 = make_result(&[1410_f64, 1610.0, 1810.0, 2010.0, 2210.0, 2410.0]);
-        r2.metric.set("foo", "baz");
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn f_1h() {
-        assert_result_eq("1h", &[3600.0, 3600.0, 3600.0, 3600.0, 3600.0, 3600.0]);
+    #[tokio::test]
+    async fn vector_multiplied_by_on_foo_group_right() {
+        let q = r#"
+            sort(
+                (
+                    label_set(time(), "foo", "bar"),
+                    label_set(time()*2, "foo", "baz")
+                ) * on (foo) group_right (
+                    label_set(10, "foo", "bar"),
+                    label_set(20, "foo", "baz")
+                )
+            )
+        "#;
+        let mut r1 = make_result(&[10000_f64, 12000.0, 14000.0, 16000.0, 18000.0, 20000.0]);
+        r1.metric.set("foo", "bar");
+        let mut r2 = make_result(&[40000_f64, 48000.0, 56000.0, 64000.0, 72000.0, 80000.0]);
+        r2.metric.set("foo", "baz");
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn sum_over_time() {
+    #[tokio::test]
+    async fn f_1h() {
+        assert_result_eq("1h", &[3600.0, 3600.0, 3600.0, 3600.0, 3600.0, 3600.0]).await;
+    }
+
+    #[tokio::test]
+    async fn sum_over_time() {
         assert_result_eq(
             "sum_over_time(time()[1h]) / 1h",
             &[-3.5, -2.5, -1.5, -0.5, 0.5, 1.5],
-        );
+        ).await;
     }
 
-    #[test]
-    fn timestamp() {
+    #[tokio::test]
+    async fn timestamp() {
         assert_result_eq(
             "timestamp(123)",
             &[1000.0, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0],
-        );
+        ).await;
         assert_result_eq(
             "timestamp(time())",
             &[1000.0, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0],
-        );
+        ).await;
         assert_result_eq(
             "timestamp(456/time()+123)",
             &[1000.0, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0],
-        );
+        ).await;
         assert_result_eq(
             "timestamp(time()>=1600)",
             &[NAN, NAN, NAN, 1600.0, 1800.0, 2000.0],
-        );
+        ).await;
 
         let q = r#"timestamp(alias(time()>=1600.0,"foo"))"#;
-        assert_result_eq(q, &[NAN, NAN, NAN, 1600.0, 1800.0, 2000.0]);
+        assert_result_eq(q, &[NAN, NAN, NAN, 1600.0, 1800.0, 2000.0]).await;
     }
 
-    #[test]
-    fn tlast_change_over_time() {
+    #[tokio::test]
+    async fn tlast_change_over_time() {
         let q = "tlast_change_over_time(
         time()[1h]
         )";
-        assert_result_eq(q, &[1000.0, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
+        assert_result_eq(q, &[1000.0, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]).await;
 
         let q = "tlast_change_over_time(
             (time() >=bool 1600)[1h]
         )";
-        assert_result_eq(q, &[NAN, NAN, NAN, 1600.0, 1600.0, 1600.0]);
+        assert_result_eq(q, &[NAN, NAN, NAN, 1600.0, 1600.0, 1600.0]).await;
     }
 
-    #[test]
-    fn tlast_change_over_time_miss() {
+    #[tokio::test]
+    async fn tlast_change_over_time_miss() {
         let q = "tlast_change_over_time(1[1h])";
-        test_query(q, vec![])
+        test_query(q, vec![]).await;
     }
 
-    #[test]
-    fn timestamp_with_name() {
+    #[tokio::test]
+    async fn timestamp_with_name() {
         let q = r#"timestamp_with_name(alias(time()>=1600.0,"foo"))"#;
         let mut r = make_result(&[NAN, NAN, NAN, 1600.0, 1800.0, 2000.0]);
         r.metric.set_measurement("foo");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn time() {
-        assert_result_eq("time()/100", &[10.0, 12.0, 14.0, 16.0, 18.0, 20.0]);
-        assert_result_eq("1e3/time()*2*9*7", &[126.0, 105.0, 90.0, 78.75, 70.0, 63.0]);
+    #[tokio::test]
+    async fn time() {
+        assert_result_eq("time()/100", &[10.0, 12.0, 14.0, 16.0, 18.0, 20.0]).await;
+        assert_result_eq("1e3/time()*2*9*7", &[126.0, 105.0, 90.0, 78.75, 70.0, 63.0]).await;
     }
 
-    #[test]
-    fn minute() {
-        assert_result_eq("minute()", &[16.0, 20.0, 23.0, 26.0, 30.0, 33.0]);
-        assert_result_eq("minute(30*60+time())", &[46.0, 50.0, 53.0, 56.0, 0.0, 3.0]);
+    #[tokio::test]
+    async fn minute() {
+        assert_result_eq("minute()", &[16.0, 20.0, 23.0, 26.0, 30.0, 33.0]).await;
+        assert_result_eq("minute(30*60+time())", &[46.0, 50.0, 53.0, 56.0, 0.0, 3.0]).await;
     }
 
-    #[test]
-    fn minute_series_with_nans() {
+    #[tokio::test]
+    async fn minute_series_with_nans() {
         assert_result_eq(
             "minute(time() <= 1200 or time() > 1600)",
             &[16.0, 20.0, NAN, NAN, 30.0, 33.0],
         );
     }
 
-    #[test]
-    fn day_of_month() {
+    #[tokio::test]
+    async fn day_of_month() {
         assert_result_eq(
             "day_of_month(time()*1e4)",
             &[26.0, 19.0, 12.0, 5.0, 28.0, 20.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn day_of_week() {
-        assert_result_eq("day_of_week(time()*1e4)", &[0.0, 2.0, 5.0, 0.0, 2.0, 4.0]);
+    #[tokio::test]
+    async fn day_of_week() {
+        assert_result_eq("day_of_week(time()*1e4)", &[0.0, 2.0, 5.0, 0.0, 2.0, 4.0]).await;
     }
 
-    #[test]
-    fn day_of_year() {
+    #[tokio::test]
+    async fn day_of_year() {
         assert_result_eq(
             "day_of_year(time()*1e4)",
             &[116.0, 139.0, 163.0, 186.0, 209.0, 232.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn days_in_month() {
+    #[tokio::test]
+    async fn days_in_month() {
         assert_result_eq(
             "days_in_month(time()*2e4)",
             &[31.0, 31.0, 30.0, 31.0, 28.0, 30.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn hour() {
-        assert_result_eq("hour(time()*1e4)", &[17.0, 21.0, 0.0, 4.0, 8.0, 11.0]);
+    #[tokio::test]
+    async fn hour() {
+        assert_result_eq("hour(time()*1e4)", &[17.0, 21.0, 0.0, 4.0, 8.0, 11.0]).await;
     }
 
-    #[test]
-    fn month() {
-        assert_result_eq("month(time()*1e4)", &[4.0, 5.0, 6.0, 7.0, 7.0, 8.0]);
+    #[tokio::test]
+    async fn month() {
+        assert_result_eq("month(time()*1e4)", &[4.0, 5.0, 6.0, 7.0, 7.0, 8.0]).await;
     }
 
-    #[test]
-    fn year() {
+    #[tokio::test]
+    async fn year() {
         assert_result_eq(
             "year(time()*1e5)",
             &[1973.0, 1973.0, 1974.0, 1975.0, 1975.0, 1976.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn abs() {
+    #[tokio::test]
+    async fn abs() {
         assert_result_eq(
             "abs(1500-time())",
             &[500.0, 300.0, 100.0, 100.0, 300.0, 500.0],
-        );
+        ).await;
         assert_result_eq(
             "abs(-time()+1300)",
             &[300.0, 100.0, 100.0, 300.0, 500.0, 700.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn ceil() {
-        assert_result_eq("ceil(time()/500)", &[2.0, 3.0, 3.0, 4.0, 4.0, 4.0]);
+    #[tokio::test]
+    async fn ceil() {
+        assert_result_eq("ceil(time()/500)", &[2.0, 3.0, 3.0, 4.0, 4.0, 4.0]).await;
     }
 
-    #[test]
-    fn absent() {
+    #[tokio::test]
+    async fn absent() {
         let q = "absent(time())";
-        test_query(q, vec![]);
+        test_query(q, vec![]).await;
 
         let q = "absent(123)";
-        test_query(q, vec![]);
+        test_query(q, vec![]).await;
 
         let q = "absent(vector(scalar(123)))";
-        test_query(q, vec![]);
+        test_query(q, vec![]).await;
     }
 
-    #[test]
-    fn absent_with_nan() {
-        assert_result_eq("absent(NaN)", &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
+    #[tokio::test]
+    async fn absent_with_nan() {
+        assert_result_eq("absent(NaN)", &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]).await;
     }
 
-    #[test]
-    fn present_over_time_time() {
+    #[tokio::test]
+    async fn present_over_time_time() {
         // assert_result_eq("present_over_time(time())", &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
         assert_result_eq(
             "present_over_time(time()[100:300])",
             &[NAN, 1.0, NAN, NAN, 1.0, NAN],
-        );
+        ).await;
         assert_result_eq(
             "present_over_time(time()<1600)",
             &[1.0, 1.0, 1.0, NAN, NAN, NAN],
-        );
+        ).await;
     }
 
-    #[test]
-    fn absent_over_time() {
+    #[tokio::test]
+    async fn absent_over_time() {
         assert_result_eq(
             "absent_over_time(NAN[200s:10s])",
             &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
-        );
+        ).await;
 
         let q = r#"absent(label_set(scalar(1 or label_set(2, "xx", "foo")), "yy", "foo"))"#;
-        assert_result_eq(q, &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
+        assert_result_eq(q, &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]).await;
     }
 
-    #[test]
-    fn absent_over_time_non_nan() {
+    #[tokio::test]
+    async fn absent_over_time_non_nan() {
         let q = "absent_over_time(time())";
-        test_query(q, vec![])
+        test_query(q, vec![]).await
     }
 
-    #[test]
-    fn absent_over_time_nan() {
+    #[tokio::test]
+    async fn absent_over_time_nan() {
         assert_result_eq(
             "absent_over_time((time() < 1500)[300s:])",
             &[NAN, NAN, NAN, NAN, 1.0, 1.0],
-        );
+        ).await;
 
-        assert_result_eq("absent(time() > 1500)", &[1.0, 1.0, 1.0, NAN, NAN, NAN]);
+        assert_result_eq("absent(time() > 1500)", &[1.0, 1.0, 1.0, NAN, NAN, NAN]).await;
     }
 
-    #[test]
-    fn absent_over_time_multi_ts() {
+    #[tokio::test]
+    async fn absent_over_time_multi_ts() {
         let q = r#"
         absent_over_time((
         alias((time() < 1400)[200s:], "one"),
         alias((time() > 1600)[200s:], "two"),
         ))"#;
-        assert_result_eq(q, &[NAN, NAN, 1.0, 1.0, NAN, NAN]);
+        assert_result_eq(q, &[NAN, NAN, 1.0, 1.0, NAN, NAN]).await;
     }
 
-    #[test]
-    fn clamp() {
+    #[tokio::test]
+    async fn clamp() {
         assert_result_eq(
             "clamp(time(), 1400.0, 1800)",
             &[1400.0, 1400.0, 1400.0, 1600.0, 1800.0, 1800.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn clamp_max() {
+    #[tokio::test]
+    async fn clamp_max() {
         assert_result_eq(
             "clamp_max(time(), 1400)",
             &[1000.0, 1200.0, 1400.0, 1400.0, 1400.0, 1400.0],
-        );
+        ).await;
 
         let q = r#"clamp_max(alias(time(), "foobar"), 1400)"#;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1400.0, 1400.0, 1400.0]);
         r.metric.set_measurement("foobar");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
 
         let q = r#"CLAmp_MAx(alias(time(), "foobar"), 1400)"#;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1400.0, 1400.0, 1400.0]);
         r.metric.set_measurement("foobar");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn clamp_min() {
+    #[tokio::test]
+    async fn clamp_min() {
         assert_result_eq(
             "clamp_min(time(), -time()+2500)",
             &[1500.0, 1300.0, 1400.0, 1600.0, 1800.0, 2000.0],
-        );
+        ).await;
         assert_result_eq(
             "clamp_min(1500, time())",
             &[1500.0, 1500.0, 1500.0, 1600.0, 1800.0, 2000.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn test_exp() {
+    #[tokio::test]
+    async fn test_exp() {
         let q = r#"exp(alias(time()/1e3, "foobar"))"#;
         let r = make_result(&[
             std::f64::consts::E,
@@ -735,11 +652,11 @@ mod tests {
             6.0496474644129465,
             7.38905609893065,
         ]);
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn test_exp_1() {
+    #[tokio::test]
+    async fn test_exp_1() {
         let q = r#"exp(alias(time()/1e3, "foobar")) keep_metric_names"#;
         let mut r = make_result(&[
             std::f64::consts::E,
@@ -750,80 +667,80 @@ mod tests {
             7.38905609893065,
         ]);
         r.metric.set_measurement("foobar");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn at() {
+    #[tokio::test]
+    async fn at() {
         assert_result_eq(
             "time() @ 1h",
             &[3600.0, 3600.0, 3600.0, 3600.0, 3600.0, 3600.0],
-        );
+        ).await;
         assert_result_eq(
             "time() @ start()",
             &[1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0],
-        );
+        ).await;
         assert_result_eq(
             "time() @ end()",
             &[2000.0, 2000.0, 2000.0, 2000.0, 2000.0, 2000.0],
-        );
+        ).await;
         assert_result_eq(
             "time() @ end() offset 10m",
             &[1400.0, 1400.0, 1400.0, 1400.0, 1400.0, 1400.0],
-        );
+        ).await;
         assert_result_eq(
             "time() @ (end() - 10m)",
             &[1400.0, 1400.0, 1400.0, 1400.0, 1400.0, 1400.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn rand() {
-        assert_result_eq("round(rand()/2)", &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+    #[tokio::test]
+    async fn rand() {
+        assert_result_eq("round(rand()/2)", &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]).await;
         assert_result_eq(
             "round(rand(0), 0.01)",
             &[0.73, 0.77, 0.03, 0.58, 0.26, 0.77],
-        );
+        ).await;
     }
 
-    #[test]
-    fn rand_normal() {
+    #[tokio::test]
+    async fn rand_normal() {
         assert_result_eq(
             "clamp_max(clamp_min(0, rand_normal()), 0)",
             &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        );
+        ).await;
         assert_result_eq(
             "round(rand_normal(0), 0.01)",
             &[0.71, 0.86, -2.44, 0.16, -1.28, 1.29],
-        );
+        ).await;
     }
 
-    #[test]
-    fn rand_exponential() {
+    #[tokio::test]
+    async fn rand_exponential() {
         let q = "clamp_max(clamp_min(0, rand_exponential()), 0)";
-        assert_result_eq(q, &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+        assert_result_eq(q, &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]).await;
 
         assert_result_eq(
             "round(rand_exponential(0), 0.01)",
             &[1.23, 1.34, 0.11, 0.45, 1.15, 2.73],
-        );
+        ).await;
     }
 
-    #[test]
-    fn now() {
-        assert_result_eq("round(now()/now())", &[1.0; 6]);
+    #[tokio::test]
+    async fn now() {
+        assert_result_eq("round(now()/now())", &[1.0; 6]).await;
     }
 
-    #[test]
-    fn pi() {
+    #[tokio::test]
+    async fn pi() {
         let q = "pi()";
         let expected = [std::f64::consts::PI; 6];
         let r = make_result(&expected);
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn sin() {
+    #[tokio::test]
+    async fn sin() {
         let q = "sin(pi()*(2000-time())/1000)";
         let r = make_result(&[
             1.2246467991473515e-16,
@@ -833,11 +750,11 @@ mod tests {
             0.5877852522924731,
             0.0,
         ]);
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn sinh() {
+    #[tokio::test]
+    async fn sinh() {
         let q = "sinh(pi()*(2000-time())/1000)";
         let r = make_result(&[
             11.548739357257748,
@@ -848,11 +765,11 @@ mod tests {
             0.0,
         ]);
         let result_expected: Vec<QueryResult> = vec![r];
-        test_query(q, result_expected)
+        test_query(q, result_expected).await;
     }
 
-    #[test]
-    fn asin() {
+    #[tokio::test]
+    async fn asin() {
         let q = "asin((2000-time())/1000)";
         let r = make_result(&[
             std::f64::consts::FRAC_PI_2,
@@ -862,20 +779,20 @@ mod tests {
             0.20135792079033082,
             0.0,
         ]);
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn asinh_sinh() {
+    #[tokio::test]
+    async fn asinh_sinh() {
         let q = "asinh(sinh((2000-time())/1000))";
         assert_result_eq(
             q,
             &[1.0, 0.8000000000000002, 0.6, 0.4000000000000001, 0.2, 0.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn test_atan2() {
+    #[tokio::test]
+    async fn test_atan2() {
         let q = "time() atan2 time()/10";
         let r = make_result(&[
             0.07853981633974483,
@@ -885,11 +802,11 @@ mod tests {
             0.07853981633974483,
             0.07853981633974483,
         ]);
-        test_query(q, vec![r])
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn test_atan() {
+    #[tokio::test]
+    async fn test_atan() {
         let q = "atan((2000-time())/1000)";
         let r = make_result(&[
             std::f64::consts::FRAC_PI_4,
@@ -900,20 +817,20 @@ mod tests {
             0.0,
         ]);
         let result_expected: Vec<QueryResult> = vec![r];
-        test_query(q, result_expected)
+        test_query(q, result_expected).await;
     }
 
-    #[test]
-    fn atanh_tanh() {
+    #[tokio::test]
+    async fn atanh_tanh() {
         let q = "atanh(tanh((2000-time())/1000))";
         assert_result_eq(
             q,
             &[1.0, 0.8000000000000002, 0.6, 0.4000000000000001, 0.2, 0.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn cos() {
+    #[tokio::test]
+    async fn cos() {
         let q = "cos(pi()*(2000-time())/1000)";
         let r = make_result(&[
             -1_f64,
@@ -923,11 +840,11 @@ mod tests {
             0.8090169943749473,
             1.0,
         ]);
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn acos() {
+    #[tokio::test]
+    async fn acos() {
         let q = "acos((2000-time())/1000)";
         let r = make_result(&[
             0_f64,
@@ -937,7 +854,7 @@ mod tests {
             1.3694384060045657,
             std::f64::consts::FRAC_PI_2,
         ]);
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
 
         let q = "acosh(cosh((2000-time())/1000))";
         let r = make_result(&[
@@ -948,24 +865,24 @@ mod tests {
             0.20000000000000023,
             0.0,
         ]);
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn rad() {
+    #[tokio::test]
+    async fn rad() {
         assert_result_eq(
             "rad(deg(time()/500))",
             &[2.0, 2.3999999999999995, 2.8, 3.2, 3.6, 4.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn floor() {
-        assert_result_eq("floor(time()/500)", &[2.0, 2.0, 2.0, 3.0, 3.0, 4.0]);
+    #[tokio::test]
+    async fn floor() {
+        assert_result_eq("floor(time()/500)", &[2.0, 2.0, 2.0, 3.0, 3.0, 4.0]).await;
     }
 
-    #[test]
-    fn sqrt() {
+    #[tokio::test]
+    async fn sqrt() {
         assert_result_eq(
             "sqrt(time())",
             &[
@@ -976,14 +893,14 @@ mod tests {
                 42.42640687119285,
                 44.721359549995796,
             ],
-        );
+        ).await;
 
         let q = r#"round(sqrt(sum2(label_set(10, "foo", "bar") or label_set(time()/100, "baz", "sss"))))"#;
-        assert_result_eq(q, &[14.0, 16.0, 17.0, 19.0, 21.0, 22.0]);
+        assert_result_eq(q, &[14.0, 16.0, 17.0, 19.0, 21.0, 22.0]).await;
     }
 
-    #[test]
-    fn test_ln() {
+    #[tokio::test]
+    async fn test_ln() {
         let q = "ln(time())";
         let r = make_result(&[
             6.907755278982137,
@@ -993,11 +910,11 @@ mod tests {
             7.495541943884256,
             7.600902459542082,
         ]);
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn log2() {
+    #[tokio::test]
+    async fn log2() {
         let q = "log2(time())";
         let r = make_result(&[
             9.965784284662087,
@@ -1007,11 +924,11 @@ mod tests {
             10.813781191217037,
             10.965784284662087,
         ]);
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn log10() {
+    #[tokio::test]
+    async fn log10() {
         let q = "log10(time())";
         let r = make_result(&[
             3_f64,
@@ -1021,54 +938,54 @@ mod tests {
             3.255272505103306,
             3.3010299956639813,
         ]);
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn pow() {
+    #[tokio::test]
+    async fn pow() {
         let q = "time()*(-4)^0.5";
-        test_query(q, vec![]);
+        test_query(q, vec![]).await;
 
         assert_result_eq(
             "time()*-4^0.5",
             &[-2000.0, -2400.0, -2800.0, -3200.0, -3600.0, -4000.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn default_for_nan_series() {
+    #[tokio::test]
+    async fn default_for_nan_series() {
         let q = r#"label_set(0, "foo", "bar")/0 default 7"#;
         let mut r = make_result(&[7_f64, 7.0, 7.0, 7.0, 7.0, 7.0]);
         r.metric.set("foo", "bar");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn alias() {
+    #[tokio::test]
+    async fn alias() {
         let q = r#"alias(time(), "foobar")"#;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric.set_measurement("foobar");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn label_set_tag() {
+    #[tokio::test]
+    async fn label_set_tag() {
         let q = r#"label_set(time(), "tagname", "tagvalue")"#;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric.set("tagname", "tagvalue");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn label_set_metric_name() {
+    #[tokio::test]
+    async fn label_set_metric_name() {
         let q = r#"label_set(time(), "__name__", "foobar")"#;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric.set_measurement("foobar");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn label_set_metric_name_tag() {
+    #[tokio::test]
+    async fn label_set_metric_name_tag() {
         let q = r#"label_set(
         label_set(time(), "__name__", "foobar"),
         "tag_name", "tag_value"
@@ -1076,41 +993,41 @@ mod tests {
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric.set_measurement("foobar");
         r.metric.set("tag_name", "tag_value");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn label_set_del_metric_name() {
+    #[tokio::test]
+    async fn label_set_del_metric_name() {
         let q = r#"label_set(
         label_set(time(), "__name__", "foobar"),
         "__name__", ""
         )"#;
         let r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn r#label_set_del_tag() {
+    #[tokio::test]
+    async fn r#label_set_del_tag() {
         let q = r#"label_set(
         label_set(time(), "tagname", "foobar"),
         "tagname", ""
         )"#;
-        assert_result_eq(q, &[1000.0, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
+        assert_result_eq(q, &[1000.0, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]).await;
     }
 
-    #[test]
-    fn r#label_set_multi() {
+    #[tokio::test]
+    async fn r#label_set_multi() {
         let q = r#"label_set(time()+100, "t1", "v1", "t2", "v2", "__name__", "v3")"#;
         let mut r = make_result(&[1100_f64, 1300.0, 1500.0, 1700.0, 1900.0, 2100.0]);
         r.metric.set_measurement("v3");
         r.metric.set("t1", "v1");
         r.metric.set("t2", "v2");
 
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn label_map_match() {
+    #[tokio::test]
+    async fn label_map_match() {
         let q = r#"sort(label_map((
         label_set(time(), "label", "v1"),
         label_set(time()+100, "label", "v2"),
@@ -1130,11 +1047,11 @@ mod tests {
 
         let r5 = make_result(&[1400_f64, 1600.0, 1800.0, 2000.0, 2200.0, 2400.0]);
         let result_expected = vec![r1, r2, r3, r4, r5];
-        test_query(q, result_expected)
+        test_query(q, result_expected).await;
     }
 
-    #[test]
-    fn label_uppercase() {
+    #[tokio::test]
+    async fn label_uppercase() {
         let q = r#"label_uppercase(
         label_set(time(), "foo", "bAr", "XXx", "yyy", "zzz", "abc"),
         "foo", "XXx", "aaa"
@@ -1144,11 +1061,11 @@ mod tests {
         r.metric.set("foo", "BAR");
         r.metric.set("zzz", "abc");
 
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn label_lowercase() {
+    #[tokio::test]
+    async fn label_lowercase() {
         let q = r#"label_lowercase(
         label_set(time(), "foo", "bAr", "XXx", "yyy", "zzz", "aBc"),
         "foo", "XXx", "aaa"
@@ -1158,11 +1075,11 @@ mod tests {
         r.metric.set("foo", "bar");
         r.metric.set("zzz", "aBc");
 
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn label_copy_new_tag() {
+    #[tokio::test]
+    async fn label_copy_new_tag() {
         let q = r#"label_copy(
         label_set(time(), "tagname", "foobar"),
         "tagname", "xxx"
@@ -1171,33 +1088,33 @@ mod tests {
         r.metric.set("tagname", "foobar");
         r.metric.set("xxx", "foobar");
 
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn label_move_new_tag() {
+    #[tokio::test]
+    async fn label_move_new_tag() {
         let q = r#"label_move(
         label_set(time(), "tagname", "foobar"),
         "tagname", "xxx"
         )"#;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric.set("xxx", "foobar");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn label_copy_same_tag() {
+    #[tokio::test]
+    async fn label_copy_same_tag() {
         let q = r#"label_copy(
         label_set(time(), "tagname", "foobar"),
         "tagname", "tagname"
         )"#;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric.set("tagname", "foobar");
-        test_query(q, vec![r])
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn label_move_same_tag() {
+    #[tokio::test]
+    async fn label_move_same_tag() {
         let q = r#"label_move(
         label_set(time(), "tagname", "foobar"),
         "tagname", "tagname"
@@ -1205,33 +1122,33 @@ mod tests {
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric.set("tagname", "foobar");
 
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn label_copy_same_tag_non_existing_src() {
+    #[tokio::test]
+    async fn label_copy_same_tag_non_existing_src() {
         let q = r#"label_copy(
         label_set(time(), "tagname", "foobar"),
         "non-existing-tag", "tagname"
         )"#;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric.set("tagname", "foobar");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn label_move_same_tag_non_existing_src() {
+    #[tokio::test]
+    async fn label_move_same_tag_non_existing_src() {
         let q = r#"label_move(
         label_set(time(), "tagname", "foobar"),
         "non-existing-tag", "tagname"
         )"#;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric.set("tagname", "foobar");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn label_copy_existing_tag() {
+    #[tokio::test]
+    async fn label_copy_existing_tag() {
         let q = r#"label_copy(
         label_set(time(), "tagname", "foobar", "xx", "yy"),
         "xx", "tagname"
@@ -1241,11 +1158,11 @@ mod tests {
         r.metric.set("tagname", "yy");
         r.metric.set("xx", "yy");
 
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn label_move_existing_tag() {
+    #[tokio::test]
+    async fn label_move_existing_tag() {
         let q = r#"label_move(
         label_set(time(), "tagname", "foobar", "xx", "yy"),
         "xx", "tagname"
@@ -1253,11 +1170,11 @@ mod tests {
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric.set("tagname", "yy");
 
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn label_copy_from_metric_group() {
+    #[tokio::test]
+    async fn label_copy_from_metric_group() {
         let q = r#"label_copy(
         label_set(time(), "tagname", "foobar", "__name__", "yy"),
         "__name__", "aa"
@@ -1267,11 +1184,11 @@ mod tests {
         r.metric.set("aa", "yy");
         r.metric.set("tagname", "foobar");
 
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn label_move_from_metric_group() {
+    #[tokio::test]
+    async fn label_move_from_metric_group() {
         let q = r#"label_move(
         label_set(time(), "tagname", "foobar", "__name__", "yy"),
         "__name__", "aa"
@@ -1280,11 +1197,11 @@ mod tests {
         r.metric.set("aa", "yy");
         r.metric.set("tagname", "foobar");
 
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn label_copy_to_metric_group() {
+    #[tokio::test]
+    async fn label_copy_to_metric_group() {
         let q = r#"label_copy(
         label_set(time(), "tagname", "foobar"),
         "tagname", "__name__"
@@ -1293,22 +1210,22 @@ mod tests {
         r.metric.set_measurement("foobar");
         r.metric.set("tagname", "foobar");
 
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn label_move_to_metric_group() {
+    #[tokio::test]
+    async fn label_move_to_metric_group() {
         let q = r#"label_move(
         label_set(time(), "tagname", "foobar"),
         "tagname", "__name__"
         )"#;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric.set_measurement("foobar");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn labels_equal() {
+    #[tokio::test]
+    async fn labels_equal() {
         let q = r#"sort(labels_equal((
       label_set(10, "instance", "qwe", "host", "rty"),
       label_set(20, "instance", "qwe", "host", "qwe"),
@@ -1322,11 +1239,11 @@ mod tests {
         r2.metric.set("aaa", "bbb");
         r2.metric.set("host", "foo");
         r2.metric.set("instance", "foo");
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn drop_empty_series() {
+    #[tokio::test]
+    async fn drop_empty_series() {
         let q = r#"sort(drop_empty_series(
                             (
                             alias(time(), "foo"),
@@ -1336,11 +1253,11 @@ mod tests {
 
         let mut r = make_result(&[123.0, 123.0, 123.0, 2100.0, 2300.0, 2500.0]);
         r.metric.set_measurement("bar");
-        test_query(q, vec![r])
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn no_drop_empty_series() {
+    #[tokio::test]
+    async fn no_drop_empty_series() {
         let q = r#"sort((
                         (
                         alias(time(), "foo"),
@@ -1352,18 +1269,18 @@ mod tests {
         r1.metric.set_measurement("foo");
         let mut r2 = make_result(&[123.0, 123.0, 123.0, 2100.0, 2300.0, 2500.0]);
         r2.metric.set_measurement("bar");
-        test_query(q, vec![r1, r2])
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn drop_common_labels_single_series() {
+    #[tokio::test]
+    async fn drop_common_labels_single_series() {
         let q =
             r#"drop_common_labels(label_set(time(), "foo", "bar", "__name__", "xxx", "q", "we"))"#;
-        assert_result_eq(q, &[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
+        assert_result_eq(q, &[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]).await;
     }
 
-    #[test]
-    fn drop_common_labels_multi_series() {
+    #[tokio::test]
+    async fn drop_common_labels_multi_series() {
         let q = r#"sort_desc(drop_common_labels((
         label_set(time(), "foo", "bar", "__name__", "xxx", "q", "we"),
         label_set(time()/10, "foo", "bar", "__name__", "yyy"),
@@ -1373,11 +1290,11 @@ mod tests {
         r1.metric.set("q", "we");
         let mut r2 = make_result(&[100_f64, 120.0, 140.0, 160.0, 180.0, 200.0]);
         r2.metric.set_measurement("yyy");
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn drop_common_labels_multi_args() {
+    #[tokio::test]
+    async fn drop_common_labels_multi_args() {
         let q = r#"sort(drop_common_labels(
         label_set(time(), "foo", "bar", "__name__", "xxx", "q", "we"),
         label_set(time()/10, "foo", "bar", "__name__", "xxx"),
@@ -1385,153 +1302,153 @@ mod tests {
         let r1 = make_result(&[100_f64, 120.0, 140.0, 160.0, 180.0, 200.0]);
         let mut r2 = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r2.metric.set("q", "we");
-        test_query(q, vec![r1, r2])
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn label_keep_no_labels() {
+    #[tokio::test]
+    async fn label_keep_no_labels() {
         let q = r#"label_keep(time(), "foo", "bar")"#;
-        assert_result_eq(q, &[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
+        assert_result_eq(q, &[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]).await;
     }
 
-    #[test]
-    fn label_keep_certain_labels() {
+    #[tokio::test]
+    async fn label_keep_certain_labels() {
         let q = r#"label_keep(label_set(time(), "foo", "bar", "__name__", "xxx", "q", "we"), "foo", "nonexisting-label")"#;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric.set("foo", "bar");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn label_keep_metric_name() {
+    #[tokio::test]
+    async fn label_keep_metric_name() {
         let q = r#"label_keep(label_set(time(), "foo", "bar", "__name__", "xxx", "q", "we"), "nonexisting-label", "__name__")"#;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric.set_measurement("xxx");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn label_del_no_labels() {
+    #[tokio::test]
+    async fn label_del_no_labels() {
         assert_result_eq(
             r#"label_del(time(), "foo", "bar")"#,
             &[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn label_del_certain_labels() {
+    #[tokio::test]
+    async fn label_del_certain_labels() {
         let q = r#"label_del(label_set(time(), "foo", "bar", "__name__", "xxx", "q", "we"), "foo", "nonexisting-label")"#;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric.set_measurement("xxx");
         r.metric.set("q", "we");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn label_del_metric_name() {
+    #[tokio::test]
+    async fn label_del_metric_name() {
         let q = r#"label_del(label_set(time(), "foo", "bar", "__name__", "xxx", "q", "we"), "nonexisting-label", "__name__")"#;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric.set("foo", "bar");
         r.metric.set("q", "we");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn label_join_empty() {
+    #[tokio::test]
+    async fn label_join_empty() {
         let q = r#"label_join(vector(time()), "tt", "(sep)", "BAR")"#;
-        assert_result_eq(q, &[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
+        assert_result_eq(q, &[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]).await;
     }
 
-    #[test]
-    fn label_join_tt() {
+    #[tokio::test]
+    async fn label_join_tt() {
         let q = r#"label_join(vector(time()), "tt", "(sep)", "foo", "BAR")"#;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric.set("tt", "(sep)");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn label_join_name() {
+    #[tokio::test]
+    async fn label_join_name() {
         let q = r#"label_join(time(), "__name__", "(sep)", "foo", "BAR", "")"#;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric.set_measurement("(sep)(sep)");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn label_join_label_join() {
+    #[tokio::test]
+    async fn label_join_label_join() {
         let q = r#"label_join(label_join(time(), "__name__", "(sep)", "foo", "BAR"), "xxx", ",", "foobar", "__name__")"#;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric.set_measurement("(sep)");
         r.metric.set("xxx", ",(sep)");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn label_join_dst_label_equals_src_label() {
+    #[tokio::test]
+    async fn label_join_dst_label_equals_src_label() {
         let q =
             r#"label_join(label_join(time(), "bar", "sep1", "a", "b"), "bar", "sep2", "a", "bar")"#;
         let mut r = make_result(&[1000.0, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric.set("bar", "sep2sep1");
-        test_query(q, vec![r])
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn label_transform_mismatch() {
+    #[tokio::test]
+    async fn label_transform_mismatch() {
         let q = r#"label_transform(time(), "__name__", "foobar", "xx")"#;
-        assert_result_eq(q, &[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
+        assert_result_eq(q, &[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]).await;
     }
 
-    #[test]
-    fn label_transform_match() {
+    #[tokio::test]
+    async fn label_transform_match() {
         let q = r#"label_transform(
         label_set(time(), "foo", "a.bar.baz"),
         "foo", "\\.", "-")"#;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric.set("foo", "a-bar-baz");
-        test_query(q, vec![r])
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn label_replace_with_non_existing_src() {
+    #[tokio::test]
+    async fn label_replace_with_non_existing_src() {
         let q = r#"label_replace(time(), "__name__", "x${1}y", "foo", ".+")"#;
         let r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn label_replace_with_non_existing_src_match() {
+    #[tokio::test]
+    async fn label_replace_with_non_existing_src_match() {
         let q = r#"label_replace(time(), "foo", "x", "bar", "")"#;
         let mut r = make_result(&[1000.0, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric.set("foo", "x");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn label_replace_with_non_existing_src_mismatch() {
+    #[tokio::test]
+    async fn label_replace_with_non_existing_src_mismatch() {
         let q = r#"label_replace(time(), "foo", "x", "bar", "y")"#;
         let r = make_result(&[1000.0, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn label_replace_with_mismatch() {
+    #[tokio::test]
+    async fn label_replace_with_mismatch() {
         let q = r#"label_replace(label_set(time(), "foo", "foobar"), "__name__", "x${1}y", "foo", "bar(.+)")"#;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric.set("foo", "foobar");
-        test_query(q, vec![r])
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn label_replace_match() {
+    #[tokio::test]
+    async fn label_replace_match() {
         let q = r#"label_replace(time(), "__name__", "x${1}y", "foo", ".*")"#;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric.set_measurement("xy");
-        test_query(q, vec![r])
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn label_replace_label_replace() {
+    #[tokio::test]
+    async fn label_replace_label_replace() {
         let q = r#"
         label_replace(
         label_replace(
@@ -1542,11 +1459,11 @@ mod tests {
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric.set_measurement("xy");
         r.metric.set("xxx", "AAybar(xy)");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn label_match() {
+    #[tokio::test]
+    async fn label_match() {
         let q = r#"
         label_match((
         alias(time(), "foo"),
@@ -1554,11 +1471,11 @@ mod tests {
         ), "__name__", "f.+")"#;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric.set_measurement("foo");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn label_mismatch() {
+    #[tokio::test]
+    async fn label_mismatch() {
         let q = r#"
         label_mismatch((
         alias(time(), "foo"),
@@ -1566,11 +1483,11 @@ mod tests {
         ), "__name__", "f.+")"#;
         let mut r = make_result(&[2000_f64, 2400.0, 2800.0, 3200.0, 3600.0, 4000.0]);
         r.metric.set_measurement("bar");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn label_graphite_group() {
+    #[tokio::test]
+    async fn label_graphite_group() {
         let q = r#"sort(label_graphite_group((
         alias(1, "foo.bar.baz"),
         alias(2, "abc"),
@@ -1584,11 +1501,11 @@ mod tests {
         r3.metric.set_measurement("xx.asd");
         r3.metric.set("qwe", "rty");
         let result_expected: Vec<QueryResult> = vec![r1, r2, r3];
-        test_query(q, result_expected)
+        test_query(q, result_expected).await;
     }
 
-    #[test]
-    fn limit_offset() {
+    #[tokio::test]
+    async fn limit_offset() {
         let q = r#"limit_offset(1, 1, sort_by_label((
         label_set(time()*1, "foo", "y"),
         label_set(time()*2, "foo", "a"),
@@ -1596,11 +1513,11 @@ mod tests {
         ), "foo"))"#;
         let mut r = make_result(&[3000_f64, 3600.0, 4200.0, 4800.0, 5400.0, 6000.0]);
         r.metric.set("foo", "x");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn limit_offset_nan() {
+    #[tokio::test]
+    async fn limit_offset_nan() {
         // q returns 3 time series, where foo=3 contains only NaN values
         // limit_offset suppose to apply offset for non-NaN series only
         let q = r#"limit_offset(1, 1, sort_by_label_desc((
@@ -1610,11 +1527,11 @@ mod tests {
         ) < 3000, "foo"))"#;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric.set("foo", "1");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn limit_offset_sort_by_label() {
+    #[tokio::test]
+    async fn limit_offset_sort_by_label() {
         let q = r#"limit_offset(5, 0, sort_by_label_numeric_desc((
                     label_set(3, "foo", "1:0:3"),
                     label_set(4, "foo", "5:0:15"),
@@ -1640,11 +1557,11 @@ mod tests {
         let mut r5 = make_result(&[3.0, 3.0, 3.0, 3.0, 3.0, 3.0]);
         r5.metric.set("foo", "1:0:3");
 
-        test_query(q, vec![r1, r2, r3, r4, r5]);
+        test_query(q, vec![r1, r2, r3, r4, r5]).await;
     }
 
-    #[test]
-    fn sum_label_graphite_group() {
+    #[tokio::test]
+    async fn sum_label_graphite_group() {
         let q = r#"sort(sum by (__name__) (
         label_graphite_group((
         alias(1, "foo.bar.baz"),
@@ -1656,63 +1573,63 @@ mod tests {
         r1.metric.set_measurement("y");
         let mut r2 = make_result(&[4_f64, 4.0, 4.0, 4.0, 4.0, 4.0]);
         r2.metric.set_measurement("bar");
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn two_timeseries() {
+    #[tokio::test]
+    async fn two_timeseries() {
         let q = r#"sort_desc(time() or label_set(2, "xx", "foo"))"#;
         let r1 = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         let mut r2 = make_result(&[2_f64, 2.0, 2.0, 2.0, 2.0, 2.0]);
         r2.metric.set("xx", "foo");
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn test_sgn() {
-        assert_result_eq("sgn(time()-1400)", &[-1.0, -1.0, 0.0, 1.0, 1.0, 1.0]);
+    #[tokio::test]
+    async fn test_sgn() {
+        assert_result_eq("sgn(time()-1400)", &[-1.0, -1.0, 0.0, 1.0, 1.0, 1.0]).await;
     }
 
-    #[test]
-    fn round_to_integer() {
-        assert_result_eq("round(time()/1e3)", &[1.0, 1.0, 1.0, 2.0, 2.0, 2.0]);
+    #[tokio::test]
+    async fn round_to_integer() {
+        assert_result_eq("round(time()/1e3)", &[1.0, 1.0, 1.0, 2.0, 2.0, 2.0]).await;
     }
 
-    #[test]
-    fn round_to_nearest() {
-        assert_result_eq("round(time()/1e3, 0.5)", &[1.0, 1.0, 1.5, 1.5, 2.0, 2.0]);
+    #[tokio::test]
+    async fn round_to_nearest() {
+        assert_result_eq("round(time()/1e3, 0.5)", &[1.0, 1.0, 1.5, 1.5, 2.0, 2.0]).await;
         assert_result_eq(
             "round(-time()/1e3, 0.5)",
             &[-1.0, -1.0, -1.5, -1.5, -2.0, -2.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn scalar_multi_timeseries() {
+    #[tokio::test]
+    async fn scalar_multi_timeseries() {
         let q = r#"scalar(1 or label_set(2, "xx", "foo"))"#;
-        test_query(q, vec![]);
+        test_query(q, vec![]).await;
     }
 
-    #[test]
-    fn sort() {
+    #[tokio::test]
+    async fn sort() {
         let q = r#"sort(2 or label_set(1, "xx", "foo"))"#;
         let mut r1 = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r1.metric.set("xx", "foo");
         let r2 = make_result(&[2_f64, 2.0, 2.0, 2.0, 2.0, 2.0]);
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn sort_desc() {
+    #[tokio::test]
+    async fn sort_desc() {
         let q = r#"sort_desc(1 or label_set(2, "xx", "foo"))"#;
         let mut r1 = make_result(&[2_f64, 2.0, 2.0, 2.0, 2.0, 2.0]);
         r1.metric.set("xx", "foo");
         let r2 = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn sort_by_label() {
+    #[tokio::test]
+    async fn sort_by_label() {
         let q = r#"sort_by_label((
         alias(1, "foo"),
         alias(2, "bar"),
@@ -1721,11 +1638,11 @@ mod tests {
         r1.metric.set_measurement("bar");
         let mut r2 = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r2.metric.set_measurement("foo");
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn sort_by_label_desc() {
+    #[tokio::test]
+    async fn sort_by_label_desc() {
         let q = r#"sort_by_label_desc((
         alias(1, "foo"),
         alias(2, "bar"),
@@ -1734,11 +1651,11 @@ mod tests {
         r1.metric.set_measurement("foo");
         let mut r2 = make_result(&[2_f64, 2.0, 2.0, 2.0, 2.0, 2.0]);
         r2.metric.set_measurement("bar");
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn sort_by_label_multiple_labels() {
+    #[tokio::test]
+    async fn sort_by_label_multiple_labels() {
         let q = r#"sort_by_label((
         label_set(1, "x", "b", "y", "aa"),
         label_set(2, "x", "a", "y", "aa"),
@@ -1750,44 +1667,44 @@ mod tests {
         let mut r2 = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r2.metric.set("x", "b");
         r2.metric.set("y", "aa");
-        test_query(q, vec![r1, r2])
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn test_scalar() {
-        assert_result_eq("-1 < 2", &[-1.0, -1.0, -1.0, -1.0, -1.0, -1.0]);
+    #[tokio::test]
+    async fn test_scalar() {
+        assert_result_eq("-1 < 2", &[-1.0, -1.0, -1.0, -1.0, -1.0, -1.0]).await;
         assert_result_eq(
             "123 < time()",
             &[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0],
-        );
-        assert_result_eq("time() > 1234", &[NAN, NAN, 1400.0, 1600.0, 1800.0, 2000.0]);
-        assert_result_eq("time() >bool 1234", &[0.0, 0.0, 1.0, 1.0, 1.0, 1.0]);
+        ).await;
+        assert_result_eq("time() > 1234", &[NAN, NAN, 1400.0, 1600.0, 1800.0, 2000.0]).await;
+        assert_result_eq("time() >bool 1234", &[0.0, 0.0, 1.0, 1.0, 1.0, 1.0]).await;
         assert_result_eq(
             "(time() > 1234) >bool 1450",
             &[NAN, NAN, 0.0, 1.0, 1.0, 1.0],
-        );
+        ).await;
         assert_result_eq(
             "(time() > 1234) !=bool 1400",
             &[NAN, NAN, 0.0, 1.0, 1.0, 1.0],
-        );
+        ).await;
         assert_result_eq(
             "1400 !=bool (time() > 1234)",
             &[NAN, NAN, 0.0, 1.0, 1.0, 1.0],
-        );
+        ).await;
         let q = "123 > time()";
-        test_query(q, vec![]);
+        test_query(q, vec![]).await;
 
         let q = "time() < 123";
-        test_query(q, vec![]);
+        test_query(q, vec![]).await;
 
         assert_result_eq(
             "1300 < time() < 1700",
             &[NAN, NAN, 1400.0, 1600.0, NAN, NAN],
-        );
+        ).await;
     }
 
-    #[test]
-    fn array_cmp_scalar_leave_metric_group() {
+    #[tokio::test]
+    async fn array_cmp_scalar_leave_metric_group() {
         let q = r#"sort_desc((
         label_set(time(), "__name__", "foo", "a", "x"),
         label_set(time()+200, "__name__", "bar", "a", "x"),
@@ -1798,11 +1715,11 @@ mod tests {
         let mut r2 = make_result(&[NAN, NAN, 1400.0, 1600.0, 1800.0, 2000.0]);
         r2.metric.set_measurement("foo");
         r2.metric.set("a", "x");
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn a_cmp_bool_scalar_drop_metric_group() {
+    #[tokio::test]
+    async fn a_cmp_bool_scalar_drop_metric_group() {
         let q = r#"sort_desc((
         label_set(time(), "__name__", "foo", "a", "x"),
         label_set(time()+200, "__name__", "bar", "a", "y"),
@@ -1811,119 +1728,119 @@ mod tests {
         r1.metric.set("a", "y");
         let mut r2 = make_result(&[0_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r2.metric.set("a", "x");
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn numeric_greater() {
+    #[tokio::test]
+    async fn numeric_greater() {
         let q = "1 > 2";
-        test_query(q, vec![])
+        test_query(q, vec![]).await;
     }
 
-    #[test]
-    fn vector_eq_bool() {
+    #[tokio::test]
+    async fn vector_eq_bool() {
         // vector(1) == bool time()
-        assert_result_eq("vector(1) == bool time()", &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+        assert_result_eq("vector(1) == bool time()", &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]).await;
     }
 
-    #[test]
-    fn vector_eq_scalar() {
-        test_query("vector(1) == time()", vec![]);
+    #[tokio::test]
+    async fn vector_eq_scalar() {
+        test_query("vector(1) == time()", vec![]).await;
     }
 
-    #[test]
-    fn compare_to_nan_right() {
-        assert_result_eq("1 != bool NAN", &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
+    #[tokio::test]
+    async fn compare_to_nan_right() {
+        assert_result_eq("1 != bool NAN", &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]).await;
     }
 
-    fn compare_to_nan_left() {
-        assert_result_eq("NAN != bool 1", &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
+    async fn compare_to_nan_left() {
+        assert_result_eq("NAN != bool 1", &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]).await;
     }
 
-    #[test]
-    fn function_cmp_scalar() {
-        assert_result_eq("time() >= bool 2", &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
+    #[tokio::test]
+    async fn function_cmp_scalar() {
+        assert_result_eq("time() >= bool 2", &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]).await;
     }
 
-    #[test]
-    fn test_and() {
+    #[tokio::test]
+    async fn test_and() {
         assert_result_eq(
             "time() and 2",
             &[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0],
-        );
+        ).await;
         assert_result_eq(
             "time() and time() > 1300",
             &[NAN, NAN, 1400.0, 1600.0, 1800.0, 2000.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn test_time_unless_time_greater_than_1500() {
+    #[tokio::test]
+    async fn test_time_unless_time_greater_than_1500() {
         assert_result_eq(
             "time() unless time() > 1500",
             &[1000_f64, 1200.0, 1400.0, NAN, NAN, NAN],
-        );
+        ).await;
     }
 
     // todo: do the scalar vector versions of the following 2 tests
-    #[test]
-    fn test_time_unless_2() {
-        test_query("time() unless 2", vec![]);
+    #[tokio::test]
+    async fn test_time_unless_2() {
+        test_query("time() unless 2", vec![]).await;
     }
 
-    #[test]
-    fn test_timeseries_with_tags_unless_2() {
+    #[tokio::test]
+    async fn test_timeseries_with_tags_unless_2() {
         let q = r#"label_set(time(), "foo", "bar") unless 2"#;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric.set("foo", "bar");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn scalar_or_scalar() {
+    #[tokio::test]
+    async fn scalar_or_scalar() {
         assert_result_eq(
             "time() > 1400 or 123",
             &[123.0, 123.0, 123.0, 1600.0, 1800.0, 2000.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn scalar_default_scalar() {
+    #[tokio::test]
+    async fn scalar_default_scalar() {
         assert_result_eq(
             "time() > 1400 default 123",
             &[123.0, 123.0, 123.0, 1600.0, 1800.0, 2000.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn scalar_default_scalar_from_vector() {
+    #[tokio::test]
+    async fn scalar_default_scalar_from_vector() {
         let q = r#"time() > 1400 default scalar(label_set(123, "foo", "bar"))"#;
-        assert_result_eq(q, &[123.0, 123.0, 123.0, 1600.0, 1800.0, 2000.0]);
+        assert_result_eq(q, &[123.0, 123.0, 123.0, 1600.0, 1800.0, 2000.0]).await;
     }
 
-    #[test]
-    fn scalar_default_vector1() {
+    #[tokio::test]
+    async fn scalar_default_vector1() {
         let q = r#"time() > 1400 default label_set(123, "foo", "bar")"#;
-        assert_result_eq(q, &[NAN, NAN, NAN, 1600.0, 1800.0, 2000.0]);
+        assert_result_eq(q, &[NAN, NAN, NAN, 1600.0, 1800.0, 2000.0]).await;
     }
 
-    #[test]
-    fn scalar_default_vector2() {
+    #[tokio::test]
+    async fn scalar_default_vector2() {
         let q = r#"time() > 1400 default (
         label_set(123, "foo", "bar"),
         label_set(456, "__name__", "xxx"),
         )"#;
-        assert_result_eq(q, &[456.0, 456.0, 456.0, 1600.0, 1800.0, 2000.0]);
+        assert_result_eq(q, &[456.0, 456.0, 456.0, 1600.0, 1800.0, 2000.0]).await;
     }
 
-    #[test]
-    fn scalar_default_nan() {
+    #[tokio::test]
+    async fn scalar_default_nan() {
         let q = "time() > 1400 default (time() < -100)";
-        assert_result_eq(q, &[NAN, NAN, NAN, 1600.0, 1800.0, 2000.0]);
+        assert_result_eq(q, &[NAN, NAN, NAN, 1600.0, 1800.0, 2000.0]).await;
     }
 
-    #[test]
-    fn vector_default_scalar() {
+    #[tokio::test]
+    async fn vector_default_scalar() {
         let q = r#"sort_desc(union(
         label_set(time() > 1400.0, "__name__", "x", "foo", "bar"),
         label_set(time() < 1700, "__name__", "y", "foo", "baz")) default 123)"#;
@@ -1933,30 +1850,30 @@ mod tests {
         let mut r2 = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 123.0, 123.0]);
         r2.metric.set_measurement("y");
         r2.metric.set("foo", "baz");
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn vector_divided_by_scalar() {
+    #[tokio::test]
+    async fn vector_divided_by_scalar() {
         let q =
             r#"sort_desc((label_set(time(), "foo", "bar") or label_set(10, "foo", "qwert")) / 2)"#;
         let mut r1 = make_result(&[500_f64, 600.0, 700.0, 800.0, 900.0, 1000.0]);
         r1.metric.set("foo", "bar");
         let mut r2 = make_result(&[5_f64, 5.0, 5.0, 5.0, 5.0, 5.0]);
         r2.metric.set("foo", "qwert");
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn vector_multiplied_by_scalar() {
+    #[tokio::test]
+    async fn vector_multiplied_by_scalar() {
         assert_result_eq(
             "sum(time()) * 2",
             &[2000.0, 2400.0, 2800.0, 3200.0, 3600.0, 4000.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn vector_by_scalar_keep_metric_names() {
+    #[tokio::test]
+    async fn vector_by_scalar_keep_metric_names() {
         let q = r#"sort_desc((label_set(time(), "foo", "bar", "__name__", "q1") or label_set(10, "foo", "qwert", "__name__", "q2")) / 2 keep_metric_names)"#;
         let mut r1 = make_result(&[500_f64, 600_f64, 700_f64, 800_f64, 900_f64, 1000_f64]);
         r1.metric.measurement = "q1".to_string();
@@ -1971,11 +1888,11 @@ mod tests {
             name: "foo".to_string(),
             value: "qwert".to_string(),
         }];
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn scalar_multiplied_by_vector() {
+    #[tokio::test]
+    async fn scalar_multiplied_by_vector() {
         let q =
             r#"sort_desc(2 * (label_set(time(), "foo", "bar") or label_set(10, "foo", "qwert")))"#;
         let mut r1 = make_result(&[2000_f64, 2400.0, 2800.0, 3200.0, 3600.0, 4000.0]);
@@ -1983,11 +1900,11 @@ mod tests {
         let mut r2 = make_result(&[20_f64, 20.0, 20.0, 20.0, 20.0, 20.0]);
         r2.metric.set("foo", "qwert");
         let result_expected: Vec<QueryResult> = vec![r1, r2];
-        test_query(q, result_expected)
+        test_query(q, result_expected).await;
     }
 
-    #[test]
-    fn scalar_multiplied_by_vector_keep_metric_names() {
+    #[tokio::test]
+    async fn scalar_multiplied_by_vector_keep_metric_names() {
         let q = r#"sort_desc(2 * (label_set(time(), "foo", "bar", "__name__", "q1"), label_set(10, "foo", "qwert", "__name__", "q2")) keep_metric_names)"#;
         let mut r1 = make_result(&[2000_f64, 2400.0, 2800.0, 3200.0, 3600.0, 4000.0]);
         r1.metric.measurement = "q1".to_string();
@@ -1997,11 +1914,11 @@ mod tests {
         r2.metric.measurement = "q2".to_string();
         r2.metric.set("foo", "qwert");
 
-        test_query(q, vec![r1, r2])
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn scalar_on_group_right_vector() {
+    #[tokio::test]
+    async fn scalar_on_group_right_vector() {
         // scalar * on() group_right vector
         let q = r#"sort_desc(2 * on() group_right() (label_set(time(), "foo", "bar") or label_set(10, "foo", "qwert")))"#;
         let mut r1 = make_result(&[2000_f64, 2400.0, 2800.0, 3200.0, 3600.0, 4000.0]);
@@ -2009,11 +1926,11 @@ mod tests {
         let mut r2 = make_result(&[20_f64, 20.0, 20.0, 20.0, 20.0, 20.0]);
         r2.metric.set("foo", "qwert");
 
-        test_query(q, vec![r1, r2])
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn scalar_on_group_right_vector_keep_metric_names() {
+    #[tokio::test]
+    async fn scalar_on_group_right_vector_keep_metric_names() {
         // scalar * on() group_right vector keep_metric_names
         let q = r#"sort_desc(2 * on() group_right() (label_set(time(), "foo", "bar", "__name__", "q1"), label_set(10, "foo", "qwert", "__name__", "q2")) keep_metric_names)"#;
         let mut r1 = make_result(&[2000_f64, 2400.0, 2800.0, 3200.0, 3600.0, 4000.0]);
@@ -2024,11 +1941,11 @@ mod tests {
         r2.metric.measurement = "q2".to_string();
 
         r2.metric.set("foo", "qwert");
-        test_query(q, vec![r1, r2])
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn scalar_multiply_by_ignoring_foo_group_right_vector() {
+    #[tokio::test]
+    async fn scalar_multiply_by_ignoring_foo_group_right_vector() {
         let q = r#"sort_desc(label_set(2, "a", "2") * ignoring(foo,a) group_right(a) (label_set(time(), "foo", "bar", "a", "1"), label_set(10, "foo", "qwert")))"#;
         let mut r1 = make_result(&[2000_f64, 2400.0, 2800.0, 3200.0, 3600.0, 4000.0]);
         r1.metric.set("a", "2");
@@ -2038,36 +1955,36 @@ mod tests {
         r2.metric.set("a", "2");
         r2.metric.set("foo", "qwert");
 
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn scalar_multiply_ignoring_vector() {
+    #[tokio::test]
+    async fn scalar_multiply_ignoring_vector() {
         let q = r#"sort_desc(label_set(2, "foo", "bar") * ignoring(a) (label_set(time(), "foo", "bar") or label_set(10, "foo", "qwert")))"#;
         let mut r = make_result(&[2000_f64, 2400.0, 2800.0, 3200.0, 3600.0, 4000.0]);
         r.metric.set("foo", "bar");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn scalar_multiply_by_on_foo_vector() {
+    #[tokio::test]
+    async fn scalar_multiply_by_on_foo_vector() {
         //"scalar * on(foo) vector"
         let q = r#"sort_desc(label_set(2, "foo", "bar", "aa", "bb") * on(foo) (label_set(time(), "foo", "bar", "xx", "yy") or label_set(10, "foo", "qwert")))"#;
         let mut r = make_result(&[2000_f64, 2400.0, 2800.0, 3200.0, 3600.0, 4000.0]);
         r.metric.set("foo", "bar");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn vector_multiply_by_on_foo_scalar() {
+    #[tokio::test]
+    async fn vector_multiply_by_on_foo_scalar() {
         let q = r#"sort_desc((label_set(time(), "foo", "bar", "xx", "yy"), label_set(10, "foo", "qwert")) * on(foo) label_set(2, "foo","bar","aa","bb"))"#;
         let mut r = make_result(&[2000_f64, 2400.0, 2800.0, 3200.0, 3600.0, 4000.0]);
         r.metric.set("foo", "bar");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn vector_multiply_by_on_foo_scalar_keep_metric_names() {
+    #[tokio::test]
+    async fn vector_multiply_by_on_foo_scalar_keep_metric_names() {
         let q = r#"
                 (
                     (
@@ -2079,11 +1996,11 @@ mod tests {
         let mut r = make_result(&[2000_f64, 2400.0, 2800.0, 3200.0, 3600.0, 4000.0]);
         r.metric.measurement = "q1".to_string();
         r.metric.set("foo", "bar");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn vector_multiply_by_on_foo_group_left() {
+    #[tokio::test]
+    async fn vector_multiply_by_on_foo_group_left() {
         let q = r#"sort(label_set(time()/10, "foo", "bar", "xx", "yy", "__name__", "qwert") + on(foo) group_left(op) (
         label_set(time() < 1400.0, "foo", "bar", "op", "le"),
         label_set(time() >= 1400.0, "foo", "bar", "op", "ge"),
@@ -2097,22 +2014,22 @@ mod tests {
         r2.metric.set("foo", "bar");
         r2.metric.set("op", "ge");
         r2.metric.set("xx", "yy");
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn vector_multiplied_by_on_foo_duplicate_nonoverlapping_timeseries() {
+    #[tokio::test]
+    async fn vector_multiplied_by_on_foo_duplicate_nonoverlapping_timeseries() {
         let q = r#"label_set(time()/10, "foo", "bar", "xx", "yy", "__name__", "qwert") + on(foo) (
         label_set(time() < 1400.0, "foo", "bar", "op", "le"),
         label_set(time() >= 1400.0, "foo", "bar", "op", "ge"),
         )"#;
         let mut r1 = make_result(&[1100_f64, 1320.0, 1540.0, 1760.0, 1980.0, 2200.0]);
         r1.metric.set("foo", "bar");
-        test_query(q, vec![r1]);
+        test_query(q, vec![r1]).await;
     }
 
-    #[test]
-    fn vector_multiply_by_on_foo_group_left_duplicate_nonoverlapping_timeseries() {
+    #[tokio::test]
+    async fn vector_multiply_by_on_foo_group_left_duplicate_nonoverlapping_timeseries() {
         let q = r#"label_set(time()/10, "foo", "bar", "xx", "yy", "__name__", "qwert") + on(foo) group_left() (
         label_set(time() < 1400.0, "foo", "bar", "op", "le"),
         label_set(time() >= 1400.0, "foo", "bar", "op", "ge"),
@@ -2121,11 +2038,12 @@ mod tests {
         r1.metric.set("foo", "bar");
         r1.metric.set("xx", "yy");
 
-        test_query(q, vec![r1]);
+        test_query(q, vec![r1]).await;
     }
 
-    #[test]
-    fn vector_multiplied_by_on_foo_group_left_name() {
+    // todo: check for duplicate
+    #[tokio::test]
+    async fn vector_multiplied_by_on_foo_group_left_name_() {
         let q = r#"label_set(time()/10, "foo", "bar", "xx", "yy", "__name__", "qwert") + on(foo) group_left(__name__)
         label_set(time(), "foo", "bar", "__name__", "aaa")"#;
         let mut r1 = make_result(&[1100_f64, 1320.0, 1540.0, 1760.0, 1980.0, 2200.0]);
@@ -2133,11 +2051,11 @@ mod tests {
         r1.metric.set("foo", "bar");
         r1.metric.set("xx", "yy");
 
-        test_query(q, vec![r1]);
+        test_query(q, vec![r1]).await;
     }
 
-    #[test]
-    fn vector_multiplied_by_on_foo_group_right() {
+    #[tokio::test]
+    async fn vector_multiplied_by_on_foo_group_right_() {
         let q = r#"sort(label_set(time()/10, "foo", "bar", "xx", "yy", "__name__", "qwert") + on(foo) group_right(xx) (
         label_set(time(), "foo", "bar", "__name__", "aaa"),
         label_set(time()+3, "foo", "bar", "__name__", "yyy", "ppp", "123"),
@@ -2150,21 +2068,21 @@ mod tests {
         r2.metric.set("foo", "bar");
         r2.metric.set("ppp", "123");
         r2.metric.set("xx", "yy");
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn vector_multiply_by_on_group_left_scalar() {
+    #[tokio::test]
+    async fn vector_multiply_by_on_group_left_scalar() {
         let q = r#"sort_desc((label_set(time(), "foo", "bar") or label_set(10, "foo", "qwerty")) * on() group_left 2)"#;
         let mut r1 = make_result(&[2000_f64, 2400.0, 2800.0, 3200.0, 3600.0, 4000.0]);
         r1.metric.set("foo", "bar");
         let mut r2 = make_result(&[20_f64, 20.0, 20.0, 20.0, 20.0, 20.0]);
         r2.metric.set("foo", "qwerty");
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn vector_plus_vector_matching() {
+    #[tokio::test]
+    async fn vector_plus_vector_matching() {
         let q = r#"sort_desc(
         (label_set(time(), "t1", "v1") or label_set(10, "t2", "v2"))
         +
@@ -2174,11 +2092,11 @@ mod tests {
         r1.metric.set("t1", "v1");
         let mut r2 = make_result(&[1010_f64, 1210.0, 1410.0, 1610.0, 1810.0, 2010.0]);
         r2.metric.set("t2", "v2");
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn vector_vector_partial_matching() {
+    #[tokio::test]
+    async fn vector_vector_partial_matching() {
         let q = r#"sort_desc(
         (label_set(time(), "t1", "v1") or label_set(10, "t2", "v2"))
         +
@@ -2186,11 +2104,11 @@ mod tests {
         )"#;
         let mut r = make_result(&[1100_f64, 1300.0, 1500.0, 1700.0, 1900.0, 2100.0]);
         r.metric.set("t1", "v1");
-        test_query(q, vec![r])
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn vector_plus_vector_partial_matching_keep_metric_names() {
+    #[tokio::test]
+    async fn vector_plus_vector_partial_matching_keep_metric_names() {
         let q = r#"(
 		  (label_set(time(), "t1", "v1", "__name__", "q1") or label_set(10, "t2", "v2", "__name__", "q2"))
 		    +
@@ -2200,21 +2118,21 @@ mod tests {
         let mut r = make_result(&[1100_f64, 1300.0, 1500.0, 1700.0, 1900.0, 2100.0]);
         r.metric.measurement = "q1".to_string();
         r.metric.set("t1", "v1");
-        test_query(q, vec![r])
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn vector_plus_vector_no_matching() {
+    #[tokio::test]
+    async fn vector_plus_vector_no_matching() {
         let q = r#"sort_desc(
         (label_set(time(), "t2", "v1") or label_set(10, "t2", "v2"))
         +
         (label_set(100, "t1", "v1") or label_set(time(), "t2", "v3"))
         )"#;
-        test_query(q, vec![]);
+        test_query(q, vec![]).await;
     }
 
-    #[test]
-    fn vector_plus_vector_on_matching() {
+    #[tokio::test]
+    async fn vector_plus_vector_on_matching() {
         let q = r#"sort_desc(
         (label_set(time(), "t1", "v123", "t2", "v3") or label_set(10, "t2", "v2"))
         + on (foo, t2)
@@ -2223,11 +2141,11 @@ mod tests {
         let mut r = make_result(&[2000_f64, 2400.0, 2800.0, 3200.0, 3600.0, 4000.0]);
         r.metric.set("t2", "v3");
 
-        test_query(q, vec![r])
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn vector_plus_vector_on_group_left_matching() {
+    #[tokio::test]
+    async fn vector_plus_vector_on_group_left_matching() {
         let q = r#"sort_desc(
         (label_set(time(), "t1", "v123", "t2", "v3"), label_set(10, "t2", "v3", "xxx", "yy"))
         + on (foo, t2) group_left (t1, noxxx)
@@ -2242,11 +2160,11 @@ mod tests {
         r2.metric.set("t2", "v3");
         r2.metric.set("xxx", "yy");
 
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn vector_plus_vector_on_group_left_name() {
+    #[tokio::test]
+    async fn vector_plus_vector_on_group_left_name() {
         let q = r#"sort_desc(
         (union(label_set(time(), "t2", "v3", "__name__", "vv3", "x", "y"), label_set(10, "t2", "v3", "__name__", "yy")))
         + on (t2, dfdf) group_left (__name__, xxx)
@@ -2260,11 +2178,11 @@ mod tests {
         let mut r2 = make_result(&[1010_f64, 1210.0, 1410.0, 1610.0, 1810.0, 2010.0]);
         r2.metric.set_measurement("abc");
         r2.metric.set("t2", "v3");
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn vector_plus_vector_ignoring_matching() {
+    #[tokio::test]
+    async fn vector_plus_vector_ignoring_matching() {
         let q = r#"sort_desc(
         (label_set(time(), "t1", "v123", "t2", "v3") or label_set(10, "t2", "v2"))
         + ignoring (foo, t1, bar)
@@ -2273,11 +2191,11 @@ mod tests {
         let mut r = make_result(&[2000_f64, 2400.0, 2800.0, 3200.0, 3600.0, 4000.0]);
         r.metric.set("t2", "v3");
 
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn vector_plus_vector_ignoring_group_right_matching() {
+    #[tokio::test]
+    async fn vector_plus_vector_ignoring_group_right_matching() {
         let q = r#"sort_desc(
         (label_set(time(), "t1", "v123", "t2", "v3") or label_set(10, "t2", "v321", "t1", "v123", "t32", "v32"))
         + ignoring (foo, t2) group_right ()
@@ -2289,183 +2207,183 @@ mod tests {
 
         let mut r2 = make_result(&[1100_f64, 1300.0, 1500.0, 1700.0, 1900.0, 2100.0]);
         r2.metric.set("t1", "v123");
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn histogram_quantile_scalar() {
+    #[tokio::test]
+    async fn histogram_quantile_scalar() {
         let q = "histogram_quantile(0.6, time())";
-        test_query(q, vec![]);
+        test_query(q, vec![]).await;
     }
 
-    #[test]
-    fn histogram_share_scalar() {
+    #[tokio::test]
+    async fn histogram_share_scalar() {
         let q = "histogram_share(123, time())";
-        test_query(q, vec![]);
+        test_query(q, vec![]).await;
     }
 
-    #[test]
-    fn histogram_quantile_single_value_no_le() {
+    #[tokio::test]
+    async fn histogram_quantile_single_value_no_le() {
         let q = r#"histogram_quantile(0.6, label_set(100, "foo", "bar"))"#;
-        test_query(q, vec![]);
+        test_query(q, vec![]).await;
     }
 
-    #[test]
-    fn histogram_share_single_value_no_le() {
+    #[tokio::test]
+    async fn histogram_share_single_value_no_le() {
         let q = r#"histogram_share(123, label_set(100, "foo", "bar"))"#;
-        test_query(q, vec![]);
+        test_query(q, vec![]).await;
     }
 
-    #[test]
-    fn histogram_quantile_single_value_invalid_le() {
+    #[tokio::test]
+    async fn histogram_quantile_single_value_invalid_le() {
         let q = r#"histogram_quantile(0.6, label_set(100, "le", "foobar"))"#;
-        test_query(q, vec![]);
+        test_query(q, vec![]).await;
     }
 
-    #[test]
-    fn histogram_share_single_value_invalid_le() {
+    #[tokio::test]
+    async fn histogram_share_single_value_invalid_le() {
         let q = r#"histogram_share(50, label_set(100, "le", "foobar"))"#;
-        test_query(q, vec![]);
+        test_query(q, vec![]).await;
     }
 
-    #[test]
-    fn histogram_quantile_single_value_inf_le() {
+    #[tokio::test]
+    async fn histogram_quantile_single_value_inf_le() {
         let q = r#"histogram_quantile(0.6, label_set(100, "le", "+Inf"))"#;
-        test_query(q, vec![]);
+        test_query(q, vec![]).await;
 
         let q = r#"histogram_quantile(0.6, label_set(100, "le", "200"))"#;
         let r = make_result(&[120_f64, 120.0, 120.0, 120.0, 120.0, 120.0]);
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn histogram_quantile_zero_value_inf_le() {
+    #[tokio::test]
+    async fn histogram_quantile_zero_value_inf_le() {
         let q = r#"histogram_quantile(0.6, (
         label_set(100, "le", "+Inf"),
         label_set(0, "le", "42"),
         ))"#;
-        assert_result_eq(q, &[42.0, 42.0, 42.0, 42.0, 42.0, 42.0]);
+        assert_result_eq(q, &[42.0, 42.0, 42.0, 42.0, 42.0, 42.0]).await;
     }
 
-    #[test]
-    fn stdvar_over_time() {
+    #[tokio::test]
+    async fn stdvar_over_time() {
         assert_result_eq(
             "round(stdvar_over_time(rand(0)[200s:5s]), 0.001)",
             &[0.085, 0.082, 0.078, 0.101, 0.059, 0.074],
-        );
+        ).await;
     }
 
-    #[test]
-    fn histogram_stdvar() {
+    #[tokio::test]
+    async fn histogram_stdvar() {
         let q = "round(histogram_stdvar(histogram_over_time(rand(0)[200s:5s])), 0.001)";
-        assert_result_eq(q, &[0.079, 0.089, 0.089, 0.071, 0.1, 0.082]);
+        assert_result_eq(q, &[0.079, 0.089, 0.089, 0.071, 0.1, 0.082]).await;
     }
 
-    #[test]
-    fn stddev_over_time() {
+    #[tokio::test]
+    async fn stddev_over_time() {
         let q = "round(stddev_over_time(rand(0)[200s:5s]), 0.001)";
-        assert_result_eq(q, &[0.291, 0.287, 0.28, 0.318, 0.244, 0.272]);
+        assert_result_eq(q, &[0.291, 0.287, 0.28, 0.318, 0.244, 0.272]).await;
     }
 
-    #[test]
-    fn histogram_stddev() {
+    #[tokio::test]
+    async fn histogram_stddev() {
         let q = "round(histogram_stddev(histogram_over_time(rand(0)[200s:5s])), 0.001)";
-        assert_result_eq(q, &[0.288, 0.285, 0.278, 0.32, 0.239, 0.27]);
+        assert_result_eq(q, &[0.288, 0.285, 0.278, 0.32, 0.239, 0.27]).await;
     }
 
-    #[test]
-    fn avg_over_time() {
+    #[tokio::test]
+    async fn avg_over_time() {
         let q = "round(avg_over_time(rand(0)[200s:5s]), 0.001)";
-        assert_result_eq(q, &[0.467, 0.488, 0.462, 0.486, 0.441, 0.474]);
+        assert_result_eq(q, &[0.467, 0.488, 0.462, 0.486, 0.441, 0.474]).await;
     }
 
-    #[test]
-    fn histogram_avg() {
+    #[tokio::test]
+    async fn histogram_avg() {
         let q = "round(histogram_avg(histogram_over_time(rand(0)[200s:5s])), 0.001)";
-        assert_result_eq(q, &[0.467, 0.485, 0.464, 0.488, 0.44, 0.473]);
+        assert_result_eq(q, &[0.467, 0.485, 0.464, 0.488, 0.44, 0.473]).await;
     }
 
-    #[test]
-    fn histogram_share_single_value_valid_le() {
+    #[tokio::test]
+    async fn histogram_share_single_value_valid_le() {
         let q = r#"histogram_share(300, label_set(100, "le", "200"))"#;
-        assert_result_eq(q, &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
+        assert_result_eq(q, &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]).await;
 
         let q = r#"histogram_share(80, label_set(100, "le", "200"))"#;
-        assert_result_eq(q, &[0.4, 0.4, 0.4, 0.4, 0.4, 0.4]);
+        assert_result_eq(q, &[0.4, 0.4, 0.4, 0.4, 0.4, 0.4]).await;
 
         let q = r#"histogram_share(200, label_set(100, "le", "200"))"#;
-        assert_result_eq(q, &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
+        assert_result_eq(q, &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]).await;
     }
 
-    #[test]
-    fn histogram_quantile_single_value_valid_le_bounds_label() {
+    #[tokio::test]
+    async fn histogram_quantile_single_value_valid_le_bounds_label() {
         let q = r#"sort(histogram_quantile(0.6, label_set(100, "le", "200"), "foobar"))"#;
         let mut r1 = make_result(&[0_f64, 0.0, 0.0, 0.0, 0.0, 0.0]);
         r1.metric.set("foobar", "lower");
         let r2 = make_result(&[120_f64, 120.0, 120.0, 120.0, 120.0, 120.0]);
         let mut r3 = make_result(&[200_f64, 200.0, 200.0, 200.0, 200.0, 200.0]);
         r3.metric.set("foobar", "upper");
-        test_query(q, vec![r1, r2, r3]);
+        test_query(q, vec![r1, r2, r3]).await;
     }
 
-    #[test]
-    fn histogram_share_single_value_valid_le_bounds_label() {
+    #[tokio::test]
+    async fn histogram_share_single_value_valid_le_bounds_label() {
         let q = r#"sort(histogram_share(120, label_set(100, "le", "200"), "foobar"))"#;
         let mut r1 = make_result(&[0_f64, 0.0, 0.0, 0.0, 0.0, 0.0]);
         r1.metric.set("foobar", "lower");
         let r2 = make_result(&[0.6, 0.6, 0.6, 0.6, 0.6, 0.6]);
         let mut r3 = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r3.metric.set("foobar", "upper");
-        test_query(q, vec![r1, r2, r3]);
+        test_query(q, vec![r1, r2, r3]).await;
     }
 
-    #[test]
-    fn histogram_quantile_single_value_valid_le_max_phi() {
+    #[tokio::test]
+    async fn histogram_quantile_single_value_valid_le_max_phi() {
         let q = r#"histogram_quantile(1, (
         label_set(100, "le", "200"),
         label_set(0, "le", "55"),
         ))"#;
-        assert_result_eq(q, &[200.0, 200.0, 200.0, 200.0, 200.0, 200.0]);
+        assert_result_eq(q, &[200.0, 200.0, 200.0, 200.0, 200.0, 200.0]).await;
     }
 
-    #[test]
-    fn histogram_quantile_single_value_valid_le_max_le() {
+    #[tokio::test]
+    async fn histogram_quantile_single_value_valid_le_max_le() {
         let q = r#"histogram_share(200, (
         label_set(100, "le", "200"),
         label_set(0, "le", "55"),
         ))"#;
-        assert_result_eq(q, &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
+        assert_result_eq(q, &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]).await;
     }
 
-    #[test]
-    fn histogram_quantile_single_value_valid_le_min_phi() {
+    #[tokio::test]
+    async fn histogram_quantile_single_value_valid_le_min_phi() {
         let q = r#"histogram_quantile(0, (
         label_set(100, "le", "200"),
         label_set(0, "le", "55"),
         ))"#;
-        assert_result_eq(q, &[55.0, 55.0, 55.0, 55.0, 55.0, 55.0]);
+        assert_result_eq(q, &[55.0, 55.0, 55.0, 55.0, 55.0, 55.0]).await;
     }
 
-    #[test]
-    fn histogram_share_single_value_valid_le_min_le() {
+    #[tokio::test]
+    async fn histogram_share_single_value_valid_le_min_le() {
         let q = r#"histogram_share(0, (
         label_set(100, "le", "200"),
         label_set(0, "le", "55"),
         ))"#;
-        assert_result_eq(q, &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+        assert_result_eq(q, &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]).await;
     }
 
-    #[test]
-    fn histogram_share_single_value_valid_le_low_le() {
+    #[tokio::test]
+    async fn histogram_share_single_value_valid_le_low_le() {
         let q = r#"histogram_share(55, (
         label_set(100, "le", "200"),
         label_set(0, "le", "55"),
         ))"#;
-        assert_result_eq(q, &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+        assert_result_eq(q, &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]).await;
     }
 
-    #[test]
-    fn histogram_share_single_value_valid_le_mid_le() {
+    #[tokio::test]
+    async fn histogram_share_single_value_valid_le_mid_le() {
         let q = r#"histogram_share(105, (
         label_set(100, "le", "200"),
         label_set(0, "le", "55"),
@@ -2480,29 +2398,29 @@ mod tests {
                 0.3448275862068966,
                 0.3448275862068966,
             ],
-        );
+        ).await;
     }
 
-    #[test]
-    fn histogram_quantile_single_value_valid_le_min_phi_no_zero_bucket() {
+    #[tokio::test]
+    async fn histogram_quantile_single_value_valid_le_min_phi_no_zero_bucket() {
         let q = r#"histogram_quantile(0, label_set(100, "le", "200"))"#;
-        assert_result_eq(q, &[0_f64, 0.0, 0.0, 0.0, 0.0, 0.0]);
+        assert_result_eq(q, &[0_f64, 0.0, 0.0, 0.0, 0.0, 0.0]).await;
     }
 
-    #[test]
-    fn histogram_quantile_scalar_phi() {
+    #[tokio::test]
+    async fn histogram_quantile_scalar_phi() {
         let q = r#"histogram_quantile(time() / 2 / 1e3, label_set(100, "le", "200"))"#;
-        assert_result_eq(q, &[100.0, 120.0, 140.0, 160.0, 180.0, 200.0]);
+        assert_result_eq(q, &[100.0, 120.0, 140.0, 160.0, 180.0, 200.0]).await;
     }
 
-    #[test]
-    fn histogram_share_scalar_phi() {
+    #[tokio::test]
+    async fn histogram_share_scalar_phi() {
         let q = r#"histogram_share(time() / 8, label_set(100, "le", "200"))"#;
-        assert_result_eq(q, &[0.625, 0.75, 0.875, 1.0, 1.0, 1.0]);
+        assert_result_eq(q, &[0.625, 0.75, 0.875, 1.0, 1.0, 1.0]).await;
     }
 
-    #[test]
-    fn histogram_quantile_valid() {
+    #[tokio::test]
+    async fn histogram_quantile_valid() {
         let q = r#"sort(histogram_quantile(0.6,
         label_set(90, "foo", "bar", "le", "10")
         or label_set(100, "foo", "bar", "le", "30")
@@ -2514,11 +2432,11 @@ mod tests {
         r1.metric.set("tag", "xx");
         let mut r2 = make_result(&[30_f64, 30.0, 30.0, 30.0, 30.0, 30.0]);
         r2.metric.set("foo", "bar");
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn histogram_share_valid() {
+    #[tokio::test]
+    async fn histogram_share_valid() {
         let q = r#"sort(histogram_share(25,
         label_set(90, "foo", "bar", "le", "10")
         or label_set(100, "foo", "bar", "le", "30")
@@ -2537,11 +2455,11 @@ mod tests {
             0.9166666666666666,
         ]);
         r2.metric.set("tag", "xx");
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn histogram_quantile_negative_bucket_count() {
+    #[tokio::test]
+    async fn histogram_quantile_negative_bucket_count() {
         let q = r#"histogram_quantile(0.6,
         label_set(90, "foo", "bar", "le", "10")
         or label_set(-100, "foo", "bar", "le", "30")
@@ -2549,11 +2467,11 @@ mod tests {
         )"#;
         let mut r = make_result(&[30_f64, 30.0, 30.0, 30.0, 30.0, 30.0]);
         r.metric.set("foo", "bar");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn histogram_quantile_nan_bucket_count_some() {
+    #[tokio::test]
+    async fn histogram_quantile_nan_bucket_count_some() {
         let q = r#"round(histogram_quantile(0.6,
         union(label_set(90, "foo", "bar", "le", "10")
         or label_set(NaN, "foo", "bar", "le", "30")
@@ -2561,11 +2479,11 @@ mod tests {
         ),0.01)"#;
         let mut r = make_result(&[30.0, 30.0, 30.0, 30.0, 30.0, 30.0]);
         r.metric.set("foo", "bar");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn histogram_quantile_normal_bucket_count() {
+    #[tokio::test]
+    async fn histogram_quantile_normal_bucket_count() {
         let q = r#"histogram_quantile(0.2,
         label_set(0, "foo", "bar", "le", "10")
         or label_set(100, "foo", "bar", "le", "30")
@@ -2573,11 +2491,11 @@ mod tests {
         )"#;
         let mut r = make_result(&[22_f64, 22.0, 22.0, 22.0, 22.0, 22.0]);
         r.metric.set("foo", "bar");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn histogram_quantiles() {
+    #[tokio::test]
+    async fn histogram_quantiles() {
         let q = r#"sort_by_label(histogram_quantiles("phi", 0.2, 0.3,
         label_set(0, "foo", "bar", "le", "10")
         or label_set(100, "foo", "bar", "le", "30")
@@ -2591,11 +2509,11 @@ mod tests {
         r2.metric.set("foo", "bar");
         r2.metric.set("phi", "0.3");
 
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn histogram_share_normal_bucket_count() {
+    #[tokio::test]
+    async fn histogram_share_normal_bucket_count() {
         let q = r#"histogram_share(35,
         label_set(0, "foo", "bar", "le", "10")
         or label_set(100, "foo", "bar", "le", "30")
@@ -2610,11 +2528,11 @@ mod tests {
             0.3333333333333333,
         ]);
         r.metric.set("foo", "bar");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn histogram_quantile_normal_bucket_count_bounds_label() {
+    #[tokio::test]
+    async fn histogram_quantile_normal_bucket_count_bounds_label() {
         let q = r#"sort(histogram_quantile(0.2,
         label_set(0, "foo", "bar", "le", "10")
         or label_set(100, "foo", "bar", "le", "30")
@@ -2633,11 +2551,11 @@ mod tests {
         r3.metric.set("foo", "bar");
         r3.metric.set("xxx", "upper");
 
-        test_query(q, vec![r1, r2, r3]);
+        test_query(q, vec![r1, r2, r3]).await;
     }
 
-    #[test]
-    fn histogram_share_normal_bucket_count_bounds_label() {
+    #[tokio::test]
+    async fn histogram_share_normal_bucket_count_bounds_label() {
         let q = r#"sort(histogram_share(22,
         label_set(0, "foo", "bar", "le", "10")
         or label_set(100, "foo", "bar", "le", "30")
@@ -2660,40 +2578,40 @@ mod tests {
         ]);
         r3.metric.set("foo", "bar");
         r3.metric.set("xxx", "upper");
-        test_query(q, vec![r1, r2, r3]);
+        test_query(q, vec![r1, r2, r3]).await;
     }
 
-    #[test]
-    fn histogram_quantile_zero_bucket_count() {
+    #[tokio::test]
+    async fn histogram_quantile_zero_bucket_count() {
         let q = r#"histogram_quantile(0.6,
         label_set(0, "foo", "bar", "le", "10")
         or label_set(0, "foo", "bar", "le", "30")
         or label_set(0, "foo", "bar", "le", "+Inf")
         )"#;
-        test_query(q, vec![]);
+        test_query(q, vec![]).await;
     }
 
-    #[test]
-    fn histogram_quantile_nan_bucket_count_all() {
+    #[tokio::test]
+    async fn histogram_quantile_nan_bucket_count_all() {
         let q = r#"histogram_quantile(0.6,
         label_set(NAN, "foo", "bar", "le", "10")
         or label_set(NAN, "foo", "bar", "le", "30")
         or label_set(NAN, "foo", "bar", "le", "+Inf")
         )"#;
-        test_query(q, vec![]);
+        test_query(q, vec![]).await;
     }
 
-    #[test]
-    fn buckets_limit_zero() {
+    #[tokio::test]
+    async fn buckets_limit_zero() {
         let q = r#"buckets_limit(0, (
         alias(label_set(100, "le", "INF", "x", "y"), "metric"),
         alias(label_set(50, "le", "120", "x", "y"), "metric"),
         ))"#;
-        test_query(q, vec![]);
+        test_query(q, vec![]).await;
     }
 
-    #[test]
-    fn buckets_limit_unused() {
+    #[tokio::test]
+    async fn buckets_limit_unused() {
         let q = r#"sort(buckets_limit(5, (
         alias(label_set(100, "le", "INF", "x", "y"), "metric"),
         alias(label_set(50, "le", "120", "x", "y"), "metric"),
@@ -2709,11 +2627,11 @@ mod tests {
         r2.metric.set("le", "INF");
         r2.metric.set("x", "y");
 
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn buckets_limit_used() {
+    #[tokio::test]
+    async fn buckets_limit_used() {
         let q = r#"sort(buckets_limit(2, (
         alias(label_set(100, "le", "INF", "x", "y"), "metric"),
         alias(label_set(98, "le", "300", "x", "y"), "metric"),
@@ -2738,11 +2656,11 @@ mod tests {
         r3.metric.set("le", "INF");
         r3.metric.set("x", "y");
 
-        test_query(q, vec![r1, r2, r3]);
+        test_query(q, vec![r1, r2, r3]).await;
     }
 
-    #[test]
-    fn prometheus_buckets_missing_vmrange() {
+    #[tokio::test]
+    async fn prometheus_buckets_missing_vmrange() {
         let q = r#"sort(prometheus_buckets((
         alias(label_set(time()/20, "foo", "bar", "le", "0.2"), "xyz"),
         alias(label_set(time()/100, "foo", "bar", "vmrange", "foobar"), "xxx"),
@@ -2782,17 +2700,17 @@ mod tests {
         r6.metric.set("le", "0.2");
 
         let result_expected: Vec<QueryResult> = vec![r1, r2, r3, r4, r5, r6];
-        test_query(q, result_expected)
+        test_query(q, result_expected).await;
     }
 
-    #[test]
-    fn prometheus_buckets_zero_vmrange_value() {
+    #[tokio::test]
+    async fn prometheus_buckets_zero_vmrange_value() {
         let q = r#"sort(prometheus_buckets(label_set(0, "vmrange", "0...0")))"#;
-        test_query(q, vec![])
+        test_query(q, vec![]).await;
     }
 
-    #[test]
-    fn prometheus_buckets_valid() {
+    #[tokio::test]
+    async fn prometheus_buckets_valid() {
         let q = r#"sort(prometheus_buckets((
         alias(label_set(90, "foo", "bar", "vmrange", "0...0"), "xxx"),
         alias(label_set(time()/20, "foo", "bar", "vmrange", "0...0.2"), "xxx"),
@@ -2820,11 +2738,11 @@ mod tests {
         r4.metric.set("le", "Inf");
 
         let result_expected: Vec<QueryResult> = vec![r1, r2, r3, r4];
-        test_query(q, result_expected);
+        test_query(q, result_expected).await;
     }
 
-    #[test]
-    fn prometheus_buckets_overlapped_ranges() {
+    #[tokio::test]
+    async fn prometheus_buckets_overlapped_ranges() {
         let q = r#"sort(prometheus_buckets((
         alias(label_set(90, "foo", "bar", "vmrange", "0...0"), "xxx"),
         alias(label_set(time()/20, "foo", "bar", "vmrange", "0...0.2"), "xxx"),
@@ -2864,11 +2782,11 @@ mod tests {
         r6.metric.set("le", "Inf");
 
         let result_expected: Vec<QueryResult> = vec![r1, r2, r3, r4, r5, r6];
-        test_query(q, result_expected)
+        test_query(q, result_expected).await;
     }
 
-    #[test]
-    fn prometheus_buckets_overlapped_ranges_at_the_end() {
+    #[tokio::test]
+    async fn prometheus_buckets_overlapped_ranges_at_the_end() {
         let q = r#"sort(prometheus_buckets((
         alias(label_set(90, "foo", "bar", "vmrange", "0...0"), "xxx"),
         alias(label_set(time()/20, "foo", "bar", "vmrange", "0...0.2"), "xxx"),
@@ -2903,69 +2821,60 @@ mod tests {
         r5.metric.set("le", "Inf");
 
         let result_expected: Vec<QueryResult> = vec![r1, r2, r3, r4, r5];
-        test_query(q, result_expected)
+        test_query(q, result_expected).await;
     }
 
-    #[test]
-    fn median_over_time() {
+    #[tokio::test]
+    async fn median_over_time() {
         let q = "median_over_time({})";
-        test_query(q, vec![]);
+        test_query(q, vec![]).await;
 
         // assert_result_eq(r#"median_over_time("foo")"#, &[]);
-        assert_result_eq(
-            "median_over_time(12)",
-            &[12.0, 12.0, 12.0, 12.0, 12.0, 12.0],
-        );
+        assert_result_eq("median_over_time(12)", &[12.0, 12.0, 12.0, 12.0, 12.0, 12.0]).await;
     }
 
-    #[test]
-    fn sum() {
-        assert_result_eq("sum(time()/100)", &[10.0, 12.0, 14.0, 16.0, 18.0, 20.0]);
+    #[tokio::test]
+    async fn sum() {
+        assert_result_eq("sum(time()/100)", &[10.0, 12.0, 14.0, 16.0, 18.0, 20.0]).await;
     }
 
-    #[test]
-    fn sum_scalar() {
-        assert_result_eq("sum(123)", &[123.0, 123.0, 123.0, 123.0, 123.0, 123.0]);
+    #[tokio::test]
+    async fn sum_scalar() {
+        assert_result_eq("sum(123)", &[123.0, 123.0, 123.0, 123.0, 123.0, 123.0]).await;
     }
 
-    #[test]
-    fn sum_multi_arg() {
-        assert_result_eq("sum(1, 2, 3)", &[6.0, 6.0, 6.0, 6.0, 6.0, 6.0]);
+    #[tokio::test]
+    async fn sum_multi_arg() {
+        assert_result_eq("sum(1, 2, 3)", &[6.0, 6.0, 6.0, 6.0, 6.0, 6.0]).await;
     }
 
-    #[test]
-    fn sum_union_scalars() {
-        assert_result_eq("sum((1, 2, 3))", &[6.0, 6.0, 6.0, 6.0, 6.0, 6.0]);
+    #[tokio::test]
+    async fn sum_union_scalars() {
+        assert_result_eq("sum((1, 2, 3))", &[6.0, 6.0, 6.0, 6.0, 6.0, 6.0]).await;
     }
 
-    #[test]
-    fn sum_union_vectors() {
+    #[tokio::test]
+    async fn sum_union_vectors() {
         let q = r#"sum((
             alias(1, "foo"),
             alias(2, "foo"),
             alias(3, "foo"),
         ))"#;
-        assert_result_eq(q, &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
+        assert_result_eq(q, &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]).await;
     }
 
-    #[test]
-    fn sum_scalar_by_empty_parens_expr() {
-        assert_result_eq(
-            "sum(123) by ()",
-            &[123.0, 123.0, 123.0, 123.0, 123.0, 123.0],
-        );
+    #[tokio::test]
+    async fn sum_scalar_by_empty_parens_expr() {
+        assert_result_eq("sum(123) by ()", &[123.0, 123.0, 123.0, 123.0, 123.0, 123.0]).await;
     }
 
-    #[test]
-    fn sum_scalar_without_empty_parens_expr() {
-        assert_result_eq(
-            "sum(123) without ()",
-            &[123.0, 123.0, 123.0, 123.0, 123.0, 123.0],
-        );
+    #[tokio::test]
+    async fn sum_scalar_without_empty_parens_expr() {
+        assert_result_eq("sum(123) without ()", &[123.0, 123.0, 123.0, 123.0, 123.0, 123.0]).await;
     }
 
-    #[test]
-    fn test_mode() {
+    #[tokio::test]
+    async fn test_mode() {
         let q = r#"mode((
         alias(3, "m1"),
         alias(2, "m2"),
@@ -2974,11 +2883,11 @@ mod tests {
         alias(3, "m5"),
         alias(2, "m6"),
         ))"#;
-        assert_result_eq(q, &[3.0, 3.0, 3.0, 3.0, 3.0, 3.0]);
+        assert_result_eq(q, &[3.0, 3.0, 3.0, 3.0, 3.0, 3.0]).await;
     }
 
-    #[test]
-    fn share() {
+    #[tokio::test]
+    async fn share() {
         let q = r#"sort_by_label(round(share((
             label_set(time()/100+10, "k", "v1"),
             label_set(time()/200+5, "k", "v2"),
@@ -2997,11 +2906,11 @@ mod tests {
         let mut r4 = make_result(&[0.169, 0.197, 0.214, 0.227, 0.237, 0.245]);
         r4.metric.set("k", "v4");
         let result_expected = vec![r1, r2, r3, r4];
-        test_query(q, result_expected);
+        test_query(q, result_expected).await;
     }
 
-    #[test]
-    fn sum_share() {
+    #[tokio::test]
+    async fn sum_share() {
         let q = r#"round(sum(share((
             label_set(time()/100+10, "k", "v1"),
             label_set(time()/200+5, "k", "v2"),
@@ -3010,11 +2919,11 @@ mod tests {
         ))), 0.001)"#;
         let r = make_result(&[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
         let result_expected = vec![r];
-        test_query(q, result_expected);
+        test_query(q, result_expected).await;
     }
 
-    #[test]
-    fn sum_share_by() {
+    #[tokio::test]
+    async fn sum_share_by() {
         let q = r#"round(sum(share((
                 label_set(time()/100+10, "k", "v1"),
                 label_set(time()/200+5, "k", "v2", "a", "b"),
@@ -3023,11 +2932,11 @@ mod tests {
             )) by (k)), 0.001)"#;
         let r = make_result(&[2.0, 2.0, 2.0, 2.0, 2.0, 2.0]);
         let result_expected = vec![r];
-        test_query(q, result_expected)
+        test_query(q, result_expected).await;
     }
 
-    #[test]
-    fn zscore() {
+    #[tokio::test]
+    async fn zscore() {
         let q = r#"sort_by_label(round(zscore((
         label_set(time()/100+10, "k", "v1"),
         label_set(time()/200+5, "k", "v2"),
@@ -3043,19 +2952,19 @@ mod tests {
         let mut r4 = make_result(&[-0.356, -0.294, -0.232, -0.17, -0.108, -0.048]);
         r4.metric.set("k", "v4");
         let result_expected: Vec<QueryResult> = vec![r1, r2, r3, r4];
-        test_query(q, result_expected);
+        test_query(q, result_expected).await;
     }
 
-    #[test]
-    fn avg_without() {
+    #[tokio::test]
+    async fn avg_without() {
         assert_result_eq(
             "avg without (xx, yy) (123)",
             &[123.0, 123.0, 123.0, 123.0, 123.0, 123.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn histogram_scalar() {
+    #[tokio::test]
+    async fn histogram_scalar() {
         let q = r#"sort(histogram(123)+(
         label_set(0, "le", "1.000e2"),
         label_set(0, "le", "1.136e+02"),
@@ -3071,11 +2980,11 @@ mod tests {
         let mut r3 = make_result(&[2_f64, 2.0, 2.0, 2.0, 2.0, 2.0]);
         r3.metric.set("le", "+Inf");
 
-        test_query(q, vec![r1, r2, r3]);
+        test_query(q, vec![r1, r2, r3]).await;
     }
 
-    #[test]
-    fn histogram_vector() {
+    #[tokio::test]
+    async fn histogram_vector() {
         let q = r#"sort(histogram((
         label_set(1, "foo", "bar"),
         label_set(1.1, "xx", "yy"),
@@ -3099,128 +3008,125 @@ mod tests {
         let mut r4 = make_result(&[4_f64, 4.0, 4.0, 4.0, 4.0, 4.0]);
         r4.metric.set("le", "+Inf");
 
-        test_query(q, vec![r1, r2, r3, r4])
+        test_query(q, vec![r1, r2, r3, r4]).await;
     }
 
-    #[test]
-    fn geomean() {
-        assert_result_eq("geomean(time()/100)", &[10.0, 12.0, 14.0, 16.0, 18.0, 20.0]);
+    #[tokio::test]
+    async fn geomean() {
+        assert_result_eq("geomean(time()/100)", &[10.0, 12.0, 14.0, 16.0, 18.0, 20.0]).await;
     }
 
-    #[test]
-    fn geomean_over_time() {
+    #[tokio::test]
+    async fn geomean_over_time() {
         let q = r#"round(geomean_over_time(alias(time()/100, "foobar")[3i]), 0.1)"#;
         let mut r = make_result(&[7.8, 9.9, 11.9, 13.9, 15.9, 17.9]);
         r.metric.set_measurement("foobar");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn sum2_time() {
-        assert_result_eq(
-            "sum2(time()/100)",
-            &[100.0, 144.0, 196.0, 256.0, 324.0, 400.0],
-        );
+    #[tokio::test]
+    async fn sum2_time() {
+        assert_result_eq("sum2(time()/100)", &[100.0, 144.0, 196.0, 256.0, 324.0, 400.0]).await;
     }
 
-    #[test]
-    fn sum2_over_time() {
+    #[tokio::test]
+    async fn sum2_over_time() {
         assert_result_eq(
             r#"sum2_over_time(alias(time()/100, "foobar")[3i])"#,
             &[200.0, 308.0, 440.0, 596.0, 776.0, 980.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn range_over_time() {
+    #[tokio::test]
+    async fn range_over_time() {
         let q = r#"range_over_time(alias(time()/100, "foobar")[3i])"#;
-        assert_result_eq(q, &[4.0, 4.0, 4.0, 4.0, 4.0, 4.0]);
+        assert_result_eq(q, &[4.0, 4.0, 4.0, 4.0, 4.0, 4.0]).await;
     }
 
-    #[test]
-    fn sum_multi_vector() {
+    #[tokio::test]
+    async fn sum_multi_vector() {
         let q = r#"sum(label_set(10, "foo", "bar") or label_set(time()/100, "baz", "sss"))"#;
-        assert_result_eq(q, &[20.0, 22.0, 24.0, 26.0, 28.0, 30.0]);
+        assert_result_eq(q, &[20.0, 22.0, 24.0, 26.0, 28.0, 30.0]).await;
     }
 
-    #[test]
-    fn geomean_multi_vector() {
+    #[tokio::test]
+    async fn geomean_multi_vector() {
         let q = r#"round(geomean(label_set(10, "foo", "bar") or label_set(time()/100, "baz", "sss")), 0.1)"#;
-        assert_result_eq(q, &[10.0, 11.0, 11.8, 12.6, 13.4, 14.1]);
+        assert_result_eq(q, &[10.0, 11.0, 11.8, 12.6, 13.4, 14.1]).await;
     }
 
-    #[test]
-    fn sum2_multi_vector() {
+    #[tokio::test]
+    async fn sum2_multi_vector() {
         let q = r#"sum2(label_set(10, "foo", "bar") or label_set(time()/100, "baz", "sss"))"#;
-        assert_result_eq(q, &[200.0, 244.0, 296.0, 356.0, 424.0, 500.0]);
+        assert_result_eq(q, &[200.0, 244.0, 296.0, 356.0, 424.0, 500.0]).await;
     }
 
-    #[test]
-    fn avg_multi_vector() {
+    #[tokio::test]
+    async fn avg_multi_vector() {
         let q = r#"avg(label_set(10, "foo", "bar") or label_set(time()/100, "baz", "sss"))"#;
-        assert_result_eq(q, &[10.0, 11.0, 12.0, 13.0, 14.0, 15.0]);
+        assert_result_eq(q, &[10.0, 11.0, 12.0, 13.0, 14.0, 15.0]).await;
     }
 
-    #[test]
-    fn stddev_multi_vector() {
+    #[tokio::test]
+    async fn stddev_multi_vector() {
         let q = r#"stddev(label_set(10, "foo", "bar") or label_set(time()/100, "baz", "sss"))"#;
-        assert_result_eq(q, &[0_f64, 1.0, 2.0, 3.0, 4.0, 5.0]);
+        assert_result_eq(q, &[0_f64, 1.0, 2.0, 3.0, 4.0, 5.0]).await;
     }
 
-    #[test]
-    fn count_multi_vector() {
+    #[tokio::test]
+    async fn count_multi_vector() {
         let q = r#"count(label_set(time()<1500, "foo", "bar") or label_set(time()<1800.0, "baz", "sss"))"#;
-        assert_result_eq(q, &[2.0, 2.0, 2.0, 1.0, NAN, NAN]);
+        assert_result_eq(q, &[2.0, 2.0, 2.0, 1.0, NAN, NAN]).await;
     }
 
-    #[test]
-    fn sum_multi_vector_by_known_tag() {
+    #[tokio::test]
+    async fn sum_multi_vector_by_known_tag() {
         // sum(multi-vector) by (known-tag)
         let q = r#"sort(sum(label_set(10, "foo", "bar") or label_set(time()/100, "baz", "sss")) by (foo))"#;
         let mut r1 = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
         r1.metric.set("foo", "bar");
         let r2 = make_result(&[10_f64, 12.0, 14.0, 16.0, 18.0, 20.0]);
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn sum_multi_vector_by_known_tag_limit_1() {
+    #[tokio::test]
+    async fn sum_multi_vector_by_known_tag_limit_1() {
         let q = r#"sum(label_set(10, "foo", "bar") or label_set(time()/100, "baz", "sss")) by (foo) limit 1"#;
         let mut r = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
         r.metric.set("foo", "bar");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn sum_multi_vector_by_known_tags() {
+    #[tokio::test]
+    async fn sum_multi_vector_by_known_tags() {
         let q = r#"sum(label_set(10, "foo", "bar", "baz", "sss", "x", "y") or label_set(time()/100, "baz", "sss", "foo", "bar")) by (foo, baz, foo)"#;
         let mut r = make_result(&[20_f64, 22.0, 24.0, 26.0, 28.0, 30.0]);
         r.metric.set("baz", "sss");
         r.metric.set("foo", "bar");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn sum_multi_vector_by_name() {
+    #[tokio::test]
+    async fn sum_multi_vector_by_name() {
         let q = r#"sort(sum(label_set(10, "__name__", "bar", "baz", "sss", "x", "y") or label_set(time()/100, "baz", "sss", "__name__", "aaa")) by (__name__))"#;
         let mut r1 = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
         r1.metric.set_measurement("bar");
         let mut r2 = make_result(&[10_f64, 12.0, 14.0, 16.0, 18.0, 20.0]);
         r2.metric.set_measurement("aaa");
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn min_multi_vector_by_unknown_tag() {
+    #[tokio::test]
+    async fn min_multi_vector_by_unknown_tag() {
         let q = r#"min(label_set(10, "foo", "bar") or label_set(time()/100/1.5, "baz", "sss")) by (unknowntag)"#;
         assert_result_eq(
             q,
             &[6.666666666666667, 8.0, 9.333333333333334, 10.0, 10.0, 10.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn max_multi_vector_by_unknown_tag() {
+    #[tokio::test]
+    async fn max_multi_vector_by_unknown_tag() {
         let q = r#"max(label_set(10, "foo", "bar") or label_set(time()/100/1.5, "baz", "sss")) by (unknowntag)"#;
         assert_result_eq(
             q,
@@ -3232,48 +3138,48 @@ mod tests {
                 12.0,
                 13.333333333333334,
             ],
-        );
+        ).await;
     }
 
-    #[test]
-    fn quantile_over_time() {
+    #[tokio::test]
+    async fn quantile_over_time() {
         let q = r#"quantile_over_time(0.9, label_set(round(rand(0), 0.01), "__name__", "foo", "xx", "yy")[200s:5s])"#;
         let mut r = make_result(&[0.871, 0.88, 0.852, 0.891, 0.726, 0.827]);
         r.metric.set_measurement("foo");
         r.metric.set("xx", "yy");
 
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
     
-    #[test]
-    fn equal_list() {
+    #[tokio::test]
+    async fn equal_list() {
         let q = r#"time() == (100, 1000, 1400, 600)"#;
-        assert_result_eq(q, &[1000.0, NAN, 1400.0, NAN, NAN, NAN]);
+        assert_result_eq(q, &[1000.0, NAN, 1400.0, NAN, NAN, NAN]).await;
     }
     
-    #[test]
-    fn equal_list_reverse() {
+    #[tokio::test]
+    async fn equal_list_reverse() {
         let q = r#"(100, 1000, 1400, 600) == time()"#;
-        assert_result_eq(q, &[1000.0, NAN, 1400.0, NAN, NAN, NAN]);
+        assert_result_eq(q, &[1000.0, NAN, 1400.0, NAN, NAN, NAN]).await;
     }
     
-    #[test]
-    fn not_equal_list() {
+    #[tokio::test]
+    async fn not_equal_list() {
         let q = r#"alias(time(), "foobar") != UNIon(100, 1000, 1400, 600)"#;
         let mut r = make_result(&[NAN, 1200.0, NAN, 1600.0, 1800.0, 2000.0]);
         r.metric.set_measurement("foobar");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn not_equal_list_reverse() {
+    #[tokio::test]
+    async fn not_equal_list_reverse() {
         let q = r#"(100, 1000, 1400, 600) != time()"#;
         let expected = &[NAN, 1200.0, NAN, 1600.0, 1800.0, 2000.0];
-        assert_result_eq(q, expected);
+        assert_result_eq(q, expected).await;
     }
 
-    #[test]
-    fn quantiles_over_time_single_sample() {
+    #[tokio::test]
+    async fn quantiles_over_time_single_sample() {
         let q = r#"sort_by_label(
         quantiles_over_time("phi", 0.5, 0.9, time()[100s:100s]),
         "phi",
@@ -3284,11 +3190,11 @@ mod tests {
         let mut r2 = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r2.metric.set("phi", "0.9");
 
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn quantiles_over_time_multiple_samples() {
+    #[tokio::test]
+    async fn quantiles_over_time_multiple_samples() {
         let q = r#"sort_by_label(
         quantiles_over_time("phi", 0.5, 0.9,
         label_set(round(rand(0), 0.01), "__name__", "foo", "xx", "yy")[200s:5s]
@@ -3305,11 +3211,11 @@ mod tests {
         r2.metric.set("phi", "0.9");
         r2.metric.set("xx", "yy");
 
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn count_values_over_time() {
+    #[tokio::test]
+    async fn count_values_over_time() {
         let q = r##"sort_by_label(
             count_values_over_time("foo", round(label_set(rand(0), "x", "y"), 0.4)[200s:5s]),
             "foo",
@@ -3326,11 +3232,11 @@ mod tests {
         r3.metric.set("foo", "0.8");
         r3.metric.set("x", "y");
 
-        test_query(q, vec![r1, r2, r3]);
+        test_query(q, vec![r1, r2, r3]).await;
     }
 
-    #[test]
-    fn histogram_over_time() {
+    #[tokio::test]
+    async fn histogram_over_time() {
         let q = r#"sort_by_label(histogram_over_time(alias(label_set(rand(0)*1.3+1.1, "foo", "bar"), "xxx")[200s:5s]), "vmrange")"#;
         let mut r1 = make_result(&[1_f64, 2.0, 2.0, 2.0, NAN, 1.0]);
         r1.metric.set("foo", "bar");
@@ -3361,11 +3267,11 @@ mod tests {
         r7.metric.set("vmrange", "2.154e+00...2.448e+00");
 
         let result_expected: Vec<QueryResult> = vec![r1, r2, r3, r4, r5, r6, r7];
-        test_query(q, result_expected)
+        test_query(q, result_expected).await;
     }
 
-    #[test]
-    fn sum_histogram_over_time_by_vmrange() {
+    #[tokio::test]
+    async fn sum_histogram_over_time_by_vmrange() {
         let q = r#"sort_by_label(
         buckets_limit(
         3,
@@ -3381,105 +3287,105 @@ mod tests {
         let mut r3 = make_result(&[40_f64, 40.0, 40.0, 40.0, 40.0, 40.0]);
         r3.metric.set("le", "2.448e+00");
 
-        test_query(q, vec![r1, r2, r3]);
+        test_query(q, vec![r1, r2, r3]).await;
     }
 
-    #[test]
-    fn sum_histogram_over_time() {
+    #[tokio::test]
+    async fn sum_histogram_over_time() {
         let q = r#"sum(histogram_over_time(alias(label_set(rand(0)*1.3+1.1, "foo", "bar"), "xxx")[200s:5s]))"#;
-        assert_result_eq(q, &[40.0, 40.0, 40.0, 40.0, 40.0, 40.0]);
+        assert_result_eq(q, &[40.0, 40.0, 40.0, 40.0, 40.0, 40.0]).await;
     }
 
-    #[test]
-    fn duration_over_time() {
+    #[tokio::test]
+    async fn duration_over_time() {
         let q = "duration_over_time((time()<1200)[600s:10s], 20s)";
-        assert_result_eq(q, &[590.0, 580.0, 380.0, 180.0, NAN, NAN]);
+        assert_result_eq(q, &[590.0, 580.0, 380.0, 180.0, NAN, NAN]).await;
     }
 
-    #[test]
-    fn share_gt_over_time() {
+    #[tokio::test]
+    async fn share_gt_over_time() {
         let q = "share_gt_over_time(round(rand(0))[200s:10s], 0.7)";
-        assert_result_eq(q, &[0.55, 0.45, 0.6, 0.5, 0.45, 0.35]);
+        assert_result_eq(q, &[0.55, 0.45, 0.6, 0.5, 0.45, 0.35]).await;
     }
 
-    #[test]
-    fn share_eq_over_time() {
+    #[tokio::test]
+    async fn share_eq_over_time() {
         let q = "share_eq_over_time(rand(0)[200s:10s], 0.7)";
-        assert_result_eq(q, &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+        assert_result_eq(q, &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]).await;
     }
 
-    #[test]
-    fn share_le_over_time() {
+    #[tokio::test]
+    async fn share_le_over_time() {
         let q = "share_le_over_time(rand(0)[200s:10s], 0.7)";
-        assert_result_eq(q, &[0.75, 0.9, 0.5, 0.65, 0.8, 0.8]);
+        assert_result_eq(q, &[0.75, 0.9, 0.5, 0.65, 0.8, 0.8]).await;
     }
 
-    #[test]
-    fn count_gt_over_time() {
+    #[tokio::test]
+    async fn count_gt_over_time() {
         let q = "count_gt_over_time(rand(0)[200s:10s], 0.7)";
-        assert_result_eq(q, &[5.0, 2.0, 10.0, 7.0, 4.0, 4.0]);
+        assert_result_eq(q, &[5.0, 2.0, 10.0, 7.0, 4.0, 4.0]).await;
     }
 
-    #[test]
-    fn count_le_over_time() {
+    #[tokio::test]
+    async fn count_le_over_time() {
         let q = "count_le_over_time(rand(0)[200s:10s], 0.7)";
-        assert_result_eq(q, &[15.0, 18.0, 10.0, 13.0, 16.0, 16.0]);
+        assert_result_eq(q, &[15.0, 18.0, 10.0, 13.0, 16.0, 16.0]).await;
     }
 
-    #[test]
-    fn count_eq_over_time() {
+    #[tokio::test]
+    async fn count_eq_over_time() {
         let q = "count_eq_over_time(round(5*rand(0))[200s:10s], 1)";
-        assert_result_eq(q, &[3.0, 4.0, 3.0, 6.0, 6.0, 6.0]);
+        assert_result_eq(q, &[3.0, 4.0, 3.0, 6.0, 6.0, 6.0]).await;
     }
 
-    #[test]
-    fn count_ne_over_time() {
+    #[tokio::test]
+    async fn count_ne_over_time() {
         let q = "count_ne_over_time(round(5*rand(0))[200s:10s], 1)";
-        assert_result_eq(q, &[17.0, 16.0, 17.0, 14.0, 14.0, 14.0]);
+        assert_result_eq(q, &[17.0, 16.0, 17.0, 14.0, 14.0, 14.0]).await;
     }
 
-    #[test]
-    fn sum_gt_over_time() {
+    #[tokio::test]
+    async fn sum_gt_over_time() {
         let q = "round(sum_gt_over_time(rand(0)[200s:10s], 0.7), 0.1)";
-        assert_result_eq(q, &[4.3, 1.8, 8.5, 5.9, 3.4, 3.4]);
+        assert_result_eq(q, &[4.3, 1.8, 8.5, 5.9, 3.4, 3.4]).await;
     }
 
-    #[test]
-    fn sum_le_over_time() {
+    #[tokio::test]
+    async fn sum_le_over_time() {
         let q = "round(sum_le_over_time(rand(0)[200s:10s], 0.7), 0.1)";
-        assert_result_eq(q, &[5.0, 6.5, 3.0, 4.1, 6.2, 4.1]);
+        assert_result_eq(q, &[5.0, 6.5, 3.0, 4.1, 6.2, 4.1]).await;
     }
 
-    #[test]
-    fn sum_eq_over_time() {
+    #[tokio::test]
+    async fn sum_eq_over_time() {
         let q = "round(sum_eq_over_time(rand(0)[200s:10s], 0.7), 0.1)";
-        assert_result_eq(q, &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+        assert_result_eq(q, &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]).await;
     }
 
-    #[test]
-    fn increases_over_time() {
+    #[tokio::test]
+    async fn increases_over_time() {
         assert_result_eq(
             "increases_over_time(rand(0)[200s:10s])",
             &[9.0, 14.0, 12.0, 11.0, 9.0, 11.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn decreases_over_time() {
+    #[tokio::test]
+    async fn decreases_over_time() {
         assert_result_eq(
             "decreases_over_time(rand(0)[200s:10s])",
             &[11.0, 6.0, 8.0, 9.0, 11.0, 9.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn limitk() {
+    #[tokio::test]
+    async fn limitk() {
         let q = r#"limitk(-1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"))"#;
-        test_query(q, vec![]);
+        test_query(q, vec![]).await;
     }
 
-    #[test]
-    fn limitk_1() {
+    #[tokio::test]
+    async fn limitk_1() {
         // NOTE: the answer here is dependent on the hashing algo used to preserve consistent
         // ordering of the series. As such, it depends on the hash and not the data. If the
         // implementation changes, it's legit to change the answer here.
@@ -3493,11 +3399,11 @@ mod tests {
             13.333333333333334,
         ]);
         r1.metric.set("xbaz", "sss");
-        test_query(q, vec![r1]);
+        test_query(q, vec![r1]).await;
     }
 
-    #[test]
-    fn limitk_10() {
+    #[tokio::test]
+    async fn limitk_10() {
         let q = r#"sort(limitk(10, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"#;
         let mut r1 = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
         r1.metric.set("foo", "bar");
@@ -3510,11 +3416,11 @@ mod tests {
             13.333333333333334,
         ]);
         r2.metric.set("baz", "sss");
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn limitk_inf() {
+    #[tokio::test]
+    async fn limitk_inf() {
         let q = r#"sort(limitk(inf, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"#;
         let mut r1 = make_result(&[10.0, 10.0, 10.0, 10.0, 10.0, 10.0]);
         r1.metric.set("foo", "bar");
@@ -3527,26 +3433,26 @@ mod tests {
             13.333333333333334,
         ]);
         r2.metric.set("baz", "sss");
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn any() {
+    #[tokio::test]
+    async fn any() {
         let q = r#"any(label_set(10, "__name__", "x", "foo", "bar") or label_set(time()/150, "__name__", "y", "baz", "sss"))"#;
         let mut r = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
         r.metric.set_measurement("x");
         r.metric.set("foo", "bar");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn any_empty_series() {
+    #[tokio::test]
+    async fn any_empty_series() {
         let q = r#"any(label_set(time()<0, "foo", "bar"))"#;
-        test_query(q, vec![])
+        test_query(q, vec![]).await;
     }
 
-    #[test]
-    fn group_by_test() {
+    #[tokio::test]
+    async fn group_by_test() {
         let q = r#"group((
         label_set(5, "__name__", "data", "test", "three samples", "point", "a"),
         label_set(6, "__name__", "data", "test", "three samples", "point", "b"),
@@ -3555,11 +3461,11 @@ mod tests {
         let mut r = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r.metric.reset_measurement();
         r.metric.set("test", "three samples");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn group_without_point() {
+    #[tokio::test]
+    async fn group_without_point() {
         let q = r#"group((
         label_set(5, "__name__", "data", "test", "three samples", "point", "a"),
         label_set(6, "__name__", "data", "test", "three samples", "point", "b"),
@@ -3568,33 +3474,33 @@ mod tests {
         let mut r = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r.metric.reset_measurement();
         r.metric.set("test", "three samples");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn top_k() {
+    #[tokio::test]
+    async fn top_k() {
         let q =
             r#"sort(topk(-1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"#;
-        test_query(q, vec![]);
+        test_query(q, vec![]).await;
 
         let q = r#"topk(1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"))"#;
         let mut r1 = make_result(&[NAN, NAN, NAN, 10.666666666666666, 12.0, 13.333333333333334]);
         r1.metric.set("baz", "sss");
         let mut r2 = make_result(&[10_f64, 10.0, 10.0, NAN, NAN, NAN]);
         r2.metric.set("foo", "bar");
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn topk_min() {
+    #[tokio::test]
+    async fn topk_min() {
         let q = r#"sort(topk_min(1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"#;
         let mut r1 = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
         r1.metric.set("foo", "bar");
-        test_query(q, vec![r1]);
+        test_query(q, vec![r1]).await;
     }
 
-    #[test]
-    fn bottomk_min() {
+    #[tokio::test]
+    async fn bottomk_min() {
         let q = r#"sort(bottomk_min(1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"#;
         let mut r1 = make_result(&[
             6.666666666666667,
@@ -3605,21 +3511,21 @@ mod tests {
             13.333333333333334,
         ]);
         r1.metric.set("baz", "sss");
-        test_query(q, vec![r1]);
+        test_query(q, vec![r1]).await;
     }
 
-    #[test]
-    fn topk_max_histogram_over_time() {
+    #[tokio::test]
+    async fn topk_max_histogram_over_time() {
         let q = r#"topk_max(1, histogram_over_time(alias(label_set(rand(0)*1.3+1.1, "foo", "bar"), "xxx")[200s:5s]))"#;
         let mut r = make_result(&[6_f64, 6.0, 9.0, 13.0, 7.0, 7.0]);
         r.metric.set("foo", "bar");
         r.metric.set("vmrange", "1.292e+00...1.468e+00");
 
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn topk_max() {
+    #[tokio::test]
+    async fn topk_max() {
         let q =
             r#"topk_max(1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"))"#;
         let mut r1 = make_result(&[
@@ -3631,7 +3537,7 @@ mod tests {
             13.333333333333334,
         ]);
         r1.metric.set("baz", "sss");
-        test_query(q, vec![r1]);
+        test_query(q, vec![r1]).await;
 
         let q = r#"sort_desc(topk_max(1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"), "remaining_sum=foo"))"#;
         let mut r1 = make_result(&[
@@ -3646,7 +3552,7 @@ mod tests {
         let mut r2 = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
         r2.metric.set("remaining_sum", "foo");
 
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
 
         let q = r#"sort_desc(topk_max(2, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"), "remaining_sum"))"#;
         let mut r1 = make_result(&[
@@ -3661,7 +3567,7 @@ mod tests {
         let mut r2 = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
         r2.metric.set("foo", "bar");
 
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
 
         let q = r#"sort_desc(topk_max(3, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"), "remaining_sum"))"#;
         let mut r1 = make_result(&[
@@ -3676,19 +3582,19 @@ mod tests {
         let mut r2 = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
         r2.metric.set("foo", "bar");
 
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn bottomk_max() {
+    #[tokio::test]
+    async fn bottomk_max() {
         let q = r#"sort(bottomk_max(1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"#;
         let mut r1 = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
         r1.metric.set("foo", "bar");
-        test_query(q, vec![r1]);
+        test_query(q, vec![r1]).await;
     }
 
-    #[test]
-    fn topk_avg() {
+    #[tokio::test]
+    async fn topk_avg() {
         let q = r#"sort(topk_avg(1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"#;
         let mut r1 = make_result(&[
             6.666666666666667,
@@ -3699,11 +3605,11 @@ mod tests {
             13.333333333333334,
         ]);
         r1.metric.set("baz", "sss");
-        test_query(q, vec![r1]);
+        test_query(q, vec![r1]).await;
     }
 
-    #[test]
-    fn bottomk_avg() {
+    #[tokio::test]
+    async fn bottomk_avg() {
         let q = r#"sort(bottomk_avg(1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"#;
         let mut r1 = make_result(&[
             6.666666666666667,
@@ -3714,11 +3620,11 @@ mod tests {
             13.333333333333334,
         ]);
         r1.metric.set("baz", "sss");
-        test_query(q, vec![r1])
+        test_query(q, vec![r1]).await;
     }
 
-    #[test]
-    fn topk_median_1() {
+    #[tokio::test]
+    async fn topk_median_1() {
         let q = r#"sort(topk_median(1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"#;
         let mut r1 = make_result(&[
             6.666666666666667,
@@ -3729,11 +3635,11 @@ mod tests {
             13.333333333333334,
         ]);
         r1.metric.set("baz", "sss");
-        test_query(q, vec![r1])
+        test_query(q, vec![r1]).await;
     }
 
-    #[test]
-    fn topk_last_1() {
+    #[tokio::test]
+    async fn topk_last_1() {
         let q = r#"sort(topk_last(1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"#;
         let mut r1 = make_result(&[
             6.666666666666667,
@@ -3744,27 +3650,27 @@ mod tests {
             13.333333333333334,
         ]);
         r1.metric.set("baz", "sss");
-        test_query(q, vec![r1]);
+        test_query(q, vec![r1]).await;
     }
 
-    #[test]
-    fn bottomk_median() {
+    #[tokio::test]
+    async fn bottomk_median() {
         let q = r#"sort(bottomk_median(1, label_set(10, "foo", "bar") or label_set(time()/15, "baz", "sss")))"#;
         let mut r1 = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
         r1.metric.set("foo", "bar");
-        test_query(q, vec![r1]);
+        test_query(q, vec![r1]).await;
     }
 
-    #[test]
-    fn bottomk_last() {
+    #[tokio::test]
+    async fn bottomk_last() {
         let q = r#"sort(bottomk_last(1, label_set(10, "foo", "bar") or label_set(time()/15, "baz", "sss")))"#;
         let mut r1 = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
         r1.metric.set("foo", "bar");
-        test_query(q, vec![r1]);
+        test_query(q, vec![r1]).await;
     }
 
-    #[test]
-    fn topk_nan_timeseries() {
+    #[tokio::test]
+    async fn topk_nan_timeseries() {
         let q = r#"topk(1, label_set(NaN, "foo", "bar") or label_set(time()/150, "baz", "sss")) default 0"#;
         let mut r1 = make_result(&[
             6.666666666666667,
@@ -3775,11 +3681,11 @@ mod tests {
             13.333333333333334,
         ]);
         r1.metric.set("baz", "sss");
-        test_query(q, vec![r1]);
+        test_query(q, vec![r1]).await;
     }
 
-    #[test]
-    fn topk_2() {
+    #[tokio::test]
+    async fn topk_2() {
         let q =
             r#"sort(topk(2, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"#;
         let mut r1 = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
@@ -3793,17 +3699,17 @@ mod tests {
             13.333333333333334,
         ]);
         r2.metric.set("baz", "sss");
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn topk_nan() {
+    #[tokio::test]
+    async fn topk_nan() {
         let q = r#"sort(topk(NaN, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"#;
-        test_query(q, vec![]);
+        test_query(q, vec![]).await;
     }
 
-    #[test]
-    fn topk_100500() {
+    #[tokio::test]
+    async fn topk_100500() {
         let q = r#"sort(topk(100500, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"#;
         let mut r1 = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
         r1.metric.set("foo", "bar");
@@ -3816,96 +3722,96 @@ mod tests {
             13.333333333333334,
         ]);
         r2.metric.set("baz", "sss");
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn bottomk() {
+    #[tokio::test]
+    async fn bottomk() {
         let q = r#"bottomk(1, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss") or label_set(time()<100, "a", "b"))"#;
         let mut r1 = make_result(&[NAN, NAN, NAN, 10.0, 10.0, 10.0]);
         r1.metric.set("foo", "bar");
         let mut r2 = make_result(&[6.666666666666667, 8.0, 9.333333333333334, NAN, NAN, NAN]);
         r2.metric.set("baz", "sss");
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn keep_last_value() {
+    #[tokio::test]
+    async fn keep_last_value() {
         let q = r#"keep_last_value(label_set(time() < 1300 default time() > 1700, "__name__", "foobar", "x", "y"))"#;
         let mut r1 = make_result(&[1000_f64, 1200.0, 1200.0, 1200.0, 1800.0, 2000.0]);
         r1.metric.set_measurement("foobar");
         r1.metric.set("x", "y");
-        test_query(q, vec![r1]);
+        test_query(q, vec![r1]).await;
     }
 
-    #[test]
-    fn keep_next_value() {
+    #[tokio::test]
+    async fn keep_next_value() {
         let q = r#"keep_next_value(label_set(time() < 1300 default time() > 1700, "__name__", "foobar", "x", "y"))"#;
         let mut r1 = make_result(&[1000_f64, 1200.0, 1800.0, 1800.0, 1800.0, 2000.0]);
         r1.metric.set_measurement("foobar");
         r1.metric.set("x", "y");
-        test_query(q, vec![r1]);
+        test_query(q, vec![r1]).await;
     }
 
-    #[test]
-    fn interpolate() {
+    #[tokio::test]
+    async fn interpolate() {
         let q = r#"interpolate(label_set(time() < 1300 default time() > 1700, "__name__", "foobar", "x", "y"))"#;
         let mut r1 = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r1.metric.set_measurement("foobar");
         r1.metric.set("x", "y");
-        test_query(q, vec![r1]);
+        test_query(q, vec![r1]).await;
     }
 
-    #[test]
-    fn interpolate_tail() {
+    #[tokio::test]
+    async fn interpolate_tail() {
         let q = "interpolate(time() < 1300)";
-        assert_result_eq(q, &[1000_f64, 1200.0, NAN, NAN, NAN, NAN]);
+        assert_result_eq(q, &[1000_f64, 1200.0, NAN, NAN, NAN, NAN]).await;
     }
 
-    #[test]
-    fn interpolate_head() {
+    #[tokio::test]
+    async fn interpolate_head() {
         let q = "interpolate(time() > 1500)";
-        assert_result_eq(q, &[NAN, NAN, NAN, 1600.0, 1800.0, 2000.0]);
+        assert_result_eq(q, &[NAN, NAN, NAN, 1600.0, 1800.0, 2000.0]).await;
     }
 
-    #[test]
-    fn interpolate_tail_head_and_middle() {
+    #[tokio::test]
+    async fn interpolate_tail_head_and_middle() {
         let q =
             "interpolate(time() > 1100 and time() < 1300 default time() > 1700 and time() < 1900)";
-        assert_result_eq(q, &[NAN, 1200.0, 1400.0, 1600.0, 1800.0, NAN]);
+        assert_result_eq(q, &[NAN, 1200.0, 1400.0, 1600.0, 1800.0, NAN]).await;
     }
 
-    #[test]
-    fn distinct_over_time_err() {
+    #[tokio::test]
+    async fn distinct_over_time_err() {
         assert_result_eq(
             "distinct_over_time((time() < 1700)[2.5i])",
             &[3.0, 3.0, 3.0, 3.0, 2.0, 1.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn distinct_over_time() {
+    #[tokio::test]
+    async fn distinct_over_time() {
         assert_result_eq(
             "distinct_over_time((time() < 1700)[500s])",
             &[3.0, 3.0, 3.0, 3.0, 2.0, 1.0],
-        );
+        ).await;
         assert_result_eq(
             "distinct_over_time((time() < 1700)[2.5i])",
             &[3.0, 3.0, 3.0, 3.0, 2.0, 1.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn distinct() {
+    #[tokio::test]
+    async fn distinct() {
         let q = r#"distinct(union(
         1+time() > 1100,
         label_set(time() > 1700, "foo", "bar"),
         ))"#;
-        assert_result_eq(q, &[NAN, 1.0, 1.0, 1.0, 2.0, 2.0]);
+        assert_result_eq(q, &[NAN, 1.0, 1.0, 1.0, 2.0, 2.0]).await;
     }
 
-    #[test]
-    fn vector2_if_vector1() {
+    #[tokio::test]
+    async fn vector2_if_vector1() {
         let q = r#"(
         label_set(time()/10, "x", "y"),
         label_set(time(), "foo", "bar", "__name__", "x"),
@@ -3915,11 +3821,11 @@ mod tests {
         let mut r = make_result(&[NAN, NAN, NAN, 1600.0, 1800.0, 2000.0]);
         r.metric.set_measurement("x");
         r.metric.set("foo", "bar");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn vector2_if_vector2() {
+    #[tokio::test]
+    async fn vector2_if_vector2() {
         let q = r#"sort((
         label_set(time()/10, "x", "y"),
         label_set(time(), "foo", "bar", "__name__", "x"),
@@ -3932,58 +3838,58 @@ mod tests {
         let mut r2 = make_result(&[NAN, NAN, NAN, 1600.0, 1800.0, 2000.0]);
         r2.metric.set_measurement("x");
         r2.metric.set("foo", "bar");
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn scalar_if_vector1() {
+    #[tokio::test]
+    async fn scalar_if_vector1() {
         let q = r#"time() if (
         label_set(123, "foo", "bar"),
         )"#;
-        test_query(q, vec![]);
+        test_query(q, vec![]).await;
     }
 
-    #[test]
-    fn scalar_if_vector2() {
+    #[tokio::test]
+    async fn scalar_if_vector2() {
         let q = r#"time() if (
         label_set(123, "foo", "bar"),
         alias(time() > 1400.0, "xxx"),
         )"#;
-        assert_result_eq(q, &[NAN, NAN, NAN, 1600.0, 1800.0, 2000.0]);
+        assert_result_eq(q, &[NAN, NAN, NAN, 1600.0, 1800.0, 2000.0]).await;
     }
 
-    #[test]
-    fn if_default() {
+    #[tokio::test]
+    async fn if_default() {
         let q = "time() if time() > 1400 default -time()";
-        assert_result_eq(q, &[-1000.0, -1200.0, -1400.0, 1600.0, 1800.0, 2000.0]);
+        assert_result_eq(q, &[-1000.0, -1200.0, -1400.0, 1600.0, 1800.0, 2000.0]).await;
     }
 
-    #[test]
-    fn ifnot_default() {
+    #[tokio::test]
+    async fn ifnot_default() {
         let q = "time() ifnot time() > 1400 default -time()";
-        assert_result_eq(q, &[1000_f64, 1200.0, 1400.0, -1600.0, -1800.0, -2000.0]);
+        assert_result_eq(q, &[1000_f64, 1200.0, 1400.0, -1600.0, -1800.0, -2000.0]).await;
     }
 
-    #[test]
-    fn ifnot() {
+    #[tokio::test]
+    async fn ifnot() {
         let q = "time() ifnot time() > 1400";
-        assert_result_eq(q, &[1000_f64, 1200.0, 1400.0, NAN, NAN, NAN]);
+        assert_result_eq(q, &[1000_f64, 1200.0, 1400.0, NAN, NAN, NAN]).await;
     }
 
-    #[test]
-    fn ifnot_no_matching_timeseries() {
+    #[tokio::test]
+    async fn ifnot_no_matching_timeseries() {
         let q = r#"label_set(time(), "foo", "bar") ifnot label_set(time() > 1400.0, "x", "y")"#;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric.set("foo", "bar");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn test_quantile() {
+    #[tokio::test]
+    async fn test_quantile() {
         let expected = [NEG_INF; 6];
         let q =
             r#"quantile(-2, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"))"#;
-        assert_result_eq(q, &expected);
+        assert_result_eq(q, &expected).await;
 
         let q =
             r#"quantile(0.2, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"))"#;
@@ -3997,7 +3903,7 @@ mod tests {
                 10.4,
                 10.666666666666668,
             ],
-        );
+        ).await;
 
         let q =
             r#"quantile(0.5, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"))"#;
@@ -4011,11 +3917,11 @@ mod tests {
                 11.0,
                 11.666666666666668,
             ],
-        );
+        ).await;
     }
 
-    #[test]
-    fn quantiles() {
+    #[tokio::test]
+    async fn quantiles() {
         let q = r#"sort(quantiles("phi", 0.2, 0.5, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss")))"#;
         let mut r1 = make_result(&[
             7.333333333333334,
@@ -4035,11 +3941,11 @@ mod tests {
             11.666666666666668,
         ]);
         r2.metric.set("phi", "0.5");
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn median() {
+    #[tokio::test]
+    async fn median() {
         let q = r#"median(label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"))"#;
         let r = make_result(&[
             8.333333333333334,
@@ -4049,41 +3955,41 @@ mod tests {
             11.0,
             11.666666666666668,
         ]);
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
 
         let q = r#"median(union(label_set(10, "foo", "bar"), label_set(time()/150, "baz", "sss"), time()/200))"#;
         assert_result_eq(
             q,
             &[6.666666666666667, 8.0, 9.333333333333334, 10.0, 10.0, 10.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn quantile_3() {
+    #[tokio::test]
+    async fn quantile_3() {
         let q =
             r#"quantile(3, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"))"#;
-        assert_result_eq(q, &[INF, INF, INF, INF, INF, INF]);
+        assert_result_eq(q, &[INF, INF, INF, INF, INF, INF]).await;
     }
 
-    #[test]
-    fn quantile_nan() {
+    #[tokio::test]
+    async fn quantile_nan() {
         let q =
             r#"quantile(NaN, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"))"#;
-        test_query(q, vec![]);
+        test_query(q, vec![]).await;
     }
 
-    #[test]
-    fn mad() {
+    #[tokio::test]
+    async fn mad() {
         let q = r#"mad(
         alias(time(), "metric1"),
         alias(time()*1.5, "metric2"),
         label_set(time()*0.9, "baz", "sss"),
         )"#;
-        assert_result_eq(q, &[100.0, 120.0, 140.0, 160.0, 180.0, 200.0]);
+        assert_result_eq(q, &[100.0, 120.0, 140.0, 160.0, 180.0, 200.0]).await;
     }
 
-    #[test]
-    fn outliers_iqr() {
+    #[tokio::test]
+    async fn outliers_iqr() {
         let q = r#"sort(outliers_iqr((
             alias(time(), "m1"),
             alias(time()*1.5, "m2"),
@@ -4095,11 +4001,11 @@ mod tests {
         r1.metric.measurement = "m5".to_string();
         let mut r2 = make_result(&[10000.0, 12000.0, 14000.0, 16000.0, 18000.0, 20000.0]);
         r2.metric.measurement = "m3".to_string();
-        test_query(q, vec![r1, r2])
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn outliers_mad_1() {
+    #[tokio::test]
+    async fn outliers_mad_1() {
         let q = r#"outliers_mad(1, (
         alias(time(), "metric1"),
         alias(time()*1.5, "metric2"),
@@ -4107,41 +4013,41 @@ mod tests {
         ))"#;
         let mut r = make_result(&[1500_f64, 1800.0, 2100.0, 2400.0, 2700.0, 3000.0]);
         r.metric.set_measurement("metric2");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn outliers_mad_5() {
+    #[tokio::test]
+    async fn outliers_mad_5() {
         let q = r#"outliers_mad(5, (
         alias(time(), "metric1"),
         alias(time()*1.5, "metric2"),
         label_set(time()*0.9, "baz", "sss"),
         ))"#;
-        test_query(q, vec![]);
+        test_query(q, vec![]).await;
     }
 
-    #[test]
-    fn outliersk_0() {
+    #[tokio::test]
+    async fn outliersk_0() {
         let q = r#"outliersk(0, (
         label_set(1300, "foo", "bar"),
         label_set(time(), "baz", "sss"),
         ))"#;
-        test_query(q, vec![]);
+        test_query(q, vec![]).await;
     }
 
-    #[test]
-    fn outliersk_1() {
+    #[tokio::test]
+    async fn outliersk_1() {
         let q = r#"outliersk(1, (
         label_set(2000.0, "foo", "bar"),
         label_set(time(), "baz", "sss"),
         ))"#;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric.set("baz", "sss");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn outliersk_3() {
+    #[tokio::test]
+    async fn outliersk_3() {
         let q = r#"sort_desc(outliersk(3, (
         label_set(1300, "foo", "bar"),
         label_set(time(), "baz", "sss"),
@@ -4150,506 +4056,506 @@ mod tests {
         r1.metric.set("baz", "sss");
         let mut r2 = make_result(&[1300_f64, 1300.0, 1300.0, 1300.0, 1300.0, 1300.0]);
         r2.metric.set("foo", "bar");
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn range_trim_outliers() {
+    #[tokio::test]
+    async fn range_trim_outliers() {
         let q = "range_trim_outliers(0.5, time())";
         let r = make_result(&[f64::NAN, f64::NAN, 1400.0, 1600.0, f64::NAN, f64::NAN]);
         let result_expected = vec![r];
-        test_query(q, result_expected);
+        test_query(q, result_expected).await;
     }
 
-    #[test]
-    fn range_trim_outliers_1() {
+    #[tokio::test]
+    async fn range_trim_outliers_1() {
         let q = "range_trim_outliers(0.5, time() > 1200)";
         let r = make_result(&[f64::NAN, f64::NAN, f64::NAN, 1600.0, 1800.00, f64::NAN]);
         let result_expected = vec![r];
-        test_query(q, result_expected);
+        test_query(q, result_expected).await;
     }
 
-    #[test]
-    fn range_trim_spikes() {
+    #[tokio::test]
+    async fn range_trim_spikes() {
         let q = "range_trim_spikes(0.2, time())";
         let mut r = QueryResult::default();
         r.metric = MetricName::default();
         r.values = vec![f64::NAN, 1200_f64, 1400_f64, 1600_f64, 1800_f64, f64::NAN];
         r.timestamps = Vec::from(TIMESTAMPS_EXPECTED);
-        test_query(q, vec![r])
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn range_trim_spikes_1() {
+    #[tokio::test]
+    async fn range_trim_spikes_1() {
         let q = "range_trim_spikes(0.2, time() > 1200 <= 1800)";
         let r = make_result(&[f64::NAN, f64::NAN, f64::NAN, 1600.0, f64::NAN, f64::NAN]);
         let result_expected = vec![r];
-        test_query(q, result_expected);
+        test_query(q, result_expected).await;
     }
 
-    #[test]
-    fn range_trim_zscore() {
+    #[tokio::test]
+    async fn range_trim_zscore() {
         let q = r#"range_trim_zscore(0.9, time())"#;
         let r = make_result(&[f64::NAN, 1200.0, 1400.0, 1600.0, 1800.0, f64::NAN]);
         let result_expected = vec![r];
-        test_query(q, result_expected)
+        test_query(q, result_expected).await;
     }
 
-    #[test]
-    fn range_trim_zscore_1() {
+    #[tokio::test]
+    async fn range_trim_zscore_1() {
         let q = r#"round(range_zscore(time() > 1200 < 1800), 0.1)"#;
         let r = make_result(&[f64::NAN, f64::NAN, -1.0, 1.0, f64::NAN, f64::NAN]);
         let result_expected = vec![r];
-        test_query(q, result_expected)
+        test_query(q, result_expected).await;
     }
 
-    #[test]
-    fn range_zscore() {
+    #[tokio::test]
+    async fn range_zscore() {
         let q = "round(range_zscore(time()), 0.1)";
         let r = make_result(&[-1.5, -0.9, -0.3, 0.3, 0.9, 1.5]);
-        test_query(q, vec![r])
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn range_quantile() {
+    #[tokio::test]
+    async fn range_quantile() {
         let q = "range_quantile(0.5, time())";
         let r = make_result(&[1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0]);
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn range_quantile_1() {
+    #[tokio::test]
+    async fn range_quantile_1() {
         let q = "range_quantile(0.5, time() > 1200 < 2000)";
         let r = make_result(&[1600.0, 1600.0, 1600.0, 1600.0, 1600.0, 1600.0]);
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn range_stddev() {
+    #[tokio::test]
+    async fn range_stddev() {
         let q = "round(range_stddev(time()), 0.01)";
         let r = make_result(&[341.57, 341.57, 341.57, 341.57, 341.57, 341.57]);
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn range_stddev_1() {
+    #[tokio::test]
+    async fn range_stddev_1() {
         let q = "round(range_stddev(time() > 1200 < 1800),0.01)";
         let r = make_result(&[100.0, 100.0, 100.0, 100.0, 100.0, 100.0]);
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn range_stdvar() {
+    #[tokio::test]
+    async fn range_stdvar() {
         let q = "round(range_stdvar(time()), 0.01)";
         let r = make_result(&[
             116666.67, 116666.67, 116666.67, 116666.67, 116666.67, 116666.67,
         ]);
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn range_stdvar_1() {
+    #[tokio::test]
+    async fn range_stdvar_1() {
         let q = "round(range_stdvar(time() > 1200 < 1800),0.01)";
         let r = make_result(&[10_000.0, 10_000.0, 10_000.0, 10_000.0, 10_000.0, 10_000.0]);
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn range_median() {
+    #[tokio::test]
+    async fn range_median() {
         let q = "range_median(time())";
         let r = make_result(&[1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0]);
-        test_query(q, vec![r])
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn test_ru() {
-        assert_result_eq("ru(time(), 2000)", &[50.0, 40.0, 30.0, 20.0, 10.0, 0.0]);
+    #[tokio::test]
+    async fn test_ru() {
+        assert_result_eq("ru(time(), 2000)", &[50.0, 40.0, 30.0, 20.0, 10.0, 0.0]).await;
 
         assert_result_eq(
             "ru(time() offset 100s, 2000)",
             &[60.0, 50.0, 40.0, 30.0, 20.0, 10.0],
-        );
+        ).await;
 
         assert_result_eq(
             "ru(time() offset 0.5i, 2000)",
             &[60.0, 50.0, 40.0, 30.0, 20.0, 10.0],
-        );
+        ).await;
 
         assert_result_eq(
             "ru(time() offset 1.5i, 2000)",
             &[70.0, 60.0, 50.0, 40.0, 30.0, 20.0],
-        );
+        ).await;
 
-        assert_result_eq("ru(time(), 1600)", &[37.5, 25.0, 12.5, 0.0, 0.0, 0.0]);
+        assert_result_eq("ru(time(), 1600)", &[37.5, 25.0, 12.5, 0.0, 0.0, 0.0]).await;
 
         assert_result_eq(
             "ru(1500-time(), 1000)",
             &[50.0, 70.0, 90.0, 100.0, 100.0, 100.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn mode_over_time() {
+    #[tokio::test]
+    async fn mode_over_time() {
         let q = "mode_over_time(round(time()/500)[100s:1s])";
-        assert_result_eq(q, &[2.0, 2.0, 3.0, 3.0, 4.0, 4.0]);
+        assert_result_eq(q, &[2.0, 2.0, 3.0, 3.0, 4.0, 4.0]).await;
     }
 
-    #[test]
-    fn rate_over_sum() {
+    #[tokio::test]
+    async fn rate_over_sum() {
         let q = "rate_over_sum(round(time()/500)[100s:5s])";
-        assert_result_eq(q, &[0.4, 0.4, 0.6, 0.6, 0.71, 0.8]);
+        assert_result_eq(q, &[0.4, 0.4, 0.6, 0.6, 0.71, 0.8]).await;
     }
 
-    #[test]
-    fn zscore_over_time_rand() {
+    #[tokio::test]
+    async fn zscore_over_time_rand() {
         let q = "round(zscore_over_time(rand(0)[100s:10s]), 0.01)";
-        assert_result_eq(q, &[-1.12, 0.5, 1.05, 1.88, -1.16, 0.79]);
+        assert_result_eq(q, &[-1.12, 0.5, 1.05, 1.88, -1.16, 0.79]).await;
     }
 
-    #[test]
-    fn zscore_over_time_const() {
+    #[tokio::test]
+    async fn zscore_over_time_const() {
         assert_result_eq(
             "zscore_over_time(1[100s:10s])",
             &[0_f64, 0.0, 0.0, 0.0, 0.0, 0.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn integrate() {
-        assert_result_eq("integrate(1)", &[200.0, 200.0, 200.0, 200.0, 200.0, 200.0]);
+    #[tokio::test]
+    async fn integrate() {
+        assert_result_eq("integrate(1)", &[200.0, 200.0, 200.0, 200.0, 200.0, 200.0]).await;
         assert_result_eq(
             "integrate(time()/1e3)",
             &[160.0, 200.0, 240.0, 280.0, 320.0, 360.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn rate() {
-        test_query("rate({})", vec![]);
+    #[tokio::test]
+    async fn rate() {
+        test_query("rate({})", vec![]).await;
 
-        assert_result_eq("rate(2000-time())", &[5.5, 4.5, 3.5, 2.5, 1.5, 0.5]);
+        assert_result_eq("rate(2000-time())", &[5.5, 4.5, 3.5, 2.5, 1.5, 0.5]).await;
 
-        assert_result_eq("rate((2000-time())[100s])", &[5.0, 4.0, 3.0, 2.0, 1.0, 0.0]);
+        assert_result_eq("rate((2000-time())[100s])", &[5.0, 4.0, 3.0, 2.0, 1.0, 0.0]).await;
 
         assert_result_eq(
             "rate((2000-time())[100s:100s])",
             &[0_f64, 0.0, 6.0, 4.0, 2.0, 0.0],
-        );
+        ).await;
 
         let q = "rate((2000-time())[100s:100s] offset 100s)";
-        assert_result_eq(q, &[0.0, 0.0, 7.0, 5.0, 3.0, 1.0]);
+        assert_result_eq(q, &[0.0, 0.0, 7.0, 5.0, 3.0, 1.0]).await;
 
         let q = "rate((2000-time())[100s:100s] offset 100s)[:] offset 100s";
-        assert_result_eq(q, &[0.0, 0.0, 0.0, 7.0, 5.0, 3.0]);
+        assert_result_eq(q, &[0.0, 0.0, 0.0, 7.0, 5.0, 3.0]).await;
 
-        test_query("rate({}[:5s])", vec![]);
+        test_query("rate({}[:5s])", vec![]).await;
     }
 
-    #[test]
-    fn rate_time() {
+    #[tokio::test]
+    async fn rate_time() {
         let q = r#"rate(label_set(alias(time(), "foo"), "x", "y"))"#;
         let mut r = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r.metric.set("x", "y");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn rate_time_keep_metric_names() {
+    #[tokio::test]
+    async fn rate_time_keep_metric_names() {
         let q = r#"rate(label_set(alias(time(), "foo"), "x", "y")) keep_metric_names"#;
         let mut r = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r.metric.set_measurement("foo");
         r.metric.set("x", "y");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn sum_rate_time_by_name_keep_metric_names() {
+    #[tokio::test]
+    async fn sum_rate_time_by_name_keep_metric_names() {
         let q = r#"sum(rate(label_set(alias(time(), "foo"), "x", "y")) keep_metric_names) by (__name__)"#;
         let mut r = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r.metric.set_measurement("foo");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn increase_pure() {
+    #[tokio::test]
+    async fn increase_pure() {
         assert_result_eq(
             "increase_pure(time())",
             &[200.0, 200.0, 200.0, 200.0, 200.0, 200.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn increase() {
+    #[tokio::test]
+    async fn increase() {
         assert_result_eq(
             "increase(time())",
             &[200.0, 200.0, 200.0, 200.0, 200.0, 200.0],
-        );
+        ).await;
 
         assert_result_eq(
             "increase(2000-time())",
             &[1000_f64, 800.0, 600.0, 400.0, 200.0, 0.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn increase_prometheus() {
+    #[tokio::test]
+    async fn increase_prometheus() {
         let q = "increase_prometheus(time())";
-        test_query(q, vec![]);
+        test_query(q, vec![]).await;
 
         assert_result_eq(
             "increase_prometheus(time()[201s])",
             &[200.0, 200.0, 200.0, 200.0, 200.0, 200.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn running_max() {
-        assert_result_eq("running_max(1)", &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
+    #[tokio::test]
+    async fn running_max() {
+        assert_result_eq("running_max(1)", &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]).await;
         assert_result_eq(
             "running_max(abs(1300-time()))",
             &[300.0, 300.0, 300.0, 300.0, 500.0, 700.0],
-        );
+        ).await;
         assert_result_eq(
             "running_max(abs(1300-time()) > 300 < 700)",
             &[f64::NAN, f64::NAN, f64::NAN, f64::NAN, 500.0, 500.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn running_min() {
+    #[tokio::test]
+    async fn running_min() {
         assert_result_eq(
             "running_min(abs(1500-time()))",
             &[500.0, 300.0, 100.0, 100.0, 100.0, 100.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn running_min_1() {
+    #[tokio::test]
+    async fn running_min_1() {
         assert_result_eq(
             "running_min(abs(1500-time()) < 400 > 100)",
             &[f64::NAN, 300.0, 300.0, 300.0, 300.0, 300.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn running_sum_1() {
-        assert_result_eq("running_sum(1)", &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+    #[tokio::test]
+    async fn running_sum_1() {
+        assert_result_eq("running_sum(1)", &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).await;
     }
 
-    #[test]
-    fn running_sum_time() {
-        assert_result_eq("running_sum(time()/1e3)", &[1.0, 2.2, 3.6, 5.2, 7.0, 9.0]);
+    #[tokio::test]
+    async fn running_sum_time() {
+        assert_result_eq("running_sum(time()/1e3)", &[1.0, 2.2, 3.6, 5.2, 7.0, 9.0]).await;
     }
 
-    #[test]
-    fn running_sum_time_ex() {
+    #[tokio::test]
+    async fn running_sum_time_ex() {
         assert_result_eq(
             "running_sum(time()/1e3 > 1.2 < 1.8)",
             &[f64::NAN, f64::NAN, 1.4, 3.0, 3.0, 3.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn running_avg_time() {
+    #[tokio::test]
+    async fn running_avg_time() {
         assert_result_eq(
             "running_avg(time())",
             &[1000_f64, 1100.0, 1200.0, 1300.0, 1400.0, 1500.0],
-        );
+        ).await;
         assert_result_eq(
             "running_avg(time() > 1200 < 1800)",
             &[f64::NAN, f64::NAN, 1400.0, 1500.0, 1500.0, 1500.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn smooth_exponential() {
+    #[tokio::test]
+    async fn smooth_exponential() {
         assert_result_eq(
             "smooth_exponential(time(), 1)",
             &[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0],
-        );
+        ).await;
         assert_result_eq(
             "smooth_exponential(time(), 0)",
             &[1000_f64, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0],
-        );
+        ).await;
         assert_result_eq(
             "smooth_exponential(time(), 0.5)",
             &[1000_f64, 1100.0, 1250.0, 1425.0, 1612.5, 1806.25],
-        );
+        ).await;
     }
 
-    #[test]
-    fn remove_resets() {
+    #[tokio::test]
+    async fn remove_resets() {
         assert_result_eq(
             "remove_resets(abs(1500-time()))",
             &[500.0, 800.0, 900.0, 900.0, 1100.0, 1300.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn remove_resets_sum() {
+    #[tokio::test]
+    async fn remove_resets_sum() {
         let q = r#"remove_resets(sum(
         alias(time(), "full"),
         alias(time()/5 < 300, "partial"),
         ))"#;
-        assert_result_eq(q, &[1200.0, 1440.0, 1680.0, 1680.0, 1880.0, 2080.0]);
+        assert_result_eq(q, &[1200.0, 1440.0, 1680.0, 1680.0, 1880.0, 2080.0]).await;
     }
 
-    #[test]
-    fn range_avg() {
+    #[tokio::test]
+    async fn range_avg() {
         assert_result_eq(
             "range_avg(time())",
             &[1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn range_min() {
+    #[tokio::test]
+    async fn range_min() {
         assert_result_eq(
             "range_min(time())",
             &[1000_f64, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0],
-        );
+        ).await;
         assert_result_eq(
             "range_min(time() > 1200 < 1800)",
             &[1400_f64, 1400.0, 1400.0, 1400.0, 1400.0, 1400.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn range_normalize() {
+    #[tokio::test]
+    async fn range_normalize() {
         let q = r#"range_normalize(time(),alias(-time(),"negative"))"#;
         let r1 = make_result(&[0.0, 0.2, 0.4, 0.6, 0.8, 1.0]);
         let mut r2 = make_result(&[1.0, 0.8, 0.6, 0.4, 0.2, 0.0]);
         r2.metric.measurement = "negative".to_string();
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn range_normalize_1() {
+    #[tokio::test]
+    async fn range_normalize_1() {
         let q =
             r#"range_normalize(time() > 1200 < 1800,alias(-(time() > 1200 < 2000), "negative"))"#;
         let r1 = make_result(&[f64::NAN, f64::NAN, 0.0, 1.0, f64::NAN, f64::NAN]);
         let mut r2 = make_result(&[f64::NAN, f64::NAN, 1.0, 0.5, 0.0, f64::NAN]);
         r2.metric.measurement = "negative".to_string();
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn range_first() {
+    #[tokio::test]
+    async fn range_first() {
         assert_result_eq(
             "range_first(time())",
             &[1000_f64, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0],
-        );
+        ).await;
         assert_result_eq(
             "range_first(time() > 1200 < 1800)",
             &[1400.0, 1400.0, 1400.0, 1400.0, 1400.0, 1400.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn range_mad() {
+    #[tokio::test]
+    async fn range_mad() {
         assert_result_eq(
             "range_mad(time())",
             &[300.0, 300.0, 300.0, 300.0, 300.0, 300.0],
-        );
+        ).await;
         assert_result_eq(
             "range_mad(time() > 1200 < 1800)",
             &[100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn range_max() {
+    #[tokio::test]
+    async fn range_max() {
         assert_result_eq(
             "range_max(time())",
             &[2000.0, 2000.0, 2000.0, 2000.0, 2000.0, 2000.0],
-        );
+        ).await;
         assert_result_eq(
             "range_max(time() > 1200 < 1800)",
             &[1600.0, 1600.0, 1600.0, 1600.0, 1600.0, 1600.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn range_sum() {
+    #[tokio::test]
+    async fn range_sum() {
         assert_result_eq(
             "range_sum(time())",
             &[9000.0, 9000.0, 9000.0, 9000.0, 9000.0, 9000.0],
-        );
+        ).await;
         assert_result_eq(
             "range_sum(time() > 1200 < 1800)",
             &[3000.0, 3000.0, 3000.0, 3000.0, 3000.0, 3000.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn range_last() {
+    #[tokio::test]
+    async fn range_last() {
         assert_result_eq(
             "range_last(time())",
             &[2000.0, 2000.0, 2000.0, 2000.0, 2000.0, 2000.0],
-        );
+        ).await;
         assert_result_eq(
             "range_last(time() > 1200 < 1800)",
             &[1600.0, 1600.0, 1600.0, 1600.0, 1600.0, 1600.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn range_linear_regression_time() {
+    #[tokio::test]
+    async fn range_linear_regression_time() {
         assert_result_eq(
             "range_linear_regression(time())",
             &[1000.0, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn range_linear_regression_negative_time() {
+    #[tokio::test]
+    async fn range_linear_regression_negative_time() {
         assert_result_eq(
             "range_linear_regression(-time())",
             &[-1000.0, -1200.0, -1400.0, -1600.0, -1800.0, -2000.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn range_linear_regression_custom() {
-        let temp = exec_query("time() > 1200 < 1800");
+    #[tokio::test]
+    async fn range_linear_regression_custom() {
+        let temp = exec_query("time() > 1200 < 1800").await;
         println!("range_linear_regression - {:?}", temp);
         assert_result_eq(
             "range_linear_regression(time() > 1200 < 1800)",
             &[1000.0, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn deriv() {
-        assert_result_eq("deriv(-time())", &[-1.0, -1.0, -1.0, -1.0, -1.0, -1.0]);
-        assert_result_eq("deriv(1000)", &[0_f64, 0.0, 0.0, 0.0, 0.0, 0.0]);
-        assert_result_eq("deriv(2*time())", &[2.0, 2.0, 2.0, 2.0, 2.0, 2.0]);
+    #[tokio::test]
+    async fn deriv() {
+        assert_result_eq("deriv(-time())", &[-1.0, -1.0, -1.0, -1.0, -1.0, -1.0]).await;
+        assert_result_eq("deriv(1000)", &[0_f64, 0.0, 0.0, 0.0, 0.0, 0.0]).await;
+        assert_result_eq("deriv(2*time())", &[2.0, 2.0, 2.0, 2.0, 2.0, 2.0]).await;
     }
 
-    #[test]
-    fn test_delta() {
-        assert_result_eq("delta(time())", &[200.0, 200.0, 200.0, 200.0, 200.0, 200.0]);
-        assert_result_eq("delta(delta(2*time()))", &[0_f64, 0.0, 0.0, 0.0, 0.0, 0.0]);
+    #[tokio::test]
+    async fn test_delta() {
+        assert_result_eq("delta(time())", &[200.0, 200.0, 200.0, 200.0, 200.0, 200.0]).await;
+        assert_result_eq("delta(delta(2*time()))", &[0_f64, 0.0, 0.0, 0.0, 0.0, 0.0]).await;
         assert_result_eq(
             "delta(-time())",
             &[-200.0, -200.0, -200.0, -200.0, -200.0, -200.0],
-        );
-        assert_result_eq("delta(1)", &[0_f64, 0.0, 0.0, 0.0, 0.0, 0.0]);
+        ).await;
+        assert_result_eq("delta(1)", &[0_f64, 0.0, 0.0, 0.0, 0.0, 0.0]).await;
     }
 
-    #[test]
-    fn delta_prometheus() {
+    #[tokio::test]
+    async fn delta_prometheus() {
         let q = "delta_prometheus(time())";
-        test_query(q, vec![]);
+        test_query(q, vec![]).await;
 
         assert_result_eq(
             "delta_prometheus(time()[201s])",
             &[200.0, 200.0, 200.0, 200.0, 200.0, 200.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn hoeffding_bound_lower() {
+    #[tokio::test]
+    async fn hoeffding_bound_lower() {
         let q = "hoeffding_bound_lower(0.9, rand(0)[:10s])";
         assert_result_eq(
             q,
@@ -4661,11 +4567,11 @@ mod tests {
                 0.28199209507225204,
                 0.2956205035589421,
             ],
-        );
+        ).await;
     }
 
-    #[test]
-    fn hoeffding_bound_upper() {
+    #[tokio::test]
+    async fn hoeffding_bound_upper() {
         let q = r#"hoeffding_bound_upper(0.9, alias(rand(0), "foobar")[:10s])"#;
         let mut r = make_result(&[
             0.7514246534914918,
@@ -4676,20 +4582,20 @@ mod tests {
             0.6585571598032428,
         ]);
         r.metric.set_measurement("foobar");
-        test_query(q, vec![r])
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn aggr_over_time_single_func() {
+    #[tokio::test]
+    async fn aggr_over_time_single_func() {
         let q = r#"round(aggr_over_time(rand(0)[:10s], "increase"), 0.01)"#;
         let mut r1 = make_result(&[6.76, 4.59, 3.78, 5.86, 5.93, 6.45]);
         r1.metric.set("rollup", "increase");
-        test_query(q, vec![r1]);
+        test_query(q, vec![r1]).await;
     }
 
-    #[test]
-    fn aggr_over_time_multi_func() {
-        let temp = exec_query("round(rand(0),0.1)");
+    #[tokio::test]
+    async fn aggr_over_time_multi_func() {
+        let temp = exec_query("round(rand(0),0.1)").await;
         println!("round(rand(0),0.1) - {:?}", temp);
 
         let q = r#"sort(aggr_over_time(round(rand(0),0.1)[:10s], "min_over_time", "median_over_time", "max_over_time"))"#;
@@ -4700,29 +4606,29 @@ mod tests {
         let mut r3 = make_result(&[20_f64, 20.0, 20.0, 20.0, 20.0, 20.0]);
         r3.metric.set("rollup", "max_over_time");
         let result_expected: Vec<QueryResult> = vec![r1, r2, r3];
-        test_query(q, result_expected)
+        test_query(q, result_expected).await;
     }
 
-    #[test]
-    fn test_avg_aggr_over_time() {
+    #[tokio::test]
+    async fn test_avg_aggr_over_time() {
         let q = r#"avg(aggr_over_time(time()[:10s], "min_over_time", "max_over_time"))"#;
-        assert_result_eq(q, &[905.0, 1105.0, 1305.0, 1505.0, 1705.0, 1905.0]);
+        assert_result_eq(q, &[905.0, 1105.0, 1305.0, 1505.0, 1705.0, 1905.0]).await;
     }
 
-    #[test]
-    fn test_avg_aggr_over_time_by_rollup() {
+    #[tokio::test]
+    async fn test_avg_aggr_over_time_by_rollup() {
         // avg(aggr_over_time(multi-func)) by (rollup)
         let q = r#"sort(avg(aggr_over_time(time()[:10s], "min_over_time", "max_over_time")) by (rollup))"#;
         let mut r1 = make_result(&[810_f64, 1010.0, 1210.0, 1410.0, 1610.0, 1810.0]);
         r1.metric.set("rollup", "min_over_time");
         let mut r2 = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r2.metric.set("rollup", "max_over_time");
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn rollup_candlestick() {
-        let temp = exec_raw_query(r#"alias(round(rand(0),0.01), "foobar")"#).unwrap();
+    #[tokio::test]
+    async fn rollup_candlestick() {
+        let temp = exec_raw_query(r#"alias(round(rand(0),0.01), "foobar")"#).await.unwrap();
         println!("candlestick: {:?}", temp);
         let q = r#"sort(rollup_candlestick(alias(round(rand(0),0.01),"foobar")[:10s]))"#;
         let mut r1 = make_result(&[0.02, 0.02, 0.03, 0.0, 0.03, 0.02]);
@@ -4738,22 +4644,22 @@ mod tests {
         r4.metric.set_measurement("foobar");
         r4.metric.set("rollup", "high");
         let result_expected: Vec<QueryResult> = vec![r1, r2, r3, r4];
-        test_query(q, result_expected)
+        test_query(q, result_expected).await;
     }
 
     // revise
-    #[test]
-    fn rollup_candlestick_high() {
+    #[tokio::test]
+    async fn rollup_candlestick_high() {
         let q = r#"rollup_candlestick(alias(round(rand(0),0.01),"foobar")[:10s], "high")"#;
         let mut r = make_result(&[0.99, 0.98, 0.98, 0.92, 0.98, 0.99]);
         r.metric.set_measurement("foobar");
         r.metric.set("rollup", "high");
 
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn rollup_increase() {
+    #[tokio::test]
+    async fn rollup_increase() {
         let q = "sort(rollup_increase(time()))";
         let mut r_max = make_result(&[200_f64, 200.0, 200.0, 200.0, 200.0, 200.0]);
         r_max.metric.set("rollup", "max");
@@ -4761,11 +4667,11 @@ mod tests {
         r_min.metric.set("rollup", "min");
         let mut r_avg = make_result(&[200_f64, 200.0, 200.0, 200.0, 200.0, 200.0]);
         r_avg.metric.set("rollup", "avg");
-        test_query(q, vec![r_avg, r_max, r_min]);
+        test_query(q, vec![r_avg, r_max, r_min]).await;
     }
 
-    #[test]
-    fn rollup_scrape_interval() {
+    #[tokio::test]
+    async fn rollup_scrape_interval() {
         let q = r#"sort_by_label(rollup_scrape_interval(1[5m:10s]), "rollup")"#;
         let mut r1 = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
         r1.metric.set("rollup", "avg");
@@ -4773,11 +4679,11 @@ mod tests {
         r2.metric.set("rollup", "max");
         let mut r3 = make_result(&[10_f64, 10.0, 10.0, 10.0, 10.0, 10.0]);
         r3.metric.set("rollup", "min");
-        test_query(q, vec![r1, r2, r3]);
+        test_query(q, vec![r1, r2, r3]).await;
     }
 
-    #[test]
-    fn rollup() {
+    #[tokio::test]
+    async fn rollup() {
         let q = "sort(rollup(time()[:50s]))";
         let mut r1 = make_result(&[850_f64, 1050.0, 1250.0, 1450.0, 1650.0, 1850.0]);
         r1.metric.set("rollup", "min");
@@ -4785,11 +4691,11 @@ mod tests {
         r2.metric.set("rollup", "avg");
         let mut r3 = make_result(&[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r3.metric.set("rollup", "max");
-        test_query(q, vec![r1, r2, r3]);
+        test_query(q, vec![r1, r2, r3]).await;
     }
 
-    #[test]
-    fn rollup_rate() {
+    #[tokio::test]
+    async fn rollup_rate() {
         let q = "rollup_rate((2200-time())[600s])";
         let mut r1 = make_result(&[6.0, 5.0, 4.0, 3.0, 2.0, 1.0]);
         r1.metric.set("rollup", "avg");
@@ -4799,27 +4705,27 @@ mod tests {
 
         let mut r3 = make_result(&[5.0, 4.0, 3.0, 2.0, 1.0, 0.0]);
         r3.metric.set("rollup", "min");
-        test_query(q, vec![r1, r2, r3]);
+        test_query(q, vec![r1, r2, r3]).await;
     }
 
-    #[test]
-    fn rollup_rate_max() {
+    #[tokio::test]
+    async fn rollup_rate_max() {
         let q = r#"rollup_rate((2200-time())[600s], "max")"#;
         let mut r = make_result(&[7.0, 6.0, 5.0, 4.0, 3.0, 2.0]);
         r.metric.set("rollup", "max");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn rollup_rate_avg() {
+    #[tokio::test]
+    async fn rollup_rate_avg() {
         let q = r#"rollup_rate((2200-time())[600s], "avg")"#;
         let mut r = make_result(&[6.0, 5.0, 4.0, 3.0, 2.0, 1.0]);
         r.metric.set("rollup", "avg");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn rollup_deriv() {
+    #[tokio::test]
+    async fn rollup_deriv() {
         let q = "sort(rollup_deriv(time()[100s:50s]))";
         let mut r_min = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r_min.metric.set("rollup", "min");
@@ -4827,94 +4733,93 @@ mod tests {
         r_max.metric.set("rollup", "max");
         let mut r_avg = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r_avg.metric.set("rollup", "avg");
-        test_query(q, vec![r_avg, r_max, r_min]);
+        test_query(q, vec![r_avg, r_max, r_min]).await;
     }
 
-    #[test]
-    fn rollup_deriv_max() {
+    #[tokio::test]
+    async fn rollup_deriv_max() {
         let q = r#"sort(rollup_deriv(time()[100s:50s], "max"))"#;
         let mut r = make_result(&[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r.metric.set("rollup", "max");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn empty_selector() {
+    #[tokio::test]
+    async fn empty_selector() {
         let q = "{}";
-        test_query(q, vec![]);
+        test_query(q, vec![]).await;
     }
 
-    #[test]
-    fn start() {
+    #[tokio::test]
+    async fn start() {
         let q = "time() - start()";
-        assert_result_eq(q, &[0_f64, 200.0, 400.0, 600.0, 800.0, 1000.0]);
+        assert_result_eq(q, &[0_f64, 200.0, 400.0, 600.0, 800.0, 1000.0]).await;
     }
 
-    #[test]
-    fn end() {
-        assert_result_eq(
-            "end() - time()",
+    #[tokio::test]
+    async fn end() {
+        assert_result_eq("end() - time()",
             &[1000_f64, 800.0, 600.0, 400.0, 200.0, 0.0],
-        );
+        ).await;
     }
 
-    #[test]
-    fn step() {
-        assert_result_eq("time() / step()", &[5.0, 6.0, 7.0, 8.0, 9.0, 10.0]);
+    #[tokio::test]
+    async fn step() {
+        assert_result_eq("time() / step()", &[5.0, 6.0, 7.0, 8.0, 9.0, 10.0]).await;
     }
 
-    #[test]
-    fn lag() {
-        assert_result_eq("lag(time()[60s:17s])", &[14.0, 10.0, 6.0, 2.0, 15.0, 11.0]);
+    #[tokio::test]
+    async fn lag() {
+        assert_result_eq("lag(time()[60s:17s])", &[14.0, 10.0, 6.0, 2.0, 15.0, 11.0]).await;
     }
 
-    #[test]
-    fn parens_expr() {
-        test_query("()", vec![]);
+    #[tokio::test]
+    async fn parens_expr() {
+        test_query("()", vec![]).await;
 
-        assert_result_eq("(1)", &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
+        assert_result_eq("(1)", &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]).await;
 
         // identical_labels
         let q = r#"(label_set(1, "foo", "bar"), label_set(2, "foo", "bar"))"#;
         let mut r = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r.metric.set("foo", "bar");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn parens_expr_identical_labels_with_names() {
+    #[tokio::test]
+    async fn parens_expr_identical_labels_with_names() {
         let q = r#"(label_set(1, "foo", "bar", "__name__", "xx"), label_set(2, "__name__", "xx", "foo", "bar"))"#;
         let mut r = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r.metric.set_measurement("xx");
         r.metric.set("foo", "bar");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn union() {
+    #[tokio::test]
+    async fn union() {
         let q = "union(1)";
-        assert_result_eq(q, &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
+        assert_result_eq(q, &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]).await;
     }
 
-    #[test]
-    fn union_identical_labels() {
+    #[tokio::test]
+    async fn union_identical_labels() {
         let q = r#"union(label_set(1, "foo", "bar"), label_set(2, "foo", "bar"))"#;
         let mut r = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r.metric.set("foo", "bar");
-        test_query(q, vec![r])
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn union_identical_labels_with_names() {
+    #[tokio::test]
+    async fn union_identical_labels_with_names() {
         let q = r#"union(label_set(1, "foo", "bar", "__name__", "xx"), label_set(2, "__name__", "xx", "foo", "bar"))"#;
         let mut r = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r.metric.set_measurement("xx");
         r.metric.set("foo", "bar");
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn union_more_than_two() {
+    #[tokio::test]
+    async fn union_more_than_two() {
         let q = r#"union(
     label_set(1, "foo", "bar", "__name__", "xx"),
     label_set(2, "__name__", "yy", "foo", "bar"),
@@ -4930,11 +4835,11 @@ mod tests {
         r4.metric.set_measurement("yy");
         r4.metric.set("foo", "bar");
         let result_expected: Vec<QueryResult> = vec![r1, r2, r3, r4];
-        test_query(q, result_expected)
+        test_query(q, result_expected).await;
     }
 
-    #[test]
-    fn union_identical_labels_different_names() {
+    #[tokio::test]
+    async fn union_identical_labels_different_names() {
         let q = r#"union(label_set(1, "foo", "bar", "__name__", "xx"), label_set(2, "__name__", "yy", "foo", "bar"))"#;
         let mut r1 = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r1.metric.set_measurement("xx");
@@ -4942,11 +4847,11 @@ mod tests {
         let mut r2 = make_result(&[2_f64, 2.0, 2.0, 2.0, 2.0, 2.0]);
         r2.metric.set_measurement("yy");
         r2.metric.set("foo", "bar");
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn parens_expr_identical_labels_different_names() {
+    #[tokio::test]
+    async fn parens_expr_identical_labels_different_names() {
         let q = r#"(label_set(1, "foo", "bar", "__name__", "xx"), label_set(2, "__name__", "yy", "foo", "bar"))"#;
         let mut r1 = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r1.metric.set_measurement("xx");
@@ -4954,11 +4859,11 @@ mod tests {
         let mut r2 = make_result(&[2_f64, 2.0, 2.0, 2.0, 2.0, 2.0]);
         r2.metric.set_measurement("yy");
         r2.metric.set("foo", "bar");
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn nested_parens_expr() {
+    #[tokio::test]
+    async fn nested_parens_expr() {
         let q = r#"((
         alias(1, "x1"),
         ),(
@@ -4971,11 +4876,11 @@ mod tests {
         r2.metric.set_measurement("x2");
         let mut r3 = make_result(&[3_f64, 3.0, 3.0, 3.0, 3.0, 3.0]);
         r3.metric.set_measurement("x3");
-        test_query(q, vec![r1, r2, r3]);
+        test_query(q, vec![r1, r2, r3]).await;
     }
 
-    #[test]
-    fn count_values_big_numbers() {
+    #[tokio::test]
+    async fn count_values_big_numbers() {
         let q = r#"sort_by_label(
         count_values("xxx", (alias(772424014, "first"), alias(772424230, "second"))),
         "xxx"
@@ -4986,11 +4891,11 @@ mod tests {
         let mut r2 = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r2.metric.set("xxx", "772424230");
 
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn count_values() {
+    #[tokio::test]
+    async fn count_values() {
         let q = r#"count_values("xxx", label_set(10, "foo", "bar") or label_set(time()/100, "foo", "bar", "baz", "xx"))"#;
         let mut r1 = make_result(&[2_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r1.metric.set("xxx", "10");
@@ -5010,11 +4915,11 @@ mod tests {
         r6.metric.set("xxx", "20");
 
         let result_expected: Vec<QueryResult> = vec![r1, r2, r3, r4, r5, r6];
-        test_query(q, result_expected)
+        test_query(q, result_expected).await;
     }
 
-    #[test]
-    fn count_values_by_xxx() {
+    #[tokio::test]
+    async fn count_values_by_xxx() {
         let q = r#"count_values("xxx", label_set(10, "foo", "bar", "xxx", "aaa") or label_set(floor(time()/600), "foo", "bar", "baz", "xx")) by (xxx)"#;
         let mut r1 = make_result(&[1_f64, NAN, NAN, NAN, NAN, NAN]);
         r1.metric.set("xxx", "1");
@@ -5030,11 +4935,11 @@ mod tests {
 
         // expected sorted output for strings 1, 10, 2, 3
         let result_expected: Vec<QueryResult> = vec![r1, r4, r2, r3];
-        test_query(q, result_expected);
+        test_query(q, result_expected).await;
     }
 
-    #[test]
-    fn count_values_without_baz() {
+    #[tokio::test]
+    async fn count_values_without_baz() {
         let q = r#"count_values("xxx", label_set(floor(time()/600), "foo", "bar")) without (baz)"#;
         let mut r1 = make_result(&[1_f64, NAN, NAN, NAN, NAN, NAN]);
         r1.metric.set("foo", "bar");
@@ -5047,11 +4952,11 @@ mod tests {
         let mut r3 = make_result(&[NAN, NAN, NAN, NAN, 1.0, 1.0]);
         r3.metric.set("foo", "bar");
         r3.metric.set("xxx", "3");
-        test_query(q, vec![r1, r2, r3]);
+        test_query(q, vec![r1, r2, r3]).await;
     }
 
-    #[test]
-    fn result_sorting() {
+    #[tokio::test]
+    async fn result_sorting() {
         let q = r#"(
         label_set(1, "instance", "localhost:1001", "type", "free"),
         label_set(1, "instance", "localhost:1001", "type", "buffers"),
@@ -5062,27 +4967,27 @@ mod tests {
         test_add_labels(
             &mut r1.metric,
             &["instance", "localhost:1000", "type", "buffers"],
-        );
+        ).await;
         let mut r2 = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         test_add_labels(
             &mut r2.metric,
             &["instance", "localhost:1000", "type", "free"],
-        );
+        ).await;
         let mut r3 = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         test_add_labels(
             &mut r3.metric,
             &["instance", "localhost:1001", "type", "buffers"],
-        );
+        ).await;
         let mut r4 = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         test_add_labels(
             &mut r4.metric,
             &["instance", "localhost:1001", "type", "free"],
-        );
-        test_query(q, vec![r1, r2, r3, r4]);
+        ).await;
+        test_query(q, vec![r1, r2, r3, r4]).await;
     }
 
-    #[test]
-    fn no_sorting_for_or() {
+    #[tokio::test]
+    async fn no_sorting_for_or() {
         let q = r#"label_set(2, "foo", "bar") or label_set(1, "foo", "baz")"#;
         let mut r1 = make_result(&[2_f64, 2.0, 2.0, 2.0, 2.0, 2.0]);
         r1.metric.set("foo", "bar");
@@ -5090,11 +4995,11 @@ mod tests {
         let mut r2 = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         r2.metric.set("foo", "baz");
 
-        test_query(q, vec![r1, r2])
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn sort_by_label_numeric_multiple_labels_only_string() {
+    #[tokio::test]
+    async fn sort_by_label_numeric_multiple_labels_only_string() {
         let q = r#"sort_by_label_numeric((
         label_set(1, "x", "b", "y", "aa"),
         label_set(2, "x", "a", "y", "aa"),
@@ -5107,11 +5012,11 @@ mod tests {
         r2.metric.set("x", "b");
         r2.metric.set("y", "aa");
 
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn sort_by_label_numeric_multiple_labels_numbers_special_chars() {
+    #[tokio::test]
+    async fn sort_by_label_numeric_multiple_labels_numbers_special_chars() {
         let q = r#"sort_by_label_numeric((
         label_set(1, "x", "1:0:2", "y", "1:0:1"),
         label_set(2, "x", "1:0:15", "y", "1:0:1"),
@@ -5124,11 +5029,11 @@ mod tests {
         r2.metric.set("x", "1:0:15");
         r2.metric.set("y", "1:0:1");
 
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn sort_by_label_numeric_desc_multiple_labels_numbers_special_chars() {
+    #[tokio::test]
+    async fn sort_by_label_numeric_desc_multiple_labels_numbers_special_chars() {
         let q = r#"sort_by_label_numeric_desc((
         label_set(1, "x", "1:0:2", "y", "1:0:1"),
         label_set(2, "x", "1:0:15", "y", "1:0:1"),
@@ -5141,11 +5046,11 @@ mod tests {
         r2.metric.set("x", "1:0:2");
         r2.metric.set("y", "1:0:1");
 
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn sort_by_label_numeric_alias_numbers_with_special_chars() {
+    #[tokio::test]
+    async fn sort_by_label_numeric_alias_numbers_with_special_chars() {
         let q = r#"sort_by_label_numeric((
         label_set(4, "a", "DS50:1/0/15"),
         label_set(1, "a", "DS50:1/0/0"),
@@ -5164,30 +5069,30 @@ mod tests {
         let mut r4 = make_result(&[4_f64, 4.0, 4.0, 4.0, 4.0, 4.0]);
         r4.metric.set("a", "DS50:1/0/15");
 
-        test_query(q, vec![r1, r2, r3, r4])
+        test_query(q, vec![r1, r2, r3, r4]).await;
     }
 
-    #[test]
-    fn nan_pow_any() {
+    #[tokio::test]
+    async fn nan_pow_any() {
         let q = "(hour(time()*1e4) == 4)^1";
         let r = make_result(&[NAN, NAN, NAN, 4.0, NAN, NAN]);
-        test_query(q, vec![r])
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
-    fn nan_or_on_series() {
-        // left side returns NaNs only, so the right side should replace its values and labels
+    #[tokio::test]
+    async fn nan_or_on_series() {
+        // the left side returns NaNs only, so the right side should replace its values and labels
         // https://github.com/VictoriaMetrics/VictoriaMetrics/issues/7759
         let q = r#"(label_set(1, "a", "a", "b", "b1") == 0) or on(a) label_set(2, "a", "a", "b", "b2")"#;
         let mut r = make_result(&[2.0, 2.0, 2.0, 2.0, 2.0, 2.0]);
         r.metric.set("a", "a");
         r.metric.set("b", "b2");
-        test_query(q, vec![r])
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
+    #[tokio::test]
     #[allow(non_snake_case)]
-    fn series_with_nans_OR_scalar() {
+    async fn series_with_nans_OR_scalar() {
         let q = r#"(label_set(time() >= 1600, "a", "a", "b", "b1")) or 1"#;
         let mut r1 = make_result(&[NAN, NAN, NAN, 1600.0, 1800.0, 2000.0]);
         r1.metric.set("a", "a");
@@ -5195,12 +5100,12 @@ mod tests {
 
         let r2 = make_result(&[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
 
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
+    #[tokio::test]
     #[allow(non_snake_case)]
-    fn series_OR_on_scalar() {
+    async fn series_OR_on_scalar() {
         // https://github.com/VictoriaMetrics/VictoriaMetrics/issues/7640
         let q = r#"(label_set(time() > 1200, "a", "a", "b", "b1")) or on() vector(0)"#;
         let mut r1 = make_result(&[NAN, NAN, 1400.0, 1600.0, 1800.0, 2000.0]);
@@ -5208,12 +5113,12 @@ mod tests {
         r1.metric.set("b", "b1");
 
         let r2 = make_result(&[0.0, 0.0, NAN, NAN, NAN, NAN]);
-        test_query(q, vec![r1, r2])
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
+    #[tokio::test]
     #[allow(non_snake_case)]
-    fn series_OR_on_series() {
+    async fn series_OR_on_series() {
         // left side + right side
         let q = r#"(label_set(time() <= 1200, "a", "a", "b", "b1")) or on(a) label_set(time() > 1200, "a", "a", "b", "b2")"#;
         let mut r1 = make_result(&[1000.0, 1200.0, NAN, NAN, NAN, NAN]);
@@ -5224,23 +5129,23 @@ mod tests {
         r2.metric.set("a", "a");
         r2.metric.set("b", "b2");
 
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
-    fn series_with_no_nans_or_on_series() {
+    #[tokio::test]
+    async fn series_with_no_nans_or_on_series() {
         // left side contains all needed values, so the right side should be dropped
         let q = r#"(label_set(time() < 3000, "a", "a", "b", "b1")) or on(a) label_set(time() > 3000, "a", "a", "b", "b2")"#;
         let mut r = make_result(&[1000.0, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0]);
         r.metric.set("a", "a");
         r.metric.set("b", "b1");
 
-        test_query(q, vec![r]);
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
+    #[tokio::test]
     #[allow(non_snake_case)]
-    fn series_OR_on_series_with_overlap() {
+    async fn series_OR_on_series_with_overlap() {
         // left overlap with right
         let q = r#"(label_set(time() <= 1500, "a", "a", "b", "b1")) or on(a) label_set(time() > 1100, "a", "a", "b", "b2")"#;
         let mut r1 = make_result(&[1000.0, 1200.0, 1400.0, NAN, NAN, NAN]);
@@ -5251,35 +5156,35 @@ mod tests {
         r2.metric.set("a", "a");
         r2.metric.set("b", "b2");
 
-        test_query(q, vec![r1, r2]);
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
+    #[tokio::test]
     #[allow(non_snake_case)]
-    fn series_OR_on_series_merge() {
+    async fn series_OR_on_series_merge() {
         // left + right for same series
         let q = r#"(label_set(time() <= 1200, "a", "a", "b", "b1")) or on(a) label_set(time() > 1400, "a", "a", "b", "b1")"#;
         let mut r = make_result(&[1000.0, 1200.0, NAN, 1600.0, 1800.0, 2000.0]);
         r.metric.set("a", "a");
         r.metric.set("b", "b1");
 
-        test_query(q, vec![r])
+        test_query(q, vec![r]).await;
     }
 
-    #[test]
+    #[tokio::test]
     #[allow(non_snake_case)]
-    fn scalar_OR_timeseries() {
+    async fn scalar_OR_timeseries() {
         let q = r#"time() > 1400 or label_set(123, "foo", "bar")"#;
         let r1 = make_result(&[NAN, NAN, NAN, 1600.0, 1800.0, 2000.0]);
         let mut r2 = make_result(&[123.0, 123.0, 123.0, 123.0, 123.0, 123.0]);
         r2.metric.set("foo", "bar");
 
-        test_query(q, vec![r1, r2])
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
+    #[tokio::test]
     #[allow(non_snake_case)]
-    fn series_OR_many_series() {
+    async fn series_OR_many_series() {
         //load 1m
         //    foo{a="a", b="1"} 1 0 1 1 1
         //    bar{a="a", b="2"} 2 2 2 2 2
@@ -5309,12 +5214,12 @@ mod tests {
         r3.metric.set("y", "baz");
 
         let expected = vec![r1, r2, r3];
-        test_query(q, expected)
+        test_query(q, expected).await;
     }
 
-    #[test]
+    #[tokio::test]
     #[allow(non_snake_case)]
-    fn many_series_OR_series() {
+    async fn many_series_OR_series() {
         //    foo{a="a", b="1"} 1 0 1 1 1
         //    foo{a="a", b="2"} 2 2 2 2 2
         //    bar{a="a", b="3"} 3 3 3 3 3
@@ -5337,12 +5242,12 @@ mod tests {
         r2.metric.set("x", "foo");
         r2.metric.set("y", "baz");
 
-        test_query(q, vec![r1, r2])
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
+    #[tokio::test]
     #[allow(non_snake_case)]
-    fn many_series_OR_series_with_no_merge() {
+    async fn many_series_OR_series_with_no_merge() {
         //	load 1m
         //    foo{job="a1", a="a"} 0 0 1 1 0
         //    foo{job="a2", a="a"} 1 1 0 0 0
@@ -5369,12 +5274,12 @@ mod tests {
         r2.metric.set("a", "a");
         r2.metric.set("job", "a2");
 
-        test_query(q, vec![r1, r2])
+        test_query(q, vec![r1, r2]).await;
     }
 
-    #[test]
+    #[tokio::test]
     #[allow(non_snake_case)]
-    fn many_series_OR_series_with_merge() {
+    async fn many_series_OR_series_with_merge() {
         //	load 1m
         //    foo{job="a1", a="a"} 0 0 1 1 0
         //    foo{job="a2", a="a"} 1 1 1 0 0
@@ -5413,23 +5318,27 @@ mod tests {
         r4.metric.set("job", "a4");
 
         let expected = vec![r1, r2, r3, r4];
-        test_query(q, expected)
+        test_query(q, expected).await;
     }
 
-    #[test]
-    fn test_exec_error() {
-        fn f(q: &str) {
+    #[tokio::test]
+    async fn test_exec_error() {
+
+        async fn test_error(q: &str) -> bool {
             let mut ec = EvalConfig::new(1000, 2000, Duration::from_millis(100));
             ec.max_points_per_series = 100000;
             ec.max_series = 1000;
-            let context = Arc::new(Context::default());
+            let context = Context::default();
 
-            (0..4).for_each(|_| {
-                let rv = exec(&context, &mut ec, q, false);
-                assert_eq!(rv.is_err(), true, "expecting exec error: {}", q);
-                let rv = exec(&context, &mut ec, q, true);
-                assert_eq!(rv.is_err(), true, "expecting exec error: {}", q);
-            });
+            let rv = exec(&context, &mut ec, q, false).await;
+            assert!(rv.is_err(), "expecting exec error: {}", q);
+            let rv = exec(&context, &mut ec, q, true).await;
+            assert!(rv.is_err(), "expecting exec error: {}", q);
+            true
+        }
+
+        async fn f(q: &str) {
+            block_on(async { test_error(q).await; })
         }
 
         f("pi(123)");
@@ -5687,7 +5596,7 @@ label_set(time()+200, "__name__", "bar", "a", "x"),
         f(r#"rollup_candlestick(time(), "foo")"#);
     }
 
-    fn test_add_labels(mn: &mut MetricName, labels: &[&str]) {
+    async fn test_add_labels(mn: &mut MetricName, labels: &[&str]) {
         assert_eq!(
             labels.len() % 2,
             0,
@@ -5701,7 +5610,7 @@ label_set(time()+200, "__name__", "bar", "a", "x"),
 
     #[test]
     fn test_metricsql_is_likely_invalid_false() {
-        fn f(q: &str) {
+        async fn f(q: &str) {
             let expr = parse(q).unwrap();
             assert!(
                 !is_likely_invalid(&expr),
@@ -5777,12 +5686,12 @@ label_set(time()+200, "__name__", "bar", "a", "x"),
         // They are mostly correct. It is better to teach metricsql parser converting them to proper ones
         // instead of denying them.
         f("sum(http_total) offset 1m");
-        f("round(sum(sum_over_time(http_total[1m])) by (instance)) offset 1m")
+        f("round(sum(sum_over_time(http_total[1m])) by (instance)) offset 1m");
     }
 
     #[test]
     fn test_metricsql_is_likely_invalid_true() {
-        fn f(q: &str) {
+        async fn f(q: &str) {
             let expr = parse(q).unwrap();
             assert!(
                 is_likely_invalid(&expr),

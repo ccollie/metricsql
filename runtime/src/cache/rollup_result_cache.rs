@@ -13,7 +13,6 @@ use std::collections::HashMap;
 use std::hash::Hasher;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
-use blart::AsBytes;
 use tracing::span::EnteredSpan;
 use tracing::{field, info, span_enabled, trace_span, Level, Span};
 use xxhash_rust::xxh3::Xxh3;
@@ -202,7 +201,7 @@ impl RollupResultCache {
         // we don't need the cache past this point
         drop(inner);
 
-        // Decompress into newly allocated byte slice
+        // Decompress into a newly allocated byte slice
         info!(
             "load compressed entry from cache with size {} bytes",
             compressed_result_buf.len()

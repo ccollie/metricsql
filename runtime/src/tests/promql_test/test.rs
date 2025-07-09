@@ -24,6 +24,9 @@ use regex::Regex;
 use std::fs;
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, SystemTime};
+use futures::future::try_join_all;
+use futures::TryFutureExt;
+use metricsql_common::prelude::block_on;
 
 const ONE_MINUTE_AS_MILLIS: i64 = 60 * 1000;
 
@@ -53,7 +56,10 @@ pub fn run_builtin_tests() {
         match entry.as_ref() {
             Ok(path) => match fs::read_to_string(path) {
                 Ok(content) => {
-                    run_test(&content).unwrap();
+                    let _ = block_on(async { run_test(&content) })
+                        .unwrap_or_else(|e| {
+                            println!("Test failed for {:?}: {:?}", path, e);
+                        });
                 }
                 Err(e) => {
                     println!("Error loading test file {:?}: {:?}", path, e);
@@ -64,14 +70,17 @@ pub fn run_builtin_tests() {
     }
 }
 
-pub fn run_test(input: &str) -> Result<(), TestAssertionError> {
-    let mut test = Test::new(input);
+pub async fn run_test(input: &str) -> Result<(), TestAssertionError> {
+    let test = Test::new(input);
     // todo: fix this so we dont clone
     let cmds = test.cmds.clone();
-    for cmd in cmds.iter() {
-        test.exec(cmd)?;
-        // TODO(fabxc): aggregate command errors, yield diffs for result
-    }
+    let futures: Vec<_> = cmds
+        .iter()
+        .map(|cmd| test.exec(cmd))
+        .collect();
+    // Run all commands concurrently.
+    try_join_all(futures).await?;
+    // TODO(fabxc): aggregate command errors, yield diffs for result
     Ok(())
 }
 
@@ -142,32 +151,32 @@ impl Test {
         Ok(())
     }
 
-    fn clear(&mut self) {
+    fn clear(&self) {
         self.storage.clear();
     }
 
     // exec processes a single step of the test.
-    pub fn exec(&mut self, tc: &TestCommand) -> Result<(), TestAssertionError> {
+    pub async fn exec(&self, tc: &TestCommand) -> Result<(), TestAssertionError> {
         match tc {
             TestCommand::Clear(_) => self.clear(),
             TestCommand::Load(cmd) => {
                 let storage = self.storage.clone();
                 cmd.append(&storage);
             }
-            TestCommand::Eval(cmd) => self.exec_eval(cmd)?,
+            TestCommand::Eval(cmd) => self.exec_eval(cmd).await?,
         }
         Ok(())
     }
 
-    fn exec_eval(&mut self, cmd: &EvalCmd) -> Result<(), TestAssertionError> {
+    async fn exec_eval(&self, cmd: &EvalCmd) -> Result<(), TestAssertionError> {
         if cmd.is_range {
-            return self.exec_range(cmd);
+            return self.exec_range(cmd).await;
         }
 
-        self.exec_instant_eval(cmd)
+        self.exec_instant_eval(cmd).await
     }
 
-    fn exec_instant_eval(&mut self, cmd: &EvalCmd) -> Result<(), TestAssertionError> {
+    async fn exec_instant_eval(&self, cmd: &EvalCmd) -> Result<(), TestAssertionError> {
         let mut queries = at_modifier_test_cases(&cmd.expr, &cmd.start);
         queries.insert(
             0,
@@ -176,21 +185,31 @@ impl Test {
                 eval_time: cmd.start,
             },
         );
-        for iq in queries.iter() {
-            self.run_instant_query(iq, cmd)?;
+
+        let futures: Vec<_> = queries
+            .iter()
+            .map(|iq| self.run_instant_query(iq, cmd))
+            .collect();
+
+        if futures.is_empty() {
+            return Err(TestAssertionError::new(
+                cmd.line,
+                "no at modifier test cases found".to_string(),
+            ));
         }
+        try_join_all(futures).await?;
         Ok(())
     }
 
-    fn run_instant_query(
-        &mut self,
+    async fn run_instant_query(
+        &self,
         iq: &AtModifierTestCase,
         cmd: &EvalCmd,
     ) -> Result<(), TestAssertionError> {
         let start = timestamp_from_system_time(&iq.eval_time);
         let mut ec = EvalConfig::new(start, start, Duration::ZERO);
 
-        let res = self.exec_internal(&mut ec, &cmd.expr);
+        let res = self.exec_internal(&mut ec, &cmd.expr).await;
         if let Err(e) = &res {
             if cmd.fail {
                 cmd.check_expected_failure(e)?;
@@ -221,13 +240,15 @@ impl Test {
             Duration::from_millis(ONE_MINUTE_AS_MILLIS as u64),
         );
 
-        let range_res = self.exec_internal(&mut ec, &cmd.expr).map_err(|err| {
-            let msg = format!(
-                "error evaluating query {} (line {}) in range mode: {:?}",
-                iq.expr, cmd.line, err
-            );
-            TestAssertionError::new(cmd.line, msg)
-        })?;
+        let range_res = self.exec_internal(&mut ec, &cmd.expr)
+            .await
+            .map_err(|err| {
+                let msg = format!(
+                    "error evaluating query {} (line {}) in range mode: {:?}",
+                    iq.expr, cmd.line, err
+                );
+                TestAssertionError::new(cmd.line, msg)
+            })?;
 
         if cmd.ordered {
             // Range queries are always sorted by labels, so skip this test case that expects results in a particular order.
@@ -282,12 +303,12 @@ impl Test {
         Ok(())
     }
 
-    fn exec_range(&self, cmd: &EvalCmd) -> Result<(), TestAssertionError> {
+    async fn exec_range(&self, cmd: &EvalCmd) -> Result<(), TestAssertionError> {
         let start = timestamp_from_system_time(&cmd.start);
         let end = timestamp_from_system_time(&cmd.end);
         let mut ec = EvalConfig::new(start, end, cmd.step);
 
-        let res = self.exec_internal(&mut ec, &cmd.expr);
+        let res = self.exec_internal(&mut ec, &cmd.expr).await;
         let value = match &res {
             Ok(v) => {
                 if cmd.is_fail() {
@@ -317,8 +338,8 @@ impl Test {
         cmd.compare_result(&value)
     }
 
-    fn exec_internal(&self, ec: &mut EvalConfig, q: &str) -> RuntimeResult<QueryValue> {
-        let (qv, _parsed) = exec_internal(&self.context, ec, q)?;
+    async fn exec_internal(&self, ec: &mut EvalConfig, q: &str) -> RuntimeResult<QueryValue> {
+        let (qv, _parsed) = exec_internal(&self.context, ec, q).await?;
         Ok(qv)
     }
 }

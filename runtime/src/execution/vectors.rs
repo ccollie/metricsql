@@ -13,9 +13,10 @@ use metricsql_parser::optimizer::{
     push_down_binary_op_filters_in_place, trim_filters_by_match_modifier,
 };
 use std::borrow::Cow;
+use futures::try_join;
 use tracing::{field, trace, trace_span, Span};
 
-pub(super) fn vector_vector_binop(
+pub(super) async fn vector_vector_binop(
     expr: &BinaryExpr,
     ctx: &Context,
     ec: &EvalConfig,
@@ -36,9 +37,9 @@ pub(super) fn vector_vector_binop(
         // a lower number of time series for `and` and `if` operator.
         // This should produce more specific label filters for the left side of the query.
         // This, in turn, should reduce the time to select series for the left side of the query.
-        exec_binary_op_args(ctx, ec, &expr.right, &expr.left, expr)?
+        exec_binary_op_args(ctx, ec, &expr.right, &expr.left, expr).await?
     } else {
-        exec_binary_op_args(ctx, ec, &expr.left, &expr.right, expr)?
+        exec_binary_op_args(ctx, ec, &expr.left, &expr.right, expr).await?
     };
 
     let left_series = to_vector(left)?;
@@ -55,7 +56,7 @@ pub(super) fn vector_vector_binop(
     Ok(result)
 }
 
-fn exec_binary_op_args(
+async fn exec_binary_op_args(
     ctx: &Context,
     ec: &EvalConfig,
     expr_first: &Expr,
@@ -69,20 +70,16 @@ fn exec_binary_op_args(
         let span = trace_span!("execute left and right sides in parallel", op);
         let _guard = span.enter();
 
-        return match chili::Scope::global().join(
-            |_| {
-                trace!("left");
-                eval_expr(ctx, ec, expr_first)
-            },
-            |_| {
-                trace!("right");
-                eval_expr(ctx, ec, expr_second)
-            },
-        ) {
-            (Ok(first), Ok(second)) => Ok((first, second)),
-            (Err(err), _) => Err(err),
-            (Ok(_), Err(err)) => Err(err),
+        let left = {
+            trace!("left");
+            eval_expr(ctx, ec, expr_first)
         };
+        let right = {
+            trace!("right");
+            eval_expr(ctx, ec, expr_second)
+        };
+
+        return try_join!(left, right)
     }
 
     // Execute the binary operation in the following way:
@@ -111,7 +108,7 @@ fn exec_binary_op_args(
     //   See https://www.robustperception.io/exposing-the-software-version-to-prometheus
     //
     // Invariant: self.lhs and self.rhs are both ValueType::InstantVector
-    let mut first = eval_expr(ctx, ec, expr_first)?;
+    let mut first = eval_expr(ctx, ec, expr_first).await?;
     // if first.is_empty() && self.op == Or, the result will be empty,
     // since the "exprFirst op exprSecond" would return an empty result in any case.
     // https://github.com/VictoriaMetrics/VictoriaMetrics/issues/3349
@@ -119,7 +116,7 @@ fn exec_binary_op_args(
         return Ok((QueryValue::empty_vec(), QueryValue::empty_vec()));
     }
     let sec_expr = push_down_filters(be, &mut first, expr_second, ec)?;
-    let second = eval_expr(ctx, ec, &sec_expr)?;
+    let second = eval_expr(ctx, ec, &sec_expr).await?;
 
     Ok((first, second))
 }

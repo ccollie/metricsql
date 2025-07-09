@@ -195,7 +195,7 @@ struct CommonParams {
 /// Query handler for `Instant Queries`
 ///
 /// See https://prometheus.io/docs/prometheus/latest/querying/api/#instant-queries
-pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<QueryResult>> {
+pub async fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<QueryResult>> {
     let ct = Timestamp::now();
     let mut start = params.start;
     let mut end = params.end;
@@ -249,7 +249,7 @@ pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<Query
                 }
             };
 
-            return match export_handler(context, cp) {
+            return match export_handler(context, cp).await {
                 Err(err) => {
                     let msg = format!("error when exporting data for query={} on the time range (start={start}, end={end}): {:?}",
                                       rollup.expr, err);
@@ -275,7 +275,7 @@ pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<Query
         params_copy.start = start;
         params_copy.end = end;
 
-        return match query_range_handler(context, ct, params) {
+        return match query_range_handler(context, ct, params).await {
             Err(err) => {
                 let msg = format!("error when executing query={} on the time range (start={}, end={}, step={}): {:?}",
                                   &params_copy.query, start, end, humanize_duration(&step), err);
@@ -307,7 +307,7 @@ pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<Query
 
     ec.update_from_context(context);
 
-    match exec(context, &mut ec, &params.query, true) {
+    match exec(context, &mut ec, &params.query, true).await {
         Err(err) => {
             let msg = format!(
                 "error executing query={} for (time={start}, step={}): {:?}",
@@ -331,7 +331,7 @@ pub fn query(context: &Context, params: &QueryParams) -> RuntimeResult<Vec<Query
     }
 }
 
-fn export_handler(ctx: &Context, cp: CommonParams) -> RuntimeResult<QueryResults> {
+async fn export_handler(ctx: &Context, cp: CommonParams) -> RuntimeResult<QueryResults> {
     let max_series = &ctx.config.max_response_series;
     let CommonParams {
         start,
@@ -340,20 +340,20 @@ fn export_handler(ctx: &Context, cp: CommonParams) -> RuntimeResult<QueryResults
         ..
     } = cp;
     let sq = SearchQuery::new(start, end, filters, *max_series);
-    ctx.search(sq, cp.deadline)
+    ctx.search_async(sq, cp.deadline).await
 }
 
 /// `query_range` processes a range vector request
 ///
 /// See https://prometheus.io/docs/prometheus/latest/querying/api/#range-queries
-pub fn query_range(ctx: &Context, params: &QueryParams) -> RuntimeResult<Vec<QueryResult>> {
+pub async fn query_range(ctx: &Context, params: &QueryParams) -> RuntimeResult<Vec<QueryResult>> {
     let ct = Timestamp::now();
     let mut step = params.step;
     if step.is_zero() {
         step = DEFAULT_STEP;
     }
 
-    match query_range_handler(ctx, ct, params) {
+    match query_range_handler(ctx, ct, params).await {
         Err(err) => {
             let msg = format!(
                 "error executing query={} on the time range (start={}, end={} step={}): {:?}",
@@ -369,7 +369,7 @@ pub fn query_range(ctx: &Context, params: &QueryParams) -> RuntimeResult<Vec<Que
     }
 }
 
-fn query_range_handler(
+async fn query_range_handler(
     ctx: &Context,
     ct: Timestamp,
     params: &QueryParams,
@@ -407,7 +407,7 @@ fn query_range_handler(
     ec.lookback_delta = lookback_delta;
     ec.update_from_context(ctx);
 
-    let mut result = exec(ctx, &mut ec, &params.query, false)?;
+    let mut result = exec(ctx, &mut ec, &params.query, false).await?;
     if step < config.max_step_for_points_adjustment {
         let query_offset = get_latency_offset_milliseconds(ctx) as i64; // suspicious cast
         if ct - query_offset < end {

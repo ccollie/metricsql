@@ -11,12 +11,14 @@ use crate::prelude::binary::scalar_binary_operation;
 use crate::prelude::{eval_number, QueryValue, Timeseries};
 use crate::types::{FunctionArgs, InstantVector};
 use crate::{QueryResult, RuntimeError, RuntimeResult};
+use futures::future::{try_join3, try_join4, try_join5, try_join_all};
+use futures::try_join;
 use metricsql_common::prelude::{current_time_millis, SignatureSet};
 use metricsql_parser::ast::{
     BinaryExpr, Expr, FunctionExpr, Operator, ParensExpr, RollupExpr, UnaryExpr,
 };
 use metricsql_parser::functions::{BuiltinFunction, RollupFunction, TransformFunction};
-use smallvec::smallvec;
+use smallvec::{smallvec, SmallVec};
 use std::borrow::Cow;
 use std::fmt::Display;
 use std::sync::Arc;
@@ -33,7 +35,7 @@ pub(crate) fn parse_promql_internal(
     Ok(parsed)
 }
 
-pub(crate) fn exec_internal(
+pub(crate) async fn exec_internal(
     context: &Context,
     ec: &mut EvalConfig,
     q: &str,
@@ -82,7 +84,7 @@ pub(crate) fn exec_internal(
             }
             .entered();
 
-            let rv = eval_expr(context, ec, expr)?;
+            let rv = eval_expr(context, ec, expr).await?;
 
             if is_tracing {
                 let ts_count: usize;
@@ -128,8 +130,12 @@ fn round_values(values: &mut [f64], n: i16) {
     }
 }
 
-pub fn exec_raw(context: &Context, ec: &mut EvalConfig, q: &str) -> RuntimeResult<QueryValue> {
-    let (mut rv, _) = exec_internal(context, ec, q)?;
+pub async fn exec_raw(
+    context: &Context,
+    ec: &mut EvalConfig,
+    q: &str,
+) -> RuntimeResult<QueryValue> {
+    let (mut rv, _) = exec_internal(context, ec, q).await?;
     let n = ec.round_digits as i16;
 
     match rv {
@@ -158,13 +164,13 @@ pub fn exec_raw(context: &Context, ec: &mut EvalConfig, q: &str) -> RuntimeResul
 }
 
 /// executes q for the given config.
-pub fn exec(
+pub async fn exec(
     context: &Context,
     ec: &mut EvalConfig,
     q: &str,
     is_first_point_only: bool,
 ) -> RuntimeResult<Vec<QueryResult>> {
-    let (rv, parsed) = exec_internal(context, ec, q)?;
+    let (rv, parsed) = exec_internal(context, ec, q).await?;
 
     // we ignore empty timeseries
     if let QueryValue::Scalar(val) = rv {
@@ -273,7 +279,7 @@ fn map_error<E: Display>(err: RuntimeError, e: E) -> RuntimeError {
     RuntimeError::General(format!("cannot evaluate {e}: {err}"))
 }
 
-pub fn eval_expr(ctx: &Context, ec: &EvalConfig, expr: &Expr) -> RuntimeResult<QueryValue> {
+pub async fn eval_expr(ctx: &Context, ec: &EvalConfig, expr: &Expr) -> RuntimeResult<QueryValue> {
     let tracing = ctx.trace_enabled();
     match expr {
         Expr::StringLiteral(s) => Ok(QueryValue::String(s.to_string())),
@@ -291,16 +297,15 @@ pub fn eval_expr(ctx: &Context, ec: &EvalConfig, expr: &Expr) -> RuntimeResult<Q
             }
             .entered();
 
-            let rv = exec_binary_op(ctx, ec, be)?;
+            let rv = Box::pin(exec_binary_op(ctx, ec, be)).await?;
 
             span.record("series", rv.len());
 
             Ok(rv)
         }
         Expr::Parens(pe) => {
-            trace_span!("parens");
-            let rv = eval_parens_op(ctx, ec, pe)?;
-            Ok(rv)
+            let _span = trace_span!("parens").entered();
+            Box::pin(eval_parens_op(ctx, ec, pe)).await
         }
         Expr::MetricExpression(_me) => {
             // todo: avoid this clone
@@ -308,7 +313,10 @@ pub fn eval_expr(ctx: &Context, ec: &EvalConfig, expr: &Expr) -> RuntimeResult<Q
             let handler = RollupHandler::Wrapped(rollup_default);
             let mut executor =
                 RollupEvaluator::new(RollupFunction::DefaultRollup, handler, expr, Cow::Owned(re));
-            let val = executor.eval(ctx, ec).map_err(|err| map_error(err, expr))?;
+            let val = executor
+                .eval(ctx, ec)
+                .await
+                .map_err(|err| map_error(err, expr))?;
             Ok(val)
         }
         Expr::Rollup(re) => {
@@ -319,23 +327,28 @@ pub fn eval_expr(ctx: &Context, ec: &EvalConfig, expr: &Expr) -> RuntimeResult<Q
                 expr,
                 Cow::Borrowed(re),
             );
-            executor.eval(ctx, ec).map_err(|err| map_error(err, expr))
+            executor
+                .eval(ctx, ec)
+                .await
+                .map_err(|err| map_error(err, expr))
         }
         Expr::Aggregation(ae) => {
             trace!("aggregate {}()", ae.function.name());
-            let rv = eval_aggr_func(ctx, ec, expr, ae).map_err(|err| map_error(err, ae))?;
+            let rv = Box::pin(eval_aggr_func(ctx, ec, expr, ae))
+                .await
+                .map_err(|err| map_error(err, ae))?;
             trace!("series={}", rv.len());
             Ok(rv)
         }
-        Expr::Function(fe) => eval_function(ctx, ec, expr, fe),
-        Expr::UnaryOperator(ue) => eval_unary_op(ctx, ec, ue),
+        Expr::Function(fe) => Box::pin(eval_function(ctx, ec, expr, fe)).await,
+        Expr::UnaryOperator(ue) => Box::pin(eval_unary_op(ctx, ec, ue)).await,
         _ => Err(RuntimeError::NotImplemented(format!(
             "No handler for {expr:?}"
         ))),
     }
 }
 
-fn eval_function(
+async fn eval_function(
     ctx: &Context,
     ec: &EvalConfig,
     expr: &Expr,
@@ -350,20 +363,21 @@ fn eval_function(
             }
             .entered();
 
-            let rv = eval_transform_func(ctx, ec, fe, tf)?;
+            let rv = eval_transform_func(ctx, ec, fe, tf).await?;
             span.record("series", rv.len());
 
             Ok(QueryValue::InstantVector(rv))
         }
         BuiltinFunction::Rollup(rf) => {
             let nrf = get_rollup_function_factory(rf);
-            let (args, re, _) = eval_rollup_func_args(ctx, ec, fe)?;
+            let (args, re, _) = eval_rollup_func_args(ctx, ec, fe).await?;
             let func_handler = nrf(&args)?;
             let mut rollup_handler = RollupEvaluator::new(rf, func_handler, expr, re);
             // rollup_handler.keep_metric_names = fe.keep_metric_names;
             // todo: record samples_scanned in span
             let val = rollup_handler
                 .eval(ctx, ec)
+                .await
                 .map_err(|err| map_error(err, fe))?;
             Ok(val)
         }
@@ -371,16 +385,17 @@ fn eval_function(
     }
 }
 
-fn eval_parens_op(ctx: &Context, ec: &EvalConfig, pe: &ParensExpr) -> RuntimeResult<QueryValue> {
+async fn eval_parens_op(
+    ctx: &Context,
+    ec: &EvalConfig,
+    pe: &ParensExpr,
+) -> RuntimeResult<QueryValue> {
     if pe.expressions.is_empty() {
         // () is valid in prometheus
         let iv: InstantVector = Default::default();
         return Ok(QueryValue::InstantVector(iv));
     }
-    if pe.expressions.len() == 1 {
-        return eval_expr(ctx, ec, &pe.expressions[0]);
-    }
-    let args = eval_exprs_in_parallel(ctx, ec, &pe.expressions)?;
+    let args = eval_exprs_in_parallel(ctx, ec, &pe.expressions).await?;
     let rv = handle_union(args, ec)?;
     let val = QueryValue::InstantVector(rv);
     Ok(val)
@@ -409,7 +424,11 @@ fn is_union_func(e: &Expr) -> bool {
     }
 }
 
-fn exec_binary_op(ctx: &Context, ec: &EvalConfig, be: &BinaryExpr) -> RuntimeResult<QueryValue> {
+async fn exec_binary_op(
+    ctx: &Context,
+    ec: &EvalConfig,
+    be: &BinaryExpr,
+) -> RuntimeResult<QueryValue> {
     let is_tracing = ctx.trace_enabled();
 
     // Handle inexpensive binary ops that can be processed without rayon/chili overhead
@@ -418,7 +437,7 @@ fn exec_binary_op(ctx: &Context, ec: &EvalConfig, be: &BinaryExpr) -> RuntimeRes
         (Expr::MetricExpression(_), Expr::MetricExpression(_))
         | (Expr::Rollup(_), Expr::Rollup(_))
         | (Expr::MetricExpression(_), Expr::Rollup(_))
-        | (Expr::Rollup(_), Expr::MetricExpression(_)) => vector_vector_binop(be, ctx, ec),
+        | (Expr::Rollup(_), Expr::MetricExpression(_)) => vector_vector_binop(be, ctx, ec).await,
 
         // Direct literal operations
         (Expr::NumberLiteral(left), Expr::NumberLiteral(right)) => {
@@ -439,9 +458,10 @@ fn exec_binary_op(ctx: &Context, ec: &EvalConfig, be: &BinaryExpr) -> RuntimeRes
         }
         // Complex expressions requiring evaluation
         (left, right) => {
-            let (lhs, rhs) = chili::Scope::global()
-                .join(|_| eval_expr(ctx, ec, left), |_| eval_expr(ctx, ec, right));
-            handle_evaluated_values(ctx, ec, be, lhs?, rhs?, is_tracing)
+            let first = eval_expr(ctx, ec, left);
+            let second = eval_expr(ctx, ec, right);
+            let (lhs, rhs) = try_join!(first, second)?;
+            handle_evaluated_values(ctx, ec, be, lhs, rhs, is_tracing)
         }
     }
 }
@@ -549,10 +569,14 @@ fn handle_scalar_vector_operation(
     )
 }
 
-fn eval_unary_op(ctx: &Context, ec: &EvalConfig, ue: &UnaryExpr) -> RuntimeResult<QueryValue> {
+async fn eval_unary_op(
+    ctx: &Context,
+    ec: &EvalConfig,
+    ue: &UnaryExpr,
+) -> RuntimeResult<QueryValue> {
     let is_tracing = ctx.trace_enabled();
 
-    let value = eval_expr(ctx, ec, &ue.expr)?;
+    let value = eval_expr(ctx, ec, &ue.expr).await?;
 
     match value {
         QueryValue::Scalar(left) => Ok(QueryValue::Scalar(-left)),
@@ -566,65 +590,18 @@ fn eval_unary_op(ctx: &Context, ec: &EvalConfig, ue: &UnaryExpr) -> RuntimeResul
     }
 }
 
-#[inline]
-fn should_parallelize_fn(func: TransformFunction) -> bool {
-    // range_normalize can take multiple series selectors as arguments
-    matches!(
-        func,
-        TransformFunction::Union | TransformFunction::RangeNormalize
-    )
-}
-
-fn eval_transform_func(
+async fn eval_transform_func(
     ctx: &Context,
     ec: &EvalConfig,
     fe: &FunctionExpr,
     func: TransformFunction,
 ) -> RuntimeResult<Vec<Timeseries>> {
-    let args = if should_parallelize_fn(func) {
-        eval_exprs_in_parallel(ctx, ec, &fe.args)?
-    } else {
-        eval_exprs_sequentially(ctx, ec, &fe.args)?
-    };
+    let args = eval_exprs_in_parallel(ctx, ec, &fe.args).await?;
     let mut tfa = TransformFuncArg { ec, args, fe };
     exec_transform_fn(func, &mut tfa).map_err(|err| map_error(err, fe))
 }
 
-fn eval_exprs_sequentially(
-    ctx: &Context,
-    ec: &EvalConfig,
-    args: &[Expr],
-) -> RuntimeResult<FunctionArgs> {
-    match args.len() {
-        0 => Ok(FunctionArgs::new()),
-        1 => {
-            let value = eval_expr(ctx, ec, &args[0])?;
-            Ok(smallvec![value])
-        }
-        _ => args
-            .iter()
-            .map(|expr| eval_expr(ctx, ec, expr))
-            .collect::<RuntimeResult<FunctionArgs>>(),
-    }
-}
-
-pub(super) fn eval_exprs_in_parallel(
-    ctx: &Context,
-    ec: &EvalConfig,
-    args: &[Expr],
-) -> RuntimeResult<FunctionArgs> {
-    match args.len() {
-        0 => Ok(FunctionArgs::new()),
-        1 => {
-            let value = eval_expr(ctx, ec, &args[0])?;
-            Ok(smallvec![value])
-        }
-        _ => eval_parallel_internal(&mut chili::Scope::global(), ctx, ec, args),
-    }
-}
-
-fn eval_parallel_internal(
-    scope: &mut chili::Scope,
+pub(crate) async fn eval_exprs_in_parallel(
     ctx: &Context,
     ec: &EvalConfig,
     args: &[Expr],
@@ -632,57 +609,50 @@ fn eval_parallel_internal(
     match args {
         [] => Ok(FunctionArgs::new()),
         [first] => {
-            let value = eval_expr(ctx, ec, first)?;
+            let value = eval_expr(ctx, ec, first).await?;
             Ok(smallvec![value])
         }
         [first, second] => {
-            let (left, right) = scope.join(
-                |_| eval_expr(ctx, ec, first),
-                |_| eval_expr(ctx, ec, second),
-            );
-            Ok(smallvec![left?, right?])
+            let left = eval_expr(ctx, ec, first);
+            let right = eval_expr(ctx, ec, second);
+            let (left, right) = try_join!(left, right)?;
+            Ok(smallvec![left, right])
         }
         [first, second, third] => {
-            let ((v1, v2), v3) = scope.join(
-                |s1| {
-                    s1.join(
-                        |_| eval_expr(ctx, ec, first),
-                        |_| eval_expr(ctx, ec, second),
-                    )
-                },
-                |_| eval_expr(ctx, ec, third),
-            );
-            Ok(smallvec![v1?, v2?, v3?])
+            let one = eval_expr(ctx, ec, first);
+            let two = eval_expr(ctx, ec, second);
+            let three = eval_expr(ctx, ec, third);
+            let (v1, v2, v3) = try_join3(one, two, three).await?;
+            Ok(smallvec![v1, v2, v3])
         }
         [first, second, third, fourth] => {
-            let ((v1, v2), (v3, v4)) = scope.join(
-                |s1| {
-                    s1.join(
-                        |_| eval_expr(ctx, ec, first),
-                        |_| eval_expr(ctx, ec, second),
-                    )
-                },
-                |s2| {
-                    s2.join(
-                        |_| eval_expr(ctx, ec, third),
-                        |_| eval_expr(ctx, ec, fourth),
-                    )
-                },
-            );
-            Ok(smallvec![v1?, v2?, v3?, v4?])
+            let one = eval_expr(ctx, ec, first);
+            let two = eval_expr(ctx, ec, second);
+            let three = eval_expr(ctx, ec, third);
+            let four = eval_expr(ctx, ec, fourth);
+            let (v1, v2, v3, v4) = try_join4(one, two, three, four).await?;
+            Ok(smallvec![v1, v2, v3, v4])
+        }
+        [first, second, third, fourth, fifth] => {
+            let one = eval_expr(ctx, ec, first);
+            let two = eval_expr(ctx, ec, second);
+            let three = eval_expr(ctx, ec, third);
+            let four = eval_expr(ctx, ec, fourth);
+            let five = eval_expr(ctx, ec, fifth);
+            let (v1, v2, v3, v4, v5) = try_join5(one, two, three, four, five).await?;
+            Ok(smallvec![v1, v2, v3, v4, v5])
         }
         _ => {
-            let mid = args.len() / 2;
-            let (left, right) = args.split_at(mid);
-            let mut left_half = eval_parallel_internal(scope, ctx, ec, left)?;
-            let right_half = eval_parallel_internal(scope, ctx, ec, right)?;
-            left_half.extend(right_half);
-            Ok(left_half)
+            let futures: SmallVec<_, 16> =
+                args.iter().map(|expr| eval_expr(ctx, ec, expr)).collect();
+            let args = try_join_all(futures).await?;
+            let res = FunctionArgs::from(args);
+            Ok(res)
         }
     }
 }
 
-pub(super) fn eval_rollup_func_args<'a>(
+pub(super) async fn eval_rollup_func_args<'a>(
     ctx: &Context,
     ec: &EvalConfig,
     fe: &'a FunctionExpr,
@@ -704,21 +674,20 @@ pub(super) fn eval_rollup_func_args<'a>(
         return Err(RuntimeError::from(msg));
     }
 
-    let mut args = FunctionArgs::new();
-    // todo(perf): extract rollup arg first, then evaluate the rest in parallel
+    let mut futures: SmallVec<_, 8> = SmallVec::with_capacity(fe.args.len() - 1);
     for (i, arg) in fe.args.iter().enumerate() {
         if i == rollup_arg_idx {
             re = get_rollup_expr_arg(arg)?;
-            args.push(QueryValue::Scalar(f64::NAN)); // placeholder
-            continue;
+        } else {
+            // args before rollup arg
+            let fut = eval_expr(ctx, ec, arg);
+            futures.push(fut);
         }
-        let value = eval_expr(ctx, ec, arg).map_err(|err| {
-            let msg = format!("cannot evaluate arg #{} for {}: {}", i + 1, fe, err);
-            RuntimeError::ArgumentError(msg)
-        })?;
-
-        args.push(value);
     }
+
+    let mut evaluated_args = try_join_all(futures).await?;
+    evaluated_args.insert(rollup_arg_idx, QueryValue::Scalar(f64::NAN));
+    let args = FunctionArgs::from(evaluated_args);
 
     Ok((args, re, rollup_arg_idx))
 }

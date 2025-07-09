@@ -10,7 +10,7 @@ use metricsql_parser::ast::{AggregationExpr, Expr, FunctionExpr, MetricExpr};
 use metricsql_parser::functions::BuiltinFunction;
 use tracing::{field, trace_span, Span};
 
-pub(super) fn eval_aggr_func(
+pub(super) async fn eval_aggr_func(
     ctx: &Context,
     ec: &EvalConfig,
     expr: &Expr,
@@ -32,7 +32,7 @@ pub(super) fn eval_aggr_func(
             // There is an optimized path for calculating `AggrFuncExpr` over: RollupFunc
             // over MetricExpr.
             // The optimized path saves RAM for aggregates over a big number of time series.
-            let (args, re, _) = eval_rollup_func_args(ctx, ec, &fe)?;
+            let (args, re, _) = eval_rollup_func_args(ctx, ec, &fe).await?;
 
             let rf = match fe.function {
                 BuiltinFunction::Rollup(rf) => rf,
@@ -51,13 +51,13 @@ pub(super) fn eval_aggr_func(
             executor.timeseries_limit = get_timeseries_limit(ae)?;
             executor.is_incr_aggregate = true;
 
-            let val = executor.eval(ctx, ec)?;
+            let val = executor.eval(ctx, ec).await?;
             span.record("series", val.len());
             return Ok(val);
         }
     }
 
-    let args = eval_exprs_in_parallel(ctx, ec, &ae.args)?;
+    let args = eval_exprs_in_parallel(ctx, ec, &ae.args).await?;
     let mut afa = AggrFuncArg {
         args,
         ec,

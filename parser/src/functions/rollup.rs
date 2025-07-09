@@ -463,7 +463,7 @@ impl FromStr for RollupTag {
 
 /// `get_rollup_arg_idx` returns the argument index for the given fe which accepts the rollup argument.
 ///
-/// None is returned if fe isn't a rollup function.
+/// None is returned if `fe` isn't a rollup function.
 pub const fn get_rollup_arg_idx(fe: &RollupFunction, arg_count: usize) -> Option<usize> {
     use RollupFunction::*;
     match fe {

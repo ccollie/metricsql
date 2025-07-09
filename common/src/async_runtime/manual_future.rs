@@ -28,8 +28,6 @@
 /// Copyright (c) 2023 David Marcuse
 /// Licensed under the MIT License
 ///
-
-
 use std::future::Future;
 use std::marker::Unpin;
 use std::pin::Pin;

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{span_enabled, Level};
-
+use metricsql_common::prelude::humanize_duration_ms;
 use crate::cache::rollup_result_cache::RollupResultCache;
 use crate::execution::active_queries::{ActiveQueries, ActiveQueryEntry};
 use crate::execution::parser_cache::{ParseCache, ParseCacheResult, ParseCacheValue};
@@ -40,40 +40,22 @@ impl Context {
         self
     }
 
-    pub fn search(&self, sq: SearchQuery, deadline: Deadline) -> RuntimeResult<QueryResults> {
+    pub async fn search_async(&self, sq: SearchQuery, deadline: Deadline) -> RuntimeResult<QueryResults> {
         use metricsql_common::async_runtime::*;
 
         let storage = self.storage.clone();
-        // todo: use std::time::Duration for deadline
-        let timeout_ms = deadline.timeout.as_millis() as u64;
-        let duration = Duration::from_millis(timeout_ms);
 
-        fn handle_error(err: Error) -> RuntimeError {
-            match err {
-                Error::Join(msg) => RuntimeError::General(msg),
-                Error::Timeout { .. } => {
-                    RuntimeError::DeadlineExceededError("search timeout".to_string())
-                }
-                Error::Execution { source } => RuntimeError::ExecutionError(source.to_string()),
-            }
+        if deadline.timeout.is_zero() {
+            storage.search(sq, deadline).await
+        } else {
+            let res = timeout(deadline.timeout, storage.search(sq, deadline)).await;
+            res.unwrap_or_else(|_elapsed| {
+                let timeout_ms = deadline.timeout.as_millis() as i64;
+                let timeout_human = humanize_duration_ms(timeout_ms);
+                let msg = format!("search timeout after {timeout_human}");
+                Err(RuntimeError::DeadlineExceededError(msg))
+            })
         }
-
-        let res = block_sync(async move {
-            if duration.is_zero() {
-                storage.search(sq, deadline).await
-            } else {
-                let res =
-                    timeout(duration, async move { storage.search(sq, deadline).await }).await;
-                match res {
-                    Ok(res) => res,
-                    Err(_elapsed) => {
-                        let msg = format!("search timeout after {timeout_ms} ms");
-                        Err(RuntimeError::DeadlineExceededError(msg))
-                    }
-                }
-            }
-        });
-        res.unwrap_or_else(|e| Err(handle_error(e)))
     }
 
     // todo: pass in tracer

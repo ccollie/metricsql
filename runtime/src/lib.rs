@@ -17,7 +17,6 @@ extern crate rayon;
 extern crate regex;
 #[macro_use(defer)]
 extern crate scopeguard;
-extern crate topologic;
 extern crate xxhash_rust;
 
 #[cfg(test)]

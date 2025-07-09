@@ -160,46 +160,48 @@ impl<'a> RollupEvaluator<'a> {
         }
     }
 
-    pub(super) fn eval(&mut self, ctx: &Context, ec: &EvalConfig) -> RuntimeResult<QueryValue> {
-        self.is_tracing = ctx.trace_enabled();
-        let _ = if self.is_tracing {
-            trace_span!(
-                "rollup",
-                "function" = self.func.name(),
-                "expr" = self.expr.to_string().as_str(),
-                "rollup_expr" = self.re.to_string().as_str(),
-                "series" = field::Empty
-            )
-        } else {
-            Span::none()
-        };
+    pub(super) async fn eval(&mut self, ctx: &Context, ec: &EvalConfig) -> RuntimeResult<QueryValue> {
+        Box::pin(async move {
+            self.is_tracing = ctx.trace_enabled();
+            let _ = if self.is_tracing {
+                trace_span!(
+                    "rollup",
+                    "function" = self.func.name(),
+                    "expr" = self.expr.to_string().as_str(),
+                    "rollup_expr" = self.re.to_string().as_str(),
+                    "series" = field::Empty
+                )
+            } else {
+                Span::none()
+            };
 
-        if let Some(at_expr) = &self.re.at {
-            let at_timestamp = get_at_timestamp(ctx, ec, at_expr)?;
-            let mut ec_new = ec.copy_no_timestamps();
-            ec_new.start = at_timestamp;
-            ec_new.end = at_timestamp;
-            let mut tss = self.eval_without_at(ctx, &ec_new)?;
+            if let Some(at_expr) = &self.re.at {
+                let at_timestamp = get_at_timestamp(ctx, ec, at_expr).await?;
+                let mut ec_new = ec.copy_no_timestamps();
+                ec_new.start = at_timestamp;
+                ec_new.end = at_timestamp;
+                let mut tss = self.eval_without_at(ctx, &ec_new).await?;
 
-            // expand single-point tss to the original time range.
-            let timestamps = ec.get_timestamps()?;
-            for ts in tss.iter_mut() {
-                ts.timestamps = Arc::clone(&timestamps);
-                ts.values = vec![ts.values[0]; timestamps.len()];
+                // expand single-point tss to the original time range.
+                let timestamps = ec.get_timestamps()?;
+                for ts in tss.iter_mut() {
+                    ts.timestamps = Arc::clone(&timestamps);
+                    ts.values = vec![ts.values[0]; timestamps.len()];
+                }
+
+                Ok(QueryValue::InstantVector(tss))
+            } else {
+                let value = self.eval_without_at(ctx, ec).await?;
+                Ok(QueryValue::InstantVector(value))
             }
-
-            Ok(QueryValue::InstantVector(tss))
-        } else {
-            let value = self.eval_without_at(ctx, ec)?;
-            Ok(QueryValue::InstantVector(value))
-        }
+        }).await
     }
 
-    fn eval_without_at(&self, ctx: &Context, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
+    async fn eval_without_at(&self, ctx: &Context, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
         let (offset, ec_new) = adjust_eval_range(self.func, &self.re.offset, ec)?;
 
         let mut rvs = if let Expr::MetricExpression(me) = &*self.re.expr {
-            self.eval_with_metric_expr(ctx, &ec_new, me)?
+            self.eval_with_metric_expr(ctx, &ec_new, me).await?
         } else {
             if self.is_incr_aggregate {
                 return Err(RuntimeError::from(format!(
@@ -207,7 +209,7 @@ impl<'a> RollupEvaluator<'a> {
                     self.func, self.re
                 )));
             }
-            self.eval_with_subquery(ctx, &ec_new)?
+            self.eval_with_subquery(ctx, &ec_new).await?
         };
 
         if self.func == RollupFunction::AbsentOverTime {
@@ -226,7 +228,7 @@ impl<'a> RollupEvaluator<'a> {
         Ok(rvs)
     }
 
-    fn eval_with_subquery(&self, ctx: &Context, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
+    async fn eval_with_subquery(&self, ctx: &Context, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
         // TODO: determine whether to use rollup result cache here.
 
         let span = if ctx.trace_enabled() {
@@ -263,7 +265,7 @@ impl<'a> RollupEvaluator<'a> {
 
         // force refresh of timestamps
         // let _ = ec_sq.get_timestamps()?;
-        let tss_sq = eval_expr(ctx, &ec_sq, &self.re.expr)?;
+        let tss_sq = eval_expr(ctx, &ec_sq, &self.re.expr).await?;
 
         let tss_sq = tss_sq.as_instant_vec(&ec_sq)?;
         if tss_sq.is_empty() {
@@ -321,7 +323,7 @@ impl<'a> RollupEvaluator<'a> {
         Ok(res)
     }
 
-    fn eval_with_metric_expr(
+    async fn eval_with_metric_expr(
         &self,
         ctx: &Context,
         ec: &EvalConfig,
@@ -411,12 +413,12 @@ impl<'a> RollupEvaluator<'a> {
             // I hate to clone, but
             let matchers = me.matchers.clone();
             let sq = SearchQuery::new(min_timestamp, ec.end, matchers, ec.max_series);
-            ctx.search(sq, ec.deadline)?
+            ctx.search_async(sq, ec.deadline).await?
         } else {
             let tfss =
                 join_matchers_with_extra_filters_owned(&me.matchers, &ec.enforced_tag_filters);
             let sq = SearchQuery::new(min_timestamp, ec.end, tfss, ec.max_series);
-            ctx.search(sq, ec.deadline)?
+            ctx.search_async(sq, ec.deadline).await?
         };
 
         if rss.is_empty() {
@@ -690,8 +692,8 @@ fn new_timeseries_map(
     Some(Arc::new(map))
 }
 
-fn get_at_timestamp(ctx: &Context, ec: &EvalConfig, expr: &Expr) -> RuntimeResult<i64> {
-    match eval_expr(ctx, ec, expr) {
+async fn get_at_timestamp(ctx: &Context, ec: &EvalConfig, expr: &Expr) -> RuntimeResult<i64> {
+    match eval_expr(ctx, ec, expr).await {
         Err(err) => {
             let msg = format!("cannot evaluate `@` modifier: {err:?}");
             Err(RuntimeError::from(msg))
