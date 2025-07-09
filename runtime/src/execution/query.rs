@@ -340,7 +340,7 @@ async fn export_handler(ctx: &Context, cp: CommonParams) -> RuntimeResult<QueryR
         ..
     } = cp;
     let sq = SearchQuery::new(start, end, filters, *max_series);
-    ctx.search_async(sq, cp.deadline).await
+    ctx.search(sq, cp.deadline).await
 }
 
 /// `query_range` processes a range vector request

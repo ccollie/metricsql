@@ -40,7 +40,7 @@ impl Context {
         self
     }
 
-    pub async fn search_async(&self, sq: SearchQuery, deadline: Deadline) -> RuntimeResult<QueryResults> {
+    pub async fn search(&self, sq: SearchQuery, deadline: Deadline) -> RuntimeResult<QueryResults> {
         use metricsql_common::async_runtime::*;
 
         let storage = self.storage.clone();

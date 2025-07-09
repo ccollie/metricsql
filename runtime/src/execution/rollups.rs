@@ -413,12 +413,12 @@ impl<'a> RollupEvaluator<'a> {
             // I hate to clone, but
             let matchers = me.matchers.clone();
             let sq = SearchQuery::new(min_timestamp, ec.end, matchers, ec.max_series);
-            ctx.search_async(sq, ec.deadline).await?
+            ctx.search(sq, ec.deadline).await?
         } else {
             let tfss =
                 join_matchers_with_extra_filters_owned(&me.matchers, &ec.enforced_tag_filters);
             let sq = SearchQuery::new(min_timestamp, ec.end, tfss, ec.max_series);
-            ctx.search_async(sq, ec.deadline).await?
+            ctx.search(sq, ec.deadline).await?
         };
 
         if rss.is_empty() {
