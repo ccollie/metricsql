@@ -54,7 +54,5 @@ futures.workspace = true
 iter-set-ops = "0.2"
 
 [features]
-default = ["tokio"]
 tokio = ["agnostic-lite/tokio", "metricsql_common/tokio"]
-async-std = ["agnostic-lite/async-std", "metricsql_common/async-std"]
 smol = ["agnostic-lite/smol", "metricsql_common/smol"]

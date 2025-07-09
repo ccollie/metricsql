@@ -44,7 +44,6 @@ tokio = "1.46"
 [features]
 default = ["tokio"]
 tokio = ["agnostic-lite/tokio"]
-async-std = ["agnostic-lite/async-std"]
 smol = ["agnostic-lite/smol"]
 gxhash = ["dep:gxhash"]
 legacy_newline = []

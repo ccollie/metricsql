@@ -17,11 +17,6 @@ cfg_if! {
         pub type AsyncRuntime = TokioRuntime;
         pub type JoinHandle<T> = <<TokioRuntime as RuntimeLite>::Spawner as AsyncSpawner>::JoinHandle<T>;
         pub type BlockingJoinHandle<T> = <<TokioRuntime as RuntimeLite>::BlockingSpawner as AsyncBlockingSpawner>::JoinHandle<T>;
-     } else if #[cfg(feature = "async-std")] {
-        use agnostic_lite::async_std::AsyncStdRuntime;
-        pub type AsyncRuntime = agnostic_lite::async_std::SmolRuntime;
-        pub type JoinHandle<T> = <AsyncStdRuntime as RuntimeLite>::Spawner as AsyncSpawner>::JoinHandle<T>;
-        pub type BlockingJoinHandle<T> = <<AsyncStdRuntime as RuntimeLite>::BlockingSpawner as AsyncBlockingSpawner>::JoinHandle<T>;
      } else if #[cfg(feature = "smol")] {
         use agnostic_lite::smol::SmolRuntime;
         pub type AsyncRuntime = agnostic_lite::smol::SmolRuntime;
