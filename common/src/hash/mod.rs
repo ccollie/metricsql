@@ -2,7 +2,6 @@ use cfg_if::cfg_if;
 
 cfg_if!(
     if #[cfg(all(feature = "gxhash", target_feature="aes"))] {
-        mod gx_hash;
         pub use gx_hash::*;
     } else {
         mod fast_hash_fallback;
@@ -12,6 +11,7 @@ cfg_if!(
 
 mod no_hash;
 mod signature;
+mod gx_hash;
 
 pub use no_hash::*;
 pub use signature::*;
