@@ -13,7 +13,6 @@ pub mod cache;
 pub mod duration;
 pub mod error;
 pub mod hash;
-pub mod histogram;
 pub mod humanize;
 pub mod pool;
 pub mod regex_util;
@@ -28,7 +27,6 @@ pub mod prelude {
     pub use crate::cache::*;
     pub use crate::duration::*;
     pub use crate::hash::*;
-    pub use crate::histogram::*;
     pub use crate::humanize::*;
     pub use crate::pool::*;
     pub use crate::regex_util::*;
