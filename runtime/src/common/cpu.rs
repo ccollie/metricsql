@@ -1,12 +1,12 @@
+use std::num::NonZero;
+use std::sync::LazyLock;
 use std::num::NonZeroUsize;
 
-use crate::runtime_error::{RuntimeError, RuntimeResult};
+static NUM_CPUS: LazyLock<NonZeroUsize> = LazyLock::new(|| {
+    // todo: log info on error
+    std::thread::available_parallelism().unwrap_or(NonZero::new(1usize).expect("BUG: NonZero(1) panic"))
+});
 
-pub fn num_cpus() -> RuntimeResult<NonZeroUsize> {
-    match std::thread::available_parallelism() {
-        Err(_) => Err(RuntimeError::General(
-            "Error fetching available_parallelism".to_string(),
-        )),
-        Ok(v) => Ok(v),
-    }
+pub fn num_cpus() -> NonZeroUsize {
+    *NUM_CPUS
 }

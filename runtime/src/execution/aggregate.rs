@@ -161,7 +161,7 @@ fn try_get_arg_rollup_func_with_metric_expr(
 
 pub(super) fn get_timeseries_limit(aggr_expr: &AggregationExpr) -> RuntimeResult<usize> {
     // Incremental aggregates require holding only num_cpus() timeseries in memory.
-    let timeseries_len = usize::from(num_cpus()?);
+    let timeseries_len = usize::from(num_cpus());
     let res = if aggr_expr.limit > 0 {
         // There is an explicit limit on the number of output time series.
         timeseries_len * aggr_expr.limit
