@@ -1614,7 +1614,6 @@ impl ParensExpr {
     /// exactly one expression. For example, (((x + y))) would return a ref to `x + y`
     pub fn innermost_expr(&self) -> Option<&Expr> {
         match self.len() {
-            0 => None,
             1 => match &self.expressions[0] {
                 Expr::Parens(pe2) => pe2.innermost_expr(),
                 expr => Some(expr),
