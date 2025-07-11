@@ -1,3 +1,4 @@
+use super::common::{contains_value_at, not_contains_value_at};
 use crate::execution::utils::{remove_empty_series, series_len};
 use crate::execution::Context;
 use crate::prelude::{QueryValue, SIGNATURE_PARALLELIZATION_THRESHOLD};
@@ -5,18 +6,15 @@ use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::types::{InstantVector, Timeseries, METRIC_NAME_LABEL};
 use metricsql_common::hash::{BuildNoHashHasher, Signature};
 use metricsql_parser::ast::{Operator, VectorMatchCardinality, VectorMatchModifier};
-use metricsql_parser::binaryop::{
-    get_scalar_binop_handler, BinopFunc,
-};
+use metricsql_parser::binaryop::{get_scalar_binop_handler, BinopFunc};
 use metricsql_parser::prelude::{BinModifier, Labels};
 use rayon::iter::IntoParallelIterator;
 use rayon::iter::ParallelIterator;
 use small_map::SmallMap;
+use smallvec::SmallVec;
 use std::borrow::Cow;
 use std::rc::Rc;
-use smallvec::SmallVec;
 use tracing::{field, trace_span, Span};
-use super::common::{contains_value_at, not_contains_value_at};
 
 pub struct BinaryOpFuncArg<'a> {
     op: Operator,
@@ -128,7 +126,7 @@ pub(crate) fn exec_binop(bfa: &mut BinaryOpFuncArg) -> BinaryOpFuncResult {
         If => binary_op_if(bfa),
         IfNot => binary_op_if_not(bfa),
         Default => binary_op_default(bfa),
-        _=> {
+        _ => {
             let func = get_scalar_binop_handler(bfa.op, bfa.returns_bool());
             binary_op_func_impl(func, bfa)
         }
@@ -275,7 +273,6 @@ fn adjust_binary_op_tags(
                 tss_left,
             )?,
             _ => {
-
                 let mut ts_left = ensure_single_timeseries("left", bfa.op, bfa.modifier, tss_left)?;
                 let ts_right = ensure_single_timeseries("right", bfa.op, bfa.modifier, tss_right)?;
 
@@ -377,12 +374,12 @@ fn group_join(
         };
 
         let join = match &modifier.card {
-            VectorMatchCardinality::ManyToOne(labels) |
-            VectorMatchCardinality::OneToMany(labels) => labels,
-            _ => &empty_labels
+            VectorMatchCardinality::ManyToOne(labels)
+            | VectorMatchCardinality::OneToMany(labels) => labels,
+            _ => &empty_labels,
         };
 
-       (join, skip)
+        (join, skip)
     } else {
         (&empty_labels, &empty_labels)
     };
@@ -390,7 +387,8 @@ fn group_join(
     let mut shared_right: SmallVec<SharedTimeseries, 4> = tss_right
         .into_iter()
         .map(Rc::new)
-        .collect::<SmallVec<SharedTimeseries, 4>>();
+        .collect::<SmallVec<SharedTimeseries, 4>>(
+    );
 
     let mut tss_left = tss_left;
     let right_len = shared_right.len();
@@ -446,7 +444,7 @@ fn group_join(
             let Some(pair) = map.get_mut(&key) else {
                 let right = ts_right.clone();
                 let mut left = {
-                    if j == right_len - 1{
+                    if j == right_len - 1 {
                         // If this is the last pair, we can take the value and avoid cloning.
                         std::mem::take(ts_left)
                     } else {
@@ -455,14 +453,8 @@ fn group_join(
                     }
                 };
                 left.metric_name = mn;
-                
-                map.insert(
-                    key,
-                    GroupJoinPair {
-                        left,
-                        right,
-                    },
-                );
+
+                map.insert(key, GroupJoinPair { left, right });
                 continue;
             };
 
@@ -591,16 +583,15 @@ fn binary_op_default(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<InstantVector> 
 ///
 /// https://prometheus.io/docs/prometheus/latest/querying/operators/#logical-set-binary-operators
 fn binary_op_or(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    
     let mut left = std::mem::take(&mut bfa.left);
     let right = std::mem::take(&mut bfa.right);
-    
+
     remove_empty_series(&mut left);
 
     let mut m_left = group_series_by_match_modifier(left, bfa.modifier);
     let m_right = group_series_by_match_modifier(right, bfa.modifier);
     let mut right_series = Vec::with_capacity(m_right.len());
-    
+
     for (k, mut tss_right) in m_right.into_iter() {
         if let Some(tss_left) = m_left.get_mut(&k) {
             fill_left_nans_with_right_values_or_merge(tss_left.as_mut(), tss_right.as_mut());
@@ -611,20 +602,20 @@ fn binary_op_or(bfa: &mut BinaryOpFuncArg) -> RuntimeResult<Vec<Timeseries>> {
         }
         right_series.extend(tss_right);
     }
-    
+
     // Sort the added right-hand-side series by metric name as Prometheus does.
     // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/5393
     right_series.sort_by(|a, b| a.metric_name.cmp(&b.metric_name));
-    
+
     let mut left_series: Vec<Timeseries> = Vec::with_capacity(m_left.len() + right_series.len());
     for (_, mut tss_left) in m_left.into_iter() {
         left_series.append(&mut tss_left)
     }
-    
+
     // Sort left-hand-side series by metric name as Prometheus does.
     // See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/5393
     left_series.sort_by(|a, b| a.metric_name.cmp(&b.metric_name));
-    
+
     left_series.append(&mut right_series);
 
     Ok(left_series)

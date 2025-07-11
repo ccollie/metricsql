@@ -1,11 +1,11 @@
+use crate::prelude::InstantVector;
+use crate::types::{Label, QueryValue, Timeseries};
+use crate::{RuntimeError, RuntimeResult};
 use ahash::{AHashSet, AHasher};
 use metricsql_parser::prelude::{BinaryExpr, Expr, Matcher, Operator};
 use regex::escape;
 use small_map::SmallMap;
 use std::hash::BuildHasherDefault;
-use crate::prelude::InstantVector;
-use crate::{RuntimeError, RuntimeResult};
-use crate::types::{Label, QueryValue, Timeseries};
 
 pub(crate) fn can_push_down_common_filters(be: &BinaryExpr) -> bool {
     if matches!(be.op, Operator::Or | Operator::Default) {
@@ -95,7 +95,7 @@ pub(super) fn handle_vector_scalar_list_equality(
     let mut vector = vector;
 
     let is_equals = op == Operator::Eql;
-    
+
     if is_equals || op == Operator::NotEq {
         // scalar != (1,2,3) or scalar == (1,2,3)
 
@@ -112,7 +112,8 @@ pub(super) fn handle_vector_scalar_list_equality(
         }
     } else {
         return Err(RuntimeError::ArgumentError(
-            "expected equality or inequality operator for scalar vector list comparison".to_string(),
+            "expected equality or inequality operator for scalar vector list comparison"
+                .to_string(),
         ));
     }
 

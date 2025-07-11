@@ -4,8 +4,8 @@ use chrono_tz::Tz;
 
 use metricsql_common::time::get_local_tz;
 
-use crate::{RuntimeError, RuntimeResult};
 use crate::prelude::QueryValue;
+use crate::{RuntimeError, RuntimeResult};
 
 pub fn remove_nan_values_in_place(values: &mut Vec<f64>, timestamps: &mut Vec<i64>) {
     let len = values.len();
@@ -125,7 +125,6 @@ pub(crate) fn are_all_args_scalar(args: &[QueryValue]) -> bool {
         _ => false,
     })
 }
-
 
 #[cfg(test)]
 mod tests {

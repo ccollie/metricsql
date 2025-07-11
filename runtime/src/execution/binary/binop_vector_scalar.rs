@@ -1,16 +1,16 @@
 use tracing::{field, trace_span, Span};
 
+use crate::execution::binary::common::handle_vector_scalar_list_equality;
 use crate::types::{InstantVector, QueryValue};
 use crate::RuntimeResult;
 use metricsql_parser::prelude::{get_scalar_binop_handler, Operator};
-use crate::execution::binary::common::handle_vector_scalar_list_equality;
 
 /// `eval_vector_scalar_binop` evaluates binary operation between vector and scalar.
-/// 
+///
 /// Ex:
-/// 
+///
 ///   http_requests_total{} * 2
-/// 
+///
 ///   http_requests_total{method="GET"} / 10
 pub(crate) fn eval_vector_scalar_binop(
     vector: InstantVector,
@@ -62,7 +62,7 @@ pub(crate) fn eval_vector_scalar_list_equality(
     vector: InstantVector,
     op: Operator,
     scalar: f64,
-    is_tracing: bool
+    is_tracing: bool,
 ) -> RuntimeResult<QueryValue> {
     let _ = if is_tracing {
         trace_span!(
@@ -73,6 +73,6 @@ pub(crate) fn eval_vector_scalar_list_equality(
     } else {
         Span::none()
     }
-        .entered();
+    .entered();
     handle_vector_scalar_list_equality(vector, scalar, op)
 }

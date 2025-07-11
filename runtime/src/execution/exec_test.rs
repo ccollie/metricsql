@@ -55,7 +55,11 @@ mod tests {
     async fn test_query(q: &str, expected: Vec<QueryResult>) {
         let (context, ec) = setup_context();
 
-        async fn run_once(context: &Context, ec: &EvalConfig, q: &str) -> RuntimeResult<Vec<QueryResult>> {
+        async fn run_once(
+            context: &Context,
+            ec: &EvalConfig,
+            q: &str,
+        ) -> RuntimeResult<Vec<QueryResult>> {
             let mut cloned_ec = ec.clone();
             exec(&context, &mut cloned_ec, q, false).await
         }
@@ -72,9 +76,7 @@ mod tests {
 
     async fn exec_query(q: &str) -> Vec<QueryResult> {
         let (context, mut ec) = setup_context();
-        exec(&context, &mut ec, q, false)
-            .await
-            .unwrap()
+        exec(&context, &mut ec, q, false).await.unwrap()
     }
 
     async fn exec_raw_query(q: &str) -> RuntimeResult<QueryValue> {
@@ -134,7 +136,8 @@ mod tests {
         assert_result_eq(
             "-1+2 *3 ^ 4+5%6",
             &[166.0, 166.0, 166.0, 166.0, 166.0, 166.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -275,11 +278,13 @@ mod tests {
         assert_result_eq(
             "bitmap_and(0xB3, 0x11)",
             &[17.0, 17.0, 17.0, 17.0, 17.0, 17.0],
-        ).await;
+        )
+        .await;
         assert_result_eq(
             "bitmap_and(time(), 0x11)",
             &[0.0, 16.0, 16.0, 0.0, 0.0, 16.0],
-        ).await;
+        )
+        .await;
 
         test_query("bitmap_and(NaN, 1)", vec![]).await;
     }
@@ -289,12 +294,14 @@ mod tests {
         assert_result_eq(
             "bitmap_or(0xA2, 0x11)",
             &[179.0, 179.0, 179.0, 179.0, 179.0, 179.0],
-        ).await;
+        )
+        .await;
 
         assert_result_eq(
             "bitmap_or(time(), 0x11)",
             &[1017.0, 1201.0, 1401.0, 1617.0, 1817.0, 2001.0],
-        ).await;
+        )
+        .await;
 
         test_query("bitmap_or(NaN, 1)", vec![]).await;
     }
@@ -304,12 +311,14 @@ mod tests {
         assert_result_eq(
             "bitmap_xor(0xB3, 0x11)",
             &[162.0, 162.0, 162.0, 162.0, 162.0, 162.0],
-        ).await;
+        )
+        .await;
 
         assert_result_eq(
             "bitmap_xor(time(), 0x11)",
             &[1017.0, 1185.0, 1385.0, 1617.0, 1817.0, 1985.0],
-        ).await;
+        )
+        .await;
 
         test_query("bitmap_xor(NaN, 1)", vec![]).await;
     }
@@ -399,7 +408,8 @@ mod tests {
         assert_result_eq(
             "sum_over_time(time()[1h]) / 1h",
             &[-3.5, -2.5, -1.5, -0.5, 0.5, 1.5],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -407,19 +417,23 @@ mod tests {
         assert_result_eq(
             "timestamp(123)",
             &[1000.0, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0],
-        ).await;
+        )
+        .await;
         assert_result_eq(
             "timestamp(time())",
             &[1000.0, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0],
-        ).await;
+        )
+        .await;
         assert_result_eq(
             "timestamp(456/time()+123)",
             &[1000.0, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0],
-        ).await;
+        )
+        .await;
         assert_result_eq(
             "timestamp(time()>=1600)",
             &[NAN, NAN, NAN, 1600.0, 1800.0, 2000.0],
-        ).await;
+        )
+        .await;
 
         let q = r#"timestamp(alias(time()>=1600.0,"foo"))"#;
         assert_result_eq(q, &[NAN, NAN, NAN, 1600.0, 1800.0, 2000.0]).await;
@@ -477,7 +491,8 @@ mod tests {
         assert_result_eq(
             "day_of_month(time()*1e4)",
             &[26.0, 19.0, 12.0, 5.0, 28.0, 20.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -490,7 +505,8 @@ mod tests {
         assert_result_eq(
             "day_of_year(time()*1e4)",
             &[116.0, 139.0, 163.0, 186.0, 209.0, 232.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -498,7 +514,8 @@ mod tests {
         assert_result_eq(
             "days_in_month(time()*2e4)",
             &[31.0, 31.0, 30.0, 31.0, 28.0, 30.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -516,7 +533,8 @@ mod tests {
         assert_result_eq(
             "year(time()*1e5)",
             &[1973.0, 1973.0, 1974.0, 1975.0, 1975.0, 1976.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -524,11 +542,13 @@ mod tests {
         assert_result_eq(
             "abs(1500-time())",
             &[500.0, 300.0, 100.0, 100.0, 300.0, 500.0],
-        ).await;
+        )
+        .await;
         assert_result_eq(
             "abs(-time()+1300)",
             &[300.0, 100.0, 100.0, 300.0, 500.0, 700.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -559,11 +579,13 @@ mod tests {
         assert_result_eq(
             "present_over_time(time()[100:300])",
             &[NAN, 1.0, NAN, NAN, 1.0, NAN],
-        ).await;
+        )
+        .await;
         assert_result_eq(
             "present_over_time(time()<1600)",
             &[1.0, 1.0, 1.0, NAN, NAN, NAN],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -571,7 +593,8 @@ mod tests {
         assert_result_eq(
             "absent_over_time(NAN[200s:10s])",
             &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
-        ).await;
+        )
+        .await;
 
         let q = r#"absent(label_set(scalar(1 or label_set(2, "xx", "foo")), "yy", "foo"))"#;
         assert_result_eq(q, &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]).await;
@@ -588,7 +611,8 @@ mod tests {
         assert_result_eq(
             "absent_over_time((time() < 1500)[300s:])",
             &[NAN, NAN, NAN, NAN, 1.0, 1.0],
-        ).await;
+        )
+        .await;
 
         assert_result_eq("absent(time() > 1500)", &[1.0, 1.0, 1.0, NAN, NAN, NAN]).await;
     }
@@ -608,7 +632,8 @@ mod tests {
         assert_result_eq(
             "clamp(time(), 1400.0, 1800)",
             &[1400.0, 1400.0, 1400.0, 1600.0, 1800.0, 1800.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -616,7 +641,8 @@ mod tests {
         assert_result_eq(
             "clamp_max(time(), 1400)",
             &[1000.0, 1200.0, 1400.0, 1400.0, 1400.0, 1400.0],
-        ).await;
+        )
+        .await;
 
         let q = r#"clamp_max(alias(time(), "foobar"), 1400)"#;
         let mut r = make_result(&[1000_f64, 1200.0, 1400.0, 1400.0, 1400.0, 1400.0]);
@@ -634,11 +660,13 @@ mod tests {
         assert_result_eq(
             "clamp_min(time(), -time()+2500)",
             &[1500.0, 1300.0, 1400.0, 1600.0, 1800.0, 2000.0],
-        ).await;
+        )
+        .await;
         assert_result_eq(
             "clamp_min(1500, time())",
             &[1500.0, 1500.0, 1500.0, 1600.0, 1800.0, 2000.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -675,23 +703,28 @@ mod tests {
         assert_result_eq(
             "time() @ 1h",
             &[3600.0, 3600.0, 3600.0, 3600.0, 3600.0, 3600.0],
-        ).await;
+        )
+        .await;
         assert_result_eq(
             "time() @ start()",
             &[1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0],
-        ).await;
+        )
+        .await;
         assert_result_eq(
             "time() @ end()",
             &[2000.0, 2000.0, 2000.0, 2000.0, 2000.0, 2000.0],
-        ).await;
+        )
+        .await;
         assert_result_eq(
             "time() @ end() offset 10m",
             &[1400.0, 1400.0, 1400.0, 1400.0, 1400.0, 1400.0],
-        ).await;
+        )
+        .await;
         assert_result_eq(
             "time() @ (end() - 10m)",
             &[1400.0, 1400.0, 1400.0, 1400.0, 1400.0, 1400.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -700,7 +733,8 @@ mod tests {
         assert_result_eq(
             "round(rand(0), 0.01)",
             &[0.73, 0.77, 0.03, 0.58, 0.26, 0.77],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -708,11 +742,13 @@ mod tests {
         assert_result_eq(
             "clamp_max(clamp_min(0, rand_normal()), 0)",
             &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        ).await;
+        )
+        .await;
         assert_result_eq(
             "round(rand_normal(0), 0.01)",
             &[0.71, 0.86, -2.44, 0.16, -1.28, 1.29],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -723,7 +759,8 @@ mod tests {
         assert_result_eq(
             "round(rand_exponential(0), 0.01)",
             &[1.23, 1.34, 0.11, 0.45, 1.15, 2.73],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -788,7 +825,8 @@ mod tests {
         assert_result_eq(
             q,
             &[1.0, 0.8000000000000002, 0.6, 0.4000000000000001, 0.2, 0.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -826,7 +864,8 @@ mod tests {
         assert_result_eq(
             q,
             &[1.0, 0.8000000000000002, 0.6, 0.4000000000000001, 0.2, 0.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -873,7 +912,8 @@ mod tests {
         assert_result_eq(
             "rad(deg(time()/500))",
             &[2.0, 2.3999999999999995, 2.8, 3.2, 3.6, 4.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -893,7 +933,8 @@ mod tests {
                 42.42640687119285,
                 44.721359549995796,
             ],
-        ).await;
+        )
+        .await;
 
         let q = r#"round(sqrt(sum2(label_set(10, "foo", "bar") or label_set(time()/100, "baz", "sss"))))"#;
         assert_result_eq(q, &[14.0, 16.0, 17.0, 19.0, 21.0, 22.0]).await;
@@ -949,7 +990,8 @@ mod tests {
         assert_result_eq(
             "time()*-4^0.5",
             &[-2000.0, -2400.0, -2800.0, -3200.0, -3600.0, -4000.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -1332,7 +1374,8 @@ mod tests {
         assert_result_eq(
             r#"label_del(time(), "foo", "bar")"#,
             &[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -1601,7 +1644,8 @@ mod tests {
         assert_result_eq(
             "round(-time()/1e3, 0.5)",
             &[-1.0, -1.0, -1.5, -1.5, -2.0, -2.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -1676,21 +1720,25 @@ mod tests {
         assert_result_eq(
             "123 < time()",
             &[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0],
-        ).await;
+        )
+        .await;
         assert_result_eq("time() > 1234", &[NAN, NAN, 1400.0, 1600.0, 1800.0, 2000.0]).await;
         assert_result_eq("time() >bool 1234", &[0.0, 0.0, 1.0, 1.0, 1.0, 1.0]).await;
         assert_result_eq(
             "(time() > 1234) >bool 1450",
             &[NAN, NAN, 0.0, 1.0, 1.0, 1.0],
-        ).await;
+        )
+        .await;
         assert_result_eq(
             "(time() > 1234) !=bool 1400",
             &[NAN, NAN, 0.0, 1.0, 1.0, 1.0],
-        ).await;
+        )
+        .await;
         assert_result_eq(
             "1400 !=bool (time() > 1234)",
             &[NAN, NAN, 0.0, 1.0, 1.0, 1.0],
-        ).await;
+        )
+        .await;
         let q = "123 > time()";
         test_query(q, vec![]).await;
 
@@ -1700,7 +1748,8 @@ mod tests {
         assert_result_eq(
             "1300 < time() < 1700",
             &[NAN, NAN, 1400.0, 1600.0, NAN, NAN],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -1767,11 +1816,13 @@ mod tests {
         assert_result_eq(
             "time() and 2",
             &[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0],
-        ).await;
+        )
+        .await;
         assert_result_eq(
             "time() and time() > 1300",
             &[NAN, NAN, 1400.0, 1600.0, 1800.0, 2000.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -1779,7 +1830,8 @@ mod tests {
         assert_result_eq(
             "time() unless time() > 1500",
             &[1000_f64, 1200.0, 1400.0, NAN, NAN, NAN],
-        ).await;
+        )
+        .await;
     }
 
     // todo: do the scalar vector versions of the following 2 tests
@@ -1801,7 +1853,8 @@ mod tests {
         assert_result_eq(
             "time() > 1400 or 123",
             &[123.0, 123.0, 123.0, 1600.0, 1800.0, 2000.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -1809,7 +1862,8 @@ mod tests {
         assert_result_eq(
             "time() > 1400 default 123",
             &[123.0, 123.0, 123.0, 1600.0, 1800.0, 2000.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -1869,7 +1923,8 @@ mod tests {
         assert_result_eq(
             "sum(time()) * 2",
             &[2000.0, 2400.0, 2800.0, 3200.0, 3600.0, 4000.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -2270,7 +2325,8 @@ mod tests {
         assert_result_eq(
             "round(stdvar_over_time(rand(0)[200s:5s]), 0.001)",
             &[0.085, 0.082, 0.078, 0.101, 0.059, 0.074],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -2398,7 +2454,8 @@ mod tests {
                 0.3448275862068966,
                 0.3448275862068966,
             ],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -2830,7 +2887,11 @@ mod tests {
         test_query(q, vec![]).await;
 
         // assert_result_eq(r#"median_over_time("foo")"#, &[]);
-        assert_result_eq("median_over_time(12)", &[12.0, 12.0, 12.0, 12.0, 12.0, 12.0]).await;
+        assert_result_eq(
+            "median_over_time(12)",
+            &[12.0, 12.0, 12.0, 12.0, 12.0, 12.0],
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -2865,12 +2926,20 @@ mod tests {
 
     #[tokio::test]
     async fn sum_scalar_by_empty_parens_expr() {
-        assert_result_eq("sum(123) by ()", &[123.0, 123.0, 123.0, 123.0, 123.0, 123.0]).await;
+        assert_result_eq(
+            "sum(123) by ()",
+            &[123.0, 123.0, 123.0, 123.0, 123.0, 123.0],
+        )
+        .await;
     }
 
     #[tokio::test]
     async fn sum_scalar_without_empty_parens_expr() {
-        assert_result_eq("sum(123) without ()", &[123.0, 123.0, 123.0, 123.0, 123.0, 123.0]).await;
+        assert_result_eq(
+            "sum(123) without ()",
+            &[123.0, 123.0, 123.0, 123.0, 123.0, 123.0],
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -2960,7 +3029,8 @@ mod tests {
         assert_result_eq(
             "avg without (xx, yy) (123)",
             &[123.0, 123.0, 123.0, 123.0, 123.0, 123.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -3026,7 +3096,11 @@ mod tests {
 
     #[tokio::test]
     async fn sum2_time() {
-        assert_result_eq("sum2(time()/100)", &[100.0, 144.0, 196.0, 256.0, 324.0, 400.0]).await;
+        assert_result_eq(
+            "sum2(time()/100)",
+            &[100.0, 144.0, 196.0, 256.0, 324.0, 400.0],
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -3034,7 +3108,8 @@ mod tests {
         assert_result_eq(
             r#"sum2_over_time(alias(time()/100, "foobar")[3i])"#,
             &[200.0, 308.0, 440.0, 596.0, 776.0, 980.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -3122,7 +3197,8 @@ mod tests {
         assert_result_eq(
             q,
             &[6.666666666666667, 8.0, 9.333333333333334, 10.0, 10.0, 10.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -3138,7 +3214,8 @@ mod tests {
                 12.0,
                 13.333333333333334,
             ],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -3150,19 +3227,19 @@ mod tests {
 
         test_query(q, vec![r]).await;
     }
-    
+
     #[tokio::test]
     async fn equal_list() {
         let q = r#"time() == (100, 1000, 1400, 600)"#;
         assert_result_eq(q, &[1000.0, NAN, 1400.0, NAN, NAN, NAN]).await;
     }
-    
+
     #[tokio::test]
     async fn equal_list_reverse() {
         let q = r#"(100, 1000, 1400, 600) == time()"#;
         assert_result_eq(q, &[1000.0, NAN, 1400.0, NAN, NAN, NAN]).await;
     }
-    
+
     #[tokio::test]
     async fn not_equal_list() {
         let q = r#"alias(time(), "foobar") != UNIon(100, 1000, 1400, 600)"#;
@@ -3367,7 +3444,8 @@ mod tests {
         assert_result_eq(
             "increases_over_time(rand(0)[200s:10s])",
             &[9.0, 14.0, 12.0, 11.0, 9.0, 11.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -3375,7 +3453,8 @@ mod tests {
         assert_result_eq(
             "decreases_over_time(rand(0)[200s:10s])",
             &[11.0, 6.0, 8.0, 9.0, 11.0, 9.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -3786,7 +3865,8 @@ mod tests {
         assert_result_eq(
             "distinct_over_time((time() < 1700)[2.5i])",
             &[3.0, 3.0, 3.0, 3.0, 2.0, 1.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -3794,11 +3874,13 @@ mod tests {
         assert_result_eq(
             "distinct_over_time((time() < 1700)[500s])",
             &[3.0, 3.0, 3.0, 3.0, 2.0, 1.0],
-        ).await;
+        )
+        .await;
         assert_result_eq(
             "distinct_over_time((time() < 1700)[2.5i])",
             &[3.0, 3.0, 3.0, 3.0, 2.0, 1.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -3903,7 +3985,8 @@ mod tests {
                 10.4,
                 10.666666666666668,
             ],
-        ).await;
+        )
+        .await;
 
         let q =
             r#"quantile(0.5, label_set(10, "foo", "bar") or label_set(time()/150, "baz", "sss"))"#;
@@ -3917,7 +4000,8 @@ mod tests {
                 11.0,
                 11.666666666666668,
             ],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -3961,7 +4045,8 @@ mod tests {
         assert_result_eq(
             q,
             &[6.666666666666667, 8.0, 9.333333333333334, 10.0, 10.0, 10.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -4174,24 +4259,28 @@ mod tests {
         assert_result_eq(
             "ru(time() offset 100s, 2000)",
             &[60.0, 50.0, 40.0, 30.0, 20.0, 10.0],
-        ).await;
+        )
+        .await;
 
         assert_result_eq(
             "ru(time() offset 0.5i, 2000)",
             &[60.0, 50.0, 40.0, 30.0, 20.0, 10.0],
-        ).await;
+        )
+        .await;
 
         assert_result_eq(
             "ru(time() offset 1.5i, 2000)",
             &[70.0, 60.0, 50.0, 40.0, 30.0, 20.0],
-        ).await;
+        )
+        .await;
 
         assert_result_eq("ru(time(), 1600)", &[37.5, 25.0, 12.5, 0.0, 0.0, 0.0]).await;
 
         assert_result_eq(
             "ru(1500-time(), 1000)",
             &[50.0, 70.0, 90.0, 100.0, 100.0, 100.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -4217,7 +4306,8 @@ mod tests {
         assert_result_eq(
             "zscore_over_time(1[100s:10s])",
             &[0_f64, 0.0, 0.0, 0.0, 0.0, 0.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -4226,7 +4316,8 @@ mod tests {
         assert_result_eq(
             "integrate(time()/1e3)",
             &[160.0, 200.0, 240.0, 280.0, 320.0, 360.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -4240,7 +4331,8 @@ mod tests {
         assert_result_eq(
             "rate((2000-time())[100s:100s])",
             &[0_f64, 0.0, 6.0, 4.0, 2.0, 0.0],
-        ).await;
+        )
+        .await;
 
         let q = "rate((2000-time())[100s:100s] offset 100s)";
         assert_result_eq(q, &[0.0, 0.0, 7.0, 5.0, 3.0, 1.0]).await;
@@ -4281,7 +4373,8 @@ mod tests {
         assert_result_eq(
             "increase_pure(time())",
             &[200.0, 200.0, 200.0, 200.0, 200.0, 200.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -4289,12 +4382,14 @@ mod tests {
         assert_result_eq(
             "increase(time())",
             &[200.0, 200.0, 200.0, 200.0, 200.0, 200.0],
-        ).await;
+        )
+        .await;
 
         assert_result_eq(
             "increase(2000-time())",
             &[1000_f64, 800.0, 600.0, 400.0, 200.0, 0.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -4305,7 +4400,8 @@ mod tests {
         assert_result_eq(
             "increase_prometheus(time()[201s])",
             &[200.0, 200.0, 200.0, 200.0, 200.0, 200.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -4314,11 +4410,13 @@ mod tests {
         assert_result_eq(
             "running_max(abs(1300-time()))",
             &[300.0, 300.0, 300.0, 300.0, 500.0, 700.0],
-        ).await;
+        )
+        .await;
         assert_result_eq(
             "running_max(abs(1300-time()) > 300 < 700)",
             &[f64::NAN, f64::NAN, f64::NAN, f64::NAN, 500.0, 500.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -4326,7 +4424,8 @@ mod tests {
         assert_result_eq(
             "running_min(abs(1500-time()))",
             &[500.0, 300.0, 100.0, 100.0, 100.0, 100.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -4334,7 +4433,8 @@ mod tests {
         assert_result_eq(
             "running_min(abs(1500-time()) < 400 > 100)",
             &[f64::NAN, 300.0, 300.0, 300.0, 300.0, 300.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -4352,7 +4452,8 @@ mod tests {
         assert_result_eq(
             "running_sum(time()/1e3 > 1.2 < 1.8)",
             &[f64::NAN, f64::NAN, 1.4, 3.0, 3.0, 3.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -4360,11 +4461,13 @@ mod tests {
         assert_result_eq(
             "running_avg(time())",
             &[1000_f64, 1100.0, 1200.0, 1300.0, 1400.0, 1500.0],
-        ).await;
+        )
+        .await;
         assert_result_eq(
             "running_avg(time() > 1200 < 1800)",
             &[f64::NAN, f64::NAN, 1400.0, 1500.0, 1500.0, 1500.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -4372,15 +4475,18 @@ mod tests {
         assert_result_eq(
             "smooth_exponential(time(), 1)",
             &[1000_f64, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0],
-        ).await;
+        )
+        .await;
         assert_result_eq(
             "smooth_exponential(time(), 0)",
             &[1000_f64, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0],
-        ).await;
+        )
+        .await;
         assert_result_eq(
             "smooth_exponential(time(), 0.5)",
             &[1000_f64, 1100.0, 1250.0, 1425.0, 1612.5, 1806.25],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -4388,7 +4494,8 @@ mod tests {
         assert_result_eq(
             "remove_resets(abs(1500-time()))",
             &[500.0, 800.0, 900.0, 900.0, 1100.0, 1300.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -4405,7 +4512,8 @@ mod tests {
         assert_result_eq(
             "range_avg(time())",
             &[1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -4413,11 +4521,13 @@ mod tests {
         assert_result_eq(
             "range_min(time())",
             &[1000_f64, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0],
-        ).await;
+        )
+        .await;
         assert_result_eq(
             "range_min(time() > 1200 < 1800)",
             &[1400_f64, 1400.0, 1400.0, 1400.0, 1400.0, 1400.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -4444,11 +4554,13 @@ mod tests {
         assert_result_eq(
             "range_first(time())",
             &[1000_f64, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0],
-        ).await;
+        )
+        .await;
         assert_result_eq(
             "range_first(time() > 1200 < 1800)",
             &[1400.0, 1400.0, 1400.0, 1400.0, 1400.0, 1400.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -4456,11 +4568,13 @@ mod tests {
         assert_result_eq(
             "range_mad(time())",
             &[300.0, 300.0, 300.0, 300.0, 300.0, 300.0],
-        ).await;
+        )
+        .await;
         assert_result_eq(
             "range_mad(time() > 1200 < 1800)",
             &[100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -4468,11 +4582,13 @@ mod tests {
         assert_result_eq(
             "range_max(time())",
             &[2000.0, 2000.0, 2000.0, 2000.0, 2000.0, 2000.0],
-        ).await;
+        )
+        .await;
         assert_result_eq(
             "range_max(time() > 1200 < 1800)",
             &[1600.0, 1600.0, 1600.0, 1600.0, 1600.0, 1600.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -4480,11 +4596,13 @@ mod tests {
         assert_result_eq(
             "range_sum(time())",
             &[9000.0, 9000.0, 9000.0, 9000.0, 9000.0, 9000.0],
-        ).await;
+        )
+        .await;
         assert_result_eq(
             "range_sum(time() > 1200 < 1800)",
             &[3000.0, 3000.0, 3000.0, 3000.0, 3000.0, 3000.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -4492,11 +4610,13 @@ mod tests {
         assert_result_eq(
             "range_last(time())",
             &[2000.0, 2000.0, 2000.0, 2000.0, 2000.0, 2000.0],
-        ).await;
+        )
+        .await;
         assert_result_eq(
             "range_last(time() > 1200 < 1800)",
             &[1600.0, 1600.0, 1600.0, 1600.0, 1600.0, 1600.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -4504,7 +4624,8 @@ mod tests {
         assert_result_eq(
             "range_linear_regression(time())",
             &[1000.0, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -4512,7 +4633,8 @@ mod tests {
         assert_result_eq(
             "range_linear_regression(-time())",
             &[-1000.0, -1200.0, -1400.0, -1600.0, -1800.0, -2000.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -4522,7 +4644,8 @@ mod tests {
         assert_result_eq(
             "range_linear_regression(time() > 1200 < 1800)",
             &[1000.0, 1200.0, 1400.0, 1600.0, 1800.0, 2000.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -4539,7 +4662,8 @@ mod tests {
         assert_result_eq(
             "delta(-time())",
             &[-200.0, -200.0, -200.0, -200.0, -200.0, -200.0],
-        ).await;
+        )
+        .await;
         assert_result_eq("delta(1)", &[0_f64, 0.0, 0.0, 0.0, 0.0, 0.0]).await;
     }
 
@@ -4551,7 +4675,8 @@ mod tests {
         assert_result_eq(
             "delta_prometheus(time()[201s])",
             &[200.0, 200.0, 200.0, 200.0, 200.0, 200.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -4567,7 +4692,8 @@ mod tests {
                 0.28199209507225204,
                 0.2956205035589421,
             ],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -4628,7 +4754,9 @@ mod tests {
 
     #[tokio::test]
     async fn rollup_candlestick() {
-        let temp = exec_raw_query(r#"alias(round(rand(0),0.01), "foobar")"#).await.unwrap();
+        let temp = exec_raw_query(r#"alias(round(rand(0),0.01), "foobar")"#)
+            .await
+            .unwrap();
         println!("candlestick: {:?}", temp);
         let q = r#"sort(rollup_candlestick(alias(round(rand(0),0.01),"foobar")[:10s]))"#;
         let mut r1 = make_result(&[0.02, 0.02, 0.03, 0.0, 0.03, 0.02]);
@@ -4758,9 +4886,11 @@ mod tests {
 
     #[tokio::test]
     async fn end() {
-        assert_result_eq("end() - time()",
+        assert_result_eq(
+            "end() - time()",
             &[1000_f64, 800.0, 600.0, 400.0, 200.0, 0.0],
-        ).await;
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -4967,22 +5097,26 @@ mod tests {
         test_add_labels(
             &mut r1.metric,
             &["instance", "localhost:1000", "type", "buffers"],
-        ).await;
+        )
+        .await;
         let mut r2 = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         test_add_labels(
             &mut r2.metric,
             &["instance", "localhost:1000", "type", "free"],
-        ).await;
+        )
+        .await;
         let mut r3 = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         test_add_labels(
             &mut r3.metric,
             &["instance", "localhost:1001", "type", "buffers"],
-        ).await;
+        )
+        .await;
         let mut r4 = make_result(&[1_f64, 1.0, 1.0, 1.0, 1.0, 1.0]);
         test_add_labels(
             &mut r4.metric,
             &["instance", "localhost:1001", "type", "free"],
-        ).await;
+        )
+        .await;
         test_query(q, vec![r1, r2, r3, r4]).await;
     }
 
@@ -5323,7 +5457,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_exec_error() {
-
         async fn test_error(q: &str) -> bool {
             let mut ec = EvalConfig::new(1000, 2000, Duration::from_millis(100));
             ec.max_points_per_series = 100000;
@@ -5338,7 +5471,9 @@ mod tests {
         }
 
         async fn f(q: &str) {
-            block_on(async { test_error(q).await; })
+            block_on(async {
+                test_error(q).await;
+            })
         }
 
         f("pi(123)");

@@ -6,7 +6,7 @@ pub(crate) fn limit_offset(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Time
     let limit = tfa.get_param_usize(0, "limit")?;
     let offset = tfa.get_param_usize(1, "offset")?;
     let mut rvs = tfa.get_param_series(2)?;
-    
+
     // remove_empty_series so offset will be calculated after empty series
     // were filtered out.
     remove_empty_series(&mut rvs);

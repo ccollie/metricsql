@@ -1,7 +1,12 @@
 use super::match_handlers::{get_literal_match_fn, StringMatchHandler};
-use crate::prelude::{ConsecutiveLiterals, ContainsMultiStringMatcher, EqualMultiStringMatcher, MatchAnyMatcher, RegexMatcher, RepetitionMatcher};
+use crate::prelude::{
+    ConsecutiveLiterals, ContainsMultiStringMatcher, EqualMultiStringMatcher, MatchAnyMatcher,
+    RegexMatcher, RepetitionMatcher,
+};
 use crate::regex_util::string_pattern::StringPattern;
-use crate::regex_util::{LiteralBracketedMatcher, LiteralMapMatcher, MatchFnHandler, Quantifier, StringMatchOptions};
+use crate::regex_util::{
+    LiteralBracketedMatcher, LiteralMapMatcher, MatchFnHandler, Quantifier, StringMatchOptions,
+};
 use regex::{Error as RegexError, Regex};
 use regex_syntax::hir::Class::{Bytes, Unicode};
 use regex_syntax::hir::{Class, Hir, HirKind, Look, Repetition};
@@ -45,8 +50,7 @@ pub fn is_valid_regexp(expr: &str) -> bool {
 }
 
 pub(super) fn build_hir(pattern: &str) -> Result<Hir, RegexError> {
-    let hir = parse_regex(pattern)
-        .map_err(|err| RegexError::Syntax(err.to_string()))?;
+    let hir = parse_regex(pattern).map_err(|err| RegexError::Syntax(err.to_string()))?;
     Ok(clear_capture(hir))
 }
 
@@ -107,7 +111,6 @@ pub(super) fn string_matcher_from_regex_internal(
     expr: &str,
     sre: &Hir,
 ) -> Result<Option<StringMatchHandler>, RegexError> {
-
     if sre.properties().is_alternation_literal() {
         let mut matches = Vec::new();
         collect_simple_alternates(sre, "", &mut matches);
@@ -138,9 +141,7 @@ pub(super) fn string_matcher_from_regex_internal(
             let literal = literal_to_string(sre);
             Ok(Some(StringMatchHandler::equals(literal)))
         }
-        HirKind::Concat(subs) => {
-            get_concat_matcher(subs, expr)
-        },
+        HirKind::Concat(subs) => get_concat_matcher(subs, expr),
         HirKind::Look(_look) => {
             // Lookahead and lookbehind are not supported.
             // We cannot optimize these, so we return None.
@@ -149,7 +150,10 @@ pub(super) fn string_matcher_from_regex_internal(
     }
 }
 
-fn get_alternation_matcher(expr: &str, hirs: &[Hir]) -> Result<Option<StringMatchHandler>, RegexError> {
+fn get_alternation_matcher(
+    expr: &str,
+    hirs: &[Hir],
+) -> Result<Option<StringMatchHandler>, RegexError> {
     let mut is_all_literal = true;
     let mut num_values: usize = 0;
 
@@ -264,14 +268,14 @@ fn get_repetition_matcher(rep: &Repetition) -> Option<StringMatchHandler> {
                 // .+
                 Some(StringMatchHandler::not_empty(match_nl))
             }
-        }
+        };
     }
-    
+
     if is_literal(&rep.sub) {
         let literal = literal_to_string(&rep.sub);
         let repetition = RepetitionMatcher::new(literal, rep.min, rep.max);
         return Some(StringMatchHandler::Repetition(repetition));
-    } 
+    }
     None
 }
 
@@ -314,7 +318,7 @@ fn get_concat_matcher(hirs: &[Hir], expr: &str) -> Result<Option<StringMatchHand
     if let Ok(Some(matcher)) = get_simple_concat_matcher(expr, hirs, true) {
         return Ok(Some(matcher));
     }
-    
+
     let set_matches_result: Option<(Vec<String>, bool)> = get_set_matches(hirs);
 
     // Ensure we've found some literals to match (optionally with a left and/or right matcher).
@@ -345,22 +349,26 @@ fn get_concat_matcher(hirs: &[Hir], expr: &str) -> Result<Option<StringMatchHand
     }
 }
 
-fn get_simple_concat_matcher(expr: &str, hirs: &[Hir], anchored: bool) -> Result<Option<StringMatchHandler>, RegexError> {
+fn get_simple_concat_matcher(
+    expr: &str,
+    hirs: &[Hir],
+    anchored: bool,
+) -> Result<Option<StringMatchHandler>, RegexError> {
     if hirs.is_empty() {
         return Ok(Some(StringMatchHandler::Empty));
     }
 
-    fn get_fn_match_fn(
-        literal: String,
-        options: &StringMatchOptions,
-    ) -> StringMatchHandler {
+    fn get_fn_match_fn(literal: String, options: &StringMatchOptions) -> StringMatchHandler {
         let func = get_literal_match_fn(options);
         StringMatchHandler::MatchFn(MatchFnHandler::new(literal, func))
     }
 
-    fn handle_quantifiers(prefix_quantifier: Option<Quantifier>, 
-                          suffix_quantifier: Option<Quantifier>, 
-                          lit: String, anchored: bool) -> Option<StringMatchHandler> {
+    fn handle_quantifiers(
+        prefix_quantifier: Option<Quantifier>,
+        suffix_quantifier: Option<Quantifier>,
+        lit: String,
+        anchored: bool,
+    ) -> Option<StringMatchHandler> {
         // Special case for 'literal.+/ literal.* / literal.?'
         let options = StringMatchOptions {
             anchor_start: anchored,
@@ -370,18 +378,40 @@ fn get_simple_concat_matcher(expr: &str, hirs: &[Hir], anchored: bool) -> Result
         };
         Some(get_fn_match_fn(lit, &options))
     }
-    
-    fn handle_prefix(rep: &Repetition, lit: &hir::Literal, anchored: bool) -> Option<StringMatchHandler> {
+
+    fn handle_prefix(
+        rep: &Repetition,
+        lit: &hir::Literal,
+        anchored: bool,
+    ) -> Option<StringMatchHandler> {
         let quantifier = get_repetition_quantifier(rep)?;
-        handle_quantifiers(None, Some(quantifier), String::from_utf8(lit.0.to_vec()).unwrap_or_default(), anchored)
+        handle_quantifiers(
+            None,
+            Some(quantifier),
+            String::from_utf8(lit.0.to_vec()).unwrap_or_default(),
+            anchored,
+        )
     }
 
-    fn handle_suffix(rep: &Repetition, lit: &hir::Literal, anchored: bool) -> Option<StringMatchHandler> {
+    fn handle_suffix(
+        rep: &Repetition,
+        lit: &hir::Literal,
+        anchored: bool,
+    ) -> Option<StringMatchHandler> {
         let quantifier = get_repetition_quantifier(rep)?;
-        handle_quantifiers(Some(quantifier), None, String::from_utf8(lit.0.to_vec()).unwrap_or_default(), anchored)
+        handle_quantifiers(
+            Some(quantifier),
+            None,
+            String::from_utf8(lit.0.to_vec()).unwrap_or_default(),
+            anchored,
+        )
     }
 
-    fn create_contains_matcher(matcher: StringMatchHandler, left: Option<&Repetition>, right: Option<&Repetition>) -> Option<StringMatchHandler> {
+    fn create_contains_matcher(
+        matcher: StringMatchHandler,
+        left: Option<&Repetition>,
+        right: Option<&Repetition>,
+    ) -> Option<StringMatchHandler> {
         let case_sensitive = matcher.is_case_sensitive();
         // this branch only handles case_sensitive alternations
         if !case_sensitive {
@@ -403,13 +433,13 @@ fn get_simple_concat_matcher(expr: &str, hirs: &[Hir], anchored: bool) -> Result
             _ => return None,
         }
 
-        let left_quantifier =  if let Some(l) = left {
+        let left_quantifier = if let Some(l) = left {
             get_repetition_quantifier(l)
         } else {
             None
         };
 
-        let right_quantifier =  if let Some(r) = right {
+        let right_quantifier = if let Some(r) = right {
             get_repetition_quantifier(r)
         } else {
             None
@@ -449,14 +479,18 @@ fn get_simple_concat_matcher(expr: &str, hirs: &[Hir], anchored: bool) -> Result
         }
     }
 
-    fn handle_coalesce_literals(expr: &str, hirs: &[Hir]) -> Result<Option<StringMatchHandler>, RegexError> {
+    fn handle_coalesce_literals(
+        expr: &str,
+        hirs: &[Hir],
+    ) -> Result<Option<StringMatchHandler>, RegexError> {
         // try to handle mixed literals at the left, followed by any other matcher
         let Some((mut matcher, remainder)) = get_consecutive_literals_matcher(hirs)? else {
             return Ok(None);
         };
 
         if remainder.len() == 1 {
-            let Some(right_matcher) = string_matcher_from_regex_internal(expr, &remainder[0])? else {
+            let Some(right_matcher) = string_matcher_from_regex_internal(expr, &remainder[0])?
+            else {
                 return Ok(None);
             };
             match matcher {
@@ -469,7 +503,11 @@ fn get_simple_concat_matcher(expr: &str, hirs: &[Hir], anchored: bool) -> Result
                 }
                 StringMatchHandler::Literal(ref mut m) => {
                     let prefix = m.to_string();
-                    let new_matcher = StringMatchHandler::prefix(prefix, Some(right_matcher), matcher.is_case_sensitive());
+                    let new_matcher = StringMatchHandler::prefix(
+                        prefix,
+                        Some(right_matcher),
+                        matcher.is_case_sensitive(),
+                    );
                     return Ok(Some(new_matcher));
                 }
                 _ => {}
@@ -484,7 +522,6 @@ fn get_simple_concat_matcher(expr: &str, hirs: &[Hir], anchored: bool) -> Result
         Ok(Some(matcher))
     }
 
-
     match hirs {
         [h1] => string_matcher_from_regex_internal(expr, h1),
         [h1, h2] => {
@@ -497,28 +534,32 @@ fn get_simple_concat_matcher(expr: &str, hirs: &[Hir], anchored: bool) -> Result
                     // repetition followed by literal
                     Ok(handle_suffix(rep, lit, anchored))
                 }
-                (HirKind::Literal(_), HirKind::Class(_)) => {
-                    handle_coalesce_literals(expr, hirs)
-                }
+                (HirKind::Literal(_), HirKind::Class(_)) => handle_coalesce_literals(expr, hirs),
                 (HirKind::Literal(lit), _) => {
                     let literal = String::from_utf8(lit.0.to_vec()).unwrap_or_default();
                     if let Some(right_matcher) = string_matcher_from_regex_internal(expr, h2)? {
                         // A literal followed by any matcher
-                        Ok(Some(StringMatchHandler::prefix(literal, Some(right_matcher), anchored)))
+                        Ok(Some(StringMatchHandler::prefix(
+                            literal,
+                            Some(right_matcher),
+                            anchored,
+                        )))
                     } else {
                         // no matcher found
                         Ok(None)
                     }
                 }
-                (HirKind::Class(_), HirKind::Literal(_)) => {
-                    handle_coalesce_literals(expr, hirs)
-                }
+                (HirKind::Class(_), HirKind::Literal(_)) => handle_coalesce_literals(expr, hirs),
                 (_, HirKind::Literal(lit)) => {
                     let literal = String::from_utf8(lit.0.to_vec()).unwrap_or_default();
                     if let Some(left_matcher) = string_matcher_from_regex_internal(expr, h1)? {
                         // matcher followed by literal
-                        Ok(Some(StringMatchHandler::suffix(Some(left_matcher), literal, anchored)))
-                    } else { 
+                        Ok(Some(StringMatchHandler::suffix(
+                            Some(left_matcher),
+                            literal,
+                            anchored,
+                        )))
+                    } else {
                         Ok(None)
                     }
                 }
@@ -534,12 +575,10 @@ fn get_simple_concat_matcher(expr: &str, hirs: &[Hir], anchored: bool) -> Result
                     };
                     Ok(create_contains_matcher(matcher, None, Some(rep)))
                 }
-                (HirKind::Class(_), HirKind::Class(_)) => {
-                    handle_coalesce_literals(expr, hirs)
-                }
-                _ => Ok(None)
+                (HirKind::Class(_), HirKind::Class(_)) => handle_coalesce_literals(expr, hirs),
+                _ => Ok(None),
             }
-        },
+        }
         [h1, h2, h3] => {
             let left_kind = h1.kind();
             let right_kind = h3.kind();
@@ -553,7 +592,8 @@ fn get_simple_concat_matcher(expr: &str, hirs: &[Hir], anchored: bool) -> Result
                     };
                     let left_pattern = StringPattern::case_sensitive(literal_to_string(h1));
                     let right_pattern = StringPattern::case_sensitive(literal_to_string(h3));
-                    let bracket = LiteralBracketedMatcher::new(left_pattern, matcher, right_pattern);
+                    let bracket =
+                        LiteralBracketedMatcher::new(left_pattern, matcher, right_pattern);
                     let matcher = StringMatchHandler::Bracketed(Box::new(bracket));
                     Ok(Some(matcher))
                 }
@@ -563,17 +603,27 @@ fn get_simple_concat_matcher(expr: &str, hirs: &[Hir], anchored: bool) -> Result
                     match (left_quantifier, right_quantifier) {
                         (Some(_), Some(_)) => {
                             let literal = String::from_utf8(lit.0.to_vec()).unwrap_or_default();
-                            Ok(handle_quantifiers(left_quantifier, right_quantifier, literal, anchored))
+                            Ok(handle_quantifiers(
+                                left_quantifier,
+                                right_quantifier,
+                                literal,
+                                anchored,
+                            ))
                         }
                         _ => {
                             let literal = String::from_utf8(lit.0.to_vec()).unwrap_or_default();
                             let matcher = StringMatchHandler::literal(literal, true);
                             Ok(create_contains_matcher(matcher, Some(left), Some(right)))
-                        },
+                        }
                     }
                 }
-                (HirKind::Repetition(left), HirKind::Alternation(_alts), HirKind::Repetition(right)) => {
-                    let Some((alternatives, case_sensitive)) = find_set_matches_internal(h2,"") else {
+                (
+                    HirKind::Repetition(left),
+                    HirKind::Alternation(_alts),
+                    HirKind::Repetition(right),
+                ) => {
+                    let Some((alternatives, case_sensitive)) = find_set_matches_internal(h2, "")
+                    else {
                         return Ok(None);
                     };
                     let Some(left_matcher) = get_repetition_matcher(left) else {
@@ -583,12 +633,15 @@ fn get_simple_concat_matcher(expr: &str, hirs: &[Hir], anchored: bool) -> Result
                         return Ok(None);
                     };
                     if case_sensitive {
-                        let contains_matcher =
-                            ContainsMultiStringMatcher::new(alternatives, Some(left_matcher), Some(right_matcher));
-                        return Ok(Some(StringMatchHandler::ContainsMulti(contains_matcher)))
+                        let contains_matcher = ContainsMultiStringMatcher::new(
+                            alternatives,
+                            Some(left_matcher),
+                            Some(right_matcher),
+                        );
+                        return Ok(Some(StringMatchHandler::ContainsMulti(contains_matcher)));
                     }
                     // todo: handle case-insensitive alternations
-                   Ok(None)
+                    Ok(None)
                 }
                 (HirKind::Class(_), _, _) => {
                     // handle cases like [aA][bB][cC].+
@@ -601,15 +654,11 @@ fn get_simple_concat_matcher(expr: &str, hirs: &[Hir], anchored: bool) -> Result
                     handle_coalesce_literals(expr, hirs)
                 }
                 // Concatenated variable length selectors are not supported.
-                (HirKind::Repetition(_), HirKind::Repetition(_), _) => {
-                    Ok(None)
-                }
-                (_, HirKind::Repetition(_), HirKind::Repetition(_)) => {
-                    Ok(None)
-                }
-                _ => Ok(None)
+                (HirKind::Repetition(_), HirKind::Repetition(_), _) => Ok(None),
+                (_, HirKind::Repetition(_), HirKind::Repetition(_)) => Ok(None),
+                _ => Ok(None),
             }
-        },
+        }
         [h1, ..] if matches!(h1.kind(), HirKind::Repetition(_)) => {
             let HirKind::Repetition(rep) = h1.kind() else {
                 return Ok(None);
@@ -636,11 +685,9 @@ fn get_simple_concat_matcher(expr: &str, hirs: &[Hir], anchored: bool) -> Result
             };
 
             Ok(None)
-        },
-        // literal([aA][bB][cC]).+
-        all => {
-            handle_coalesce_literals(expr, all)
         }
+        // literal([aA][bB][cC]).+
+        all => handle_coalesce_literals(expr, all),
     }
 }
 
@@ -674,12 +721,14 @@ fn handle_literal_alternates(sre: &Hir) -> Option<StringMatchHandler> {
                     }
                 }
 
-                Some(StringMatchHandler::literal_alternates(values, case_sensitive))
+                Some(StringMatchHandler::literal_alternates(
+                    values,
+                    case_sensitive,
+                ))
             }
             _ => None,
         }
-    }
-    else {
+    } else {
         None
     }
 }
@@ -708,7 +757,9 @@ fn is_case_insensitive_class(hir: &Hir) -> Option<char> {
 }
 
 // Try to consume consecutive literals. Because of HIR coalescing, this means alternating case-sensitive/insensitive literals
-fn get_consecutive_literals_matcher(hirs: &[Hir]) -> Result<Option<(StringMatchHandler, &[Hir])>, RegexError> {
+fn get_consecutive_literals_matcher(
+    hirs: &[Hir],
+) -> Result<Option<(StringMatchHandler, &[Hir])>, RegexError> {
     if hirs.is_empty() {
         return Ok(None);
     }
@@ -722,9 +773,10 @@ fn get_consecutive_literals_matcher(hirs: &[Hir]) -> Result<Option<(StringMatchH
 
     if !temp.is_empty() {
         let matcher = ConsecutiveLiterals::new(None, temp, None);
-        return Ok(Some(
-            (StringMatchHandler::ConsecutiveLiterals(matcher), hirs)
-        ))
+        return Ok(Some((
+            StringMatchHandler::ConsecutiveLiterals(matcher),
+            hirs,
+        )));
     }
     Ok(None)
 }
@@ -753,10 +805,8 @@ fn consume_literal(hirs: &[Hir]) -> Option<(StringPattern, usize)> {
             let literal = literal_to_string(first);
             Some((StringPattern::new(literal, true), 1))
         }
-        HirKind::Class(_) => {
-            handle_case_folded_string(hirs)
-        }
-        _=> None
+        HirKind::Class(_) => handle_case_folded_string(hirs),
+        _ => None,
     }
 }
 
@@ -929,25 +979,25 @@ fn uncapture(hir: &Hir) -> &Hir {
 }
 
 fn clear_capture(sre: Hir) -> Hir {
-    
     let mut sre = sre;
 
     fn is_clearable_variant(hir: &Hir) -> bool {
-        matches!(hir.kind(), HirKind::Capture(_) | HirKind::Alternation(_) | HirKind::Repetition(_) |
-            HirKind::Concat(_))
+        matches!(
+            hir.kind(),
+            HirKind::Capture(_)
+                | HirKind::Alternation(_)
+                | HirKind::Repetition(_)
+                | HirKind::Concat(_)
+        )
     }
 
     fn should_clear(hir: &Hir) -> bool {
         match hir.kind() {
             HirKind::Capture(_) => true,
-            HirKind::Alternation(alternate) => {
-                alternate.iter().any(should_clear)
-            }
+            HirKind::Alternation(alternate) => alternate.iter().any(should_clear),
             HirKind::Repetition(rep) => should_clear(&rep.sub),
-            HirKind::Concat(concat) => {
-                concat.iter().any(should_clear)
-            }
-            _ => false
+            HirKind::Concat(concat) => concat.iter().any(should_clear),
+            _ => false,
         }
     }
 
@@ -1004,7 +1054,7 @@ fn clear_capture(sre: Hir) -> Hir {
             }
         }
     }
-    
+
     clear_item(&mut sre);
     sre
 }
@@ -1058,7 +1108,7 @@ pub(super) fn hir_to_string(sre: &Hir) -> String {
                     Quantifier::ZeroOrOne => ".?".to_string(),
                     Quantifier::ZeroOrMore => ".*".to_string(),
                     Quantifier::OneOrMore => ".+".to_string(),
-                }
+                };
             }
             sre.to_string()
         }
@@ -1235,12 +1285,7 @@ fn find_set_matches_internal(hir: &Hir, base: &str) -> Option<(Vec<String>, bool
     }
 }
 
-
-fn collect_simple_alternates(
-    hir: &Hir,
-    base: &str,
-    matches: &mut Vec<String>,
-) {
+fn collect_simple_alternates(hir: &Hir, base: &str, matches: &mut Vec<String>) {
     match hir.kind() {
         HirKind::Literal(_) => {
             matches.push(hir_to_string(hir));
@@ -1287,7 +1332,9 @@ fn collect_simple_alternates(
                     let left_kind = h1.kind();
                     let right_kind = h3.kind();
                     let middle_kind = h2.kind();
-                    if let (HirKind::Literal(_), HirKind::Alternation(alts), HirKind::Literal(_)) = (left_kind, middle_kind, right_kind) {
+                    if let (HirKind::Literal(_), HirKind::Alternation(alts), HirKind::Literal(_)) =
+                        (left_kind, middle_kind, right_kind)
+                    {
                         let prefix = hir_to_string(h1);
                         let suffix = hir_to_string(h3);
                         for sub in alts.iter() {
@@ -1296,13 +1343,12 @@ fn collect_simple_alternates(
                             matches.push(opt);
                         }
                     }
-                },
-                _=> {}
+                }
+                _ => {}
             }
         }
         _ => (),
     }
-
 }
 
 fn find_set_matches_from_concat(hir: &Hir, base: &str) -> Option<(Vec<String>, bool)> {
@@ -1515,7 +1561,7 @@ pub fn get_or_values(pattern: &str) -> Result<Vec<String>, RegexError> {
     let sre = build_hir(pattern)?;
     if !get_or_values_ext(&sre, &mut values) {
         values.clear();
-    } 
+    }
     Ok(values)
 }
 
@@ -1916,7 +1962,7 @@ mod test {
     }
 
     #[test]
-    fn  test_get_or_values_regex() {
+    fn test_get_or_values_regex() {
         let test_cases = vec![
             ("", vec![""]),
             ("foo", vec!["foo"]),
@@ -1947,8 +1993,17 @@ mod test {
             ),
             ("foo(bar||baz)", vec!["foo", "foobar", "foobaz"]),
             ("(a|b|c)(d|e|f|0|1|2)(g|h|k|x|y|z)", vec![]),
-            ("(?i)foo", vec!["FOO", "FOo", "FoO", "Foo", "fOO", "fOo", "foO", "foo"]),
-            ("(?i)(foo|bar)", vec!["BAR", "BAr", "BaR", "Bar", "FOO", "FOo", "FoO", "Foo", "bAR", "bAr", "baR", "bar", "fOO", "fOo", "foO", "foo"]),
+            (
+                "(?i)foo",
+                vec!["FOO", "FOo", "FoO", "Foo", "fOO", "fOo", "foO", "foo"],
+            ),
+            (
+                "(?i)(foo|bar)",
+                vec![
+                    "BAR", "BAr", "BaR", "Bar", "FOO", "FOo", "FoO", "Foo", "bAR", "bAr", "baR",
+                    "bar", "fOO", "fOo", "foO", "foo",
+                ],
+            ),
             ("^foo|bar$", vec![]),
             ("^(foo|bar)$", vec![]),
             ("^a(foo|b(?:a|r))$", vec![]),
@@ -1958,10 +2013,13 @@ mod test {
 
         for (s, expected) in test_cases {
             let mut result = get_or_values(s).unwrap();
-            let mut expected = expected.into_iter().map(|s| s.to_string()).collect::<Vec<_>>();
+            let mut expected = expected
+                .into_iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>();
             result.sort();
             expected.sort();
-            
+
             assert_eq!(
                 result, expected,
                 "unexpected values for s={}. Got {:?}, want {:?}",

@@ -112,11 +112,11 @@ impl ListPostings {
 
         ListPostings { list, idx: 0 }
     }
-    
+
     pub fn len(&self) -> usize {
         self.list.len()
     }
-    
+
     pub fn is_empty(&self) -> bool {
         self.list.is_empty()
     }

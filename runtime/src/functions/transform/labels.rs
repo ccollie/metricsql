@@ -1,12 +1,12 @@
 use std::borrow::Cow;
 
-use ahash::AHashMap;
-use regex::Regex;
-use smallvec::SmallVec;
 use crate::functions::arg_parse::get_string_arg;
 use crate::functions::transform::TransformFuncArg;
 use crate::types::{MetricName, Timeseries, METRIC_NAME_LABEL};
 use crate::{RuntimeError, RuntimeResult};
+use ahash::AHashMap;
+use regex::Regex;
+use smallvec::SmallVec;
 
 const DOT_SEPARATOR: &str = ".";
 
@@ -16,8 +16,8 @@ pub(crate) fn label_keep(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timese
         let keep_label = get_string_arg(&tfa.args, i)?;
         keep_labels.push(keep_label.to_string());
     }
-    
-    let mut series = tfa.get_param_series( 0)?;
+
+    let mut series = tfa.get_param_series(0)?;
     for ts in series.iter_mut() {
         ts.metric_name.retain_labels(&keep_labels)
     }
@@ -267,7 +267,7 @@ pub(crate) fn label_join(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timese
 }
 
 pub(crate) fn label_transform(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let label = tfa.take_param_string( 1, "label")?;
+    let label = tfa.take_param_string(1, "label")?;
     let regex = tfa.take_param_string(2, "regex")?;
     let replacement = tfa.take_param_string(3, "replacement")?;
 
@@ -278,7 +278,7 @@ pub(crate) fn label_transform(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<T
         ))),
         Ok(regex) => Ok(regex),
     }?;
-    
+
     let mut series = tfa.get_param_series(0)?;
     handle_label_replace(&mut series, &label, &r, &label, &replacement)
 }
@@ -289,8 +289,8 @@ pub(crate) fn label_replace(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Tim
     process_anchored_regex(tfa, regex.as_str(), |tfa, r| {
         let dst_label = tfa.take_param_string(1, "dst_label")?;
         let replacement = tfa.take_param_string(2, "separator")?;
-        let src_label = tfa.take_param_string( 3, "src_label")?;
-        let mut series = tfa.get_param_series( 0)?;
+        let src_label = tfa.take_param_string(3, "src_label")?;
+        let mut series = tfa.get_param_series(0)?;
 
         handle_label_replace(&mut series, &src_label, r, &dst_label, &replacement)
     })
@@ -341,7 +341,7 @@ fn handle_label_replace(
 }
 
 pub(crate) fn label_value(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let label_name = tfa.take_param_string( 1, "label")?;
+    let label_name = tfa.take_param_string(1, "label")?;
 
     let mut series = tfa.get_param_series(0)?;
     for ts in series.iter_mut() {
@@ -381,11 +381,11 @@ where
 }
 
 pub(crate) fn label_match(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let label_name = tfa.take_param_string( 1, "label")?;
-    let label_re = tfa.take_param_string(2,"regexp")?;
+    let label_name = tfa.take_param_string(1, "label")?;
+    let label_re = tfa.take_param_string(2, "regexp")?;
 
     process_anchored_regex(tfa, &label_re, move |tfa, r| {
-        let mut series = tfa.get_param_series( 0)?;
+        let mut series = tfa.get_param_series(0)?;
         series.retain(|ts| {
             if let Some(label_value) = ts.metric_name.label_value(&label_name) {
                 r.is_match(label_value)
@@ -403,7 +403,7 @@ pub(crate) fn label_mismatch(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Ti
 
     process_anchored_regex(tfa, &label_re, |tfa, r| {
         let label_name = get_label(tfa, "", 1)?;
-        let mut series = tfa.get_param_series( 0)?;
+        let mut series = tfa.get_param_series(0)?;
         series.retain(|ts| {
             if let Some(label_value) = ts.metric_name.label_value(&label_name) {
                 !r.is_match(label_value)
@@ -473,7 +473,7 @@ pub(crate) fn label_graphite_group(tfa: &mut TransformFuncArg) -> RuntimeResult<
         }
     }
 
-    let mut series = tfa.get_param_series( 0)?;
+    let mut series = tfa.get_param_series(0)?;
 
     for ts in series.iter_mut() {
         let groups: Vec<&str> = ts.metric_name.measurement.split(DOT_SEPARATOR).collect();

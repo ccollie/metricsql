@@ -619,7 +619,8 @@ pub(crate) fn remove_duplicate_label_filters(filters: &mut Vec<Matcher>) {
     }
 
     let mut hasher = Xxh3::new();
-    let mut hash_map: SmallSet<16, u64, BuildNoHashHasher<u64>> = SmallSet::with_capacity(filters.len());
+    let mut hash_map: SmallSet<16, u64, BuildNoHashHasher<u64>> =
+        SmallSet::with_capacity(filters.len());
 
     for i in (0..filters.len()).rev() {
         let hash = get_hash(&mut hasher, &filters[i]);

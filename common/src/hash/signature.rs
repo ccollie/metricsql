@@ -1,9 +1,9 @@
 use crate::hash::{BuildNoHashHasher, FastHasher, IsEnabled};
+use crate::prelude::SmallSet;
 use crate::types::Label;
 use std::fmt::Display;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
-use crate::prelude::SmallSet;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Copy, Ord, PartialOrd)]
 pub struct Signature(u64);

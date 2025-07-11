@@ -1,9 +1,9 @@
 use itertools::izip;
 use metricsql_parser::prelude::Value;
 
+use crate::common::math::is_stale_nan;
 use crate::types::{MetricName, QueryValue, Timeseries};
 use crate::{QueryResult, RuntimeResult};
-use crate::common::math::is_stale_nan;
 
 pub fn test_results_equal(result: &[QueryResult], result_expected: &[QueryResult]) {
     assert_eq!(
@@ -115,7 +115,7 @@ pub fn test_rows_equal(
                     i, val, values, values_expected);
             continue;
         }
-        
+
         if val.is_nan() {
             assert!(val_expected.is_nan(),
                     "unexpected NAN value at values[{}]; want %{}\nvalues=\n{:?}\nvalues_expected=\n{:?}",

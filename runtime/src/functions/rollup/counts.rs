@@ -72,7 +72,12 @@ macro_rules! make_count_fn {
     };
 }
 
-make_count_fn!(new_rollup_count_le, "count_le_over_time", "le", less_or_equal);
+make_count_fn!(
+    new_rollup_count_le,
+    "count_le_over_time",
+    "le",
+    less_or_equal
+);
 make_count_fn!(new_rollup_count_gt, "count_gt_over_time", "gt", greater);
 make_count_fn!(new_rollup_count_eq, "count_eq_over_time", "eq", equal);
 make_count_fn!(new_rollup_count_ne, "count_ne_over_time", "ne", not_equal);
@@ -89,7 +94,12 @@ macro_rules! make_share_fn {
     };
 }
 
-make_share_fn!(new_rollup_share_le, "share_le_over_time", "le", less_or_equal);
+make_share_fn!(
+    new_rollup_share_le,
+    "share_le_over_time",
+    "le",
+    less_or_equal
+);
 make_share_fn!(new_rollup_share_gt, "share_gt_over_time", "gt", greater);
 make_share_fn!(new_rollup_share_eq, "share_eq_over_time", "eq", equal);
 

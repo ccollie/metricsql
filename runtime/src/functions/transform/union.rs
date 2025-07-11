@@ -1,19 +1,16 @@
 use crate::execution::{eval_number, EvalConfig};
 use crate::functions::transform::TransformFuncArg;
+use crate::functions::utils::are_all_args_scalar;
 use crate::types::{FunctionArgs, QueryValue, Timeseries};
 use crate::{RuntimeError, RuntimeResult};
 use metricsql_common::prelude::SignatureSet;
-use crate::functions::utils::are_all_args_scalar;
 
 pub(crate) fn union(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let args = std::mem::take(&mut tfa.args);
     handle_union(args, tfa.ec)
 }
 
-pub(crate) fn handle_union(
-    args: FunctionArgs,
-    ec: &EvalConfig,
-) -> RuntimeResult<Vec<Timeseries>> {
+pub(crate) fn handle_union(args: FunctionArgs, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
     if args.is_empty() {
         return eval_number(ec, f64::NAN);
     }

@@ -13,9 +13,7 @@ use smallvec::SmallVec;
 
 use crate::common::math::{mode_no_nans, quantile, quantiles, IQR_PHIS};
 use crate::execution::{eval_number, remove_empty_series, EvalConfig};
-use crate::functions::arg_parse::{
-    get_float_arg, get_int_arg, get_scalar_arg_as_vec,
-};
+use crate::functions::arg_parse::{get_float_arg, get_int_arg, get_scalar_arg_as_vec};
 use crate::functions::skip_trailing_nans;
 use crate::functions::transform::vmrange_buckets_to_le;
 use crate::functions::utils::{
@@ -764,7 +762,7 @@ fn func_topk_impl(afa: &mut AggrFuncArg, is_reverse: bool) -> RuntimeResult<Vec<
 
             std::mem::take(tss)
         };
-    
+
     let series = afa.get_param_series(1)?;
     aggr_func_ext(afe, series, afa.modifier, afa.limit, true)
 }
@@ -988,7 +986,7 @@ fn aggr_func_limitk(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
 }
 
 fn aggr_func_quantiles(afa: &mut AggrFuncArg) -> RuntimeResult<Vec<Timeseries>> {
-    let dst_label = afa.get_param_string( 0, "dst_label")?;
+    let dst_label = afa.get_param_string(0, "dst_label")?;
 
     // todo: I'm sure this should have been checked in the parser
     let phi_count = afa.args.len() - 2;

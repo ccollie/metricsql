@@ -1042,16 +1042,22 @@ mod tests {
     #[test]
     fn test_rollup_deriv_fast_prometheus() {
         fn f(values: &[f64], window: i64, result_expected: f64) {
-            let rfa = &RollupFuncArg{
+            let rfa = &RollupFuncArg {
                 values,
                 window,
                 ..Default::default()
             };
             let result = rollup_deriv_fast_prometheus(rfa);
             if result.is_nan() {
-                assert!(result_expected.is_nan(), "unexpected result; got {result}; want {result_expected}");
+                assert!(
+                    result_expected.is_nan(),
+                    "unexpected result; got {result}; want {result_expected}"
+                );
             }
-            assert_eq!(result, result_expected, "unexpected result; got {result}; want {result_expected}");
+            assert_eq!(
+                result, result_expected,
+                "unexpected result; got {result}; want {result_expected}"
+            );
         }
 
         f(&[], 0, f64::NAN);
@@ -1181,7 +1187,7 @@ mod tests {
             &timestamps_expected,
         );
     }
-    
+
     #[test]
     fn test_rollup_delta_with_staleness_last_sample_stale() {
         let timestamps = vec![0, 15000, 30000, 70000];
@@ -1204,13 +1210,22 @@ mod tests {
         let samples_scanned = rc
             .exec_internal(&mut dst_values, None, &values, &timestamps)
             .expect("failed to exec");
-        
-        assert_eq!(samples_scanned, 10, "expected 10 samples scanned, got {}", samples_scanned);
+
+        assert_eq!(
+            samples_scanned, 10,
+            "expected 10 samples scanned, got {}",
+            samples_scanned
+        );
         let values_expected = vec![f64::NAN];
         let timestamps_expected = vec![40001];
-        test_rows_equal(&dst_values, &rc.timestamps, &values_expected, &timestamps_expected)
+        test_rows_equal(
+            &dst_values,
+            &rc.timestamps,
+            &values_expected,
+            &timestamps_expected,
+        )
     }
-    
+
     #[test]
     fn test_rollup_increase_with_staleness_step_gt_gap() {
         // there is a gap between samples in the dataset below
@@ -1487,12 +1502,12 @@ mod tests {
         };
         rc.ensure_timestamps()
             .expect("Could not generate timestamps");
- 
+
         let mut dst_values: Vec<f64> = vec![];
         let samples_scanned = rc
             .exec_internal(&mut dst_values, None, &values, &timestamps)
             .expect("failed to exec");
-        
+
         if samples_scanned != 10 {
             panic!(
                 "expecting 10 samples_scanned from rollupConfig.Do; got {}",
@@ -1524,12 +1539,12 @@ mod tests {
         };
         rc.ensure_timestamps()
             .expect("Could not generate timestamps");
-        
+
         let mut dst_values: Vec<f64> = vec![];
         let samples_scanned = rc
             .exec_internal(&mut dst_values, None, &values, &timestamps)
             .expect("failed to exec");
-        
+
         if samples_scanned != 10 {
             panic!(
                 "expecting 10 samples_scanned from rollupConfig.Do; got {}",

@@ -171,7 +171,6 @@ fn get_rollup_configs_from_meta(
     lookback_delta: Duration,
     shared_timestamps: &Arc<Vec<i64>>,
 ) -> RuntimeResult<RollupConfigVec> {
-    
     let new_rollup_config = |rf: RollupHandler, tag_value: &'static str| -> RollupConfig {
         RollupConfig {
             tag_value,
@@ -368,7 +367,7 @@ impl RollupConfig {
         let mut j = 0;
         let mut ni = 0;
         let mut nj = 0;
-        
+
         // todo: get from a pool
         let mut func_args = Vec::with_capacity(self.timestamps.len());
 
@@ -426,7 +425,7 @@ impl RollupConfig {
 
                     if self.lookback_delta.is_zero()
                         || (curr_timestamp - *prev_timestamp)
-                        < self.lookback_delta.as_millis() as i64
+                            < self.lookback_delta.as_millis() as i64
                     {
                         let prev_value = values.get_unchecked(idx);
                         rfa.real_prev_value = *prev_value;
@@ -449,9 +448,9 @@ impl RollupConfig {
                 samples_scanned += rfa.values.len() as u64;
             }
 
-            func_args.push(rfa);           
+            func_args.push(rfa);
         }
-        
+
         exec_handlers(&self.handler, dst_values, &func_args);
 
         Ok(samples_scanned)
@@ -488,7 +487,6 @@ impl RollupConfig {
             _ => Ok(()),
         }
     }
-    
 }
 
 // todo: better heuristics to determine whether to parallelize
@@ -507,7 +505,6 @@ fn exec_handlers(handler: &RollupHandler, dest: &mut Vec<f64>, args: &[RollupFun
         }
     }
 }
-
 
 fn exec_handler_parallel(
     scope: &mut Scope,
@@ -535,15 +532,15 @@ fn exec_handler_parallel(
                 let mid = args.len() / 2;
                 let (head, tail) = args.split_at(mid);
                 let (mut left, mut right) = scope.join(
-                    |s1| handle_internal(s1, handler, head), 
-                    |s2| handle_internal(s2, handler, tail)
+                    |s1| handle_internal(s1, handler, head),
+                    |s2| handle_internal(s2, handler, tail),
                 );
                 left.append(&mut right);
                 left
             }
         }
     }
-    
+
     let res = handle_internal(scope, handler, args);
     dest.extend(res);
 }
@@ -602,7 +599,7 @@ fn seek_first_timestamp_idx_after(
     } else {
         0
     };
-    
+
     let slice_end = if end_idx < count && timestamps[end_idx] > seek_timestamp {
         end_idx
     } else {
@@ -691,7 +688,7 @@ fn get_rollup_function_handler_meta(
             //   see https://github.com/VictoriaMetrics/VictoriaMetrics/issues/8935#issuecomment-3000735468
             staleness_interval += window
         }
-        
+
         lookback = staleness_interval.as_millis() as i64;
         pre_funcs.push(PreFunction::RemoveCounterResets(lookback));
     }

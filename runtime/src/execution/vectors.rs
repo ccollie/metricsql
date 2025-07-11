@@ -7,13 +7,13 @@ use crate::execution::{Context, EvalConfig};
 use crate::prelude::Timeseries;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::types::QueryValue;
+use futures::try_join;
 use metricsql_parser::ast::{BinModifier, BinaryExpr, Expr, Operator};
 use metricsql_parser::label::Matcher;
 use metricsql_parser::optimizer::{
     push_down_binary_op_filters_in_place, trim_filters_by_match_modifier,
 };
 use std::borrow::Cow;
-use futures::try_join;
 use tracing::{field, trace, trace_span, Span};
 
 pub(super) async fn vector_vector_binop(
@@ -79,7 +79,7 @@ async fn exec_binary_op_args(
             eval_expr(ctx, ec, expr_second)
         };
 
-        return try_join!(left, right)
+        return try_join!(left, right);
     }
 
     // Execute the binary operation in the following way:

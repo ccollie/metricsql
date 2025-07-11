@@ -33,7 +33,10 @@ pub(crate) fn sort_by_label_desc(tfa: &mut TransformFuncArg) -> RuntimeResult<Ve
     sort_by_label_impl(tfa, true)
 }
 
-fn transform_sort_impl(tfa: &mut TransformFuncArg, is_desc: bool) -> RuntimeResult<Vec<Timeseries>> {
+fn transform_sort_impl(
+    tfa: &mut TransformFuncArg,
+    is_desc: bool,
+) -> RuntimeResult<Vec<Timeseries>> {
     let mut series = tfa.get_param_series(0)?;
 
     fn sort(a: &Timeseries, b: &Timeseries, is_desc: bool) -> Ordering {
@@ -78,7 +81,7 @@ fn sort_by_label_impl(tfa: &mut TransformFuncArg, is_desc: bool) -> RuntimeResul
         for label in labels.iter() {
             let a = a.metric_name.label_value(label);
             let b = b.metric_name.label_value(label);
-            let order = cmp(a, b); 
+            let order = cmp(a, b);
             if order != Ordering::Equal {
                 return order;
             }

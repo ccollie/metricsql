@@ -30,7 +30,7 @@ impl StringPattern {
     pub fn ascii_case_insensitive(pattern: String) -> Self {
         Self::AsciiCaseInsensitive(AsciiCaseInsensitivePattern::new(pattern))
     }
-    
+
     pub fn matches(&self, s: &str) -> bool {
         match self {
             Self::CaseSensitive(p) => p.matches(s),
@@ -46,7 +46,7 @@ impl StringPattern {
             Self::AsciiCaseInsensitive(p) => p.starts_with(s),
         }
     }
-    
+
     pub fn is_prefix_of(&self, s: &str) -> bool {
         match self {
             Self::CaseSensitive(p) => p.is_prefix_of(s),
@@ -54,7 +54,7 @@ impl StringPattern {
             Self::AsciiCaseInsensitive(p) => p.is_prefix_of(s),
         }
     }
-    
+
     pub fn is_suffix_of(&self, s: &str) -> bool {
         match self {
             Self::CaseSensitive(p) => p.is_suffix_of(s),
@@ -172,10 +172,10 @@ impl AsciiCaseInsensitivePattern {
         if len > s.len() {
             return false;
         }
-        let other = &s[.. len];
+        let other = &s[..len];
         self.pattern.eq_ignore_ascii_case(other)
     }
-    
+
     fn is_suffix_of(&self, s: &str) -> bool {
         let len = self.pattern.len();
         if len > s.len() {
@@ -184,7 +184,7 @@ impl AsciiCaseInsensitivePattern {
         let suffix = &s[s.len() - len..];
         self.pattern.eq_ignore_ascii_case(suffix)
     }
-    
+
     fn starts_with(&self, s: &str) -> bool {
         let pattern = &self.pattern;
         let len = pattern.len();
@@ -221,11 +221,11 @@ impl CaseSensitivePattern {
     fn is_prefix_of(&self, s: &str) -> bool {
         s.starts_with(&self.pattern)
     }
-    
+
     fn is_suffix_of(&self, s: &str) -> bool {
         s.ends_with(&self.pattern)
     }
-    
+
     fn starts_with(&self, s: &str) -> bool {
         s.starts_with(&self.pattern)
     }
@@ -269,7 +269,7 @@ impl CaseInsensitivePattern {
         let prefix = &self.lowercase_pattern[..s.len()];
         s.to_lowercase() == prefix
     }
-    
+
     fn is_suffix_of(&self, s: &str) -> bool {
         if self.pattern.len() > s.len() {
             return false;
@@ -277,7 +277,7 @@ impl CaseInsensitivePattern {
         let suffix = &self.lowercase_pattern[s.len() - self.pattern.len()..];
         suffix == s.to_lowercase()
     }
-    
+
     fn matches(&self, s: &str) -> bool {
         if s.len() != self.pattern.len() {
             return false;

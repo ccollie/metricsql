@@ -1,5 +1,5 @@
-use std::hash::Hasher;
 use ahash::{AHashMap, AHashSet, AHasher};
+use std::hash::Hasher;
 
 pub type FastHasher = AHasher;
 pub type FastHashMap<K, V> = AHashMap<K, V>;

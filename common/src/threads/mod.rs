@@ -148,8 +148,9 @@ where
 {
     fn for_each_internal<E, T, F>(scope: &mut Scope<'_>, slice: &[T], f: &F) -> Result<(), E>
     where
-        F: Fn(&T) -> Result<(), E> + Send + Sync, 
-        E: Send, T: Sync
+        F: Fn(&T) -> Result<(), E> + Send + Sync,
+        E: Send,
+        T: Sync,
     {
         match slice {
             [] => Ok(()),
@@ -184,8 +185,9 @@ where
 {
     fn for_each_internal<E, T, F>(scope: &mut Scope<'_>, slice: &mut [T], f: &F) -> Result<(), E>
     where
-        F: Fn(&mut T) -> Result<(), E> + Send + Sync, 
-        E: Send, T: Send
+        F: Fn(&mut T) -> Result<(), E> + Send + Sync,
+        E: Send,
+        T: Send,
     {
         match slice {
             [] => Ok(()),

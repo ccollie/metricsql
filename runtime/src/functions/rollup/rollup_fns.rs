@@ -17,8 +17,8 @@ use crate::functions::rollup::{
     },
     deriv::{
         new_rollup_deriv, new_rollup_deriv_fast, new_rollup_ideriv, new_rollup_irate,
-        new_rollup_rate, rollup_deriv_fast, rollup_deriv_slow, rollup_ideriv,
-        rollup_deriv_fast_prometheus
+        new_rollup_rate, rollup_deriv_fast, rollup_deriv_fast_prometheus, rollup_deriv_slow,
+        rollup_ideriv,
     },
     duration_over_time::new_rollup_duration_over_time,
     hoeffding_bound::{new_rollup_hoeffding_bound_lower, new_rollup_hoeffding_bound_upper},
@@ -516,7 +516,7 @@ pub(super) fn rollup_sum(rfa: &RollupFuncArg) -> f64 {
     rfa.values.iter().fold(0.0, |r, x| r + *x)
 }
 
-pub(super) fn rollup_rate_over_sum(rfa: &RollupFuncArg) -> f64 { 
+pub(super) fn rollup_rate_over_sum(rfa: &RollupFuncArg) -> f64 {
     let timestamps = rfa.timestamps;
     if timestamps.is_empty() {
         return NAN;

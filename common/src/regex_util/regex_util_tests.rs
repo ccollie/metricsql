@@ -554,13 +554,23 @@ mod tests {
 
             // Test expected matches
             for value in case.expected_matches {
-                assert!(matcher.matches(value), "value: {} should match {}", value, case.pattern);
+                assert!(
+                    matcher.matches(value),
+                    "value: {} should match {}",
+                    value,
+                    case.pattern
+                );
                 assert!(re.is_match(value), "value: {} should match (regex)", value);
             }
 
             // Test expected not matches
             for value in case.expected_not_matches {
-                assert!(!matcher.matches(value), "Value: {} should not match regex {}", value, case.pattern);
+                assert!(
+                    !matcher.matches(value),
+                    "Value: {} should not match regex {}",
+                    value,
+                    case.pattern
+                );
                 assert!(
                     !re.is_match(value),
                     "Value: {} should not match (regex)",

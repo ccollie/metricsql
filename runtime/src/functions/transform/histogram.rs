@@ -7,9 +7,7 @@ use metricsql_parser::parse_number;
 use smallvec::smallvec;
 
 use crate::execution::merge_non_overlapping_timeseries;
-use crate::functions::arg_parse::{
-    get_float_arg, get_int_arg, get_scalar_arg_as_vec,
-};
+use crate::functions::arg_parse::{get_float_arg, get_int_arg, get_scalar_arg_as_vec};
 use crate::functions::transform::utils::{copy_timeseries, is_inf};
 use crate::functions::transform::TransformFuncArg;
 use crate::types::{FunctionArgs, MetricName, QueryValue, Timeseries};

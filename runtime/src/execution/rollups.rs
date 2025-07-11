@@ -22,6 +22,7 @@ use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::types::{QueryValue, Timeseries, Timestamp};
 use metricsql_common::atomic_counter::{AtomicCounter, RelaxedU64Counter};
 use metricsql_common::pool::{get_pooled_vec_f64, get_pooled_vec_i64};
+use metricsql_common::prelude::{par_try_for_each, par_try_for_each_mut};
 use metricsql_parser::ast::{AggregationExpr, Expr, MetricExpr, RollupExpr};
 use metricsql_parser::functions::RollupFunction;
 use rayon::prelude::*;
@@ -30,8 +31,6 @@ use std::ops::Div;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::{field, trace_span, Span};
-use metricsql_common::prelude::{par_try_for_each, par_try_for_each_mut};
-
 
 struct RollupConfigEvalCtx<'a> {
     series: Arc<Mutex<Vec<Timeseries>>>,
@@ -74,9 +73,14 @@ impl<'a> RollupConfigEvalCtx<'a> {
         })
     }
 
-    fn exec_internal(&self, metric: &MetricName, values: &[f64], timestamps: &[Timestamp]) -> RuntimeResult<()> {
+    fn exec_internal(
+        &self,
+        metric: &MetricName,
+        values: &[f64],
+        timestamps: &[Timestamp],
+    ) -> RuntimeResult<()> {
         par_try_for_each(self.rcs, |rc| {
-           self.exec_one_internal(rc, metric, values, timestamps)
+            self.exec_one_internal(rc, metric, values, timestamps)
         })
     }
 
@@ -87,7 +91,9 @@ impl<'a> RollupConfigEvalCtx<'a> {
         values: &[f64],
         timestamps: &[i64],
     ) -> RuntimeResult<()> {
-        if let Some(tsm) = new_timeseries_map(self.func, self.keep_metric_names, self.timestamps, metric) {
+        if let Some(tsm) =
+            new_timeseries_map(self.func, self.keep_metric_names, self.timestamps, metric)
+        {
             rc.do_timeseries_map(tsm.clone(), values, timestamps)?;
             let mut tss = self.series.lock().unwrap();
             tsm.as_ref().append_timeseries_to(&mut tss);
@@ -116,10 +122,7 @@ impl<'a> RollupConfigEvalCtx<'a> {
             .expect("Error unwrapping series in RollupConfigEvalCtx")
             .into_inner()
             .expect("RollupConfigEvalCtx failed to unwrap Arc");
-        (
-            series,
-            self.samples_scanned_total.get(),
-        )
+        (series, self.samples_scanned_total.get())
     }
 }
 
@@ -160,7 +163,11 @@ impl<'a> RollupEvaluator<'a> {
         }
     }
 
-    pub(super) async fn eval(&mut self, ctx: &Context, ec: &EvalConfig) -> RuntimeResult<QueryValue> {
+    pub(super) async fn eval(
+        &mut self,
+        ctx: &Context,
+        ec: &EvalConfig,
+    ) -> RuntimeResult<QueryValue> {
         Box::pin(async move {
             self.is_tracing = ctx.trace_enabled();
             let _ = if self.is_tracing {
@@ -194,10 +201,15 @@ impl<'a> RollupEvaluator<'a> {
                 let value = self.eval_without_at(ctx, ec).await?;
                 Ok(QueryValue::InstantVector(value))
             }
-        }).await
+        })
+        .await
     }
 
-    async fn eval_without_at(&self, ctx: &Context, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
+    async fn eval_without_at(
+        &self,
+        ctx: &Context,
+        ec: &EvalConfig,
+    ) -> RuntimeResult<Vec<Timeseries>> {
         let (offset, ec_new) = adjust_eval_range(self.func, &self.re.offset, ec)?;
 
         let mut rvs = if let Expr::MetricExpression(me) = &*self.re.expr {
@@ -228,7 +240,11 @@ impl<'a> RollupEvaluator<'a> {
         Ok(rvs)
     }
 
-    async fn eval_with_subquery(&self, ctx: &Context, ec: &EvalConfig) -> RuntimeResult<Vec<Timeseries>> {
+    async fn eval_with_subquery(
+        &self,
+        ctx: &Context,
+        ec: &EvalConfig,
+    ) -> RuntimeResult<Vec<Timeseries>> {
         // TODO: determine whether to use rollup result cache here.
 
         let span = if ctx.trace_enabled() {
@@ -296,9 +312,10 @@ impl<'a> RollupEvaluator<'a> {
 
         let (res, samples_scanned_total) = do_parallel(
             &tss_sq,
-            move |ts_sq: &Timeseries, values: &mut [f64], timestamps: &[i64]|
+            move |ts_sq: &Timeseries,
+                  values: &mut [f64],
+                  timestamps: &[i64]|
                   -> RuntimeResult<(Vec<Timeseries>, u64)> {
-
                 eval_pre_funcs(&pre_funcs, values, timestamps);
 
                 let ctx = RollupConfigEvalCtx::new(
@@ -607,12 +624,8 @@ impl<'a> RollupEvaluator<'a> {
         }
         .entered();
 
-        let ctx = RollupConfigEvalCtx::new(
-            &rcs,
-            self.func,
-            self.keep_metric_names,
-            shared_timestamps,
-        );
+        let ctx =
+            RollupConfigEvalCtx::new(&rcs, self.func, self.keep_metric_names, shared_timestamps);
 
         par_try_for_each_mut(&mut rss.series, |rs| {
             if !no_stale_markers {
@@ -797,7 +810,9 @@ where
         }
     })?;
 
-    let context = ctx.into_inner().expect("do_parallel: cannot acquire context");
+    let context = ctx
+        .into_inner()
+        .expect("do_parallel: cannot acquire context");
     if let Some(err) = context.err {
         return Err(err);
     }
@@ -872,14 +887,13 @@ fn mul_no_overflow(a: i64, b: i64) -> i64 {
     a.saturating_mul(b)
 }
 
-fn drop_stale_nans(
-    func: &RollupFunction,
-    values: &mut Vec<f64>,
-    timestamps: &mut Vec<i64>,
-) {
+fn drop_stale_nans(func: &RollupFunction, values: &mut Vec<f64>, timestamps: &mut Vec<i64>) {
     use RollupFunction::*;
 
-    if matches!(*func, DefaultRollup | StaleSamplesOverTime | Increase | Rate) {
+    if matches!(
+        *func,
+        DefaultRollup | StaleSamplesOverTime | Increase | Rate
+    ) {
         // Do not drop Prometheus staleness marks (aka stale NaNs) for default_rollup() function,
         // since it uses them for Prometheus-style staleness detection.
         // Do not drop staleness marks for stale_samples_over_time() function, since it needs

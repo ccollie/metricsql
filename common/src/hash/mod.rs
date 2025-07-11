@@ -9,9 +9,9 @@ cfg_if!(
     }
 );
 
+mod gx_hash;
 mod no_hash;
 mod signature;
-mod gx_hash;
 
 pub use no_hash::*;
 pub use signature::*;

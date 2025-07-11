@@ -1,6 +1,6 @@
 use crate::common::math::{is_stale_nan, linear_regression};
-use crate::functions::rollup::{RollupFuncArg, RollupHandler};
 use crate::functions::rollup::delta::rollup_delta_prometheus;
+use crate::functions::rollup::{RollupFuncArg, RollupHandler};
 use crate::types::{QueryValue, Timestamp};
 use crate::RuntimeResult;
 
@@ -76,7 +76,7 @@ pub(super) fn rollup_deriv_fast(rfa: &RollupFuncArg) -> f64 {
         // to stop rendering immediately. See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/8891
         return f64::NAN;
     }
-    
+
     let timestamps = rfa.timestamps;
     let mut prev_value = rfa.prev_value;
     let mut prev_timestamp = rfa.prev_timestamp;

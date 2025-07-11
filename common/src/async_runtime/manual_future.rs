@@ -24,6 +24,7 @@
 //! ```
 #![warn(clippy::pedantic)]
 
+use futures_util::lock::BiLock;
 /// Source: https://github.com/dmarcuse/manual_future/tree/master
 /// Copyright (c) 2023 David Marcuse
 /// Licensed under the MIT License
@@ -33,7 +34,6 @@ use std::marker::Unpin;
 use std::pin::Pin;
 use std::task::Waker;
 use std::task::{Context, Poll};
-use futures_util::lock::BiLock;
 
 enum State<T> {
     Incomplete,

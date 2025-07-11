@@ -136,7 +136,7 @@ fn try_get_arg_rollup_func_with_metric_expr(
                 // Incorrect number of args for rollup func.
                 // TODO: this should be an error
                 // all rollup functions should have a value for this
-                return Ok(None)
+                return Ok(None);
             };
             match arg {
                 Expr::MetricExpression(me) => create_func(me, expr, fe.name(), false),

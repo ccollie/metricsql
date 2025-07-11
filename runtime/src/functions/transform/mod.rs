@@ -94,20 +94,22 @@ pub(crate) struct TransformFuncArg<'a> {
 }
 
 impl<'a> TransformFuncArg<'a> {
-    
     fn function_name(&self) -> &str {
         self.fe.function.name()
     }
-    
+
     fn get_arg(&self, arg_num: usize, name: &str) -> RuntimeResult<&QueryValue> {
         let Some(arg) = self.args.get(arg_num) else {
-            let msg = format!("error getting {name} arg calling {}()", self.fe.function.name());
-            return Err(RuntimeError::ArgumentError(msg))
+            let msg = format!(
+                "error getting {name} arg calling {}()",
+                self.fe.function.name()
+            );
+            return Err(RuntimeError::ArgumentError(msg));
         };
         Ok(arg)
     }
-    
-    // Get a series argument by its index (takes ownership of the argument).
+
+    /// Get a series argument by its index (takes ownership of the argument).
     pub(super) fn get_param_series(&mut self, arg_num: usize) -> RuntimeResult<Vec<Timeseries>> {
         if let Some(arg) = self.args.get_mut(arg_num) {
             let arg = std::mem::take(arg);
@@ -117,7 +119,12 @@ impl<'a> TransformFuncArg<'a> {
         Err(RuntimeError::ArgumentError(msg))
     }
 
-    pub(super) fn get_param_scalar(&self, arg_num: usize, name: &str, default_value: Option<f64>) -> RuntimeResult<f64> {
+    pub(super) fn get_param_scalar(
+        &self,
+        arg_num: usize,
+        name: &str,
+        default_value: Option<f64>,
+    ) -> RuntimeResult<f64> {
         // todo: check bounds
         let arg = self.get_arg(arg_num, name)?;
         match arg {
@@ -150,7 +157,7 @@ impl<'a> TransformFuncArg<'a> {
         );
         Err(RuntimeError::ArgumentError(msg))
     }
-    
+
     pub(super) fn get_param_usize(&self, arg_num: usize, name: &str) -> RuntimeResult<usize> {
         let value = self.get_param_scalar(arg_num, name, None)?;
         if value < 0.0 {
@@ -161,21 +168,25 @@ impl<'a> TransformFuncArg<'a> {
         Ok(value as usize)
     }
 
-    pub(super) fn take_param_string(&mut self, arg_num: usize, name: &str) -> RuntimeResult<String> {
+    pub(super) fn take_param_string(
+        &mut self,
+        arg_num: usize,
+        name: &str,
+    ) -> RuntimeResult<String> {
         if let Some(arg) = self.args.get_mut(arg_num) {
             let arg = std::mem::take(arg);
             if let QueryValue::String(s) = arg {
                 return Ok(s);
             }
-            
+
             if let Ok(s) = arg.get_string() {
                 return Ok(s);
             }
         }
         Err(RuntimeError::ArgumentError(format!(
-                "error getting string argument {name} calling function {}",
-                self.function_name()
-            )))
+            "error getting string argument {name} calling function {}",
+            self.function_name()
+        )))
     }
 }
 

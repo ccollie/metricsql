@@ -182,7 +182,9 @@ fn handle_binary_expr(be: BinaryExpr) -> Expr {
     let is_bool = be.returns_bool();
 
     match (be.left.as_ref(), be.right.as_ref(), be.op) {
-        (Expr::Duration(ln), Expr::Duration(rn), op) if op == Operator::Add || op == Operator::Sub => {
+        (Expr::Duration(ln), Expr::Duration(rn), op)
+            if op == Operator::Add || op == Operator::Sub =>
+        {
             handle_duration_duration(ln, rn, op, is_bool)
         }
         (Expr::Duration(ln), Expr::NumberLiteral(NumberLiteral { value }), op)

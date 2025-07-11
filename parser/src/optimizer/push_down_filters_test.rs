@@ -232,9 +232,7 @@ mod tests {
         );
 
         // ifnot
-        f(
-            r#"foo{a="a"} ifnot foo{b="b"}"#, r#"{a="a"}"#,
-        );
+        f(r#"foo{a="a"} ifnot foo{b="b"}"#, r#"{a="a"}"#);
     }
 
     #[test]

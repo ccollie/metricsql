@@ -10,7 +10,7 @@ pub(crate) fn transform_drop_empty_series(
             format!("unexpected number of args; got {}; want 1", tfa.args.len()).to_string(),
         ));
     }
-    let mut res = tfa.get_param_series( 0)?;
+    let mut res = tfa.get_param_series(0)?;
     remove_empty_series(&mut res);
     Ok(res)
 }

@@ -192,7 +192,7 @@ impl ExprVisitor for InvalidExprVisitor {
 /// * rate(foo + bar)
 /// * rate(foo > 10)
 ///
-/// These expressions are implicitly converted into another expressions, which returns unexpected results most of the time:
+/// These expressions are implicitly converted into another expression, which returns unexpected results most of the time:
 ///
 /// * rate(default_rollup(sum(foo))[1i:1i])
 /// * rate(default_rollup(abs(foo))[1i:1i])
@@ -201,7 +201,7 @@ impl ExprVisitor for InvalidExprVisitor {
 ///
 /// See https://docs.victoriametrics.com/metricsql/#implicit-query-conversions
 ///
-/// Note that rate(foo) is valid expression, since it returns the expected results most of the time, e.g. rate(foo[1i]).
+/// Note that rate(foo) is a valid expression, since it returns the expected results most of the time, e.g. rate(foo[1i]).
 pub fn is_likely_invalid(e: &Expr) -> bool {
     let mut visitor = InvalidExprVisitor {
         has_implicit_conversion: false,

@@ -15,13 +15,13 @@
 // https://github.com/prometheus/prometheus/blob/main/tsdb/querier_test.go
 #[cfg(test)]
 mod tests {
+    use crate::querier::postings_for_matchers;
     use crate::types::MetricName;
     use crate::{MemoryPostings, SeriesRef};
     use ahash::AHashSet;
     use futures::FutureExt;
     use metricsql_parser::label::{Label, MatchOp, Matcher, Matchers};
     use std::collections::{HashMap, HashSet};
-    use crate::querier::postings_for_matchers;
 
     fn hash_labels(labels: &[Label]) -> AHashSet<String> {
         labels.iter().map(|l| l.to_string()).collect()

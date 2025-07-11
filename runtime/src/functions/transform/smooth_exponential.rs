@@ -5,7 +5,7 @@ use crate::RuntimeResult;
 pub(crate) fn smooth_exponential(tfa: &mut TransformFuncArg) -> RuntimeResult<Vec<Timeseries>> {
     let sf = tfa.get_param_scalar(1, "sf", Some(1.0))?;
     let sf_val = if sf.is_nan() { 1.0 } else { sf.clamp(0.0, 1.0) };
-    
+
     let mut series = tfa.get_param_series(0)?;
 
     for ts in series.iter_mut() {

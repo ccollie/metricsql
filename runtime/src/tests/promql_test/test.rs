@@ -17,16 +17,16 @@ use super::utils::{assert_matrix_sorted, timestamp_from_system_time, unix_millis
 use crate::execution::{exec_internal, Context, EvalConfig};
 use crate::types::QueryValue;
 use crate::{MemoryMetricProvider, RuntimeResult};
+use futures::future::try_join_all;
+use futures::TryFutureExt;
 use glob::glob;
+use metricsql_common::prelude::block_on;
 use metricsql_parser::ast::Expr;
 use metricsql_parser::ast::Expr::Rollup;
 use regex::Regex;
 use std::fs;
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, SystemTime};
-use futures::future::try_join_all;
-use futures::TryFutureExt;
-use metricsql_common::prelude::block_on;
 
 const ONE_MINUTE_AS_MILLIS: i64 = 60 * 1000;
 
@@ -56,10 +56,9 @@ pub fn run_builtin_tests() {
         match entry.as_ref() {
             Ok(path) => match fs::read_to_string(path) {
                 Ok(content) => {
-                    let _ = block_on(async { run_test(&content) })
-                        .unwrap_or_else(|e| {
-                            println!("Test failed for {:?}: {:?}", path, e);
-                        });
+                    let _ = block_on(async { run_test(&content) }).unwrap_or_else(|e| {
+                        println!("Test failed for {:?}: {:?}", path, e);
+                    });
                 }
                 Err(e) => {
                     println!("Error loading test file {:?}: {:?}", path, e);
@@ -74,10 +73,7 @@ pub async fn run_test(input: &str) -> Result<(), TestAssertionError> {
     let test = Test::new(input);
     // todo: fix this so we dont clone
     let cmds = test.cmds.clone();
-    let futures: Vec<_> = cmds
-        .iter()
-        .map(|cmd| test.exec(cmd))
-        .collect();
+    let futures: Vec<_> = cmds.iter().map(|cmd| test.exec(cmd)).collect();
     // Run all commands concurrently.
     try_join_all(futures).await?;
     // TODO(fabxc): aggregate command errors, yield diffs for result
@@ -240,7 +236,8 @@ impl Test {
             Duration::from_millis(ONE_MINUTE_AS_MILLIS as u64),
         );
 
-        let range_res = self.exec_internal(&mut ec, &cmd.expr)
+        let range_res = self
+            .exec_internal(&mut ec, &cmd.expr)
             .await
             .map_err(|err| {
                 let msg = format!(

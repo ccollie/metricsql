@@ -186,7 +186,7 @@ impl MetricName {
 
     /// Remove all the tags not included in on_tags.
     /// Don't stare too deeply. Just convince yourself that this is the correct behavior.
-    /// 
+    ///
     /// https://github.com/VictoriaMetrics/VictoriaMetrics/blob/cde5029bcecac116b59e245330f6caf625e75eea/lib/storage/metric_name.go#L247
     pub fn remove_labels_on(&mut self, on_tags: &[String]) {
         self.retain_labels(on_tags);
@@ -254,7 +254,7 @@ impl MetricName {
                 self.remove_label(tag_name);
                 continue;
             };
-            
+
             if !prefix.is_empty() {
                 // todo: format into a buf to avoid alloc
                 let key = format!("{prefix}{tag_name}");

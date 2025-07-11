@@ -1,9 +1,9 @@
 use tracing::{field, trace_span, Span};
 
+use super::common::handle_vector_scalar_list_equality;
 use crate::types::{InstantVector, QueryValue};
 use crate::RuntimeResult;
 use metricsql_parser::prelude::{get_scalar_binop_handler, Operator};
-use super::common::handle_vector_scalar_list_equality;
 
 /// Evaluates scalar op vector
 ///
@@ -53,7 +53,7 @@ pub(crate) fn eval_scalar_vector_list_equality(
     scalar: f64,
     op: Operator,
     vector: InstantVector,
-    is_tracing: bool
+    is_tracing: bool,
 ) -> RuntimeResult<QueryValue> {
     let _ = if is_tracing {
         trace_span!(
@@ -64,7 +64,7 @@ pub(crate) fn eval_scalar_vector_list_equality(
     } else {
         Span::none()
     }
-        .entered();
+    .entered();
 
     handle_vector_scalar_list_equality(vector, scalar, op)
 }

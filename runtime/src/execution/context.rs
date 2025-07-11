@@ -1,7 +1,3 @@
-use std::sync::Arc;
-use std::time::Duration;
-use tracing::{span_enabled, Level};
-use metricsql_common::prelude::humanize_duration_ms;
 use crate::cache::rollup_result_cache::RollupResultCache;
 use crate::execution::active_queries::{ActiveQueries, ActiveQueryEntry};
 use crate::execution::parser_cache::{ParseCache, ParseCacheResult, ParseCacheValue};
@@ -9,6 +5,10 @@ use crate::provider::{Deadline, QueryResults, SearchQuery};
 use crate::query_stats::QueryStatsTracker;
 use crate::runtime_error::{RuntimeError, RuntimeResult};
 use crate::{MetricStorage, NullMetricStorage};
+use metricsql_common::prelude::humanize_duration_ms;
+use std::sync::Arc;
+use std::time::Duration;
+use tracing::{span_enabled, Level};
 
 const DEFAULT_MAX_QUERY_LEN: usize = 16 * 1024;
 const DEFAULT_MAX_UNIQUE_TIMESERIES: usize = 1000;

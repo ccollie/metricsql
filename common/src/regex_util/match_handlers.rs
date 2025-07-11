@@ -69,9 +69,7 @@ impl MatchAnyMatcher {
 
 impl Default for MatchAnyMatcher {
     fn default() -> Self {
-        Self {
-            match_nl: true,
-        }
+        Self { match_nl: true }
     }
 }
 
@@ -178,16 +176,16 @@ impl EqualMultiStringMatcher {
 pub struct LiteralBracketedMatcher {
     pub left: Option<StringPattern>,
     pub matcher: Box<StringMatchHandler>,
-    pub right: Option<StringPattern>
+    pub right: Option<StringPattern>,
 }
 
 impl LiteralBracketedMatcher {
-    pub fn new(
-        left: StringPattern,
-        matcher: StringMatchHandler,
-        right: StringPattern,
-    ) -> Self {
-        Self { left: Some(left), matcher: Box::new(matcher), right: Some(right) }
+    pub fn new(left: StringPattern, matcher: StringMatchHandler, right: StringPattern) -> Self {
+        Self {
+            left: Some(left),
+            matcher: Box::new(matcher),
+            right: Some(right),
+        }
     }
 
     pub fn with_prefix(matcher: StringMatchHandler, prefix: StringPattern) -> Self {
@@ -240,7 +238,7 @@ impl LiteralBracketedMatcher {
         let right_cost = self.right.as_ref().map_or(0, |r| r.len());
         left_cost + right_cost
     }
-    
+
     fn cost(&self) -> usize {
         self.matcher.cost() + self.pattern_cost()
     }
@@ -596,28 +594,37 @@ pub struct ConsecutiveLiterals {
     pub(super) prefix: Option<Box<StringMatchHandler>>,
     pub(super) suffix: Option<Box<StringMatchHandler>>,
     pub(super) literals: Vec<StringPattern>,
-    _len: usize
+    _len: usize,
 }
 
 impl ConsecutiveLiterals {
-    pub fn new(prefix: Option<StringMatchHandler>, literals: Vec<StringPattern>, suffix: Option<StringMatchHandler>) -> Self {
+    pub fn new(
+        prefix: Option<StringMatchHandler>,
+        literals: Vec<StringPattern>,
+        suffix: Option<StringMatchHandler>,
+    ) -> Self {
         let prefix = prefix.map(Box::new);
         let suffix = suffix.map(Box::new);
         let _len = literals.iter().map(|x| x.len()).sum();
-        Self { 
+        Self {
             literals,
             prefix,
             suffix,
-            _len
+            _len,
         }
     }
 
     pub fn with_prefix(prefix: StringMatchHandler, literals: Vec<StringPattern>) -> Self {
         let prefix = Box::new(prefix);
         let _len = literals.iter().map(|x| x.len()).sum();
-        Self { literals, prefix: Some(prefix), suffix: None, _len }
+        Self {
+            literals,
+            prefix: Some(prefix),
+            suffix: None,
+            _len,
+        }
     }
-    
+
     pub fn matches(&self, s: &str) -> bool {
         let mut cursor = s;
         let pattern_count = self.literals.len();
@@ -646,20 +653,19 @@ impl ConsecutiveLiterals {
             }
         }
         if let Some(suffix) = &self.suffix {
-            return suffix.matches(cursor)
+            return suffix.matches(cursor);
         }
         true
     }
-    
+
     pub fn cost(&self) -> usize {
-        (self.literals.len() * LITERAL_MATCH_COST) +
-            self.suffix.as_ref().map_or(0, |s| s.cost())
+        (self.literals.len() * LITERAL_MATCH_COST) + self.suffix.as_ref().map_or(0, |s| s.cost())
     }
 
     pub fn len(&self) -> usize {
         self._len
     }
-    
+
     pub fn is_empty(&self) -> bool {
         self.literals.is_empty() && self.prefix.is_none() && self.suffix.is_none()
     }
@@ -668,7 +674,6 @@ impl ConsecutiveLiterals {
         self.literals.iter().all(|l| l.is_case_sensitive())
     }
 }
-
 
 #[derive(Clone, Debug, GetSize, Eq, PartialEq)]
 pub enum StringMatchHandler {
@@ -771,12 +776,16 @@ impl StringMatchHandler {
             case_sensitive,
         ))
     }
-    
+
     pub fn contains(substring: String) -> Self {
         StringMatchHandler::match_fn(substring, contains_fn)
     }
-    
-    pub fn consecutive_literals(prefix: Option<StringMatchHandler>, literals: Vec<StringPattern>, suffix: Option<StringMatchHandler>) -> Self {
+
+    pub fn consecutive_literals(
+        prefix: Option<StringMatchHandler>,
+        literals: Vec<StringPattern>,
+        suffix: Option<StringMatchHandler>,
+    ) -> Self {
         if literals.len() == 1 && prefix.is_none() && suffix.is_none() {
             let mut literals = literals;
             let pattern = literals.pop().unwrap();

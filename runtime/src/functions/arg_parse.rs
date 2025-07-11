@@ -1,8 +1,8 @@
-use std::borrow::Cow;
-use crate::types::QueryValue;
-use crate::{RuntimeError, RuntimeResult};
 use crate::execution::EvalConfig;
 use crate::functions::utils::float_to_int_bounded;
+use crate::types::QueryValue;
+use crate::{RuntimeError, RuntimeResult};
+use std::borrow::Cow;
 
 pub(crate) fn get_string_arg(args: &[QueryValue], arg_num: usize) -> RuntimeResult<Cow<'_, str>> {
     if arg_num > args.len() - 1 {
@@ -29,7 +29,7 @@ pub(crate) fn get_string_arg(args: &[QueryValue], arg_num: usize) -> RuntimeResu
             }
             // Use the String directly as a Cow<str> instead of creating a Cow<String>
             let res = Cow::Owned(series[0].metric_name.measurement.clone());
-            Ok(res)// This now returns Cow<str> as expected
+            Ok(res) // This now returns Cow<str> as expected
         }
         _ => Err(RuntimeError::ArgumentError(format!(
             "string expected for parameter {arg_num}",
