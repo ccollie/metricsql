@@ -233,14 +233,13 @@ mod tests {
 
         // ifnot
         f(
-            r#"foo{a="a"} ifnot foo{b="b"}"#,
-            r#"foo{a="a"} ifnot foo{a="a",b="b"}"#,
+            r#"foo{a="a"} ifnot foo{b="b"}"#, r#"{a="a"}"#,
         );
     }
 
     #[test]
     fn test_reserved_words() {
-        // reserved words. See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/4422
+        // Reserved words. See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/4422
         validate_optimized("1 + (on)", "1 + (on)");
         validate_optimized(
             r#"{a="b"} + (group_left)"#,
