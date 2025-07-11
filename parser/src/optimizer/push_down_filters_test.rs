@@ -380,6 +380,10 @@ mod tests {
             r#"{a="b"} + ({c="d"} * on(x) group_right() {e="f"})"#,
             r#"{a="b", e="f"} + ({c="d"} * on (x) group_right () {e="f"})"#,
         );
+        validate_optimized(
+            r#"foo{a="a"} ifnot foo{b="b"}"#,
+            r#"foo{a="a"} ifnot foo{a="a",b="b"}"#,
+        );
     }
 
     #[test]
