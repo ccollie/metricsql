@@ -1048,14 +1048,8 @@ mod tests {
                 ..Default::default()
             };
             let result = rollup_deriv_fast_prometheus(rfa);
-            if result.is_nan() {
-                assert!(
-                    result_expected.is_nan(),
-                    "unexpected result; got {result}; want {result_expected}"
-                );
-            }
-            assert_eq!(
-                result, result_expected,
+            assert!(
+                compare_floats(result, result_expected),
                 "unexpected result; got {result}; want {result_expected}"
             );
         }
