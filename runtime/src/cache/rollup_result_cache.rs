@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::HashMap;
-use std::hash::Hasher;
+use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use tracing::span::EnteredSpan;
@@ -872,6 +872,8 @@ fn estimate_size(tss: &[SeriesSlice]) -> usize {
     labels_size + value_size + timestamp_size
 }
 
+const EMPTY_NAME_VALUE: u64 = 0xdeadbeefdeadbeef;
+
 fn metric_name_hash_sorted(metric_name: &MetricName) -> u64 {
     let mut hasher = FastHasher::default();
     let mut labels: SmallVec<&Label, 8> = SmallVec::with_capacity(metric_name.labels.len());
@@ -882,10 +884,19 @@ fn metric_name_hash_sorted(metric_name: &MetricName) -> u64 {
 
     labels.sort_unstable();
 
-    hasher.write(metric_name.measurement.as_ref());
+    let name = metric_name.measurement.as_str();
+    if !name.is_empty() {
+        hasher.write(name.as_bytes());
+    } else {
+        hasher.write_u64(EMPTY_NAME_VALUE);
+    }
+
     for label in labels.iter() {
-        hasher.write(label.name.as_ref());
-        hasher.write(label.value.as_ref());
+        label.hash(&mut hasher);
+    }
+
+    if labels.is_empty() {
+        hasher.write_u64(EMPTY_NAME_VALUE);
     }
 
     hasher.finish()
