@@ -21,7 +21,7 @@ agnostic-lite.workspace = true
 ahash.workspace = true
 async-trait.workspace = true
 enquote.workspace = true
-blart = "0.3"
+blart = "0.4"
 clone_dyn = "0.34"
 chili.workspace = true
 croaring = { version = "2.3" , features = ["alloc"] }
